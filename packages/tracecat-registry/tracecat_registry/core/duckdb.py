@@ -91,14 +91,34 @@ def _build_s3_secret() -> tuple[list[str], list[Any]] | None:
 
 
 def _setup_remote_secrets(
-    con: duckdb.DuckDBPyConnection, headers: dict[str, str] | None
+    con: duckdb.DuckDBPyConnection,
+    headers: dict[str, str] | None,
+    headers_scope: str | None,
 ) -> None:
     """Create the S3 and/or HTTP secrets used for remote reads.
 
     Both secret types require httpfs, so it is loaded once here, and only when a
     secret is actually needed. Plain queries (no ``amazon_s3`` credentials and no
     headers) load nothing and create nothing.
+
+    The HTTP secret is always scoped: ``headers_scope`` is required when
+    ``headers`` is set, so the headers (e.g. an auth token) are only ever sent to
+    requests whose URL starts with that prefix — never to other hosts a query
+    might also read.
     """
+    if headers:
+        if not headers_scope:
+            raise ValueError(
+                "headers_scope is required when headers is set: provide the URL "
+                "prefix the headers apply to (e.g. https://api.example.com) so "
+                "they are not sent to other hosts."
+            )
+        if not headers_scope.startswith(("http://", "https://")):
+            raise ValueError(
+                "headers_scope must be an http:// or https:// URL prefix, "
+                f"got {headers_scope!r}."
+            )
+
     s3 = _build_s3_secret()
     if s3 is None and not headers:
         return
@@ -110,10 +130,11 @@ def _setup_remote_secrets(
         con.execute(f"CREATE OR REPLACE SECRET __tc_s3 ({', '.join(options)})", params)
 
     if headers:
-        # Bind header names and values as two list parameters (never interpolated).
+        # Bind header names, values, and scope as parameters (never interpolated).
         con.execute(
-            "CREATE OR REPLACE SECRET __tc_http (TYPE http, EXTRA_HTTP_HEADERS map(?, ?))",
-            [list(headers.keys()), list(headers.values())],
+            "CREATE OR REPLACE SECRET __tc_http "
+            "(TYPE http, EXTRA_HTTP_HEADERS map(?, ?), SCOPE ?)",
+            [list(headers.keys()), list(headers.values()), headers_scope],
         )
 
 
@@ -133,13 +154,22 @@ def execute_sql(
         dict[str, str] | None,
         Doc(
             "HTTP headers sent with httpfs http(s) requests, e.g. for "
-            "authenticating reads from a remote URL."
+            "authenticating reads from a remote URL. Requires headers_scope."
+        ),
+    ] = None,
+    headers_scope: Annotated[
+        str | None,
+        Doc(
+            "URL prefix the headers are restricted to (e.g. "
+            "https://api.example.com). Required when headers is set; the headers "
+            "are only sent to requests whose URL starts with this prefix, so auth "
+            "tokens never leak to other hosts."
         ),
     ] = None,
 ) -> int | list[dict[str, Any]] | None:
     con = _connect()
     try:
-        _setup_remote_secrets(con, headers)
+        _setup_remote_secrets(con, headers, headers_scope)
         con.execute(sql)
         if con.description is None:
             return con.rowcount

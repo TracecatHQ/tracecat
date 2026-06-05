@@ -56,6 +56,22 @@ def _httpfs_available() -> bool:
         con.close()
 
 
+def test_headers_require_scope() -> None:
+    # headers without headers_scope is rejected before any DuckDB work, so this
+    # runs without the httpfs extension.
+    with pytest.raises(ValueError, match="headers_scope is required"):
+        execute_sql("SELECT 1", headers={"Authorization": "Bearer x"})
+
+
+def test_headers_scope_must_be_http_url() -> None:
+    with pytest.raises(ValueError, match="http:// or https://"):
+        execute_sql(
+            "SELECT 1",
+            headers={"Authorization": "Bearer x"},
+            headers_scope="api.example.com",
+        )
+
+
 @pytest.mark.skipif(
     not _httpfs_available(),
     reason="httpfs extension not available (no preinstalled extensions or network)",
@@ -63,11 +79,13 @@ def _httpfs_available() -> bool:
 def test_headers_bound_as_parameters_not_interpolated() -> None:
     # A header value full of SQL metacharacters must be stored verbatim as data,
     # never parsed as SQL. We read it back from the created secret to prove the
-    # value round-trips untouched (i.e. injection is impossible by design).
+    # value round-trips untouched (i.e. injection is impossible by design), and
+    # that the scope is applied so headers are restricted to the intended host.
     token = "Bearer a'b; DROP SECRET __tc_http; --"
     result = execute_sql(
         "SELECT name, secret_string FROM duckdb_secrets() WHERE type = 'http'",
         headers={"Authorization": token},
+        headers_scope="https://api.example.com",
     )
 
     assert isinstance(result, list)
@@ -76,3 +94,5 @@ def test_headers_bound_as_parameters_not_interpolated() -> None:
     # The injected SQL fragment survives as data inside the stored header map
     # (the secret still exists and the DROP was never executed).
     assert "DROP SECRET __tc_http" in result[0]["secret_string"]
+    # The scope restricts the headers to the intended host prefix.
+    assert "https://api.example.com" in result[0]["secret_string"]
