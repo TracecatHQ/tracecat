@@ -32,6 +32,44 @@ Timestamp of the message to add the reaction to.
 
 </ParamField>
 
+## Append stream
+
+Action ID: `tools.slack.append_stream`
+
+Append text or chunks to an existing Slack streaming message.
+
+Reference: [https://docs.slack.dev/reference/methods/chat.appendStream/](https://docs.slack.dev/reference/methods/chat.appendStream/)
+
+### Input fields
+
+<ParamField path="channel" type="string" required>
+
+ID of the channel containing the streaming message.
+
+</ParamField>
+
+<ParamField path="ts" type="string" required>
+
+Timestamp of the streaming message.
+
+</ParamField>
+
+<ParamField path="chunks" type="array[object] | null">
+
+Streaming chunks, such as markdown_text, task_update, plan_update, or blocks chunks.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="markdown_text" type="string | null">
+
+Markdown-formatted text to append to the stream.
+
+Default: `null`.
+
+</ParamField>
+
 ## Archive channel
 
 Action ID: `tools.slack.archive_channel`
@@ -47,6 +85,188 @@ Reference: [https://docs.slack.dev/reference/methods/conversations.archive/](htt
 ID of the channel to archive.
 
 </ParamField>
+
+## Assistant search context
+
+Action ID: `tools.slack.assistant_search_context`
+
+Search Slack messages, files, channels, and users for AI assistant context.
+
+Reference: [https://docs.slack.dev/reference/methods/assistant.search.context/](https://docs.slack.dev/reference/methods/assistant.search.context/)
+
+### Input fields
+
+<ParamField path="action_token" type="string" required>
+
+Action token from a Slack assistant message event.
+
+</ParamField>
+
+<ParamField path="query" type="string" required>
+
+User prompt or search query.
+
+</ParamField>
+
+<ParamField path="after" type="integer | null">
+
+UNIX timestamp filter for results after this time.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="before" type="integer | null">
+
+UNIX timestamp filter for results before this time.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="channel_types" type="array[string]">
+
+Slack channel types to search.
+
+Default: `[
+  "public_channel"
+]`.
+
+</ParamField>
+
+<ParamField path="content_types" type="array[string]">
+
+Slack content types to include in search results.
+
+Default: `[
+  "messages"
+]`.
+
+</ParamField>
+
+<ParamField path="context_channel_id" type="string | null">
+
+Context channel ID to scope the search when applicable.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="cursor" type="string | null">
+
+Cursor returned by Slack for the next page of results.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="disable_semantic_search" type="boolean">
+
+Whether to disable semantic search and use keyword search only.
+
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="highlight" type="boolean">
+
+Whether to highlight the search query in results.
+
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="include_archived_channels" type="boolean">
+
+Whether to include archived channels in search results.
+
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="include_bots" type="boolean">
+
+Whether to include bot-authored results.
+
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="include_context_messages" type="boolean">
+
+Whether to include context messages around message results.
+
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="include_deleted_users" type="boolean">
+
+Whether to include deleted users in user search results.
+
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="include_message_blocks" type="boolean">
+
+Whether to include message blocks in the response.
+
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer">
+
+Number of results to return, up to a maximum of 20.
+
+Default: `20`.
+
+</ParamField>
+
+<ParamField path="modifiers" type="string | null">
+
+Slack search modifiers, such as has:pin before:yesterday.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string">
+
+Field to sort results by. Supported values are score and timestamp.
+
+Default: `"score"`.
+
+</ParamField>
+
+<ParamField path="sort_dir" type="string">
+
+Direction to sort results by. Supported values are asc and desc.
+
+Default: `"desc"`.
+
+</ParamField>
+
+<ParamField path="term_clauses" type="array[string]">
+
+Term clauses that every returned search result should match.
+
+Default: `[]`.
+
+</ParamField>
+
+## Assistant search info
+
+Action ID: `tools.slack.assistant_search_info`
+
+Return Slack assistant search capabilities for the workspace.
+
+Reference: [https://docs.slack.dev/reference/methods/assistant.search.info/](https://docs.slack.dev/reference/methods/assistant.search.info/)
+
+### Input fields
+
+This action does not take input fields.
 
 ## Create channel
 
@@ -385,6 +605,116 @@ View payload for the modal to open. See: https://docs.slack.dev/reference/views/
 
 </ParamField>
 
+## Post ephemeral message
+
+Action ID: `tools.slack.post_ephemeral`
+
+Send an ephemeral Slack message to a user in a channel.
+
+Reference: [https://docs.slack.dev/reference/methods/chat.postEphemeral/](https://docs.slack.dev/reference/methods/chat.postEphemeral/)
+
+### Input fields
+
+<ParamField path="channel" type="string" required>
+
+Channel, private group, or IM channel to send the ephemeral message to.
+
+</ParamField>
+
+<ParamField path="user" type="string" required>
+
+ID of the user who will receive the ephemeral message.
+
+</ParamField>
+
+<ParamField path="as_user" type="boolean | null">
+
+Legacy option to post the message as the authenticated user.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="attachments" type="array[object] | null">
+
+List of JSON-based attachments.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="blocks" type="array[object] | null">
+
+List of JSON-based blocks.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="icon_emoji" type="string | null">
+
+Emoji to use as the icon for this message.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="icon_url" type="string | null">
+
+URL to an image to use as the icon for this message.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="link_names" type="boolean">
+
+Whether Slack should find and link channel names and usernames.
+
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="markdown_text" type="string | null">
+
+Markdown-formatted message text. Do not use with blocks or text.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="parse" type="string | null">
+
+How Slack should parse message text.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="text" type="string | null">
+
+Message text. Used as fallback text when blocks are provided.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="thread_ts" type="string | null">
+
+Parent message timestamp for posting the ephemeral message in a thread.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="username" type="string | null">
+
+Bot username to display.
+
+Default: `null`.
+
+</ParamField>
+
 ## Post message
 
 Action ID: `tools.slack.post_message`
@@ -541,6 +871,130 @@ Allowed values: `score`, `timestamp`.
 
 </ParamField>
 
+## Set assistant thread status
+
+Action ID: `tools.slack.set_assistant_thread_status`
+
+Set the status for a Slack AI assistant thread.
+
+Reference: [https://docs.slack.dev/reference/methods/assistant.threads.setStatus/](https://docs.slack.dev/reference/methods/assistant.threads.setStatus/)
+
+### Input fields
+
+<ParamField path="channel_id" type="string" required>
+
+Channel ID containing the assistant thread.
+
+</ParamField>
+
+<ParamField path="status" type="string" required>
+
+Status to display for the bot user. Use an empty string to clear it.
+
+</ParamField>
+
+<ParamField path="thread_ts" type="string" required>
+
+Message timestamp of the assistant thread.
+
+</ParamField>
+
+<ParamField path="icon_emoji" type="string | null">
+
+Emoji to use as the icon for this message.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="icon_url" type="string | null">
+
+Image URL to use as the icon for this message.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="loading_messages" type="array[string]">
+
+Loading indicator messages to rotate through, up to 10 messages.
+
+Default: `[]`.
+
+</ParamField>
+
+<ParamField path="username" type="string | null">
+
+Bot username to display.
+
+Default: `null`.
+
+</ParamField>
+
+## Set assistant thread suggested prompts
+
+Action ID: `tools.slack.set_assistant_thread_suggested_prompts`
+
+Set suggested prompts for a Slack AI assistant thread.
+
+Reference: [https://docs.slack.dev/reference/methods/assistant.threads.setSuggestedPrompts/](https://docs.slack.dev/reference/methods/assistant.threads.setSuggestedPrompts/)
+
+### Input fields
+
+<ParamField path="channel_id" type="string" required>
+
+Channel ID containing the assistant thread.
+
+</ParamField>
+
+<ParamField path="prompts" type="array[map[string, string]]" required>
+
+Suggested prompts, each with title and message attributes.
+
+</ParamField>
+
+<ParamField path="thread_ts" type="string" required>
+
+Message timestamp of the assistant thread.
+
+</ParamField>
+
+<ParamField path="title" type="string | null">
+
+Optional title for the suggested prompts list.
+
+Default: `null`.
+
+</ParamField>
+
+## Set assistant thread title
+
+Action ID: `tools.slack.set_assistant_thread_title`
+
+Set the title for a Slack AI assistant thread.
+
+Reference: [https://docs.slack.dev/reference/methods/assistant.threads.setTitle/](https://docs.slack.dev/reference/methods/assistant.threads.setTitle/)
+
+### Input fields
+
+<ParamField path="channel_id" type="string" required>
+
+Channel ID containing the assistant thread.
+
+</ParamField>
+
+<ParamField path="thread_ts" type="string" required>
+
+Message timestamp of the assistant thread.
+
+</ParamField>
+
+<ParamField path="title" type="string" required>
+
+Title to use for the assistant thread.
+
+</ParamField>
+
 ## Set channel description
 
 Action ID: `tools.slack.set_channel_description`
@@ -582,6 +1036,146 @@ The ID of the channel to set the topic for.
 <ParamField path="topic" type="string" required>
 
 The topic to set for the channel.
+
+</ParamField>
+
+## Start stream
+
+Action ID: `tools.slack.start_stream`
+
+Start a new Slack streaming message in a thread.
+
+Reference: [https://docs.slack.dev/reference/methods/chat.startStream/](https://docs.slack.dev/reference/methods/chat.startStream/)
+
+### Input fields
+
+<ParamField path="channel" type="string" required>
+
+ID of the channel, private group, or DM for the stream.
+
+</ParamField>
+
+<ParamField path="thread_ts" type="string" required>
+
+Parent message timestamp to reply to with the stream.
+
+</ParamField>
+
+<ParamField path="chunks" type="array[object] | null">
+
+Initial streaming chunks, such as markdown_text, task_update, plan_update, or blocks chunks.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="icon_emoji" type="string | null">
+
+Emoji to use as the icon for this message.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="icon_url" type="string | null">
+
+URL to an image to use as the icon for this message.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="markdown_text" type="string | null">
+
+Initial markdown-formatted text for the stream.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="recipient_team_id" type="string | null">
+
+ID of the recipient user's team. Required by Slack when streaming to channels.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="recipient_user_id" type="string | null">
+
+ID of the user receiving the stream. Required by Slack when streaming to channels.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="task_display_mode" type="string | null">
+
+How task chunks are displayed. Accepts timeline, plan, or dense.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="username" type="string | null">
+
+Bot username to display.
+
+Default: `null`.
+
+</ParamField>
+
+## Stop stream
+
+Action ID: `tools.slack.stop_stream`
+
+Stop and finalize a Slack streaming message.
+
+Reference: [https://docs.slack.dev/reference/methods/chat.stopStream/](https://docs.slack.dev/reference/methods/chat.stopStream/)
+
+### Input fields
+
+<ParamField path="channel" type="string" required>
+
+ID of the channel containing the streaming message.
+
+</ParamField>
+
+<ParamField path="ts" type="string" required>
+
+Timestamp of the streaming message.
+
+</ParamField>
+
+<ParamField path="blocks" type="array[object] | null">
+
+Blocks rendered at the bottom of the finalized message.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="chunks" type="array[object] | null">
+
+Final streaming chunks, such as markdown_text, task_update, plan_update, or blocks chunks.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="markdown_text" type="string | null">
+
+Final markdown-formatted text to append before stopping the stream.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="metadata" type="object | null">
+
+Slack message metadata with event_type and event_payload fields.
+
+Default: `null`.
 
 </ParamField>
 

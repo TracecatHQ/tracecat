@@ -407,15 +407,33 @@ Instructions for the agent.
 
 </ParamField>
 
-<ParamField path="model" type="ModelSelection" required>
-
-Model to use. Pick from the list of models enabled for this workspace.
-
-</ParamField>
-
 <ParamField path="user_prompt" type="string" required>
 
 User prompt to the agent.
+
+</ParamField>
+
+<ParamField path="model" type="ModelSelection | null">
+
+Model to use. Pick from the list of models enabled for this workspace.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="model_name" type="string | null">
+
+Deprecated. Use `model` instead.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="model_provider" type="string | null">
+
+Deprecated. Use `model` instead.
+
+Default: `null`.
 
 </ParamField>
 
