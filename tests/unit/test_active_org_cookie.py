@@ -89,7 +89,7 @@ async def test_cookie_ignored_when_user_is_not_member(session: AsyncSession) -> 
 
 
 @pytest.mark.anyio
-async def test_cookie_ignored_when_user_is_not_member_multi_org_falls_through_to_400(
+async def test_cookie_ignored_when_user_is_not_member_multi_org_uses_valid_membership(
     session: AsyncSession,
 ) -> None:
     user = await _seed_user(session)
@@ -100,10 +100,9 @@ async def test_cookie_ignored_when_user_is_not_member_multi_org_falls_through_to
     await _add_membership(session, user_id=user.id, organization_id=org_b.id)
 
     request = _request_with_cookie(str(other_org.id))
-    with pytest.raises(HTTPException) as exc:
-        await _resolve_org_for_regular_user(request, session, user)
-    assert exc.value.status_code == status.HTTP_400_BAD_REQUEST
-    assert "Multiple organizations found" in exc.value.detail
+    resolved = await _resolve_org_for_regular_user(request, session, user)
+    assert resolved in {org_a.id, org_b.id}
+    assert resolved != other_org.id
 
 
 @pytest.mark.anyio
@@ -144,7 +143,9 @@ async def test_no_cookie_single_membership_returns_it(session: AsyncSession) -> 
 
 
 @pytest.mark.anyio
-async def test_no_cookie_multi_membership_raises_400(session: AsyncSession) -> None:
+async def test_no_cookie_multi_membership_uses_stable_membership(
+    session: AsyncSession,
+) -> None:
     user = await _seed_user(session)
     org_a = await _seed_org(session, "a")
     org_b = await _seed_org(session, "b")
@@ -152,10 +153,8 @@ async def test_no_cookie_multi_membership_raises_400(session: AsyncSession) -> N
     await _add_membership(session, user_id=user.id, organization_id=org_b.id)
 
     request = _request_with_cookie(None)
-    with pytest.raises(HTTPException) as exc:
-        await _resolve_org_for_regular_user(request, session, user)
-    assert exc.value.status_code == status.HTTP_400_BAD_REQUEST
-    assert "Multiple organizations found" in exc.value.detail
+    resolved = await _resolve_org_for_regular_user(request, session, user)
+    assert resolved in {org_a.id, org_b.id}
 
 
 @pytest.mark.anyio
