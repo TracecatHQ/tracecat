@@ -1,0 +1,47 @@
+packages/tracecat-registry/tracecat_registry/integrations/mcp/wiz.py
+  s_4a81253ec91c27::t_e5573e4d1d8a9e 11-13,45,50,55
+packages/tracecat-registry/tracecat_registry/integrations/mcp/sentry.py
+  s_4a81253ec91c27::t_e5573e4d1d8a9e 11-13,45,50,55
+packages/tracecat-registry/tracecat_registry/integrations/mcp/jira.py
+  s_4a81253ec91c27::t_e5573e4d1d8a9e 11-13,48,53,58
+docs/tools/runreveal.mdx
+  s_4a81253ec91c27::t_35c772a339d416 48,56,64
+docs/tools/jira.mdx
+  s_4a81253ec91c27::t_35c772a339d416 418,426,434
+packages/tracecat-registry/tracecat_registry/integrations/mcp/notion.py
+  s_4a81253ec91c27::t_e5573e4d1d8a9e 11-13,45,50,55
+packages/tracecat-registry/tracecat_registry/integrations/mcp/github.py
+  s_4a81253ec91c27::t_e5573e4d1d8a9e 11-13,45,50,55
+docs/tools/notion.mdx
+  s_4a81253ec91c27::t_35c772a339d416 48,56,64
+docs/tools/sentry.mdx
+  s_4a81253ec91c27::t_35c772a339d416 48,56,64
+packages/tracecat-registry/tracecat_registry/core/ai.py
+  s_4a81253ec91c27::t_8d8aeb12515126 30-44
+packages/tracecat-registry/tracecat_registry/integrations/mcp/runreveal.py
+  s_4a81253ec91c27::t_e5573e4d1d8a9e 11-13,45,50,55
+docs/tools/linear.mdx
+  s_4a81253ec91c27::t_35c772a339d416 48,56,64
+docs/tools/github.mdx
+  s_4a81253ec91c27::t_35c772a339d416 48,56,64
+docs/tools/wiz.mdx
+  s_4a81253ec91c27::t_35c772a339d416 48,56,64
+packages/tracecat-registry/tracecat_registry/integrations/mcp/linear.py
+  s_4a81253ec91c27::t_e5573e4d1d8a9e 11-13,45,50,55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "f990fc12fdaabca5c2e410b56b09dfc8f49ce0e0",
+  "prompts": {},
+  "sessions": {
+    "s_4a81253ec91c27": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e9902-e06e-7c72-bdf6-ff4a5571def3",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
