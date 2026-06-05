@@ -24,6 +24,7 @@ dependencies = [
     "aioboto3==15.5.0",
     "ansible-core>=2.18.0,<3.0.0",
     "ansible-runner==2.4.0",
+    "azure-mgmt-resource==25.0.0",
     "boto3==1.40.61",
     "crowdstrike-falconpy==1.6.2",
     "dnspython==2.6.1",

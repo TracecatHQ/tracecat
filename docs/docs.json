@@ -177,6 +177,7 @@
               "tools/ansible",
               "tools/anyrun",
               "tools/aws_boto3",
+              "tools/azure_admin_sdk",
               "tools/azure_log_analytics",
               "tools/caldera",
               "tools/confluence",
