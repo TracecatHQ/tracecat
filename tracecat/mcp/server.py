@@ -383,15 +383,18 @@ async def _resolve_workspace_role(workspace_id: uuid.UUID) -> tuple[uuid.UUID, R
     return workspace_id, role
 
 
-async def _resolve_org_role() -> Role:
+async def _resolve_org_role(
+    org_id: uuid.UUID | None = None,
+) -> Role:
     """Resolve a role with organization context for the caller's token.
 
-    Queries the caller's OrganizationMembership rows directly. Errors with a
-    clear message on the multi-org case; tokens must carry explicit org
-    scoping to disambiguate (see `resolve_org_role_for_request`).
+    Queries the caller's active OrganizationMembership rows directly. Errors
+    with a clear message on the multi-org case; multi-org callers must pass
+    org_id explicitly unless the token itself is scoped to exactly one
+    organization (see `resolve_org_role_for_request`).
     """
     try:
-        return await resolve_org_role_for_request()
+        return await resolve_org_role_for_request(organization_id=org_id)
     except ValueError as exc:
         raise ToolError(str(exc)) from exc
 
@@ -794,6 +797,8 @@ class WorkspaceSummaryResponse(BaseModel):
 
     id: uuid.UUID
     name: str
+    org_id: uuid.UUID
+    org_slug: str
 
 
 class MCPValidationDetailPayload(TypedDict):
@@ -3980,7 +3985,9 @@ async def list_workspaces(
 ) -> MCPPaginatedResponse[WorkspaceSummaryResponse]:
     """List all workspaces accessible to the authenticated user.
 
-    Returns a JSON array of workspace objects with id, name, and role.
+    Returns paginated workspace summaries including workspace id/name and the
+    owning org_id/org_slug. Multi-org users may receive workspaces from more
+    than one organization in a single response.
     """
     try:
         workspaces = [
@@ -4806,6 +4813,7 @@ async def list_actions(
 
 @mcp.tool()
 async def sync_custom_registry(
+    org_id: uuid.UUID | None = None,
     target_commit_sha: str | None = None,
     force: bool = False,
 ) -> CustomRegistrySyncResponse:
@@ -4819,6 +4827,9 @@ async def sync_custom_registry(
     pick up newly synced action versions.
 
     Args:
+        org_id: Organization ID to sync. Required for unscoped tokens when the
+            caller belongs to multiple organizations. May be omitted for
+            single-org callers or tokens scoped with organization_id/org:<id>.
         target_commit_sha: 40-character commit SHA to sync to. Defaults to
             the remote's HEAD when omitted.
         force: Delete the repository's current registry version before
@@ -4829,7 +4840,7 @@ async def sync_custom_registry(
     `actions_count`, `forced`, and `error` (if the sync failed).
     """
     try:
-        role = await _resolve_org_role()
+        role = await _resolve_org_role(org_id)
         _role_organization_id(role)
         synced_at = datetime.now(UTC)
 

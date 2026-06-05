@@ -5952,7 +5952,14 @@ async def test_list_actions_paginates_and_rejects_mismatched_cursor(monkeypatch)
 @pytest.mark.anyio
 async def test_list_workspaces_applies_org_scope(monkeypatch):
     async def _list_workspaces_for_request() -> list[dict[str, str]]:
-        return [{"id": str(uuid.uuid4()), "name": "SOC", "role": "member"}]
+        return [
+            {
+                "id": str(uuid.uuid4()),
+                "name": "SOC",
+                "org_id": str(uuid.uuid4()),
+                "org_slug": "security",
+            }
+        ]
 
     monkeypatch.setattr(
         mcp_server,
@@ -5976,9 +5983,21 @@ WS_B = uuid.UUID("bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb")
 @pytest.mark.anyio
 async def test_list_workspaces_returns_multi_org_workspaces(monkeypatch):
     """list_workspaces faithfully returns workspaces spanning multiple orgs."""
+    org_a = uuid.uuid4()
+    org_b = uuid.uuid4()
     ws_list = [
-        {"id": str(WS_A), "name": "SOC", "role": "admin"},
-        {"id": str(WS_B), "name": "Engineering", "role": "member"},
+        {
+            "id": str(WS_A),
+            "name": "SOC",
+            "org_id": str(org_a),
+            "org_slug": "security",
+        },
+        {
+            "id": str(WS_B),
+            "name": "Engineering",
+            "org_id": str(org_b),
+            "org_slug": "engineering",
+        },
     ]
 
     async def _list_workspaces_for_request() -> list[dict[str, str]]:
@@ -5994,6 +6013,8 @@ async def test_list_workspaces_returns_multi_org_workspaces(monkeypatch):
     returned_ids = {w["id"] for w in payload["items"]}
     assert str(WS_A) in returned_ids
     assert str(WS_B) in returned_ids
+    returned_org_ids = {w["org_id"] for w in payload["items"]}
+    assert returned_org_ids == {str(org_a), str(org_b)}
 
 
 def test_agent_preset_tools_are_registered() -> None:
@@ -6050,7 +6071,11 @@ def _patch_sync_custom_registry(
 ) -> AsyncMock:
     """Wire role + a mock RegistryReposService into mcp_server."""
 
-    async def _resolve_org() -> SimpleNamespace:
+    async def _resolve_org(
+        org_id: uuid.UUID | None = None,
+    ) -> SimpleNamespace:
+        if org_id is not None:
+            role.organization_id = org_id
         return role
 
     monkeypatch.setattr(mcp_server, "_resolve_org_role", _resolve_org)
@@ -6062,9 +6087,11 @@ def _patch_sync_custom_registry(
     elif sync_response is not None:
         repos_service.sync_repository.return_value = sync_response
 
-    monkeypatch.setattr(
-        mcp_server, "RegistryReposService", lambda *_, **__: repos_service
-    )
+    def _repos_service_factory(_session, role_arg):
+        repos_service.created_role = role_arg
+        return repos_service
+
+    monkeypatch.setattr(mcp_server, "RegistryReposService", _repos_service_factory)
     monkeypatch.setattr(
         mcp_server,
         "get_async_session_context_manager",
@@ -6084,7 +6111,10 @@ async def test_sync_custom_registry_surfaces_scope_denied(monkeypatch):
         missing_scopes=["org:registry:read"],
     )
 
-    async def _resolve_org() -> SimpleNamespace:
+    async def _resolve_org(
+        org_id: uuid.UUID | None = None,
+    ) -> SimpleNamespace:
+        assert org_id is None
         return _registry_role()
 
     monkeypatch.setattr(mcp_server, "_resolve_org_role", _resolve_org)
@@ -6117,11 +6147,13 @@ def test_sync_custom_registry_public_signature_drops_repo_selectors() -> None:
     assert "repository_id" not in signature.parameters
     assert "origin" not in signature.parameters
     assert "workspace_id" not in signature.parameters
+    assert "org_id" in signature.parameters
 
 
 @pytest.mark.anyio
 async def test_sync_custom_registry_uses_org_scoped_repos_service(monkeypatch):
     repo = _registry_repo("custom_actions")
+    organization_id = uuid.uuid4()
     repos_service = _patch_sync_custom_registry(
         monkeypatch,
         role=_registry_role(),
@@ -6129,13 +6161,14 @@ async def test_sync_custom_registry_uses_org_scoped_repos_service(monkeypatch):
         sync_response=_sync_response(repo),
     )
 
-    result = await _tool(mcp_server.sync_custom_registry)()
+    result = await _tool(mcp_server.sync_custom_registry)(org_id=organization_id)
     payload = _payload(result)
 
     assert payload["success"] is True
     repos_service.list_repositories.assert_awaited_once()
     repos_service.sync_repository.assert_awaited_once()
     assert repos_service.sync_repository.await_args.args[0] is repo
+    assert repos_service.created_role.organization_id == organization_id
 
 
 @pytest.mark.anyio

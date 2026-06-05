@@ -3,7 +3,7 @@
 <ResponseField name="list_workspaces" type="tool">
   List all workspaces accessible to the authenticated user.
 
-  Returns a JSON array of workspace objects with id, name, and role.
+  Returns paginated workspace summaries including workspace id/name and the owning org_id/org_slug. Multi-org users may receive workspaces from more than one organization in a single response.
 </ResponseField>
 
 <ResponseField name="create_workflow" type="tool">
