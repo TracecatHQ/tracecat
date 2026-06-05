@@ -1,0 +1,19 @@
+frontend/src/components/dashboard/create-workflow-button.tsx
+  s_89950173f67938::t_f258f451a753cf 45,232,234
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "19ac89b485872504209470a30d3a4b58f038d5eb",
+  "prompts": {},
+  "sessions": {
+    "s_89950173f67938": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e9971-691e-75b0-88d5-e9eb679597fb",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
