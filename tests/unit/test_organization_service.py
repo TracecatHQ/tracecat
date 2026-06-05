@@ -3,6 +3,8 @@
 import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
+from typing import cast as type_cast
 
 import pytest
 from sqlalchemy import select
@@ -326,7 +328,10 @@ class TestOrganizationServiceDeleteMember:
 
         await service.delete_member(user_id)
 
-        assert await session.scalar(select(User).where(User.id == user_id)) is not None
+        assert (
+            await session.scalar(select(User).where(type_cast(Any, User.id) == user_id))
+            is not None
+        )
         assert (
             await session.scalar(
                 select(OrganizationMembership).where(
@@ -446,9 +451,14 @@ class TestOrganizationServiceDeleteMember:
 
         await service.delete_member(user_id)
 
-        assert await session.scalar(select(User).where(User.id == user_id)) is not None
         assert (
-            await session.scalar(select(AccessToken).where(AccessToken.id == token_id))
+            await session.scalar(select(User).where(type_cast(Any, User.id) == user_id))
+            is not None
+        )
+        assert (
+            await session.scalar(
+                select(AccessToken).where(type_cast(Any, AccessToken.id) == token_id)
+            )
             is None
         )
         assert (
@@ -632,9 +642,14 @@ class TestOrganizationServiceDeleteOrganization:
         )
         assert org_result.scalar_one_or_none() is None
         assert membership_result.scalars().all() == []
-        assert await session.scalar(select(User).where(User.id == user_id)) is not None
         assert (
-            await session.scalar(select(AccessToken).where(AccessToken.id == token_id))
+            await session.scalar(select(User).where(type_cast(Any, User.id) == user_id))
+            is not None
+        )
+        assert (
+            await session.scalar(
+                select(AccessToken).where(type_cast(Any, AccessToken.id) == token_id)
+            )
             is None
         )
 

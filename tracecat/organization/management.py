@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from typing import Any
+from typing import cast as type_cast
 
 from pydantic import UUID4
 from sqlalchemy import delete, func, select
@@ -202,7 +204,9 @@ async def delete_organization_with_cleanup(
         OrganizationMembership.organization_id == organization.id
     )
     await session.execute(
-        delete(AccessToken).where(AccessToken.user_id.in_(org_member_user_ids))
+        delete(AccessToken).where(
+            type_cast(Any, AccessToken.user_id).in_(org_member_user_ids)
+        )
     )
 
     result = await session.execute(

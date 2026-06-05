@@ -5,6 +5,8 @@ import uuid
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from typing import Any
+from typing import cast as type_cast
 
 from sqlalchemy import and_, cast, delete, func, select, update
 from sqlalchemy.dialects.postgresql import UUID
@@ -310,7 +312,7 @@ class OrgService(BaseOrgService):
             raise TracecatAuthorizationError("Cannot delete superuser")
 
         await self.session.execute(
-            delete(AccessToken).where(AccessToken.user_id == user.id)
+            delete(AccessToken).where(type_cast(Any, AccessToken.user_id) == user.id)
         )
         await self.session.execute(
             update(MCPRefreshToken)
