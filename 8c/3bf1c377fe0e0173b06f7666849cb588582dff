@@ -1,0 +1,48 @@
+docs/automations/core-actions/request-actions/sql.mdx
+  s_ba5b847c74ea18::t_0a8b4d3cb58005 71-76,85-100,118-131
+docs/automations/core-actions/_examples.yaml
+  s_ba5b847c74ea18::t_b602870cabd03e 309-323
+tests/registry/test_core_duckdb.py
+  s_ba5b847c74ea18::t_fdca461be692a9 3-5,20-51
+docker/sandbox/Dockerfile
+  s_ba5b847c74ea18::t_12c4cb4788b88e 70
+  s_ba5b847c74ea18::t_1cc3a6331ed593 31,36
+  s_ba5b847c74ea18::t_fabd9754afbc64 49
+  s_ba5b847c74ea18::t_a4c680b0e17d76 20-26,28-30,32-35,37,39-48,50-55,61-62,66-69
+Dockerfile
+  s_ba5b847c74ea18::t_0ee63cde8bcfbc 38-44,46-48,50-53,55,57-66,68-73,79-80,84-87
+  s_ba5b847c74ea18::t_828829aee0d199 88
+  s_ba5b847c74ea18::t_a504913a7629ef 144-154
+  s_ba5b847c74ea18::t_39a4af45797d7c 49,54
+  s_ba5b847c74ea18::t_67acb3e7270ebf 127-132
+  s_ba5b847c74ea18::t_ac69cc08a242e6 67
+  s_ba5b847c74ea18::t_79872be9c84eca 133
+packages/tracecat-registry/tracecat_registry/config.py
+  s_ba5b847c74ea18::t_de870e4bff1e1c 44-50
+tests/unit/test_agent_sandbox_litellm.py
+  s_ba5b847c74ea18::t_38ef4bdca1f204 2112
+  s_ba5b847c74ea18::t_b51d11dd87c4ca 2019-2020
+packages/tracecat-registry/tracecat_registry/core/duckdb.py
+  s_ba5b847c74ea18::t_055d6fd85ab419 125-127
+  s_ba5b847c74ea18::t_61893efe90807a 61-64
+  s_ba5b847c74ea18::t_6f7bcea9055ec4 65-66
+  s_ba5b847c74ea18::t_c368153a728ac1 7-10,20-60,67-103,109,116-124,128,130,132-133
+tracecat/agent/runtime/claude_code/runtime.py
+  s_ba5b847c74ea18::t_f9c0e3e4d1bdf7 213-214
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "8c3bf1c377fe0e0173b06f7666849cb588582dff",
+  "prompts": {},
+  "sessions": {
+    "s_ba5b847c74ea18": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dee7c69a-ab3f-4db4-af30-6a04c9221d9e",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
