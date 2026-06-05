@@ -27,6 +27,21 @@ LEGACY_MODEL_FIELD_DEPRECATION_MESSAGE = "Use `model` instead."
 LEGACY_MODEL_FIELD_SCHEMA_EXTRA: dict[str, Any] = {
     "x-tracecat-deprecation-message": LEGACY_MODEL_FIELD_DEPRECATION_MESSAGE
 }
+MCP_MODEL_SELECTION_FIELD_DOC = (
+    "Model to use. Pick from the list of models enabled for this workspace. "
+    "Provide this field, or both deprecated `model_name` and `model_provider`."
+)
+"""Description for MCP actions that require an explicit model selection."""
+MCP_MODEL_NAME_FIELD_DOC = (
+    "Deprecated. Use `model` instead. If `model` is omitted, set this together "
+    "with `model_provider`."
+)
+"""Description for the deprecated model name fallback in MCP actions."""
+MCP_MODEL_PROVIDER_FIELD_DOC = (
+    "Deprecated. Use `model` instead. If `model` is omitted, set this together "
+    "with `model_name`."
+)
+"""Description for the deprecated model provider fallback in MCP actions."""
 
 DEFAULT_RANKING_ALGORITHM: Literal["single-pass", "pairwise"] = "single-pass"
 """Default ranking algorithm to use."""
