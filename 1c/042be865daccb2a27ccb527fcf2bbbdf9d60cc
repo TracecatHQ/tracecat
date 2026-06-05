@@ -1,0 +1,21 @@
+tests/unit/api/test_api_workflow_folders.py
+  s_89950173f67938::t_3564a7369a7c92 1-51
+tracecat/workflow/management/folders/router.py
+  s_89950173f67938::t_a4303fd6e5ce8f 23-31,138-139,201-202
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "1c042be865daccb2a27ccb527fcf2bbbdf9d60cc",
+  "prompts": {},
+  "sessions": {
+    "s_89950173f67938": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e9971-691e-75b0-88d5-e9eb679597fb",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
