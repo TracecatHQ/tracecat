@@ -304,34 +304,50 @@ TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN = os.environ.get(
 
 # SAML SSO
 
+
+def _read_bool_env(var: str, *, default: bool) -> bool:
+    """Read a boolean environment variable with blank-as-default semantics."""
+    raw_value = os.environ.get(var)
+    if raw_value is None or not raw_value.strip():
+        return default
+
+    value = raw_value.strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+
+    raise ValueError(f"{var} must be a boolean value (got {raw_value!r})")
+
+
 SAML_PUBLIC_ACS_URL = f"{TRACECAT__PUBLIC_APP_URL}/auth/saml/acs"
 
 SAML_IDP_METADATA_URL = os.environ.get("SAML_IDP_METADATA_URL")
 """Sets the default SAML metadata URL for cold start."""
 
-SAML_ALLOW_UNSOLICITED = (
-    os.environ.get("SAML_ALLOW_UNSOLICITED", "false").lower() == "true"
-)
+SAML_ALLOW_UNSOLICITED = _read_bool_env("SAML_ALLOW_UNSOLICITED", default=False)
 """Whether to allow unsolicited SAML responses (default false)
 Do not set to true if authn requests are signed are false
 """
 
-SAML_AUTHN_REQUESTS_SIGNED = (
-    os.environ.get("SAML_AUTHN_REQUESTS_SIGNED", "false").lower() == "true"
-)
+SAML_AUTHN_REQUESTS_SIGNED = _read_bool_env("SAML_AUTHN_REQUESTS_SIGNED", default=False)
 """Whether to require signed SAML authentication requests. (default false)
 Do not set to true if authn requests are signed are false
 """
 
-SAML_SIGNED_ASSERTIONS = (
-    os.environ.get("SAML_SIGNED_ASSERTIONS", "true").lower() == "true"
-)
+SAML_SIGNED_ASSERTIONS = _read_bool_env("SAML_SIGNED_ASSERTIONS", default=True)
 """Whether to require signed SAML assertions."""
 
-SAML_SIGNED_RESPONSES = (
-    os.environ.get("SAML_SIGNED_RESPONSES", "true").lower() == "true"
-)
+SAML_SIGNED_RESPONSES = _read_bool_env("SAML_SIGNED_RESPONSES", default=True)
 """Whether to require signed SAML responses."""
+
+if AuthType.SAML in TRACECAT__AUTH_TYPES and not (
+    SAML_SIGNED_ASSERTIONS or SAML_SIGNED_RESPONSES
+):
+    raise ValueError(
+        "SAML SSO requires signed assertions or signed responses. "
+        "Set SAML_SIGNED_ASSERTIONS=true or SAML_SIGNED_RESPONSES=true."
+    )
 
 SAML_ACCEPTED_TIME_DIFF = int(os.environ.get("SAML_ACCEPTED_TIME_DIFF") or 3)
 """The time difference in seconds for SAML authentication."""
@@ -341,14 +357,10 @@ XMLSEC_BINARY_PATH = os.environ.get("XMLSEC_BINARY_PATH", "/usr/bin/xmlsec1")
 SAML_CA_CERTS = os.environ.get("SAML_CA_CERTS")
 """Base64 encoded CA certificates for validating self-signed certificates."""
 
-SAML_VERIFY_SSL_ENTITY = (
-    os.environ.get("SAML_VERIFY_SSL_ENTITY", "true").lower() == "true"
-)
+SAML_VERIFY_SSL_ENTITY = _read_bool_env("SAML_VERIFY_SSL_ENTITY", default=True)
 """Whether to verify SSL certificates for general SAML entity operations."""
 
-SAML_VERIFY_SSL_METADATA = (
-    os.environ.get("SAML_VERIFY_SSL_METADATA", "true").lower() == "true"
-)
+SAML_VERIFY_SSL_METADATA = _read_bool_env("SAML_VERIFY_SSL_METADATA", default=True)
 """Whether to verify SSL certificates for SAML metadata operations."""
 
 # === CORS config === #

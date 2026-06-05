@@ -214,6 +214,8 @@ If you know what you're doing, you can configure the SAML configuration via envi
 - `SAML_SIGNED_ASSERTIONS`: Whether to require signed SAML assertions (default: `true`)
 - `SAML_SIGNED_RESPONSES`: Whether to require signed SAML responses (default: `true`)
 
+At least one of `SAML_SIGNED_ASSERTIONS` or `SAML_SIGNED_RESPONSES` must remain enabled when SAML auth is enabled. Tracecat fails closed on startup if SAML SSO is enabled while both settings are disabled.
+
 ### SSL transport configuration
 - `SAML_VERIFY_SSL_ENTITY`: Whether to verify SSL certificates for general SAML entity operations (default: `true`)
 - `SAML_VERIFY_SSL_METADATA`: Whether to verify SSL certificates when fetching metadata (default: `true`)
