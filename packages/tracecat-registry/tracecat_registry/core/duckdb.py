@@ -1,5 +1,4 @@
 from typing import Annotated, Any
-from urllib.parse import urlsplit
 
 import duckdb
 from pydantic_core import to_jsonable_python
@@ -18,25 +17,6 @@ def _rows_to_json(
     return to_jsonable_python(records, fallback=str, exclude_none=False)
 
 
-def _split_s3_endpoint(endpoint_url: str) -> tuple[str, bool | None]:
-    """Split a full endpoint URL into a DuckDB ``ENDPOINT`` host and ``USE_SSL``.
-
-    The action accepts the same full-URL form as the other S3 actions (e.g.
-    ``http://minio:9000``), but DuckDB's S3 secret wants a bare ``host[:port]``
-    and does not infer TLS from the scheme. Strip the scheme for ``ENDPOINT``
-    and derive ``USE_SSL`` from it: ``http`` -> False, ``https`` -> True, and
-    no scheme -> None (leave DuckDB's default).
-    """
-    raw = endpoint_url.strip()
-    # Prefix "//" for bare host:port so urlsplit populates netloc instead of path.
-    parts = urlsplit(raw if "://" in raw else f"//{raw}")
-    host = parts.netloc or raw
-    use_ssl = (
-        False if parts.scheme == "http" else True if parts.scheme == "https" else None
-    )
-    return host, use_ssl
-
-
 def _connect() -> duckdb.DuckDBPyConnection:
     """Open an in-process DuckDB connection.
 
@@ -51,21 +31,23 @@ def _connect() -> duckdb.DuckDBPyConnection:
     return duckdb.connect()
 
 
-def _maybe_setup_s3_secret(
-    con: duckdb.DuckDBPyConnection, endpoint_url: str | None
-) -> None:
-    """Configure a DuckDB S3 secret from the ``amazon_s3`` credentials.
+def _build_s3_secret() -> tuple[list[str], list[Any]] | None:
+    """Build a parameterized S3 ``CREATE SECRET`` spec from the ``amazon_s3`` creds.
 
-    No-op when no credentials are attached (the secret is optional). When
-    present, credentials are resolved through the shared boto3 session so the
-    full precedence applies, including cross-account ``AWS_ROLE_ARN``
-    AssumeRole (the resolved temporary credentials carry a session token).
+    Returns ``(options, params)`` for the secret, or ``None`` when no credentials
+    are attached (the secret is optional). Credentials are resolved through the
+    shared boto3 session so the full precedence applies, including cross-account
+    ``AWS_ROLE_ARN`` AssumeRole (the temporary credentials carry a session token).
+
+    Only fixed option names are placed in the statement text; every credential
+    value is bound via a ``?`` parameter, so a secret value can never be parsed
+    as SQL.
     """
     if not (
         secrets.get_or_default("AWS_ROLE_ARN")
         or secrets.get_or_default("AWS_ACCESS_KEY_ID")
     ):
-        return
+        return None
 
     session = aws_boto3.get_sync_session()
     credentials = session.get_credentials()
@@ -75,9 +57,6 @@ def _maybe_setup_s3_secret(
     if not frozen.access_key or not frozen.secret_key:
         raise ValueError("Resolved AWS session is missing access key credentials.")
 
-    # Only fixed option names and constants we derive ourselves are interpolated
-    # into the statement; every credential value is bound via a ? parameter, so
-    # secret values can never be parsed as SQL.
     options = ["TYPE s3", "KEY_ID ?", "SECRET ?"]
     params: list[Any] = [frozen.access_key, frozen.secret_key]
     if frozen.token:
@@ -86,35 +65,34 @@ def _maybe_setup_s3_secret(
     if session.region_name:
         options.append("REGION ?")
         params.append(session.region_name)
-    if endpoint_url:
-        host, use_ssl = _split_s3_endpoint(endpoint_url)
-        options.append("ENDPOINT ?")
-        params.append(host)
-        options.append("URL_STYLE 'path'")
-        if use_ssl is not None:
-            options.append(f"USE_SSL {'true' if use_ssl else 'false'}")
-
-    con.execute("LOAD httpfs")
-    con.execute(f"CREATE OR REPLACE SECRET __tc_s3 ({', '.join(options)})", params)
+    return options, params
 
 
-def _maybe_setup_http_secret(
+def _setup_remote_secrets(
     con: duckdb.DuckDBPyConnection, headers: dict[str, str] | None
 ) -> None:
-    """Configure a DuckDB HTTP secret that injects ``headers`` into requests.
+    """Create the S3 and/or HTTP secrets used for remote reads.
 
-    The httpfs HTTP secret applies to both ``http://`` and ``https://`` reads.
+    Both secret types require httpfs, so it is loaded once here, and only when a
+    secret is actually needed. Plain queries (no ``amazon_s3`` credentials and no
+    headers) load nothing and create nothing.
     """
-    if not headers:
+    s3 = _build_s3_secret()
+    if s3 is None and not headers:
         return
 
-    # Bind the header names and values as two list parameters so they are never
-    # interpolated into the statement text.
     con.execute("LOAD httpfs")
-    con.execute(
-        "CREATE OR REPLACE SECRET __tc_http (TYPE http, EXTRA_HTTP_HEADERS map(?, ?))",
-        [list(headers.keys()), list(headers.values())],
-    )
+
+    if s3 is not None:
+        options, params = s3
+        con.execute(f"CREATE OR REPLACE SECRET __tc_s3 ({', '.join(options)})", params)
+
+    if headers:
+        # Bind header names and values as two list parameters (never interpolated).
+        con.execute(
+            "CREATE OR REPLACE SECRET __tc_http (TYPE http, EXTRA_HTTP_HEADERS map(?, ?))",
+            [list(headers.keys()), list(headers.values())],
+        )
 
 
 @registry.register(
@@ -136,17 +114,10 @@ def execute_sql(
             "authenticating reads from a remote URL."
         ),
     ] = None,
-    s3_endpoint_url: Annotated[
-        str | None,
-        Doc(
-            "Override the S3 endpoint URL (e.g. MinIO or another S3-compatible store)."
-        ),
-    ] = None,
 ) -> int | list[dict[str, Any]] | None:
     con = _connect()
     try:
-        _maybe_setup_s3_secret(con, s3_endpoint_url)
-        _maybe_setup_http_secret(con, headers)
+        _setup_remote_secrets(con, headers)
         con.execute(sql)
         if con.description is None:
             return con.rowcount

@@ -2,7 +2,7 @@ import json
 
 import duckdb
 import pytest
-from tracecat_registry.core.duckdb import _split_s3_endpoint, execute_sql
+from tracecat_registry.core.duckdb import execute_sql
 
 
 def test_execute_sql_returns_json_serializable_rows() -> None:
@@ -17,15 +17,6 @@ def test_execute_sql_non_query_returns_json_serializable() -> None:
 
     assert isinstance(result, (int, list))
     json.dumps(result)
-
-
-def test_split_s3_endpoint() -> None:
-    # Full URLs: scheme is stripped from the host and drives USE_SSL.
-    assert _split_s3_endpoint("http://minio:9000") == ("minio:9000", False)
-    assert _split_s3_endpoint("https://s3.example.com") == ("s3.example.com", True)
-    # Bare host[:port]: keep verbatim and leave DuckDB's default (None).
-    assert _split_s3_endpoint("minio:9000") == ("minio:9000", None)
-    assert _split_s3_endpoint("  http://minio:9000  ") == ("minio:9000", False)
 
 
 def _httpfs_available() -> bool:
