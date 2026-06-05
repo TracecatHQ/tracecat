@@ -306,13 +306,24 @@ examples:
             GROUP BY severity
             ORDER BY count DESC
 
-  sql-duckdb-remote:
-    title: Query remote data with credentials
+  sql-duckdb-s3:
+    title: Read from S3
     language: yaml
     code: |
-      # Attach the amazon_s3 secret to read s3:// paths (supports AssumeRole),
-      # and pass headers to authenticate http(s) reads.
-      - ref: read_remote
+      # Attach the amazon_s3 secret (static keys or AWS_ROLE_ARN for AssumeRole).
+      - ref: read_s3
+        action: core.duckdb.execute_sql
+        args:
+          sql: |
+            SELECT *
+            FROM read_parquet('s3://my-bucket/findings/*.parquet')
+
+  sql-duckdb-https:
+    title: Read from an authenticated URL
+    language: yaml
+    code: |
+      # Pass HTTP headers to authenticate http(s) reads; keep the token in a secret.
+      - ref: read_url
         action: core.duckdb.execute_sql
         args:
           sql: |
