@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from enum import StrEnum
 from typing import Literal
 
 import sqlalchemy as sa
@@ -35,6 +36,15 @@ from tracecat.workflow.management.schemas import (
 from tracecat.workflow.management.types import build_workflow_trigger_summary
 
 
+class WorkflowFolderErrorCode(StrEnum):
+    """Machine-readable workflow folder validation error codes."""
+
+    CONFLICT = "workflow_folder_conflict"
+    NOT_FOUND = "workflow_folder_not_found"
+    PARENT_NOT_FOUND = "workflow_folder_parent_not_found"
+    INVALID = "workflow_folder_invalid"
+
+
 class WorkflowFolderService(BaseWorkspaceService):
     """Service for managing workflow folders using materialized path pattern."""
 
@@ -48,13 +58,27 @@ class WorkflowFolderService(BaseWorkspaceService):
         return path if path.endswith("/") else f"{path}/"
 
     @staticmethod
+    def _folder_validation_error(
+        message: str,
+        *,
+        code: WorkflowFolderErrorCode,
+    ) -> TracecatValidationError:
+        return TracecatValidationError(message, detail={"code": code.value})
+
+    @staticmethod
     def _normalize_folder_name(name: str) -> str:
         """Trim folder names and reject blank values."""
         normalized_name = name.strip()
         if not normalized_name:
-            raise TracecatValidationError("Folder name cannot be empty")
+            raise WorkflowFolderService._folder_validation_error(
+                "Folder name cannot be empty",
+                code=WorkflowFolderErrorCode.INVALID,
+            )
         if "/" in normalized_name:
-            raise TracecatValidationError("Folder name cannot contain slashes")
+            raise WorkflowFolderService._folder_validation_error(
+                "Folder name cannot contain slashes",
+                code=WorkflowFolderErrorCode.INVALID,
+            )
         return normalized_name
 
     @classmethod
@@ -81,8 +105,9 @@ class WorkflowFolderService(BaseWorkspaceService):
                 await self.session.flush()
         except IntegrityError as exc:
             await self.session.rollback()
-            raise TracecatValidationError(
-                f"Folder {conflict_path} already exists"
+            raise self._folder_validation_error(
+                f"Folder {conflict_path} already exists",
+                code=WorkflowFolderErrorCode.CONFLICT,
             ) from exc
 
     @require_scope("workflow:create")
@@ -107,7 +132,10 @@ class WorkflowFolderService(BaseWorkspaceService):
             # We want to create the nested folders if not
             parent_exists = await self._folder_path_exists(parent_path)
             if not parent_exists:
-                raise TracecatValidationError(f"Parent path {parent_path} not found")
+                raise self._folder_validation_error(
+                    f"Parent path {parent_path} not found",
+                    code=WorkflowFolderErrorCode.PARENT_NOT_FOUND,
+                )
 
         # Create full path
         full_path = (
@@ -119,7 +147,10 @@ class WorkflowFolderService(BaseWorkspaceService):
         # Check if path already exists
         path_exists = await self._folder_path_exists(full_path)
         if path_exists:
-            raise TracecatValidationError(f"Folder {full_path} already exists")
+            raise self._folder_validation_error(
+                f"Folder {full_path} already exists",
+                code=WorkflowFolderErrorCode.CONFLICT,
+            )
 
         folder = WorkflowFolder(
             name=normalized_name,
@@ -253,7 +284,10 @@ class WorkflowFolderService(BaseWorkspaceService):
 
         folder = await self.get_folder(folder_id)
         if not folder:
-            raise TracecatValidationError(f"Folder {folder_id} not found")
+            raise self._folder_validation_error(
+                f"Folder {folder_id} not found",
+                code=WorkflowFolderErrorCode.NOT_FOUND,
+            )
 
         old_path = folder.path
         parent_path = self._get_parent_path(folder.path)
@@ -269,7 +303,10 @@ class WorkflowFolderService(BaseWorkspaceService):
         if new_path != old_path:
             path_exists = await self._folder_path_exists(new_path)
             if path_exists:
-                raise TracecatValidationError(f"Folder {new_path} already exists")
+                raise self._folder_validation_error(
+                    f"Folder {new_path} already exists",
+                    code=WorkflowFolderErrorCode.CONFLICT,
+                )
 
         # Update this folder
         folder.name = normalized_name
@@ -298,25 +335,35 @@ class WorkflowFolderService(BaseWorkspaceService):
         """
         folder = await self.get_folder(folder_id)
         if not folder:
-            raise TracecatValidationError(f"Folder {folder_id} not found")
+            raise self._folder_validation_error(
+                f"Folder {folder_id} not found",
+                code=WorkflowFolderErrorCode.NOT_FOUND,
+            )
 
         # Determine new parent path
         new_parent_path = "/"
         if new_parent_id is not None:
             new_parent = await self.get_folder(new_parent_id)
             if not new_parent:
-                raise TracecatValidationError(
-                    f"Parent folder {new_parent_id} not found"
+                raise self._folder_validation_error(
+                    f"Parent folder {new_parent_id} not found",
+                    code=WorkflowFolderErrorCode.PARENT_NOT_FOUND,
                 )
             new_parent_path = new_parent.path
 
             # Check if we're trying to make a folder its own descendant
             if folder.path == new_parent_path:
-                raise TracecatValidationError("Cannot make a folder its own child")
+                raise self._folder_validation_error(
+                    "Cannot make a folder its own child",
+                    code=WorkflowFolderErrorCode.INVALID,
+                )
 
             # Check if new parent is a descendant of the folder (would create a cycle)
             if new_parent.path.startswith(folder.path):
-                raise TracecatValidationError("Cannot create cyclic folder structure")
+                raise self._folder_validation_error(
+                    "Cannot create cyclic folder structure",
+                    code=WorkflowFolderErrorCode.INVALID,
+                )
 
         old_path = folder.path
         old_name = folder.name
@@ -332,7 +379,10 @@ class WorkflowFolderService(BaseWorkspaceService):
         if new_path != old_path:
             path_exists = await self._folder_path_exists(new_path)
             if path_exists:
-                raise TracecatValidationError(f"Folder {new_path} already exists")
+                raise self._folder_validation_error(
+                    f"Folder {new_path} already exists",
+                    code=WorkflowFolderErrorCode.CONFLICT,
+                )
 
         # Update this folder
         folder.path = new_path
@@ -358,11 +408,17 @@ class WorkflowFolderService(BaseWorkspaceService):
         """
         folder = await self.get_folder(folder_id)
         if not folder:
-            raise TracecatValidationError(f"Folder {folder_id} not found")
+            raise self._folder_validation_error(
+                f"Folder {folder_id} not found",
+                code=WorkflowFolderErrorCode.NOT_FOUND,
+            )
 
         # Prevent deletion of root folder
         if folder.path == "/":
-            raise TracecatValidationError("Cannot delete root folder")
+            raise self._folder_validation_error(
+                "Cannot delete root folder",
+                code=WorkflowFolderErrorCode.INVALID,
+            )
 
         if not recursive:
             # Check if folder has children or workflows
@@ -370,8 +426,9 @@ class WorkflowFolderService(BaseWorkspaceService):
             has_workflows = await self._has_workflows(folder_id)
 
             if has_children or has_workflows:
-                raise TracecatValidationError(
-                    "Folder is not empty. Please move or delete its contents first."
+                raise self._folder_validation_error(
+                    "Folder is not empty. Please move or delete its contents first.",
+                    code=WorkflowFolderErrorCode.INVALID,
                 )
         else:
             folder_ids = select(WorkflowFolder.id).where(

@@ -9,7 +9,10 @@ from tracecat.db.models import Workflow, WorkflowFolder, Workspace
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowID
 from tracecat.workflow.management.folders.schemas import WorkflowFolderCreate
-from tracecat.workflow.management.folders.service import WorkflowFolderService
+from tracecat.workflow.management.folders.service import (
+    WorkflowFolderErrorCode,
+    WorkflowFolderService,
+)
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -199,9 +202,10 @@ class TestWorkflowFolderService:
         folder = await folder_service.create_folder(name="old-name", parent_path="/")
         await folder_service.create_folder(name="existing", parent_path="/")
 
-        with pytest.raises(TracecatValidationError, match="already exists"):
+        with pytest.raises(TracecatValidationError) as exc_info:
             await folder_service.rename_folder(folder.id, "existing")
 
+        assert exc_info.value.detail == {"code": WorkflowFolderErrorCode.CONFLICT.value}
         unchanged = await folder_service.get_folder(folder.id)
         assert unchanged is not None
         assert unchanged.path == "/old-name/"

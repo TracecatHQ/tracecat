@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatValidationError
 from tracecat.workflow.management.folders import router as workflow_folder_router
+from tracecat.workflow.management.folders.service import WorkflowFolderErrorCode
 
 
 def _mock_service_with_async_method(
@@ -39,7 +40,10 @@ async def test_update_folder_conflict_returns_409(
     ) as mock_service_cls:
         mock_service = _mock_service_with_async_method(
             "rename_folder",
-            side_effect=TracecatValidationError("Folder /detections/ already exists"),
+            side_effect=TracecatValidationError(
+                "Duplicate target",
+                detail={"code": WorkflowFolderErrorCode.CONFLICT.value},
+            ),
         )
         mock_service_cls.return_value = mock_service
 
@@ -47,5 +51,5 @@ async def test_update_folder_conflict_returns_409(
         response = client.patch(f"/folders/{folder_id}", json={"name": "detections"})
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.json()["detail"] == "Folder /detections/ already exists"
+    assert response.json()["detail"] == "Duplicate target"
     mock_service.rename_folder.assert_awaited_once_with(folder_id, "detections")
