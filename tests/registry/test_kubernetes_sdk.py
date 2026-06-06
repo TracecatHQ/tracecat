@@ -27,10 +27,6 @@ def _kubeconfig(**user_overrides: Any) -> str:
                     "context": {"cluster": "cluster", "user": "user"},
                 },
                 {
-                    "name": "param-context",
-                    "context": {"cluster": "cluster", "user": "user"},
-                },
-                {
                     "name": "secret-context",
                     "context": {"cluster": "cluster", "user": "user"},
                 },
@@ -86,20 +82,17 @@ def test_call_api_uses_isolated_kubeconfig_and_passes_api_client(monkeypatch) ->
         api_class="CoreV1Api",
         method_name="list_namespaced_pod",
         params={"namespace": "default"},
-        context="param-context",
     )
 
     assert result == {"items": [{"metadata": {"name": "pod-a"}}]}
     assert calls["config_dict"]["users"][0]["user"]["token"] == "kube-token"
-    assert calls["active_context"] == "param-context"
+    assert calls["active_context"] == "secret-context"
     assert calls["api_client"].__class__ is ApiClient
     assert calls["api_client_configuration"] is calls["loader_configuration"]
     assert calls["params"] == {"namespace": "default"}
 
 
-def test_build_api_client_uses_secret_context_when_context_param_missing(
-    monkeypatch,
-) -> None:
+def test_build_api_client_uses_secret_context(monkeypatch) -> None:
     calls: dict[str, Any] = {}
 
     class Configuration:

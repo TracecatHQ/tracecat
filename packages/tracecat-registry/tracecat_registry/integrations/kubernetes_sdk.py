@@ -93,9 +93,9 @@ def _validate_no_executor_credentials(
                 )
 
 
-def _build_api_client(context: str | None = None) -> client.ApiClient:
+def _build_api_client() -> client.ApiClient:
     config_dict = _load_kubeconfig()
-    active_context = context or secrets.get_or_default("KUBECONFIG_CONTEXT")
+    active_context = secrets.get_or_default("KUBECONFIG_CONTEXT")
     _validate_no_executor_credentials(config_dict, active_context)
 
     configuration = client.Configuration()
@@ -135,16 +135,9 @@ def call_api(
         dict[str, Any] | None,
         Field(..., description="Parameters for the Kubernetes API method."),
     ] = None,
-    context: Annotated[
-        str | None,
-        Field(
-            ...,
-            description="Optional kubeconfig context. Overrides KUBECONFIG_CONTEXT.",
-        ),
-    ] = None,
 ) -> Any:
     params = params or {}
-    api_client = _build_api_client(context=context)
+    api_client = _build_api_client()
     api = _load_api_class(api_class)(api_client=api_client)
     result = getattr(api, method_name)(**params)
     sanitized = api_client.sanitize_for_serialization(result)
