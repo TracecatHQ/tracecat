@@ -37,25 +37,49 @@ def _load_kubeconfig() -> dict[str, Any]:
     return cast(dict[str, Any], data)
 
 
-def _validate_no_executor_credentials(config: dict[str, Any]) -> None:
-    for cluster_entry in config.get("clusters", []):
-        if not isinstance(cluster_entry, dict):
-            continue
-        cluster = cluster_entry.get("cluster", {})
-        if not isinstance(cluster, dict):
-            continue
+def _find_named(entries: Any, name: str | None) -> dict[str, Any] | None:
+    if not name or not isinstance(entries, list):
+        return None
+    for entry in entries:
+        if isinstance(entry, dict) and entry.get("name") == name:
+            return entry
+    return None
+
+
+def _validate_no_executor_credentials(
+    config: dict[str, Any], active_context: str | None = None
+) -> None:
+    """Reject file-backed and dynamic credentials in the *selected* context only.
+
+    The Kubernetes loader only reads the user and cluster referenced by the
+    active context, so a full kubeconfig that also carries unrelated inactive
+    contexts (with `exec`, `auth-provider`, or file-backed credentials) must
+    still be accepted as long as the selected context is safe.
+    """
+    context_name = active_context or config.get("current-context")
+    if not context_name:
+        raise ValueError(
+            "KUBECONFIG must define `current-context` or specify a context."
+        )
+    context_entry = _find_named(config.get("contexts"), context_name)
+    if context_entry is None:
+        raise ValueError(f"KUBECONFIG context `{context_name}` not found.")
+    context = context_entry.get("context", {})
+    if not isinstance(context, dict):
+        raise ValueError(f"KUBECONFIG context `{context_name}` is malformed.")
+
+    cluster_entry = _find_named(config.get("clusters"), context.get("cluster"))
+    cluster = cluster_entry.get("cluster", {}) if cluster_entry else {}
+    if isinstance(cluster, dict):
         for field in _CLUSTER_FILE_FIELDS:
             if field in cluster:
                 raise ValueError(
                     f"KUBECONFIG field `{field}` is not allowed; use inline `{field}-data` instead."
                 )
 
-    for user_entry in config.get("users", []):
-        if not isinstance(user_entry, dict):
-            continue
-        user = user_entry.get("user", {})
-        if not isinstance(user, dict):
-            continue
+    user_entry = _find_named(config.get("users"), context.get("user"))
+    user = user_entry.get("user", {}) if user_entry else {}
+    if isinstance(user, dict):
         for field in _USER_FILE_FIELDS:
             if field in user:
                 replacement = field.removesuffix("File")
@@ -71,8 +95,8 @@ def _validate_no_executor_credentials(config: dict[str, Any]) -> None:
 
 def _build_api_client(context: str | None = None) -> client.ApiClient:
     config_dict = _load_kubeconfig()
-    _validate_no_executor_credentials(config_dict)
     active_context = context or secrets.get_or_default("KUBECONFIG_CONTEXT")
+    _validate_no_executor_credentials(config_dict, active_context)
 
     configuration = client.Configuration()
     loader = KubeConfigLoader(

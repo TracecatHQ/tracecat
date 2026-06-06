@@ -25,7 +25,15 @@ def _kubeconfig(**user_overrides: Any) -> str:
                 {
                     "name": "ctx",
                     "context": {"cluster": "cluster", "user": "user"},
-                }
+                },
+                {
+                    "name": "param-context",
+                    "context": {"cluster": "cluster", "user": "user"},
+                },
+                {
+                    "name": "secret-context",
+                    "context": {"cluster": "cluster", "user": "user"},
+                },
             ],
             "current-context": "ctx",
             "users": [{"name": "user", "user": user}],
@@ -151,6 +159,46 @@ def test_validate_rejects_file_backed_and_dynamic_credentials(
 
     with pytest.raises(ValueError, match=message):
         kubernetes_sdk._validate_no_executor_credentials(config)
+
+
+def test_validate_ignores_inactive_context_credentials() -> None:
+    """Unused contexts with exec/file-backed credentials must not be rejected."""
+    config = yaml.safe_load(_kubeconfig())
+    config["clusters"].append(
+        {
+            "name": "other-cluster",
+            "cluster": {
+                "server": "https://other.example.com",
+                "certificate-authority-data": "Y2E=",
+            },
+        }
+    )
+    config["users"].append(
+        {"name": "other-user", "user": {"exec": {"command": "kubectl"}}}
+    )
+    config["contexts"].append(
+        {
+            "name": "other-ctx",
+            "context": {"cluster": "other-cluster", "user": "other-user"},
+        }
+    )
+
+    # current-context is the safe inline-token "ctx"; the unsafe context is inactive.
+    kubernetes_sdk._validate_no_executor_credentials(config)
+
+    # Selecting the unsafe context explicitly is still rejected.
+    with pytest.raises(ValueError, match="exec"):
+        kubernetes_sdk._validate_no_executor_credentials(
+            config, active_context="other-ctx"
+        )
+
+
+def test_validate_rejects_unknown_active_context() -> None:
+    config = yaml.safe_load(_kubeconfig())
+    with pytest.raises(ValueError, match="not found"):
+        kubernetes_sdk._validate_no_executor_credentials(
+            config, active_context="missing"
+        )
 
 
 def test_never_calls_ambient_kubernetes_credential_loaders(monkeypatch) -> None:
