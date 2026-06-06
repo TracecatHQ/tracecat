@@ -1,40 +1,37 @@
 from types import SimpleNamespace
 from typing import Any, cast
 
+import pydantic
 import pytest
 from tracecat_registry.integrations import cloudflare_sdk
 
 
-class FakeCloudflareModel:
-    def __init__(self, value: dict[str, Any]) -> None:
-        self.value = value
+class FakeCloudflareModel(pydantic.BaseModel):
+    """Cloudflare SDK responses are pydantic models; to_jsonable_python serializes them."""
 
-    def to_dict(self) -> dict[str, Any]:
-        return self.value
+    id: str
 
 
 class FakeCloudflarePage:
+    """Mimics a Cloudflare page: iterating it auto-paginates across all pages."""
+
     def __init__(self, pages: list[list[Any]]) -> None:
         self.pages = pages
 
-    def iter_pages(self) -> Any:
-        return (FakeCloudflarePage([page]) for page in self.pages)
-
-    def _get_page_items(self) -> list[Any]:
-        return self.pages[0]
+    def __iter__(self) -> Any:
+        for page in self.pages:
+            yield from page
 
 
 def test_call_method_resolves_nested_resource_and_passes_params(monkeypatch) -> None:
     calls: dict[str, Any] = {}
 
-    def list_records(**params: Any) -> FakeCloudflareModel:
+    def list_records(**params: Any) -> dict[str, Any]:
         calls["params"] = params
-        return FakeCloudflareModel({"ok": True, "result": [{"id": "record-id"}]})
+        return {"ok": True, "result": [{"id": "record-id"}]}
 
     client = SimpleNamespace(
-        zones=SimpleNamespace(
-            dns=SimpleNamespace(records=SimpleNamespace(list=list_records))
-        )
+        dns=SimpleNamespace(records=SimpleNamespace(list=list_records))
     )
 
     def fake_cloudflare(*, api_token: str) -> SimpleNamespace:
@@ -49,7 +46,7 @@ def test_call_method_resolves_nested_resource_and_passes_params(monkeypatch) -> 
     monkeypatch.setattr(cloudflare_sdk, "Cloudflare", fake_cloudflare)
 
     result = cloudflare_sdk.call_method(
-        resource="zones.dns.records",
+        resource="dns.records",
         method_name="list",
         params={"zone_id": "zone-id"},
     )
@@ -124,8 +121,8 @@ def test_call_paginated_method_flattens_all_page_items(monkeypatch) -> None:
     calls: dict[str, Any] = {}
     page = FakeCloudflarePage(
         [
-            [FakeCloudflareModel({"id": "one"})],
-            [FakeCloudflareModel({"id": "two"}), {"id": "three"}],
+            [FakeCloudflareModel(id="one")],
+            [FakeCloudflareModel(id="two"), {"id": "three"}],
         ]
     )
 

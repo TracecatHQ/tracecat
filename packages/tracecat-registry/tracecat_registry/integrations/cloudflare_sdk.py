@@ -1,6 +1,5 @@
 """Generic interface for Cloudflare Python SDK."""
 
-from collections.abc import Iterable
 from typing import Annotated, Any, cast
 
 from cloudflare import Cloudflare
@@ -41,32 +40,6 @@ def _resolve_resource(client: Cloudflare, resource: str | None) -> Any:
     return target
 
 
-def _serialize_result(result: Any) -> Any:
-    if isinstance(result, BaseSyncPage):
-        raise ValueError(
-            "Cloudflare paginated responses must be called with "
-            "`tools.cloudflare_sdk.call_paginated_method`."
-        )
-    if isinstance(result, dict):
-        return {key: _serialize_result(value) for key, value in result.items()}
-    if isinstance(result, list):
-        return [_serialize_result(item) for item in result]
-    if isinstance(result, tuple | set):
-        return [_serialize_result(item) for item in result]
-    if to_dict := getattr(result, "to_dict", None):
-        return _serialize_result(to_dict())
-    if model_dump := getattr(result, "model_dump", None):
-        return _serialize_result(model_dump(mode="json"))
-    return cast(Any, to_jsonable_python(result))
-
-
-def _flatten_page_items(page: BaseSyncPage[Any]) -> list[Any]:
-    items = page._get_page_items()
-    if not isinstance(items, Iterable):
-        raise ValueError("Cloudflare page items must be iterable.")
-    return [_serialize_result(item) for item in items]
-
-
 @registry.register(
     default_title="Call method",
     description="Instantiate a Cloudflare client and call a Cloudflare SDK method.",
@@ -84,7 +57,7 @@ def call_method(
         str | None,
         Field(
             ...,
-            description="Cloudflare SDK resource path, e.g. `zones` or `zones.dns.records`.",
+            description="Cloudflare SDK resource path, e.g. `zones` or `dns.records`.",
         ),
     ] = None,
     params: Annotated[
@@ -97,7 +70,12 @@ def call_method(
     client = Cloudflare(api_token=secrets.get("CLOUDFLARE_API_TOKEN"))
     method = getattr(_resolve_resource(client, resource), method_name)
     result = method(**params)
-    return _serialize_result(result)
+    if isinstance(result, BaseSyncPage):
+        raise ValueError(
+            "Cloudflare paginated responses must be called with "
+            "`tools.cloudflare_sdk.call_paginated_method`."
+        )
+    return cast(Any, to_jsonable_python(result))
 
 
 @registry.register(
@@ -117,7 +95,7 @@ def call_paginated_method(
         str | None,
         Field(
             ...,
-            description="Cloudflare SDK resource path, e.g. `zones` or `zones.dns.records`.",
+            description="Cloudflare SDK resource path, e.g. `zones` or `dns.records`.",
         ),
     ] = None,
     params: Annotated[
@@ -134,8 +112,5 @@ def call_paginated_method(
         raise ValueError(
             "Cloudflare paginated methods must return a Cloudflare page object."
         )
-
-    items: list[Any] = []
-    for page in result.iter_pages():
-        items.extend(_flatten_page_items(page))
-    return items
+    # Iterating a Cloudflare page auto-paginates across all pages.
+    return [to_jsonable_python(item) for item in result]
