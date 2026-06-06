@@ -26,12 +26,17 @@ info() {
     printf 'INFO %s\n' "$1"
 }
 
-check_command() {
+check_command_runs() {
     local name=$1
-    if command -v "$name" >/dev/null 2>&1; then
+    shift
+    if ! command -v "$name" >/dev/null 2>&1; then
+        fail "$name is not installed or is not on PATH"
+        return
+    fi
+    if "$name" "$@" >/dev/null 2>&1; then
         ok "$name"
     else
-        fail "$name is not installed or is not on PATH"
+        fail "$name is installed but could not run"
     fi
 }
 
@@ -59,11 +64,21 @@ case "$uname_s" in
         ;;
 esac
 
-check_command git
-check_command jq
-check_command uv
-check_command pnpm
-check_command just
+check_command_runs bash --version
+check_command_runs curl --version
+check_command_runs git --version
+check_command_runs jq --version
+check_command_runs node --version
+if command -v node >/dev/null 2>&1 && ! node --version >/dev/null 2>&1; then
+    info "Install Node.js inside this environment, not only on the host."
+fi
+check_command_runs openssl version
+check_command_runs pnpm --version
+if command -v pnpm >/dev/null 2>&1 && ! pnpm --version >/dev/null 2>&1; then
+    info "Install pnpm inside this environment, not only on the host."
+fi
+check_command_runs uv --version
+check_command_runs just --version
 
 if command -v docker >/dev/null 2>&1; then
     ok "docker"

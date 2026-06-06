@@ -34,12 +34,16 @@ We will only accept bug reports that met the following criteria:
 
 Install the required tools before starting the stack:
 
+- `bash`
 - Docker with Compose
+- `curl`
 - `git`
-- `uv`
-- `pnpm`
-- `just`
 - `jq`
+- `node`
+- `openssl`
+- `pnpm`
+- `uv`
+- `just`
 
 On Windows, run the commands from WSL2 and enable Docker Desktop's WSL
 integration for your Linux distribution. If PowerShell reports that `sh` is
