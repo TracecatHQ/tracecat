@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-import { PlusIcon } from "lucide-react"
+import { PlusIcon, Trash2Icon } from "lucide-react"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -69,9 +69,9 @@ type CreateUserFormValues = z.infer<typeof createUserFormSchema>
 export function AdminUsersTable() {
   const [selectedUser, setSelectedUser] = useState<AdminUserRead | null>(null)
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
-  const [actionType, setActionType] = useState<"promote" | "demote" | null>(
-    null
-  )
+  const [actionType, setActionType] = useState<
+    "promote" | "demote" | "delete" | null
+  >(null)
   const { user: currentUser } = useAuth()
   const {
     users,
@@ -81,6 +81,8 @@ export function AdminUsersTable() {
     promotePending,
     demoteFromSuperuser,
     demotePending,
+    deleteUser,
+    deletePending,
   } = useAdminUsers()
   const createUserForm = useForm<CreateUserFormValues>({
     resolver: zodResolver(createUserFormSchema),
@@ -137,11 +139,17 @@ export function AdminUsersTable() {
           title: "User promoted",
           description: `${selectedUser.email} is now a superuser.`,
         })
-      } else {
+      } else if (actionType === "demote") {
         await demoteFromSuperuser(selectedUser.id)
         toast({
           title: "User demoted",
           description: `${selectedUser.email} is no longer a superuser.`,
+        })
+      } else {
+        await deleteUser(selectedUser.id)
+        toast({
+          title: "User deleted",
+          description: `${selectedUser.email} was deleted.`,
         })
       }
     } catch (error) {
@@ -155,6 +163,35 @@ export function AdminUsersTable() {
       setSelectedUser(null)
       setActionType(null)
     }
+  }
+
+  let dialogTitle = "Delete user"
+  let actionButtonLabel = "Delete"
+  let dialogDescription = (
+    <>
+      Are you sure you want to delete {selectedUser?.email}? This action cannot
+      be undone.
+    </>
+  )
+
+  if (actionType === "promote") {
+    dialogTitle = "Promote to superuser"
+    actionButtonLabel = "Promote"
+    dialogDescription = (
+      <>
+        Are you sure you want to promote {selectedUser?.email} to superuser?
+        They will have full access to all admin functions.
+      </>
+    )
+  } else if (actionType === "demote") {
+    dialogTitle = "Demote from superuser"
+    actionButtonLabel = "Demote"
+    dialogDescription = (
+      <>
+        Are you sure you want to demote {selectedUser?.email} from superuser?
+        They will lose access to admin functions.
+      </>
+    )
   }
 
   return (
@@ -444,6 +481,11 @@ export function AdminUsersTable() {
                 const isSelf = currentUser?.id === rowUser.id
                 const isLastSuperuser =
                   rowUser.is_superuser && superuserCount <= 1
+                const cannotDeleteReason = isSelf
+                  ? "Cannot delete yourself"
+                  : isLastSuperuser
+                    ? "Cannot delete last superuser"
+                    : null
 
                 return (
                   <DropdownMenu>
@@ -491,6 +533,19 @@ export function AdminUsersTable() {
                           </DropdownMenuItem>
                         </AlertDialogTrigger>
                       )}
+                      <AlertDialogTrigger asChild>
+                        <DropdownMenuItem
+                          className="text-rose-500 focus:text-rose-600"
+                          disabled={cannotDeleteReason !== null}
+                          onSelect={() => {
+                            setSelectedUser(rowUser)
+                            setActionType("delete")
+                          }}
+                        >
+                          <Trash2Icon className="mr-2 size-4" />
+                          {cannotDeleteReason ?? "Delete user"}
+                        </DropdownMenuItem>
+                      </AlertDialogTrigger>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 )
@@ -501,33 +556,17 @@ export function AdminUsersTable() {
         />
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              {actionType === "promote"
-                ? "Promote to superuser"
-                : "Demote from superuser"}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {actionType === "promote" ? (
-                <>
-                  Are you sure you want to promote {selectedUser?.email} to
-                  superuser? They will have full access to all admin functions.
-                </>
-              ) : (
-                <>
-                  Are you sure you want to demote {selectedUser?.email} from
-                  superuser? They will lose access to admin functions.
-                </>
-              )}
-            </AlertDialogDescription>
+            <AlertDialogTitle>{dialogTitle}</AlertDialogTitle>
+            <AlertDialogDescription>{dialogDescription}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              variant={actionType === "demote" ? "destructive" : "default"}
-              disabled={promotePending || demotePending}
+              variant={actionType === "promote" ? "default" : "destructive"}
+              disabled={promotePending || demotePending || deletePending}
               onClick={handleConfirmAction}
             >
-              {actionType === "promote" ? "Promote" : "Demote"}
+              {actionButtonLabel}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
