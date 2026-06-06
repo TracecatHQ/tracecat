@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+set -u
+
+failures=0
+
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+    GREEN='\033[32m'
+    RED='\033[31m'
+    RESET='\033[0m'
+else
+    GREEN=''
+    RED=''
+    RESET=''
+fi
+
+ok() {
+    printf '%bOK%b   %s\n' "$GREEN" "$RESET" "$1"
+}
+
+fail() {
+    printf '%bFAIL%b %s\n' "$RED" "$RESET" "$1"
+    failures=$((failures + 1))
+}
+
+info() {
+    printf 'INFO %s\n' "$1"
+}
+
+check_command() {
+    local name=$1
+    if command -v "$name" >/dev/null 2>&1; then
+        ok "$name"
+    else
+        fail "$name is not installed or is not on PATH"
+    fi
+}
+
+echo "Tracecat development environment"
+echo ""
+
+uname_s=$(uname -s 2>/dev/null || echo unknown)
+case "$uname_s" in
+    Linux*)
+        if grep -qi microsoft /proc/version 2>/dev/null; then
+            ok "OS: WSL2/Linux"
+        else
+            ok "OS: Linux"
+        fi
+        ;;
+    Darwin*)
+        ok "OS: macOS"
+        ;;
+    MINGW*|MSYS*|CYGWIN*)
+        fail "OS: native Windows shell detected"
+        info "Use WSL2 on Windows for the full development setup."
+        ;;
+    *)
+        fail "OS: unsupported or unknown (${uname_s})"
+        ;;
+esac
+
+check_command git
+check_command jq
+check_command uv
+check_command pnpm
+check_command just
+
+if command -v docker >/dev/null 2>&1; then
+    ok "docker"
+    if docker compose version >/dev/null 2>&1; then
+        ok "docker compose"
+    else
+        fail "docker compose is not available"
+    fi
+
+    if docker info >/dev/null 2>&1; then
+        ok "Docker daemon"
+    else
+        fail "Docker daemon is not reachable"
+        info "Start Docker Desktop or your Docker service, then rerun this check."
+    fi
+else
+    fail "docker is not installed or is not on PATH"
+fi
+
+echo ""
+if [ "$failures" -eq 0 ]; then
+    echo "Ready. Run:"
+    echo "  just cluster up -d --seed"
+else
+    echo "Fix the failed checks, then rerun:"
+    echo "  just doctor"
+fi
+
+exit "$failures"

@@ -3,6 +3,11 @@ set dotenv-load
 
 default:
   @just --list
+
+# Check local development prerequisites
+doctor:
+	@bash ./scripts/dev-doctor
+
 test:
 	pytest --cache-clear tests/registry tests/unit tests/playbooks -x
 
