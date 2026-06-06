@@ -37,6 +37,7 @@ dependencies = [
     "hatchling==1.27.0",
     "httpx>=0.27.0",
     "jsonpath_ng>=1.7.0,<1.8.0",
+    "kubernetes==36.0.2",
     "ldap3==2.9.1",
     "marshmallow==3.26.2",
     "nh3==0.2.18",

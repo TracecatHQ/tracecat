@@ -204,6 +204,7 @@
               "tools/hybrid_analysis",
               "tools/ipinfo",
               "tools/jira",
+              "tools/kubernetes_sdk",
               "tools/ldap",
               "tools/leakcheck",
               "tools/linear",
