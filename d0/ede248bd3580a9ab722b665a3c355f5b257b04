@@ -1,0 +1,37 @@
+deployments/fargate/modules/ecs/secrets.tf
+  s_7ae5529f00c77b::t_d5fbb5e1795d94 284
+docs/authentication/saml.mdx
+  s_7ae5529f00c77b::t_a188655be6297a 216-217
+  s_7ae5529f00c77b::t_89caac920143c9 43-45
+  s_7ae5529f00c77b::t_e7b1e79fdcb47a 209-210
+tests/unit/test_config.py
+  s_7ae5529f00c77b::t_d2a2489f715e86 8,19-68
+tracecat/config.py
+  s_7ae5529f00c77b::t_b8599a23ea7ba3 177,266-268,332,337,342,345,364,367,398-400,402-404,432-434,490-491,517-519,539-541,565-567,629,670-672,682-684,714-716,833,849,852-853,932-934,965-966,1086,1089,1120-1122,1165-1167,1189-1191,1199-1201
+  s_7ae5529f00c77b::t_71e227b0a2dea2 52-70,176,178
+docs/snippets/environment-variables.mdx
+  s_7ae5529f00c77b::t_89caac920143c9 54-57
+tracecat/AGENTS.md
+  s_7ae5529f00c77b::t_692017ef084955 113-120
+docs/self-hosting/docker-compose.mdx
+  s_7ae5529f00c77b::t_dc453a9a9b36aa 10
+deployments/fargate/main.tf
+  s_7ae5529f00c77b::t_37cf07ebd4cddb 126-128
+  s_7ae5529f00c77b::t_d5fbb5e1795d94 125,129
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "d0ede248bd3580a9ab722b665a3c355f5b257b04",
+  "prompts": {},
+  "sessions": {
+    "s_7ae5529f00c77b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e99f2-4945-7ad0-b4cb-560f90c2ae88",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
