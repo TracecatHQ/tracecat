@@ -34,6 +34,18 @@
   Create a workflow folder by absolute path.
 </ResponseField>
 
+<ResponseField name="rename_workflow_folder" type="tool">
+  Rename a workflow folder by absolute path.
+</ResponseField>
+
+<ResponseField name="move_workflow_folder" type="tool">
+  Move a workflow folder under a new parent path.
+</ResponseField>
+
+<ResponseField name="delete_workflow_folder" type="tool">
+  Delete a workflow folder by absolute path.
+</ResponseField>
+
 <ResponseField name="move_workflows" type="tool">
   Move workflows into or out of a folder.
 
@@ -303,8 +315,16 @@
   Insert a table row.
 </ResponseField>
 
+<ResponseField name="insert_rows" type="tool">
+  Insert multiple table rows.
+</ResponseField>
+
 <ResponseField name="update_table_row" type="tool">
   Update a table row.
+</ResponseField>
+
+<ResponseField name="update_rows" type="tool">
+  Update multiple table rows with the same values.
 </ResponseField>
 
 <ResponseField name="search_table_rows" type="tool">
@@ -349,16 +369,64 @@
 
 <ResponseField name="create_agent_preset" type="tool">
   Create an agent preset in the selected workspace.
+
+  Use ``skills`` to attach published skill versions. Each binding requires ``skill_id`` and ``skill_version_id`` from ``list_skills`` and ``publish_skill``.
 </ResponseField>
 
 <ResponseField name="update_agent_preset" type="tool">
   Update an existing agent preset in the selected workspace.
+
+  Use ``skills`` to replace attached published skill-version bindings. Each binding requires ``skill_id`` and ``skill_version_id``. Omit ``skills`` to leave bindings unchanged, or pass an empty list to detach all skills.
+</ResponseField>
+
+<ResponseField name="list_agent_tree" type="tool">
+  List agent folders and presets under a path.
+</ResponseField>
+
+<ResponseField name="create_agent_folder" type="tool">
+  Create an agent folder by absolute path.
+</ResponseField>
+
+<ResponseField name="rename_agent_folder" type="tool">
+  Rename an agent folder by absolute path.
+</ResponseField>
+
+<ResponseField name="move_agent_folder" type="tool">
+  Move an agent folder under a new parent path.
+</ResponseField>
+
+<ResponseField name="delete_agent_folder" type="tool">
+  Delete an agent folder by absolute path.
+</ResponseField>
+
+<ResponseField name="move_agent_presets" type="tool">
+  Move agent presets into or out of a folder by preset slug.
+</ResponseField>
+
+<ResponseField name="list_skills" type="tool">
+  List workspace skills with IDs, names, and current published versions.
+
+  Use this before updating, publishing, or attaching skills to agent presets.
 </ResponseField>
 
 <ResponseField name="upload_skill" type="tool">
   Upload a local skill directory into Tracecat as a workspace skill.
 
+  This creates a new logical skill. Use ``update_skill`` when replacing an existing skill draft to avoid duplicate skill rows with the same name.
+
   Agents should read the local directory themselves, preserve relative paths, include the root ``SKILL.md`` file, and pass every file in ``files`` using ``content_base64``.
+</ResponseField>
+
+<ResponseField name="update_skill" type="tool">
+  Replace an existing skill draft with a local skill directory.
+
+  This does not publish the draft. Call ``publish_skill`` after the update if the skill should be attachable to agent presets.
+</ResponseField>
+
+<ResponseField name="publish_skill" type="tool">
+  Publish a skill draft into an immutable skill version.
+
+  Only published skill versions can be attached to agent presets.
 </ResponseField>
 
 <ResponseField name="list_agent_presets" type="tool">

@@ -5,7 +5,7 @@ import importlib
 import pytest
 
 import tracecat.config as tracecat_config
-from tracecat.config import bound_env
+from tracecat.config import bound_env, env_bool
 
 
 def test_bound_env_returns_default_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -14,6 +14,58 @@ def test_bound_env_returns_default_when_unset(monkeypatch: pytest.MonkeyPatch) -
     result = bound_env("TEST_BOUND_ENV", 16, lower=8)
 
     assert result == 16
+
+
+@pytest.mark.parametrize("default", [False, True])
+def test_env_bool_returns_default_when_unset(
+    monkeypatch: pytest.MonkeyPatch, default: bool
+) -> None:
+    monkeypatch.delenv("TEST_BOOL_ENV", raising=False)
+
+    result = env_bool("TEST_BOOL_ENV", default=default)
+
+    assert result is default
+
+
+@pytest.mark.parametrize("raw_value", ["", "   "])
+@pytest.mark.parametrize("default", [False, True])
+def test_env_bool_returns_default_for_blank_values(
+    monkeypatch: pytest.MonkeyPatch, raw_value: str, default: bool
+) -> None:
+    monkeypatch.setenv("TEST_BOOL_ENV", raw_value)
+
+    result = env_bool("TEST_BOOL_ENV", default=default)
+
+    assert result is default
+
+
+@pytest.mark.parametrize("raw_value", ["1", "true", "TRUE", "yes", "on"])
+def test_env_bool_parses_true_tokens(
+    monkeypatch: pytest.MonkeyPatch, raw_value: str
+) -> None:
+    monkeypatch.setenv("TEST_BOOL_ENV", raw_value)
+
+    result = env_bool("TEST_BOOL_ENV", default=False)
+
+    assert result is True
+
+
+@pytest.mark.parametrize("raw_value", ["0", "false", "FALSE", "no", "off"])
+def test_env_bool_parses_false_tokens(
+    monkeypatch: pytest.MonkeyPatch, raw_value: str
+) -> None:
+    monkeypatch.setenv("TEST_BOOL_ENV", raw_value)
+
+    result = env_bool("TEST_BOOL_ENV", default=True)
+
+    assert result is False
+
+
+def test_env_bool_rejects_invalid_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TEST_BOOL_ENV", "not-a-bool")
+
+    with pytest.raises(ValueError, match="TEST_BOOL_ENV must be a boolean"):
+        env_bool("TEST_BOOL_ENV", default=True)
 
 
 def test_bound_env_clamps_below_lower(monkeypatch: pytest.MonkeyPatch) -> None:

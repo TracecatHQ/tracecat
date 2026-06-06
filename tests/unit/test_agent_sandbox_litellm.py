@@ -2015,10 +2015,9 @@ async def _run_duckdb_cli_available_case(
                 "FROM duckdb_extensions()",
                 "WHERE extension_name IN (",
                 "    'json',",
-                "    'postgres_scanner',",
                 "    'httpfs',",
-                "    'sqlite_scanner',",
-                "    'inet'",
+                "    'inet',",
+                "    'fts'",
                 ")",
                 "AND installed",
                 "AND loaded;",
@@ -2110,7 +2109,7 @@ async def _run_duckdb_cli_available_case(
     assert runtime.cwd == Path("/work")
 
     assert _FakeRuntimeReadingDuckDBTransport.messages == [
-        {"duckdb_path": "/usr/local/bin/duckdb", "duckdb_extension_count": 5}
+        {"duckdb_path": "/usr/local/bin/duckdb", "duckdb_extension_count": 4}
     ]
 
 

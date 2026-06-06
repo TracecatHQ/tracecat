@@ -8,7 +8,7 @@ description: "Reference for the Tracecat Slack SDK integration: registered actio
 
 Action ID: `tools.slack_sdk.call_method`
 
-Instantiate a Slack client and call a Slack SDK method.
+Instantiate a Slack client and call a Slack SDK or Web API method.
 
 Reference: [https://docs.slack.dev/reference/methods](https://docs.slack.dev/reference/methods)
 
@@ -22,7 +22,7 @@ Required secrets:
 
 <ParamField path="sdk_method" type="string" required>
 
-Slack Python SDK method name (e.g. `chat_postMessage`)
+Slack Python SDK method name or Web API method name (e.g. `chat_postMessage` or `chat.postMessage`)
 
 </ParamField>
 

@@ -103,7 +103,9 @@ Case field and table `type` values are:
 - `get_table(workspace_id, table_id)`
 - `update_table(workspace_id, table_id, name=None)`
 - `insert_table_row(workspace_id, table_id, row_json, upsert=False)`
+- `insert_rows(workspace_id, table_id, rows_json, upsert=False)`
 - `update_table_row(workspace_id, table_id, row_id, row_json)`
+- `update_rows(workspace_id, table_id, row_ids, row_json)`
 - `search_table_rows(workspace_id, table_id, search_term=None, limit=100, cursor=None)`
 - `export_csv(workspace_id, table_id, include_header=True)`
 
@@ -124,8 +126,12 @@ Case field and table `type` values are:
 
 - `list_integrations(workspace_id)`
 - `get_agent_preset_authoring_context(workspace_id)`
-- `create_agent_preset(workspace_id, name, slug=None, description=None, instructions=None, model_name=None, model_provider=None, base_url=None, output_type=None, actions=None, namespaces=None, tool_approvals=None, mcp_integration_ids=None, retries=None, enable_thinking=None, enable_internet_access=None)`
-- `update_agent_preset(workspace_id, preset_slug, name=None, slug=None, description=None, instructions=None, model_name=None, model_provider=None, base_url=None, output_type=None, actions=None, namespaces=None, tool_approvals=None, mcp_integration_ids=None, retries=None, enable_thinking=None, enable_internet_access=None)`
+- `list_skills(workspace_id, limit=20, cursor=None)`
+- `upload_skill(workspace_id, name, files, description=None)`
+- `update_skill(workspace_id, skill_id, name, files, description=None)`
+- `publish_skill(workspace_id, skill_id)`
+- `create_agent_preset(workspace_id, name, slug=None, description=None, instructions=None, model_name=None, model_provider=None, base_url=None, output_type=None, actions=None, namespaces=None, tool_approvals=None, mcp_integration_ids=None, retries=None, enable_thinking=None, enable_internet_access=None, skills=None)`
+- `update_agent_preset(workspace_id, preset_slug, name=None, slug=None, description=None, instructions=None, model_name=None, model_provider=None, base_url=None, output_type=None, actions=None, namespaces=None, tool_approvals=None, mcp_integration_ids=None, retries=None, enable_thinking=None, enable_internet_access=None, skills=None)`
 - `list_agent_presets(workspace_id, limit=20, cursor=None)`
 - `get_agent_preset(workspace_id, preset_slug)`
 - `run_agent_preset(workspace_id, preset_slug, prompt, preset_version=None, timeout_seconds=120)`

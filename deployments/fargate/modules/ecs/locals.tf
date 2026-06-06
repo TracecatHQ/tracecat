@@ -95,11 +95,6 @@ locals {
         OIDC_SCOPES                                = var.oidc_scopes
         TEMPORAL__CLUSTER_QUEUE                    = local.temporal_cluster_queue
         SAML_ALLOW_UNSOLICITED                     = var.saml_allow_unsolicited
-        SAML_AUTHN_REQUESTS_SIGNED                 = var.saml_authn_requests_signed
-        SAML_SIGNED_ASSERTIONS                     = var.saml_signed_assertions
-        SAML_SIGNED_RESPONSES                      = var.saml_signed_responses
-        SAML_VERIFY_SSL_ENTITY                     = var.saml_verify_ssl_entity
-        SAML_VERIFY_SSL_METADATA                   = var.saml_verify_ssl_metadata
         TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS = var.workflow_artifact_retention_days
       }
     ) :

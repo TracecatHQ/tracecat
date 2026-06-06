@@ -29,9 +29,17 @@ from tracecat.agent.common.stream_types import (
     UnifiedStreamEvent,
 )
 from tracecat.agent.preset.schemas import AgentPresetRead
-from tracecat.agent.skill.schemas import SkillRead, SkillUploadFile
+from tracecat.agent.skill.schemas import (
+    SkillRead,
+    SkillReadMinimal,
+    SkillUploadFile,
+    SkillVersionRead,
+)
 from tracecat.agent.stream.events import StreamDelta, StreamEnd
-from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
+from tracecat.exceptions import (
+    BuiltinRegistryHasNoSelectionError,
+    TracecatValidationError,
+)
 from tracecat.expressions.common import ExprType
 from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
 from tracecat.tables.service import TablesService
@@ -5612,6 +5620,19 @@ async def test_list_workspaces_returns_multi_org_workspaces(monkeypatch):
 def test_agent_preset_tools_are_registered() -> None:
     assert hasattr(mcp_server, "get_agent_preset")
     assert hasattr(mcp_server, "update_agent_preset")
+    assert hasattr(mcp_server, "list_agent_tree")
+    assert hasattr(mcp_server, "create_agent_folder")
+    assert hasattr(mcp_server, "rename_agent_folder")
+    assert hasattr(mcp_server, "move_agent_folder")
+    assert hasattr(mcp_server, "delete_agent_folder")
+    assert hasattr(mcp_server, "move_agent_presets")
+
+
+def test_workflow_folder_tools_are_registered() -> None:
+    assert hasattr(mcp_server, "create_workflow_folder")
+    assert hasattr(mcp_server, "rename_workflow_folder")
+    assert hasattr(mcp_server, "move_workflow_folder")
+    assert hasattr(mcp_server, "delete_workflow_folder")
 
 
 def test_sync_custom_registry_tool_is_registered() -> None:
@@ -5910,6 +5931,578 @@ async def test_list_workflow_tree_paginates_items(
     assert first_page["has_more"] is True
     assert first_page["next_cursor"] is not None
     assert first_page["root_path"] == "/"
+
+
+@pytest.mark.anyio
+async def test_list_agent_tree_paginates_and_traverses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    calls: list[str] = []
+
+    class _Item:
+        def __init__(self, payload: dict[str, Any]) -> None:
+            self._payload = payload
+
+        def model_dump(self, *, mode: str = "json") -> dict[str, Any]:
+            assert mode == "json"
+            return self._payload
+
+    class _FolderService:
+        async def get_directory_items(
+            self, path: str, order_by: str = "desc"
+        ) -> list[_Item]:
+            assert order_by == "desc"
+            calls.append(path)
+            if path == "/":
+                return [
+                    _Item({"type": "folder", "path": "/soc/", "name": "soc"}),
+                    _Item(
+                        {
+                            "type": "preset",
+                            "slug": "root-agent",
+                            "name": "Root agent",
+                            "model_provider": "openai",
+                            "model_name": "gpt-4o-mini",
+                            "tags": [],
+                        }
+                    ),
+                ]
+            if path == "/soc/":
+                return [
+                    _Item(
+                        {
+                            "type": "preset",
+                            "slug": "soc-agent",
+                            "name": "SOC agent",
+                            "model_provider": "openai",
+                            "model_name": "gpt-4o",
+                            "tags": [{"name": "triage"}],
+                        }
+                    )
+                ]
+            return []
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentFolderService,
+        "with_session",
+        lambda role: _AsyncContext(_FolderService()),
+    )
+
+    first_page = _payload(
+        await _tool(mcp_server.list_agent_tree)(
+            workspace_id=str(workspace_id),
+            depth=2,
+            limit=1,
+        )
+    )
+    assert len(first_page["items"]) == 1
+    assert first_page["has_more"] is True
+    assert first_page["next_cursor"] is not None
+    assert first_page["items"][0]["type"] == "folder"
+    assert calls == ["/"]
+
+    full_page = _payload(
+        await _tool(mcp_server.list_agent_tree)(
+            workspace_id=str(workspace_id),
+            depth=2,
+            limit=10,
+        )
+    )
+    assert [item["type"] for item in full_page["items"]] == [
+        "folder",
+        "preset",
+        "preset",
+    ]
+    assert full_page["items"][2]["preset_slug"] == "soc-agent"
+    assert full_page["items"][2]["folder_path"] == "/soc/"
+    assert calls == ["/", "/", "/soc/"]
+
+
+@pytest.mark.anyio
+async def test_create_agent_folder_creates_missing_parents(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    created_paths: list[str] = []
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _FolderService:
+        def __init__(self) -> None:
+            self.folders: dict[str, SimpleNamespace] = {}
+
+        async def get_folder_by_path(self, path: str) -> SimpleNamespace | None:
+            return self.folders.get(path)
+
+        async def create_folder(
+            self, name: str, parent_path: str = "/", commit: bool = True
+        ) -> SimpleNamespace:
+            _ = commit
+            path = f"{parent_path}{name}/" if parent_path != "/" else f"/{name}/"
+            folder = SimpleNamespace(id=uuid.uuid4(), name=name, path=path)
+            self.folders[path] = folder
+            created_paths.append(path)
+            return folder
+
+    folder_service = _FolderService()
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentFolderService,
+        "with_session",
+        lambda role: _AsyncContext(folder_service),
+    )
+
+    result = _payload(
+        await _tool(mcp_server.create_agent_folder)(
+            workspace_id=str(workspace_id),
+            path="/soc/triage/",
+            parents=True,
+        )
+    )
+
+    assert result["path"] == "/soc/triage/"
+    assert result["created_paths"] == ["/soc/", "/soc/triage/"]
+    assert result["already_existed"] is False
+    assert created_paths == ["/soc/", "/soc/triage/"]
+
+
+@pytest.mark.anyio
+async def test_create_agent_folder_without_parents_requires_parent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _FolderService:
+        async def get_folder_by_path(self, _path: str) -> None:
+            return None
+
+        async def create_folder(
+            self, name: str, parent_path: str = "/", commit: bool = True
+        ) -> None:
+            _ = name, parent_path, commit
+            raise TracecatValidationError("Parent path /soc/ not found")
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentFolderService,
+        "with_session",
+        lambda role: _AsyncContext(_FolderService()),
+    )
+
+    with pytest.raises(ToolError, match="Parent path /soc/ not found"):
+        await _tool(mcp_server.create_agent_folder)(
+            workspace_id=str(workspace_id),
+            path="/soc/triage/",
+            parents=False,
+        )
+
+
+@pytest.mark.anyio
+async def test_move_agent_presets_dry_run_reports_invalid_and_missing_slugs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    destination_folder = SimpleNamespace(id=uuid.uuid4(), path="/soc/")
+    preset_id = uuid.uuid4()
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _FolderService:
+        session = SimpleNamespace(rollback=AsyncMock())
+
+        async def get_folder_by_path(self, path: str) -> SimpleNamespace | None:
+            return destination_folder if path == "/soc/" else None
+
+    class _PresetService:
+        async def get_preset_by_slug(self, slug: str) -> SimpleNamespace | None:
+            if slug == "triage":
+                return SimpleNamespace(id=preset_id, slug=slug, name="Triage")
+            return None
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentFolderService,
+        "with_session",
+        lambda role: _AsyncContext(_FolderService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+    result = _payload(
+        await _tool(mcp_server.move_agent_presets)(
+            workspace_id=str(workspace_id),
+            preset_slugs=["triage", "", "missing"],
+            destination_path="/soc/",
+            dry_run=True,
+        )
+    )
+
+    assert result["destination_path"] == "/soc/"
+    assert result["requested_count"] == 3
+    assert result["movable_count"] == 1
+    assert result["movable_presets"] == [{"preset_slug": "triage", "name": "Triage"}]
+    assert [error["preset_slug"] for error in result["errors"]] == ["", "missing"]
+
+
+@pytest.mark.anyio
+async def test_move_agent_presets_to_root_moves_with_none_folder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    preset_id = uuid.uuid4()
+    moved: dict[str, Any] = {}
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _FolderService:
+        session = SimpleNamespace(rollback=AsyncMock())
+
+        async def move_preset(
+            self, requested_preset_id: uuid.UUID, folder: Any | None = None
+        ) -> None:
+            moved["preset_id"] = requested_preset_id
+            moved["folder"] = folder
+
+    class _PresetService:
+        async def get_preset_by_slug(self, slug: str) -> SimpleNamespace | None:
+            return SimpleNamespace(id=preset_id, slug=slug, name="Triage")
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentFolderService,
+        "with_session",
+        lambda role: _AsyncContext(_FolderService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+    result = _payload(
+        await _tool(mcp_server.move_agent_presets)(
+            workspace_id=str(workspace_id),
+            preset_slugs=["triage"],
+            destination_path="/",
+        )
+    )
+
+    assert moved == {"preset_id": preset_id, "folder": None}
+    assert result["moved_count"] == 1
+    assert result["moved_presets"][0]["preset_slug"] == "triage"
+
+
+@pytest.mark.anyio
+async def test_move_agent_presets_rejects_missing_destination(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _FolderService:
+        async def get_folder_by_path(self, _path: str) -> None:
+            return None
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentFolderService,
+        "with_session",
+        lambda role: _AsyncContext(_FolderService()),
+    )
+
+    with pytest.raises(ToolError, match="Folder /missing/ not found"):
+        await _tool(mcp_server.move_agent_presets)(
+            workspace_id=str(workspace_id),
+            preset_slugs=["triage"],
+            destination_path="/missing/",
+        )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("tool_name", "service_name", "expected_path"),
+    [
+        ("rename_agent_folder", "AgentFolderService", "/renamed/"),
+        ("rename_workflow_folder", "WorkflowFolderService", "/renamed/"),
+    ],
+)
+async def test_mcp_rename_folder_tools_delegate_by_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tool_name: str,
+    service_name: str,
+    expected_path: str,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    folder = SimpleNamespace(id=uuid.uuid4(), path="/old/")
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _FolderService:
+        async def get_folder_by_path(self, path: str) -> SimpleNamespace | None:
+            assert path == "/old/"
+            return folder
+
+        async def rename_folder(
+            self, folder_id: uuid.UUID, new_name: str
+        ) -> SimpleNamespace:
+            assert folder_id == folder.id
+            assert new_name == "renamed"
+            return SimpleNamespace(id=folder.id, path=expected_path)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        getattr(mcp_server, service_name),
+        "with_session",
+        lambda role: _AsyncContext(_FolderService()),
+    )
+
+    result = _payload(
+        await _tool(getattr(mcp_server, tool_name))(
+            workspace_id=str(workspace_id),
+            path="/old/",
+            new_name="renamed",
+        )
+    )
+
+    assert result["folder_id"] == str(folder.id)
+    assert result["path"] == expected_path
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("tool_name", "service_name"),
+    [
+        ("move_agent_folder", "AgentFolderService"),
+        ("move_workflow_folder", "WorkflowFolderService"),
+    ],
+)
+async def test_mcp_move_folder_tools_delegate_by_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tool_name: str,
+    service_name: str,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    folder = SimpleNamespace(id=uuid.uuid4(), path="/old/")
+    parent = SimpleNamespace(id=uuid.uuid4(), path="/parent/")
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _FolderService:
+        async def get_folder_by_path(self, path: str) -> SimpleNamespace | None:
+            return {"/old/": folder, "/parent/": parent}.get(path)
+
+        async def move_folder(
+            self, folder_id: uuid.UUID, new_parent_id: uuid.UUID | None
+        ) -> SimpleNamespace:
+            assert folder_id == folder.id
+            assert new_parent_id == parent.id
+            return SimpleNamespace(id=folder.id, path="/parent/old/")
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        getattr(mcp_server, service_name),
+        "with_session",
+        lambda role: _AsyncContext(_FolderService()),
+    )
+
+    result = _payload(
+        await _tool(getattr(mcp_server, tool_name))(
+            workspace_id=str(workspace_id),
+            path="/old/",
+            destination_parent_path="/parent/",
+        )
+    )
+
+    assert result["folder_id"] == str(folder.id)
+    assert result["path"] == "/parent/old/"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("tool_name", "service_name"),
+    [
+        ("delete_agent_folder", "AgentFolderService"),
+        ("delete_workflow_folder", "WorkflowFolderService"),
+    ],
+)
+async def test_mcp_delete_folder_tools_delegate_by_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tool_name: str,
+    service_name: str,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    folder = SimpleNamespace(id=uuid.uuid4(), path="/old/")
+    deleted: dict[str, Any] = {}
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _FolderService:
+        async def get_folder_by_path(self, path: str) -> SimpleNamespace | None:
+            assert path == "/old/"
+            return folder
+
+        async def delete_folder(self, folder_id: uuid.UUID, recursive: bool) -> None:
+            deleted["folder_id"] = folder_id
+            deleted["recursive"] = recursive
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        getattr(mcp_server, service_name),
+        "with_session",
+        lambda role: _AsyncContext(_FolderService()),
+    )
+
+    result = _payload(
+        await _tool(getattr(mcp_server, tool_name))(
+            workspace_id=str(workspace_id),
+            path="/old/",
+            recursive=True,
+        )
+    )
+
+    assert deleted == {"folder_id": folder.id, "recursive": True}
+    assert result["folder_id"] == str(folder.id)
+    assert result["recursive"] is True
+
+
+@pytest.mark.anyio
+async def test_insert_rows_returns_insert_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    table_id = uuid.uuid4()
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, SimpleNamespace()
+
+    captured: dict[str, Any] = {}
+    fake_table = SimpleNamespace(id=table_id)
+
+    class _TableService:
+        async def get_table(self, parsed_table_id: uuid.UUID) -> SimpleNamespace:
+            assert parsed_table_id == table_id
+            return fake_table
+
+        async def batch_insert_rows(
+            self,
+            table: Any,
+            rows: list[dict[str, Any]],
+            *,
+            upsert: bool = False,
+        ) -> int:
+            captured["table"] = table
+            captured["rows"] = rows
+            captured["upsert"] = upsert
+            return 2
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.TablesService,
+        "with_session",
+        lambda role: _AsyncContext(_TableService()),
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.insert_rows)(
+            workspace_id=str(workspace_id),
+            table_id=str(table_id),
+            rows=[
+                mcp_server.TableRowPayload.model_validate({"ioc": "1.1.1.1"}),
+                mcp_server.TableRowPayload.model_validate({"ioc": "2.2.2.2"}),
+            ],
+            upsert=True,
+        )
+    )
+
+    assert payload == {"rows_inserted": 2}
+    assert captured == {
+        "table": fake_table,
+        "rows": [{"ioc": "1.1.1.1"}, {"ioc": "2.2.2.2"}],
+        "upsert": True,
+    }
+
+
+@pytest.mark.anyio
+async def test_update_rows_returns_update_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    table_id = uuid.uuid4()
+    row_ids = [uuid.uuid4(), uuid.uuid4()]
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, SimpleNamespace()
+
+    captured: dict[str, Any] = {}
+    fake_table = SimpleNamespace(id=table_id)
+
+    class _TableService:
+        async def get_table(self, parsed_table_id: uuid.UUID) -> SimpleNamespace:
+            assert parsed_table_id == table_id
+            return fake_table
+
+        async def batch_update_rows(
+            self,
+            table: Any,
+            parsed_row_ids: list[uuid.UUID],
+            row_data: dict[str, Any],
+        ) -> int:
+            captured["table"] = table
+            captured["row_ids"] = parsed_row_ids
+            captured["row_data"] = row_data
+            return 2
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.TablesService,
+        "with_session",
+        lambda role: _AsyncContext(_TableService()),
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.update_rows)(
+            workspace_id=str(workspace_id),
+            table_id=str(table_id),
+            row_ids=[str(row_id) for row_id in row_ids],
+            row=mcp_server.TableRowPayload.model_validate({"status": "blocked"}),
+        )
+    )
+
+    assert payload == {"rows_updated": 2}
+    assert captured == {
+        "table": fake_table,
+        "row_ids": row_ids,
+        "row_data": {"status": "blocked"},
+    }
 
 
 @pytest.mark.anyio
@@ -7300,6 +7893,291 @@ async def test_create_agent_preset_resolves_catalog_id_for_custom_provider(
 
 
 @pytest.mark.anyio
+async def test_create_agent_preset_passes_skill_bindings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    catalog_id = uuid.uuid4()
+    skill_id = uuid.uuid4()
+    skill_version_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    created: dict[str, Any] = {}
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _AgentManagementService:
+        async def get_default_model_selection(self) -> SimpleNamespace:
+            return SimpleNamespace(
+                catalog_id=catalog_id,
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+            )
+
+    class _AccessService:
+        async def is_catalog_enabled(
+            self, requested_catalog_id: uuid.UUID, *, workspace_id: uuid.UUID
+        ) -> bool:
+            assert requested_catalog_id == catalog_id
+            return True
+
+    class _PresetService(_PresetReadBuilder):
+        async def create_preset(self, params: Any) -> SimpleNamespace:
+            created["params"] = params
+            now = datetime.now(UTC)
+            return SimpleNamespace(
+                id=uuid.uuid4(),
+                workspace_id=workspace_id,
+                name=params.name,
+                slug="security-triage",
+                description=params.description,
+                instructions=params.instructions,
+                model_name=params.model_name,
+                model_provider=params.model_provider,
+                catalog_id=params.catalog_id,
+                base_url=params.base_url,
+                output_type=params.output_type,
+                actions=params.actions,
+                namespaces=params.namespaces,
+                tool_approvals=params.tool_approvals,
+                mcp_integrations=params.mcp_integrations,
+                agents={},
+                retries=params.retries,
+                enable_thinking=params.enable_thinking,
+                enable_internet_access=params.enable_internet_access,
+                current_version_id=None,
+                created_at=now,
+                updated_at=now,
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_AgentManagementService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentModelAccessService,
+        "with_session",
+        lambda role: _AsyncContext(_AccessService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+    await _tool(mcp_server.create_agent_preset)(
+        workspace_id=str(workspace_id),
+        name="Security triage",
+        skills=[
+            {
+                "skill_id": str(skill_id),
+                "skill_version_id": str(skill_version_id),
+            }
+        ],
+    )
+
+    params = created["params"]
+    assert len(params.skills) == 1
+    assert params.skills[0].skill_id == skill_id
+    assert params.skills[0].skill_version_id == skill_version_id
+
+
+@pytest.mark.anyio
+async def test_update_agent_preset_passes_skill_bindings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    skill_id = uuid.uuid4()
+    skill_version_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    captured: dict[str, Any] = {}
+    now = datetime.now(UTC)
+    preset = SimpleNamespace(
+        id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        name="Security triage",
+        slug="security-triage",
+        description=None,
+        instructions="Original prompt",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        catalog_id=None,
+        base_url=None,
+        output_type=None,
+        actions=None,
+        namespaces=None,
+        tool_approvals=None,
+        mcp_integrations=None,
+        agents={},
+        retries=3,
+        enable_thinking=True,
+        enable_internet_access=False,
+        current_version_id=None,
+        created_at=now,
+        updated_at=now,
+    )
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _PresetService(_PresetReadBuilder):
+        async def get_preset_by_slug(self, preset_slug: str) -> SimpleNamespace:
+            assert preset_slug == "security-triage"
+            return preset
+
+        async def update_preset(
+            self, current_preset: Any, params: Any
+        ) -> SimpleNamespace:
+            assert current_preset is preset
+            captured["params"] = params
+            return SimpleNamespace(**{**preset.__dict__, "updated_at": now})
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+    await _tool(mcp_server.update_agent_preset)(
+        workspace_id=str(workspace_id),
+        preset_slug="security-triage",
+        skills=[
+            {
+                "skill_id": str(skill_id),
+                "skill_version_id": str(skill_version_id),
+            }
+        ],
+    )
+
+    params = captured["params"]
+    assert len(params.skills) == 1
+    assert params.skills[0].skill_id == skill_id
+    assert params.skills[0].skill_version_id == skill_version_id
+
+
+@pytest.mark.anyio
+async def test_update_agent_preset_can_clear_skill_bindings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    captured: dict[str, Any] = {}
+    now = datetime.now(UTC)
+    preset = SimpleNamespace(
+        id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        name="Security triage",
+        slug="security-triage",
+        description=None,
+        instructions="Original prompt",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        catalog_id=None,
+        base_url=None,
+        output_type=None,
+        actions=None,
+        namespaces=None,
+        tool_approvals=None,
+        mcp_integrations=None,
+        agents={},
+        retries=3,
+        enable_thinking=True,
+        enable_internet_access=False,
+        current_version_id=None,
+        created_at=now,
+        updated_at=now,
+    )
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _PresetService(_PresetReadBuilder):
+        async def get_preset_by_slug(self, preset_slug: str) -> SimpleNamespace:
+            assert preset_slug == "security-triage"
+            return preset
+
+        async def update_preset(
+            self, current_preset: Any, params: Any
+        ) -> SimpleNamespace:
+            assert current_preset is preset
+            captured["params"] = params
+            return SimpleNamespace(**{**preset.__dict__, "updated_at": now})
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+    await _tool(mcp_server.update_agent_preset)(
+        workspace_id=str(workspace_id),
+        preset_slug="security-triage",
+        skills=[],
+    )
+
+    assert captured["params"].skills == []
+
+
+@pytest.mark.anyio
+async def test_list_skills_uses_workspace_skill_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat.pagination import CursorPaginatedResponse
+
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    skill_id = uuid.uuid4()
+    now = datetime.now(UTC)
+    captured: dict[str, Any] = {}
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _SkillService:
+        async def list_skills(self, params):
+            captured["params"] = params
+            return CursorPaginatedResponse(
+                items=[
+                    SkillReadMinimal(
+                        id=skill_id,
+                        workspace_id=workspace_id,
+                        name="botsv3-ir",
+                        description="BOTSv3 IR skill",
+                        current_version_id=uuid.uuid4(),
+                        created_at=now,
+                        updated_at=now,
+                        archived_at=None,
+                    )
+                ],
+                next_cursor=None,
+                prev_cursor=None,
+                has_more=False,
+                has_previous=False,
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        lambda role: _AsyncContext(_SkillService()),
+    )
+
+    result = await _tool(mcp_server.list_skills)(
+        workspace_id=str(workspace_id),
+        limit=10,
+    )
+
+    payload = _payload(result)
+    assert captured["params"].limit == 10
+    assert payload["items"][0]["id"] == str(skill_id)
+    assert payload["items"][0]["name"] == "botsv3-ir"
+
+
+@pytest.mark.anyio
 async def test_upload_skill_uses_workspace_skill_service(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -7670,6 +8548,124 @@ async def test_upload_skill_rejects_non_utf8_root_skill_markdown_before_upload(
         )
 
     assert upload_called is False
+
+
+@pytest.mark.anyio
+async def test_update_skill_replaces_existing_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    skill_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    captured: dict[str, Any] = {}
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _SkillService:
+        async def replace_skill_draft(self, *, skill_id: uuid.UUID, params):
+            captured["skill_id"] = skill_id
+            captured["params"] = params
+            now = datetime.now(UTC)
+            return SkillRead(
+                id=skill_id,
+                workspace_id=workspace_id,
+                name=params.name,
+                description="Updated description",
+                current_version_id=None,
+                draft_revision=2,
+                created_at=now,
+                updated_at=now,
+                archived_at=None,
+                current_version=None,
+                is_draft_publishable=True,
+                draft_validation_errors=[],
+                draft_file_count=len(params.files),
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        lambda role: _AsyncContext(_SkillService()),
+    )
+
+    result = await _tool(mcp_server.update_skill)(
+        workspace_id=str(workspace_id),
+        skill_id=skill_id,
+        name="botsv3-ir",
+        description="Updated description",
+        files=[
+            SkillUploadFile(
+                path="SKILL.md",
+                content_base64=base64.b64encode(
+                    b"---\nname: old-name\n---\n\n# Triage\n"
+                ).decode("ascii"),
+                content_type="text/markdown; charset=utf-8",
+            )
+        ],
+    )
+
+    payload = _payload(result)
+    params = captured["params"]
+    uploaded_content = base64.b64decode(params.files[0].content_base64).decode("utf-8")
+    assert captured["skill_id"] == skill_id
+    assert params.name == "botsv3-ir"
+    assert "name: botsv3-ir" in uploaded_content
+    assert "description: Updated description" in uploaded_content
+    assert payload["id"] == str(skill_id)
+    assert payload["draft_revision"] == 2
+
+
+@pytest.mark.anyio
+async def test_publish_skill_uses_workspace_skill_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    skill_id = uuid.uuid4()
+    version_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    captured: dict[str, Any] = {}
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _SkillService:
+        async def publish_skill(self, requested_skill_id: uuid.UUID):
+            captured["skill_id"] = requested_skill_id
+            now = datetime.now(UTC)
+            return SkillVersionRead(
+                id=version_id,
+                skill_id=requested_skill_id,
+                workspace_id=workspace_id,
+                version=1,
+                manifest_sha256="0" * 64,
+                file_count=1,
+                total_size_bytes=42,
+                name="botsv3-ir",
+                description="BOTSv3 IR skill",
+                created_at=now,
+                updated_at=now,
+                files=[],
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        lambda role: _AsyncContext(_SkillService()),
+    )
+
+    result = await _tool(mcp_server.publish_skill)(
+        workspace_id=str(workspace_id),
+        skill_id=skill_id,
+    )
+
+    payload = _payload(result)
+    assert captured["skill_id"] == skill_id
+    assert payload["id"] == str(version_id)
+    assert payload["skill_id"] == str(skill_id)
+    assert payload["version"] == 1
 
 
 def _prompt_source_text() -> str:

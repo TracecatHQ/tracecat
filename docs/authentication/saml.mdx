@@ -37,11 +37,12 @@ If this is a new deployment, make sure `TRACECAT__AUTH_SUPERADMIN_EMAIL` exactly
 
 ## Instructions
 
-Tracecat requires both assertions and responses to be signed.
+Tracecat requires signed assertions and signed responses by default.
 
 <Info>
-    If you are using a self-signed certificate for your metadata URL,
-    you'll need to add the CA certificates `.pem` file as a base64-encoded string via the `SAML_CA_CERTS` environment variable.
+    If you are using a self-signed certificate for your metadata URL, configure
+    a base64-encoded CA certificates `.pem` bundle with `SAML_CA_CERTS` in your
+    deployment environment.
 </Info>
 
 ### Okta
@@ -205,19 +206,17 @@ Tracecat requires both assertions and responses to be signed.
 
 ## Environment variables
 
-If you know what you're doing, you can configure the SAML configuration via environment variables in the Tracecat `api` service:
+For standard self-hosted SAML setup, provide your IdP metadata URL in the
+deployment environment.
 
 ### Protocol configuration
 - `SAML_ALLOW_UNSOLICITED`: Whether to allow unsolicited SAML responses (default: `false`)
 - `SAML_ACCEPTED_TIME_DIFF`: Time difference in seconds for SAML authentication (default: `3`)
-- `SAML_AUTHN_REQUESTS_SIGNED`: Whether to require signed SAML authentication requests (default: `false`)
-- `SAML_SIGNED_ASSERTIONS`: Whether to require signed SAML assertions (default: `true`)
-- `SAML_SIGNED_RESPONSES`: Whether to require signed SAML responses (default: `true`)
+
+Tracecat requires signed assertions and signed responses by default, and fails
+closed on startup if both checks are disabled.
 
 ### SSL transport configuration
 - `SAML_VERIFY_SSL_ENTITY`: Whether to verify SSL certificates for general SAML entity operations (default: `true`)
 - `SAML_VERIFY_SSL_METADATA`: Whether to verify SSL certificates when fetching metadata (default: `true`)
 - `SAML_CA_CERTS`: Base64 encoded CA certificates for SSL/TLS transport layer validation
-
-### SAML protocol configuration
-- `SAML_METADATA_CERT`: Base64 encoded certificate for SAML metadata document signature verification
