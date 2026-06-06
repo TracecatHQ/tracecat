@@ -179,6 +179,7 @@
               "tools/aws_boto3",
               "tools/azure_log_analytics",
               "tools/caldera",
+              "tools/cloudflare_sdk",
               "tools/confluence",
               "tools/crowdsec",
               "tools/crowdstrike",
