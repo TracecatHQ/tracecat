@@ -66,7 +66,12 @@ from tracecat.identifiers import (
     action,
 )
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.integrations.enums import IntegrationStatus, MCPAuthType, OAuthGrantType
+from tracecat.integrations.enums import (
+    IntegrationSource,
+    IntegrationStatus,
+    MCPAuthType,
+    OAuthGrantType,
+)
 from tracecat.interactions.enums import InteractionStatus, InteractionType
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
@@ -508,6 +513,11 @@ class Workspace(OrganizationModel):
     )
     oauth_providers: Mapped[list[WorkspaceOAuthProvider]] = relationship(
         "WorkspaceOAuthProvider",
+        back_populates="workspace",
+        cascade="all, delete",
+    )
+    integration_catalog: Mapped[list[Integration]] = relationship(
+        "Integration",
         back_populates="workspace",
         cascade="all, delete",
     )
@@ -4668,6 +4678,82 @@ class OAuthStateDB(TimestampMixin, Base):
     # Relationships
     workspace: Mapped[Workspace] = relationship()
     user: Mapped[User] = relationship()
+
+
+# ============================================================================
+# Consolidated Integrations model (revamp-integrations branch)
+#
+# This table backs the Integrations catalog. Credentials remain in their
+# existing source-of-truth tables and are projected through the catalog API:
+# static credentials in Secret, OAuth credentials in OAuthIntegration, MCP
+# servers in MCPIntegration.
+# ============================================================================
+
+
+class Integration(TimestampMixin, Base):
+    """Catalog entry for an integration.
+
+    One row per platform-shipped action/API connector (Slack, GitHub, ...)
+    or per workspace-authored action/API connector. `workspace_id` is NULL
+    for platform-shipped rows. `namespace` follows the registry convention
+    (e.g. "slack", "virustotal", "workspace.<slug>").
+    """
+
+    __tablename__ = "integration"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "namespace",
+            name="uq_integration_workspace_namespace",
+        ),
+        Index("ix_integration_namespace", "namespace"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        primary_key=True,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    workspace_id: Mapped[WorkspaceID | None] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=True,
+        doc="NULL = platform-shipped, available across all workspaces.",
+    )
+    namespace: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        doc="Stable identifier; matches RegistryAction.namespace where applicable.",
+    )
+    display_name: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+    )
+    description: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+    )
+    icon_url: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+    )
+    source: Mapped[IntegrationSource] = mapped_column(
+        Enum(
+            IntegrationSource,
+            name="integrationsource",
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
+        nullable=False,
+        default=IntegrationSource.PLATFORM,
+    )
+
+    workspace: Mapped[Workspace | None] = relationship(
+        "Workspace",
+        back_populates="integration_catalog",
+    )
 
 
 class Chat(WorkspaceModel):

@@ -125,6 +125,9 @@ from tracecat.exceptions import EntitlementRequired, ScopeDeniedError, TracecatE
 from tracecat.feature_flags import FeatureFlag, FlagLike, is_feature_enabled
 from tracecat.feature_flags.router import router as feature_flags_router
 from tracecat.inbox.router import router as inbox_router
+from tracecat.integrations.catalog.router import (
+    catalog_router as integrations_catalog_router,
+)
 from tracecat.integrations.router import (
     integrations_router,
     mcp_router,
@@ -559,6 +562,7 @@ def create_app(**kwargs) -> FastAPI:
     _include_workspace_scoped_router(app, case_durations_router)
     _include_workspace_scoped_router(app, workflow_folders_router)
     app.include_router(integrations_oauth_router)
+    _include_workspace_scoped_router(app, integrations_catalog_router)
     _include_workspace_scoped_router(app, integrations_router)
     _include_workspace_scoped_router(app, providers_router)
     _include_workspace_scoped_router(app, mcp_router)

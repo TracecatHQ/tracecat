@@ -416,6 +416,16 @@ import type {
   InboxGetPendingCountResponse,
   InboxListItemsData,
   InboxListItemsResponse,
+  IntegrationsCatalogCreateConnectionData,
+  IntegrationsCatalogCreateConnectionResponse,
+  IntegrationsCatalogDeleteConnectionData,
+  IntegrationsCatalogDeleteConnectionResponse,
+  IntegrationsCatalogGetCatalogEntryData,
+  IntegrationsCatalogGetCatalogEntryResponse,
+  IntegrationsCatalogListCatalogData,
+  IntegrationsCatalogListCatalogResponse,
+  IntegrationsCatalogListConnectionsData,
+  IntegrationsCatalogListConnectionsResponse,
   IntegrationsConnectProviderData,
   IntegrationsConnectProviderResponse,
   IntegrationsDeleteIntegrationData,
@@ -11116,6 +11126,139 @@ export const integrationsOauthCallback = (
     query: {
       code: data.code,
       state: data.state,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Catalog
+ * List integrations visible to this workspace.
+ *
+ * Includes platform-shipped (``workspace_id IS NULL``) rows plus
+ * workspace-authored rows for the caller's workspace.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.source
+ * @param data.search
+ * @returns CatalogIntegrationRead Successful Response
+ * @throws ApiError
+ */
+export const integrationsCatalogListCatalog = (
+  data: IntegrationsCatalogListCatalogData
+): CancelablePromise<IntegrationsCatalogListCatalogResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/integrations/catalog",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      source: data.source,
+      search: data.search,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Catalog Entry
+ * Get an integration with its connections.
+ * @param data The data for the request.
+ * @param data.integrationId
+ * @param data.workspaceId
+ * @returns CatalogIntegrationDetail Successful Response
+ * @throws ApiError
+ */
+export const integrationsCatalogGetCatalogEntry = (
+  data: IntegrationsCatalogGetCatalogEntryData
+): CancelablePromise<IntegrationsCatalogGetCatalogEntryResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/integrations/catalog/{integration_id}",
+    path: {
+      integration_id: data.integrationId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Connections
+ * @param data The data for the request.
+ * @param data.integrationId
+ * @param data.workspaceId
+ * @returns CatalogConnectionRead Successful Response
+ * @throws ApiError
+ */
+export const integrationsCatalogListConnections = (
+  data: IntegrationsCatalogListConnectionsData
+): CancelablePromise<IntegrationsCatalogListConnectionsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/integrations/catalog/{integration_id}/connections",
+    path: {
+      integration_id: data.integrationId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Connection
+ * Create a static key-value connection for registry credentials.
+ * @param data The data for the request.
+ * @param data.integrationId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CatalogConnectionRead Successful Response
+ * @throws ApiError
+ */
+export const integrationsCatalogCreateConnection = (
+  data: IntegrationsCatalogCreateConnectionData
+): CancelablePromise<IntegrationsCatalogCreateConnectionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/integrations/catalog/{integration_id}/connections",
+    path: {
+      integration_id: data.integrationId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Connection
+ * @param data The data for the request.
+ * @param data.connectionId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const integrationsCatalogDeleteConnection = (
+  data: IntegrationsCatalogDeleteConnectionData
+): CancelablePromise<IntegrationsCatalogDeleteConnectionResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/workspaces/{workspace_id}/integrations/connections/{connection_id}",
+    path: {
+      connection_id: data.connectionId,
+      workspace_id: data.workspaceId,
     },
     errors: {
       422: "Validation Error",

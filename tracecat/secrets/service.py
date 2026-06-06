@@ -12,7 +12,11 @@ from tracecat.audit.logger import audit_log
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
-from tracecat.db.models import BaseSecret, OrganizationSecret, Secret
+from tracecat.db.models import (
+    BaseSecret,
+    OrganizationSecret,
+    Secret,
+)
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatCredentialsNotFoundError,
@@ -294,17 +298,16 @@ class SecretsService(BaseOrgService):
             return []
 
         workspace_id = self._require_workspace_id()
-        stmt = select(Secret).where(Secret.workspace_id == workspace_id)
         fields = params.model_dump(exclude_unset=True)
         self.logger.info("Searching secrets", set_fields=fields)
 
-        if ids := fields.get("ids"):
-            stmt = stmt.where(Secret.id.in_(ids))
+        stmt = select(Secret).where(Secret.workspace_id == workspace_id)
         if names := fields.get("names"):
             stmt = stmt.where(Secret.name.in_(names))
         if "environment" in fields:
             stmt = stmt.where(Secret.environment == fields["environment"])
-
+        if ids := fields.get("ids"):
+            stmt = stmt.where(Secret.id.in_(ids))
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
