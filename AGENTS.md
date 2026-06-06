@@ -179,6 +179,13 @@ just gen-functions
 - Never branch on exception or error-message strings to choose behavior, status
   codes, or retry policy. Use explicit exception types, machine-readable error
   codes in exception details, or structured error objects instead.
+- Boolean environment variables in `tracecat/config.py` must use `env_bool(...)`.
+  Do not add inline `.lower() == "true"`, `.lower() in (...)`, or
+  `bool(os.environ.get(...))` parsing. If a boolean env var is exposed through
+  Docker Compose, use `${VAR:-default}` instead of `${VAR}`, `VAR=`, or a
+  hardcoded literal so `.env` overrides still work. In `.env.example`, use an
+  explicit `true` or `false`, never a blank value. Update
+  `tests/unit/test_config.py` when adding deployment env files.
 - Use `pnpm` instead of `npm`, and prefer `rg` over slower text-search tools.
 - Ask clarifying questions when the task lacks enough context to make a safe
   change.
