@@ -1,0 +1,43 @@
+tracecat/auth/saml.py
+  s_4b5da5bacc7161::t_10735d77bdcabf 550-551
+docker-compose.yml
+  s_4b5da5bacc7161::t_a3d8a3a45faf7b 55-56,127-128,199-200,275-276,377-378
+  s_4b5da5bacc7161::t_f442b778612b75 82,142,206,384
+docker-compose.dev.yml
+  s_4b5da5bacc7161::t_e42393ba84771b 54-55,77,125-126,140,191-192,198,264-265,364-365,371
+docs/self-hosting/docker-compose.mdx
+  s_4b5da5bacc7161::t_6300b27dafcc33 10
+tests/unit/test_config.py
+  s_4b5da5bacc7161::t_62cdce722ad4d1 132-134,139-141
+  s_4b5da5bacc7161::t_160cbebddaa9ac 15,19-21,120,145-159,166-168
+  s_4b5da5bacc7161::t_ba85882860e626 17
+  s_4b5da5bacc7161::t_5185af653f2d07 3,5-6,13-14,16,18,22-38,100-119,121-131,135-138,142-144,164-165,169
+AGENTS.md
+  s_4b5da5bacc7161::t_0ed9b905dc5e95 182-184
+  s_4b5da5bacc7161::t_3841668ba40520 185-188
+docker-compose.local.yml
+  s_4b5da5bacc7161::t_ea03c7a31fb5e5 62-63,86,134-135,149,207-208,214,282-283,386-387,393
+tracecat/config.py
+  s_4b5da5bacc7161::t_b090f441f06d7e 59-61
+  s_4b5da5bacc7161::t_7f4448a7502c2a 57-58
+docs/authentication/saml.mdx
+  s_4b5da5bacc7161::t_a3fad97ed60b6c 40,216-217
+tracecat/AGENTS.md
+  s_4b5da5bacc7161::t_0fc532e66a5992 113-114
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "50dcb17210a51b2691a82e368d7804c74bce2581",
+  "prompts": {},
+  "sessions": {
+    "s_4b5da5bacc7161": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e9b68-7eca-7fb1-b237-18418149bbdb",
+        "model": "gpt-5.5"
+      },
+      "human_author": null
+    }
+  }
+}
