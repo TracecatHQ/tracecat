@@ -126,6 +126,32 @@ const auditDialogFormSchema = z
 
 type AuditDialogFormValues = z.infer<typeof auditDialogFormSchema>
 type HeaderEntry = AuditDialogFormValues["headers"][number]
+type AuditSettingsValues = {
+  audit_webhook_url: string | null
+  audit_webhook_custom_headers?: Record<string, string> | null
+  audit_webhook_custom_payload?: Record<string, unknown> | null
+  audit_webhook_payload_attribute?: string | null
+  audit_webhook_verify_ssl?: boolean
+  decryption_failed_keys?: string[]
+}
+type AuditSettingsUpdateBody = {
+  audit_webhook_url?: string | null
+  audit_webhook_custom_headers?: Record<string, string> | null
+  audit_webhook_custom_payload?: Record<string, unknown> | null
+  audit_webhook_payload_attribute?: string | null
+  audit_webhook_verify_ssl?: boolean
+}
+
+interface AuditSettingsFormProps {
+  auditSettings: AuditSettingsValues | undefined
+  auditSettingsIsLoading: boolean
+  auditSettingsError: Error | null
+  updateAuditSettings: (params: {
+    requestBody: AuditSettingsUpdateBody
+  }) => Promise<unknown>
+  updateAuditSettingsIsPending: boolean
+  decryptFailureTitle?: string
+}
 
 function toHeaderEntries(
   headers: Record<string, string> | null | undefined
@@ -213,14 +239,14 @@ function maskWebhookUrl(url: string): string {
   }
 }
 
-export function OrgSettingsAuditForm() {
-  const {
-    auditSettings,
-    auditSettingsIsLoading,
-    auditSettingsError,
-    updateAuditSettings,
-    updateAuditSettingsIsPending,
-  } = useOrgAuditSettings()
+export function AuditSettingsForm({
+  auditSettings,
+  auditSettingsIsLoading,
+  auditSettingsError,
+  updateAuditSettings,
+  updateAuditSettingsIsPending,
+  decryptFailureTitle = "Unable to decrypt organization settings",
+}: AuditSettingsFormProps) {
   const [dialogOpen, setDialogOpen] = useState(false)
 
   const form = useForm<AuditDialogFormValues>({
@@ -373,7 +399,7 @@ export function OrgSettingsAuditForm() {
         <Alert>
           <AlertTriangleIcon className="size-4 !text-destructive" />
           <AlertTitle className="text-destructive">
-            Unable to decrypt organization settings
+            {decryptFailureTitle}
           </AlertTitle>
           <AlertDescription>
             Failed to decrypt existing values for {failedKeys.join(", ")}.
@@ -602,5 +628,25 @@ export function OrgSettingsAuditForm() {
         </DialogContent>
       </Dialog>
     </>
+  )
+}
+
+export function OrgSettingsAuditForm() {
+  const {
+    auditSettings,
+    auditSettingsIsLoading,
+    auditSettingsError,
+    updateAuditSettings,
+    updateAuditSettingsIsPending,
+  } = useOrgAuditSettings()
+
+  return (
+    <AuditSettingsForm
+      auditSettings={auditSettings}
+      auditSettingsIsLoading={auditSettingsIsLoading}
+      auditSettingsError={auditSettingsError}
+      updateAuditSettings={updateAuditSettings}
+      updateAuditSettingsIsPending={updateAuditSettingsIsPending}
+    />
   )
 }

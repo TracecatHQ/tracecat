@@ -5,23 +5,32 @@ from __future__ import annotations
 from typing import Any
 
 import orjson
+from cryptography.fernet import InvalidToken
 from pydantic import SecretStr
 from pydantic_core import to_jsonable_python
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.audit.logger import audit_log
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import PlatformRole
 from tracecat.db.models import PlatformSetting
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BasePlatformService
+from tracecat.settings.schemas import AuditSettingsUpdate
 from tracecat_ee.admin.settings.schemas import (
+    PlatformAuditSettingsRead,
+    PlatformAuditSettingsUpdate,
     PlatformRegistrySettingsRead,
     PlatformRegistrySettingsUpdate,
 )
 
 # Platform settings keys that should be encrypted
-SENSITIVE_PLATFORM_KEYS: set[str] = set()
+SENSITIVE_PLATFORM_KEYS: set[str] = {
+    "audit_webhook_url",
+    "audit_webhook_custom_headers",
+    "audit_webhook_custom_payload",
+}
 
 # Registry-related platform settings
 REGISTRY_SETTINGS_KEYS = {
@@ -29,6 +38,8 @@ REGISTRY_SETTINGS_KEYS = {
     "git_repo_package_name",
     "git_allowed_domains",
 }
+
+AUDIT_SETTINGS_KEYS = AuditSettingsUpdate.keys()
 
 
 class AdminSettingsService(BasePlatformService):
@@ -62,6 +73,29 @@ class AdminSettingsService(BasePlatformService):
         result = await self.session.execute(stmt)
         return {s.key: self._get_value(s) for s in result.scalars().all()}
 
+    async def _get_settings_with_decryption_fallback(
+        self, keys: set[str]
+    ) -> tuple[dict[str, Any], list[str]]:
+        """Get platform settings while tolerating encrypted decrypt failures."""
+        stmt = select(PlatformSetting).where(PlatformSetting.key.in_(keys))
+        result = await self.session.execute(stmt)
+        values: dict[str, Any] = {}
+        decryption_failed_keys: list[str] = []
+        for setting in result.scalars().all():
+            try:
+                values[setting.key] = self._get_value(setting)
+            except (InvalidToken, ValueError) as exc:
+                if not setting.is_encrypted:
+                    raise
+                values[setting.key] = None
+                decryption_failed_keys.append(setting.key)
+                self.logger.warning(
+                    "Failed to decrypt platform setting; returning null and marking for reconfiguration",
+                    key=setting.key,
+                    error=str(exc),
+                )
+        return values, decryption_failed_keys
+
     async def _upsert_setting(self, key: str, value: Any) -> None:
         """Create or update a platform setting."""
         stmt = select(PlatformSetting).where(PlatformSetting.key == key)
@@ -87,6 +121,33 @@ class AdminSettingsService(BasePlatformService):
             )
             self.session.add(setting)
 
+    async def get_audit_settings(self) -> PlatformAuditSettingsRead:
+        """Get platform audit settings."""
+        (
+            settings,
+            decryption_failed_keys,
+        ) = await self._get_settings_with_decryption_fallback(AUDIT_SETTINGS_KEYS)
+        return PlatformAuditSettingsRead(
+            audit_webhook_url=settings.get("audit_webhook_url"),
+            audit_webhook_custom_headers=settings.get("audit_webhook_custom_headers"),
+            audit_webhook_custom_payload=settings.get("audit_webhook_custom_payload"),
+            audit_webhook_payload_attribute=settings.get(
+                "audit_webhook_payload_attribute"
+            ),
+            audit_webhook_verify_ssl=settings.get("audit_webhook_verify_ssl", True),
+            decryption_failed_keys=decryption_failed_keys,
+        )
+
+    @audit_log(resource_type="platform_setting", action="update")
+    async def update_audit_settings(
+        self, params: PlatformAuditSettingsUpdate
+    ) -> PlatformAuditSettingsRead:
+        """Update platform audit settings."""
+        for key, value in params.model_dump(exclude_unset=True).items():
+            await self._upsert_setting(key, value)
+        await self.session.commit()
+        return await self.get_audit_settings()
+
     async def get_registry_settings(self) -> PlatformRegistrySettingsRead:
         """Get platform registry settings."""
         settings = await self._get_settings(REGISTRY_SETTINGS_KEYS)
@@ -96,6 +157,7 @@ class AdminSettingsService(BasePlatformService):
             git_allowed_domains=settings.get("git_allowed_domains"),
         )
 
+    @audit_log(resource_type="platform_setting", action="update")
     async def update_registry_settings(
         self, params: PlatformRegistrySettingsUpdate
     ) -> PlatformRegistrySettingsRead:

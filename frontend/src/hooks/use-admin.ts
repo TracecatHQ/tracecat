@@ -29,6 +29,7 @@ import {
   adminDeleteOrganizationDomain,
   adminDeleteTier,
   adminDemoteFromSuperuser,
+  adminGetAuditSettings,
   adminGetOrganization,
   adminGetOrganizationInvitationToken,
   adminGetOrgTier,
@@ -52,6 +53,7 @@ import {
   adminRegistrySyncRepository,
   adminRevokeOrganizationInvitation,
   adminSyncOrgRepository,
+  adminUpdateAuditSettings,
   adminUpdateOrganization,
   adminUpdateOrganizationDomain,
   adminUpdateOrgTier,
@@ -66,6 +68,8 @@ import {
   type OrgDomainUpdate,
   type tracecat_ee__admin__organizations__schemas__OrgRead as OrgRead,
   type OrgUpdate,
+  type PlatformAuditSettingsRead,
+  type PlatformAuditSettingsUpdate,
   type PlatformRegistrySettingsUpdate,
   type RegistryArtifactsBackfillStartRequest,
   type RegistryArtifactsBackfillStartResponse,
@@ -819,6 +823,45 @@ export function useAdminRegistrySettings() {
     error,
     updateSettings,
     updatePending,
+  }
+}
+
+export function useAdminAuditSettings() {
+  const queryClient = useQueryClient()
+
+  const {
+    data: auditSettings,
+    isLoading: auditSettingsIsLoading,
+    error: auditSettingsError,
+  } = useQuery<PlatformAuditSettingsRead, Error>({
+    queryKey: ["admin", "audit", "settings"],
+    queryFn: adminGetAuditSettings,
+  })
+
+  const {
+    mutateAsync: updateAuditSettings,
+    isPending: updateAuditSettingsIsPending,
+    error: updateAuditSettingsError,
+  } = useMutation<
+    PlatformAuditSettingsRead,
+    Error,
+    { requestBody: PlatformAuditSettingsUpdate }
+  >({
+    mutationFn: ({ requestBody }) => adminUpdateAuditSettings({ requestBody }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["admin", "audit", "settings"],
+      })
+    },
+  })
+
+  return {
+    auditSettings,
+    auditSettingsIsLoading,
+    auditSettingsError,
+    updateAuditSettings,
+    updateAuditSettingsIsPending,
+    updateAuditSettingsError,
   }
 }
 
