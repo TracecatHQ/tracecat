@@ -1,0 +1,27 @@
+packages/tracecat-registry/tracecat_registry/integrations/cloudflare_sdk.py
+  s_abbe20fde87334::t_af5e5f250f97ea 115-116
+  s_abbe20fde87334::t_24e239f519d99a 73-78
+  s_abbe20fde87334::t_6753137487615a 60,98
+docs/tools/cloudflare_sdk.mdx
+  s_abbe20fde87334::t_a8f371fbd64733 39,77
+tests/registry/test_cloudflare_sdk.py
+  s_abbe20fde87334::t_f8920797cafee0 49
+  s_abbe20fde87334::t_bb8b301d933d85 124-125
+  s_abbe20fde87334::t_8379900e6ab461 4,9-10,12,16-17,21-23,29,31,34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "c5c1b29f6f8950622b22d2e9b29512e683e98d65",
+  "prompts": {},
+  "sessions": {
+    "s_abbe20fde87334": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0ce12424-8049-4a6d-8ba4-6e50dbf3b9f0",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
