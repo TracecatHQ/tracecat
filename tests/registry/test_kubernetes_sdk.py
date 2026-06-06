@@ -127,6 +127,44 @@ def test_build_api_client_uses_secret_context(monkeypatch) -> None:
     assert calls["api_client_configuration"] is calls["loader_configuration"]
 
 
+@pytest.mark.parametrize("blank_context", ["", "   "])
+def test_build_api_client_normalizes_blank_secret_context(
+    monkeypatch, blank_context: str
+) -> None:
+    """A blank KUBECONFIG_CONTEXT secret must fall back to `current-context`."""
+    calls: dict[str, Any] = {}
+
+    class Configuration:
+        pass
+
+    class ApiClient:
+        def __init__(self, *, configuration: Configuration) -> None:
+            pass
+
+    class Loader:
+        def __init__(
+            self, *, config_dict: dict[str, Any], active_context: str | None
+        ) -> None:
+            calls["active_context"] = active_context
+
+        def load_and_set(self, configuration: Configuration) -> None:
+            pass
+
+    monkeypatch.setattr(kubernetes_sdk.client, "Configuration", Configuration)
+    monkeypatch.setattr(kubernetes_sdk.client, "ApiClient", ApiClient)
+    monkeypatch.setattr(kubernetes_sdk, "KubeConfigLoader", Loader)
+    monkeypatch.setattr(kubernetes_sdk.secrets, "get", lambda key: _kubeconfig())
+    monkeypatch.setattr(
+        kubernetes_sdk.secrets,
+        "get_or_default",
+        lambda key: blank_context if key == "KUBECONFIG_CONTEXT" else None,
+    )
+
+    kubernetes_sdk._build_api_client()
+
+    assert calls["active_context"] is None
+
+
 @pytest.mark.parametrize(
     ("cluster_overrides", "user_overrides", "message"),
     [

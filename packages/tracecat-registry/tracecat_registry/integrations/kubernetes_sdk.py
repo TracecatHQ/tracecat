@@ -95,7 +95,11 @@ def _validate_no_executor_credentials(
 
 def _build_api_client() -> client.ApiClient:
     config_dict = _load_kubeconfig()
-    active_context = secrets.get_or_default("KUBECONFIG_CONTEXT")
+    # Normalize a blank/whitespace secret to None so the loader falls back to
+    # the kubeconfig `current-context` instead of seeking a context named "".
+    active_context = (
+        secrets.get_or_default("KUBECONFIG_CONTEXT") or ""
+    ).strip() or None
     _validate_no_executor_credentials(config_dict, active_context)
 
     configuration = client.Configuration()
