@@ -37,7 +37,7 @@ If this is a new deployment, make sure `TRACECAT__AUTH_SUPERADMIN_EMAIL` exactly
 
 ## Instructions
 
-Tracecat requires signed assertions and signed responses by default.
+Tracecat always requires signed assertions and signed responses.
 
 <Info>
     If you are using a self-signed certificate for your metadata URL, configure
@@ -213,8 +213,8 @@ deployment environment.
 - `SAML_ALLOW_UNSOLICITED`: Whether to allow unsolicited SAML responses (default: `false`)
 - `SAML_ACCEPTED_TIME_DIFF`: Time difference in seconds for SAML authentication (default: `3`)
 
-Tracecat requires signed assertions and signed responses by default, and fails
-closed on startup if both checks are disabled.
+Tracecat always requires signed assertions and signed responses. These checks are
+not configurable.
 
 ### SSL transport configuration
 - `SAML_VERIFY_SSL_ENTITY`: Whether to verify SSL certificates for general SAML entity operations (default: `true`)

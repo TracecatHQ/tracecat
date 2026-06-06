@@ -1,11 +1,40 @@
 from __future__ import annotations
 
+import ast
 import importlib
+import re
+from pathlib import Path
 
 import pytest
 
 import tracecat.config as tracecat_config
 from tracecat.config import bound_env, env_bool
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+CONFIG_PATH = REPO_ROOT / "tracecat" / "config.py"
+COMPOSE_ENV_FILES = (
+    REPO_ROOT / "docker-compose.yml",
+    REPO_ROOT / "docker-compose.dev.yml",
+    REPO_ROOT / "docker-compose.local.yml",
+)
+ENV_EXAMPLE_FILES = (REPO_ROOT / ".env.example",)
+DEPLOYMENT_ENV_FILES = (*COMPOSE_ENV_FILES, *ENV_EXAMPLE_FILES)
+
+
+def _config_bool_env_vars() -> set[str]:
+    tree = ast.parse(CONFIG_PATH.read_text())
+    env_vars: set[str] = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "env_bool"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+        ):
+            env_vars.add(node.args[0].value)
+    return env_vars
 
 
 def test_bound_env_returns_default_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -66,6 +95,78 @@ def test_env_bool_rejects_invalid_value(monkeypatch: pytest.MonkeyPatch) -> None
 
     with pytest.raises(ValueError, match="TEST_BOOL_ENV must be a boolean"):
         env_bool("TEST_BOOL_ENV", default=True)
+
+
+def test_config_boolean_env_values_use_env_bool() -> None:
+    source = CONFIG_PATH.read_text()
+    forbidden_patterns = {
+        r"\.lower\(\)\s*==\s*['\"]true['\"]": "inline true comparison",
+        r"\.lower\(\)\s+in\s+\(": "inline truthy token tuple",
+        r"bool\(\s*(?:os\.environ\.get|os\.getenv)\(": "bool(os.environ.get(...))",
+    }
+
+    violations = [
+        f"{description}: {pattern}"
+        for pattern, description in forbidden_patterns.items()
+        if re.search(pattern, source)
+    ]
+
+    assert not violations, (
+        "Boolean environment variables in tracecat/config.py must use env_bool(): "
+        + ", ".join(violations)
+    )
+
+
+def test_boolean_env_values_preserve_defaults_and_compose_overrides() -> None:
+    bool_env_vars = _config_bool_env_vars()
+    assert bool_env_vars
+
+    violations: list[str] = []
+    for path in DEPLOYMENT_ENV_FILES:
+        for lineno, line in enumerate(path.read_text().splitlines(), start=1):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            for env_var in bool_env_vars:
+                if re.fullmatch(rf"{re.escape(env_var)}=", stripped):
+                    violations.append(
+                        f"{path.relative_to(REPO_ROOT)}:{lineno}: {stripped}"
+                    )
+                if re.fullmatch(
+                    rf"{re.escape(env_var)}:\s*\$\{{{re.escape(env_var)}\}}",
+                    stripped,
+                ):
+                    violations.append(
+                        f"{path.relative_to(REPO_ROOT)}:{lineno}: {stripped}"
+                    )
+                if re.fullmatch(
+                    rf"-\s*{re.escape(env_var)}=\$\{{{re.escape(env_var)}\}}",
+                    stripped,
+                ):
+                    violations.append(
+                        f"{path.relative_to(REPO_ROOT)}:{lineno}: {stripped}"
+                    )
+                if path in COMPOSE_ENV_FILES and (
+                    re.fullmatch(
+                        rf"{re.escape(env_var)}:\s*['\"]?(?:true|false)['\"]?",
+                        stripped,
+                        flags=re.IGNORECASE,
+                    )
+                    or re.fullmatch(
+                        rf"-\s*{re.escape(env_var)}=['\"]?(?:true|false)['\"]?",
+                        stripped,
+                        flags=re.IGNORECASE,
+                    )
+                ):
+                    violations.append(
+                        f"{path.relative_to(REPO_ROOT)}:{lineno}: {stripped}"
+                    )
+
+    assert not violations, (
+        "Boolean env vars must not be blank/defaultless. Compose files must use "
+        "`${VAR:-default}` instead of hardcoded literals so .env overrides still "
+        "work: " + ", ".join(violations)
+    )
 
 
 def test_bound_env_clamps_below_lower(monkeypatch: pytest.MonkeyPatch) -> None:

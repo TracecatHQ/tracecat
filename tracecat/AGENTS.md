@@ -110,10 +110,8 @@ Common role types:
 - Required secret accessors live in `tracecat/auth/secrets.py`. Call the helper
   at the point of use instead of reading raw config values directly.
 - Do not default secrets to empty strings.
-- Boolean environment variables in `tracecat/config.py` must use `env_bool(...)`
-  instead of inline `.lower() == "true"` or `.lower() in (...)` checks.
-- Treat blank environment values as unset when a default exists, so defaults stay
-  defined in config code.
+- Treat blank environment values as unset when a default exists; use the shared
+  helpers in `tracecat/config.py` so defaults stay defined in code.
 - Keep security-sensitive defaults in config code instead of relying on Compose,
   `.env.example`, or deployment templates to provide them.
 - In `tracecat/config.py`, prefer `int(os.environ.get("VAR") or default)` for

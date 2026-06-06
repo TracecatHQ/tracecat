@@ -54,6 +54,11 @@ def env_bool(var: str, *, default: bool) -> bool:
 
     Missing, empty, or whitespace-only values return default. Non-empty values
     must be one of 1, true, yes, on, 0, false, no, or off.
+
+    Deployment files must not pass boolean env vars through as blank/defaultless
+    values. Keep Compose entries as `${VAR:-default}` so `.env` overrides still
+    work; keep `.env.example` entries explicit, never blank.
+    `tests/unit/test_config.py` enforces this.
     """
     raw_value = os.environ.get(var)
     if raw_value is None or not raw_value.strip():
@@ -338,20 +343,6 @@ SAML_AUTHN_REQUESTS_SIGNED = env_bool("SAML_AUTHN_REQUESTS_SIGNED", default=Fals
 """Whether to require signed SAML authentication requests. (default false)
 Do not set to true if authn requests are signed are false
 """
-
-SAML_SIGNED_ASSERTIONS = env_bool("SAML_SIGNED_ASSERTIONS", default=True)
-"""Whether to require signed SAML assertions."""
-
-SAML_SIGNED_RESPONSES = env_bool("SAML_SIGNED_RESPONSES", default=True)
-"""Whether to require signed SAML responses."""
-
-if AuthType.SAML in TRACECAT__AUTH_TYPES and not (
-    SAML_SIGNED_ASSERTIONS or SAML_SIGNED_RESPONSES
-):
-    raise ValueError(
-        "SAML SSO requires signed assertions or signed responses. "
-        "Set SAML_SIGNED_ASSERTIONS=true or SAML_SIGNED_RESPONSES=true."
-    )
 
 SAML_ACCEPTED_TIME_DIFF = int(os.environ.get("SAML_ACCEPTED_TIME_DIFF") or 3)
 """The time difference in seconds for SAML authentication."""
