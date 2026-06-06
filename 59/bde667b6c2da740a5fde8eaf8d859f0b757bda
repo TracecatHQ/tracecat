@@ -1,0 +1,21 @@
+tests/registry/test_kubernetes_sdk.py
+  s_abbe20fde87334::t_770ddcafc01863 130-167
+packages/tracecat-registry/tracecat_registry/integrations/kubernetes_sdk.py
+  s_abbe20fde87334::t_9f7c00236d3ed1 98-102
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "59bde667b6c2da740a5fde8eaf8d859f0b757bda",
+  "prompts": {},
+  "sessions": {
+    "s_abbe20fde87334": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0ce12424-8049-4a6d-8ba4-6e50dbf3b9f0",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
