@@ -21,6 +21,14 @@ class FakeItemPaged:
         return iter(self.items)
 
 
+class FakeLROPoller:
+    def __init__(self, result: Any) -> None:
+        self._result = result
+
+    def result(self) -> Any:
+        return self._result
+
+
 def test_call_method_uses_oauth_token_and_dispatches_client_method(monkeypatch) -> None:
     calls: dict[str, Any] = {}
 
@@ -61,7 +69,7 @@ def test_call_method_uses_oauth_token_and_dispatches_client_method(monkeypatch) 
         method_path="resource_groups",
         method_name="list",
         params={"top": 5},
-        client_kwargs={"base_url": "https://management.azure.com"},
+        client_kwargs={"api_version": "2022-09-01"},
     )
 
     assert result == {"value": [{"name": "rg-test"}]}
@@ -69,7 +77,7 @@ def test_call_method_uses_oauth_token_and_dispatches_client_method(monkeypatch) 
         "secret_key": azure_admin_sdk.azure_management_oauth_secret.token_name,
         "module_name": "azure.mgmt.resource",
         "subscription_id": "00000000-0000-0000-0000-000000000000",
-        "client_kwargs": {"base_url": "https://management.azure.com"},
+        "client_kwargs": {"api_version": "2022-09-01"},
         "token": "azure-token",
         "params": {"top": 5},
         "closed": True,
@@ -79,6 +87,76 @@ def test_call_method_uses_oauth_token_and_dispatches_client_method(monkeypatch) 
 def test_call_method_rejects_non_azure_mgmt_module() -> None:
     with pytest.raises(ValueError, match="azure.mgmt"):
         azure_admin_sdk._load_client_class("azure.identity", "DefaultAzureCredential")
+
+
+def test_load_client_class_reports_uninstalled_module(monkeypatch) -> None:
+    def fail_import(_module_name: str) -> Any:
+        raise ImportError("No module named 'azure.mgmt.compute'")
+
+    monkeypatch.setattr(azure_admin_sdk.importlib, "import_module", fail_import)
+    with pytest.raises(ValueError, match="not installed"):
+        azure_admin_sdk._load_client_class(
+            "azure.mgmt.compute", "ComputeManagementClient"
+        )
+
+
+@pytest.mark.parametrize(
+    "blocked_kwargs",
+    [
+        {"base_url": "https://attacker.example.com"},
+        {"endpoint": "https://attacker.example.com"},
+        {"credential_scopes": ["https://attacker.example.com/.default"]},
+    ],
+)
+def test_call_method_rejects_endpoint_overriding_client_kwargs(
+    monkeypatch, blocked_kwargs: dict[str, Any]
+) -> None:
+    monkeypatch.setattr(azure_admin_sdk.secrets, "get", lambda _key: "azure-token")
+    with pytest.raises(ValueError, match="credential or endpoint"):
+        azure_admin_sdk.call_method(
+            module_name="azure.mgmt.resource",
+            client_class="ResourceManagementClient",
+            subscription_id="00000000-0000-0000-0000-000000000000",
+            method_path="resource_groups",
+            method_name="get",
+            client_kwargs=blocked_kwargs,
+        )
+
+
+def test_call_method_materializes_long_running_poller(monkeypatch) -> None:
+    calls: dict[str, Any] = {}
+
+    class ResourceGroups:
+        def begin_delete(self, **_params: Any) -> FakeLROPoller:
+            return FakeLROPoller(FakeAzureModel({"status": "Succeeded"}))
+
+    class ResourceManagementClient:
+        def __init__(self, **_kwargs: Any) -> None:
+            self.resource_groups = ResourceGroups()
+
+        def close(self) -> None:
+            calls["closed"] = True
+
+    monkeypatch.setattr(azure_admin_sdk, "LROPoller", FakeLROPoller)
+    monkeypatch.setattr(
+        azure_admin_sdk.importlib,
+        "import_module",
+        lambda _module_name: SimpleNamespace(
+            ResourceManagementClient=ResourceManagementClient
+        ),
+    )
+    monkeypatch.setattr(azure_admin_sdk.secrets, "get", lambda _key: "azure-token")
+
+    result = azure_admin_sdk.call_method(
+        module_name="azure.mgmt.resource",
+        client_class="ResourceManagementClient",
+        subscription_id="00000000-0000-0000-0000-000000000000",
+        method_path="resource_groups",
+        method_name="begin_delete",
+    )
+
+    assert result == {"status": "Succeeded"}
+    assert calls == {"closed": True}
 
 
 def test_call_method_closes_client_when_method_raises(monkeypatch) -> None:

@@ -46,7 +46,7 @@ Azure subscription ID for the management client.
 
 <ParamField path="client_kwargs" type="object | null">
 
-Extra keyword arguments for the Azure SDK client.
+Extra keyword arguments for the Azure SDK client. Credential and endpoint overrides (e.g. `base_url`, `endpoint`) are not allowed.
 
 Default: `null`.
 
@@ -110,7 +110,7 @@ Azure subscription ID for the management client.
 
 <ParamField path="client_kwargs" type="object | null">
 
-Extra keyword arguments for the Azure SDK client.
+Extra keyword arguments for the Azure SDK client. Credential and endpoint overrides (e.g. `base_url`, `endpoint`) are not allowed.
 
 Default: `null`.
 

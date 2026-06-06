@@ -2,10 +2,13 @@
 
 import importlib
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Annotated, Any, cast
 
 from azure.core.credentials import AccessToken
 from azure.core.paging import ItemPaged
+from azure.core.polling import LROPoller
 from pydantic import Field
 from pydantic_core import to_jsonable_python
 
@@ -43,11 +46,35 @@ def _validate_public_name(name: str, field: str) -> None:
 def _load_client_class(module_name: str, client_class: str) -> type[Any]:
     if module_name != "azure.mgmt" and not module_name.startswith("azure.mgmt."):
         raise ValueError("Azure admin SDK module_name must start with `azure.mgmt`.")
-    module = importlib.import_module(module_name)
-    cls = getattr(module, client_class)
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError as exc:
+        raise ValueError(
+            f"Azure management module `{module_name}` is not installed in this "
+            "Tracecat deployment. Only the Azure management SDK packages bundled "
+            "with the registry can be used."
+        ) from exc
+    cls = getattr(module, client_class, None)
     if not isinstance(cls, type):
         raise TypeError(f"{module_name}.{client_class} is not a class.")
     return cls
+
+
+# Client kwargs that could redirect the bearer token to an attacker-controlled
+# endpoint or override the Tracecat-managed credential. Blocked to prevent SSRF
+# and OAuth token exfiltration.
+_BLOCKED_CLIENT_KWARGS = frozenset(
+    {"base_url", "endpoint", "credential", "credentials", "credential_scopes"}
+)
+
+
+def _validate_client_kwargs(client_kwargs: dict[str, Any]) -> None:
+    blocked = sorted(_BLOCKED_CLIENT_KWARGS & client_kwargs.keys())
+    if blocked:
+        raise ValueError(
+            "client_kwargs may not override credential or endpoint settings: "
+            f"{', '.join(blocked)}."
+        )
 
 
 def _resolve_method(client: Any, method_path: str | None, method_name: str) -> Any:
@@ -62,26 +89,52 @@ def _resolve_method(client: Any, method_path: str | None, method_name: str) -> A
     return getattr(target, method_name)
 
 
+def _to_jsonable(obj: Any) -> Any:
+    """Serialize a single Azure SDK value. Azure models expose `as_dict()`."""
+    if as_dict := getattr(obj, "as_dict", None):
+        return cast(Any, as_dict())
+    return cast(Any, to_jsonable_python(obj))
+
+
 def _serialize_result(result: Any) -> Any:
     if isinstance(result, ItemPaged):
         raise ValueError(
             "Azure paginated responses must be called with "
             "`tools.azure_admin_sdk.call_paginated_method`."
         )
-    if isinstance(result, dict):
-        return {key: _serialize_result(value) for key, value in result.items()}
-    if isinstance(result, list):
-        return [_serialize_result(item) for item in result]
-    if isinstance(result, tuple | set):
-        return [_serialize_result(item) for item in result]
-    if as_dict := getattr(result, "as_dict", None):
-        return _serialize_result(as_dict())
-    return cast(Any, to_jsonable_python(result))
+    if isinstance(result, LROPoller):
+        # `begin_*` methods return a long-running poller; wait for the operation
+        # to finish so the action returns a serializable result, not the poller.
+        result = result.result()
+    return _to_jsonable(result)
 
 
-def _close_client(client: Any) -> None:
-    if close := getattr(client, "close", None):
-        close()
+@contextmanager
+def _management_client(
+    module_name: str,
+    client_class: str,
+    subscription_id: str,
+    client_kwargs: dict[str, Any] | None,
+) -> Iterator[Any]:
+    """Build an isolated Azure management client and close it on exit.
+
+    The client must stay open while pagers are iterated and pollers are
+    resolved, so serialization happens inside the `with` block.
+    """
+    client_kwargs = client_kwargs or {}
+    _validate_client_kwargs(client_kwargs)
+    token = secrets.get(azure_management_oauth_secret.token_name)
+    client_type = _load_client_class(module_name, client_class)
+    client = client_type(
+        credential=StaticTokenCredential(token),
+        subscription_id=subscription_id,
+        **client_kwargs,
+    )
+    try:
+        yield client
+    finally:
+        if close := getattr(client, "close", None):
+            close()
 
 
 @registry.register(
@@ -125,23 +178,20 @@ def call_method(
     ] = None,
     client_kwargs: Annotated[
         dict[str, Any] | None,
-        Field(..., description="Extra keyword arguments for the Azure SDK client."),
+        Field(
+            ...,
+            description=(
+                "Extra keyword arguments for the Azure SDK client. Credential and "
+                "endpoint overrides (e.g. `base_url`, `endpoint`) are not allowed."
+            ),
+        ),
     ] = None,
 ) -> Any:
-    params = params or {}
-    client_kwargs = client_kwargs or {}
-    token = secrets.get(azure_management_oauth_secret.token_name)
-    client_type = _load_client_class(module_name, client_class)
-    client = client_type(
-        credential=StaticTokenCredential(token),
-        subscription_id=subscription_id,
-        **client_kwargs,
-    )
-    try:
-        result = _resolve_method(client, method_path, method_name)(**params)
+    with _management_client(
+        module_name, client_class, subscription_id, client_kwargs
+    ) as client:
+        result = _resolve_method(client, method_path, method_name)(**(params or {}))
         return _serialize_result(result)
-    finally:
-        _close_client(client)
 
 
 @registry.register(
@@ -188,24 +238,21 @@ def call_paginated_method(
     ] = None,
     client_kwargs: Annotated[
         dict[str, Any] | None,
-        Field(..., description="Extra keyword arguments for the Azure SDK client."),
+        Field(
+            ...,
+            description=(
+                "Extra keyword arguments for the Azure SDK client. Credential and "
+                "endpoint overrides (e.g. `base_url`, `endpoint`) are not allowed."
+            ),
+        ),
     ] = None,
 ) -> list[Any]:
-    params = params or {}
-    client_kwargs = client_kwargs or {}
-    token = secrets.get(azure_management_oauth_secret.token_name)
-    client_type = _load_client_class(module_name, client_class)
-    client = client_type(
-        credential=StaticTokenCredential(token),
-        subscription_id=subscription_id,
-        **client_kwargs,
-    )
-    try:
-        result = _resolve_method(client, method_path, method_name)(**params)
+    with _management_client(
+        module_name, client_class, subscription_id, client_kwargs
+    ) as client:
+        result = _resolve_method(client, method_path, method_name)(**(params or {}))
         if not isinstance(result, ItemPaged):
             raise ValueError(
                 "Azure paginated methods must return an Azure ItemPaged object."
             )
-        return [_serialize_result(item) for item in result]
-    finally:
-        _close_client(client)
+        return [_to_jsonable(item) for item in result]
