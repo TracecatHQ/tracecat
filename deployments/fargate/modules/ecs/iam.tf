@@ -172,7 +172,7 @@ resource "aws_iam_policy" "api_only_secrets_access" {
       {
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
-        Resource = [var.user_auth_secret_arn]
+        Resource = compact([var.user_auth_secret_arn, var.metrics_token_secret_arn])
       }
     ]
   })

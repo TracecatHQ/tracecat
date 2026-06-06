@@ -30,7 +30,40 @@ resource "aws_ecs_task_definition" "caddy_task_definition" {
         <<EOT
 cat > /etc/caddy/Caddyfile <<'CONFIG'
 :80 {
-  handle_path /api* {
+  # Metrics are scraped over Service Connect, not the public Caddy entrypoint.
+  @public_metrics {
+    path /metrics /metrics/* /api/metrics /api/metrics/* /mcp/metrics /mcp/metrics/*
+  }
+  handle @public_metrics {
+    respond 404
+  }
+
+  # Keep /api exact-or-slash-prefixed. /api* also matches /apimetrics and
+  # handle_path would strip that to upstream /metrics.
+  handle_path /api {
+    header {
+      Cache-Control "no-cache, no-transform"
+      Pragma "no-cache"
+      X-Accel-Buffering "no"
+    }
+    reverse_proxy http://api-service:8000 {
+      flush_interval -1
+      header_up Cache-Control "no-cache, no-transform"
+      header_up Pragma "no-cache"
+      header_up X-Accel-Buffering "no"
+      header_up Connection "keep-alive"
+      header_up Keep-Alive "timeout=300"
+      header_down Connection "keep-alive"
+      header_down Keep-Alive "timeout=300"
+      header_down -Content-Length
+      header_up X-Forwarded-For {remote_host}
+      header_up X-Real-IP {remote_host}
+      header_up X-Forwarded-Proto {scheme}
+      header_up X-Forwarded-Host {host}
+    }
+  }
+
+  handle_path /api/* {
     header {
       Cache-Control "no-cache, no-transform"
       Pragma "no-cache"

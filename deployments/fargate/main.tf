@@ -113,13 +113,14 @@ module "ecs" {
   auth_superadmin_email    = var.auth_superadmin_email
 
   # OAuth
-  oauth_client_id_arn     = var.oauth_client_id_arn
-  oauth_client_secret_arn = var.oauth_client_secret_arn
-  oidc_issuer             = var.oidc_issuer
-  oidc_scopes             = var.oidc_scopes
-  oidc_client_id_arn      = var.oidc_client_id_arn
-  oidc_client_secret_arn  = var.oidc_client_secret_arn
-  user_auth_secret_arn    = var.user_auth_secret_arn
+  oauth_client_id_arn      = var.oauth_client_id_arn
+  oauth_client_secret_arn  = var.oauth_client_secret_arn
+  oidc_issuer              = var.oidc_issuer
+  oidc_scopes              = var.oidc_scopes
+  oidc_client_id_arn       = var.oidc_client_id_arn
+  oidc_client_secret_arn   = var.oidc_client_secret_arn
+  user_auth_secret_arn     = var.user_auth_secret_arn
+  metrics_token_secret_arn = var.metrics_token_secret_arn
 
   # SAML SSO
   saml_idp_metadata_url_arn  = var.saml_idp_metadata_url_arn

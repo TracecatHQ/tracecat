@@ -49,6 +49,8 @@ from slugify import slugify
 from sqlalchemy import delete, select
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.requests import Request
+from starlette.responses import Response
 from temporalio.client import WorkflowExecutionStatus
 from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
@@ -191,6 +193,10 @@ from tracecat.mcp.schemas import (
     WorkflowLayout,
     WorkflowSchedule,
     WorkflowYamlPayload,
+)
+from tracecat.middleware.metrics import (
+    metrics_auth_failure_status,
+    prometheus_metrics_response,
 )
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.registry.actions.schemas import TemplateAction
@@ -2998,6 +3004,17 @@ mcp.add_middleware(
 mcp.add_middleware(
     LoggingMiddleware(methods=["tools/call"], include_payload_length=True)
 )
+
+
+@mcp.custom_route("/metrics", methods=["GET"], include_in_schema=False)
+async def metrics(request: Request):
+    # Keep metrics available on the direct in-cluster scrape path, but avoid
+    # exposing them through the public MCP root prefix such as /mcp/metrics.
+    if request.scope.get("path") != "/metrics":
+        return Response(status_code=404)
+    if failure_status := metrics_auth_failure_status(request):
+        return Response(status_code=failure_status)
+    return prometheus_metrics_response()
 
 
 # ---------------------------------------------------------------------------

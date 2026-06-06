@@ -9,7 +9,26 @@
 		}
 	}
 
-	handle_path /api* {
+	# Metrics are scraped over the private service network, not the public proxy.
+	@public_metrics {
+		path /metrics /metrics/* /api/metrics /api/metrics/* /mcp/metrics /mcp/metrics/*
+	}
+	handle @public_metrics {
+		respond 404
+	}
+
+	# Keep /api exact-or-slash-prefixed. /api* also matches /apimetrics and
+	# handle_path would strip that to upstream /metrics.
+	handle_path /api {
+		reverse_proxy http://api:8000 {
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-Host {host}
+		}
+	}
+
+	handle_path /api/* {
 		reverse_proxy http://api:8000 {
 			header_up X-Forwarded-For {remote_host}
 			header_up X-Real-IP {remote_host}

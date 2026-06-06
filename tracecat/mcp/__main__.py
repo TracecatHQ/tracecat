@@ -10,6 +10,8 @@ import importlib
 import sys
 import time
 
+from starlette.middleware import Middleware
+
 from tracecat.logger import logger
 from tracecat.mcp.config import (
     TRACECAT_MCP__HOST,
@@ -17,6 +19,7 @@ from tracecat.mcp.config import (
     TRACECAT_MCP__STARTUP_MAX_ATTEMPTS,
     TRACECAT_MCP__STARTUP_RETRY_DELAY_SECONDS,
 )
+from tracecat.middleware.metrics import HTTPMetricsMiddleware
 
 
 def _run_mcp_server() -> None:
@@ -27,7 +30,10 @@ def _run_mcp_server() -> None:
     else:
         module = importlib.import_module(server_module_name)
     module.mcp.run(
-        transport="streamable-http", host=TRACECAT_MCP__HOST, port=TRACECAT_MCP__PORT
+        transport="streamable-http",
+        host=TRACECAT_MCP__HOST,
+        port=TRACECAT_MCP__PORT,
+        middleware=[Middleware(HTTPMetricsMiddleware, component="mcp")],
     )
 
 

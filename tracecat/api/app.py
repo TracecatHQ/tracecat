@@ -140,7 +140,12 @@ from tracecat.mcp.personal_access_tokens.router import (
 )
 from tracecat.middleware import (
     AuthorizationCacheMiddleware,
+    HTTPMetricsMiddleware,
     RequestLoggingMiddleware,
+)
+from tracecat.middleware.metrics import (
+    metrics_auth_failure_status,
+    prometheus_metrics_response,
 )
 from tracecat.middleware.security import SecurityHeadersMiddleware
 from tracecat.organization.management import (
@@ -680,6 +685,7 @@ def create_app(**kwargs) -> FastAPI:
     # Middleware
     # Add authorization cache middleware first so it's available for all requests
     app.add_middleware(AuthorizationCacheMiddleware)
+    app.add_middleware(HTTPMetricsMiddleware, component="api")
     app.add_middleware(RequestLoggingMiddleware)
     if config.TRACECAT__APP_ENV != "development":
         app.add_middleware(SecurityHeadersMiddleware)
@@ -765,6 +771,18 @@ async def info(session: AsyncDBSessionBypass) -> AppInfo:
 @app.get("/health", tags=["public"])
 async def check_health() -> HealthResponse:
     return HealthResponse(status="ok")
+
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics(request: Request) -> Response:
+    # The API runs with root_path="/api" in production. Keep the metrics endpoint
+    # available only on the direct in-cluster scrape path, not on the public
+    # root-prefixed API path such as /api/metrics.
+    if request.scope.get("path") != "/metrics":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    if failure_status := metrics_auth_failure_status(request):
+        raise HTTPException(status_code=failure_status)
+    return prometheus_metrics_response()
 
 
 @app.get(

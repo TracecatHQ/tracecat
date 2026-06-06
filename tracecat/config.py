@@ -70,6 +70,8 @@ TRACECAT__PUBLIC_API_URL = os.environ.get(
 TRACECAT__PUBLIC_APP_URL = os.environ.get(
     "TRACECAT__PUBLIC_APP_URL", "http://localhost"
 )
+TRACECAT__METRICS_TOKEN = os.environ.get("TRACECAT__METRICS_TOKEN") or None
+"""Optional bearer token for Prometheus metrics endpoints."""
 
 TRACECAT__LOOP_MAX_BATCH_SIZE = int(
     os.environ.get("TRACECAT__LOOP_MAX_BATCH_SIZE") or 64
