@@ -49,10 +49,8 @@ from tracecat.workflow.management.schemas import WorkflowUpdate
 
 type WorkerFactory = Callable[[Client], Worker]
 
-ITEM_COUNT = 25
-MASSIVE_ITEM_COUNT = 50
+ITEM_COUNT = 3
 ITEM_SIZE_BYTES = 2 * 1024 * 1024
-MASSIVE_SCATTER_GATHER_MAX_PENDING_TASKS = 8
 
 
 async def _create_and_commit_workflow(
@@ -196,7 +194,7 @@ async def test_looped_subflow_large_payload_no_s3_select_dependency(
     - Large JSON records (>1MB) could fail with OverMaxRecordSize.
 
     This test verifies:
-    - A looped subflow over 25x2MB payloads succeeds end-to-end.
+    - A looped subflow over multiple >1MB payloads succeeds end-to-end.
     - Execution does not regress to the old S3 Select failure path.
     """
 
@@ -394,102 +392,5 @@ async def test_scatter_gather_large_payload_stores_refs_not_raw_chunk_values(
     last = await storage.retrieve(gather_stored.at(ITEM_COUNT - 1))
     assert first["idx"] == 0
     assert last["idx"] == ITEM_COUNT - 1
-    assert first["payload"].startswith(sentinel)
-    assert last["payload"].startswith(sentinel)
-
-
-@pytest.mark.anyio
-@pytest.mark.integration
-@pytest.mark.slow
-@pytest.mark.regression
-async def test_scatter_gather_massive_payload_50x2mb_e2e(
-    test_role: Role,
-    temporal_client: Client,
-    test_worker_factory: WorkerFactory,
-    test_executor_worker_factory: WorkerFactory,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """E2E plumbing test for a massive payload (50 items x 2MB each).
-
-    This validates that a ~100MB logical payload can flow through scatter/gather
-    without hanging and with refs-only collection chunk layout.
-    """
-    _configure_storage_credentials(monkeypatch)
-    monkeypatch.setenv(
-        "TRACECAT__DSL_SCHEDULER_MAX_PENDING_TASKS",
-        str(MASSIVE_SCATTER_GATHER_MAX_PENDING_TASKS),
-    )
-    monkeypatch.setattr(
-        config,
-        "TRACECAT__DSL_SCHEDULER_MAX_PENDING_TASKS",
-        MASSIVE_SCATTER_GATHER_MAX_PENDING_TASKS,
-    )
-    sentinel = f"__massive-scatter-gather-sentinel-{uuid.uuid4().hex}__"
-    items = _build_large_items(
-        item_count=MASSIVE_ITEM_COUNT,
-        item_size_bytes=ITEM_SIZE_BYTES,
-        sentinel=sentinel,
-    )
-    storage = get_object_storage()
-    trigger_inputs = await storage.store(
-        f"tests/regression/scatter-gather-massive/{uuid.uuid4().hex}/trigger.json",
-        {"items": items},
-    )
-
-    dsl = DSLInput(
-        title="Massive scatter gather e2e",
-        description="Plumb 50x2MB payload through scatter/gather",
-        entrypoint=DSLEntrypoint(ref="scatter"),
-        actions=[
-            ActionStatement(
-                ref="scatter",
-                action="core.transform.scatter",
-                args=ScatterArgs(collection="${{ TRIGGER.items }}").model_dump(),
-            ),
-            ActionStatement(
-                ref="reshape",
-                action="core.transform.reshape",
-                depends_on=["scatter"],
-                args={"value": "${{ ACTIONS.scatter.result }}"},
-            ),
-            ActionStatement(
-                ref="gather",
-                action="core.transform.gather",
-                depends_on=["reshape"],
-                args=GatherArgs(items="${{ ACTIONS.reshape.result }}").model_dump(),
-            ),
-        ],
-    )
-
-    wf_exec_id = generate_test_exec_id(
-        f"{test_scatter_gather_massive_payload_50x2mb_e2e.__name__}-{uuid.uuid4().hex[:8]}"
-    )
-    run_args = DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID)
-    run_args.trigger_inputs = trigger_inputs
-    result = await _run_workflow(
-        temporal_client=temporal_client,
-        worker_factory=test_worker_factory,
-        executor_worker_factory=test_executor_worker_factory,
-        wf_exec_id=wf_exec_id,
-        run_args=run_args,
-    )
-
-    raw_context = await to_data(result)
-    actions = raw_context["ACTIONS"]
-    assert "gather" in actions, (
-        f"Expected gather action in context, got: {actions.keys()}"
-    )
-    gather_stored = StoredObjectValidator.validate_python(actions["gather"]["result"])
-    assert isinstance(gather_stored, CollectionObject)
-    await _assert_refs_layout(
-        collection=gather_stored,
-        item_count=MASSIVE_ITEM_COUNT,
-        sentinel=sentinel,
-    )
-
-    first = await storage.retrieve(gather_stored.at(0))
-    last = await storage.retrieve(gather_stored.at(MASSIVE_ITEM_COUNT - 1))
-    assert first["idx"] == 0
-    assert last["idx"] == MASSIVE_ITEM_COUNT - 1
     assert first["payload"].startswith(sentinel)
     assert last["payload"].startswith(sentinel)

@@ -242,8 +242,9 @@ class TestRateLimitMiddleware:
         response3 = await middleware.dispatch(mock_request, mock_call_next)
         assert response3.status_code == HTTP_429_TOO_MANY_REQUESTS
 
-        # Wait for tokens to refill
-        await asyncio.sleep(1.1)  # Wait for at least 1 token to be refilled
+        # Simulate enough elapsed time for one token to refill without sleeping.
+        bucket = middleware.buckets[middleware.get_bucket_key(mock_request)]
+        bucket.last_refill = time.time() - 1.1
 
         # Fourth request should succeed after waiting
         response4 = await middleware.dispatch(mock_request, mock_call_next)
