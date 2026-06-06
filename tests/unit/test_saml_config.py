@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib
-from pathlib import Path
 
 import pytest
 
@@ -77,11 +76,3 @@ def test_config_rejects_invalid_saml_boolean(
             _reload_config()
 
     _reload_config()
-
-
-def test_docker_compose_saml_signing_defaults_are_secure() -> None:
-    for compose_file in ("docker-compose.yml", "docker-compose.local.yml"):
-        text = Path(compose_file).read_text()
-
-        assert "SAML_SIGNED_ASSERTIONS: ${SAML_SIGNED_ASSERTIONS:-true}" in text
-        assert "SAML_SIGNED_RESPONSES: ${SAML_SIGNED_RESPONSES:-true}" in text

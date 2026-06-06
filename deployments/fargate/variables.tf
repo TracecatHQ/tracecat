@@ -413,48 +413,6 @@ variable "saml_allow_unsolicited" {
   default     = false
 }
 
-variable "saml_authn_requests_signed" {
-  type        = bool
-  description = "Require signed SAML authn requests"
-  default     = false
-}
-
-variable "saml_signed_assertions" {
-  type        = bool
-  description = "Require signed SAML assertions"
-  default     = true
-}
-
-variable "saml_signed_responses" {
-  type        = bool
-  description = "Require signed SAML responses"
-  default     = true
-}
-
-variable "saml_verify_ssl_entity" {
-  type        = bool
-  description = "Verify SSL certificates for SAML entity operations"
-  default     = true
-}
-
-variable "saml_verify_ssl_metadata" {
-  type        = bool
-  description = "Verify SSL certificates for SAML metadata operations"
-  default     = true
-}
-
-variable "saml_ca_certs_arn" {
-  type        = string
-  description = "The ARN of the secret containing SAML CA certs (optional)"
-  default     = null
-}
-
-variable "saml_metadata_cert_arn" {
-  type        = string
-  description = "The ARN of the secret containing SAML metadata cert (optional)"
-  default     = null
-}
-
 # Temporal UI
 
 variable "temporal_auth_provider_url" {

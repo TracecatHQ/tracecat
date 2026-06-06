@@ -51,6 +51,10 @@
 | :------- | :------ | :---------- |
 | `SAML_IDP_METADATA_URL` | | URL to your SAML IdP metadata XML. |
 | `SAML_ACCEPTED_TIME_DIFF` | `3` | Maximum clock skew in seconds accepted when validating SAML assertions. |
+| `SAML_ALLOW_UNSOLICITED` | `false` | Whether to allow unsolicited SAML responses. |
+| `SAML_VERIFY_SSL_ENTITY` | `true` | Whether to verify SSL certificates for general SAML entity operations. |
+| `SAML_VERIFY_SSL_METADATA` | `true` | Whether to verify SSL certificates when fetching SAML metadata. |
+| `SAML_CA_CERTS` | | Optional base64-encoded CA bundle for validating self-signed IdP metadata TLS certificates. |
 
 ### Temporal
 
