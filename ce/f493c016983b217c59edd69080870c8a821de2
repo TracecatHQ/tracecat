@@ -1,0 +1,29 @@
+tests/registry/test_azure_admin_sdk.py
+  s_abbe20fde87334::t_9ca7b524ad31a5 92-161
+  s_abbe20fde87334::t_0e214827e7ecb3 24-31
+  s_abbe20fde87334::t_a2b7c593a8bb2f 72,80
+packages/tracecat-registry/tracecat_registry/integrations/azure_admin_sdk.py
+  s_abbe20fde87334::t_dcaf8cf751c232 181-187,241-247
+  s_abbe20fde87334::t_975a5f5f910107 49-57,63-79,92-98,105-110,112-119,121-137
+  s_abbe20fde87334::t_7e509f6a21c9b1 5-6,11
+  s_abbe20fde87334::t_09d221bd8e5b97 190-193
+  s_abbe20fde87334::t_b5f5fa9e030531 250-253,258
+docs/tools/azure_admin_sdk.mdx
+  s_abbe20fde87334::t_a8eecfec687855 49,113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "cef493c016983b217c59edd69080870c8a821de2",
+  "prompts": {},
+  "sessions": {
+    "s_abbe20fde87334": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0ce12424-8049-4a6d-8ba4-6e50dbf3b9f0",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
