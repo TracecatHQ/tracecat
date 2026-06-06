@@ -306,6 +306,18 @@ examples:
             GROUP BY severity
             ORDER BY count DESC
 
+  sql-duckdb-s3:
+    title: Read from S3
+    language: yaml
+    code: |
+      # Attach the amazon_s3 secret (static keys or AWS_ROLE_ARN for AssumeRole).
+      - ref: read_s3
+        action: core.duckdb.execute_sql
+        args:
+          sql: |
+            SELECT *
+            FROM read_parquet('s3://my-bucket/findings/*.parquet')
+
   ssh-command:
     title: Execute a remote command
     language: yaml

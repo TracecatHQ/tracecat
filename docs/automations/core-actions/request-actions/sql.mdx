@@ -68,6 +68,12 @@ Default: `200`.
 
 Execute SQL in an in-process DuckDB engine
 
+### Secrets
+
+Optional secrets:
+
+- `amazon_s3`: optional values `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION`, `AWS_ROLE_ARN`, `AWS_ROLE_SESSION_NAME`.
+
 ### Inputs
 
 <ParamField path="sql" type="string" required>
@@ -92,4 +98,16 @@ SQL to execute in an in-process DuckDB connection.
       FROM findings
       GROUP BY severity
       ORDER BY count DESC
+```
+
+**Read from S3**
+
+```yaml
+# Attach the amazon_s3 secret (static keys or AWS_ROLE_ARN for AssumeRole).
+- ref: read_s3
+  action: core.duckdb.execute_sql
+  args:
+    sql: |
+      SELECT *
+      FROM read_parquet('s3://my-bucket/findings/*.parquet')
 ```

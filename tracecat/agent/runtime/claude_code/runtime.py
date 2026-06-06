@@ -210,8 +210,8 @@ COMMAND_LINE_TOOLS_PROMPT = (
     "- `duckdb`: The runtime shell includes the DuckDB CLI. Use it for local "
     "SQL and tabular data inspection over files such as CSV, JSON, Parquet, "
     "and DuckDB database files. The CLI is configured with the `json`, "
-    "`postgres`, `httpfs`, `sqlite`, and `inet` extensions for JSON, "
-    "PostgreSQL, HTTP/S3, SQLite, and IP address workflows. This is a local "
+    "`httpfs`, `inet`, and `fts` extensions for JSON, HTTP/S3, IP address, "
+    "and full-text search workflows. This is a local "
     "command-line capability, not a Tracecat action or MCP tool.\n"
     "</CommandLineTools>"
 )
