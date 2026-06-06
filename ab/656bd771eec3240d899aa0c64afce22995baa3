@@ -1,0 +1,30 @@
+docker-compose.yml
+  s_4b5da5bacc7161::t_f442b778612b75 82,142,206,384
+tracecat/auth/saml.py
+  s_4b5da5bacc7161::t_10735d77bdcabf 550-551
+docs/authentication/saml.mdx
+  s_4b5da5bacc7161::t_a3fad97ed60b6c 40,216-217
+docker-compose.local.yml
+  s_4b5da5bacc7161::t_ea03c7a31fb5e5 62-63,86,134-135,149,207-208,214,282-283,386-387,393
+tests/unit/test_config.py
+  s_4b5da5bacc7161::t_5185af653f2d07 3,5-6,13-36,98-129,133-136,140-143,147-152
+  s_4b5da5bacc7161::t_62cdce722ad4d1 130-132,137-139,144-146
+docs/self-hosting/docker-compose.mdx
+  s_4b5da5bacc7161::t_6300b27dafcc33 10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "ab656bd771eec3240d899aa0c64afce22995baa3",
+  "prompts": {},
+  "sessions": {
+    "s_4b5da5bacc7161": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e9b68-7eca-7fb1-b237-18418149bbdb",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
