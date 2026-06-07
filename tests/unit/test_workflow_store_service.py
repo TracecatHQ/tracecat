@@ -9,13 +9,11 @@ import pytest
 
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
-from tracecat.cases.enums import CaseEventType
 from tracecat.db.models import Workflow
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.sync import PushStatus
-from tracecat.workflow.store.schemas import WorkflowDslPublish
+from tracecat.workflow.store.schemas import WorkflowDslPublish, WorkflowDslPublishResult
 from tracecat.workflow.store.service import WorkflowStoreService
 
 
@@ -69,7 +67,7 @@ def _workflow_fixture(
 
 
 @pytest.mark.anyio
-async def test_publish_workflow_omits_inert_case_trigger(
+async def test_publish_workflow_uses_workspace_sync_exporter(
     workflow_store_service: WorkflowStoreService,
     sample_dsl: DSLInput,
 ) -> None:
@@ -83,44 +81,40 @@ async def test_publish_workflow_omits_inert_case_trigger(
         ),
     )
 
-    with (
-        patch("tracecat.workflow.store.service.WorkspaceService") as workspace_cls,
-        patch("tracecat.workflow.store.service.WorkflowSyncService") as sync_cls,
-    ):
-        workspace_service = AsyncMock()
-        workspace_service.get_workspace.return_value = SimpleNamespace(
-            settings={"git_repo_url": "git+ssh://git@github.com/test-org/test-repo.git"}
-        )
-        workspace_cls.return_value = workspace_service
-
+    with patch("tracecat.workflow.store.service.WorkspaceGitSyncService") as sync_cls:
         sync_service = AsyncMock()
-        sync_service.push.return_value = SimpleNamespace(
-            status=PushStatus.NO_OP,
-            sha="abc123",
-            ref="feature/test",
-            base_ref="main",
-            pr_url=None,
-            pr_number=None,
-            pr_reused=False,
-            message="No changes",
+        sync_service.export_workflow_publish_result.return_value = (
+            WorkflowDslPublishResult(
+                status="no_op",
+                commit_sha="abc123",
+                branch="feature/test",
+                base_branch="main",
+                pr_url=None,
+                pr_number=None,
+                pr_reused=False,
+                message="No changes",
+            )
         )
         sync_cls.return_value = sync_service
 
-        await workflow_store_service.publish_workflow_dsl(
+        result = await workflow_store_service.publish_workflow_dsl(
             workflow_id=workflow_id,
             dsl=sample_dsl,
             params=WorkflowDslPublish(branch="feature/test", create_pr=False),
             workflow=cast(Workflow, workflow),
         )
 
-    push_obj = sync_service.push.call_args.kwargs["objects"][0]
-    assert push_obj.data.case_trigger is None
-    # include_headers must be exported so it survives a store round-trip
-    assert push_obj.data.webhook.include_headers is True
+    assert result.status == "no_op"
+    sync_service.export_workflow_publish_result.assert_awaited_once()
+    call = sync_service.export_workflow_publish_result.call_args.kwargs
+    assert call["workflow"] is workflow
+    assert call["dsl"] is sample_dsl
+    assert call["options"].branch == "feature/test"
+    assert call["options"].create_pr is False
 
 
 @pytest.mark.anyio
-async def test_publish_workflow_includes_configured_case_trigger(
+async def test_publish_workflow_legacy_mode_uses_temp_branch_and_pr(
     workflow_store_service: WorkflowStoreService,
     sample_dsl: DSLInput,
 ) -> None:
@@ -128,44 +122,35 @@ async def test_publish_workflow_includes_configured_case_trigger(
     workflow = _workflow_fixture(
         workflow_id,
         case_trigger=SimpleNamespace(
-            status="online",
-            event_types=[CaseEventType.CASE_CREATED.value],
-            tag_filters=["phishing"],
+            status="offline",
+            event_types=[],
+            tag_filters=[],
         ),
     )
 
-    with (
-        patch("tracecat.workflow.store.service.WorkspaceService") as workspace_cls,
-        patch("tracecat.workflow.store.service.WorkflowSyncService") as sync_cls,
-    ):
-        workspace_service = AsyncMock()
-        workspace_service.get_workspace.return_value = SimpleNamespace(
-            settings={"git_repo_url": "git+ssh://git@github.com/test-org/test-repo.git"}
-        )
-        workspace_cls.return_value = workspace_service
-
+    with patch("tracecat.workflow.store.service.WorkspaceGitSyncService") as sync_cls:
         sync_service = AsyncMock()
-        sync_service.push.return_value = SimpleNamespace(
-            status=PushStatus.NO_OP,
-            sha="abc123",
-            ref="feature/test",
-            base_ref="main",
-            pr_url=None,
-            pr_number=None,
-            pr_reused=False,
-            message="No changes",
+        sync_service.export_workflow_publish_result.return_value = (
+            WorkflowDslPublishResult(
+                status="no_op",
+                commit_sha="abc123",
+                branch="tracecat-sync-20260605-000000",
+                base_branch="main",
+                pr_url=None,
+                pr_number=None,
+                pr_reused=False,
+                message="No changes",
+            )
         )
         sync_cls.return_value = sync_service
 
         await workflow_store_service.publish_workflow_dsl(
             workflow_id=workflow_id,
             dsl=sample_dsl,
-            params=WorkflowDslPublish(branch="feature/test", create_pr=False),
+            params=WorkflowDslPublish(branch=None, create_pr=False),
             workflow=cast(Workflow, workflow),
         )
 
-    push_obj = sync_service.push.call_args.kwargs["objects"][0]
-    assert push_obj.data.case_trigger is not None
-    assert push_obj.data.case_trigger.status == "online"
-    assert push_obj.data.case_trigger.event_types == [CaseEventType.CASE_CREATED]
-    assert push_obj.data.case_trigger.tag_filters == ["phishing"]
+    call = sync_service.export_workflow_publish_result.call_args.kwargs
+    assert call["options"].branch.startswith("tracecat-sync-")
+    assert call["options"].create_pr is True

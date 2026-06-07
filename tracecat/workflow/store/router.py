@@ -23,7 +23,7 @@ from tracecat.workflow.store.schemas import (
     WorkflowSyncPullRequest,
 )
 from tracecat.workflow.store.service import WorkflowStoreService
-from tracecat.workflow.store.sync import WorkflowSyncService
+from tracecat.workspace_sync.service import WorkspaceGitSyncService
 from tracecat.workspaces.service import WorkspaceService
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
@@ -136,8 +136,8 @@ async def list_workflow_commits(
         # Parse and validate Git URL
         git_url = parse_git_url(repository_url)
 
-        # Initialize workflow sync service
-        sync_service = WorkflowSyncService(session=session, role=role)
+        # Initialize workspace sync service
+        sync_service = WorkspaceGitSyncService(session=session, role=role)
 
         # Fetch commits using GitHub App API
         commits = await sync_service.list_commits(
@@ -215,7 +215,7 @@ async def list_workflow_branches(
             )
 
         git_url = parse_git_url(repository_url)
-        sync_service = WorkflowSyncService(session=session, role=role)
+        sync_service = WorkspaceGitSyncService(session=session, role=role)
         branches = await sync_service.list_branches(url=git_url, limit=limit)
         return branches
     except HTTPException:
@@ -294,8 +294,8 @@ async def pull_workflows(
             dry_run=params.dry_run,
         )
 
-        # Initialize workflow sync service
-        sync_service = WorkflowSyncService(session=session, role=role)
+        # Initialize workspace sync service
+        sync_service = WorkspaceGitSyncService(session=session, role=role)
 
         # Perform the pull operation
         return await sync_service.pull(url=git_url, options=pull_options)

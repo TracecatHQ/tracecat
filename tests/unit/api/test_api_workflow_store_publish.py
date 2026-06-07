@@ -186,7 +186,9 @@ async def test_list_workflow_branches_success(
     """Test GET /workflows/sync/branches returns branch list."""
     with (
         patch("tracecat.workflow.store.router.WorkspaceService") as mock_workspace_cls,
-        patch("tracecat.workflow.store.router.WorkflowSyncService") as mock_sync_cls,
+        patch(
+            "tracecat.workflow.store.router.WorkspaceGitSyncService"
+        ) as mock_sync_cls,
     ):
         mock_workspace_svc = AsyncMock()
         mock_workspace = Mock()
@@ -246,7 +248,9 @@ async def test_list_workflow_branches_github_error_returns_400(
     """Test GET /workflows/sync/branches maps GitHub errors to 400."""
     with (
         patch("tracecat.workflow.store.router.WorkspaceService") as mock_workspace_cls,
-        patch("tracecat.workflow.store.router.WorkflowSyncService") as mock_sync_cls,
+        patch(
+            "tracecat.workflow.store.router.WorkspaceGitSyncService"
+        ) as mock_sync_cls,
     ):
         mock_workspace_svc = AsyncMock()
         mock_workspace = Mock()

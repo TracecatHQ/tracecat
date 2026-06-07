@@ -1,30 +1,20 @@
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
 
 from tracecat.authz.controls import require_scope
-from tracecat.cases.enums import CaseEventType
 from tracecat.db.models import Workflow
 from tracecat.dsl.common import DSLInput
-from tracecat.exceptions import TracecatSettingsError, TracecatValidationError
-from tracecat.git.utils import parse_git_url
+from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
-from tracecat.sync import Author, PushObject, PushOptions, PushStatus
-from tracecat.workflow.case_triggers.schemas import is_case_trigger_configured
+from tracecat.sync import Author, PushOptions
 from tracecat.workflow.store.schemas import (
-    RemoteCaseTrigger,
-    RemoteWebhook,
-    RemoteWorkflowDefinition,
-    RemoteWorkflowSchedule,
-    RemoteWorkflowTag,
-    Status,
     WorkflowDslPublish,
     WorkflowDslPublishResult,
     validate_short_branch_name,
 )
-from tracecat.workflow.store.sync import WorkflowSyncService
-from tracecat.workspaces.service import WorkspaceService
+from tracecat.workspace_sync.service import WorkspaceGitSyncService
 
 
 class WorkflowStoreService(BaseWorkspaceService):
@@ -46,97 +36,17 @@ class WorkflowStoreService(BaseWorkspaceService):
                 f"Workflow ID mismatch: provided {workflow_id} but workflow object has ID {workflow.id}"
             )
 
-        # Get workspace settings for git configuration
-
-        workspace_service = WorkspaceService(session=self.session, role=self.role)
-        workspace = await workspace_service.get_workspace(self.workspace_id)
-
-        if not workspace:
-            raise TracecatValidationError("Workspace not found")
-
-        # Extract git configuration from workspace settings
-        git_repo_url = workspace.settings.get("git_repo_url")
-        if not git_repo_url:
-            raise TracecatSettingsError(
-                "Git repository URL not configured for this workspace. "
-                "Please contact your administrator to configure it."
-            )
-
         logger.info(
             "Publishing workflow to store",
             workflow_title=dsl.title,
-            repo_url=git_repo_url,
             workspace_id=self.workspace_id,
         )
 
-        # Parse the Git URL using workspace settings
-        try:
-            git_url = parse_git_url(git_repo_url, allowed_domains={"github.com"})
-        except ValueError as e:
-            raise TracecatSettingsError(
-                f"Invalid Git repository URL configured for this workspace: {e}. "
-                "Please contact your administrator to fix the configuration."
-            ) from e
-        # Note: We could add ref support later if needed via params or workspace settings
-
-        stable_path = get_definition_path(workflow_id)
-        webhook = workflow.webhook
-
-        await self.session.refresh(workflow, ["tags", "folder", "case_trigger"])
-
-        # Get folder path if workflow is in a folder
-        folder_path = None
-        if workflow.folder:
-            folder_path = workflow.folder.path
-
-        # Create PushObject with data and stable path
-        case_trigger = None
-        if workflow.case_trigger and is_case_trigger_configured(
-            status=workflow.case_trigger.status,
-            event_types=workflow.case_trigger.event_types,
-            tag_filters=workflow.case_trigger.tag_filters,
-        ):
-            case_trigger = RemoteCaseTrigger(
-                status=cast(Status, workflow.case_trigger.status),
-                event_types=[
-                    CaseEventType(event_type)
-                    for event_type in workflow.case_trigger.event_types
-                ],
-                tag_filters=workflow.case_trigger.tag_filters,
-            )
-
-        defn = RemoteWorkflowDefinition(
-            id=workflow_id.short(),
-            alias=workflow.alias,
-            folder_path=folder_path,
-            tags=[RemoteWorkflowTag(name=t.name) for t in workflow.tags],
-            # Convert Schedule ORM objects to RemoteWorkflowSchedule, handling type conversions and missing fields.
-            schedules=[
-                RemoteWorkflowSchedule(
-                    status=cast(Status, s.status),
-                    cron=s.cron,
-                    every=s.every,
-                    offset=s.offset,
-                    start_at=s.start_at,
-                    end_at=s.end_at,
-                    timeout=s.timeout,
-                )
-                for s in (workflow.schedules or [])
-            ],
-            webhook=RemoteWebhook(
-                methods=webhook.methods,
-                status=cast(Status, webhook.status),
-                include_headers=webhook.include_headers,
-            ),
-            case_trigger=case_trigger,
-            definition=dsl,
-        )
-        push_obj = PushObject(data=defn, path=stable_path)
-
         author = Author(name="Tracecat", email="noreply@tracecat.com")
         publish_message = params.message or f"Publish workflow: {dsl.title}"
-        validated_branch: str | None = None
+        validated_branch: str
         validated_pr_base_branch: str | None = None
+        create_pr = params.create_pr
 
         if params.branch is not None:
             try:
@@ -151,65 +61,45 @@ class WorkflowStoreService(BaseWorkspaceService):
                     )
             except ValueError as e:
                 raise TracecatValidationError(str(e)) from e
-
-        if params.branch is None:
+        else:
             logger.warning(
                 "workflow_publish_legacy_mode_used",
                 workflow_id=str(workflow_id),
                 workspace_id=str(self.workspace_id),
             )
-            push_options = PushOptions(
-                message=publish_message,
-                author=author,
-                create_pr=True,
+            validated_branch = validate_short_branch_name(
+                f"tracecat-sync-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}",
+                field_name="branch",
             )
-        else:
-            push_options = PushOptions(
-                message=publish_message,
-                author=author,
-                create_pr=params.create_pr,
-                branch=validated_branch,
-                pr_base_branch=validated_pr_base_branch,
-            )
+            create_pr = True
 
-        # Use WorkflowSyncService to push the workflow with stable path
-        sync_service = WorkflowSyncService(session=self.session, role=self.role)
-        commit_info = await sync_service.push(
-            objects=[push_obj],
-            url=git_url,
-            options=push_options,
+        push_options = PushOptions(
+            message=publish_message,
+            author=author,
+            create_pr=create_pr,
+            branch=validated_branch,
+            pr_base_branch=validated_pr_base_branch,
         )
 
-        if validated_branch is not None and commit_info.status in {
-            PushStatus.COMMITTED,
-            PushStatus.NO_OP,
-        }:
-            workflow.git_sync_branch = validated_branch
-            self.session.add(workflow)
-            await self.session.commit()
+        sync_service = WorkspaceGitSyncService(session=self.session, role=self.role)
+        result = await sync_service.export_workflow_publish_result(
+            workflow=workflow,
+            dsl=dsl,
+            options=push_options,
+        )
 
         logger.info(
             "Successfully published workflow",
             workflow_title=dsl.title,
-            status=commit_info.status.value,
-            commit_sha=commit_info.sha,
-            ref=commit_info.ref,
-            base_ref=commit_info.base_ref,
-            pr_url=commit_info.pr_url,
-            pr_number=commit_info.pr_number,
-            pr_reused=commit_info.pr_reused,
+            status=result.status,
+            commit_sha=result.commit_sha,
+            ref=result.branch,
+            base_ref=result.base_branch,
+            pr_url=result.pr_url,
+            pr_number=result.pr_number,
+            pr_reused=result.pr_reused,
         )
-
-        return WorkflowDslPublishResult(
-            status=commit_info.status.value,
-            commit_sha=commit_info.sha,
-            branch=commit_info.ref,
-            base_branch=commit_info.base_ref,
-            pr_url=commit_info.pr_url,
-            pr_number=commit_info.pr_number,
-            pr_reused=commit_info.pr_reused,
-            message=commit_info.message,
-        )
+        return result
 
 
 def get_definition_path(workflow_id: WorkflowUUID) -> Path:
