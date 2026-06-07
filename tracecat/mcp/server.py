@@ -510,17 +510,22 @@ async def _load_secret_inventory(
 
 
 async def _load_oauth_inventory(role: Role) -> set[ProviderKey]:
-    """Load configured workspace OAuth integrations.
+    """Load connected workspace OAuth integrations keyed by provider.
 
-    Mirrors runtime secret injection and workflow validation, which key OAuth
-    readiness on workspace-level ``(provider_id, grant_type)`` integrations
-    rather than per-user rows.
+    Only integrations that have completed authentication (``CONNECTED`` status,
+    i.e. an access token is stored) can have
+    ``${{ SECRETS.<provider>_oauth.*_TOKEN }}`` injected at runtime. A
+    configured-but-not-connected provider (client credentials saved but the
+    OAuth flow not completed) yields no token at runtime, so it must not count
+    as configured for action readiness. Keys are workspace-level
+    ``(provider_id, grant_type)`` pairs, not per-user rows.
     """
     async with IntegrationService.with_session(role=role) as svc:
         integrations = await svc.list_integrations()
     return {
         ProviderKey(id=integration.provider_id, grant_type=integration.grant_type)
         for integration in integrations
+        if integration.status == IntegrationStatus.CONNECTED
     }
 
 

@@ -2889,6 +2889,43 @@ def test_evaluate_configuration_skips_optional_oauth_integration():
 
 
 @pytest.mark.anyio
+async def test_load_oauth_inventory_includes_only_connected(monkeypatch):
+    # Only CONNECTED integrations can inject a token at runtime; a
+    # configured-but-not-connected provider must be excluded from readiness.
+    connected = SimpleNamespace(
+        provider_id="github",
+        grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        status=IntegrationStatus.CONNECTED,
+    )
+    configured_only = SimpleNamespace(
+        provider_id="slack",
+        grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        status=IntegrationStatus.CONFIGURED,
+    )
+    not_configured = SimpleNamespace(
+        provider_id="notion",
+        grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        status=IntegrationStatus.NOT_CONFIGURED,
+    )
+
+    class _IntegrationService:
+        async def list_integrations(self):
+            return [connected, configured_only, not_configured]
+
+    monkeypatch.setattr(
+        mcp_server.IntegrationService,
+        "with_session",
+        lambda role: _AsyncContext(_IntegrationService()),
+    )
+
+    inventory = await mcp_server._load_oauth_inventory(cast(Any, SimpleNamespace()))
+
+    assert inventory == {
+        ProviderKey(id="github", grant_type=OAuthGrantType.AUTHORIZATION_CODE)
+    }
+
+
+@pytest.mark.anyio
 async def test_create_table_accepts_columns(monkeypatch):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()
