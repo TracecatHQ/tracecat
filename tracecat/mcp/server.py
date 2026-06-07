@@ -491,6 +491,21 @@ def _secrets_to_requirements(
     return requirements
 
 
+def _optional_secret_names(
+    requirements: Sequence[ActionRequirementPayload],
+) -> list[str]:
+    """Names of optional secret requirements (e.g. mtls/ca_cert).
+
+    These are credentials an action *may* use but does not require to run, so
+    their absence never makes an action unconfigured.
+    """
+    return [
+        req["name"]
+        for req in requirements
+        if req["type"] == "secret" and req.get("optional", False)
+    ]
+
+
 async def _load_secret_inventory(
     role: Role,
 ) -> dict[str, set[str]]:
@@ -554,10 +569,14 @@ def _evaluate_configuration(
             continue
 
         secret_req = cast(ActionSecretRequirementPayload, req)
+        if secret_req.get("optional", False):
+            # A wholly-optional secret never blocks readiness, even when it
+            # declares keys (e.g. the mtls/ca_cert secrets inherited from
+            # core.http_request). At runtime these are absent-by-default, so an
+            # action that only "needs" optional secrets is still usable.
+            continue
         secret_name = secret_req["name"]
         required_keys = set(secret_req["required_keys"])
-        if not required_keys and secret_req.get("optional", False):
-            continue
         available_keys = workspace_inventory.get(secret_name)
         if available_keys is None:
             missing.append(f"missing secret: {secret_name}")
@@ -1044,6 +1063,7 @@ class ActionDiscoveryResponse(BaseModel):
     description: str | None = None
     configured: bool
     missing_requirements: list[str] = Field(default_factory=list)
+    optional_secrets: list[str] = Field(default_factory=list)
 
 
 class ActionContextResponse(ActionDiscoveryResponse):
@@ -4730,6 +4750,9 @@ async def list_actions(
     - description: One-line description of the action
     - configured: Whether required secrets are present in the workspace
     - missing_requirements: List of missing secret names/keys (if any)
+    - optional_secrets: Credentials you *may* supply (e.g. mtls/ca_cert for
+      mTLS targets) but are not required to run the action. Their absence never
+      makes an action unconfigured.
     """
 
     try:
@@ -4763,6 +4786,7 @@ async def list_actions(
                         description=entry.description,
                         configured=configured,
                         missing_requirements=missing,
+                        optional_secrets=_optional_secret_names(requirements),
                     )
                 )
             page = _paginate_items(
@@ -4916,6 +4940,9 @@ async def get_action_context(
       integrations are {type: "oauth", name, provider_id, grant_type}.
     - configured: Whether all required secrets and OAuth integrations are present
     - missing_requirements: List of missing secrets/keys or OAuth integrations
+    - optional_secrets: Credentials you *may* supply (e.g. mtls/ca_cert for mTLS
+      targets) but are not required to run the action; their absence never makes
+      an action unconfigured.
     - examples: Example args payload based on the schema
     """
 
@@ -4941,6 +4968,7 @@ async def get_action_context(
                 required_secrets=requirements,
                 configured=configured,
                 missing_requirements=missing,
+                optional_secrets=_optional_secret_names(requirements),
                 examples=[_build_example_from_schema(schema)],
             )
     except ToolError:
@@ -5014,6 +5042,7 @@ async def get_workflow_authoring_context(
                         required_secrets=requirements,
                         configured=configured,
                         missing_requirements=missing,
+                        optional_secrets=_optional_secret_names(requirements),
                         examples=[
                             _build_example_from_schema(tool.parameters_json_schema)
                         ],

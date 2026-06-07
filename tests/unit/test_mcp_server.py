@@ -2888,6 +2888,80 @@ def test_evaluate_configuration_skips_optional_oauth_integration():
     assert missing == []
 
 
+def test_evaluate_configuration_skips_optional_secret_with_keys():
+    # Regression: a wholly-optional secret that declares keys (e.g. the mtls /
+    # ca_cert secrets inherited from core.http_request) must not block readiness.
+    requirements: list[mcp_server.ActionRequirementPayload] = [
+        {
+            "type": "secret",
+            "name": "mtls",
+            "required_keys": ["TLS_CERTIFICATE", "TLS_PRIVATE_KEY"],
+            "optional_keys": [],
+            "optional": True,
+        }
+    ]
+
+    configured, missing = mcp_server._evaluate_configuration(requirements, {})
+
+    assert configured is True
+    assert missing == []
+
+
+def test_evaluate_configuration_required_present_with_optional_absent():
+    # An action that wraps core.http_request: required urlscan secret present,
+    # optional mtls/ca_cert absent -> configured, nothing missing.
+    requirements: list[mcp_server.ActionRequirementPayload] = [
+        {
+            "type": "secret",
+            "name": "urlscan",
+            "required_keys": ["URLSCAN_API_KEY"],
+            "optional_keys": [],
+            "optional": False,
+        },
+        {
+            "type": "secret",
+            "name": "mtls",
+            "required_keys": ["TLS_CERTIFICATE", "TLS_PRIVATE_KEY"],
+            "optional_keys": [],
+            "optional": True,
+        },
+    ]
+    workspace_inventory = {"urlscan": {"URLSCAN_API_KEY"}}
+
+    configured, missing = mcp_server._evaluate_configuration(
+        requirements, workspace_inventory
+    )
+
+    assert configured is True
+    assert missing == []
+
+
+def test_evaluate_configuration_reports_required_but_not_optional():
+    # Required secret absent, optional secret absent -> unconfigured, and only the
+    # required secret is reported as missing.
+    requirements: list[mcp_server.ActionRequirementPayload] = [
+        {
+            "type": "secret",
+            "name": "urlscan",
+            "required_keys": ["URLSCAN_API_KEY"],
+            "optional_keys": [],
+            "optional": False,
+        },
+        {
+            "type": "secret",
+            "name": "mtls",
+            "required_keys": ["TLS_CERTIFICATE", "TLS_PRIVATE_KEY"],
+            "optional_keys": [],
+            "optional": True,
+        },
+    ]
+
+    configured, missing = mcp_server._evaluate_configuration(requirements, {})
+
+    assert configured is False
+    assert missing == ["missing secret: urlscan"]
+
+
 @pytest.mark.anyio
 async def test_load_oauth_inventory_includes_only_connected(monkeypatch):
     # Only CONNECTED integrations can inject a token at runtime; a
@@ -2970,7 +3044,12 @@ async def test_get_action_context_includes_configuration(monkeypatch):
     )
     registry_service = SimpleNamespace(
         aggregate_secrets_from_manifest=lambda _manifest, _action_name: [
-            RegistrySecret(name="slack", keys=["SLACK_BOT_TOKEN"])
+            RegistrySecret(name="slack", keys=["SLACK_BOT_TOKEN"]),
+            RegistrySecret(
+                name="mtls",
+                keys=["TLS_CERTIFICATE", "TLS_PRIVATE_KEY"],
+                optional=True,
+            ),
         ],
     )
 
@@ -3015,9 +3094,11 @@ async def test_get_action_context_includes_configuration(monkeypatch):
     )
     payload = _payload(result)
     assert payload["action_name"] == "tools.slack.post_message"
+    # The optional mtls secret is absent but must not block configuration.
     assert payload["configured"] is True
     assert payload["missing_requirements"] == []
     assert payload["required_secrets"][0]["name"] == "slack"
+    assert payload["optional_secrets"] == ["mtls"]
 
 
 def _github_oauth_registry_service() -> SimpleNamespace:
@@ -5670,6 +5751,75 @@ async def test_list_actions_browse_without_query(monkeypatch):
     assert payload["items"][0]["action_name"] == "core.http_request"
     assert payload["items"][1]["action_name"] == "tools.slack.post_message"
     assert payload["has_more"] is False
+
+
+@pytest.mark.anyio
+async def test_list_actions_surfaces_optional_secrets(monkeypatch):
+    """Optional secrets appear under optional_secrets, not missing_requirements."""
+
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    async def _secret_inventory(_role):
+        # Only the required urlscan secret is configured.
+        return {"urlscan": {"URLSCAN_API_KEY"}}
+
+    class _IndexEntry:
+        def __init__(self, namespace, name, description):
+            self.namespace = namespace
+            self.name = name
+            self.description = description
+
+    entries = [
+        (_IndexEntry("tools.urlscan", "lookup_url", "Lookup a URL"), "platform"),
+    ]
+    indexed_action = SimpleNamespace(
+        manifest=SimpleNamespace(),
+        index_entry=SimpleNamespace(options=None),
+    )
+
+    class _RegistryService:
+        async def list_actions_from_index(self, **_kwargs):
+            return entries
+
+        async def search_actions_from_index(self, _query, *, limit=None):
+            _ = limit
+            return entries
+
+        async def get_action_from_index(self, _action_name):
+            return indexed_action
+
+        def aggregate_secrets_from_manifest(self, _manifest, _action_name):
+            # Mirrors lookup_url: required urlscan secret plus the optional
+            # mtls/ca_cert secrets inherited from core.http_request.
+            return [
+                RegistrySecret(name="urlscan", keys=["URLSCAN_API_KEY"]),
+                RegistrySecret(
+                    name="mtls",
+                    keys=["TLS_CERTIFICATE", "TLS_PRIVATE_KEY"],
+                    optional=True,
+                ),
+                RegistrySecret(name="ca_cert", keys=["CA_CERTIFICATE"], optional=True),
+            ]
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(mcp_server, "_load_secret_inventory", _secret_inventory)
+    monkeypatch.setattr(mcp_server, "_load_oauth_inventory", _empty_oauth_inventory)
+    monkeypatch.setattr(
+        "tracecat.registry.actions.service.RegistryActionsService.with_session",
+        lambda role: _AsyncContext(_RegistryService()),
+    )
+
+    result = await _tool(mcp_server.list_actions)(
+        workspace_id=str(uuid.uuid4()),
+    )
+    payload = _payload(result)
+    assert len(payload["items"]) == 1
+    item = payload["items"][0]
+    assert item["action_name"] == "tools.urlscan.lookup_url"
+    assert item["configured"] is True
+    assert item["missing_requirements"] == []
+    assert item["optional_secrets"] == ["mtls", "ca_cert"]
 
 
 @pytest.mark.anyio
