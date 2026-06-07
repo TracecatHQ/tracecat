@@ -838,14 +838,22 @@ import type {
   WorkflowsCreateWorkflowDefinitionData,
   WorkflowsCreateWorkflowDefinitionResponse,
   WorkflowsCreateWorkflowResponse,
+  WorkflowsCreateWorkspaceSyncChangesetData,
+  WorkflowsCreateWorkspaceSyncChangesetResponse,
   WorkflowsDeleteWorkflowData,
   WorkflowsDeleteWorkflowResponse,
   WorkflowsExportWorkflowData,
   WorkflowsExportWorkflowResponse,
+  WorkflowsExportWorkspaceSyncChangesetData,
+  WorkflowsExportWorkspaceSyncChangesetResponse,
   WorkflowsGetWorkflowData,
   WorkflowsGetWorkflowDefinitionData,
   WorkflowsGetWorkflowDefinitionResponse,
   WorkflowsGetWorkflowResponse,
+  WorkflowsGetWorkspaceSyncChangesetData,
+  WorkflowsGetWorkspaceSyncChangesetResponse,
+  WorkflowsGetWorkspaceSyncStatusData,
+  WorkflowsGetWorkspaceSyncStatusResponse,
   WorkflowsListTagsData,
   WorkflowsListTagsResponse,
   WorkflowsListWorkflowBranchesData,
@@ -856,6 +864,10 @@ import type {
   WorkflowsListWorkflowDefinitionsResponse,
   WorkflowsListWorkflowsData,
   WorkflowsListWorkflowsResponse,
+  WorkflowsListWorkspaceSyncChangesetsData,
+  WorkflowsListWorkspaceSyncChangesetsResponse,
+  WorkflowsListWorkspaceSyncPendingChangesData,
+  WorkflowsListWorkspaceSyncPendingChangesResponse,
   WorkflowsMoveWorkflowToFolderData,
   WorkflowsMoveWorkflowToFolderResponse,
   WorkflowsPublishWorkflowData,
@@ -3275,6 +3287,158 @@ export const workflowsListWorkflowBranches = (
     query: {
       limit: data.limit,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Workspace Sync Status
+ * Get workspace-level Git sync status for the configured repository.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns WorkspaceSyncStatus Successful Response
+ * @throws ApiError
+ */
+export const workflowsGetWorkspaceSyncStatus = (
+  data: WorkflowsGetWorkspaceSyncStatusData
+): CancelablePromise<WorkflowsGetWorkspaceSyncStatusResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/workflows/sync/status",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Workspace Sync Pending Changes
+ * List local syncable workspace changes pending Git export.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns WorkspaceSyncPendingChanges Successful Response
+ * @throws ApiError
+ */
+export const workflowsListWorkspaceSyncPendingChanges = (
+  data: WorkflowsListWorkspaceSyncPendingChangesData
+): CancelablePromise<WorkflowsListWorkspaceSyncPendingChangesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/workflows/sync/pending",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Workspace Sync Changesets
+ * List workspace sync ChangeSets.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.limit
+ * @returns ChangeSetRead Successful Response
+ * @throws ApiError
+ */
+export const workflowsListWorkspaceSyncChangesets = (
+  data: WorkflowsListWorkspaceSyncChangesetsData
+): CancelablePromise<WorkflowsListWorkspaceSyncChangesetsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/workflows/sync/changesets",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Workspace Sync Changeset
+ * Create a workspace sync ChangeSet from selected pending resources.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns ChangeSetRead Successful Response
+ * @throws ApiError
+ */
+export const workflowsCreateWorkspaceSyncChangeset = (
+  data: WorkflowsCreateWorkspaceSyncChangesetData
+): CancelablePromise<WorkflowsCreateWorkspaceSyncChangesetResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/workflows/sync/changesets",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Workspace Sync Changeset
+ * Get a workspace sync ChangeSet.
+ * @param data The data for the request.
+ * @param data.changesetId
+ * @param data.workspaceId
+ * @returns ChangeSetRead Successful Response
+ * @throws ApiError
+ */
+export const workflowsGetWorkspaceSyncChangeset = (
+  data: WorkflowsGetWorkspaceSyncChangesetData
+): CancelablePromise<WorkflowsGetWorkspaceSyncChangesetResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/workflows/sync/changesets/{changeset_id}",
+    path: {
+      changeset_id: data.changesetId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Export Workspace Sync Changeset
+ * Export a workspace sync ChangeSet to a Git branch and optional PR.
+ * @param data The data for the request.
+ * @param data.changesetId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkspaceSyncExportResult Successful Response
+ * @throws ApiError
+ */
+export const workflowsExportWorkspaceSyncChangeset = (
+  data: WorkflowsExportWorkspaceSyncChangesetData
+): CancelablePromise<WorkflowsExportWorkspaceSyncChangesetResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/workflows/sync/changesets/{changeset_id}/export",
+    path: {
+      changeset_id: data.changesetId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

@@ -86,7 +86,9 @@ def upgrade() -> None:
         "workspace_sync_state",
         *_record_columns(),
         *_tenant_columns(),
-        sa.Column("provider", sa.String(length=32), server_default="git", nullable=False),
+        sa.Column(
+            "provider", sa.String(length=32), server_default="git", nullable=False
+        ),
         sa.Column("repo_url", sa.String(), nullable=False),
         sa.Column("target_ref", sa.String(), server_default="main", nullable=False),
         sa.Column("base_commit_sha", sa.String(), nullable=True),
@@ -136,7 +138,9 @@ def upgrade() -> None:
         "workspace_sync_resource_mapping",
         *_record_columns(),
         *_tenant_columns(),
-        sa.Column("provider", sa.String(length=32), server_default="git", nullable=False),
+        sa.Column(
+            "provider", sa.String(length=32), server_default="git", nullable=False
+        ),
         sa.Column("resource_type", sa.String(length=64), nullable=False),
         sa.Column("source_id", sa.String(), nullable=False),
         sa.Column("source_path", sa.String(), nullable=True),
@@ -187,7 +191,9 @@ def upgrade() -> None:
         "workspace_sync_event",
         *_record_columns(),
         *_tenant_columns(),
-        sa.Column("provider", sa.String(length=32), server_default="git", nullable=False),
+        sa.Column(
+            "provider", sa.String(length=32), server_default="git", nullable=False
+        ),
         sa.Column("resource_type", sa.String(length=64), nullable=False),
         sa.Column("source_id", sa.String(), nullable=True),
         sa.Column("local_id", postgresql.UUID(as_uuid=True), nullable=True),
@@ -232,7 +238,9 @@ def upgrade() -> None:
         "workspace_sync_changeset",
         *_record_columns(),
         *_tenant_columns(),
-        sa.Column("provider", sa.String(length=32), server_default="git", nullable=False),
+        sa.Column(
+            "provider", sa.String(length=32), server_default="git", nullable=False
+        ),
         sa.Column("title", sa.String(), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("base_commit_sha", sa.String(), nullable=True),
@@ -261,7 +269,9 @@ def upgrade() -> None:
             server_default=sa.text("'{}'::jsonb"),
             nullable=False,
         ),
-        sa.Column("status", sa.String(length=32), server_default="open", nullable=False),
+        sa.Column(
+            "status", sa.String(length=32), server_default="open", nullable=False
+        ),
         sa.Column("created_by", postgresql.UUID(as_uuid=True), nullable=True),
         *_timestamps(),
         *_tenant_fks("workspace_sync_changeset"),
@@ -305,7 +315,9 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["changeset_id"],
             ["workspace_sync_changeset.id"],
-            name=op.f("fk_workspace_sync_changeset_item_changeset_id_workspace_sync_changeset"),
+            name=op.f(
+                "fk_workspace_sync_changeset_item_changeset_id_workspace_sync_changeset"
+            ),
             ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint(
@@ -343,7 +355,9 @@ def upgrade() -> None:
         *_record_columns(),
         *_tenant_columns(),
         sa.Column("changeset_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("provider", sa.String(length=32), server_default="git", nullable=False),
+        sa.Column(
+            "provider", sa.String(length=32), server_default="git", nullable=False
+        ),
         sa.Column("branch", sa.String(), nullable=False),
         sa.Column("base_ref", sa.String(), nullable=True),
         sa.Column("pr_number", sa.Integer(), nullable=True),
@@ -366,7 +380,9 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["changeset_id"],
             ["workspace_sync_changeset.id"],
-            name=op.f("fk_workspace_sync_materialization_changeset_id_workspace_sync_changeset"),
+            name=op.f(
+                "fk_workspace_sync_materialization_changeset_id_workspace_sync_changeset"
+            ),
             ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint(

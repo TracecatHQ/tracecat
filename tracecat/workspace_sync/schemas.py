@@ -17,7 +17,7 @@ from tracecat.workflow.store.schemas import (
     RemoteWorkflowTag,
     WorkflowDslPublishResult,
 )
-from tracecat.workspace_sync.enums import SyncStateStatus
+from tracecat.workspace_sync.enums import SyncOperation, SyncStateStatus
 
 MANIFEST_FILENAME = "tracecat.json"
 WORKFLOW_ROOT = "workflows"
@@ -108,6 +108,8 @@ class WorkspaceSyncStatus(BaseModel):
     remote_spec_hash: str | None = None
     base_commit_sha: str | None = None
     remote_commit_sha: str | None = None
+    target_ref: str | None = None
+    pending_change_count: int = 0
     diagnostics: list[PullDiagnostic] = Field(default_factory=list)
 
 
@@ -136,6 +138,25 @@ class ChangeSetExport(BaseModel):
     branch: str
     create_pr: bool = False
     pr_base_branch: str | None = None
+
+
+class WorkspaceSyncPendingChange(BaseModel):
+    resource_type: str
+    source_id: str
+    source_path: str
+    local_id: uuid.UUID | None = None
+    operation: SyncOperation
+    title: str | None = None
+    alias: str | None = None
+    before_spec_hash: str | None = None
+    after_spec_hash: str | None = None
+    exportable: bool = True
+
+
+class WorkspaceSyncPendingChanges(BaseModel):
+    base_spec_hash: str | None = None
+    local_spec_hash: str
+    changes: list[WorkspaceSyncPendingChange] = Field(default_factory=list)
 
 
 class ChangeSetRead(Schema):

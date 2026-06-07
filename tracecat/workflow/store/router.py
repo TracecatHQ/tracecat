@@ -1,3 +1,5 @@
+import uuid
+
 from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat import config
@@ -7,6 +9,7 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import (
     TracecatCredentialsNotFoundError,
+    TracecatNotFoundError,
     TracecatSettingsError,
     TracecatValidationError,
 )
@@ -21,8 +24,17 @@ from tracecat.workflow.store.schemas import (
     WorkflowDslPublish,
     WorkflowDslPublishResult,
     WorkflowSyncPullRequest,
+    validate_short_branch_name,
 )
 from tracecat.workflow.store.service import WorkflowStoreService
+from tracecat.workspace_sync.schemas import (
+    ChangeSetCreate,
+    ChangeSetExport,
+    ChangeSetRead,
+    WorkspaceSyncExportResult,
+    WorkspaceSyncPendingChanges,
+    WorkspaceSyncStatus,
+)
 from tracecat.workspace_sync.service import WorkspaceGitSyncService
 from tracecat.workspaces.service import WorkspaceService
 
@@ -243,6 +255,165 @@ async def list_workflow_branches(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fetch repository branches",
+        ) from e
+
+
+@router.get("/sync/status", response_model=WorkspaceSyncStatus)
+@require_scope("workflow:sync")
+async def get_workspace_sync_status(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+) -> WorkspaceSyncStatus:
+    """Get workspace-level Git sync status for the configured repository."""
+    if not role.workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+    sync_service = WorkspaceGitSyncService(session=session, role=role)
+    try:
+        return await sync_service.get_status()
+    except TracecatSettingsError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+
+
+@router.get("/sync/pending", response_model=WorkspaceSyncPendingChanges)
+@require_scope("workflow:sync")
+async def list_workspace_sync_pending_changes(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+) -> WorkspaceSyncPendingChanges:
+    """List local syncable workspace changes pending Git export."""
+    if not role.workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+    sync_service = WorkspaceGitSyncService(session=session, role=role)
+    try:
+        return await sync_service.list_pending_changes()
+    except TracecatSettingsError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+
+
+@router.get("/sync/changesets", response_model=list[ChangeSetRead])
+@require_scope("workflow:sync")
+async def list_workspace_sync_changesets(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    limit: int = Query(default=50, ge=1, le=100),
+) -> list[ChangeSetRead]:
+    """List workspace sync ChangeSets."""
+    if not role.workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+    sync_service = WorkspaceGitSyncService(session=session, role=role)
+    return await sync_service.list_changesets(limit=limit)
+
+
+@router.post(
+    "/sync/changesets",
+    response_model=ChangeSetRead,
+    status_code=status.HTTP_201_CREATED,
+)
+@require_scope("workflow:update", "workflow:sync")
+async def create_workspace_sync_changeset(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    params: ChangeSetCreate,
+) -> ChangeSetRead:
+    """Create a workspace sync ChangeSet from selected pending resources."""
+    if not role.workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+    sync_service = WorkspaceGitSyncService(session=session, role=role)
+    try:
+        return await sync_service.create_changeset(params)
+    except (TracecatSettingsError, TracecatValidationError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+
+
+@router.get("/sync/changesets/{changeset_id}", response_model=ChangeSetRead)
+@require_scope("workflow:sync")
+async def get_workspace_sync_changeset(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    changeset_id: uuid.UUID,
+) -> ChangeSetRead:
+    """Get a workspace sync ChangeSet."""
+    if not role.workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+    sync_service = WorkspaceGitSyncService(session=session, role=role)
+    try:
+        return await sync_service.get_changeset(changeset_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+
+
+@router.post(
+    "/sync/changesets/{changeset_id}/export",
+    response_model=WorkspaceSyncExportResult,
+)
+@require_scope("workflow:update", "workflow:sync")
+async def export_workspace_sync_changeset(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    changeset_id: uuid.UUID,
+    params: ChangeSetExport,
+) -> WorkspaceSyncExportResult:
+    """Export a workspace sync ChangeSet to a Git branch and optional PR."""
+    if not role.workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+    try:
+        validate_short_branch_name(params.branch, field_name="branch")
+        if params.pr_base_branch:
+            validate_short_branch_name(
+                params.pr_base_branch,
+                field_name="pr_base_branch",
+            )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+
+    sync_service = WorkspaceGitSyncService(session=session, role=role)
+    try:
+        return await sync_service.export_changeset(
+            changeset_id=changeset_id,
+            params=params,
+        )
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except (TracecatSettingsError, TracecatValidationError, GitHubAppError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
         ) from e
 
 

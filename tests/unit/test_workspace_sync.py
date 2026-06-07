@@ -5,19 +5,32 @@ from __future__ import annotations
 import uuid
 from types import SimpleNamespace
 from typing import cast
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import yaml
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CaseEventType
-from tracecat.db.models import Workflow
+from tracecat.db.models import Workflow, WorkspaceSyncChangeSetItem
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement
+from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.registry.lock.types import RegistryLock
+from tracecat.sync import CommitInfo, PushStatus
+from tracecat.workflow.management.definitions import WorkflowDefinitionsService
+from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.store.schemas import RemoteWorkflowDefinition
 from tracecat.workspace_sync.enums import SyncResourceType
-from tracecat.workspace_sync.schemas import WorkspaceManifest
+from tracecat.workspace_sync.git import GitTreeSnapshot
+from tracecat.workspace_sync.schemas import (
+    ChangeSetCreate,
+    ChangeSetExport,
+    ResourceRef,
+    WorkspaceManifest,
+)
 from tracecat.workspace_sync.serialization import canonical_json_text
 from tracecat.workspace_sync.service import WorkspaceGitSyncService
 from tracecat.workspace_sync.workflow import (
@@ -153,3 +166,171 @@ async def test_resource_mapping_stores_source_id_to_local_uuid(
     assert mapping.source_id == "detect-okta-risk"
     assert mapping.local_id == local_id
     assert mapping.workspace_id == svc_role.workspace_id
+
+
+class FakeGitHubSyncTransport:
+    files: dict[str, str] = {}
+    written_files: dict[str, str] | None = None
+    written_branch: str | None = None
+    written_create_pr: bool | None = None
+
+    def __init__(self, *args, **kwargs) -> None:
+        pass
+
+    async def read_files(self, *args, **kwargs) -> GitTreeSnapshot:
+        return GitTreeSnapshot(
+            commit_sha="a" * 40,
+            tree_sha="b" * 40,
+            files=self.files,
+        )
+
+    async def write_files(
+        self,
+        *,
+        files: dict[str, str],
+        branch: str,
+        create_pr: bool,
+        **kwargs,
+    ) -> CommitInfo:
+        self.__class__.written_files = files
+        self.__class__.written_branch = branch
+        self.__class__.written_create_pr = create_pr
+        return CommitInfo(
+            status=PushStatus.COMMITTED,
+            sha="c" * 40,
+            ref=branch,
+            base_ref=kwargs.get("pr_base_branch") or "main",
+            pr_url="https://github.com/test-org/test-repo/pull/1"
+            if create_pr
+            else None,
+            pr_number=1 if create_pr else None,
+            pr_reused=False,
+            message="Committed workspace sync changes.",
+        )
+
+
+async def _create_local_workflow(
+    *,
+    session: AsyncSession,
+    role: Role,
+    dsl: DSLInput,
+    alias: str,
+) -> Workflow:
+    with patch(
+        "tracecat.workflow.management.management.RegistryLockService.resolve_lock_with_bindings",
+        new=AsyncMock(
+            return_value=RegistryLock(
+                origins={"tracecat_registry": "test"},
+                actions={"core.transform.passthrough": "tracecat_registry"},
+            )
+        ),
+    ):
+        workflow = await WorkflowsManagementService(
+            session=session,
+            role=role,
+        ).create_db_workflow_from_dsl(
+            dsl,
+            workflow_alias=alias,
+            commit=False,
+        )
+    await WorkflowDefinitionsService(
+        session=session,
+        role=role,
+    ).create_workflow_definition(
+        WorkflowUUID.new(workflow.id),
+        dsl,
+        alias=alias,
+        commit=False,
+    )
+    await session.commit()
+    return workflow
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_status_pending_changeset_and_export_with_mocked_github(
+    session: AsyncSession,
+    svc_role: Role,
+    svc_workspace,
+    sample_dsl: DSLInput,
+) -> None:
+    svc_workspace.settings = {
+        "git_repo_url": "git+ssh://git@github.com/test-org/test-repo.git"
+    }
+    session.add(svc_workspace)
+    await _create_local_workflow(
+        session=session,
+        role=svc_role,
+        dsl=sample_dsl,
+        alias="detect-okta-risk",
+    )
+
+    FakeGitHubSyncTransport.files = {}
+    FakeGitHubSyncTransport.written_files = None
+    FakeGitHubSyncTransport.written_branch = None
+    FakeGitHubSyncTransport.written_create_pr = None
+
+    with patch(
+        "tracecat.workspace_sync.service.WorkspaceGitHubSyncService",
+        FakeGitHubSyncTransport,
+    ):
+        service = WorkspaceGitSyncService(session=session, role=svc_role)
+
+        status = await service.get_status()
+        assert status.status == "never_synced"
+        assert status.pending_change_count == 1
+        assert status.remote_commit_sha == "a" * 40
+
+        pending = await service.list_pending_changes()
+        assert len(pending.changes) == 1
+        pending_change = pending.changes[0]
+        assert pending_change.operation == "create"
+        assert pending_change.source_id == "detect-okta-risk"
+        assert pending_change.title == "Detect Okta Risk"
+
+        changeset = await service.create_changeset(
+            params=ChangeSetCreate(
+                title="Export workflow",
+                resources=[
+                    ResourceRef(
+                        resource_type=pending_change.resource_type,
+                        source_id=pending_change.source_id,
+                        source_path=pending_change.source_path,
+                    )
+                ],
+            )
+        )
+        assert changeset.status == "validated"
+        assert changeset.selected_paths == [
+            "tracecat.json",
+            "workflows/detect-okta-risk/definition.yml",
+        ]
+        assert changeset.selected_resources[0]["local_id"] is not None
+
+        changeset_item = await session.scalar(
+            select(WorkspaceSyncChangeSetItem).where(
+                WorkspaceSyncChangeSetItem.changeset_id == changeset.id
+            )
+        )
+        assert changeset_item is not None
+        assert changeset_item.operation == "create"
+        assert changeset_item.local_id is not None
+
+        result = await service.export_changeset(
+            changeset_id=changeset.id,
+            params=ChangeSetExport(
+                message="Export workflow",
+                branch="sync/detect-okta-risk",
+                create_pr=True,
+            ),
+        )
+
+    assert result.commit.status == PushStatus.COMMITTED
+    assert result.commit.pr_number == 1
+    assert FakeGitHubSyncTransport.written_branch == "sync/detect-okta-risk"
+    assert FakeGitHubSyncTransport.written_create_pr is True
+    assert FakeGitHubSyncTransport.written_files is not None
+    assert set(FakeGitHubSyncTransport.written_files) == {
+        "tracecat.json",
+        "workflows/detect-okta-risk/definition.yml",
+    }

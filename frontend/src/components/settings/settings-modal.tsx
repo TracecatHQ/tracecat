@@ -175,15 +175,15 @@ function SettingsModalContent() {
   const showSyncNav = hasEntitlement("git_sync")
 
   return (
-    <DialogContent className="h-[600px] max-w-[900px] grid-rows-[100%] gap-0 overflow-hidden p-0">
+    <DialogContent className="h-[min(720px,calc(100vh-2rem))] max-w-[900px] grid-rows-[100%] gap-0 overflow-hidden p-0">
       <TooltipProvider>
         <DialogTitle className="sr-only">Settings</DialogTitle>
         <DialogDescription className="sr-only">
           Manage your account and workspace settings
         </DialogDescription>
-        <div className="flex h-full">
+        <div className="flex min-h-0 h-full">
           {/* Left nav panel */}
-          <div className="flex w-[200px] shrink-0 flex-col border-r">
+          <div className="flex min-h-0 w-[200px] shrink-0 flex-col border-r">
             <div className="flex flex-col gap-1 p-3">
               <span className="px-2 py-1 text-xs font-medium text-muted-foreground">
                 Account
@@ -261,7 +261,7 @@ function SettingsModalContent() {
           </div>
 
           {/* Right content panel */}
-          <div className="flex min-w-0 flex-1 flex-col gap-6 overflow-x-hidden overflow-y-auto p-8">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-6 overflow-x-hidden overflow-y-auto p-8">
             {displayedSection === "profile" ? (
               <ProfileSettings />
             ) : workspaceId ? (

@@ -6,6 +6,7 @@ import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type { WorkspaceRead } from "@/client"
+import { WorkspaceSyncStaging } from "@/components/organization/workspace-sync-staging"
 import { Button } from "@/components/ui/button"
 import {
   Form,
@@ -93,34 +94,41 @@ export function WorkspaceSyncSettings({
       </Form>
 
       {persistedGitUrl && (
-        <div className="rounded-lg border bg-muted/30 p-4">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <h5 className="text-sm font-medium">Workflow synchronization</h5>
-              <p className="text-xs text-muted-foreground">
-                Pull workflow definitions from your Git repository into this
-                workspace
+        <>
+          <div className="rounded-lg border bg-muted/30 p-4">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h5 className="text-sm font-medium">
+                  Workflow synchronization
+                </h5>
+                <p className="text-xs text-muted-foreground">
+                  Pull workflow definitions from your Git repository into this
+                  workspace
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setPullDialogOpen(true)}
+                className="flex items-center space-x-2"
+              >
+                <GitPullRequestIcon className="size-4" />
+                <span>Pull workflows</span>
+              </Button>
+            </div>
+
+            <div className="text-xs text-muted-foreground">
+              <p>• Select a commit SHA to pull specific workflow versions</p>
+              <p>
+                • All changes are atomic - either all workflows import or none
+                do
               </p>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setPullDialogOpen(true)}
-              className="flex items-center space-x-2"
-            >
-              <GitPullRequestIcon className="size-4" />
-              <span>Pull workflows</span>
-            </Button>
           </div>
 
-          <div className="text-xs text-muted-foreground">
-            <p>• Select a commit SHA to pull specific workflow versions</p>
-            <p>
-              • All changes are atomic - either all workflows import or none do
-            </p>
-          </div>
-        </div>
+          <WorkspaceSyncStaging workspaceId={workspace.id} />
+        </>
       )}
 
       <WorkflowPullDialog

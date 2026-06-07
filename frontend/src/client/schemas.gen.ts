@@ -9161,6 +9161,155 @@ export const $CaseViewedEventRead = {
   description: "Event for when a case is viewed.",
 } as const
 
+export const $ChangeSetCreate = {
+  properties: {
+    title: {
+      type: "string",
+      minLength: 1,
+      title: "Title",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    resources: {
+      items: {
+        $ref: "#/components/schemas/ResourceRef",
+      },
+      type: "array",
+      title: "Resources",
+    },
+  },
+  type: "object",
+  required: ["title", "resources"],
+  title: "ChangeSetCreate",
+} as const
+
+export const $ChangeSetExport = {
+  properties: {
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    branch: {
+      type: "string",
+      title: "Branch",
+    },
+    create_pr: {
+      type: "boolean",
+      title: "Create Pr",
+      default: false,
+    },
+    pr_base_branch: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Pr Base Branch",
+    },
+  },
+  type: "object",
+  required: ["message", "branch"],
+  title: "ChangeSetExport",
+} as const
+
+export const $ChangeSetRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    base_commit_sha: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Commit Sha",
+    },
+    base_spec_hash: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Spec Hash",
+    },
+    selected_resources: {
+      items: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "array",
+      title: "Selected Resources",
+    },
+    selected_paths: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Selected Paths",
+    },
+    validation_status: {
+      type: "string",
+      title: "Validation Status",
+    },
+    validation_result: {
+      additionalProperties: true,
+      type: "object",
+      title: "Validation Result",
+    },
+    status: {
+      type: "string",
+      title: "Status",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "title",
+    "selected_resources",
+    "selected_paths",
+    "validation_status",
+    "validation_result",
+    "status",
+  ],
+  title: "ChangeSetRead",
+} as const
+
 export const $ChannelType = {
   type: "string",
   enum: ["slack"],
@@ -10171,6 +10320,68 @@ export const $CommentUpdatedEventRead = {
   required: ["comment_id", "thread_root_id", "created_at"],
   title: "CommentUpdatedEventRead",
   description: "Event for when a top-level comment is updated.",
+} as const
+
+export const $CommitInfo = {
+  properties: {
+    status: {
+      $ref: "#/components/schemas/PushStatus",
+    },
+    sha: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Sha",
+    },
+    ref: {
+      type: "string",
+      title: "Ref",
+    },
+    base_ref: {
+      type: "string",
+      title: "Base Ref",
+    },
+    pr_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Pr Url",
+    },
+    pr_number: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Pr Number",
+    },
+    pr_reused: {
+      type: "boolean",
+      title: "Pr Reused",
+      default: false,
+    },
+    message: {
+      type: "string",
+      title: "Message",
+      default: "",
+    },
+  },
+  type: "object",
+  required: ["status", "sha", "ref", "base_ref"],
+  title: "CommitInfo",
 } as const
 
 export const $ContinueRunRequest = {
@@ -18562,6 +18773,13 @@ export const $PullResult = {
   title: "PullResult",
 } as const
 
+export const $PushStatus = {
+  type: "string",
+  enum: ["committed", "no_op"],
+  title: "PushStatus",
+  description: "Status of a push/commit operation.",
+} as const
+
 export const $RateLimitEvent = {
   properties: {
     rate_limit_info: {
@@ -19894,6 +20112,45 @@ export const $ResolvedAttachedSubagentRef = {
   title: "ResolvedAttachedSubagentRef",
   description:
     "Persisted subagent ref with immutable preset/version identifiers.",
+} as const
+
+export const $ResourceRef = {
+  properties: {
+    resource_type: {
+      type: "string",
+      title: "Resource Type",
+    },
+    source_id: {
+      type: "string",
+      title: "Source Id",
+    },
+    source_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Source Path",
+    },
+    local_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Local Id",
+    },
+  },
+  type: "object",
+  required: ["resource_type", "source_id"],
+  title: "ResourceRef",
 } as const
 
 export const $ResponseInteraction = {
@@ -23395,6 +23652,26 @@ export const $StringListFieldChange = {
   required: ["field"],
   title: "StringListFieldChange",
   description: "List diff for preset version fields.",
+} as const
+
+export const $SyncOperation = {
+  type: "string",
+  enum: ["create", "update", "delete", "archive", "disable"],
+  title: "SyncOperation",
+} as const
+
+export const $SyncStateStatus = {
+  type: "string",
+  enum: [
+    "never_synced",
+    "clean",
+    "local_dirty",
+    "remote_ahead",
+    "diverged",
+    "conflicted",
+    "error",
+  ],
+  title: "SyncStateStatus",
 } as const
 
 export const $SyntaxToken = {
@@ -31274,6 +31551,218 @@ export const $WorkspaceSettingsUpdate = {
   },
   type: "object",
   title: "WorkspaceSettingsUpdate",
+} as const
+
+export const $WorkspaceSyncExportResult = {
+  properties: {
+    changeset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Changeset Id",
+    },
+    commit: {
+      $ref: "#/components/schemas/CommitInfo",
+    },
+  },
+  type: "object",
+  required: ["changeset_id", "commit"],
+  title: "WorkspaceSyncExportResult",
+} as const
+
+export const $WorkspaceSyncPendingChange = {
+  properties: {
+    resource_type: {
+      type: "string",
+      title: "Resource Type",
+    },
+    source_id: {
+      type: "string",
+      title: "Source Id",
+    },
+    source_path: {
+      type: "string",
+      title: "Source Path",
+    },
+    local_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Local Id",
+    },
+    operation: {
+      $ref: "#/components/schemas/SyncOperation",
+    },
+    title: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Title",
+    },
+    alias: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Alias",
+    },
+    before_spec_hash: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Before Spec Hash",
+    },
+    after_spec_hash: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "After Spec Hash",
+    },
+    exportable: {
+      type: "boolean",
+      title: "Exportable",
+      default: true,
+    },
+  },
+  type: "object",
+  required: ["resource_type", "source_id", "source_path", "operation"],
+  title: "WorkspaceSyncPendingChange",
+} as const
+
+export const $WorkspaceSyncPendingChanges = {
+  properties: {
+    base_spec_hash: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Spec Hash",
+    },
+    local_spec_hash: {
+      type: "string",
+      title: "Local Spec Hash",
+    },
+    changes: {
+      items: {
+        $ref: "#/components/schemas/WorkspaceSyncPendingChange",
+      },
+      type: "array",
+      title: "Changes",
+    },
+  },
+  type: "object",
+  required: ["local_spec_hash"],
+  title: "WorkspaceSyncPendingChanges",
+} as const
+
+export const $WorkspaceSyncStatus = {
+  properties: {
+    status: {
+      $ref: "#/components/schemas/SyncStateStatus",
+    },
+    base_spec_hash: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Spec Hash",
+    },
+    local_spec_hash: {
+      type: "string",
+      title: "Local Spec Hash",
+    },
+    remote_spec_hash: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Remote Spec Hash",
+    },
+    base_commit_sha: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Commit Sha",
+    },
+    remote_commit_sha: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Remote Commit Sha",
+    },
+    target_ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Target Ref",
+    },
+    pending_change_count: {
+      type: "integer",
+      title: "Pending Change Count",
+      default: 0,
+    },
+    diagnostics: {
+      items: {
+        $ref: "#/components/schemas/PullDiagnostic",
+      },
+      type: "array",
+      title: "Diagnostics",
+    },
+  },
+  type: "object",
+  required: ["status", "base_spec_hash", "local_spec_hash"],
+  title: "WorkspaceSyncStatus",
 } as const
 
 export const $WorkspaceUpdate = {

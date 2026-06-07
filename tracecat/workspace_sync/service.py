@@ -7,7 +7,8 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import desc, select
+from sqlalchemy.dialects.postgresql import insert
 
 from tracecat.db.models import (
     Workflow,
@@ -19,7 +20,11 @@ from tracecat.db.models import (
     WorkspaceSyncState,
 )
 from tracecat.dsl.common import DSLInput
-from tracecat.exceptions import TracecatNotFoundError, TracecatSettingsError
+from tracecat.exceptions import (
+    TracecatNotFoundError,
+    TracecatSettingsError,
+    TracecatValidationError,
+)
 from tracecat.git.types import GitUrl
 from tracecat.git.utils import parse_git_url
 from tracecat.identifiers.workflow import WorkflowUUID
@@ -43,12 +48,19 @@ from tracecat.workspace_sync.enums import (
 from tracecat.workspace_sync.git import WorkspaceGitHubSyncService
 from tracecat.workspace_sync.schemas import (
     MANIFEST_FILENAME,
+    ChangeSetCreate,
+    ChangeSetExport,
+    ChangeSetRead,
+    ResourceRef,
     WorkflowResourceSpec,
     WorkspaceManifest,
     WorkspaceProjection,
     WorkspaceRemoteSnapshot,
     WorkspaceSpec,
     WorkspaceSyncExportResult,
+    WorkspaceSyncPendingChange,
+    WorkspaceSyncPendingChanges,
+    WorkspaceSyncStatus,
 )
 from tracecat.workspace_sync.serialization import (
     canonical_json_text,
@@ -262,6 +274,172 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
                 url=url,
             )
         return result
+
+    async def get_status(self) -> WorkspaceSyncStatus:
+        """Return the workspace/repo three-way sync status for the configured repo."""
+        url = await self._workspace_git_url()
+        state = await self._get_or_create_state(url=url)
+        local_projection = await self.project_workspace(create_missing_mappings=True)
+        await self.session.commit()
+
+        remote_snapshot: WorkspaceRemoteSnapshot | None = None
+        diagnostics: list[PullDiagnostic] = []
+        remote_ref = state.target_ref or url.ref or "main"
+        try:
+            remote_snapshot, diagnostics = await self._read_remote_snapshot(
+                url=url,
+                ref=remote_ref,
+            )
+        except Exception as e:
+            diagnostics.append(
+                PullDiagnostic(
+                    workflow_path="",
+                    workflow_title=None,
+                    error_type="github",
+                    message=f"Failed to read remote workspace spec: {str(e)}",
+                    details={"error": str(e), "ref": remote_ref},
+                )
+            )
+
+        pending = await self._pending_changes_from_projection(
+            projection=local_projection,
+            state=state,
+        )
+        remote_changed_source_ids = await self._remote_changed_source_ids(
+            remote_snapshot
+        )
+        remote_spec_hash = remote_snapshot.spec_hash if remote_snapshot else None
+        status = self._classify_status(
+            base_spec_hash=state.base_spec_hash,
+            local_spec_hash=local_projection.spec_hash,
+            remote_spec_hash=remote_spec_hash,
+            local_changed_source_ids={change.source_id for change in pending.changes},
+            remote_changed_source_ids=remote_changed_source_ids,
+            remote_diagnostics=diagnostics,
+        )
+
+        state.status = status.value
+        if remote_snapshot:
+            state.last_remote_commit_sha = remote_snapshot.commit_sha
+            state.last_remote_tree_sha = remote_snapshot.tree_sha
+        state.last_error = (
+            {"diagnostics": [diagnostic.__dict__ for diagnostic in diagnostics]}
+            if diagnostics
+            else None
+        )
+        self.session.add(state)
+        await self.session.commit()
+
+        return WorkspaceSyncStatus(
+            status=status,
+            base_spec_hash=state.base_spec_hash,
+            local_spec_hash=local_projection.spec_hash,
+            remote_spec_hash=remote_spec_hash,
+            base_commit_sha=state.base_commit_sha,
+            remote_commit_sha=remote_snapshot.commit_sha if remote_snapshot else None,
+            target_ref=remote_ref,
+            pending_change_count=len(pending.changes),
+            diagnostics=diagnostics,
+        )
+
+    async def list_pending_changes(self) -> WorkspaceSyncPendingChanges:
+        """List local syncable changes relative to the last synced base."""
+        url = await self._workspace_git_url()
+        state = await self._get_or_create_state(url=url)
+        projection = await self.project_workspace(create_missing_mappings=True)
+        await self.session.commit()
+        return await self._pending_changes_from_projection(
+            projection=projection,
+            state=state,
+        )
+
+    async def create_changeset(self, params: ChangeSetCreate) -> ChangeSetRead:
+        """Create a reviewable ChangeSet from selected pending resources."""
+        if not params.resources:
+            raise TracecatValidationError("At least one resource is required")
+
+        projection = await self.project_workspace(create_missing_mappings=True)
+        specs = self._select_workflow_specs(
+            projection=projection,
+            resources=params.resources,
+        )
+        selected_files = self._files_for_workflow_specs(specs)
+        changeset = await self._create_changeset_for_specs(
+            title=params.title,
+            description=params.description,
+            specs=specs,
+            selected_files=selected_files,
+        )
+        await self.session.commit()
+        return self._changeset_to_read(changeset)
+
+    async def list_changesets(self, *, limit: int = 50) -> list[ChangeSetRead]:
+        stmt = (
+            select(WorkspaceSyncChangeSet)
+            .where(
+                WorkspaceSyncChangeSet.workspace_id == self.workspace_id,
+                WorkspaceSyncChangeSet.provider == SyncProvider.GIT.value,
+            )
+            .order_by(desc(WorkspaceSyncChangeSet.created_at))
+            .limit(limit)
+        )
+        result = await self.session.execute(stmt)
+        return [self._changeset_to_read(row) for row in result.scalars().all()]
+
+    async def get_changeset(self, changeset_id: uuid.UUID) -> ChangeSetRead:
+        changeset = await self._get_changeset(changeset_id)
+        return self._changeset_to_read(changeset)
+
+    async def export_changeset(
+        self,
+        *,
+        changeset_id: uuid.UUID,
+        params: ChangeSetExport,
+    ) -> WorkspaceSyncExportResult:
+        """Materialize a ChangeSet into a Git branch and optional pull request."""
+        changeset = await self._get_changeset(changeset_id)
+        selected_resources = [
+            ResourceRef.model_validate(resource)
+            for resource in changeset.selected_resources
+        ]
+        projection = await self.project_workspace(create_missing_mappings=True)
+        specs = self._select_workflow_specs(
+            projection=projection,
+            resources=selected_resources,
+        )
+        selected_files = self._files_for_workflow_specs(specs)
+        url = await self._workspace_git_url()
+
+        git_svc = WorkspaceGitHubSyncService(session=self.session, role=self.role)
+        commit = await git_svc.write_files(
+            url=url,
+            files=selected_files,
+            message=params.message,
+            branch=params.branch,
+            create_pr=params.create_pr,
+            pr_base_branch=params.pr_base_branch,
+        )
+
+        materialization = WorkspaceSyncMaterialization(
+            organization_id=self.organization_id,
+            workspace_id=self.workspace_id,
+            changeset_id=changeset.id,
+            provider=SyncProvider.GIT.value,
+            branch=commit.ref,
+            base_ref=commit.base_ref,
+            pr_number=commit.pr_number,
+            pr_url=commit.pr_url,
+            commit_shas=[commit.sha] if commit.sha else [],
+            status=(
+                MaterializationStatus.COMMITTED.value
+                if commit.sha
+                else MaterializationStatus.NO_OP.value
+            ),
+        )
+        changeset.status = ChangeSetStatus.EXPORTED.value
+        self.session.add_all([materialization, changeset])
+        await self.session.commit()
+        return WorkspaceSyncExportResult(changeset_id=changeset.id, commit=commit)
 
     async def export_workflow(
         self,
@@ -483,6 +661,18 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
             )
         return files
 
+    def _files_for_workflow_specs(
+        self,
+        specs: list[WorkflowResourceSpec],
+    ) -> dict[str, str]:
+        manifest = WorkspaceManifest()
+        selected_spec = WorkspaceSpec(
+            workflows={
+                spec.id: spec for spec in sorted(specs, key=lambda item: item.id)
+            }
+        )
+        return self._files_from_spec(manifest=manifest, spec=selected_spec)
+
     async def _reconcile_workflow_specs(
         self,
         *,
@@ -594,6 +784,148 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
         self.session.add(state)
         await self.session.commit()
 
+    async def _read_remote_snapshot(
+        self,
+        *,
+        url: GitUrl,
+        ref: str,
+    ) -> tuple[WorkspaceRemoteSnapshot, list[PullDiagnostic]]:
+        git_svc = WorkspaceGitHubSyncService(session=self.session, role=self.role)
+        remote_tree = await git_svc.read_files(url=url, ref=ref)
+        return await self.parse_files(
+            remote_tree.files,
+            commit_sha=remote_tree.commit_sha,
+            tree_sha=remote_tree.tree_sha,
+        )
+
+    async def _pending_changes_from_projection(
+        self,
+        *,
+        projection: WorkspaceProjection,
+        state: WorkspaceSyncState,
+    ) -> WorkspaceSyncPendingChanges:
+        mappings = await self._workflow_mappings()
+        mappings_by_source_id = {mapping.source_id: mapping for mapping in mappings}
+        changes: list[WorkspaceSyncPendingChange] = []
+
+        for source_id, spec in sorted(projection.spec.workflows.items()):
+            mapping = mappings_by_source_id.get(source_id)
+            before_hash = mapping.last_synced_spec_hash if mapping else None
+            after_hash = stable_hash(spec)
+            if before_hash == after_hash:
+                continue
+            operation = (
+                SyncOperation.CREATE if before_hash is None else SyncOperation.UPDATE
+            )
+            changes.append(
+                WorkspaceSyncPendingChange(
+                    resource_type=SyncResourceType.WORKFLOW.value,
+                    source_id=source_id,
+                    source_path=workflow_source_path(source_id),
+                    local_id=mapping.local_id if mapping else None,
+                    operation=operation,
+                    title=spec.definition.title,
+                    alias=spec.alias,
+                    before_spec_hash=before_hash,
+                    after_spec_hash=after_hash,
+                    exportable=True,
+                )
+            )
+
+        return WorkspaceSyncPendingChanges(
+            base_spec_hash=state.base_spec_hash,
+            local_spec_hash=projection.spec_hash,
+            changes=changes,
+        )
+
+    async def _remote_changed_source_ids(
+        self,
+        remote_snapshot: WorkspaceRemoteSnapshot | None,
+    ) -> set[str]:
+        if remote_snapshot is None:
+            return set()
+
+        mappings = await self._workflow_mappings()
+        mappings_by_source_id = {mapping.source_id: mapping for mapping in mappings}
+        remote_source_ids = set(remote_snapshot.spec.workflows)
+        changed: set[str] = set()
+
+        for source_id, spec in remote_snapshot.spec.workflows.items():
+            mapping = mappings_by_source_id.get(source_id)
+            remote_hash = stable_hash(spec)
+            if mapping is None or mapping.last_synced_spec_hash != remote_hash:
+                changed.add(source_id)
+
+        for mapping in mappings:
+            if (
+                mapping.last_synced_spec_hash
+                and mapping.source_id not in remote_source_ids
+            ):
+                changed.add(mapping.source_id)
+
+        return changed
+
+    def _classify_status(
+        self,
+        *,
+        base_spec_hash: str | None,
+        local_spec_hash: str,
+        remote_spec_hash: str | None,
+        local_changed_source_ids: set[str],
+        remote_changed_source_ids: set[str],
+        remote_diagnostics: list[PullDiagnostic],
+    ) -> SyncStateStatus:
+        if remote_diagnostics:
+            return SyncStateStatus.ERROR
+        if base_spec_hash is None or remote_spec_hash is None:
+            return SyncStateStatus.NEVER_SYNCED
+
+        local_matches_base = local_spec_hash == base_spec_hash
+        remote_matches_base = remote_spec_hash == base_spec_hash
+        if local_matches_base and remote_matches_base:
+            return SyncStateStatus.CLEAN
+        if not local_matches_base and remote_matches_base:
+            return SyncStateStatus.LOCAL_DIRTY
+        if local_matches_base and not remote_matches_base:
+            return SyncStateStatus.REMOTE_AHEAD
+        if local_changed_source_ids & remote_changed_source_ids:
+            return SyncStateStatus.CONFLICTED
+        return SyncStateStatus.DIVERGED
+
+    async def _workflow_mappings(self) -> list[WorkspaceSyncResourceMapping]:
+        stmt = select(WorkspaceSyncResourceMapping).where(
+            WorkspaceSyncResourceMapping.workspace_id == self.workspace_id,
+            WorkspaceSyncResourceMapping.provider == SyncProvider.GIT.value,
+            WorkspaceSyncResourceMapping.resource_type
+            == SyncResourceType.WORKFLOW.value,
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    def _select_workflow_specs(
+        self,
+        *,
+        projection: WorkspaceProjection,
+        resources: list[ResourceRef],
+    ) -> list[WorkflowResourceSpec]:
+        specs: list[WorkflowResourceSpec] = []
+        seen_source_ids: set[str] = set()
+        for resource in resources:
+            if resource.resource_type != SyncResourceType.WORKFLOW.value:
+                raise TracecatValidationError(
+                    f"Unsupported sync resource type: {resource.resource_type}"
+                )
+            if resource.source_id in seen_source_ids:
+                continue
+            spec = projection.spec.workflows.get(resource.source_id)
+            if spec is None:
+                raise TracecatValidationError(
+                    f"Workflow source id not found in local projection: {resource.source_id}"
+                )
+            specs.append(spec)
+            seen_source_ids.add(resource.source_id)
+        return specs
+
     async def _create_changeset_for_specs(
         self,
         *,
@@ -603,11 +935,17 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
         selected_files: dict[str, str],
     ) -> WorkspaceSyncChangeSet:
         state = await self._get_or_create_state(url=await self._workspace_git_url())
+        mappings_by_source_id = {
+            mapping.source_id: mapping for mapping in await self._workflow_mappings()
+        }
         selected_resources = [
             {
                 "resource_type": SyncResourceType.WORKFLOW.value,
                 "source_id": spec.id,
                 "source_path": workflow_source_path(spec.id),
+                "local_id": str(mappings_by_source_id[spec.id].local_id)
+                if spec.id in mappings_by_source_id
+                else None,
             }
             for spec in specs
         ]
@@ -629,6 +967,7 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
         self.session.add(changeset)
         await self.session.flush()
         for spec in specs:
+            mapping = mappings_by_source_id.get(spec.id)
             item = WorkspaceSyncChangeSetItem(
                 organization_id=self.organization_id,
                 workspace_id=self.workspace_id,
@@ -636,14 +975,46 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
                 resource_type=SyncResourceType.WORKFLOW.value,
                 source_id=spec.id,
                 source_path=workflow_source_path(spec.id),
-                local_id=None,
-                operation=SyncOperation.UPDATE.value,
+                local_id=mapping.local_id if mapping else None,
+                operation=(
+                    SyncOperation.CREATE.value
+                    if mapping is None or mapping.last_synced_spec_hash is None
+                    else SyncOperation.UPDATE.value
+                ),
                 spec_hash=stable_hash(spec),
                 dependencies=[],
             )
             self.session.add(item)
         await self.session.flush()
         return changeset
+
+    async def _get_changeset(
+        self,
+        changeset_id: uuid.UUID,
+    ) -> WorkspaceSyncChangeSet:
+        stmt = select(WorkspaceSyncChangeSet).where(
+            WorkspaceSyncChangeSet.workspace_id == self.workspace_id,
+            WorkspaceSyncChangeSet.provider == SyncProvider.GIT.value,
+            WorkspaceSyncChangeSet.id == changeset_id,
+        )
+        changeset = (await self.session.execute(stmt)).scalar_one_or_none()
+        if changeset is None:
+            raise TracecatNotFoundError("Workspace sync ChangeSet not found")
+        return changeset
+
+    def _changeset_to_read(self, changeset: WorkspaceSyncChangeSet) -> ChangeSetRead:
+        return ChangeSetRead(
+            id=changeset.id,
+            title=changeset.title,
+            description=changeset.description,
+            base_commit_sha=changeset.base_commit_sha,
+            base_spec_hash=changeset.base_spec_hash,
+            selected_resources=changeset.selected_resources,
+            selected_paths=changeset.selected_paths,
+            validation_status=changeset.validation_status,
+            validation_result=changeset.validation_result,
+            status=changeset.status,
+        )
 
     async def _get_or_create_state(self, *, url: GitUrl) -> WorkspaceSyncState:
         repo_url = url.to_url()
@@ -656,17 +1027,22 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
         )
         if state := (await self.session.execute(stmt)).scalar_one_or_none():
             return state
-        state = WorkspaceSyncState(
-            organization_id=self.organization_id,
-            workspace_id=self.workspace_id,
-            provider=SyncProvider.GIT.value,
-            repo_url=repo_url,
-            target_ref=target_ref,
-            status=SyncStateStatus.NEVER_SYNCED.value,
+        insert_stmt = (
+            insert(WorkspaceSyncState)
+            .values(
+                organization_id=self.organization_id,
+                workspace_id=self.workspace_id,
+                provider=SyncProvider.GIT.value,
+                repo_url=repo_url,
+                target_ref=target_ref,
+                status=SyncStateStatus.NEVER_SYNCED.value,
+            )
+            .on_conflict_do_nothing(
+                constraint="uq_workspace_sync_state_workspace_provider_repo_ref"
+            )
         )
-        self.session.add(state)
-        await self.session.flush()
-        return state
+        await self.session.execute(insert_stmt)
+        return (await self.session.execute(stmt)).scalar_one()
 
     async def _workspace_git_url(self) -> GitUrl:
         workspace = await self._workspace()
