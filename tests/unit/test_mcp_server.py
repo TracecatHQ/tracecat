@@ -20,7 +20,7 @@ from fastmcp.server.middleware.middleware import MiddlewareContext
 from fastmcp.tools import ToolResult
 from mcp.types import CallToolRequestParams
 from pydantic import ValidationError
-from tracecat_registry import RegistrySecret
+from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
 import tracecat.mcp.auth as mcp_auth
 from tracecat.agent.common.stream_types import (
@@ -41,7 +41,12 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.expressions.common import ExprType
-from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
+from tracecat.integrations.enums import (
+    IntegrationStatus,
+    MCPAuthType,
+    OAuthGrantType,
+)
+from tracecat.integrations.schemas import ProviderKey
 from tracecat.tables.service import TablesService
 from tracecat.validation.schemas import (
     ValidationDetail,
@@ -89,6 +94,11 @@ class _AsyncContext:
 
     async def __aexit__(self, exc_type, exc, tb):
         return None
+
+
+async def _empty_oauth_inventory(_role: Any) -> set[ProviderKey]:
+    """Default OAuth inventory stub: no workspace integrations configured."""
+    return set()
 
 
 def _build_preset_read(preset: Any) -> AgentPresetRead:
@@ -2789,8 +2799,9 @@ async def test_publish_workflow_builtin_registry_not_ready_returns_validation_fa
 
 
 def test_evaluate_configuration_reports_missing_workspace_secret_keys():
-    requirements: list[mcp_server.ActionSecretRequirementPayload] = [
+    requirements: list[mcp_server.ActionRequirementPayload] = [
         {
+            "type": "secret",
             "name": "slack",
             "required_keys": ["SLACK_BOT_TOKEN"],
             "optional_keys": [],
@@ -2805,6 +2816,76 @@ def test_evaluate_configuration_reports_missing_workspace_secret_keys():
 
     assert configured is False
     assert missing == ["missing key: slack.SLACK_BOT_TOKEN"]
+
+
+def test_secrets_to_requirements_represents_oauth_as_oauth():
+    requirements = mcp_server._secrets_to_requirements(
+        [RegistryOAuthSecret(provider_id="github", grant_type="authorization_code")]
+    )
+
+    assert requirements == [
+        {
+            "type": "oauth",
+            "name": "github_oauth",
+            "provider_id": "github",
+            "grant_type": "authorization_code",
+            "optional": False,
+        }
+    ]
+
+
+def test_evaluate_configuration_oauth_configured_when_integration_exists():
+    requirements = mcp_server._secrets_to_requirements(
+        [RegistryOAuthSecret(provider_id="github", grant_type="authorization_code")]
+    )
+    oauth_inventory = {
+        ProviderKey(id="github", grant_type=OAuthGrantType.AUTHORIZATION_CODE)
+    }
+
+    configured, missing = mcp_server._evaluate_configuration(
+        requirements,
+        {},
+        oauth_inventory,
+    )
+
+    assert configured is True
+    assert missing == []
+
+
+def test_evaluate_configuration_reports_missing_oauth_integration():
+    requirements = mcp_server._secrets_to_requirements(
+        [RegistryOAuthSecret(provider_id="github", grant_type="authorization_code")]
+    )
+
+    configured, missing = mcp_server._evaluate_configuration(
+        requirements,
+        {},
+        set(),
+    )
+
+    assert configured is False
+    assert missing == ["missing oauth integration: github (authorization_code)"]
+
+
+def test_evaluate_configuration_skips_optional_oauth_integration():
+    requirements = mcp_server._secrets_to_requirements(
+        [
+            RegistryOAuthSecret(
+                provider_id="github",
+                grant_type="authorization_code",
+                optional=True,
+            )
+        ]
+    )
+
+    configured, missing = mcp_server._evaluate_configuration(
+        requirements,
+        {},
+        set(),
+    )
+
+    assert configured is True
+    assert missing == []
 
 
 @pytest.mark.anyio
@@ -2876,11 +2957,15 @@ async def test_get_action_context_includes_configuration(monkeypatch):
     async def _secret_inventory(_role):
         return {"slack": {"SLACK_BOT_TOKEN"}}
 
+    async def _oauth_inventory(_role):
+        return set()
+
     monkeypatch.setattr(
         mcp_server,
         "_load_secret_inventory",
         _secret_inventory,
     )
+    monkeypatch.setattr(mcp_server, "_load_oauth_inventory", _oauth_inventory)
     monkeypatch.setattr(
         "tracecat.registry.actions.service.RegistryActionsService.with_session",
         lambda role: _AsyncContext(registry_service),
@@ -2896,6 +2981,109 @@ async def test_get_action_context_includes_configuration(monkeypatch):
     assert payload["configured"] is True
     assert payload["missing_requirements"] == []
     assert payload["required_secrets"][0]["name"] == "slack"
+
+
+def _github_oauth_registry_service() -> SimpleNamespace:
+    """Registry service stub for a GitHub OAuth-backed REST action."""
+    indexed_action = SimpleNamespace(
+        manifest=SimpleNamespace(),
+        index_entry=SimpleNamespace(options=None),
+    )
+    registry_service = SimpleNamespace(
+        aggregate_secrets_from_manifest=lambda _manifest, _action_name: [
+            RegistryOAuthSecret(provider_id="github", grant_type="authorization_code")
+        ],
+    )
+
+    async def _get_indexed(_action_name):
+        return indexed_action
+
+    registry_service.get_action_from_index = _get_indexed
+    return registry_service
+
+
+@pytest.mark.anyio
+async def test_get_action_context_oauth_configured_when_integration_exists(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    async def _create_tool(_action_name, _indexed):
+        return SimpleNamespace(
+            description="Get a GitHub issue",
+            parameters_json_schema={
+                "type": "object",
+                "properties": {"issue_number": {"type": "integer"}},
+                "required": ["issue_number"],
+            },
+        )
+
+    async def _secret_inventory(_role):
+        return {}
+
+    async def _oauth_inventory(_role):
+        return {ProviderKey(id="github", grant_type=OAuthGrantType.AUTHORIZATION_CODE)}
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(mcp_server, "_load_secret_inventory", _secret_inventory)
+    monkeypatch.setattr(mcp_server, "_load_oauth_inventory", _oauth_inventory)
+    monkeypatch.setattr(
+        "tracecat.registry.actions.service.RegistryActionsService.with_session",
+        lambda role: _AsyncContext(_github_oauth_registry_service()),
+    )
+    monkeypatch.setattr(mcp_server, "create_tool_from_registry", _create_tool)
+
+    result = await _tool(mcp_server.get_action_context)(
+        workspace_id=str(uuid.uuid4()),
+        action_name="tools.github.get_issue",
+    )
+    payload = _payload(result)
+    assert payload["configured"] is True
+    assert payload["missing_requirements"] == []
+    oauth_req = payload["required_secrets"][0]
+    assert oauth_req["type"] == "oauth"
+    assert oauth_req["provider_id"] == "github"
+    assert oauth_req["grant_type"] == "authorization_code"
+    # Regression: OAuth requirements must not be reported as workspace secrets.
+    assert "missing secret: github_oauth" not in payload["missing_requirements"]
+
+
+@pytest.mark.anyio
+async def test_get_action_context_reports_missing_oauth_integration(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    async def _create_tool(_action_name, _indexed):
+        return SimpleNamespace(
+            description="Get a GitHub issue",
+            parameters_json_schema={"type": "object", "properties": {}},
+        )
+
+    async def _secret_inventory(_role):
+        return {}
+
+    async def _oauth_inventory(_role):
+        return set()
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(mcp_server, "_load_secret_inventory", _secret_inventory)
+    monkeypatch.setattr(mcp_server, "_load_oauth_inventory", _oauth_inventory)
+    monkeypatch.setattr(
+        "tracecat.registry.actions.service.RegistryActionsService.with_session",
+        lambda role: _AsyncContext(_github_oauth_registry_service()),
+    )
+    monkeypatch.setattr(mcp_server, "create_tool_from_registry", _create_tool)
+
+    result = await _tool(mcp_server.get_action_context)(
+        workspace_id=str(uuid.uuid4()),
+        action_name="tools.github.get_issue",
+    )
+    payload = _payload(result)
+    assert payload["configured"] is False
+    assert payload["missing_requirements"] == [
+        "missing oauth integration: github (authorization_code)"
+    ]
+    # Regression: never reported as a missing workspace secret.
+    assert "missing secret: github_oauth" not in payload["missing_requirements"]
 
 
 @pytest.mark.anyio
@@ -5367,6 +5555,7 @@ async def test_action_catalog_resource(monkeypatch):
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     monkeypatch.setattr(mcp_server, "_load_secret_inventory", _secret_inventory)
+    monkeypatch.setattr(mcp_server, "_load_oauth_inventory", _empty_oauth_inventory)
     monkeypatch.setattr(
         "tracecat.registry.actions.service.RegistryActionsService.with_session",
         lambda role: _AsyncContext(_RegistryService()),
@@ -5430,6 +5619,7 @@ async def test_list_actions_browse_without_query(monkeypatch):
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     monkeypatch.setattr(mcp_server, "_load_secret_inventory", _secret_inventory)
+    monkeypatch.setattr(mcp_server, "_load_oauth_inventory", _empty_oauth_inventory)
     monkeypatch.setattr(
         "tracecat.registry.actions.service.RegistryActionsService.with_session",
         lambda role: _AsyncContext(_RegistryService()),
@@ -5484,6 +5674,7 @@ async def test_list_actions_browse_with_namespace(monkeypatch):
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     monkeypatch.setattr(mcp_server, "_load_secret_inventory", _secret_inventory)
+    monkeypatch.setattr(mcp_server, "_load_oauth_inventory", _empty_oauth_inventory)
     monkeypatch.setattr(
         "tracecat.registry.actions.service.RegistryActionsService.with_session",
         lambda role: _AsyncContext(_RegistryService()),
@@ -5538,6 +5729,7 @@ async def test_list_actions_paginates_and_rejects_mismatched_cursor(monkeypatch)
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     monkeypatch.setattr(mcp_server, "_load_secret_inventory", _secret_inventory)
+    monkeypatch.setattr(mcp_server, "_load_oauth_inventory", _empty_oauth_inventory)
     monkeypatch.setattr(
         "tracecat.registry.actions.service.RegistryActionsService.with_session",
         lambda role: _AsyncContext(_RegistryService()),
@@ -7013,17 +7205,21 @@ async def test_list_integrations_returns_mcp_and_provider_inventory(
     workspace_id = uuid.uuid4()
     current_user_id = uuid.uuid4()
     role = SimpleNamespace(workspace_id=workspace_id, user_id=current_user_id)
-    oauth_integration = SimpleNamespace(
-        provider_id="slack",
-        grant_type=OAuthGrantType.AUTHORIZATION_CODE,
-        user_id=current_user_id,
-        status=SimpleNamespace(value="connected"),
-    )
+    # An authorization_code integration connected by another workspace member.
+    # Public MCP must report workspace-level status, not the caller's own row.
     other_user_integration = SimpleNamespace(
         provider_id="slack",
         grant_type=OAuthGrantType.AUTHORIZATION_CODE,
         user_id=uuid.uuid4(),
-        status=SimpleNamespace(value="configured"),
+        status=IntegrationStatus.CONNECTED,
+    )
+    # The caller's own row is only configured; listed last to prove the most
+    # progressed status wins deterministically regardless of ordering.
+    oauth_integration = SimpleNamespace(
+        provider_id="slack",
+        grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        user_id=current_user_id,
+        status=IntegrationStatus.CONFIGURED,
     )
     mcp_integration_id = uuid.uuid4()
     mcp_integration = SimpleNamespace(
@@ -7147,6 +7343,7 @@ async def test_get_workflow_authoring_context_truncates_embedded_collections(
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     monkeypatch.setattr(mcp_server, "_load_secret_inventory", _secret_inventory)
+    monkeypatch.setattr(mcp_server, "_load_oauth_inventory", _empty_oauth_inventory)
     monkeypatch.setattr(mcp_server, "_MCP_EMBEDDED_COLLECTION_LIMIT", 1)
     monkeypatch.setattr(mcp_server, "create_tool_from_registry", _create_tool)
     monkeypatch.setattr(

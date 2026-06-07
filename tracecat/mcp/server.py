@@ -153,8 +153,9 @@ from tracecat.identifiers.workflow import (
     WorkflowUUID,
     exec_id_to_parts,
 )
-from tracecat.integrations.enums import IntegrationStatus
+from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
 from tracecat.integrations.providers import all_providers
+from tracecat.integrations.schemas import ProviderKey
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.mcp.auth import (
@@ -458,13 +459,19 @@ def _build_example_from_schema(schema: dict[str, Any]) -> dict[str, Any]:
 
 def _secrets_to_requirements(
     secrets: Sequence[RegistrySecret | RegistryOAuthSecret],
-) -> list[ActionSecretRequirementPayload]:
-    """Convert registry secret objects to public requirement metadata."""
-    requirements: list[ActionSecretRequirementPayload] = []
+) -> list[ActionRequirementPayload]:
+    """Convert registry secret objects to public requirement metadata.
+
+    OAuth requirements are represented as OAuth requirements (provider_id +
+    grant_type), not as workspace secret/key pairs, so readiness can be checked
+    against the workspace's configured OAuth integrations.
+    """
+    requirements: list[ActionRequirementPayload] = []
     for secret in secrets:
         if isinstance(secret, RegistrySecret):
             requirements.append(
                 {
+                    "type": "secret",
                     "name": secret.name,
                     "required_keys": list(secret.keys or []),
                     "optional_keys": list(secret.optional_keys or []),
@@ -474,9 +481,10 @@ def _secrets_to_requirements(
         elif isinstance(secret, RegistryOAuthSecret):
             requirements.append(
                 {
+                    "type": "oauth",
                     "name": secret.name,
-                    "required_keys": [secret.token_name],
-                    "optional_keys": [],
+                    "provider_id": secret.provider_id,
+                    "grant_type": secret.grant_type,
                     "optional": secret.optional,
                 }
             )
@@ -501,16 +509,49 @@ async def _load_secret_inventory(
         return workspace_inventory
 
 
+async def _load_oauth_inventory(role: Role) -> set[ProviderKey]:
+    """Load configured workspace OAuth integrations.
+
+    Mirrors runtime secret injection and workflow validation, which key OAuth
+    readiness on workspace-level ``(provider_id, grant_type)`` integrations
+    rather than per-user rows.
+    """
+    async with IntegrationService.with_session(role=role) as svc:
+        integrations = await svc.list_integrations()
+    return {
+        ProviderKey(id=integration.provider_id, grant_type=integration.grant_type)
+        for integration in integrations
+    }
+
+
 def _evaluate_configuration(
-    requirements: Sequence[ActionSecretRequirementPayload],
+    requirements: Sequence[ActionRequirementPayload],
     workspace_inventory: dict[str, set[str]],
+    oauth_inventory: set[ProviderKey] | None = None,
 ) -> tuple[bool, list[str]]:
-    """Evaluate whether required secret names/keys are configured."""
+    """Evaluate whether required secrets and OAuth integrations are configured."""
+    oauth_inventory = oauth_inventory or set()
     missing: list[str] = []
     for req in requirements:
-        secret_name = req["name"]
-        required_keys = set(req["required_keys"])
-        if not required_keys and req.get("optional", False):
+        if req.get("type") == "oauth":
+            oauth_req = cast(ActionOAuthRequirementPayload, req)
+            if oauth_req.get("optional", False):
+                continue
+            provider_key = ProviderKey(
+                id=oauth_req["provider_id"],
+                grant_type=OAuthGrantType(oauth_req["grant_type"]),
+            )
+            if provider_key not in oauth_inventory:
+                missing.append(
+                    "missing oauth integration: "
+                    f"{provider_key.id} ({provider_key.grant_type.value})"
+                )
+            continue
+
+        secret_req = cast(ActionSecretRequirementPayload, req)
+        secret_name = secret_req["name"]
+        required_keys = set(secret_req["required_keys"])
+        if not required_keys and secret_req.get("optional", False):
             continue
         available_keys = workspace_inventory.get(secret_name)
         if available_keys is None:
@@ -558,18 +599,25 @@ def _build_output_type_context() -> dict[str, Any]:
 async def _build_integrations_inventory(role: Role) -> IntegrationsInventoryResponse:
     """Build integration inventory for workflow and preset authoring."""
     async with IntegrationService.with_session(role=role) as svc:
-        user_id = getattr(role, "user_id", None)
+        # Report workspace-level integration status (matching the /integrations
+        # UI and runtime/validation readiness checks), not per-user rows. An
+        # OAuth provider configured by any workspace member counts as available.
+        # authorization_code integrations are per-user, so multiple rows can
+        # share a provider key; keep the most-progressed status deterministically.
         integrations = await svc.list_integrations()
-        if user_id is not None:
-            integrations = [
-                integration
-                for integration in integrations
-                if getattr(integration, "user_id", None) == user_id
-            ]
-        existing = {
-            (integration.provider_id, integration.grant_type): integration
-            for integration in integrations
+        status_rank = {
+            IntegrationStatus.NOT_CONFIGURED: 0,
+            IntegrationStatus.CONFIGURED: 1,
+            IntegrationStatus.CONNECTED: 2,
         }
+        existing: dict[tuple[str, OAuthGrantType], Any] = {}
+        for integration in integrations:
+            key = (integration.provider_id, integration.grant_type)
+            current = existing.get(key)
+            if current is None or status_rank.get(
+                integration.status, 0
+            ) > status_rank.get(current.status, 0):
+                existing[key] = integration
         mcp_integrations = await svc.list_mcp_integrations()
         oauth_providers: list[OAuthProviderInventoryItem] = []
         for provider_impl in all_providers():
@@ -744,12 +792,35 @@ class MCPValidationErrorPayload(TypedDict, total=False):
 
 
 class ActionSecretRequirementPayload(TypedDict):
-    """Secret requirements needed by an action."""
+    """Workspace secret requirement needed by an action."""
 
+    type: Literal["secret"]
     name: str
     required_keys: list[str]
     optional_keys: list[str]
     optional: bool
+
+
+class ActionOAuthRequirementPayload(TypedDict):
+    """OAuth integration requirement needed by an action.
+
+    OAuth requirements are backed by workspace integrations (configured under
+    /integrations), not by workspace secrets. ``name`` is the synthetic secret
+    name (e.g. ``github_oauth``) used in ``${{ SECRETS.<name>.<token> }}``
+    expressions at runtime, but readiness is evaluated against the workspace's
+    configured OAuth integrations keyed by ``(provider_id, grant_type)``.
+    """
+
+    type: Literal["oauth"]
+    name: str
+    provider_id: str
+    grant_type: str
+    optional: bool
+
+
+ActionRequirementPayload = (
+    ActionSecretRequirementPayload | ActionOAuthRequirementPayload
+)
 
 
 class WorkflowSummaryResponse(BaseModel):
@@ -974,7 +1045,7 @@ class ActionContextResponse(ActionDiscoveryResponse):
     """Full action authoring context response."""
 
     parameters_json_schema: dict[str, Any]
-    required_secrets: list[ActionSecretRequirementPayload] = Field(default_factory=list)
+    required_secrets: list[ActionRequirementPayload] = Field(default_factory=list)
     examples: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -3471,6 +3542,7 @@ async def _build_action_catalog(workspace_id: uuid.UUID) -> ActionCatalogRespons
 
     ws_id, role = await _resolve_workspace_role(workspace_id)
     workspace_inventory = await _load_secret_inventory(role)
+    oauth_inventory = await _load_oauth_inventory(role)
 
     async with RegistryActionsService.with_session(role=role) as svc:
         entries = await svc.list_actions_from_index()
@@ -3512,7 +3584,7 @@ async def _build_action_catalog(workspace_id: uuid.UUID) -> ActionCatalogRespons
                 if secrets:
                     requirements = _secrets_to_requirements(secrets)
                     configured, missing = _evaluate_configuration(
-                        requirements, workspace_inventory
+                        requirements, workspace_inventory, oauth_inventory
                     )
                     if not configured:
                         ns_configured = False
@@ -4659,6 +4731,7 @@ async def list_actions(
         _, role = await _resolve_workspace_role(workspace_id)
         limit = _normalize_limit(limit, default=50, max_limit=200)
         workspace_inventory = await _load_secret_inventory(role)
+        oauth_inventory = await _load_oauth_inventory(role)
         async with RegistryActionsService.with_session(role=role) as svc:
             if query:
                 entries = await svc.search_actions_from_index(query, limit=None)
@@ -4677,7 +4750,7 @@ async def list_actions(
                 )
                 requirements = _secrets_to_requirements(secrets)
                 configured, missing = _evaluate_configuration(
-                    requirements, workspace_inventory
+                    requirements, workspace_inventory, oauth_inventory
                 )
                 items.append(
                     ActionDiscoveryResponse(
@@ -4833,15 +4906,18 @@ async def get_action_context(
     - description: What the action does
     - parameters_json_schema: JSON Schema for the action's args (map these to the
       YAML `args:` block in a workflow action definition)
-    - required_secrets: List of secrets the action needs ({name, required_keys, optional_keys})
-    - configured: Whether all required secrets are present
-    - missing_requirements: List of missing secret names/keys
+    - required_secrets: List of requirements the action needs. Workspace secrets
+      are {type: "secret", name, required_keys, optional_keys}; OAuth-backed
+      integrations are {type: "oauth", name, provider_id, grant_type}.
+    - configured: Whether all required secrets and OAuth integrations are present
+    - missing_requirements: List of missing secrets/keys or OAuth integrations
     - examples: Example args payload based on the schema
     """
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
         workspace_inventory = await _load_secret_inventory(role)
+        oauth_inventory = await _load_oauth_inventory(role)
         async with RegistryActionsService.with_session(role=role) as svc:
             indexed = await svc.get_action_from_index(action_name)
             if indexed is None:
@@ -4850,7 +4926,7 @@ async def get_action_context(
             secrets = svc.aggregate_secrets_from_manifest(indexed.manifest, action_name)
             requirements = _secrets_to_requirements(secrets)
             configured, missing = _evaluate_configuration(
-                requirements, workspace_inventory
+                requirements, workspace_inventory, oauth_inventory
             )
             schema = tool.parameters_json_schema
             return ActionContextResponse(
@@ -4904,6 +4980,7 @@ async def get_workflow_authoring_context(
         action_names = list(actions.action_names) if actions is not None else []
 
         workspace_inventory = await _load_secret_inventory(role)
+        oauth_inventory = await _load_oauth_inventory(role)
         action_contexts: list[ActionContextResponse] = []
         async with RegistryActionsService.with_session(role=role) as registry_svc:
             if not action_names and query:
@@ -4922,7 +4999,7 @@ async def get_workflow_authoring_context(
                     )
                 )
                 configured, missing = _evaluate_configuration(
-                    requirements, workspace_inventory
+                    requirements, workspace_inventory, oauth_inventory
                 )
                 action_contexts.append(
                     ActionContextResponse(
@@ -4975,7 +5052,9 @@ async def get_workflow_authoring_context(
             variable_hints=truncated_sections["variable_hints"],
             secret_hints=truncated_sections["secret_hints"],
             notes=[
-                "configured means required secret names and required key names exist in the default environment",
+                "configured means required secret names and keys exist in the "
+                "default environment, and any required OAuth integrations are "
+                "configured for the workspace",
             ],
             truncation=truncation,
         )
