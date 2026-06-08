@@ -1,0 +1,40 @@
+"""add mcp catalog slug
+
+Revision ID: 9b52f7f18a31
+Revises: 0f18bea0c115
+Create Date: 2026-06-08 00:00:00.000000
+
+"""
+
+from collections.abc import Sequence
+
+import sqlalchemy as sa
+
+from alembic import op
+
+# revision identifiers, used by Alembic.
+revision: str = "9b52f7f18a31"
+down_revision: str | None = "0f18bea0c115"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
+
+
+def upgrade() -> None:
+    op.add_column(
+        "mcp_integration",
+        sa.Column("catalog_slug", sa.String(), nullable=True),
+    )
+    op.create_index(
+        "ix_mcp_integration_workspace_catalog_slug",
+        "mcp_integration",
+        ["workspace_id", "catalog_slug"],
+        unique=False,
+    )
+
+
+def downgrade() -> None:
+    op.drop_index(
+        "ix_mcp_integration_workspace_catalog_slug",
+        table_name="mcp_integration",
+    )
+    op.drop_column("mcp_integration", "catalog_slug")

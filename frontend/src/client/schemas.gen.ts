@@ -15571,6 +15571,11 @@ export const $MCPIntegrationRead = {
       ],
       title: "Oauth Integration Id",
     },
+    state: {
+      type: "string",
+      enum: ["not_configured", "configured", "connected", "error"],
+      title: "State",
+    },
     stdio_command: {
       anyOf: [
         {
@@ -15634,6 +15639,7 @@ export const $MCPIntegrationRead = {
     "server_uri",
     "auth_type",
     "oauth_integration_id",
+    "state",
     "stdio_command",
     "stdio_args",
     "timeout",

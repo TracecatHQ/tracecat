@@ -317,6 +317,7 @@ class TestMCPIntegrationCRUD:
         assert second is not None
         assert first.id == second.id
         assert first.slug == catalog.slug
+        assert first.catalog_slug == catalog.slug
         assert first.name == catalog.name
         assert first.server_type == "http"
         assert first.server_uri == "https://mcp.example.com/mcp"
@@ -366,6 +367,7 @@ class TestMCPIntegrationCRUD:
             workspace_id=integration_service.workspace_id,
             name=catalog.name,
             slug=catalog.slug,
+            catalog_slug=catalog.slug,
             server_type="http",
             server_uri="https://mcp.example.com/mcp",
             auth_type=MCPAuthType.NONE,
@@ -585,6 +587,80 @@ class TestMCPIntegrationCRUD:
         assert item.state == "not_configured"
         assert item.mcp_integration_id is None
 
+    async def test_catalog_slug_separates_platform_from_custom_slug_collision(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Exact slug collisions do not make custom rows catalog-managed."""
+        catalog = _catalog_entry(
+            slug="collision-mcp",
+            name="Collision MCP",
+            description="Collision catalog row",
+            connection_spec={
+                "kind": "http_none",
+                "server_type": "http",
+                "auth_type": "NONE",
+                "requires_config": False,
+                "config_fields": [],
+                "credentials": [],
+                "server_uri": "https://mcp.example.com/mcp",
+            },
+            sort_key="0003:collision-mcp",
+        )
+        _install_catalog_entry(monkeypatch, catalog)
+        custom = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name="Custom Collision MCP",
+            slug=catalog.slug,
+            server_type="http",
+            server_uri="https://custom.example.com/mcp",
+            auth_type=MCPAuthType.NONE,
+        )
+        session.add(custom)
+        await session.flush()
+
+        catalog_service = PlatformMCPCatalogService(session=session)
+        items, _ = await catalog_service.list_catalog(
+            workspace_id=integration_service.workspace_id,
+            agent_addons_entitled=True,
+            q=catalog.slug,
+        )
+        item = next(item for item in items if item.slug == catalog.slug)
+        assert item.state == "not_configured"
+        assert item.mcp_integration_id is None
+
+        platform_integrations = await integration_service.list_mcp_integrations(
+            source="platform"
+        )
+        workspace_integrations = await integration_service.list_mcp_integrations(
+            source="workspace"
+        )
+        assert custom.id not in {
+            integration.id for integration in platform_integrations
+        }
+        assert custom.id in {integration.id for integration in workspace_integrations}
+
+        result = await integration_service.connect_platform_mcp_catalog(
+            catalog_slug=catalog.slug
+        )
+
+        created = result.mcp_integration
+        assert created is not None
+        assert created.id != custom.id
+        assert created.slug == f"{catalog.slug}-1"
+        assert created.catalog_slug == catalog.slug
+
+        items, _ = await catalog_service.list_catalog(
+            workspace_id=integration_service.workspace_id,
+            agent_addons_entitled=True,
+            q=catalog.slug,
+        )
+        item = next(item for item in items if item.slug == catalog.slug)
+        assert item.state == "connected"
+        assert item.mcp_integration_id == created.id
+
     async def test_platform_mcp_catalog_existing_row_connects_without_entitlement(
         self,
         integration_service: IntegrationService,
@@ -619,6 +695,7 @@ class TestMCPIntegrationCRUD:
             workspace_id=integration_service.workspace_id,
             name=catalog.name,
             slug=catalog.slug,
+            catalog_slug=catalog.slug,
             server_type="http",
             server_uri="https://mcp.example.com/mcp",
             auth_type=MCPAuthType.NONE,
@@ -1219,6 +1296,52 @@ class TestMCPIntegrationCRUD:
         assert all(
             integration.name.startswith("Test MCP") for integration in integrations
         )
+
+    async def test_list_mcp_integrations_with_state_uses_oauth_token_state(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+    ) -> None:
+        """OAuth2 MCP rows without an access token are configured, not connected."""
+        configured_oauth = await integration_service.store_provider_config(
+            provider_key=ProviderKey(
+                id="configured_mcp_state",
+                grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+            ),
+            client_id="configured-client",
+            authorization_endpoint="https://auth.example.com/oauth/authorize",
+            token_endpoint="https://auth.example.com/oauth/token",
+        )
+        connected_mcp = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Connected OAuth MCP",
+                server_uri="https://connected.example.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            )
+        )
+        configured_mcp = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Configured OAuth MCP",
+                server_uri="https://configured.example.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=configured_oauth.id,
+            )
+        )
+        none_mcp = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="No Auth MCP",
+                server_uri="https://none.example.com/mcp",
+                auth_type=MCPAuthType.NONE,
+            )
+        )
+
+        rows = await integration_service.list_mcp_integrations_with_state()
+        state_by_id = {row.integration.id: row.state for row in rows}
+
+        assert state_by_id[connected_mcp.id] == "connected"
+        assert state_by_id[configured_mcp.id] == "configured"
+        assert state_by_id[none_mcp.id] == "connected"
 
     async def test_list_mcp_integrations_source_keeps_matching_user_row_as_workspace(
         self,
@@ -2896,6 +3019,132 @@ class TestMCPProviderOAuth:
         assert "host is not allowed" in message
         assert "10.0.0.10" not in message
         assert "private" not in message.lower()
+
+    async def test_generic_mcp_callback_uses_registered_token_auth_method(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Generic MCP DCR keeps the assigned token auth method through callback."""
+        assert integration_service.role.user_id is not None
+        session.add(
+            User(
+                id=integration_service.role.user_id,
+                email=f"mcp-registered-auth-{uuid.uuid4()}@example.com",
+                hashed_password="test_password",
+                is_active=True,
+                is_verified=True,
+                is_superuser=False,
+                last_login_at=None,
+            )
+        )
+        await session.flush()
+
+        provider_key = ProviderKey(
+            id="custom_mcp_registered_auth_method",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        oauth_integration = await integration_service.store_provider_config(
+            provider_key=provider_key,
+            client_id="registered-client",
+            client_secret=SecretStr("registered-secret"),
+            authorization_endpoint="https://auth.example.test/oauth/authorize",
+            token_endpoint="https://auth.example.test/oauth/token",
+        )
+        session.add(
+            MCPIntegration(
+                workspace_id=integration_service.workspace_id,
+                name="Registered Auth Method MCP",
+                slug="registered-auth-method-mcp",
+                server_type="http",
+                server_uri="https://mcp.example.test/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            )
+        )
+        await session.commit()
+
+        expected_code_verifier: str | None = None
+
+        class FakeOAuthClient:
+            init_calls: list[dict[str, object]] = []
+
+            def __init__(self, **kwargs: object) -> None:
+                self.init_calls.append(kwargs)
+
+            def create_authorization_url(
+                self, authorization_endpoint: str, **kwargs: object
+            ) -> tuple[str, str]:
+                state = kwargs["state"]
+                return f"{authorization_endpoint}?state={state}", str(state)
+
+            async def fetch_token(
+                self, *args: object, **kwargs: object
+            ) -> dict[str, object]:
+                _ = args
+                assert kwargs["code_verifier"] == expected_code_verifier
+                return {
+                    "access_token": "registered-access-token",
+                    "refresh_token": "registered-refresh-token",
+                    "expires_in": 3600,
+                    "scope": "read",
+                }
+
+        async def fake_validate_oauth_endpoint(endpoint: str) -> None:
+            _ = endpoint
+
+        monkeypatch.setattr(
+            integration_service_module,
+            "AsyncOAuth2Client",
+            FakeOAuthClient,
+        )
+        monkeypatch.setattr(
+            integration_service_module,
+            "validate_oauth_endpoint_resolves_public_async",
+            fake_validate_oauth_endpoint,
+        )
+
+        oauth_connect = await integration_service._start_custom_mcp_oauth_authorization(
+            integration=oauth_integration,
+            server_uri="https://mcp.example.test/mcp",
+            endpoints=integration_service_module.MCPOAuthDiscoveryEndpoints(
+                authorization_endpoint="https://auth.example.test/oauth/authorize",
+                token_endpoint="https://auth.example.test/oauth/token",
+                token_methods=["client_secret_basic", "client_secret_post"],
+                registration_endpoint=None,
+                resource="https://mcp.example.test/mcp",
+            ),
+            registration=integration_service_module.MCPOAuthRegistrationResult(
+                client_id="registered-client",
+                client_secret="registered-secret",
+                auth_method="client_secret_post",
+            ),
+        )
+        state_id = uuid.UUID(
+            parse_qs(urlparse(oauth_connect.auth_url).query)["state"][0]
+        )
+        oauth_state = await session.get(OAuthStateDB, state_id)
+        assert oauth_state is not None
+        callback_state = integration_service._decode_mcp_oauth_callback_state(
+            oauth_state.code_verifier
+        )
+        assert callback_state.token_auth_method == "client_secret_post"
+        expected_code_verifier = callback_state.code_verifier
+
+        await integration_service.complete_mcp_oauth_discovery_callback(
+            provider_id=provider_key.id,
+            code="auth-code",
+            state=str(state_id),
+            code_verifier=oauth_state.code_verifier,
+        )
+
+        assert FakeOAuthClient.init_calls[0]["token_endpoint_auth_method"] == (
+            "client_secret_post"
+        )
+        assert FakeOAuthClient.init_calls[1]["token_endpoint_auth_method"] == (
+            "client_secret_post"
+        )
 
     async def test_generic_mcp_refresh_rejects_private_token_endpoint_resolution(
         self,

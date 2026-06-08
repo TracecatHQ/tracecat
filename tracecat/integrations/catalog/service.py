@@ -142,7 +142,7 @@ class PlatformMCPCatalogService(BaseService):
             for entry in catalog_entries
             if isinstance(provider_id := entry.get("provider_id"), str) and provider_id
         }
-        slug_to_catalog_id = {entry["slug"]: entry["id"] for entry in catalog_entries}
+        catalog_slug_to_id = {entry["slug"]: entry["id"] for entry in catalog_entries}
         rows = (
             await self.session.execute(
                 sa.select(
@@ -151,6 +151,7 @@ class PlatformMCPCatalogService(BaseService):
                         "encrypted_access_token"
                     ),
                     OAuthIntegration.provider_id.label("provider_id"),
+                    MCPIntegration.catalog_slug.label("catalog_slug"),
                 )
                 .outerjoin(
                     OAuthIntegration,
@@ -161,8 +162,10 @@ class PlatformMCPCatalogService(BaseService):
         ).all()
 
         state_by_catalog_id: dict[uuid.UUID, tuple[MCPIntegration, bytes | None]] = {}
-        for mcp_integration, encrypted_access_token, provider_id in rows:
-            if catalog_id := slug_to_catalog_id.get(mcp_integration.slug):
+        for mcp_integration, encrypted_access_token, provider_id, catalog_slug in rows:
+            if isinstance(catalog_slug, str) and (
+                catalog_id := catalog_slug_to_id.get(catalog_slug)
+            ):
                 state_by_catalog_id.setdefault(
                     catalog_id,
                     (mcp_integration, encrypted_access_token),

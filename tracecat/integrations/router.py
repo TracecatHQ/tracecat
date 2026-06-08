@@ -47,6 +47,7 @@ from tracecat.integrations.schemas import (
     MCPIntegrationSource,
     MCPIntegrationUpdate,
     PlatformMCPCatalogListResponse,
+    PlatformMCPCatalogState,
     PlatformMCPCatalogStatus,
     ProviderKey,
     ProviderRead,
@@ -78,7 +79,11 @@ mcp_router = APIRouter(prefix="/mcp-integrations", tags=["mcp-integrations"])
 """Routes for managing MCP integrations."""
 
 
-def _mcp_integration_read(mcp_integration: MCPIntegration) -> MCPIntegrationRead:
+def _mcp_integration_read(
+    mcp_integration: MCPIntegration,
+    *,
+    state: PlatformMCPCatalogState,
+) -> MCPIntegrationRead:
     return MCPIntegrationRead(
         id=mcp_integration.id,
         workspace_id=mcp_integration.workspace_id,
@@ -88,6 +93,7 @@ def _mcp_integration_read(mcp_integration: MCPIntegration) -> MCPIntegrationRead
         server_uri=mcp_integration.server_uri,
         auth_type=mcp_integration.auth_type,
         oauth_integration_id=mcp_integration.oauth_integration_id,
+        state=state,
         created_at=mcp_integration.created_at,
         updated_at=mcp_integration.updated_at,
         server_type=cast(MCPServerType, mcp_integration.server_type),
@@ -98,7 +104,8 @@ def _mcp_integration_read(mcp_integration: MCPIntegration) -> MCPIntegrationRead
     )
 
 
-def _mcp_catalog_connect_response(
+async def _mcp_catalog_connect_response(
+    svc: IntegrationService,
     connect_result: PlatformMCPCatalogConnectResult,
 ) -> MCPCatalogConnectResponse:
     """Shape a catalog/discovery connect result into the API response.
@@ -108,11 +115,15 @@ def _mcp_catalog_connect_response(
     """
     oauth_connect = connect_result.oauth_connect
     mcp_integration = connect_result.mcp_integration
+    mcp_read = None
+    if mcp_integration:
+        mcp_read = _mcp_integration_read(
+            mcp_integration,
+            state=await svc.mcp_integration_state(mcp_integration=mcp_integration),
+        )
     return MCPCatalogConnectResponse(
         status="oauth_redirect" if oauth_connect else "connected",
-        mcp_integration=_mcp_integration_read(mcp_integration)
-        if mcp_integration
-        else None,
+        mcp_integration=mcp_read,
         auth_url=oauth_connect.auth_url if oauth_connect else None,
         provider_id=oauth_connect.provider_id if oauth_connect else None,
     )
@@ -894,22 +905,9 @@ async def create_mcp_integration(
             detail=str(exc),
         ) from exc
 
-    return MCPIntegrationRead(
-        id=mcp_integration.id,
-        workspace_id=mcp_integration.workspace_id,
-        name=mcp_integration.name,
-        description=mcp_integration.description,
-        slug=mcp_integration.slug,
-        server_uri=mcp_integration.server_uri,
-        auth_type=mcp_integration.auth_type,
-        oauth_integration_id=mcp_integration.oauth_integration_id,
-        created_at=mcp_integration.created_at,
-        updated_at=mcp_integration.updated_at,
-        server_type=cast(MCPServerType, mcp_integration.server_type),
-        stdio_command=mcp_integration.stdio_command,
-        stdio_args=mcp_integration.stdio_args,
-        has_stdio_env=bool(mcp_integration.encrypted_stdio_env),
-        timeout=mcp_integration.timeout,
+    return _mcp_integration_read(
+        mcp_integration,
+        state=await svc.mcp_integration_state(mcp_integration=mcp_integration),
     )
 
 
@@ -936,27 +934,14 @@ async def list_mcp_integrations(
         )
 
     svc = IntegrationService(session, role=role)
-    integrations = await svc.list_mcp_integrations(source=source)
+    integrations = await svc.list_mcp_integrations_with_state(source=source)
 
     return [
-        MCPIntegrationRead(
-            id=integration.id,
-            workspace_id=integration.workspace_id,
-            name=integration.name,
-            description=integration.description,
-            slug=integration.slug,
-            server_uri=integration.server_uri,
-            auth_type=integration.auth_type,
-            oauth_integration_id=integration.oauth_integration_id,
-            created_at=integration.created_at,
-            updated_at=integration.updated_at,
-            server_type=cast(MCPServerType, integration.server_type),
-            stdio_command=integration.stdio_command,
-            stdio_args=integration.stdio_args,
-            has_stdio_env=bool(integration.encrypted_stdio_env),
-            timeout=integration.timeout,
+        _mcp_integration_read(
+            item.integration,
+            state=item.state,
         )
-        for integration in integrations
+        for item in integrations
     ]
 
 
@@ -1025,7 +1010,7 @@ async def connect_platform_mcp_catalog(
     except Exception as exc:
         _raise_mcp_connect_http_error(exc)
 
-    return _mcp_catalog_connect_response(connect_result)
+    return await _mcp_catalog_connect_response(svc, connect_result)
 
 
 @mcp_router.post("/connect", status_code=status.HTTP_201_CREATED)
@@ -1050,12 +1035,15 @@ async def connect_mcp_integration(
             and params.oauth_integration_id is None
         ):
             connect_result = await svc.connect_mcp_oauth_discovery(params=params)
-            return _mcp_catalog_connect_response(connect_result)
+            return await _mcp_catalog_connect_response(svc, connect_result)
 
         mcp_integration = await svc.create_mcp_integration(params=params)
         return MCPCatalogConnectResponse(
             status="connected",
-            mcp_integration=_mcp_integration_read(mcp_integration),
+            mcp_integration=_mcp_integration_read(
+                mcp_integration,
+                state=await svc.mcp_integration_state(mcp_integration=mcp_integration),
+            ),
         )
     except Exception as exc:
         _raise_mcp_connect_http_error(exc)
@@ -1083,7 +1071,10 @@ async def get_mcp_integration(
             detail="MCP integration not found",
         )
 
-    return _mcp_integration_read(integration)
+    return _mcp_integration_read(
+        integration,
+        state=await svc.mcp_integration_state(mcp_integration=integration),
+    )
 
 
 @mcp_router.put("/{mcp_integration_id}")
@@ -1117,7 +1108,10 @@ async def update_mcp_integration(
             detail=str(exc),
         ) from exc
 
-    return _mcp_integration_read(integration)
+    return _mcp_integration_read(
+        integration,
+        state=await svc.mcp_integration_state(mcp_integration=integration),
+    )
 
 
 @mcp_router.post(

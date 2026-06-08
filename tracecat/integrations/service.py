@@ -65,6 +65,7 @@ from tracecat.integrations.schemas import (
     MCPIntegrationSource,
     MCPIntegrationUpdate,
     MCPStdioIntegrationCreate,
+    PlatformMCPCatalogState,
     ProviderConfig,
     ProviderKey,
     ProviderMetadata,
@@ -87,6 +88,14 @@ class PlatformMCPCatalogConnectResult:
 
     mcp_integration: MCPIntegration | None = None
     oauth_connect: IntegrationOAuthConnect | None = None
+
+
+@dataclass(frozen=True)
+class MCPIntegrationWithState:
+    """Workspace MCP row with computed connection state."""
+
+    integration: MCPIntegration
+    state: PlatformMCPCatalogState
 
 
 class InsecureOAuthEndpointError(ValueError):
@@ -117,7 +126,18 @@ class MCPOAuthRegistrationResult:
     auth_method: str | None
 
 
+@dataclass(frozen=True)
+class MCPOAuthCallbackState:
+    """Custom MCP OAuth callback data stored in the short-lived state row."""
+
+    code_verifier: str | None
+    token_auth_method: str | None
+
+
 _CUSTOM_MCP_OAUTH_PROVIDER_PREFIX = "custom_mcp_"
+_MCP_TOKEN_AUTH_METHODS: frozenset[str] = frozenset(
+    {"client_secret_basic", "client_secret_post", "none"}
+)
 _CATALOG_PLACEHOLDER_RE = re.compile(
     r"(\{[A-Za-z_][A-Za-z0-9_]*\}|<[A-Za-z_][A-Za-z0-9_-]*>)"
 )
@@ -571,6 +591,75 @@ class IntegrationService(BaseWorkspaceService):
         return None
 
     @staticmethod
+    def _normalize_mcp_token_auth_method(method: str | None) -> str | None:
+        if method in _MCP_TOKEN_AUTH_METHODS:
+            return method
+        return None
+
+    @classmethod
+    def _mcp_token_auth_method(
+        cls,
+        *,
+        methods: list[str],
+        client_secret: str | None,
+        registered_auth_method: str | None = None,
+    ) -> str | None:
+        return cls._normalize_mcp_token_auth_method(
+            registered_auth_method
+        ) or cls._select_mcp_token_auth_method(
+            methods=methods,
+            client_secret=client_secret,
+        )
+
+    @classmethod
+    def _encode_mcp_oauth_callback_state(
+        cls,
+        *,
+        code_verifier: str,
+        token_auth_method: str | None,
+    ) -> str:
+        token_auth_method = cls._normalize_mcp_token_auth_method(token_auth_method)
+        if token_auth_method is None:
+            return code_verifier
+        return orjson.dumps(
+            {
+                "code_verifier": code_verifier,
+                "token_endpoint_auth_method": token_auth_method,
+            }
+        ).decode("utf-8")
+
+    @classmethod
+    def _decode_mcp_oauth_callback_state(
+        cls,
+        value: str | None,
+    ) -> MCPOAuthCallbackState:
+        if not value:
+            return MCPOAuthCallbackState(code_verifier=None, token_auth_method=None)
+        if not value.lstrip().startswith("{"):
+            return MCPOAuthCallbackState(code_verifier=value, token_auth_method=None)
+        try:
+            parsed = orjson.loads(value)
+        except orjson.JSONDecodeError:
+            return MCPOAuthCallbackState(code_verifier=value, token_auth_method=None)
+        if not isinstance(parsed, dict):
+            return MCPOAuthCallbackState(code_verifier=value, token_auth_method=None)
+
+        raw_code_verifier = parsed.get("code_verifier")
+        code_verifier = (
+            raw_code_verifier
+            if isinstance(raw_code_verifier, str) and raw_code_verifier
+            else None
+        )
+        raw_auth_method = parsed.get("token_endpoint_auth_method")
+        token_auth_method = cls._normalize_mcp_token_auth_method(
+            raw_auth_method if isinstance(raw_auth_method, str) else None
+        )
+        return MCPOAuthCallbackState(
+            code_verifier=code_verifier,
+            token_auth_method=token_auth_method,
+        )
+
+    @staticmethod
     def _mcp_oauth_redirect_uri() -> str:
         """The single OAuth callback URL all MCP discovery flows redirect to.
 
@@ -829,21 +918,25 @@ class IntegrationService(BaseWorkspaceService):
         state_id = uuid.uuid4()
         code_verifier = secrets.token_urlsafe(32)
         code_challenge = create_s256_code_challenge(code_verifier)
+        token_auth_method = self._mcp_token_auth_method(
+            methods=endpoints.token_methods,
+            client_secret=registration.client_secret,
+            registered_auth_method=registration.auth_method,
+        )
         oauth_state = OAuthStateDB(
             state=state_id,
             workspace_id=self.workspace_id,
             user_id=self.role.user_id,
             provider_id=integration.provider_id,
             expires_at=datetime.now(UTC) + timedelta(minutes=10),
-            code_verifier=code_verifier,
+            code_verifier=self._encode_mcp_oauth_callback_state(
+                code_verifier=code_verifier,
+                token_auth_method=token_auth_method,
+            ),
         )
         self.session.add(oauth_state)
         await self.session.commit()
 
-        token_auth_method = self._select_mcp_token_auth_method(
-            methods=endpoints.token_methods,
-            client_secret=registration.client_secret,
-        )
         client = self._build_mcp_oauth_client(
             client_id=registration.client_id,
             client_secret=registration.client_secret,
@@ -1060,9 +1153,11 @@ class IntegrationService(BaseWorkspaceService):
             if provider_config.client_secret
             else None
         )
-        token_auth_method = self._select_mcp_token_auth_method(
+        callback_state = self._decode_mcp_oauth_callback_state(code_verifier)
+        token_auth_method = self._mcp_token_auth_method(
             methods=endpoints.token_methods,
             client_secret=client_secret,
+            registered_auth_method=callback_state.token_auth_method,
         )
         client = self._build_mcp_oauth_client(
             client_id=provider_config.client_id,
@@ -1077,7 +1172,7 @@ class IntegrationService(BaseWorkspaceService):
                     token_endpoint,
                     code=code,
                     state=state,
-                    code_verifier=code_verifier,
+                    code_verifier=callback_state.code_verifier,
                     resource=endpoints.resource,
                 ),
                 default_expires_in=None,
@@ -1896,27 +1991,33 @@ class IntegrationService(BaseWorkspaceService):
         is_mcp_provider = issubclass(provider_impl, MCPAuthProvider)
         if not is_mcp_provider:
             return
+        mcp_provider_impl = cast(type[MCPAuthProvider], provider_impl)
 
-        # Check if MCP integration already exists for this OAuth integration
-        existing_mcp = await self.session.execute(
-            select(MCPIntegration).where(
-                MCPIntegration.oauth_integration_id == integration.id,
-                MCPIntegration.workspace_id == self.workspace_id,
-            )
-        )
-        mcp_integration = existing_mcp.scalars().first()
         catalog_entry = get_platform_mcp_catalog_entry_by_provider_id(
-            provider_impl.id,
+            mcp_provider_impl.id,
             include_private=True,
         )
-        if mcp_integration is None and catalog_entry is not None:
+        mcp_integration: MCPIntegration | None = None
+        if catalog_entry is not None:
             existing_catalog_mcp = await self.session.execute(
                 select(MCPIntegration).where(
                     MCPIntegration.workspace_id == self.workspace_id,
-                    MCPIntegration.slug == catalog_entry["slug"],
+                    MCPIntegration.catalog_slug == catalog_entry["slug"],
                 )
             )
             mcp_integration = existing_catalog_mcp.scalars().first()
+
+        # Check if MCP integration already exists for this OAuth integration.
+        # Legacy provider-generated rows predate catalog_slug, so they are
+        # picked up here and stamped only after matching provider shape below.
+        if mcp_integration is None:
+            existing_mcp = await self.session.execute(
+                select(MCPIntegration).where(
+                    MCPIntegration.oauth_integration_id == integration.id,
+                    MCPIntegration.workspace_id == self.workspace_id,
+                )
+            )
+            mcp_integration = existing_mcp.scalars().first()
 
         if mcp_integration is None:
             if not await self.has_entitlement(Entitlement.AGENT_ADDONS):
@@ -1928,14 +2029,14 @@ class IntegrationService(BaseWorkspaceService):
                 return
 
             # Create new MCP integration
-            metadata = provider_impl.metadata
+            metadata = mcp_provider_impl.metadata
 
             # Use provider ID as slug to preserve underscores for icon mapping
-            slug = provider_impl.id
+            slug = mcp_provider_impl.id
             if await self._mcp_integration_slug_taken(slug):
                 slug = await self._generate_mcp_integration_slug(
                     name=metadata.name,
-                    requested_slug=provider_impl.id,
+                    requested_slug=mcp_provider_impl.id,
                     requested_slug_separator="_",
                 )
 
@@ -1945,7 +2046,8 @@ class IntegrationService(BaseWorkspaceService):
                 name=metadata.name,
                 description=metadata.description,
                 slug=slug,
-                server_uri=provider_impl.mcp_server_uri,
+                catalog_slug=catalog_entry["slug"] if catalog_entry else None,
+                server_uri=mcp_provider_impl.mcp_server_uri,
                 auth_type=MCPAuthType.OAUTH2,
                 oauth_integration_id=integration.id,
             )
@@ -1960,9 +2062,26 @@ class IntegrationService(BaseWorkspaceService):
                 oauth_integration_id=integration.id,
             )
         else:
+            updated = False
             # Update existing MCP integration to ensure it references the OAuth integration
             if mcp_integration.oauth_integration_id != integration.id:
                 mcp_integration.oauth_integration_id = integration.id
+                updated = True
+            if (
+                catalog_entry is not None
+                and mcp_integration.catalog_slug is None
+                and self._mcp_integration_uses_provider_server(
+                    mcp_integration,
+                    mcp_provider_impl,
+                )
+                and self._mcp_integration_has_provider_slug(
+                    mcp_integration,
+                    mcp_provider_impl,
+                )
+            ):
+                mcp_integration.catalog_slug = catalog_entry["slug"]
+                updated = True
+            if updated:
                 self.session.add(mcp_integration)
                 await self.session.commit()
 
@@ -2239,6 +2358,7 @@ class IntegrationService(BaseWorkspaceService):
             name=params.name.strip(),
             description=params.description.strip() if params.description else None,
             slug=slug,
+            catalog_slug=catalog_row["slug"] if catalog_row else None,
             server_uri=server_uri,
             auth_type=auth_type,
             oauth_integration_id=oauth_integration_id,
@@ -2441,7 +2561,7 @@ class IntegrationService(BaseWorkspaceService):
         """Return this workspace's MCP row for a catalog template, if present."""
         statement = select(MCPIntegration).where(
             MCPIntegration.workspace_id == self.workspace_id,
-            MCPIntegration.slug == catalog["slug"],
+            MCPIntegration.catalog_slug == catalog["slug"],
         )
         result = await self.session.execute(statement)
         if mcp_integration := result.scalars().first():
@@ -2450,6 +2570,12 @@ class IntegrationService(BaseWorkspaceService):
         provider_id = catalog.get("provider_id")
         if not provider_id:
             return None
+        provider_impl = get_provider_class(
+            ProviderKey(id=provider_id, grant_type=OAuthGrantType.AUTHORIZATION_CODE)
+        )
+        if provider_impl is None or not issubclass(provider_impl, MCPAuthProvider):
+            return None
+        mcp_provider_impl = cast(type[MCPAuthProvider], provider_impl)
         statement = (
             select(MCPIntegration)
             .join(
@@ -2462,7 +2588,21 @@ class IntegrationService(BaseWorkspaceService):
             )
         )
         result = await self.session.execute(statement)
-        return result.scalars().first()
+        return next(
+            (
+                mcp_integration
+                for mcp_integration in result.scalars()
+                if self._mcp_integration_uses_provider_server(
+                    mcp_integration,
+                    mcp_provider_impl,
+                )
+                and self._mcp_integration_has_provider_slug(
+                    mcp_integration,
+                    mcp_provider_impl,
+                )
+            ),
+            None,
+        )
 
     @staticmethod
     def _catalog_connection_spec(
@@ -2562,13 +2702,9 @@ class IntegrationService(BaseWorkspaceService):
 
         Platform-managed rows are auto-created by ``MCPAuthProvider`` flows in
         ``_auto_create_mcp_integration_if_needed`` or created from catalog
-        recipes using an exact catalog slug.
+        recipes carrying a ``catalog_slug`` marker.
         """
-        catalog_slugs = {
-            entry["slug"]
-            for entry in get_platform_mcp_catalog_entries(include_private=True)
-        }
-        if mcp_integration.slug in catalog_slugs:
+        if mcp_integration.catalog_slug is not None:
             return True
 
         oauth_integration = mcp_integration.oauth_integration
@@ -2610,6 +2746,80 @@ class IntegrationService(BaseWorkspaceService):
             for mcp in integrations
             if self._is_platform_managed_mcp_integration(mcp) == want_platform
         ]
+
+    @staticmethod
+    def _mcp_integration_state_from_access_token(
+        *,
+        mcp_integration: MCPIntegration,
+        encrypted_access_token: bytes | None,
+    ) -> PlatformMCPCatalogState:
+        if mcp_integration.auth_type != MCPAuthType.OAUTH2:
+            return "connected"
+        if encrypted_access_token is not None and is_set(encrypted_access_token):
+            return "connected"
+        return "configured"
+
+    async def _mcp_oauth_access_tokens_by_id(
+        self, mcp_integrations: Sequence[MCPIntegration]
+    ) -> dict[uuid.UUID, bytes | None]:
+        oauth_integration_ids = {
+            oauth_integration_id
+            for mcp_integration in mcp_integrations
+            if mcp_integration.auth_type == MCPAuthType.OAUTH2
+            and (oauth_integration_id := mcp_integration.oauth_integration_id)
+            is not None
+        }
+        if not oauth_integration_ids:
+            return {}
+
+        result = await self.session.execute(
+            select(OAuthIntegration.id, OAuthIntegration.encrypted_access_token).where(
+                OAuthIntegration.workspace_id == self.workspace_id,
+                OAuthIntegration.id.in_(oauth_integration_ids),
+            )
+        )
+        rows = result.tuples().all()
+        return dict(rows)
+
+    async def mcp_integration_state(
+        self, *, mcp_integration: MCPIntegration
+    ) -> PlatformMCPCatalogState:
+        tokens_by_id = await self._mcp_oauth_access_tokens_by_id([mcp_integration])
+        oauth_integration_id = mcp_integration.oauth_integration_id
+        encrypted_access_token = (
+            tokens_by_id.get(oauth_integration_id)
+            if oauth_integration_id is not None
+            else None
+        )
+        return self._mcp_integration_state_from_access_token(
+            mcp_integration=mcp_integration,
+            encrypted_access_token=encrypted_access_token,
+        )
+
+    async def list_mcp_integrations_with_state(
+        self, *, source: MCPIntegrationSource | None = None
+    ) -> Sequence[MCPIntegrationWithState]:
+        """List MCP integrations with OAuth-backed connection state."""
+        integrations = await self.list_mcp_integrations(source=source)
+        tokens_by_id = await self._mcp_oauth_access_tokens_by_id(integrations)
+        items: list[MCPIntegrationWithState] = []
+        for integration in integrations:
+            oauth_integration_id = integration.oauth_integration_id
+            encrypted_access_token = (
+                tokens_by_id.get(oauth_integration_id)
+                if oauth_integration_id is not None
+                else None
+            )
+            items.append(
+                MCPIntegrationWithState(
+                    integration=integration,
+                    state=self._mcp_integration_state_from_access_token(
+                        mcp_integration=integration,
+                        encrypted_access_token=encrypted_access_token,
+                    ),
+                )
+            )
+        return items
 
     async def get_mcp_integration(
         self, *, mcp_integration_id: uuid.UUID

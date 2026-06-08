@@ -4798,6 +4798,7 @@ export type MCPIntegrationRead = {
   server_uri: string | null
   auth_type: MCPAuthType
   oauth_integration_id: string | null
+  state: "not_configured" | "configured" | "connected" | "error"
   stdio_command: string | null
   stdio_args: Array<string> | null
   has_stdio_env?: boolean
@@ -4805,6 +4806,8 @@ export type MCPIntegrationRead = {
   created_at: string
   updated_at: string
 }
+
+export type state = "not_configured" | "configured" | "connected" | "error"
 
 /**
  * Request model for updating an MCP integration.
@@ -5388,8 +5391,6 @@ export type PlatformMCPCatalogRead = {
 }
 
 export type status4 = "available" | "coming_soon" | "deprecated" | "hidden"
-
-export type state = "not_configured" | "configured" | "connected" | "error"
 
 /**
  * Platform registry settings response.

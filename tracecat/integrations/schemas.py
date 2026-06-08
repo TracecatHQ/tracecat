@@ -739,6 +739,7 @@ class MCPIntegrationRead(BaseModel):
     server_uri: str | None
     auth_type: MCPAuthType
     oauth_integration_id: UUID4 | None
+    state: PlatformMCPCatalogState
     # Stdio-type server fields
     stdio_command: str | None
     stdio_args: list[str] | None

@@ -1,7 +1,7 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowRight, ExternalLink, Loader2, Lock, Sparkles } from "lucide-react"
+import { ArrowRight, ExternalLink, Loader2, Sparkles } from "lucide-react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
 import {
@@ -21,6 +21,7 @@ import { CatalogHeader } from "@/components/catalog/catalog-header"
 import { getMcpProviderIconId, ProviderIcon } from "@/components/icons"
 import { MCPIntegrationDialog } from "@/components/integrations/mcp-integration-dialog"
 import { OAuthIntegrationDialog } from "@/components/integrations/oauth-integration-dialog"
+import { LockedFeatureModal } from "@/components/locked-feature-modal"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -136,7 +137,7 @@ function workspaceIntegrationToCatalogEntry(
     connection_spec: connectionSpecFromIntegration(integration),
     connection_options: [],
     locked: false,
-    state: "connected",
+    state: integration.state,
     mcp_integration_id: integration.id,
     mcp_server_type: integration.server_type,
     mcp_auth_type: integration.auth_type,
@@ -187,6 +188,10 @@ function isProviderBackedOAuth(entry: PlatformMCPCatalogRead) {
   )
 }
 
+function requiresCatalogConfig(entry: PlatformMCPCatalogRead) {
+  return catalogConnectionSpecs(entry).some((spec) => spec.requires_config)
+}
+
 function isCatalogEntryConnectable(entry: PlatformMCPCatalogRead) {
   return Boolean(
     entry.connection_spec ||
@@ -211,6 +216,8 @@ export default function McpServersPage() {
   const [configEntry, setConfigEntry] = useState<PlatformMCPCatalogRead | null>(
     null
   )
+  const [lockedCatalogEntry, setLockedCatalogEntry] =
+    useState<PlatformMCPCatalogRead | null>(null)
   const [providerConfigEntry, setProviderConfigEntry] =
     useState<PlatformMCPCatalogRead | null>(null)
   const [editingItem, setEditingItem] = useState<CatalogItem | null>(null)
@@ -413,6 +420,7 @@ export default function McpServersPage() {
   function handleConnect(item: CatalogItem) {
     const { entry } = item
     if (entry.locked) {
+      setLockedCatalogEntry(entry)
       return
     }
     const connected = entry.state === "connected"
@@ -422,6 +430,11 @@ export default function McpServersPage() {
       if (canDeleteMcp) {
         catalogDisconnectMutation.mutate(entry)
       }
+      return
+    }
+
+    if (item.kind === "workspace" && entry.mcp_integration_id) {
+      setEditingItem(item)
       return
     }
 
@@ -437,10 +450,7 @@ export default function McpServersPage() {
       return
     }
 
-    if (
-      entry.connection_spec?.requires_config &&
-      !isProviderBackedOAuth(entry)
-    ) {
+    if (requiresCatalogConfig(entry)) {
       setConfigEntry(entry)
       return
     }
@@ -451,10 +461,15 @@ export default function McpServersPage() {
   function handleConfigure(item: CatalogItem) {
     const { entry } = item
     if (entry.locked) {
+      setLockedCatalogEntry(entry)
       return
     }
     if (entry.mcp_integration_id) {
       setEditingItem(item)
+      return
+    }
+    if (requiresCatalogConfig(entry) && canCreateMcp) {
+      setConfigEntry(entry)
       return
     }
     if (isProviderBackedOAuth(entry) && entry.provider_id && canCreateMcp) {
@@ -570,6 +585,19 @@ export default function McpServersPage() {
         />
       ) : null}
 
+      <LockedFeatureModal
+        open={lockedCatalogEntry !== null}
+        onOpenChange={(next) => {
+          if (!next) {
+            setLockedCatalogEntry(null)
+          }
+        }}
+        title="Upgrade to unlock this feature"
+        description="Tracecat-managed MCP catalog connectors are included with Enterprise. To use your own setup, create a custom MCP server."
+        bullets={[]}
+        hideFooter
+      />
+
       {configEntry ? (
         <MCPIntegrationDialog
           open
@@ -653,36 +681,43 @@ function McpCatalogCard({
   const transports = catalogTransports(entry)
   const docsUrl = locked ? null : entry.docs_url
   const disconnectable = connected && hasMcpRow
-  const actionLabel = disconnectable ? "Disconnect" : "Connect"
+  let actionLabel = "Connect"
+  if (disconnectable) {
+    actionLabel = "Disconnect"
+  } else if (configured) {
+    actionLabel = "Reconnect"
+  }
   const canManage = entry.mcp_integration_id ? canUpdate : false
   let canAct = false
   if (locked) {
-    canAct = false
+    canAct = true
   } else if (disconnectable) {
     canAct = canDelete
+  } else if (item.kind === "workspace" && configured) {
+    canAct = canManage
   } else if (connectable) {
     canAct = canCreate
   }
   let canConfigure = false
   if (locked) {
-    canConfigure = false
+    canConfigure = true
   } else if (hasWorkspaceConfig) {
     canConfigure = canManage
-  } else if (entry.connection_spec) {
+  } else if (isCatalogEntryConnectable(entry)) {
     canConfigure = canCreate
   }
   const configureLabel = "Configure"
   let statusLabel = "Not connected"
   let statusClassName = "border-muted bg-muted/30 text-muted-foreground"
-  if (locked) {
-    statusLabel = "Locked"
-    statusClassName = "border-muted bg-muted/30 text-muted-foreground"
-  } else if (isActionPending) {
+  if (isActionPending) {
     statusLabel = isDisconnecting ? "Disconnecting" : "Connecting"
     statusClassName = "border-blue-200 bg-blue-50 text-blue-700"
   } else if (connected) {
     statusLabel = "Connected"
     statusClassName = "border-emerald-200 bg-emerald-50 text-emerald-700"
+  } else if (configured) {
+    statusLabel = "Configured"
+    statusClassName = "border-blue-200 bg-blue-50 text-blue-700"
   } else if (comingSoon) {
     statusLabel = "Coming soon"
     statusClassName = "border-muted bg-muted/30 text-muted-foreground"
@@ -690,13 +725,33 @@ function McpCatalogCard({
   let buttonLabel = actionLabel
   if (comingSoon) {
     buttonLabel = "Coming soon"
+  } else if (locked) {
+    buttonLabel = "Connect"
   }
   if (isActionPending) {
     buttonLabel = statusLabel
   }
 
   return (
-    <Card className="flex h-full min-h-[132px] flex-col gap-2.5 border bg-card p-4 shadow-none transition-colors hover:border-foreground/30">
+    <Card
+      role={locked ? "button" : undefined}
+      tabIndex={locked ? 0 : undefined}
+      onClick={locked ? onConnect : undefined}
+      onKeyDown={
+        locked
+          ? (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault()
+                onConnect()
+              }
+            }
+          : undefined
+      }
+      className={cn(
+        "flex h-full min-h-[132px] flex-col gap-2.5 border bg-card p-4 shadow-none transition-colors hover:border-foreground/30",
+        locked && "cursor-pointer"
+      )}
+    >
       <div className="flex items-start justify-between gap-3">
         <ProviderIcon
           providerId={getMcpProviderIconId(entry.provider_id ?? entry.slug)}
@@ -730,8 +785,6 @@ function McpCatalogCard({
           >
             {isActionPending ? (
               <Loader2 className="size-3 animate-spin" />
-            ) : locked ? (
-              <Lock className="size-3" />
             ) : null}
             {statusLabel}
           </Badge>
@@ -760,7 +813,10 @@ function McpCatalogCard({
           variant="ghost"
           className="-ml-2 h-7 px-2 text-xs font-medium text-muted-foreground shadow-none hover:text-foreground"
           disabled={!canConfigure || isActionPending}
-          onClick={onConfigure}
+          onClick={(event) => {
+            event.stopPropagation()
+            onConfigure()
+          }}
         >
           {configureLabel}
         </Button>
@@ -774,8 +830,11 @@ function McpCatalogCard({
               ? "text-destructive hover:text-destructive"
               : "text-blue-600 hover:text-blue-700"
           )}
-          disabled={locked || comingSoon || !canAct || isActionPending}
-          onClick={onConnect}
+          disabled={comingSoon || !canAct || isActionPending}
+          onClick={(event) => {
+            event.stopPropagation()
+            onConnect()
+          }}
         >
           {isActionPending ? (
             <Loader2 className="mr-1.5 size-3.5 animate-spin" />
