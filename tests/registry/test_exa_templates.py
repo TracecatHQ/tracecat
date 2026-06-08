@@ -37,6 +37,7 @@ def test_exa_template_surface_matches_current_core_tools():
 
     assert set(templates) == {
         "search.yml",
+        "search_news.yml",
         "search_people.yml",
         "search_companies.yml",
         "get_contents.yml",
@@ -56,6 +57,7 @@ def test_exa_template_surface_matches_current_core_tools():
 def test_exa_templates_use_current_endpoints_and_auth():
     expected = {
         "search.yml": ("search", "https://api.exa.ai/search"),
+        "search_news.yml": ("search_news", "https://api.exa.ai/search"),
         "search_people.yml": ("search_people", "https://api.exa.ai/search"),
         "search_companies.yml": ("search_companies", "https://api.exa.ai/search"),
         "get_contents.yml": ("get_contents", "https://api.exa.ai/contents"),
@@ -100,6 +102,7 @@ def test_exa_search_exposes_advanced_current_parameters():
         assert field in expects
         assert payload[field] == f"${{{{ inputs.{field} }}}}"
     assert expects["type"]["type"] == EXA_SEARCH_TYPE
+    assert expects["category"]["type"] == "str | None"
     assert expects["compliance"]["type"] == EXA_COMPLIANCE
 
 
@@ -126,6 +129,30 @@ def test_exa_vertical_search_wrappers_set_supported_categories():
             assert unsupported not in expects
             assert unsupported not in payload
         assert expects["type"]["type"] == EXA_SEARCH_TYPE
+
+
+def test_exa_news_search_wrapper_sets_news_category_and_filters():
+    template = load_template("search_news.yml")
+    expects = template["definition"]["expects"]
+    payload = request_step(template)["args"]["payload"]
+
+    assert payload["category"] == "news"
+    for supported in [
+        "query",
+        "type",
+        "numResults",
+        "includeDomains",
+        "excludeDomains",
+        "startPublishedDate",
+        "endPublishedDate",
+        "contents",
+        "outputSchema",
+        "compliance",
+    ]:
+        assert supported in expects
+    assert "category" not in expects
+    assert expects["type"]["type"] == EXA_SEARCH_TYPE
+    assert expects["compliance"]["type"] == EXA_COMPLIANCE
 
 
 def test_exa_contents_uses_top_level_content_options():

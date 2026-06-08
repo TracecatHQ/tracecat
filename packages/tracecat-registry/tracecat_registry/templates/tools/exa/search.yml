@@ -23,7 +23,7 @@ definition:
       default: null
     category:
       type: str | None
-      description: Optional content category, such as company, people, research paper, news, personal site, or financial report.
+      description: Optional content category. Known categories include company, people, research paper, news, personal site, and financial report; Exa also accepts other category hints.
       default: null
     includeDomains:
       type: list[str] | None
