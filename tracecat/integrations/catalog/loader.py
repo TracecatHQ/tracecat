@@ -6,14 +6,33 @@ import importlib.resources as resources
 import logging
 import re
 import uuid
-from typing import Any, NotRequired, TypedDict
+from copy import deepcopy
+from functools import lru_cache
+from typing import Any
 
 import orjson
 from pydantic import TypeAdapter, ValidationError
 
+from tracecat.integrations.catalog.types import (
+    PlatformMCPCatalogEntry,
+    RawCatalogRow,
+    RawConnectionOption,
+    RawConnectionSpec,
+    RawCredential,
+    RawPackageOption,
+)
 from tracecat.integrations.enums import MCPAuthType
 from tracecat.integrations.mcp_validation import ALLOWED_MCP_COMMANDS
-from tracecat.integrations.schemas import MCPConnectionSpec, PlatformMCPCatalogStatus
+from tracecat.integrations.schemas import (
+    MCPConfigField,
+    MCPConnectionCredential,
+    MCPConnectionOption,
+    MCPConnectionSpec,
+    MCPConnectionTarget,
+    MCPPackageOption,
+    PlatformMCPCatalogStatus,
+)
+from tracecat.integrations.types import MCPServerType
 
 logger = logging.getLogger(__name__)
 
@@ -26,28 +45,6 @@ _CONNECTION_SPEC_ADAPTER: TypeAdapter[MCPConnectionSpec] = TypeAdapter(
     MCPConnectionSpec
 )
 _PLACEHOLDER_RE = re.compile(r"(\{[A-Za-z_][A-Za-z0-9_]*\}|<[A-Za-z_][A-Za-z0-9_-]*>)")
-_CONFIG_TARGETS = {"server_uri", "oauth_client", "http_header", "stdio_env"}
-
-
-class PlatformMCPCatalogEntry(TypedDict):
-    """Runtime platform MCP catalog row.
-
-    Display metadata is safe to ship in OSS. Connect recipes are populated only
-    from the private catalog overlay.
-    """
-
-    id: uuid.UUID
-    slug: str
-    name: str
-    description: str
-    category: str
-    status: PlatformMCPCatalogStatus
-    icon_url: NotRequired[str | None]
-    docs_url: NotRequired[str | None]
-    provider_id: NotRequired[str | None]
-    connection_spec: NotRequired[dict[str, Any] | None]
-    connection_options: NotRequired[list[dict[str, Any]] | None]
-    sort_key: str
 
 
 def catalog_id_for_slug(slug: str) -> uuid.UUID:
@@ -58,12 +55,13 @@ def catalog_id_for_slug(slug: str) -> uuid.UUID:
 def _credential_target(
     *,
     key: str,
-    server_type: str,
+    server_type: MCPServerType,
     server_uri: str | None,
     explicit_target: str | None = None,
-) -> str:
-    if explicit_target in _CONFIG_TARGETS:
-        return explicit_target
+) -> MCPConnectionTarget:
+    match explicit_target:
+        case "server_uri" | "oauth_client" | "http_header" | "stdio_env":
+            return explicit_target
     if server_type == "stdio":
         return "stdio_env"
     if server_uri and (f"{{{key}}}" in server_uri or f"<{key}>" in server_uri):
@@ -98,178 +96,179 @@ def _credential_target(
 def _normalize_credentials(
     *,
     raw_credentials: list[Any],
-    server_type: str,
+    server_type: MCPServerType,
     server_uri: str | None,
-) -> list[dict[str, Any]]:
-    credentials: list[dict[str, Any]] = []
+) -> list[MCPConnectionCredential]:
+    credentials: list[MCPConnectionCredential] = []
     for raw in raw_credentials:
-        if not isinstance(raw, dict):
-            continue
-        key = raw.get("key")
-        if not isinstance(key, str) or not key:
+        try:
+            raw_credential = RawCredential.model_validate(raw)
+        except ValidationError:
             continue
         credentials.append(
-            {
-                "key": key,
-                "label": raw.get("label") or key,
-                "description": raw.get("description") or "",
-                "required": bool(raw.get("required", True)),
-                "secret": bool(raw.get("secret", True)),
-                "target": _credential_target(
-                    key=key,
+            MCPConnectionCredential(
+                key=raw_credential.key,
+                label=raw_credential.label or raw_credential.key,
+                description=raw_credential.description or "",
+                required=raw_credential.required,
+                secret=raw_credential.secret,
+                target=_credential_target(
+                    key=raw_credential.key,
                     server_type=server_type,
                     server_uri=server_uri,
-                    explicit_target=raw.get("target")
-                    if isinstance(raw.get("target"), str)
-                    else None,
+                    explicit_target=raw_credential.target,
                 ),
-            }
+            )
         )
     return credentials
 
 
-def _normalize_packages(raw_packages: list[Any]) -> list[dict[str, Any]]:
-    packages: list[dict[str, Any]] = []
+def _normalize_packages(raw_packages: list[Any]) -> list[MCPPackageOption]:
+    packages: list[MCPPackageOption] = []
     for raw in raw_packages:
-        if not isinstance(raw, dict):
+        try:
+            raw_package = RawPackageOption.model_validate(raw)
+        except ValidationError:
             continue
-        command = raw.get("command")
-        if not isinstance(command, str) or not command:
-            continue
-        args = raw.get("args")
         packages.append(
-            {
-                "manager": raw.get("manager") or command,
-                "command": command,
-                "args": args if isinstance(args, list) else [],
-                "package": raw.get("package"),
-            }
+            MCPPackageOption(
+                manager=raw_package.manager or raw_package.command,
+                command=raw_package.command,
+                args=raw_package.args,
+                package=raw_package.package,
+            )
         )
     return packages
 
 
 def _config_fields_from_credentials(
-    credentials: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
+    credentials: list[MCPConnectionCredential],
+) -> list[MCPConfigField]:
     return [
-        {
-            "key": credential["key"],
-            "label": credential["label"],
-            "description": credential["description"],
-            "target": credential["target"],
-            "required": credential["required"],
-            "secret": credential["secret"],
-        }
+        MCPConfigField(
+            key=credential.key,
+            label=credential.label,
+            description=credential.description,
+            target=credential.target,
+            required=credential.required,
+            secret=credential.secret,
+        )
         for credential in credentials
     ]
 
 
-def _normalize_connection_spec(row: dict[str, Any]) -> dict[str, Any] | None:
-    raw_spec = row.get("connection_spec", row.get("metadata"))
-    if not isinstance(raw_spec, dict):
+def _raw_connection_spec(
+    row: RawCatalogRow | RawConnectionOption,
+) -> RawConnectionSpec | None:
+    raw_spec = row.connection_spec if row.connection_spec is not None else row.metadata
+    if raw_spec is None:
         return None
-
-    server_type = raw_spec.get("server_type")
-    auth_type = raw_spec.get("auth_type")
-    if not isinstance(server_type, str) or server_type not in {"http", "stdio"}:
-        return None
-    if not isinstance(auth_type, str) or auth_type not in {
-        MCPAuthType.OAUTH2,
-        MCPAuthType.CUSTOM,
-        MCPAuthType.NONE,
-    }:
-        return None
-
-    raw_server_uri = raw_spec.get("server_uri")
-    server_uri = raw_server_uri if isinstance(raw_server_uri, str) else None
-    credentials = _normalize_credentials(
-        raw_credentials=raw_spec.get("credentials") or [],
-        server_type=server_type,
-        server_uri=server_uri,
-    )
-    config_fields = _config_fields_from_credentials(credentials)
-    has_server_uri_config = any(
-        credential["target"] == "server_uri" for credential in credentials
-    )
-    requires_config = bool(
-        any(credential["required"] for credential in credentials)
-        or has_server_uri_config
-        or (server_uri is not None and _PLACEHOLDER_RE.search(server_uri))
-    )
-
-    kind = f"{server_type}_{auth_type.lower()}"
-    base: dict[str, Any] = {
-        "kind": kind,
-        "server_type": server_type,
-        "auth_type": auth_type,
-        "requires_config": requires_config,
-        "config_fields": config_fields,
-        "credentials": credentials,
-    }
-    if server_type == "http":
-        if not server_uri and not has_server_uri_config:
-            return None
-        base["server_uri"] = server_uri or ""
-        if auth_type == MCPAuthType.OAUTH2:
-            base["scopes"] = raw_spec.get("scopes") or []
-            base["oauth_authorization_endpoint"] = raw_spec.get(
-                "oauth_authorization_endpoint"
-            )
-            base["oauth_token_endpoint"] = raw_spec.get("oauth_token_endpoint")
-    else:
-        args = raw_spec.get("stdio_args")
-        env = raw_spec.get("stdio_env")
-        packages = _normalize_packages(raw_spec.get("packages") or [])
-        base["stdio_command"] = raw_spec.get("stdio_command")
-        base["stdio_args"] = args if isinstance(args, list) else []
-        base["stdio_env"] = env if isinstance(env, list) else []
-        base["packages"] = packages
-        has_launchable_command = (
-            any(package["command"] in ALLOWED_MCP_COMMANDS for package in packages)
-            or raw_spec.get("stdio_command") in ALLOWED_MCP_COMMANDS
-        )
-        if not has_launchable_command:
-            base["requires_config"] = True
-        if auth_type == MCPAuthType.OAUTH2:
-            base["scopes"] = raw_spec.get("scopes") or []
-
     try:
-        return _CONNECTION_SPEC_ADAPTER.validate_python(base).model_dump(mode="json")
+        return RawConnectionSpec.model_validate(raw_spec)
     except ValidationError:
         return None
 
 
-def _normalize_connection_options(row: dict[str, Any]) -> list[dict[str, Any]]:
-    raw_options = row.get("connection_options", row.get("options"))
-    options: list[dict[str, Any]] = []
+def _normalize_connection_spec(
+    row: RawCatalogRow | RawConnectionOption,
+) -> MCPConnectionSpec | None:
+    raw_spec = _raw_connection_spec(row)
+    if raw_spec is None:
+        return None
 
-    if isinstance(raw_options, list):
+    credentials = _normalize_credentials(
+        raw_credentials=raw_spec.credentials,
+        server_type=raw_spec.server_type,
+        server_uri=raw_spec.server_uri,
+    )
+    config_fields = _config_fields_from_credentials(credentials)
+    has_server_uri_config = any(
+        credential.target == "server_uri" for credential in credentials
+    )
+    requires_config = bool(
+        any(credential.required for credential in credentials)
+        or has_server_uri_config
+        or (
+            raw_spec.server_uri is not None
+            and _PLACEHOLDER_RE.search(raw_spec.server_uri)
+        )
+    )
+
+    kind = f"{raw_spec.server_type}_{raw_spec.auth_type.lower()}"
+    base: dict[str, Any] = {
+        "kind": kind,
+        "server_type": raw_spec.server_type,
+        "auth_type": raw_spec.auth_type,
+        "requires_config": requires_config,
+        "config_fields": config_fields,
+        "credentials": credentials,
+    }
+    if raw_spec.server_type == "http":
+        if not raw_spec.server_uri and not has_server_uri_config:
+            return None
+        base["server_uri"] = raw_spec.server_uri or ""
+        if raw_spec.auth_type == MCPAuthType.OAUTH2:
+            base["scopes"] = raw_spec.scopes
+            base["oauth_authorization_endpoint"] = raw_spec.oauth_authorization_endpoint
+            base["oauth_token_endpoint"] = raw_spec.oauth_token_endpoint
+    else:
+        packages = _normalize_packages(raw_spec.packages)
+        base["stdio_command"] = raw_spec.stdio_command
+        base["stdio_args"] = raw_spec.stdio_args
+        base["stdio_env"] = raw_spec.stdio_env
+        base["packages"] = packages
+        has_launchable_command = (
+            any(package.command in ALLOWED_MCP_COMMANDS for package in packages)
+            or raw_spec.stdio_command in ALLOWED_MCP_COMMANDS
+        )
+        if not has_launchable_command:
+            base["requires_config"] = True
+        if raw_spec.auth_type == MCPAuthType.OAUTH2:
+            base["scopes"] = raw_spec.scopes
+
+    try:
+        return _CONNECTION_SPEC_ADAPTER.validate_python(base)
+    except ValidationError:
+        return None
+
+
+def _normalize_connection_options(row: RawCatalogRow) -> list[MCPConnectionOption]:
+    raw_options = (
+        row.connection_options if row.connection_options is not None else row.options
+    )
+    options: list[MCPConnectionOption] = []
+
+    if raw_options is not None:
         for index, raw_option in enumerate(raw_options):
-            if not isinstance(raw_option, dict):
+            try:
+                option = RawConnectionOption.model_validate(raw_option)
+            except ValidationError:
                 continue
-            spec = _normalize_connection_spec(raw_option)
+            spec = _normalize_connection_spec(option)
             if spec is None:
                 continue
-            option_id = raw_option.get("id")
-            if not isinstance(option_id, str) or not option_id.strip():
-                option_id = f"{spec['server_type']}-{spec['auth_type'].lower()}-{index}"
-            label = raw_option.get("label")
-            if not isinstance(label, str) or not label.strip():
-                label = spec["server_type"].upper()
-            description = raw_option.get("description")
-            docs_url = raw_option.get("docs", raw_option.get("docs_url"))
+            option_id = option.id if isinstance(option.id, str) else None
+            if not option_id or not option_id.strip():
+                option_id = f"{spec.server_type}-{spec.auth_type.lower()}-{index}"
+            label = option.label if isinstance(option.label, str) else None
+            if not label or not label.strip():
+                label = spec.server_type.upper()
+            description = (
+                option.description if isinstance(option.description, str) else None
+            )
+            docs_url = option.docs if option.docs is not None else option.docs_url
             options.append(
-                {
-                    "id": option_id.strip(),
-                    "label": label.strip(),
-                    "description": description.strip()
+                MCPConnectionOption(
+                    id=option_id.strip(),
+                    label=label.strip(),
+                    description=description.strip()
                     if isinstance(description, str) and description.strip()
                     else None,
-                    "docs_url": docs_url
+                    docs_url=docs_url
                     if isinstance(docs_url, str) and docs_url.strip()
                     else None,
-                    "connection_spec": spec,
-                }
+                    connection_spec=spec,
+                )
             )
         return options
 
@@ -278,29 +277,29 @@ def _normalize_connection_options(row: dict[str, Any]) -> list[dict[str, Any]]:
         return []
 
     return [
-        {
-            "id": f"{spec['server_type']}-{spec['auth_type'].lower()}",
-            "label": spec["server_type"].upper(),
-            "description": None,
-            "docs_url": row.get("docs") if isinstance(row.get("docs"), str) else None,
-            "connection_spec": spec,
-        }
+        MCPConnectionOption(
+            id=f"{spec.server_type}-{spec.auth_type.lower()}",
+            label=spec.server_type.upper(),
+            description=None,
+            docs_url=row.docs,
+            connection_spec=spec,
+        )
     ]
 
 
 def _default_connection_spec(
-    row: dict[str, Any], connection_options: list[dict[str, Any]]
-) -> dict[str, Any] | None:
+    row: RawCatalogRow, connection_options: list[MCPConnectionOption]
+) -> MCPConnectionSpec | None:
     if not connection_options:
         return _normalize_connection_spec(row)
 
-    raw_default = row.get("default_connection_option", row.get("default_option"))
+    raw_default = row.default_connection_option or row.default_option
     if isinstance(raw_default, str) and raw_default.strip():
         for option in connection_options:
-            if option["id"] == raw_default.strip():
-                return option["connection_spec"]
+            if option.id == raw_default.strip():
+                return option.connection_spec
 
-    return connection_options[0]["connection_spec"]
+    return connection_options[0].connection_spec
 
 
 def _load_catalog_document(
@@ -364,7 +363,7 @@ def _catalog_data(*, include_private: bool) -> dict[str, Any]:
     return {**public_data, "servers": merged_servers}
 
 
-def get_platform_mcp_catalog_entries(
+def _load_platform_mcp_catalog_entries(
     *, include_private: bool = False
 ) -> list[PlatformMCPCatalogEntry]:
     """Load and validate runtime MCP catalog rows."""
@@ -377,72 +376,69 @@ def get_platform_mcp_catalog_entries(
         return []
 
     entries: list[PlatformMCPCatalogEntry] = []
-    for index, row in enumerate(servers):
-        if not isinstance(row, dict):
-            continue
-        raw_slug = row.get("slug")
-        raw_name = row.get("name")
-        raw_description = row.get("description")
-        raw_category = row.get("category")
-        if not (
-            isinstance(raw_slug, str)
-            and raw_slug
-            and isinstance(raw_name, str)
-            and raw_name
-            and isinstance(raw_description, str)
-            and raw_description
-            and isinstance(raw_category, str)
-            and raw_category
-        ):
+    for index, raw in enumerate(servers):
+        try:
+            row = RawCatalogRow.model_validate(raw)
+        except ValidationError:
             continue
 
-        connection_options: list[dict[str, Any]] = []
-        connection_spec: dict[str, Any] | None = None
+        connection_options: list[MCPConnectionOption] = []
+        connection_spec: MCPConnectionSpec | None = None
         provider_id: str | None = None
         docs_url: str | None = None
         if include_private:
-            raw_spec = row.get("connection_spec", row.get("metadata"))
-            raw_options = row.get("connection_options", row.get("options"))
-            has_connection_spec = isinstance(raw_spec, dict) or isinstance(
-                raw_options, list
-            )
             connection_options = _normalize_connection_options(row)
             connection_spec = _default_connection_spec(row, connection_options)
-            if has_connection_spec and connection_spec is None:
+            if row.has_connection_metadata and connection_spec is None:
                 logger.warning(
                     "Skipping invalid MCP catalog connection metadata",
-                    extra={"slug": raw_slug},
+                    extra={"slug": row.slug},
                 )
-            raw_provider_id = row.get("provider_id")
-            provider_id = raw_provider_id if isinstance(raw_provider_id, str) else None
-            raw_docs_url = row.get("docs")
-            docs_url = raw_docs_url if isinstance(raw_docs_url, str) else None
+            provider_id = row.provider_id
+            docs_url = row.docs
 
-        raw_status = row.get("status")
         if include_private and connection_spec is not None:
             status: PlatformMCPCatalogStatus = "available"
-        elif raw_status in {"available", "coming_soon", "deprecated", "hidden"}:
-            status = raw_status
         else:
-            status = "coming_soon"
+            status = row.status or "coming_soon"
 
-        icon_url = row.get("icon")
         entry: PlatformMCPCatalogEntry = {
-            "id": catalog_id_for_slug(raw_slug),
-            "slug": raw_slug,
-            "name": raw_name,
-            "description": raw_description,
-            "category": raw_category,
+            "id": catalog_id_for_slug(row.slug),
+            "slug": row.slug,
+            "name": row.name,
+            "description": row.description,
+            "category": row.category,
             "status": status,
-            "icon_url": icon_url if isinstance(icon_url, str) else None,
+            "icon_url": row.icon,
             "docs_url": docs_url,
             "provider_id": provider_id,
             "connection_spec": connection_spec,
             "connection_options": connection_options or None,
-            "sort_key": f"{index:04d}:{raw_name.lower()}",
+            "sort_key": f"{index:04d}:{row.name.lower()}",
         }
         entries.append(entry)
     return entries
+
+
+@lru_cache(maxsize=2)
+def _cached_platform_mcp_catalog_entries(
+    include_private: bool,
+) -> tuple[PlatformMCPCatalogEntry, ...]:
+    return tuple(_load_platform_mcp_catalog_entries(include_private=include_private))
+
+
+def get_platform_mcp_catalog_entries(
+    *, include_private: bool = False
+) -> list[PlatformMCPCatalogEntry]:
+    """Return cached runtime MCP catalog rows.
+
+    The bundled catalog is static for the process lifetime. Return fresh copies
+    so callers can sort or transform results without mutating cached entries.
+    """
+    return [
+        deepcopy(entry)
+        for entry in _cached_platform_mcp_catalog_entries(include_private)
+    ]
 
 
 def get_platform_mcp_catalog_entry_by_slug(

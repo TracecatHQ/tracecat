@@ -15,7 +15,7 @@ import orjson
 import sqlalchemy as sa
 from authlib.integrations.httpx_client import AsyncOAuth2Client
 from authlib.oauth2.rfc7636 import create_s256_code_challenge
-from pydantic import SecretStr, TypeAdapter, ValidationError
+from pydantic import SecretStr
 from slugify import slugify
 from sqlalchemy import and_, delete, or_, select, update
 
@@ -33,11 +33,11 @@ from tracecat.db.models import (
 )
 from tracecat.identifiers import UserID
 from tracecat.integrations.catalog.loader import (
-    PlatformMCPCatalogEntry,
     get_platform_mcp_catalog_entries,
     get_platform_mcp_catalog_entry_by_provider_id,
     get_platform_mcp_catalog_entry_by_slug,
 )
+from tracecat.integrations.catalog.types import PlatformMCPCatalogEntry
 from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
 from tracecat.integrations.mcp_validation import (
     ALLOWED_MCP_COMMANDS,
@@ -52,6 +52,7 @@ from tracecat.integrations.providers.base import (
     ClientCredentialsOAuthProvider,
     CustomOAuthProviderMixin,
     MCPAuthProvider,
+    oauth_authorization_server_metadata_urls,
     validate_oauth_endpoint,
     validate_oauth_endpoint_resolves_public_async,
 )
@@ -69,7 +70,12 @@ from tracecat.integrations.schemas import (
     ProviderMetadata,
     ProviderScopes,
 )
-from tracecat.integrations.types import MCPServerType
+from tracecat.integrations.types import (
+    DCRResponse,
+    MCPServerType,
+    OAuthServerMetadata,
+    TokenResponse,
+)
 from tracecat.secrets.encryption import decrypt_value, encrypt_value, is_set
 from tracecat.service import BaseWorkspaceService
 from tracecat.tiers.enums import Entitlement
@@ -112,9 +118,6 @@ class MCPOAuthRegistrationResult:
 
 
 _CUSTOM_MCP_OAUTH_PROVIDER_PREFIX = "custom_mcp_"
-_MCP_CONNECTION_SPEC_ADAPTER: TypeAdapter[MCPConnectionSpec] = TypeAdapter(
-    MCPConnectionSpec
-)
 _CATALOG_PLACEHOLDER_RE = re.compile(
     r"(\{[A-Za-z_][A-Za-z0-9_]*\}|<[A-Za-z_][A-Za-z0-9_-]*>)"
 )
@@ -510,7 +513,7 @@ class IntegrationService(BaseWorkspaceService):
         if ":" in host:
             host = f"[{host}]"
         netloc = f"{host}:{parsed.port}" if parsed.port else host
-        path = parsed.path if parsed.path and parsed.path != "/" else ""
+        path = parsed.path if parsed.path else ""
         return urlunparse(("https", netloc, path, "", parsed.query, ""))
 
     @staticmethod
@@ -523,16 +526,6 @@ class IntegrationService(BaseWorkspaceService):
         urls.append(f"{base_url}/.well-known/oauth-protected-resource")
         urls.append(f"{base_url}/.well-known/oauth-authorization-server")
         return urls
-
-    @staticmethod
-    def _oauth_authorization_server_metadata_urls(issuer: str) -> list[str]:
-        issuer = issuer.rstrip("/")
-        parsed = urlparse(issuer)
-        if parsed.scheme.lower() != "https" or not parsed.netloc:
-            return []
-        if "/.well-known/oauth-authorization-server" in parsed.path:
-            return [issuer]
-        return [f"{issuer}/.well-known/oauth-authorization-server"]
 
     @staticmethod
     def _validate_mcp_oauth_endpoint(
@@ -616,15 +609,14 @@ class IntegrationService(BaseWorkspaceService):
             client_kwargs["token_endpoint_auth_method"] = token_auth_method
         return AsyncOAuth2Client(**client_kwargs)
 
-    async def _fetch_oauth_json(self, url: str) -> dict[str, object] | None:
+    async def _fetch_oauth_json(self, url: str) -> OAuthServerMetadata | None:
         await validate_oauth_endpoint_resolves_public_async(url)
         async with httpx.AsyncClient() as client:
             response = await client.get(url, timeout=10.0)
         if response.status_code == 404:
             return None
         response.raise_for_status()
-        data = response.json()
-        return data if isinstance(data, dict) else None
+        return OAuthServerMetadata.from_json(response.json())
 
     async def _discover_mcp_oauth_endpoints(
         self,
@@ -641,7 +633,7 @@ class IntegrationService(BaseWorkspaceService):
         # them; otherwise it points at separate authorization servers whose
         # .well-known metadata we fetch in the second pass below.
         auth_server_metadata_urls: list[str] = []
-        direct_metadata: dict[str, object] | None = None
+        direct_metadata: OAuthServerMetadata | None = None
         direct_metadata_host: str | None = None
         for metadata_url in self._mcp_oauth_metadata_urls(server_uri):
             metadata = await self._fetch_oauth_json(metadata_url)
@@ -649,52 +641,35 @@ class IntegrationService(BaseWorkspaceService):
                 continue
             # Metadata may override the canonical resource identifier we send as
             # the OAuth `resource` parameter; re-validate it before trusting it.
-            metadata_resource = metadata.get("resource")
-            if isinstance(metadata_resource, str):
-                resource_uri = self._mcp_resource_uri(metadata_resource)
-            if "authorization_endpoint" in metadata and "token_endpoint" in metadata:
+            if metadata.resource:
+                resource_uri = self._mcp_resource_uri(metadata.resource)
+            if metadata.is_complete:
                 direct_metadata = metadata
                 direct_metadata_host = urlparse(metadata_url).hostname
                 break
-            authorization_servers = metadata.get("authorization_servers")
-            if isinstance(authorization_servers, list):
-                for issuer in authorization_servers:
-                    if isinstance(issuer, str):
-                        auth_server_metadata_urls.extend(
-                            self._oauth_authorization_server_metadata_urls(issuer)
-                        )
+            for issuer in metadata.authorization_servers:
+                auth_server_metadata_urls.extend(
+                    oauth_authorization_server_metadata_urls(issuer)
+                )
 
         if direct_metadata is None:
             for metadata_url in auth_server_metadata_urls:
-                direct_metadata = await self._fetch_oauth_json(metadata_url)
-                if direct_metadata:
+                metadata = await self._fetch_oauth_json(metadata_url)
+                if metadata and metadata.is_complete:
+                    direct_metadata = metadata
                     direct_metadata_host = urlparse(metadata_url).hostname
                     break
 
         if direct_metadata is None:
             raise ValueError(f"Could not discover OAuth endpoints from {server_uri}")
 
-        authorization_endpoint = direct_metadata.get("authorization_endpoint")
-        token_endpoint = direct_metadata.get("token_endpoint")
-        if not isinstance(authorization_endpoint, str) or not isinstance(
-            token_endpoint, str
-        ):
+        authorization_endpoint = direct_metadata.authorization_endpoint
+        token_endpoint = direct_metadata.token_endpoint
+        if authorization_endpoint is None or token_endpoint is None:
             raise ValueError(f"OAuth metadata from {server_uri} is missing endpoints")
 
-        token_methods_raw = direct_metadata.get(
-            "token_endpoint_auth_methods_supported", []
-        )
-        token_methods = (
-            [method for method in token_methods_raw if isinstance(method, str)]
-            if isinstance(token_methods_raw, list)
-            else []
-        )
-        registration_endpoint_raw = direct_metadata.get("registration_endpoint")
-        registration_endpoint = (
-            registration_endpoint_raw
-            if isinstance(registration_endpoint_raw, str)
-            else None
-        )
+        token_methods = direct_metadata.token_endpoint_auth_methods_supported
+        registration_endpoint = direct_metadata.registration_endpoint
 
         return MCPOAuthDiscoveryEndpoints(
             authorization_endpoint=self._validate_mcp_oauth_endpoint(
@@ -774,18 +749,19 @@ class IntegrationService(BaseWorkspaceService):
                 timeout=10.0,
             )
         response.raise_for_status()
-        data = response.json()
-        if not isinstance(data, dict):
-            raise ValueError("Dynamic client registration returned invalid JSON")
-        client_id = data.get("client_id")
-        if not isinstance(client_id, str) or not client_id.strip():
-            raise ValueError("Dynamic client registration did not return client_id")
-        client_secret = data.get("client_secret")
-        auth_method = data.get("token_endpoint_auth_method") or token_auth_method
+        try:
+            registration_response = DCRResponse.model_validate(response.json())
+        except ValueError as exc:
+            raise ValueError(
+                "Dynamic client registration did not return client_id"
+            ) from exc
+        auth_method = (
+            registration_response.token_endpoint_auth_method or token_auth_method
+        )
         return MCPOAuthRegistrationResult(
-            client_id=client_id,
-            client_secret=client_secret if isinstance(client_secret, str) else None,
-            auth_method=auth_method if isinstance(auth_method, str) else None,
+            client_id=registration_response.client_id,
+            client_secret=registration_response.client_secret,
+            auth_method=auth_method,
         )
 
     async def _generate_custom_mcp_provider_id(self, *, name: str) -> str:
@@ -1095,31 +1071,28 @@ class IntegrationService(BaseWorkspaceService):
         )
         token_endpoint = provider_config.token_endpoint or endpoints.token_endpoint
         await validate_oauth_endpoint_resolves_public_async(token_endpoint)
-        token = cast(
-            dict[str, object],
-            await client.fetch_token(
-                token_endpoint,
-                code=code,
-                state=state,
-                code_verifier=code_verifier,
-                resource=endpoints.resource,
-            ),
-        )
-        access_token = token.get("access_token")
-        if not isinstance(access_token, str) or not access_token:
-            raise ValueError("MCP OAuth token response did not include access_token")
-        refresh_token = token.get("refresh_token")
-        expires_in = token.get("expires_in")
-        scope = token.get("scope")
+        try:
+            token = TokenResponse.from_oauth_response(
+                await client.fetch_token(
+                    token_endpoint,
+                    code=code,
+                    state=state,
+                    code_verifier=code_verifier,
+                    resource=endpoints.resource,
+                ),
+                default_expires_in=None,
+            )
+        except ValueError as exc:
+            raise ValueError(
+                "MCP OAuth token response did not include access_token"
+            ) from exc
         return await self.store_integration(
             provider_key=provider_key,
             user_id=self.role.user_id,
-            access_token=SecretStr(access_token),
-            refresh_token=SecretStr(refresh_token)
-            if isinstance(refresh_token, str) and refresh_token
-            else None,
-            expires_in=expires_in if isinstance(expires_in, int) else None,
-            scope=scope if isinstance(scope, str) else None,
+            access_token=token.access_token,
+            refresh_token=token.refresh_token,
+            expires_in=token.expires_in,
+            scope=token.scope or None,
             authorization_endpoint=provider_config.authorization_endpoint
             or endpoints.authorization_endpoint,
             token_endpoint=token_endpoint,
@@ -1161,28 +1134,32 @@ class IntegrationService(BaseWorkspaceService):
         )
         token_endpoint = provider_config.token_endpoint or endpoints.token_endpoint
         await validate_oauth_endpoint_resolves_public_async(token_endpoint)
-        token = cast(
-            dict[str, object],
-            await client.refresh_token(
-                token_endpoint,
-                refresh_token=refresh_token,
-                resource=endpoints.resource,
-            ),
-        )
-        access_token = token.get("access_token")
-        if not isinstance(access_token, str) or not access_token:
+        try:
+            token = TokenResponse.from_oauth_response(
+                await client.refresh_token(
+                    token_endpoint,
+                    refresh_token=refresh_token,
+                    resource=endpoints.resource,
+                ),
+                default_refresh_token=refresh_token,
+                default_expires_in=None,
+                default_scope=integration.scope or "",
+            )
+        except ValueError:
             return integration
-        integration.encrypted_access_token = self._encrypt_token(access_token)
-        new_refresh_token = token.get("refresh_token")
-        integration.encrypted_refresh_token = self._encrypt_token(
-            new_refresh_token if isinstance(new_refresh_token, str) else refresh_token
+        integration.encrypted_access_token = self._encrypt_token(
+            token.access_token.get_secret_value()
         )
-        expires_in = token.get("expires_in")
-        if isinstance(expires_in, int):
-            integration.expires_at = datetime.now() + timedelta(seconds=expires_in)
-        scope = token.get("scope")
-        if isinstance(scope, str):
-            integration.scope = scope
+        if token.refresh_token:
+            integration.encrypted_refresh_token = self._encrypt_token(
+                token.refresh_token.get_secret_value()
+            )
+        if token.expires_in is not None:
+            integration.expires_at = datetime.now() + timedelta(
+                seconds=token.expires_in
+            )
+        if token.scope:
+            integration.scope = token.scope
         await self.session.commit()
         await self.session.refresh(integration)
         return integration
@@ -1504,8 +1481,10 @@ class IntegrationService(BaseWorkspaceService):
             )
 
         # Update expiry time
-        integration.expires_at = datetime.now() + timedelta(
-            seconds=token_response.expires_in
+        integration.expires_at = (
+            datetime.now() + timedelta(seconds=token_response.expires_in)
+            if token_response.expires_in is not None
+            else None
         )
 
         # Update scope if changed
@@ -1591,9 +1570,10 @@ class IntegrationService(BaseWorkspaceService):
                 )
 
             # Update expiry time
-            integration.expires_at = datetime.now() + timedelta(
-                seconds=token_response.expires_in
-            )
+            if token_response.expires_in is not None:
+                integration.expires_at = datetime.now() + timedelta(
+                    seconds=token_response.expires_in
+                )
 
             # Update scope if changed
             integration.scope = token_response.scope
@@ -2488,16 +2468,8 @@ class IntegrationService(BaseWorkspaceService):
     def _catalog_connection_spec(
         catalog: PlatformMCPCatalogEntry,
     ) -> MCPConnectionSpec | None:
-        """Parse a runtime catalog spec into the typed union."""
-        connection_spec = catalog.get("connection_spec")
-        if connection_spec is None:
-            return None
-        try:
-            return _MCP_CONNECTION_SPEC_ADAPTER.validate_python(connection_spec)
-        except ValidationError as exc:
-            raise ValueError(
-                f"{catalog['name']} has an invalid connection spec"
-            ) from exc
+        """Return the validated runtime catalog connection spec."""
+        return catalog.get("connection_spec")
 
     @staticmethod
     def _catalog_requires_user_config(spec: MCPConnectionSpec) -> bool:

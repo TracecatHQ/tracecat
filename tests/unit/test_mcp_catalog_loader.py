@@ -26,7 +26,13 @@ class _CatalogResource:
         return self._payload
 
 
+def _clear_catalog_cache() -> None:
+    loader._cached_platform_mcp_catalog_entries.cache_clear()
+
+
 def _stub_catalog_resource(monkeypatch: pytest.MonkeyPatch, payload: bytes) -> None:
+    _clear_catalog_cache()
+
     def _files(package: str) -> _CatalogResource:
         if package == loader._CATALOG_PACKAGE:
             return _CatalogResource(payload, "mcp_catalog.json")
@@ -175,7 +181,9 @@ def test_get_platform_mcp_catalog_entries_normalizes_specs_and_degrades_bad_spec
     ]
     assert entries[0]["status"] == "available"
     assert entries[0].get("docs_url") == "https://example.com/docs"
-    assert entries[0].get("connection_spec") == {
+    elastic_spec = entries[0].get("connection_spec")
+    assert elastic_spec is not None
+    assert elastic_spec.model_dump(mode="json") == {
         "kind": "http_custom",
         "server_type": "http",
         "auth_type": "CUSTOM",
@@ -223,25 +231,24 @@ def test_get_platform_mcp_catalog_entries_normalizes_specs_and_degrades_bad_spec
     assert entries[2]["status"] == "available"
     generic_oauth_spec = entries[2].get("connection_spec")
     assert generic_oauth_spec is not None
-    assert generic_oauth_spec.get("auth_type") == MCPAuthType.OAUTH2
+    assert generic_oauth_spec.auth_type == MCPAuthType.OAUTH2
     assert entries[3]["status"] == "available"
     assert entries[3].get("provider_id") == "runreveal_mcp"
     provider_oauth_spec = entries[3].get("connection_spec")
     assert provider_oauth_spec is not None
-    assert provider_oauth_spec.get("auth_type") == MCPAuthType.OAUTH2
+    assert provider_oauth_spec.auth_type == MCPAuthType.OAUTH2
     assert entries[4]["status"] == "available"
     assert entries[4].get("connection_spec") is None
     user_url_spec = entries[5].get("connection_spec")
     assert user_url_spec is not None
-    assert user_url_spec.get("server_uri") == ""
-    assert user_url_spec.get("requires_config") is True
-    user_url_fields = user_url_spec.get("config_fields")
-    assert isinstance(user_url_fields, list)
-    assert user_url_fields[0]["target"] == "server_uri"
+    assert user_url_spec.server_type == "http"
+    assert user_url_spec.server_uri == ""
+    assert user_url_spec.requires_config is True
+    assert user_url_spec.config_fields[0].target == "server_uri"
     local_only_spec = entries[6].get("connection_spec")
     assert local_only_spec is not None
-    assert local_only_spec.get("server_type") == "stdio"
-    assert local_only_spec.get("requires_config") is True
+    assert local_only_spec.server_type == "stdio"
+    assert local_only_spec.requires_config is True
 
 
 def test_get_platform_mcp_catalog_entries_normalizes_connection_options(
@@ -300,14 +307,14 @@ def test_get_platform_mcp_catalog_entries_normalizes_connection_options(
     assert entries[0]["status"] == "available"
     connection_spec = entries[0].get("connection_spec")
     assert connection_spec is not None
-    assert connection_spec["kind"] == "http_oauth2"
+    assert connection_spec.kind == "http_oauth2"
     options = entries[0].get("connection_options")
     assert options is not None
-    assert [option["id"] for option in options] == [
+    assert [option.id for option in options] == [
         "remote-http",
         "local-stdio",
     ]
-    assert [option["connection_spec"]["server_type"] for option in options] == [
+    assert [option.connection_spec.server_type for option in options] == [
         "http",
         "stdio",
     ]
@@ -316,6 +323,7 @@ def test_get_platform_mcp_catalog_entries_normalizes_connection_options(
 def test_get_platform_mcp_catalog_entries_merges_private_mcp_catalog(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _clear_catalog_cache()
     public = orjson.dumps(
         {
             "servers": [
@@ -400,7 +408,79 @@ def test_get_platform_mcp_catalog_entries_merges_private_mcp_catalog(
     assert private_entries[1].get("connection_spec") is None
 
 
+def test_get_platform_mcp_catalog_entries_caches_static_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_catalog_cache()
+    public = orjson.dumps(
+        {
+            "servers": [
+                {
+                    "slug": "scanner-mcp",
+                    "name": "Scanner",
+                    "description": "Search security data",
+                    "category": "SIEM / Datalake",
+                    "status": "available",
+                }
+            ]
+        }
+    )
+    private = orjson.dumps(
+        {
+            "servers": [
+                {
+                    "slug": "scanner-mcp",
+                    "docs": "https://docs.scanner.dev/mcp",
+                    "metadata": {
+                        "server_type": "http",
+                        "auth_type": "CUSTOM",
+                        "server_uri": "https://mcp.example.scanner.dev/v1/mcp",
+                        "credentials": [
+                            {
+                                "key": "Authorization",
+                                "label": "Scanner API key",
+                                "target": "http_header",
+                            }
+                        ],
+                    },
+                }
+            ]
+        }
+    )
+    calls: dict[str, int] = {}
+
+    def _files(package: str) -> _CatalogResource:
+        calls[package] = calls.get(package, 0) + 1
+        if package == loader._CATALOG_PACKAGE:
+            return _CatalogResource(public, "mcp_catalog.json")
+        if package == loader._PRIVATE_CATALOG_PACKAGE:
+            return _CatalogResource(private, "mcp_catalog_private.json")
+        raise ModuleNotFoundError(package)
+
+    monkeypatch.setattr(loader.resources, "files", _files)
+
+    first_entries = loader.get_platform_mcp_catalog_entries(include_private=True)
+    first_spec = first_entries[0].get("connection_spec")
+    assert first_spec is not None
+    assert first_spec.server_type == "http"
+    first_entries[0]["name"] = "Mutated"
+    first_spec.server_uri = "https://mutated.example/mcp"
+
+    second_entries = loader.get_platform_mcp_catalog_entries(include_private=True)
+
+    assert calls == {
+        loader._CATALOG_PACKAGE: 1,
+        loader._PRIVATE_CATALOG_PACKAGE: 1,
+    }
+    assert second_entries[0]["name"] == "Scanner"
+    second_spec = second_entries[0].get("connection_spec")
+    assert second_spec is not None
+    assert second_spec.server_type == "http"
+    assert second_spec.server_uri == "https://mcp.example.scanner.dev/v1/mcp"
+
+
 def test_private_catalog_overlay_does_not_drop_public_rows() -> None:
+    _clear_catalog_cache()
     public_entries = loader.get_platform_mcp_catalog_entries()
     private_entries = loader.get_platform_mcp_catalog_entries(include_private=True)
     private_by_slug = {entry["slug"]: entry for entry in private_entries}
@@ -412,8 +492,8 @@ def test_private_catalog_overlay_does_not_drop_public_rows() -> None:
     for slug in ("jamf-mcp", "terraform-mcp"):
         spec = private_by_slug[slug].get("connection_spec")
         if spec is not None:
-            assert spec["server_type"] == "stdio"
-            assert spec["requires_config"] is True
+            assert spec.server_type == "stdio"
+            assert spec.requires_config is True
 
 
 def test_catalog_state_marks_non_oauth_mcp_rows_connected() -> None:

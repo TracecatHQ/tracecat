@@ -9,14 +9,10 @@ from typing import cast
 import sqlalchemy as sa
 
 from tracecat.db.models import MCPIntegration, OAuthIntegration
-from tracecat.integrations.catalog.loader import (
-    PlatformMCPCatalogEntry,
-    get_platform_mcp_catalog_entries,
-)
+from tracecat.integrations.catalog.loader import get_platform_mcp_catalog_entries
+from tracecat.integrations.catalog.types import PlatformMCPCatalogEntry
 from tracecat.integrations.enums import MCPAuthType
 from tracecat.integrations.schemas import (
-    MCPConnectionOption,
-    MCPConnectionSpec,
     PlatformMCPCatalogRead,
     PlatformMCPCatalogState,
     PlatformMCPCatalogStatus,
@@ -232,13 +228,11 @@ class PlatformMCPCatalogService(BaseService):
         mcp_integration = state[0] if state else None
         encrypted_access_token = state[1] if state else None
         locked = not agent_addons_entitled and mcp_integration is None
-        connection_spec = cast(
-            MCPConnectionSpec | None,
-            entry.get("connection_spec") if agent_addons_entitled else None,
+        connection_spec = (
+            entry.get("connection_spec") if agent_addons_entitled else None
         )
-        connection_options = cast(
-            list[MCPConnectionOption],
-            (entry.get("connection_options") or []) if agent_addons_entitled else [],
+        connection_options = (
+            (entry.get("connection_options") or []) if agent_addons_entitled else []
         )
         return PlatformMCPCatalogRead(
             id=entry["id"],

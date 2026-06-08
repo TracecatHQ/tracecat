@@ -47,6 +47,8 @@ from tracecat.integrations.providers.runreveal.mcp import RunRevealMCPProvider
 from tracecat.integrations.providers.sentry.mcp import SentryMCPProvider
 from tracecat.integrations.providers.wiz.mcp import WizMCPProvider
 from tracecat.integrations.schemas import (
+    MCPConnectionOption,
+    MCPConnectionSpec,
     MCPHttpIntegrationCreate,
     MCPIntegrationCreate,
     MCPIntegrationUpdate,
@@ -57,9 +59,14 @@ from tracecat.integrations.schemas import (
     ProviderScopes,
 )
 from tracecat.integrations.service import IntegrationService
+from tracecat.integrations.types import OAuthServerMetadata
 from tracecat.tiers import defaults as tier_defaults
 
 pytestmark = pytest.mark.usefixtures("db")
+
+_MCP_CONNECTION_SPEC_ADAPTER: TypeAdapter[MCPConnectionSpec] = TypeAdapter(
+    MCPConnectionSpec
+)
 
 
 class _TestCatalogEntry(dict):
@@ -78,10 +85,20 @@ def _catalog_entry(
     status: str = "available",
     provider_id: str | None = None,
     docs_url: str | None = None,
-    connection_spec: dict | None = None,
-    connection_options: list[dict] | None = None,
+    connection_spec: MCPConnectionSpec | dict | None = None,
+    connection_options: list[MCPConnectionOption | dict] | None = None,
     sort_key: str = "0000:test",
 ) -> _TestCatalogEntry:
+    typed_connection_spec = (
+        _MCP_CONNECTION_SPEC_ADAPTER.validate_python(connection_spec)
+        if connection_spec is not None
+        else None
+    )
+    typed_connection_options = (
+        [MCPConnectionOption.model_validate(option) for option in connection_options]
+        if connection_options is not None
+        else None
+    )
     return _TestCatalogEntry(
         id=catalog_id_for_slug(slug),
         slug=slug,
@@ -92,8 +109,8 @@ def _catalog_entry(
         icon_url=None,
         docs_url=docs_url,
         provider_id=provider_id,
-        connection_spec=connection_spec,
-        connection_options=connection_options,
+        connection_spec=typed_connection_spec,
+        connection_options=typed_connection_options,
         sort_key=sort_key,
     )
 
@@ -2608,9 +2625,8 @@ class TestMCPProviderOAuth:
             },
         }
 
-        async def fake_fetch(url: str) -> dict[str, object] | None:
-            value = docs[url]
-            return value if isinstance(value, dict) else None
+        async def fake_fetch(url: str) -> OAuthServerMetadata | None:
+            return OAuthServerMetadata.from_json(docs[url])
 
         monkeypatch.setattr(integration_service, "_fetch_oauth_json", fake_fetch)
 
@@ -2651,9 +2667,8 @@ class TestMCPProviderOAuth:
             },
         }
 
-        async def fake_fetch(url: str) -> dict[str, object] | None:
-            value = docs[url]
-            return value if isinstance(value, dict) else None
+        async def fake_fetch(url: str) -> OAuthServerMetadata | None:
+            return OAuthServerMetadata.from_json(docs[url])
 
         monkeypatch.setattr(integration_service, "_fetch_oauth_json", fake_fetch)
 
@@ -2670,6 +2685,80 @@ class TestMCPProviderOAuth:
         )
         assert endpoints.token_methods == ["client_secret_post"]
         assert endpoints.resource == "https://tenant.example.com/mcp"
+
+    async def test_generic_mcp_discovery_builds_path_scoped_issuer_metadata_url(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """RFC 8414 inserts the well-known path before a path-scoped issuer."""
+        docs = {
+            "https://tenant.example.com/.well-known/oauth-protected-resource/mcp": {
+                "authorization_servers": ["https://login.example-idp.com/tenant"]
+            },
+            "https://tenant.example.com/.well-known/oauth-protected-resource": None,
+            "https://tenant.example.com/.well-known/oauth-authorization-server": None,
+            (
+                "https://login.example-idp.com"
+                "/.well-known/oauth-authorization-server/tenant"
+            ): {
+                "authorization_endpoint": (
+                    "https://login.example-idp.com/tenant/oauth/authorize"
+                ),
+                "token_endpoint": ("https://login.example-idp.com/tenant/oauth/token"),
+                "registration_endpoint": (
+                    "https://login.example-idp.com/tenant/oauth/register"
+                ),
+                "token_endpoint_auth_methods_supported": ["client_secret_post"],
+            },
+        }
+
+        async def fake_fetch(url: str) -> OAuthServerMetadata | None:
+            return OAuthServerMetadata.from_json(docs[url])
+
+        monkeypatch.setattr(integration_service, "_fetch_oauth_json", fake_fetch)
+
+        endpoints = await integration_service._discover_mcp_oauth_endpoints(
+            server_uri="https://tenant.example.com/mcp",
+        )
+
+        assert endpoints.authorization_endpoint == (
+            "https://login.example-idp.com/tenant/oauth/authorize"
+        )
+        assert endpoints.token_endpoint == (
+            "https://login.example-idp.com/tenant/oauth/token"
+        )
+        assert endpoints.registration_endpoint == (
+            "https://login.example-idp.com/tenant/oauth/register"
+        )
+        assert endpoints.token_methods == ["client_secret_post"]
+
+    async def test_generic_mcp_discovery_preserves_root_trailing_slash_resource(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Generic MCP DCR preserves an explicit root slash in resource URIs."""
+        docs = {
+            "https://mcp.app.wiz.io/.well-known/oauth-protected-resource": {
+                "authorization_endpoint": ("https://mcp.app.wiz.io/oauth/authorize"),
+                "token_endpoint": "https://mcp.app.wiz.io/oauth/token",
+                "registration_endpoint": "https://mcp.app.wiz.io/oauth/register",
+                "token_endpoint_auth_methods_supported": ["none"],
+            },
+            "https://mcp.app.wiz.io/.well-known/oauth-authorization-server": None,
+        }
+
+        async def fake_fetch(url: str) -> OAuthServerMetadata | None:
+            return OAuthServerMetadata.from_json(docs[url])
+
+        monkeypatch.setattr(integration_service, "_fetch_oauth_json", fake_fetch)
+
+        endpoints = await integration_service._discover_mcp_oauth_endpoints(
+            server_uri="https://mcp.app.wiz.io/",
+        )
+
+        assert endpoints.resource == "https://mcp.app.wiz.io/"
 
     async def test_generic_mcp_discovery_rejects_private_metadata_hosts(
         self,
@@ -2915,9 +3004,8 @@ class TestMCPProviderOAuth:
             },
         }
 
-        async def fake_fetch(url: str) -> dict[str, object] | None:
-            value = docs[url]
-            return value if isinstance(value, dict) else None
+        async def fake_fetch(url: str) -> OAuthServerMetadata | None:
+            return OAuthServerMetadata.from_json(docs[url])
 
         monkeypatch.setattr(integration_service, "_fetch_oauth_json", fake_fetch)
 
@@ -2949,9 +3037,8 @@ class TestMCPProviderOAuth:
             },
         }
 
-        async def fake_fetch(url: str) -> dict[str, object] | None:
-            value = docs[url]
-            return value if isinstance(value, dict) else None
+        async def fake_fetch(url: str) -> OAuthServerMetadata | None:
+            return OAuthServerMetadata.from_json(docs[url])
 
         monkeypatch.setattr(integration_service, "_fetch_oauth_json", fake_fetch)
 

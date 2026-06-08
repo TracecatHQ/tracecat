@@ -8,7 +8,7 @@ import socket
 from abc import ABC
 from collections.abc import Sequence
 from json import JSONDecodeError
-from typing import Any, ClassVar, Self, cast
+from typing import Any, ClassVar, Self
 from urllib.parse import urlparse, urlunparse
 
 import httpx
@@ -23,11 +23,16 @@ from tracecat.integrations.schemas import (
     ProviderMetadata,
     ProviderScopes,
 )
-from tracecat.integrations.types import TokenResponse
+from tracecat.integrations.types import (
+    DCRResponse,
+    OAuthServerMetadata,
+    TokenResponse,
+)
 from tracecat.logger import logger
 
 SocketAddress = tuple[str, int] | tuple[str, int, int, int] | tuple[int, bytes]
 SocketInfo = tuple[socket.AddressFamily, socket.SocketKind, int, str, SocketAddress]
+_OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN = "/.well-known/oauth-authorization-server"
 
 
 class ClientCredentials(BaseModel):
@@ -106,6 +111,33 @@ def validate_oauth_endpoint(url: str, base_domain: str | None = None) -> None:
             raise ValueError(
                 f"OAuth endpoint domain {hostname} does not match expected domain {expected_domain}"
             )
+
+
+def oauth_authorization_server_metadata_urls(issuer: str) -> list[str]:
+    """Build RFC 8414 authorization-server metadata URLs for an issuer."""
+
+    parsed = urlparse(issuer.strip().rstrip("/"))
+    if parsed.scheme.lower() != "https" or not parsed.netloc:
+        return []
+    if parsed.params or parsed.query or parsed.fragment:
+        return []
+
+    path = parsed.path.rstrip("/")
+    if path == _OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN or path.startswith(
+        f"{_OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN}/"
+    ):
+        return [urlunparse(("https", parsed.netloc, path, "", "", ""))]
+
+    metadata_path = (
+        _OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN
+        if not path
+        else f"{_OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN}{path}"
+    )
+    urls = [urlunparse(("https", parsed.netloc, metadata_path, "", "", ""))]
+    if path:
+        legacy_path = f"{path}{_OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN}"
+        urls.append(urlunparse(("https", parsed.netloc, legacy_path, "", "", "")))
+    return urls
 
 
 def _is_disallowed_oauth_address(
@@ -367,7 +399,7 @@ class BaseOAuthProvider(ABC):
     @staticmethod
     async def _submit_registration_request(
         endpoint: str, payload: dict[str, Any]
-    ) -> dict[str, Any]:
+    ) -> DCRResponse:
         """Send a dynamic registration request asynchronously."""
 
         await validate_oauth_endpoint_resolves_public_async(endpoint)
@@ -375,7 +407,7 @@ class BaseOAuthProvider(ABC):
         async with httpx.AsyncClient() as client:
             response = await client.post(endpoint, json=payload, timeout=10.0)
         response.raise_for_status()
-        return response.json()
+        return DCRResponse.model_validate(response.json())
 
     def _perform_dynamic_registration(self) -> DynamicRegistrationResult:
         """Register a public client using OAuth 2.0 Dynamic Client Registration."""
@@ -411,17 +443,8 @@ class BaseOAuthProvider(ABC):
                 ) from exc
             raise
 
-        client_id = registration_response.get("client_id")
-        if not client_id:
-            raise ValueError(
-                "Dynamic client registration response did not include client_id"
-            )
-
-        client_secret = registration_response.get("client_secret")
-
         auth_method = (
-            registration_response.get("token_endpoint_auth_method")
-            or registration_auth_method
+            registration_response.token_endpoint_auth_method or registration_auth_method
         )
         if auth_method:
             self._client_registration_auth_method = auth_method
@@ -432,8 +455,8 @@ class BaseOAuthProvider(ABC):
         )
 
         return DynamicRegistrationResult(
-            client_id=client_id,
-            client_secret=client_secret,
+            client_id=registration_response.client_id,
+            client_secret=registration_response.client_secret,
             auth_method=auth_method,
         )
 
@@ -536,16 +559,14 @@ class AuthorizationCodeOAuthProvider(BaseOAuthProvider):
             if code_verifier:
                 token_params["code_verifier"] = code_verifier
 
-            # Exchange code for token using authlib
-            token = cast(
-                dict[str, Any],
-                # This is actually an async function.
+            token = TokenResponse.from_oauth_response(
                 await self.client.fetch_token(
                     self.token_endpoint,
                     code=code,
                     state=state,
                     **token_params,
                 ),
+                default_scope=" ".join(self.requested_scopes),
             )
 
             self.logger.info(
@@ -554,16 +575,7 @@ class AuthorizationCodeOAuthProvider(BaseOAuthProvider):
                 used_pkce=code_verifier is not None,
             )
 
-            # Convert authlib token response to our TokenResponse model
-            return TokenResponse(
-                access_token=SecretStr(token["access_token"]),
-                refresh_token=SecretStr(refresh_token)
-                if (refresh_token := token.get("refresh_token"))
-                else None,
-                expires_in=token.get("expires_in", 3600),
-                scope=token.get("scope", " ".join(self.requested_scopes)),
-                token_type=token.get("token_type", "Bearer"),
-            )
+            return token
 
         except Exception as e:
             self.logger.error(
@@ -576,28 +588,19 @@ class AuthorizationCodeOAuthProvider(BaseOAuthProvider):
     async def refresh_access_token(self, refresh_token: str) -> TokenResponse:
         """Refresh the access token using a refresh token."""
         try:
-            # Use authlib to refresh the token
-            token = cast(
-                dict[str, Any],
+            token = TokenResponse.from_oauth_response(
                 await self.client.refresh_token(
                     self.token_endpoint,
                     refresh_token=refresh_token,
                     **self._get_additional_token_params(),
                 ),
+                default_refresh_token=refresh_token,
+                default_scope=" ".join(self.requested_scopes),
             )
 
             self.logger.info("Successfully refreshed OAuth token", provider=self.id)
 
-            # Convert authlib token response to our TokenResponse model
-            return TokenResponse(
-                access_token=SecretStr(token["access_token"]),
-                refresh_token=SecretStr(new_refresh_token)
-                if (new_refresh_token := token.get("refresh_token"))
-                else SecretStr(refresh_token),  # Fallback to original if not rotated
-                expires_in=token.get("expires_in", 3600),
-                scope=token.get("scope", " ".join(self.requested_scopes)),
-                token_type=token.get("token_type", "Bearer"),
-            )
+            return token
 
         except Exception as e:
             self.logger.error(
@@ -617,28 +620,20 @@ class ClientCredentialsOAuthProvider(BaseOAuthProvider):
     async def get_client_credentials_token(self) -> TokenResponse:
         """Get token using client credentials flow."""
         try:
-            # Get token using client credentials flow
-            token = cast(
-                dict[str, Any],
+            token = TokenResponse.from_oauth_response(
                 await self.client.fetch_token(
                     self.token_endpoint,
                     grant_type="client_credentials",
                     **self._get_additional_token_params(),
                 ),
+                default_scope=" ".join(self.requested_scopes),
             )
 
             self.logger.info(
                 "Successfully acquired client credentials token", provider=self.id
             )
 
-            # Convert authlib token response to our TokenResponse model
-            return TokenResponse(
-                access_token=SecretStr(token["access_token"]),
-                refresh_token=None,  # Client credentials flow doesn't use refresh tokens
-                expires_in=token.get("expires_in", 3600),
-                scope=token.get("scope", " ".join(self.requested_scopes)),
-                token_type=token.get("token_type", "Bearer"),
-            )
+            return token
 
         except Exception as e:
             self.logger.error(
@@ -851,7 +846,7 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
         if ":" in host:
             host = f"[{host}]"
         netloc = f"{host}:{parsed.port}" if parsed.port else host
-        path = parsed.path if parsed.path and parsed.path != "/" else ""
+        path = parsed.path if parsed.path else ""
         return urlunparse(("https", netloc, path, "", parsed.query, ""))
 
     @classmethod
@@ -883,7 +878,7 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
     ) -> OAuthDiscoveryResult:
         """Discover OAuth endpoints from .well-known configuration with fallback support."""
         base_url = self._get_base_url()
-        discovery_url = f"{base_url}/.well-known/oauth-authorization-server"
+        discovery_url = oauth_authorization_server_metadata_urls(base_url)[0]
 
         try:
             # Synchronous discovery during initialization
@@ -891,20 +886,21 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
             with httpx.Client() as client:
                 response = client.get(discovery_url, timeout=10.0)
                 response.raise_for_status()
-                discovery_doc = response.json()
-
-                auth_endpoint = discovery_doc["authorization_endpoint"]
-                token_endpoint = discovery_doc["token_endpoint"]
-                token_methods = discovery_doc.get(
-                    "token_endpoint_auth_methods_supported", []
-                )
+                metadata = OAuthServerMetadata.from_json(response.json())
+                if metadata is None or not metadata.is_complete:
+                    raise ValueError("OAuth discovery document is missing endpoints")
+                auth_endpoint = metadata.authorization_endpoint
+                token_endpoint = metadata.token_endpoint
+                if auth_endpoint is None or token_endpoint is None:
+                    raise ValueError("OAuth discovery document is missing endpoints")
+                token_methods = metadata.token_endpoint_auth_methods_supported
 
                 # Validate discovered endpoints for security
                 base_domain = urlparse(base_url).hostname
                 self._validate_discovered_oauth_endpoint(auth_endpoint, base_domain)
                 self._validate_discovered_oauth_endpoint(token_endpoint, base_domain)
 
-                registration_endpoint = discovery_doc.get("registration_endpoint")
+                registration_endpoint = metadata.registration_endpoint
                 if registration_endpoint:
                     self._validate_discovered_oauth_endpoint(
                         registration_endpoint, base_domain
@@ -983,21 +979,22 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
         """Async discovery counterpart used in event-loop contexts."""
 
         base_url = cls._get_base_url()
-        discovery_url = f"{base_url}/.well-known/oauth-authorization-server"
+        discovery_url = oauth_authorization_server_metadata_urls(base_url)[0]
 
         try:
             await validate_oauth_endpoint_resolves_public_async(discovery_url)
             async with httpx.AsyncClient() as client:
                 response = await client.get(discovery_url, timeout=10.0)
             response.raise_for_status()
-            discovery_doc = response.json()
-
-            authorization_endpoint = discovery_doc["authorization_endpoint"]
-            token_endpoint = discovery_doc["token_endpoint"]
-            token_methods = discovery_doc.get(
-                "token_endpoint_auth_methods_supported", []
-            )
-            registration_endpoint = discovery_doc.get("registration_endpoint")
+            metadata = OAuthServerMetadata.from_json(response.json())
+            if metadata is None or not metadata.is_complete:
+                raise ValueError("OAuth discovery document is missing endpoints")
+            authorization_endpoint = metadata.authorization_endpoint
+            token_endpoint = metadata.token_endpoint
+            if authorization_endpoint is None or token_endpoint is None:
+                raise ValueError("OAuth discovery document is missing endpoints")
+            token_methods = metadata.token_endpoint_auth_methods_supported
+            registration_endpoint = metadata.registration_endpoint
 
             # Validate discovered endpoints for security
             base_domain = urlparse(base_url).hostname
@@ -1148,16 +1145,8 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
             )
             raise
 
-        client_id = registration_response.get("client_id")
-        if not client_id:
-            raise ValueError(
-                "Dynamic client registration response did not include client_id"
-            )
-
-        client_secret = registration_response.get("client_secret")
         auth_method = (
-            registration_response.get("token_endpoint_auth_method")
-            or registration_auth_method
+            registration_response.token_endpoint_auth_method or registration_auth_method
         )
 
         logger_instance.info(
@@ -1166,8 +1155,8 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
         )
 
         return DynamicRegistrationResult(
-            client_id=client_id,
-            client_secret=client_secret,
+            client_id=registration_response.client_id,
+            client_secret=registration_response.client_secret,
             auth_method=auth_method,
         )
 
