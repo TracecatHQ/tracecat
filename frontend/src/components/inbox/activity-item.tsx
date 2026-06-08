@@ -1,5 +1,6 @@
 import {
   AnvilIcon,
+  BotIcon,
   FlaskConicalIcon,
   LayersIcon,
   MessageSquareIcon,
@@ -33,7 +34,13 @@ interface ActivityItemProps {
   onDelete?: () => void
 }
 
-type SourceType = "workflow" | "case" | "chat" | "test" | "assistant"
+type SourceType =
+  | "workflow"
+  | "case"
+  | "chat"
+  | "test"
+  | "assistant"
+  | "agent_run"
 
 interface SourceConfig {
   label: string
@@ -61,6 +68,10 @@ const SOURCE_CONFIGS: Record<SourceType, SourceConfig> = {
     label: "Build",
     icon: AnvilIcon,
   },
+  agent_run: {
+    label: "Agent run",
+    icon: BotIcon,
+  },
 }
 
 function getSourceType(entityType: string): SourceType {
@@ -73,6 +84,8 @@ function getSourceType(entityType: string): SourceType {
       return "test"
     case "agent_preset_builder":
       return "assistant"
+    case "approval":
+      return "agent_run"
     case "copilot":
     default:
       return "chat"
@@ -142,7 +155,7 @@ export function ActivityItem({
               "hover:bg-destructive/10 hover:text-destructive",
               isDeleting && "cursor-not-allowed opacity-50"
             )}
-            aria-label="Delete approval"
+            aria-label="Delete inbox item"
           >
             <Trash2Icon className="size-3.5" />
           </button>
@@ -152,10 +165,10 @@ export function ActivityItem({
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete approval</AlertDialogTitle>
+            <AlertDialogTitle>Delete inbox item</AlertDialogTitle>
             <AlertDialogDescription>
-              This will deny all pending tool calls and remove this approval
-              from the inbox.
+              This will deny all pending tool calls and remove this item from
+              the inbox.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

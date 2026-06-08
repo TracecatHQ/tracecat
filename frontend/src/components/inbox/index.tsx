@@ -8,6 +8,7 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { toast } from "@/components/ui/use-toast"
 import {
   type DateFilterValue,
+  type InboxStatusFilter,
   type UseInboxFilters,
   useDeleteApproval,
 } from "@/hooks/use-inbox"
@@ -24,6 +25,7 @@ interface ActivityLayoutProps {
   filters: UseInboxFilters
   onSearchChange: (query: string) => void
   onEntityTypeChange: (type: AgentSessionEntity | "all") => void
+  onStatusFilterChange: (status: InboxStatusFilter) => void
   onLimitChange: (limit: number) => void
   onUpdatedAfterChange: (value: DateFilterValue) => void
   onCreatedAfterChange: (value: DateFilterValue) => void
@@ -38,6 +40,7 @@ export function ActivityLayout({
   filters,
   onSearchChange,
   onEntityTypeChange,
+  onStatusFilterChange,
   onLimitChange,
   onUpdatedAfterChange,
   onCreatedAfterChange,
@@ -82,8 +85,8 @@ export function ActivityLayout({
       }
     } catch {
       toast({
-        title: "Failed to delete approval",
-        description: "Could not delete this approval. Please try again.",
+        title: "Failed to delete inbox item",
+        description: "Could not delete this inbox item. Please try again.",
         variant: "destructive",
       })
     }
@@ -97,6 +100,8 @@ export function ActivityLayout({
           onSearchChange={onSearchChange}
           entityType={filters.entityType}
           onEntityTypeChange={onEntityTypeChange}
+          statusFilter={filters.statusFilter}
+          onStatusFilterChange={onStatusFilterChange}
           limit={filters.limit}
           onLimitChange={onLimitChange}
           updatedAfter={filters.updatedAfter}
@@ -119,6 +124,8 @@ export function ActivityLayout({
           onSearchChange={onSearchChange}
           entityType={filters.entityType}
           onEntityTypeChange={onEntityTypeChange}
+          statusFilter={filters.statusFilter}
+          onStatusFilterChange={onStatusFilterChange}
           limit={filters.limit}
           onLimitChange={onLimitChange}
           updatedAfter={filters.updatedAfter}
@@ -142,6 +149,8 @@ export function ActivityLayout({
         onSearchChange={onSearchChange}
         entityType={filters.entityType}
         onEntityTypeChange={onEntityTypeChange}
+        statusFilter={filters.statusFilter}
+        onStatusFilterChange={onStatusFilterChange}
         limit={filters.limit}
         onLimitChange={onLimitChange}
         updatedAfter={filters.updatedAfter}

@@ -55,8 +55,8 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { useEntitlements } from "@/hooks/use-entitlements"
-import { usePendingApprovalsCount } from "@/hooks/use-pending-approvals-count"
-import { formatPendingApprovalCount } from "@/lib/approvals"
+import { usePendingInboxCount } from "@/hooks/use-pending-inbox-count"
+import { formatPendingInboxCount } from "@/lib/inbox-count"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 function SidebarHeaderContent({ workspaceId }: { workspaceId: string }) {
@@ -136,13 +136,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const agentAddonsEnabled = hasEntitlement("agent_addons")
   const workspaceChatEnabled = hasEntitlement("workspace_chat")
   const serviceAccountsEnabled = hasEntitlement("service_accounts")
-  const { data: pendingApprovalsCount = 0 } = usePendingApprovalsCount(
-    workspaceId,
-    {
-      enabled:
-        canViewInbox === true && !entitlementsIsLoading && agentAddonsEnabled,
-    }
-  )
+  const { data: pendingInboxCount = 0 } = usePendingInboxCount(workspaceId, {
+    enabled:
+      canViewInbox === true && !entitlementsIsLoading && agentAddonsEnabled,
+  })
 
   const navWorkspace: NavItem[] = useMemo(
     () => [
@@ -264,13 +261,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       visible: canViewWorkflows === true,
     },
     {
-      title: "Approvals",
+      title: "Inbox",
       url: `${basePath}/inbox`,
       icon: ListChecksIcon,
       isActive: pathname?.startsWith(`${basePath}/inbox`),
       visible: canViewInbox === true,
-      badgeCount: pendingApprovalsCount,
-      badgeLabel: `${pendingApprovalsCount} pending approval${pendingApprovalsCount === 1 ? "" : "s"}`,
+      badgeCount: pendingInboxCount,
+      badgeLabel: `${pendingInboxCount} pending inbox item${pendingInboxCount === 1 ? "" : "s"}`,
     },
   ]
 
@@ -396,7 +393,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                               aria-label={item.badgeLabel}
                               className="top-1/2 -translate-y-1/2 bg-violet-500/10 text-violet-700 peer-data-[size=default]/menu-button:top-1/2 peer-data-[size=lg]/menu-button:top-1/2 peer-data-[size=sm]/menu-button:top-1/2 dark:text-violet-300"
                             >
-                              {formatPendingApprovalCount(item.badgeCount)}
+                              {formatPendingInboxCount(item.badgeCount)}
                             </SidebarMenuBadge>
                           ) : null}
                         </SidebarMenuItem>

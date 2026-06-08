@@ -3,12 +3,12 @@
 import { useQuery } from "@tanstack/react-query"
 import { inboxGetPendingCount } from "@/client"
 
-export function usePendingApprovalsCount(
+export function usePendingInboxCount(
   workspaceId: string,
   { enabled = true }: { enabled?: boolean } = {}
 ) {
   return useQuery({
-    queryKey: ["pending-approvals-count", workspaceId],
+    queryKey: ["pending-inbox-count", workspaceId],
     queryFn: () => inboxGetPendingCount({ workspaceId }),
     select: (data) => data.count,
     enabled: enabled && Boolean(workspaceId),

@@ -22,6 +22,7 @@ export default function InboxPage() {
     filters,
     setSearchQuery,
     setEntityType,
+    setStatusFilter,
     setLimit,
     setUpdatedAfter,
     setCreatedAfter,
@@ -62,6 +63,7 @@ export default function InboxPage() {
       filters={filters}
       onSearchChange={setSearchQuery}
       onEntityTypeChange={setEntityType}
+      onStatusFilterChange={setStatusFilter}
       onLimitChange={setLimit}
       onUpdatedAfterChange={setUpdatedAfter}
       onCreatedAfterChange={setCreatedAfter}

@@ -110,7 +110,7 @@ function baseStatusMeta(
 
 const STATUS_METADATA: Record<AgentDerivedStatus, AgentStatusMetadata> = {
   PENDING_APPROVAL: {
-    label: "Pending approvals",
+    label: "Review required",
     priority: 0,
     tone: "warning",
   },
@@ -143,11 +143,14 @@ export type AgentSessionWithStatus = AgentSessionReadWithMeta & {
  * while maintaining compatibility with inbox UI components.
  */
 export interface InboxSessionItem {
-  /** The agent session ID (source_id from inbox API) */
+  /** The agent session ID backing this inbox row. */
   id: string
+  /** Where this item came from in the inbox list. */
+  source: "inbox_item" | "agent_run"
   title: string
   entity_type: string
   entity_id: string | null
+  parent_session_id?: string | null
   created_at: string
   updated_at: string
   parent_workflow: WorkflowSummary | null

@@ -171,7 +171,9 @@ export function ActivityAccordion({
                       isDeleting={deletingId === session.id}
                       onClick={() => onSelect(session.id)}
                       onDelete={
-                        onDelete && groupKey === "review_required"
+                        onDelete &&
+                        groupKey === "review_required" &&
+                        session.source === "inbox_item"
                           ? () => onDelete(session.id)
                           : undefined
                       }

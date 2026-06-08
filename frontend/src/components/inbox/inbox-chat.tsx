@@ -12,6 +12,7 @@ interface InboxChatProps {
 
 export function InboxChat({ session }: InboxChatProps) {
   const workspaceId = useWorkspaceId()
+  const parentSessionId = session.parent_session_id ?? session.id
 
   // Track the forked session ID and pending message
   const [forkedState, setForkedState] = useState<{
@@ -23,6 +24,11 @@ export function InboxChat({ session }: InboxChatProps) {
   // Fetch existing forked session when session changes
   useEffect(() => {
     if (!session?.id || !workspaceId) return
+
+    if (session.source === "agent_run") {
+      setForkedState(null)
+      return
+    }
 
     // Track whether this effect is still current to prevent stale responses
     // from overwriting state when the user switches sessions quickly
@@ -40,7 +46,7 @@ export function InboxChat({ session }: InboxChatProps) {
 
         if (childSessions.length > 0) {
           setForkedState({
-            parentSessionId: session.id,
+            parentSessionId,
             sessionId: childSessions[0].id,
           })
         } else {
@@ -60,15 +66,18 @@ export function InboxChat({ session }: InboxChatProps) {
     return () => {
       isCurrent = false
     }
-  }, [session?.id, workspaceId])
+  }, [session?.id, session.source, parentSessionId, workspaceId])
 
   const activeForkedState =
-    forkedState?.parentSessionId === session.id ? forkedState : null
-  const activeSessionId = activeForkedState?.sessionId ?? session.id
+    forkedState?.parentSessionId === parentSessionId ? forkedState : null
+  const activeSessionId =
+    session.source === "agent_run"
+      ? session.id
+      : (activeForkedState?.sessionId ?? session.id)
 
   const handleForked = (forkedId: string, pendingMessage: string) => {
     setForkedState({
-      parentSessionId: session.id,
+      parentSessionId,
       sessionId: forkedId,
       pendingMessage,
     })
@@ -84,7 +93,7 @@ export function InboxChat({ session }: InboxChatProps) {
     <InboxDetail
       key={activeSessionId}
       sessionId={activeSessionId}
-      parentSessionId={session.id}
+      parentSessionId={parentSessionId}
       session={session}
       onForked={handleForked}
       pendingMessage={activeForkedState?.pendingMessage}

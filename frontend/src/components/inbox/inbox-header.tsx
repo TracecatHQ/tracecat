@@ -3,6 +3,7 @@
 import {
   CalendarIcon,
   CheckIcon,
+  CircleDotIcon,
   ClockIcon,
   FilterIcon,
   HashIcon,
@@ -21,7 +22,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
-import type { DateFilterValue } from "@/hooks/use-inbox"
+import type { DateFilterValue, InboxStatusFilter } from "@/hooks/use-inbox"
 import { cn } from "@/lib/utils"
 
 const ENTITY_TYPE_OPTIONS: Array<{
@@ -29,6 +30,7 @@ const ENTITY_TYPE_OPTIONS: Array<{
   label: string
 }> = [
   { value: "all", label: "All types" },
+  { value: "approval", label: "Agent run" },
   { value: "case", label: "Case" },
   { value: "agent_preset", label: "Agent preset" },
   { value: "workflow", label: "Workflow" },
@@ -39,6 +41,18 @@ const LIMIT_OPTIONS = [
   { value: 10, label: "10" },
   { value: 20, label: "20" },
   { value: 50, label: "50" },
+]
+
+const STATUS_FILTER_OPTIONS: Array<{
+  value: InboxStatusFilter
+  label: string
+}> = [
+  { value: "all", label: "All statuses" },
+  { value: "review_required", label: "Review required" },
+  { value: "running", label: "In progress" },
+  { value: "error", label: "Error" },
+  { value: "completed", label: "Completed" },
+  { value: "unknown", label: "Unknown" },
 ]
 
 const DATE_FILTER_OPTIONS: Array<{
@@ -57,6 +71,8 @@ interface InboxHeaderProps {
   onSearchChange: (query: string) => void
   entityType: AgentSessionEntity | "all"
   onEntityTypeChange: (type: AgentSessionEntity | "all") => void
+  statusFilter: InboxStatusFilter
+  onStatusFilterChange: (status: InboxStatusFilter) => void
   limit: number
   onLimitChange: (limit: number) => void
   updatedAfter: DateFilterValue
@@ -70,6 +86,8 @@ export function InboxHeader({
   onSearchChange,
   entityType,
   onEntityTypeChange,
+  statusFilter,
+  onStatusFilterChange,
   limit,
   onLimitChange,
   updatedAfter,
@@ -80,6 +98,7 @@ export function InboxHeader({
   // Count only non-default filters (don't count limit since it always has a value)
   const activeFilterCount =
     (entityType !== "all" ? 1 : 0) +
+    (statusFilter !== "all" ? 1 : 0) +
     (updatedAfter !== null ? 1 : 0) +
     (createdAfter !== null ? 1 : 0)
 
@@ -93,7 +112,7 @@ export function InboxHeader({
         </div>
         <Input
           type="text"
-          placeholder="Search sessions..."
+          placeholder="Search by name..."
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
           className={cn(
@@ -152,6 +171,36 @@ export function InboxHeader({
                     >
                       <span>{option.label}</span>
                       {entityType === option.value && (
+                        <CheckIcon className="size-4" />
+                      )}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuPortal>
+            </DropdownMenuSub>
+
+            {/* Status filter submenu */}
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger className="flex items-center gap-2">
+                <CircleDotIcon className="size-4 shrink-0 text-muted-foreground" />
+                <span className="shrink-0">Status</span>
+                {statusFilter !== "all" && (
+                  <span className="ml-auto shrink-0 whitespace-nowrap text-xs text-muted-foreground">
+                    {STATUS_FILTER_OPTIONS.find((o) => o.value === statusFilter)
+                      ?.label ?? statusFilter}
+                  </span>
+                )}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuPortal>
+                <DropdownMenuSubContent className="w-44">
+                  {STATUS_FILTER_OPTIONS.map((option) => (
+                    <DropdownMenuItem
+                      key={option.value}
+                      onClick={() => onStatusFilterChange(option.value)}
+                      className="flex items-center justify-between"
+                    >
+                      <span>{option.label}</span>
+                      {statusFilter === option.value && (
                         <CheckIcon className="size-4" />
                       )}
                     </DropdownMenuItem>

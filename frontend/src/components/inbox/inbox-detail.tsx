@@ -51,7 +51,8 @@ export function InboxDetail({
 
   // Check if the current session is already a forked session
   // (sessionId differs from parentSessionId when viewing a fork)
-  const isForkedSession = sessionId !== parentSessionId
+  const isForkedSession =
+    session.source === "agent_run" || sessionId !== parentSessionId
 
   // Block input when there are pending approvals and we haven't forked yet
   // User must make an approval decision before they can send messages
@@ -169,7 +170,7 @@ export function InboxDetail({
       pendingMessage={pendingMessage}
       onPendingMessageSent={onPendingMessageSent}
       inputDisabled={inputDisabled}
-      inputDisabledPlaceholder="Make an approval decision to continue..."
+      inputDisabledPlaceholder="Complete the pending review to continue..."
     />
   )
 }

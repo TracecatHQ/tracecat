@@ -9,10 +9,12 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   type AgentSessionEntity,
+  type AgentSessionRead,
+  agentSessionsListSessions,
   approvalsDeleteApproval,
+  type ChatReadMinimal,
   type InboxItemRead,
   type InboxItemStatus,
-  type InboxListItemsResponse,
   inboxListItems,
 } from "@/client"
 import {
@@ -30,10 +32,36 @@ export interface UseInboxOptions {
 }
 
 export type DateFilterValue = "1d" | "3d" | "1w" | "1m" | null
+export type InboxStatusFilter =
+  | "all"
+  | "review_required"
+  | "running"
+  | "error"
+  | "completed"
+  | "unknown"
+
+type CombinedInboxData = {
+  items: InboxItemRead[]
+  approvalRuns: Array<AgentSessionRead | ChatReadMinimal>
+}
+
+const INBOX_FETCH_LIMIT = 100
+
+const STATUS_FILTER_STATUSES: Record<
+  Exclude<InboxStatusFilter, "all">,
+  Set<AgentDerivedStatus>
+> = {
+  review_required: new Set(["PENDING_APPROVAL"]),
+  running: new Set(["RUNNING", "CONTINUED_AS_NEW"]),
+  error: new Set(["FAILED", "TIMED_OUT", "TERMINATED"]),
+  completed: new Set(["COMPLETED", "CANCELED"]),
+  unknown: new Set(["UNKNOWN"]),
+}
 
 export interface UseInboxFilters {
   searchQuery: string
   entityType: AgentSessionEntity | "all"
+  statusFilter: InboxStatusFilter
   limit: number
   updatedAfter: DateFilterValue
   createdAfter: DateFilterValue
@@ -49,6 +77,7 @@ export interface UseInboxResult {
   filters: UseInboxFilters
   setSearchQuery: (query: string) => void
   setEntityType: (type: AgentSessionEntity | "all") => void
+  setStatusFilter: (status: InboxStatusFilter) => void
   setLimit: (limit: number) => void
   setUpdatedAfter: (value: DateFilterValue) => void
   setCreatedAfter: (value: DateFilterValue) => void
@@ -95,7 +124,7 @@ function mapInboxStatusToAgentStatus(
     case "pending":
       return {
         derivedStatus: "PENDING_APPROVAL",
-        statusLabel: "Pending approvals",
+        statusLabel: "Review required",
         statusPriority: 0,
         statusTone: "warning",
       }
@@ -137,9 +166,11 @@ function inboxItemToSessionItem(item: InboxItemRead): InboxSessionItem {
   return {
     // Core session fields - use source_id as the session identifier
     id: item.source_id,
+    source: "inbox_item",
     title: item.title,
     entity_type: (item.metadata?.entity_type as string) ?? "workflow",
     entity_id: (item.metadata?.entity_id as string) ?? null,
+    parent_session_id: null,
     created_at: item.created_at,
     updated_at: item.updated_at,
 
@@ -158,6 +189,41 @@ function inboxItemToSessionItem(item: InboxItemRead): InboxSessionItem {
       (item.metadata?.pending_count as number) ??
       (item.status === "pending" ? 1 : 0),
   }
+}
+
+function agentRunToSessionItem(
+  session: AgentSessionRead | ChatReadMinimal
+): InboxSessionItem {
+  const metadata = getAgentStatusMetadata("UNKNOWN")
+  const parentSessionId =
+    "parent_session_id" in session ? (session.parent_session_id ?? null) : null
+
+  return {
+    id: session.id,
+    source: "agent_run",
+    title: session.title,
+    entity_type: session.entity_type,
+    entity_id: session.entity_id,
+    parent_session_id: parentSessionId,
+    created_at: session.created_at,
+    updated_at: session.updated_at,
+    parent_workflow: null,
+    derivedStatus: "UNKNOWN",
+    statusLabel: metadata.label,
+    statusPriority: metadata.priority,
+    statusTone: metadata.tone,
+    pendingApprovalCount: 0,
+  }
+}
+
+function matchesStatusFilter(
+  session: InboxSessionItem,
+  statusFilter: InboxStatusFilter
+): boolean {
+  if (statusFilter === "all") {
+    return true
+  }
+  return STATUS_FILTER_STATUSES[statusFilter].has(session.derivedStatus)
 }
 
 function getDateFromFilter(filter: DateFilterValue): Date | null {
@@ -185,6 +251,7 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
   const [entityType, setEntityType] = useState<AgentSessionEntity | "all">(
     "all"
   )
+  const [statusFilter, setStatusFilter] = useState<InboxStatusFilter>("all")
   const [limit, setLimit] = useState(20)
   const [updatedAfter, setUpdatedAfter] = useState<DateFilterValue>(null)
   const [createdAfter, setCreatedAfter] = useState<DateFilterValue>(null)
@@ -203,9 +270,9 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
   const computeRefetchInterval = useCallback(
     (
       query: Query<
-        InboxListItemsResponse,
+        CombinedInboxData,
         TracecatApiError,
-        InboxListItemsResponse,
+        CombinedInboxData,
         readonly unknown[]
       >
     ) => {
@@ -222,7 +289,10 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
 
       const data = query.state.data
 
-      if (!data || data.items.length === 0) {
+      if (
+        !data ||
+        (data.items.length === 0 && data.approvalRuns.length === 0)
+      ) {
         return 10000
       }
 
@@ -244,24 +314,49 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     [autoRefresh]
   )
 
-  // Fetch inbox items from the unified inbox endpoint
-  // This endpoint properly aggregates approval status from the backend
+  // Fetch inbox items from the unified inbox endpoint and show approval
+  // continuation agent runs alongside them.
   const {
     data: sessions,
     isLoading,
     error,
     refetch,
-  } = useQuery<InboxListItemsResponse, TracecatApiError, InboxSessionItem[]>({
-    queryKey: ["inbox-items", workspaceId, limit],
-    queryFn: () =>
-      inboxListItems({
+  } = useQuery<CombinedInboxData, TracecatApiError, InboxSessionItem[]>({
+    queryKey: ["inbox-items", workspaceId],
+    queryFn: async () => {
+      const inboxResponse = await inboxListItems({
         workspaceId,
-        limit,
-      }),
+        limit: INBOX_FETCH_LIMIT,
+      })
+
+      let approvalRuns: Array<AgentSessionRead | ChatReadMinimal> = []
+      try {
+        approvalRuns = await agentSessionsListSessions({
+          workspaceId,
+          entityType: "approval",
+          limit: INBOX_FETCH_LIMIT,
+        })
+      } catch (err) {
+        console.warn("Failed to load approval agent runs for inbox", err)
+      }
+
+      return {
+        items: inboxResponse.items,
+        approvalRuns,
+      }
+    },
     select: (data) => {
-      // Convert inbox items to session format and sort by priority
-      const converted = data.items.map(inboxItemToSessionItem)
-      // Sort by status priority (pending approvals first), then by updated_at (most recent first)
+      // Convert inbox items and approval agent runs to session format.
+      const converted = [...data.items.map(inboxItemToSessionItem)]
+      const seenIds = new Set(converted.map((item) => item.id))
+      for (const approvalRun of data.approvalRuns) {
+        if (!seenIds.has(approvalRun.id)) {
+          converted.push(agentRunToSessionItem(approvalRun))
+          seenIds.add(approvalRun.id)
+        }
+      }
+
+      // Sort by status priority (review-required items first), then by updated_at (most recent first)
       return converted.sort((a, b) => {
         if (a.statusPriority !== b.statusPriority) {
           return a.statusPriority - b.statusPriority
@@ -276,7 +371,7 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     refetchInterval: computeRefetchInterval,
   })
 
-  // Apply client-side filtering (search, entity type, date filters)
+  // Apply client-side filtering (search, status, entity type, date filters)
   const filteredSessions = useMemo(() => {
     if (!sessions) return []
 
@@ -284,45 +379,72 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     const createdAfterDate = getDateFromFilter(createdAfter)
     const query = searchQuery.toLowerCase().trim()
 
-    return sessions.filter((session) => {
-      // Entity type filter
-      if (entityType !== "all" && session.entity_type !== entityType) {
-        return false
-      }
-
-      // Search filter
-      if (query) {
-        const title = (
-          session.parent_workflow?.alias ||
-          session.parent_workflow?.title ||
-          session.title ||
-          ""
-        ).toLowerCase()
-        const entityId = (session.entity_id || "").toLowerCase()
-        if (!title.includes(query) && !entityId.includes(query)) {
+    return sessions
+      .filter((session) => {
+        // Entity type filter
+        if (entityType !== "all" && session.entity_type !== entityType) {
           return false
         }
-      }
 
-      // Updated after filter
-      if (updatedAfterDate) {
-        const sessionUpdated = new Date(session.updated_at)
-        if (sessionUpdated < updatedAfterDate) {
+        if (!matchesStatusFilter(session, statusFilter)) {
           return false
         }
-      }
 
-      // Created after filter
-      if (createdAfterDate) {
-        const sessionCreated = new Date(session.created_at)
-        if (sessionCreated < createdAfterDate) {
-          return false
+        // Search by display name, session title, workflow name, or entity ID.
+        if (query) {
+          const displayName = (
+            session.parent_workflow?.alias ||
+            session.parent_workflow?.title ||
+            session.title ||
+            ""
+          ).toLowerCase()
+          const title = (session.title || "").toLowerCase()
+          const workflowTitle = (
+            session.parent_workflow?.title || ""
+          ).toLowerCase()
+          const workflowAlias = (
+            session.parent_workflow?.alias || ""
+          ).toLowerCase()
+          const entityId = (session.entity_id || "").toLowerCase()
+          if (
+            !displayName.includes(query) &&
+            !title.includes(query) &&
+            !workflowTitle.includes(query) &&
+            !workflowAlias.includes(query) &&
+            !entityId.includes(query)
+          ) {
+            return false
+          }
         }
-      }
 
-      return true
-    })
-  }, [sessions, searchQuery, entityType, updatedAfter, createdAfter])
+        // Updated after filter
+        if (updatedAfterDate) {
+          const sessionUpdated = new Date(session.updated_at)
+          if (sessionUpdated < updatedAfterDate) {
+            return false
+          }
+        }
+
+        // Created after filter
+        if (createdAfterDate) {
+          const sessionCreated = new Date(session.created_at)
+          if (sessionCreated < createdAfterDate) {
+            return false
+          }
+        }
+
+        return true
+      })
+      .slice(0, limit)
+  }, [
+    sessions,
+    searchQuery,
+    entityType,
+    statusFilter,
+    updatedAfter,
+    createdAfter,
+    limit,
+  ])
 
   const enrichedSessions = filteredSessions
 
@@ -358,12 +480,14 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     filters: {
       searchQuery,
       entityType,
+      statusFilter,
       limit,
       updatedAfter,
       createdAfter,
     },
     setSearchQuery,
     setEntityType,
+    setStatusFilter,
     setLimit,
     setUpdatedAfter,
     setCreatedAfter,
