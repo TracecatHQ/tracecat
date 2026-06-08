@@ -91,8 +91,8 @@ jest.mock("@/hooks/use-entitlements", () => ({
   }),
 }))
 
-jest.mock("@/hooks/use-pending-approvals-count", () => ({
-  usePendingApprovalsCount: () => ({ data: 0 }),
+jest.mock("@/hooks/use-pending-inbox-count", () => ({
+  usePendingInboxCount: () => ({ data: 0 }),
 }))
 
 jest.mock("@/providers/workspace-id", () => ({
