@@ -1,0 +1,49 @@
+scripts/evals/tracecat_authoring/run_local.py
+  s_93861497f652f6::t_4932341bf1cb83 524,526-528
+.agents/skills/tracecat-automation-best-practices/SKILL.md
+  s_6564c66dc3d9b3::t_2968f2c4787acc 53
+  s_86bff096236df7::t_1fe546b61bbad9 54
+  s_93861497f652f6::t_99ca7ebe3546f7 8-11,19-51,55-87,91-111,122-134,138-140,142-144
+.agents/skills/tracecat-automation-best-practices/references/run-python.md
+  s_93861497f652f6::t_a08cf6d1691951 1-80
+.agents/skills/tracecat-automation-best-practices/references/workflow-editing.md
+  s_93861497f652f6::t_446f8571952140 1-49
+.agents/skills/tracecat-automation-best-practices/references/tables.md
+  s_93861497f652f6::t_0bca1bc3ea2a44 1-19
+.agents/skills/tracecat-slackbot-best-practices/SKILL.md
+  s_93861497f652f6::t_801cb040fe16b8 24-36
+.agents/skills/LEARNINGS_INBOX.md
+  s_93861497f652f6::t_5c0c15e06be944 1-39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "6831202d0a1c18569902caf4315dbeb0b7906039",
+  "prompts": {},
+  "sessions": {
+    "s_6564c66dc3d9b3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0e99d6b5-1e7d-411b-a56c-95ee246c1704",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_86bff096236df7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ea81c-ff08-7ea2-b6a1-2a4e8b285cbc",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_93861497f652f6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3957bcb8-a6c6-4ee7-a852-8147a6c4b2f3",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
