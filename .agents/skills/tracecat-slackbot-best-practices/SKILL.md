@@ -21,6 +21,19 @@ Build Slack bots with `ai.agent` or `ai.preset_agent`.
 - Fetch the Slack thread before invoking the agent, and tell the agent that thread context is required input.
 - Post visible replies back to the original channel and thread. Do not answer only in the agent transcript.
 
+**The agent owns the message — composition and posting.** Composing or sending a Slack
+message is agentic work, not data plumbing. Reserve deterministic nodes for data plumbing
+around the agent (fetching the thread, redacting, upserting state).
+
+- WRONG: a `core.script.run_python` or `core.http_request` node formats the text and posts to
+  Slack, and the agent only returns a string. This buries the wording in a script, makes
+  Block Kit and tone hard to iterate, and splits responsibility.
+- RIGHT: the agent is given the Slack send/reply tool and owns both composing the message
+  (mrkdwn/Block Kit, tone) and posting it to the original thread, per its instructions.
+
+If a deterministic step formats the agent's output for Slack, that is the smell — move the
+formatting and posting into the agent.
+
 Prefer the `model` object for `ai.agent`; top-level `model_name` and `model_provider` are deprecated unless the user explicitly asks for the legacy shape.
 
 ```yaml
