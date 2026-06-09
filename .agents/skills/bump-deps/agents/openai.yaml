@@ -1,4 +1,0 @@
-interface:
-  display_name: "Bump Deps"
-  short_description: "Bump vulnerable deps safely"
-  default_prompt: "Use $bump-deps to patch open Dependabot alerts safely."

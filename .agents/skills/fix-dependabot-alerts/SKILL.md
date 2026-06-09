@@ -1,9 +1,9 @@
 ---
-name: bump-deps
-description: Use when bumping dependencies to patch open Dependabot or other CVE/advisory alerts for this repo's Python (uv/pyproject.toml) and frontend (pnpm/package.json) dependencies. Covers triaging alerts, finding the minimal safe exact upgrade, checking active supply-chain incidents, reading changelogs before classifying risk, validating dependency versions and lockfiles through Socket Firewall, verifying behavior without Socket Firewall, and opening a security PR. Trigger on requests like "patch the Dependabot alerts", "fix the CVE in a package", "bump a package to a safe version", or "resolve the security advisory".
+name: fix-dependabot-alerts
+description: Fix open Dependabot, CVE, or security-advisory alerts for this repo's Python (uv/pyproject.toml) and frontend (pnpm/package.json) dependencies. Bumps each vulnerable package to the minimal patched version, validates every version and lockfile through Socket Firewall, and ships two clean PRs split by package manager plus separate PRs for bumps needing code changes or targeted QA. Trigger on requests like "fix the Dependabot alerts", "patch the CVE in a package", "bump a package to a safe version", or "resolve the security advisory".
 ---
 
-# Patch Vulnerable Dependency
+# Fix Dependabot Alerts
 
 Resolve vulnerable dependencies by applying the smallest exact upgrade that clears the advisory, respecting this repo's pinning and lockfile conventions, and proving the change builds and behaves correctly before opening a PR. Default to the minimal patched version, not the latest release.
 
@@ -98,7 +98,7 @@ If you accidentally run a package-manager metadata, install, update, lockfile, r
 2. For each package, find the minimal patched version and where it is declared (direct vs. transitive).
 3. Check current supply-chain incident context for touched ecosystems and packages.
 4. Read the actual changelog/release/commit delta from current version to target version.
-5. Plan the PR split (see Step 5): exactly two PRs, one per package manager (Python/uv, frontend/pnpm).
+5. Plan the PR split (see Step 5): two clean PRs, one per package manager (Python/uv, frontend/pnpm), holding only super-clean bumps; peel anything needing more into its own PR.
 6. Present the plan for a single review gate and wait for approval. This is the only prompt.
 7. After approval, execute each PR unattended: apply the upgrade, regenerate the lockfile, re-check the resolved version is out of range, verify, QA if risky, open the PR.
 
@@ -206,7 +206,8 @@ Classification rules:
 
 - Bugfix/patch delta with no migration notes, no public API change, no install-script change, and no relevant code usage change is mechanical even if package belongs to a sensitive domain such as auth, cloud, crypto, AI, or database.
 - Direct repo usage is context, not a risk signal by itself.
-- Mark a bump risky (needs targeted QA in Step 10) only when the actual delta shows breaking-change surface, version distance is large enough that release notes cannot be confidently reviewed, tests fail in package-affected code, or targeted QA is needed. Risk classification drives QA, not PR count — the bump still ships in its ecosystem's single PR.
+- Mark a bump risky (peels into its own PR with targeted QA, Steps 5 and 10) only when the actual delta shows breaking-change surface, version distance is large enough that release notes cannot be confidently reviewed, tests fail in package-affected code, or targeted QA is needed.
+- A bump is super-clean only when the whole change is the manifest pin, the regenerated lockfile, and at most a clean `just gen-client-ci` regeneration with no call-site changes. Any needed code edit, generated-client call-site fallout, or targeted QA disqualifies it from the clean batch.
 - Never mark a bump risky solely because package name/category sounds sensitive.
 
 ## Step 5: Plan the PR split
@@ -215,12 +216,13 @@ Group deduplicated packages into PRs, then present the plan for a single review 
 
 Grouping rules:
 
-- Open exactly two PRs, split by package manager: one for Python/uv (`pyproject.toml` + `uv.lock`) and one for frontend/pnpm (`frontend/package.json` + `frontend/pnpm-lock.yaml`). All of an ecosystem's bumps — mechanical and risky alike — go in that ecosystem's single PR. Do not peel risky bumps into their own PR.
-- If an ecosystem has no open alerts, skip its PR; you may end up with one PR. Never produce more than one PR per package manager.
-- Step 4's risk classification still matters: it decides the QA each PR gets (Step 10), not how many PRs there are. A PR that contains any risky bump must pass that bump's targeted QA before it is marked ready.
+- Default to two clean PRs, split by package manager: one for Python/uv (`pyproject.toml` + `uv.lock`) and one for frontend/pnpm (`frontend/package.json` + `frontend/pnpm-lock.yaml`). A clean PR holds only super-clean bumps: each bump's whole change is the manifest pin, the regenerated lockfile, and at most a clean `just gen-client-ci` regeneration with no call-site changes.
+- Peel any bump that needs more into its own PR: code or call-site fixes, generated-client fallout, a risky delta per Step 4, or targeted browser/API/workflow QA. Each peeled PR carries its specific validation (Step 10).
+- If execution reveals a supposedly clean bump needs code changes or fails QA, move it out of the clean PR into its own PR rather than growing the clean diff.
+- If an ecosystem has no clean bumps, skip its clean PR. Never more than one clean PR per package manager.
 - Set aside `patched: null` packages; surface them, do not PR.
 
-Present a short plan table: the two PRs, package `old -> new`, severity, delta summary, incident check summary, and one-line QA note per PR. Note which bumps in each PR are risky and what targeted QA they require. Keep QA high-level in the plan, e.g. `frontend: typecheck + tests, plus browser QA for <risky package>`, `python: ruff + basedpyright + unit tests, plus focused tests for <risky package>`. Wait for approval, then run each PR through Steps 6-11.
+Present a short plan table: PR grouping (clean Python, clean frontend, one per peeled bump), package `old -> new`, severity, delta summary, incident check summary, and one-line QA note per PR. Keep QA high-level in the plan, e.g. `clean frontend: typecheck + tests`, `clean python: ruff + basedpyright + unit tests`, `peeled <package>: targeted browser QA`. Wait for approval, then run each PR through Steps 6-11.
 
 ## Step 6: Locate the declaration
 
@@ -312,7 +314,7 @@ If a Python dependency can affect the API schema or generated frontend client, r
 just gen-client-ci
 ```
 
-After client generation, inspect `frontend/src/client/` changes. If generated type names, request body types, or multipart form field types changed, fix the frontend call sites in the same PR. Do not report frontend validation until `pnpm run typecheck` has passed after the last `just gen-client-ci`, generated-client diff, dependency edit, or frontend fix. If a later validation hook or pre-commit step regenerates the client, rerun frontend QA again.
+After client generation, inspect `frontend/src/client/` changes. A regeneration whose diff needs no call-site edits keeps the bump clean. If generated type names, request body types, or multipart form field types changed, the bump no longer qualifies for the clean PR — move it to its own peeled PR (Step 5) and fix the frontend call sites there. Do not report frontend validation until `pnpm run typecheck` has passed after the last `just gen-client-ci`, generated-client diff, dependency edit, or frontend fix. If a later validation hook or pre-commit step regenerates the client, rerun frontend QA again.
 
 Python:
 
@@ -332,17 +334,17 @@ pnpm test
 
 If bump changes API the code uses, expect failures and fix call sites in same PR. If a check fails for environmental reasons, record exact command and output instead of claiming pass.
 
-## Step 10: QA risky bumps
+## Step 10: QA peeled PRs
 
-Each PR always gets its ecosystem's baseline QA (Step 9). On top of that, any **risky bump inside a PR** needs targeted QA beyond lint, typecheck, and unit tests. A bump is risky when Step 4's actual change delta shows breaking-change surface, version span is too large to review confidently, tests fail in package-affected code, or the package change requires browser/API/workflow QA. Do not classify a bump as risky solely because the package belongs to a sensitive topic area.
+Every PR gets its ecosystem's baseline QA (Step 9). Clean PRs need nothing more — that is what qualifies them as clean. Peeled PRs need targeted QA beyond lint, typecheck, and unit tests. A bump is peeled when Step 4's actual change delta shows breaking-change surface, version span is too large to review confidently, tests fail in package-affected code, the bump needs code or call-site changes, or the package change requires browser/API/workflow QA. Do not peel a bump solely because the package belongs to a sensitive topic area.
 
-Since each ecosystem ships in one PR, a single PR can mix mechanical and risky bumps. Run the targeted QA for every risky bump the PR contains, and do not mark the PR ready until all of them pass. If the frontend PR contains any risky bump, run production build from `frontend/`:
+For a peeled frontend bump, run production build from `frontend/`:
 
 ```bash
 pnpm build
 ```
 
-Then perform targeted browser QA for flows that actually use changed package. Do not treat generic frontend smoke suite as comprehensive enough for risky dependency PRs. It can be an extra signal, but cannot replace package-specific browser QA.
+Then perform targeted browser QA for flows that actually use the changed package. Do not treat the generic frontend smoke suite as comprehensive enough for peeled dependency PRs. It can be an extra signal, but cannot replace package-specific browser QA.
 
 Examples:
 
@@ -360,29 +362,29 @@ just cluster up -d
 just cluster ps
 ```
 
-Record exact browser QA steps and results in PR body. If targeted browser QA cannot run for environment reasons, keep the PR draft and include the blocked command/action, failure, and remaining QA needed. A blocked risky bump keeps its whole ecosystem PR in draft.
+Record exact browser QA steps and results in the PR body. If targeted browser QA cannot run for environment reasons, keep that peeled PR draft and include the blocked command/action, failure, and remaining QA needed. A blocked peeled bump never blocks the clean PRs — they ship independently.
 
-If the Python PR contains any risky bump, run focused tests for modules that import or depend on that package, then broaden to unit tests. If the package affects runtime services, start the stack and do live API or workflow smoke.
+For a peeled Python bump, run focused tests for modules that import or depend on that package, then broaden to unit tests. If the package affects runtime services, start the stack and do live API or workflow smoke.
 
 ## Step 11: Open the PR
 
 Do not bypass commit signing with `--no-gpg-sign` or `--no-verify`. If signing is broken, stop and ask user.
 
-Use a conventional-commit title with the `chore(deps)` prefix under 72 chars. Title by ecosystem since each PR bumps several packages, e.g. `chore(deps): patch Python dependency vulnerabilities` or `chore(deps): patch frontend dependency vulnerabilities`. When a PR has a single package, naming it is fine, e.g. `chore(deps): patch <package> vulnerability`.
+Use a conventional-commit title with the `chore(deps)` prefix under 72 chars. Title clean PRs by ecosystem, e.g. `chore(deps): patch Python dependency vulnerabilities` or `chore(deps): patch frontend dependency vulnerabilities`. Title peeled PRs by package, e.g. `chore(deps): patch <package> vulnerability`.
 
 Write PR body to file with single-quoted heredoc, never inline Markdown with `gh pr create --body "..."`.
 
-Each ecosystem PR bumps several packages at once, so the body lists one row per package, flagging which rows are risky and what targeted QA they received.
+A clean PR can bump several packages at once, so its body lists one row per package. A peeled PR has a single row plus its targeted QA record.
 
 ```bash
 cat > /tmp/sec-pr-body.md <<'EOF'
 ## Summary
 Resolve <N> Dependabot alert(s) for the <Python/uv | frontend/pnpm> dependencies (<highest severity>).
 
-| Package | Old | New | Severity | Advisory | Risk |
-| --- | --- | --- | --- | --- | --- |
-| `<package>` | `<old>` | `<new>` | <severity> | <GHSA-ID> | mechanical / risky |
-| ... | ... | ... | ... | ... | ... |
+| Package | Old | New | Severity | Advisory |
+| --- | --- | --- | --- | --- |
+| `<package>` | `<old>` | `<new>` | <severity> | <GHSA-ID> |
+| ... | ... | ... | ... | ... |
 
 ## Validation
 - `sfw <package-manager> ...` lockfile regenerated; diff scoped to bumped packages.
@@ -390,7 +392,7 @@ Resolve <N> Dependabot alert(s) for the <Python/uv | frontend/pnpm> dependencies
 - Active supply-chain incident check completed; findings documented.
 - Changelog/release/commit delta reviewed; mechanical vs risky classification documented.
 - Lint / typecheck / unit tests green from plain, unwrapped QA commands (see commands run).
-- Risky-bump QA: <per-risky-package targeted browser/API/workflow steps and result, or "no risky bumps in this PR">.
+- Targeted QA (peeled PRs only): <targeted browser/API/workflow steps and result, or "clean PR — baseline QA only">.
 EOF
 
 gh pr create --body-file /tmp/sec-pr-body.md
@@ -412,10 +414,10 @@ gh pr edit <number> --add-label "<existing-security-or-dependencies-label>"
 - Exact pins in `pyproject.toml`; never convert a pin to range.
 - Regenerate `uv.lock` explicitly; let pnpm regenerate `pnpm-lock.yaml`; never hand-edit lockfile.
 - For backend API/schema dependency bumps, run `just gen-client-ci` before frontend QA, fix any generated-client call-site fallout, and rerun frontend typecheck after the final generated-client state.
-- Exactly two PRs, split by package manager (Python/uv and frontend/pnpm); all of an ecosystem's bumps go in its one PR, mechanical and risky together. Never peel risky bumps into a separate PR. Keep each PR's lockfile diff scoped.
+- Two clean PRs split by package manager (Python/uv and frontend/pnpm), holding only super-clean bumps: manifest pin + regenerated lockfile, at most a clean `just gen-client-ci` regen with no call-site changes. Peel anything needing code changes, generated-client fallout, or targeted QA into its own PR. Keep each PR's lockfile diff scoped.
 - `uv` and `pnpm` only; no `pip install` into environment, no `npm`.
 - All `uv` and `pnpm` dependency metadata, install, update, lockfile, resolver, and resolved-version verification commands must run through `sfw`; lint, typecheck, test, build, and manual QA commands must run without `sfw`.
-- If a PR contains any risky bump, do not mark it ready without that bump's targeted QA (browser QA for frontend; generic smoke tests are not enough).
+- Do not mark a peeled PR ready without its targeted QA (browser QA for frontend; generic smoke tests are not enough). Clean PRs must stay clean: if a bump turns out to need code changes or extra QA, move it to its own PR.
 - Never bypass commit signing or hooks.
 - Do not paste real tokens, advisory-internal identifiers, or customer values into committed files.
 - If only fix is breaking major bump, or no patch exists yet, surface that and ask how to proceed instead of forcing it.

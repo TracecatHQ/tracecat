@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fix Dependabot Alerts"
+  short_description: "Resolve open Dependabot alerts with minimal validated bumps"
+  default_prompt: "Use $fix-dependabot-alerts to resolve open Dependabot alerts."
