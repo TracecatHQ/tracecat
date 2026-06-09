@@ -13,7 +13,11 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from tracecat.agent.common.protocol import RuntimeEventEnvelope
 from tracecat.agent.common.socket_io import MessageType, build_message
-from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
+from tracecat.agent.common.stream_types import (
+    StreamEventType,
+    ToolCallContent,
+    UnifiedStreamEvent,
+)
 from tracecat.agent.executor.loopback import (
     AgentStreamSink,
     FanoutStreamSink,
@@ -518,3 +522,41 @@ async def test_send_done_preserves_existing_error_state() -> None:
     assert handler._result.error == "runtime failed"
     stream.error.assert_not_awaited()
     stream.done.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_parallel_approval_requests_accumulate_across_events() -> None:
+    """N parallel gated tool calls arrive as N approval events; keep them all."""
+    handler = _make_handler()
+    handler._stream_sink = _FakeStream()
+
+    first = UnifiedStreamEvent.approval_request_event(
+        [ToolCallContent(id="call-1", name="core.http_request", input={"n": 1})]
+    )
+    second = UnifiedStreamEvent.approval_request_event(
+        [ToolCallContent(id="call-2", name="core.http_request", input={"n": 2})]
+    )
+
+    await handler._handle_stream_event(first)
+    await handler._handle_stream_event(second)
+
+    result = handler.build_result()
+    assert result.approval_requested is True
+    assert [item.id for item in result.approval_items] == ["call-1", "call-2"]
+    assert handler._pending_approval_tool_call_ids == {"call-1", "call-2"}
+
+
+@pytest.mark.anyio
+async def test_duplicate_approval_request_events_are_deduped() -> None:
+    handler = _make_handler()
+    handler._stream_sink = _FakeStream()
+
+    event = UnifiedStreamEvent.approval_request_event(
+        [ToolCallContent(id="call-1", name="core.http_request", input={"n": 1})]
+    )
+
+    await handler._handle_stream_event(event)
+    await handler._handle_stream_event(event)
+
+    result = handler.build_result()
+    assert [item.id for item in result.approval_items] == ["call-1"]

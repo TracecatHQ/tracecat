@@ -282,6 +282,127 @@ async def test_replace_interrupt_with_tool_results_replaces_legacy_interrupted_r
 
 
 @pytest.mark.anyio
+async def test_replace_interrupt_with_tool_results_spans_split_assistant_rows(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Parallel tool calls span multiple single-block assistant rows.
+
+    Claude Code writes one assistant JSONL row per tool_use block (sharing the
+    API message id), so reconciliation must union the pending tool call IDs
+    across rows and anchor the combined tool_result entry after the last one.
+    """
+    agent_session = AgentSession(
+        id=uuid.uuid4(),
+        title="Approval chat",
+        workspace_id=svc_role.workspace_id,
+        entity_type=AgentSessionEntity.AGENT_PRESET.value,
+        entity_id=uuid.uuid4(),
+        sdk_session_id="sdk-session",
+    )
+    session.add(agent_session)
+
+    first_assistant_uuid = str(uuid.uuid4())
+    second_assistant_uuid = str(uuid.uuid4())
+    for row_uuid, tool_call_id, url in (
+        (first_assistant_uuid, "call_1", "https://example.com"),
+        (second_assistant_uuid, "call_2", "https://example.org"),
+    ):
+        session.add(
+            AgentSessionHistory(
+                session_id=agent_session.id,
+                workspace_id=svc_role.workspace_id,
+                kind=MessageKind.CHAT_MESSAGE.value,
+                content={
+                    "uuid": row_uuid,
+                    "sessionId": "sdk-session",
+                    "type": "assistant",
+                    "timestamp": "2026-03-18T00:00:00Z",
+                    "message": {
+                        "id": "msg_batch",
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "tool_use",
+                                "id": tool_call_id,
+                                "name": "core__http_request",
+                                "input": {"url": url},
+                            }
+                        ],
+                    },
+                },
+            )
+        )
+    # SDK interrupt placeholders for both pending calls.
+    for tool_call_id in ("call_1", "call_2"):
+        session.add(
+            AgentSessionHistory(
+                session_id=agent_session.id,
+                workspace_id=svc_role.workspace_id,
+                kind=MessageKind.CHAT_MESSAGE.value,
+                content={
+                    "uuid": str(uuid.uuid4()),
+                    "parentUuid": second_assistant_uuid,
+                    "sessionId": "sdk-session",
+                    "type": "user",
+                    "timestamp": "2026-03-18T00:00:01Z",
+                    "message": {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": tool_call_id,
+                                "content": "interrupted",
+                                "is_error": True,
+                            }
+                        ],
+                    },
+                },
+            )
+        )
+    await session.commit()
+
+    service = AgentSessionService(session=session, role=svc_role)
+    await service.replace_interrupt_with_tool_results(
+        agent_session.id,
+        [
+            ToolExecutionResult(
+                tool_call_id="call_1",
+                tool_name="core.http_request",
+                result={"status": "success"},
+                is_error=False,
+            ),
+            ToolExecutionResult(
+                tool_call_id="call_2",
+                tool_name="core.http_request",
+                result={"status": "success"},
+                is_error=False,
+            ),
+        ],
+    )
+
+    history = await service.get_session_history(agent_session.id)
+    tool_result_entries = [
+        entry
+        for entry in history
+        if entry.content.get("type") == "user"
+        and any(
+            isinstance(block, dict) and block.get("type") == "tool_result"
+            for block in entry.content.get("message", {}).get("content", [])
+        )
+    ]
+
+    # The interrupt placeholders are replaced by ONE user row answering both
+    # tool calls together, anchored after the last assistant row.
+    assert len(tool_result_entries) == 1
+    [entry] = tool_result_entries
+    assert entry.content.get("parentUuid") == second_assistant_uuid
+    blocks = entry.content["message"]["content"]
+    assert {block["tool_use_id"] for block in blocks} == {"call_1", "call_2"}
+    assert all(block["is_error"] is False for block in blocks)
+
+
+@pytest.mark.anyio
 async def test_replace_interrupt_with_tool_results_does_not_duplicate_existing_result(
     session: AsyncSession,
     svc_role: Role,

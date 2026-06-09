@@ -1927,30 +1927,51 @@ class AgentSessionService(BaseWorkspaceService):
 
         tool_call_ids = {tr.tool_call_id for tr in tool_results}
 
-        # Find the assistant message containing these tool_uses so we only delete
-        # interrupt artifacts that follow the pending tool call.
+        # Find the assistant rows containing these tool_uses so we only delete
+        # interrupt artifacts that follow the pending tool calls. Claude Code
+        # writes parallel tool calls as one assistant JSONL row per tool_use
+        # block, with every row of the batch sharing the API message id — so
+        # the pending IDs are unioned across rows of one message only; calls
+        # from different assistant turns must never be reconciled together.
+        # The tool_result entry must be anchored after the LAST such row,
+        # which is the first one encountered walking in reverse.
         history = await self.get_session_history(session_id)
         assistant_entry: AgentSessionHistory | None = None
+        anchor_message_id: str | None = None
+        covered_tool_call_ids: set[str] = set()
 
         for entry in reversed(history):
             if entry.content.get("type") == "assistant":
-                tool_uses = self._extract_tool_uses_from_message(
-                    entry.content.get("message", {})
-                )
+                message = entry.content.get("message", {})
+                tool_uses = self._extract_tool_uses_from_message(message)
                 assistant_tool_call_ids = {
                     tool_use_id
                     for tool_use in tool_uses
                     if isinstance(tool_use_id := tool_use.get("id"), str)
                 }
-                if tool_call_ids.issubset(assistant_tool_call_ids):
+                matched = tool_call_ids & assistant_tool_call_ids
+                if not matched:
+                    continue
+                message_id = message.get("id")
+                if assistant_entry is None:
                     assistant_entry = entry
+                    anchor_message_id = (
+                        message_id if isinstance(message_id, str) else None
+                    )
+                elif anchor_message_id is None or message_id != anchor_message_id:
+                    # Row belongs to a different assistant message (or message
+                    # ids are unavailable) - do not union across turns.
+                    continue
+                covered_tool_call_ids |= matched
+                if tool_call_ids.issubset(covered_tool_call_ids):
                     break
 
-        if assistant_entry is None:
+        if assistant_entry is None or not tool_call_ids.issubset(covered_tool_call_ids):
             logger.warning(
-                "Could not find assistant message with tool_use for continuation",
+                "Could not find assistant message(s) with tool_use for continuation",
                 session_id=session_id,
                 tool_call_ids=tool_call_ids,
+                covered_tool_call_ids=covered_tool_call_ids,
             )
             return
 

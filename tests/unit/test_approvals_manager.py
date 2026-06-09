@@ -140,12 +140,12 @@ class TestApprovalManager:
         # Should not raise
         approval_manager.validate_responses(approvals)
 
-    async def test_validate_responses_missing_approvals(
+    async def test_validate_responses_accepts_partial_approvals(
         self,
         approval_manager: ApprovalManager,
         sample_tool_calls: list[ToolCallPart],
     ) -> None:
-        """Test validation fails when approval responses are missing."""
+        """Partial submissions are valid: approvals are decided one by one."""
         approval_manager._expected_tool_calls = {
             tc.tool_call_id: tc for tc in sample_tool_calls
         }
@@ -153,11 +153,11 @@ class TestApprovalManager:
         # Provide only partial approvals
         approvals: ApprovalMap = {
             "call_123": True,
-            # Missing call_456
+            # call_456 will be decided in a later submission
         }
 
-        with pytest.raises(ValueError, match="Missing approval responses"):
-            approval_manager.validate_responses(approvals)
+        # Should not raise
+        approval_manager.validate_responses(approvals)
 
     async def test_validate_responses_unexpected_approvals(
         self,
@@ -245,6 +245,45 @@ class TestApprovalManager:
         assert approval_manager._approvals == approvals
         assert approval_manager.is_ready()
         assert approval_manager._approved_by == approved_by
+
+    async def test_set_accumulates_partial_decisions(
+        self,
+        approval_manager: ApprovalManager,
+        sample_tool_calls: list[ToolCallPart],
+    ) -> None:
+        """Parallel approvals decided one by one only resume when complete."""
+        approval_manager._expected_tool_calls = {
+            tc.tool_call_id: tc for tc in sample_tool_calls
+        }
+        first_approver = uuid.uuid4()
+        second_approver = uuid.uuid4()
+
+        approval_manager.set({"call_123": True}, approved_by=first_approver)
+
+        assert not approval_manager.is_ready()
+        assert approval_manager._approvals == {"call_123": True}
+
+        approval_manager.set({"call_456": False}, approved_by=second_approver)
+
+        assert approval_manager.is_ready()
+        assert approval_manager._approvals == {"call_123": True, "call_456": False}
+        assert approval_manager._approved_by == second_approver
+
+    async def test_set_resubmission_overwrites_decision(
+        self,
+        approval_manager: ApprovalManager,
+        sample_tool_calls: list[ToolCallPart],
+    ) -> None:
+        """Re-deciding the same tool call is idempotent (last write wins)."""
+        approval_manager._expected_tool_calls = {
+            tc.tool_call_id: tc for tc in sample_tool_calls
+        }
+
+        approval_manager.set({"call_123": True})
+        approval_manager.set({"call_123": False})
+
+        assert not approval_manager.is_ready()
+        assert approval_manager._approvals == {"call_123": False}
 
 
 @pytest.mark.anyio
