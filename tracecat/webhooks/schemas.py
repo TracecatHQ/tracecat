@@ -52,6 +52,14 @@ class WebhookRead(Schema):
             return {}
         return v
 
+    @field_validator("include_headers", mode="before")
+    @classmethod
+    def _coerce_none_to_false(cls, v: Any) -> Any:
+        """ORM attribute may be NULL before flush; coerce to False."""
+        if v is None:
+            return False
+        return v
+
 
 class WebhookCreate(BaseModel):
     status: WebhookStatus = "offline"

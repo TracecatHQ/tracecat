@@ -334,6 +334,23 @@ def _wrap_with_headers(
     return {"status_code": 200, "headers": headers, "data": payload}
 
 
+async def _wrapped_payload(
+    request: Request, payload: PayloadDep
+) -> TriggerInputs | None:
+    """Wrap the parsed body in the request envelope when the webhook opts in.
+
+    Used by trigger endpoints that pass the payload straight through (no NDJSON
+    batching), so the whole payload can be wrapped here. The root POST/GET path
+    wraps per-batch-item inside ``_incoming_webhook`` instead.
+    """
+    if getattr(request.state, "webhook_include_headers", False):
+        return _wrap_with_headers(payload, request)
+    return payload
+
+
+WrappedPayloadDep = Annotated[TriggerInputs | None, Depends(_wrapped_payload)]
+
+
 async def _incoming_webhook(
     *,
     workflow_id: AnyWorkflowIDPath,
@@ -434,7 +451,7 @@ async def _incoming_webhook(
 async def incoming_webhook_wait(
     workflow_id: AnyWorkflowIDPath,
     defn: ValidWorkflowDefinitionDep,
-    payload: PayloadDep,
+    payload: WrappedPayloadDep,
     unwrap: Annotated[
         bool,
         Query(
@@ -484,7 +501,7 @@ async def incoming_webhook_wait(
 async def incoming_webhook_draft(
     workflow_id: AnyWorkflowIDPath,
     draft_ctx: DraftWorkflowDep,
-    payload: PayloadDep,
+    payload: WrappedPayloadDep,
 ) -> WorkflowExecutionCreateResponse:
     """Draft webhook endpoint to trigger a workflow execution using the draft workflow graph.
 

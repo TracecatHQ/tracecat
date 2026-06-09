@@ -36,8 +36,13 @@ from tracecat.storage.object import (
     ObjectRef,
 )
 from tracecat.storage.utils import deserialize_object
-from tracecat.webhooks.router import _incoming_webhook, incoming_webhook_wait
+from tracecat.webhooks.router import (
+    _incoming_webhook,
+    _wrapped_payload,
+    incoming_webhook_wait,
+)
 from tracecat.webhooks.router import router as webhook_router
+from tracecat.webhooks.schemas import WebhookRead
 from tracecat.workflow.executions.enums import (
     ExecutionType,
     TemporalSearchAttr,
@@ -1386,3 +1391,103 @@ class TestWebhookDispatchWorkflowInvariants:
             )
 
         assert response["result"] == inline_result
+
+
+# ---------------------------------------------------------------------------
+# _wrapped_payload dependency (shared by /wait and /draft endpoints)
+# ---------------------------------------------------------------------------
+
+
+class TestWrappedPayloadDependency:
+    """The /wait and /draft endpoints honor include_headers via _wrapped_payload.
+
+    This is the same envelope the root POST/GET path produces, so TRIGGER has a
+    consistent shape across all webhook trigger endpoints.
+    """
+
+    @staticmethod
+    def _request(
+        *, include_headers: bool, headers: dict[str, str] | None = None
+    ) -> Request:
+        request = MagicMock(spec=Request)
+        request.headers = headers or {}
+        request.state.webhook_include_headers = include_headers
+        return request
+
+    @pytest.mark.anyio
+    async def test_passthrough_when_flag_off(self):
+        request = self._request(
+            include_headers=False, headers={"content-type": "application/json"}
+        )
+        payload = {"alert": "x"}
+        result = await _wrapped_payload(request=request, payload=payload)
+        assert result == payload
+
+    @pytest.mark.anyio
+    async def test_wraps_when_flag_on(self):
+        request = self._request(
+            include_headers=True,
+            headers={"content-type": "application/json", "x-custom-source": "siem"},
+        )
+        payload = {"alert": "x"}
+        result = await _wrapped_payload(request=request, payload=payload)
+        assert result == {
+            "status_code": 200,
+            "headers": {
+                "content-type": "application/json",
+                "x-custom-source": "siem",
+            },
+            "data": payload,
+        }
+
+    @pytest.mark.anyio
+    async def test_strips_api_key_when_flag_on(self):
+        request = self._request(
+            include_headers=True,
+            headers={
+                "content-type": "application/json",
+                "x-tracecat-api-key": "super-secret",
+            },
+        )
+        result = await _wrapped_payload(request=request, payload={"a": 1})
+        assert result is not None
+        assert "x-tracecat-api-key" not in result["headers"]
+        assert result["headers"] == {"content-type": "application/json"}
+
+
+class TestWebhookReadIncludeHeaders:
+    """WebhookRead must tolerate a NULL include_headers on unflushed ORM objects."""
+
+    def test_none_include_headers_coerced_to_false(self):
+        obj = SimpleNamespace(
+            id=uuid.uuid4(),
+            secret="secret",
+            status="online",
+            entrypoint_ref=None,
+            allowlisted_cidrs=None,
+            filters=None,
+            methods=None,
+            include_headers=None,
+            workflow_id=_WF_ID,
+            url="http://localhost/webhooks/x/y",
+            api_key=None,
+        )
+        read = WebhookRead.model_validate(obj, from_attributes=True)
+        assert read.include_headers is False
+
+    def test_true_include_headers_preserved(self):
+        obj = SimpleNamespace(
+            id=uuid.uuid4(),
+            secret="secret",
+            status="online",
+            entrypoint_ref=None,
+            allowlisted_cidrs=[],
+            filters={},
+            methods=["POST"],
+            include_headers=True,
+            workflow_id=_WF_ID,
+            url="http://localhost/webhooks/x/y",
+            api_key=None,
+        )
+        read = WebhookRead.model_validate(obj, from_attributes=True)
+        assert read.include_headers is True

@@ -514,7 +514,8 @@ export function WebhookControls({
       })
     } catch (error) {
       console.error("Failed to update webhook include_headers", error)
-      form.setValue("include_headers", webhook.include_headers ?? false)
+      // Restore the value from before this toggle, not the (possibly stale) prop
+      form.setValue("include_headers", !checked)
       toast({
         title: "Failed to update trigger payload",
         description: extractApiErrorMessage(

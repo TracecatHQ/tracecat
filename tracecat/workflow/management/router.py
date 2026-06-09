@@ -829,6 +829,7 @@ async def create_webhook(
         workflow_id=workflow_id,
         status=params.status,
         allowlisted_cidrs=params.allowlisted_cidrs,
+        include_headers=params.include_headers,
     )
     session.add(webhook)
     await session.commit()
