@@ -73,10 +73,12 @@ sfw pnpm update <package>@<exact-version>
 sfw pnpm install
 
 # Python: run from the repo root.
-sfw --verbose uv lock --dry-run -P <package>
-sfw uv lock -P <package>
+sfw --verbose uv lock --dry-run -P <package>==<exact-patched-version>
+sfw uv lock -P <package>==<exact-patched-version>
 sfw uv sync
 ```
+
+Always pin `-P` to the exact patched version (`-P <package>==<exact-patched-version>`), not the bare `-P <package>` form. Bare `-P <package>` is uv's "upgrade to highest compatible" directive: for a transitive package with no exact manifest pin to bound it, uv jumps to the latest release in range, not the advisory's `first_patched_version`. That violates the smallest-exact-upgrade rule. Pinning `==<exact-patched-version>` keeps uv at the minimal fix. For a direct dependency, also set the exact pin in `pyproject.toml` (Step 7) so the manifest already bounds the target. If a transitive package cannot be constrained to the minimal version with `-P ...==...` alone, add a temporary `[tool.uv] override-dependencies` entry pinning the exact patched version, validate it through `sfw`, then lock.
 
 For frontend commands, set the shell/tool working directory to `frontend/` first or `cd frontend` before running the command. Do not use `sfw pnpm --dir frontend ...` or `sfw pnpm -C frontend ...`; in this environment those forms can be forwarded incorrectly and return `undefined` or run the wrong command.
 
@@ -92,11 +94,11 @@ If you accidentally run a package-manager metadata, install, update, lockfile, r
 
 ## Workflow
 
-1. Enumerate open alerts and deduplicate to one row per package. The same GHSA can appear across `package.json` and lockfiles; a package can have several GHSAs.
+1. Enumerate open alerts and deduplicate to one row per `(ecosystem, package)`. The same GHSA can appear across `package.json` and lockfiles; a package can have several GHSAs; and the same name can exist in different ecosystems as unrelated packages.
 2. For each package, find the minimal patched version and where it is declared (direct vs. transitive).
 3. Check current supply-chain incident context for touched ecosystems and packages.
 4. Read the actual changelog/release/commit delta from current version to target version.
-5. Plan the PR split (see Step 5): group by lockfile, peel only truly risky bumps into their own PRs.
+5. Plan the PR split (see Step 5): exactly two PRs, one per package manager (Python/uv, frontend/pnpm).
 6. Present the plan for a single review gate and wait for approval. This is the only prompt.
 7. After approval, execute each PR unattended: apply the upgrade, regenerate the lockfile, re-check the resolved version is out of range, verify, QA if risky, open the PR.
 
@@ -111,7 +113,9 @@ gh api repos/:owner/:repo/dependabot/alerts --paginate \
   -q '.[] | select(.state=="open") | {number, severity: .security_advisory.severity, ghsa: .security_advisory.ghsa_id, package: .dependency.package.name, ecosystem: .dependency.package.ecosystem, manifest: .dependency.manifest_path, vulnerable_range: .security_vulnerability.vulnerable_version_range, patched: .security_vulnerability.first_patched_version.identifier}'
 ```
 
-Deduplicate to one row per package. The raw list double-counts: the same GHSA appears once for `package.json` and once for `pnpm-lock.yaml`, and one package can have many GHSAs. Collapse to a table keyed by package, carrying the highest severity, set of GHSAs, widest vulnerable range, and patched version. Set `patched: null` packages aside immediately; they have no fix.
+Deduplicate to one row per `(ecosystem, package)`, never by package name alone. The raw list double-counts: the same GHSA appears once for `package.json` and once for `pnpm-lock.yaml`, and one package can have many GHSAs. Collapse to a table keyed by `(ecosystem, package)`, carrying the highest severity, set of GHSAs, and the set of vulnerable ranges. When a row has several GHSAs, retain every `first_patched_version` rather than a single value: the minimal safe target is the **highest** of those patched versions (the lowest version that clears every vulnerable range at once). Picking any one GHSA's patched version can leave another advisory unresolved. Record both the per-GHSA patched versions and the computed minimal target. Set `patched: null` rows aside immediately; they have no fix.
+
+The ecosystem must stay in the key: the same package name can exist in both PyPI and npm as unrelated packages with different version lines, vulnerable ranges, and patched versions (e.g. `redis` on both). Merging them on name alone would compute a target valid for neither and would route one ecosystem's fix into the wrong package-manager PR (Step 5) or drop it entirely. Compute the minimal safe target **within** each `(ecosystem, package)` row, never across ecosystems.
 
 If the user names a specific package, CVE, or GHSA, filter to it. If the repo has no GitHub-hosted alerts or the user pastes an advisory directly, use the advisory's affected range and first patched version as the source of truth.
 
@@ -120,8 +124,10 @@ If the user names a specific package, CVE, or GHSA, filter to it. If the repo ha
 The goal is the lowest version that is no longer in the vulnerable range. From the alert, that is `first_patched_version`. Cross-check the advisory before bumping:
 
 ```bash
-gh api /advisories/<GHSA-ID> -q '{summary, severity, vulnerable: .vulnerabilities[].vulnerable_version_range, patched: .vulnerabilities[].first_patched_version}'
+gh api /advisories/<GHSA-ID> -q '{summary, severity, vulnerabilities: [.vulnerabilities[] | {ecosystem: .package.ecosystem, package: .package.name, vulnerable_version_range, first_patched_version}]}'
 ```
+
+A single GHSA can list several `vulnerabilities[]` entries for different packages or ecosystems (e.g. a core package plus a plugin, or the same advisory spanning npm and PyPI). Each entry carries its own `package.ecosystem`, `package.name`, vulnerable range, and `first_patched_version`. Use only the entry matching the alert's `(ecosystem, package)` when picking the target; never take a vulnerable range or patched version from the advisory output without confirming which package it belongs to. If no entry matches the alert's package, stop and re-check the GHSA ID rather than guessing.
 
 Always verify the target against published package metadata before deciding the target. Never reason about version ordering from memory or assumptions. Version schemes are not always obvious: a package can have both a `0.x` and a `1.x` line, calendar versioning, or pre-releases.
 
@@ -131,7 +137,8 @@ If a transitive fix requires a parent bump or an override, validate the exact pa
 
 ```bash
 # Python: ask uv what it would resolve without mutating uv.lock.
-sfw --verbose uv lock --dry-run -P <package>
+# Pin the exact patched version; bare -P <package> resolves to the highest in-range release.
+sfw --verbose uv lock --dry-run -P <package>==<exact-patched-version>
 
 # Frontend: run from frontend/.
 sfw pnpm view <package> versions --json
@@ -152,7 +159,7 @@ Watch for version-scheme traps:
 - Major-version jump disguised by a caret range, e.g. resolved `10.0.0` from `^10`, patched `11.1.1`.
 - Large multi-minor jump on a library the repo uses.
 
-These traps may carry breaking-change surface. Confirm against Step 4's change delta before deciding whether to peel.
+These traps may carry breaking-change surface. Confirm against Step 4's change delta before deciding whether the bump is risky and needs targeted QA.
 
 Prefer the smallest version that clears the range. Only jump to a major version when no patch exists on the current major line, and call that out explicitly. If the registry shows no patched version at all (`patched: null`), do not invent one.
 
@@ -199,8 +206,8 @@ Classification rules:
 
 - Bugfix/patch delta with no migration notes, no public API change, no install-script change, and no relevant code usage change is mechanical even if package belongs to a sensitive domain such as auth, cloud, crypto, AI, or database.
 - Direct repo usage is context, not a risk signal by itself.
-- Peel only when the actual delta shows breaking-change surface, version distance is large enough that release notes cannot be confidently reviewed, tests fail in package-affected code, or targeted QA is needed.
-- Never peel solely because package name/category sounds sensitive.
+- Mark a bump risky (needs targeted QA in Step 10) only when the actual delta shows breaking-change surface, version distance is large enough that release notes cannot be confidently reviewed, tests fail in package-affected code, or targeted QA is needed. Risk classification drives QA, not PR count — the bump still ships in its ecosystem's single PR.
+- Never mark a bump risky solely because package name/category sounds sensitive.
 
 ## Step 5: Plan the PR split
 
@@ -208,11 +215,12 @@ Group deduplicated packages into PRs, then present the plan for a single review 
 
 Grouping rules:
 
-- Split by lockfile. `pnpm-lock.yaml` and `uv.lock` are independent resolutions. One mechanical PR per lockfile can batch safe, leaf-ish bumps.
-- Peel risky bumps into their own PR only when Step 4's actual delta shows breaking-change surface. Strong signals: migration notes, documented public API changes, new lifecycle scripts, large unreviewable version spans, failed tests in affected code, or required targeted QA. Version jumps are prompts to read more closely, not automatic peel decisions. Direct imports and package domains are not enough.
+- Open exactly two PRs, split by package manager: one for Python/uv (`pyproject.toml` + `uv.lock`) and one for frontend/pnpm (`frontend/package.json` + `frontend/pnpm-lock.yaml`). All of an ecosystem's bumps — mechanical and risky alike — go in that ecosystem's single PR. Do not peel risky bumps into their own PR.
+- If an ecosystem has no open alerts, skip its PR; you may end up with one PR. Never produce more than one PR per package manager.
+- Step 4's risk classification still matters: it decides the QA each PR gets (Step 10), not how many PRs there are. A PR that contains any risky bump must pass that bump's targeted QA before it is marked ready.
 - Set aside `patched: null` packages; surface them, do not PR.
 
-Present a short plan table: PR grouping, package `old -> new`, severity, delta summary, incident check summary, and one-line QA note per PR. Keep QA high-level in the plan, e.g. `frontend: typecheck + tests`, `python: ruff + basedpyright + unit tests`, `risky frontend: targeted browser QA`. Wait for approval, then run each PR through Steps 6-11.
+Present a short plan table: the two PRs, package `old -> new`, severity, delta summary, incident check summary, and one-line QA note per PR. Note which bumps in each PR are risky and what targeted QA they require. Keep QA high-level in the plan, e.g. `frontend: typecheck + tests, plus browser QA for <risky package>`, `python: ruff + basedpyright + unit tests, plus focused tests for <risky package>`. Wait for approval, then run each PR through Steps 6-11.
 
 ## Step 6: Locate the declaration
 
@@ -272,11 +280,11 @@ Never hand-edit a lockfile. Regenerate with package manager so resolution is con
 Python:
 
 ```bash
-sfw uv lock -P <package>
+sfw uv lock -P <package>==<exact-patched-version>
 sfw uv sync
 ```
 
-Use one `-P <package>` per package being upgraded, or omit `-P` if edited manifest pin already forces exact intended version. Do not use `uv pip compile ... -o uv.lock`; it writes requirements-format output, not this repo's TOML `uv.lock` format.
+Use one `-P <package>==<exact-patched-version>` per package being upgraded, pinning the exact target so uv does not climb to the highest in-range release. Omit `-P` only when the edited manifest pin already forces the exact intended version. Never use the bare `-P <package>` form for an unpinned or transitive package: with no constraint to bound it, uv selects the latest compatible version instead of the minimal patched one. Do not use `uv pip compile ... -o uv.lock`; it writes requirements-format output, not this repo's TOML `uv.lock` format.
 
 Frontend: run from `frontend/`; `sfw pnpm update`/`sfw pnpm install` updates `pnpm-lock.yaml` in place:
 
@@ -324,11 +332,11 @@ pnpm test
 
 If bump changes API the code uses, expect failures and fix call sites in same PR. If a check fails for environmental reasons, record exact command and output instead of claiming pass.
 
-## Step 10: QA risky PRs
+## Step 10: QA risky bumps
 
-Risky PRs need targeted QA beyond lint, typecheck, and unit tests. A PR is risky when Step 4's actual change delta shows breaking-change surface, version span is too large to review confidently, tests fail in package-affected code, or package change requires browser/API/workflow QA. Do not classify a PR as risky solely because package belongs to a sensitive topic area.
+Each PR always gets its ecosystem's baseline QA (Step 9). On top of that, any **risky bump inside a PR** needs targeted QA beyond lint, typecheck, and unit tests. A bump is risky when Step 4's actual change delta shows breaking-change surface, version span is too large to review confidently, tests fail in package-affected code, or the package change requires browser/API/workflow QA. Do not classify a bump as risky solely because the package belongs to a sensitive topic area.
 
-For risky frontend PRs, run production build from `frontend/`:
+Since each ecosystem ships in one PR, a single PR can mix mechanical and risky bumps. Run the targeted QA for every risky bump the PR contains, and do not mark the PR ready until all of them pass. If the frontend PR contains any risky bump, run production build from `frontend/`:
 
 ```bash
 pnpm build
@@ -352,29 +360,29 @@ just cluster up -d
 just cluster ps
 ```
 
-Record exact browser QA steps and results in PR body. If targeted browser QA cannot run for environment reasons, keep PR draft and include blocked command/action, failure, and remaining QA needed.
+Record exact browser QA steps and results in PR body. If targeted browser QA cannot run for environment reasons, keep the PR draft and include the blocked command/action, failure, and remaining QA needed. A blocked risky bump keeps its whole ecosystem PR in draft.
 
-For risky Python PRs, run focused tests for modules that import or depend on package, then broaden to unit tests. If package affects runtime services, start stack and do live API or workflow smoke.
+If the Python PR contains any risky bump, run focused tests for modules that import or depend on that package, then broaden to unit tests. If the package affects runtime services, start the stack and do live API or workflow smoke.
 
 ## Step 11: Open the PR
 
 Do not bypass commit signing with `--no-gpg-sign` or `--no-verify`. If signing is broken, stop and ask user.
 
-Use conventional-commit title with `chore(deps)` prefix under 72 chars, e.g. `chore(deps): patch <package> vulnerability`.
+Use a conventional-commit title with the `chore(deps)` prefix under 72 chars. Title by ecosystem since each PR bumps several packages, e.g. `chore(deps): patch Python dependency vulnerabilities` or `chore(deps): patch frontend dependency vulnerabilities`. When a PR has a single package, naming it is fine, e.g. `chore(deps): patch <package> vulnerability`.
 
 Write PR body to file with single-quoted heredoc, never inline Markdown with `gh pr create --body "..."`.
 
-Mechanical PR can bump several packages at once, so body lists one row per package. Peeled risky PR has single row.
+Each ecosystem PR bumps several packages at once, so the body lists one row per package, flagging which rows are risky and what targeted QA they received.
 
 ```bash
 cat > /tmp/sec-pr-body.md <<'EOF'
 ## Summary
-Resolve <N> Dependabot alert(s) in `<lockfile>` (<highest severity>).
+Resolve <N> Dependabot alert(s) for the <Python/uv | frontend/pnpm> dependencies (<highest severity>).
 
-| Package | Old | New | Severity | Advisory |
-| --- | --- | --- | --- | --- |
-| `<package>` | `<old>` | `<new>` | <severity> | <GHSA-ID> |
-| ... | ... | ... | ... | ... |
+| Package | Old | New | Severity | Advisory | Risk |
+| --- | --- | --- | --- | --- | --- |
+| `<package>` | `<old>` | `<new>` | <severity> | <GHSA-ID> | mechanical / risky |
+| ... | ... | ... | ... | ... | ... |
 
 ## Validation
 - `sfw <package-manager> ...` lockfile regenerated; diff scoped to bumped packages.
@@ -382,7 +390,7 @@ Resolve <N> Dependabot alert(s) in `<lockfile>` (<highest severity>).
 - Active supply-chain incident check completed; findings documented.
 - Changelog/release/commit delta reviewed; mechanical vs risky classification documented.
 - Lint / typecheck / unit tests green from plain, unwrapped QA commands (see commands run).
-- Risky PR QA: <targeted browser/API/workflow steps and result, or "not applicable" with reason>.
+- Risky-bump QA: <per-risky-package targeted browser/API/workflow steps and result, or "no risky bumps in this PR">.
 EOF
 
 gh pr create --body-file /tmp/sec-pr-body.md
@@ -404,10 +412,10 @@ gh pr edit <number> --add-label "<existing-security-or-dependencies-label>"
 - Exact pins in `pyproject.toml`; never convert a pin to range.
 - Regenerate `uv.lock` explicitly; let pnpm regenerate `pnpm-lock.yaml`; never hand-edit lockfile.
 - For backend API/schema dependency bumps, run `just gen-client-ci` before frontend QA, fix any generated-client call-site fallout, and rerun frontend typecheck after the final generated-client state.
-- Split PRs by lockfile; peel risky bumps into own PR only after Step 4 confirms risk. Keep each lockfile diff scoped.
+- Exactly two PRs, split by package manager (Python/uv and frontend/pnpm); all of an ecosystem's bumps go in its one PR, mechanical and risky together. Never peel risky bumps into a separate PR. Keep each PR's lockfile diff scoped.
 - `uv` and `pnpm` only; no `pip install` into environment, no `npm`.
 - All `uv` and `pnpm` dependency metadata, install, update, lockfile, resolver, and resolved-version verification commands must run through `sfw`; lint, typecheck, test, build, and manual QA commands must run without `sfw`.
-- Do not mark risky frontend PRs ready without targeted browser QA; generic smoke tests are not enough.
+- If a PR contains any risky bump, do not mark it ready without that bump's targeted QA (browser QA for frontend; generic smoke tests are not enough).
 - Never bypass commit signing or hooks.
 - Do not paste real tokens, advisory-internal identifiers, or customer values into committed files.
 - If only fix is breaking major bump, or no patch exists yet, surface that and ask how to proceed instead of forcing it.
