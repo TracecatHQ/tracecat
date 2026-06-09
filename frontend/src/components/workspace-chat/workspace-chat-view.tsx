@@ -1,7 +1,7 @@
 "use client"
 
 import { useQueryClient } from "@tanstack/react-query"
-import type { ChatOnDataCallback, UIMessage } from "ai"
+import type { ChatOnDataCallback, ChatStatus, UIMessage } from "ai"
 import { PanelLeftIcon } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
@@ -109,6 +109,7 @@ export function WorkspaceChatView({ chatId }: { chatId?: string }) {
   const workspaceChatEnabled = hasEntitlement("workspace_chat")
 
   const [messages, setMessages] = useState<UIMessage[]>(EMPTY_MESSAGES)
+  const [chatStatus, setChatStatus] = useState<ChatStatus>("ready")
   const [chat, setChat] = useState<
     AgentSessionsGetSessionVercelResponse | undefined
   >()
@@ -159,6 +160,7 @@ export function WorkspaceChatView({ chatId }: { chatId?: string }) {
     enabled: true,
     initialActiveArtifactKey: initialArtifactKeyRef.current,
     persistedArtifacts,
+    isStreaming: chatStatus === "submitted" || chatStatus === "streaming",
     onArtifactStreamPart: handleArtifactStreamPart,
     onCloseArtifact: closePersistedArtifact,
   })
@@ -261,6 +263,7 @@ export function WorkspaceChatView({ chatId }: { chatId?: string }) {
             surface="workspace-chat"
             onMessagesChange={setMessages}
             onData={handleStreamData}
+            onStatusChange={setChatStatus}
             onChatChange={setChat}
             headerActions={
               showExpandButton ? (

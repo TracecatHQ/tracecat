@@ -231,6 +231,8 @@ export interface ChatSessionPaneProps {
   placeholder?: string
   onMessagesChange?: (messages: UIMessage[]) => void
   onData?: ChatOnDataCallback<UIMessage>
+  /** Called whenever the underlying chat transport status changes. */
+  onStatusChange?: (status: ChatStatus) => void
   modelInfo: ModelInfo
   toolsEnabled?: boolean
   agentAddonsEnabled?: boolean
@@ -289,6 +291,7 @@ export function ChatSessionPane({
   placeholder = "Ask your question...",
   onMessagesChange,
   onData,
+  onStatusChange,
   modelInfo,
   toolsEnabled = true,
   agentAddonsEnabled = true,
@@ -360,6 +363,10 @@ export function ChatSessionPane({
       modelInfo,
       onData,
     })
+
+  useEffect(() => {
+    onStatusChange?.(status)
+  }, [status, onStatusChange])
 
   const hasOptimisticMessageInStream = useMemo(
     () =>
