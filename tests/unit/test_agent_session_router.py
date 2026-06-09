@@ -395,7 +395,12 @@ async def test_remove_session_artifact_removes_and_returns_artifacts() -> None:
 async def test_send_message_continue_uses_path_session_id_for_stream_key() -> None:
     session_id = uuid.uuid4()
     workspace_id = uuid.uuid4()
-    agent_session = _agent_session_stub(id=session_id, workspace_id=workspace_id)
+    agent_session = _agent_session_stub(
+        id=session_id,
+        workspace_id=workspace_id,
+        active_stream_id=uuid.uuid4(),
+        curr_run_id=uuid.uuid4(),
+    )
     role = Role(
         type="service",
         service_id="tracecat-api",

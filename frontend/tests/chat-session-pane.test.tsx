@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import type { UIMessage } from "ai"
 import { StrictMode } from "react"
 import type { AgentSessionReadVercel, MCPIntegrationRead } from "@/client"
@@ -772,6 +778,109 @@ describe("ChatSessionPane", () => {
         ],
       })
     )
+  })
+
+  it("submits selected approval decisions without requiring the full batch", async () => {
+    const sendMessage = jest.fn().mockResolvedValue(undefined)
+
+    mockUseVercelChat.mockReturnValue({
+      sendMessage,
+      setMessages: jest.fn(),
+      regenerate: jest.fn(),
+      messages: [
+        {
+          id: "msg-approval",
+          role: "assistant",
+          parts: [
+            {
+              type: "data-approval-request",
+              data: [
+                {
+                  tool_call_id: "tc-1",
+                  tool_name: "core__http_request",
+                  args: { url: "https://example.com" },
+                },
+                {
+                  tool_call_id: "tc-2",
+                  tool_name: "core__http_request",
+                  args: { url: "https://example.org" },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      status: "ready",
+      lastError: null,
+      clearError: jest.fn(),
+      // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+    } as any)
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture()}
+            workspaceId="workspace-1"
+            entityType="case"
+            entityId="case-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    const firstCard = screen.getByTestId("approval-card-tc-1")
+    const secondCard = screen.getByTestId("approval-card-tc-2")
+    const approvalSubmit = screen
+      .getAllByRole("button", { name: "Submit" })
+      .find((button) => button.textContent?.trim() === "Submit")
+    if (!approvalSubmit) {
+      throw new Error("Approval submit button not found")
+    }
+
+    expect(approvalSubmit).toBeDisabled()
+
+    fireEvent.click(within(firstCard).getByRole("button", { name: "Approve" }))
+    expect(approvalSubmit).toBeEnabled()
+
+    fireEvent.click(approvalSubmit)
+
+    await waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledTimes(1)
+    })
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [
+          expect.objectContaining({
+            data: expect.objectContaining({
+              decisions: [
+                expect.objectContaining({
+                  tool_call_id: "tc-1",
+                  action: "approve",
+                }),
+              ],
+            }),
+          }),
+        ],
+      })
+    )
+
+    expect(
+      within(firstCard).queryByLabelText("Decision: Approved")
+    ).not.toBeInTheDocument()
+    expect(firstCard).toHaveClass("bg-muted/10")
+    expect(firstCard).not.toHaveClass("opacity-75")
+    const submittedApproveButton = within(firstCard).getByRole("button", {
+      name: "Approve",
+    })
+    expect(submittedApproveButton).toBeDisabled()
+    expect(submittedApproveButton).toHaveClass("border-success/55")
+    expect(submittedApproveButton).toHaveClass("text-success")
+    expect(submittedApproveButton).toHaveClass("disabled:opacity-100")
+    expect(
+      within(secondCard).queryByLabelText("Decision: Approved")
+    ).not.toBeInTheDocument()
   })
 
   it("supports @ mention tools in draft mode and passes selected tools before first send", async () => {

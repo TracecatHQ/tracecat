@@ -85,4 +85,139 @@ describe("transformMessages", () => {
 
     expect(transformed).toEqual([messages[1]])
   })
+
+  it("deduplicates replayed pending approval parts by tool call id", () => {
+    const messages = [
+      {
+        id: "msg-1",
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-core__http_request",
+            toolCallId: "toolu_01http",
+            state: "input-available",
+            input: { url: "https://google.com" },
+          },
+          {
+            type: "data-approval-request",
+            data: [
+              {
+                tool_call_id: "toolu_01http",
+                tool_name: "core.http_request",
+                args: { url: "https://google.com" },
+              },
+            ],
+          },
+          {
+            type: "tool-core__http_request",
+            toolCallId: "toolu_01http",
+            state: "input-available",
+            input: { url: "https://google.com" },
+          },
+          {
+            type: "data-approval-request",
+            data: [
+              {
+                tool_call_id: "toolu_01http",
+                tool_name: "core.http_request",
+                args: { url: "https://google.com" },
+              },
+            ],
+          },
+        ],
+      },
+    ] as ai.UIMessage[]
+
+    const transformed = transformMessages(messages)
+
+    expect(transformed).toHaveLength(1)
+    expect(transformed[0]?.parts).toEqual([
+      {
+        type: "tool-core__http_request",
+        toolCallId: "toolu_01http",
+        state: "input-available",
+        input: { url: "https://google.com" },
+      },
+      {
+        type: "data-approval-request",
+        data: [
+          {
+            tool_call_id: "toolu_01http",
+            tool_name: "core.http_request",
+            args: { url: "https://google.com" },
+          },
+        ],
+      },
+    ])
+  })
+
+  it("deduplicates replayed terminal tool parts by tool call id", () => {
+    const messages = [
+      {
+        id: "msg-1",
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-core__http_request",
+            toolCallId: "toolu_01http",
+            state: "input-available",
+            input: { url: "https://google.com" },
+          },
+          {
+            type: "data-approval-request",
+            data: [
+              {
+                tool_call_id: "toolu_01http",
+                tool_name: "core.http_request",
+                args: { url: "https://google.com" },
+              },
+            ],
+          },
+          {
+            type: "tool-core__http_request",
+            toolCallId: "toolu_01http",
+            state: "output-available",
+            input: { url: "https://google.com" },
+            output: { status_code: 200, replay: 1 },
+          },
+          {
+            type: "tool-core__http_request",
+            toolCallId: "toolu_01http",
+            state: "input-available",
+            input: { url: "https://google.com" },
+          },
+          {
+            type: "data-approval-request",
+            data: [
+              {
+                tool_call_id: "toolu_01http",
+                tool_name: "core.http_request",
+                args: { url: "https://google.com" },
+              },
+            ],
+          },
+          {
+            type: "tool-core__http_request",
+            toolCallId: "toolu_01http",
+            state: "output-error",
+            input: { url: "https://google.com" },
+            errorText: "Connection failed",
+          },
+        ],
+      },
+    ] as ai.UIMessage[]
+
+    const transformed = transformMessages(messages)
+
+    expect(transformed).toHaveLength(1)
+    expect(transformed[0]?.parts).toEqual([
+      {
+        type: "tool-core__http_request",
+        toolCallId: "toolu_01http",
+        state: "output-error",
+        input: { url: "https://google.com" },
+        errorText: "Connection failed",
+      },
+    ])
+  })
 })

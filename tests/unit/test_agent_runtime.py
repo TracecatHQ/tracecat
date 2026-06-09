@@ -17,12 +17,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import orjson
 import pytest
 from claude_agent_sdk.types import (
+    AssistantMessage,
     HookContext,
     PreToolUseHookInput,
     ResultMessage,
     StopHookInput,
     StreamEvent,
     SyncHookJSONOutput,
+    ToolUseBlock,
 )
 
 import tracecat.agent.runtime.claude_code.runtime as runtime_module
@@ -2492,6 +2494,172 @@ class TestClaudeAgentRuntimePreToolUseHook:
         assert hook_output.get("permissionDecision") == "allow"
         assert mock_socket_writer.send_stream_event.await_args is None
         runtime.client.interrupt.assert_not_awaited()
+
+
+def _approval_events(mock_socket_writer: MagicMock) -> list[UnifiedStreamEvent]:
+    return [
+        call.args[0]
+        for call in mock_socket_writer.send_stream_event.await_args_list
+        if call.args[0].type == StreamEventType.APPROVAL_REQUEST
+    ]
+
+
+class TestClaudeAgentRuntimeParallelApprovals:
+    """Parallel tool calls must each surface an approval request.
+
+    The CLI delivers parallel tool calls as N single-block assistant messages
+    (sharing one API message id) before executing anything, then serializes
+    execution — so the first gated PreToolUse hook's interrupt prevents the
+    sibling hooks from ever firing. Approvals are therefore registered from
+    the assistant message stream, and the hook only denies and interrupts.
+    """
+
+    def _make_runtime(
+        self, mock_socket_writer: MagicMock
+    ) -> tuple[ClaudeAgentRuntime, AsyncMock]:
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        runtime.tool_approvals = {"core.http_request": True}
+        client = MagicMock()
+        interrupt = AsyncMock()
+        client.interrupt = interrupt
+        runtime.client = client
+        return runtime, interrupt
+
+    @staticmethod
+    def _tool_use_message(
+        tool_use_id: str,
+        url: str,
+        *,
+        parent_tool_use_id: str | None = None,
+    ) -> AssistantMessage:
+        """One tool_use block per assistant message, mirroring the CLI shape."""
+        return AssistantMessage(
+            content=[
+                ToolUseBlock(
+                    id=tool_use_id,
+                    name="mcp__tracecat-registry__core__http_request",
+                    input={"url": url},
+                )
+            ],
+            model="claude-sonnet-4-5",
+            parent_tool_use_id=parent_tool_use_id,
+            message_id="msg-batch-1",
+        )
+
+    @pytest.mark.anyio
+    async def test_registers_every_gated_call_from_split_assistant_messages(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        runtime, interrupt = self._make_runtime(mock_socket_writer)
+
+        await runtime._register_assistant_tool_approvals(
+            self._tool_use_message("call-1", "https://example.com")
+        )
+        await runtime._register_assistant_tool_approvals(
+            self._tool_use_message("call-2", "https://example.org")
+        )
+
+        events = _approval_events(mock_socket_writer)
+        assert [item.id for event in events for item in event.approval_items or []] == [
+            "call-1",
+            "call-2",
+        ]
+        assert runtime._pending_approval_tool_ids == {"call-1", "call-2"}
+        # Registration must not interrupt: the remaining sibling messages and
+        # the hook-driven interrupt still need the turn alive.
+        interrupt.assert_not_awaited()
+
+    @pytest.mark.anyio
+    async def test_hook_denies_registered_calls_and_interrupts_once(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        runtime, interrupt = self._make_runtime(mock_socket_writer)
+        await runtime._register_assistant_tool_approvals(
+            self._tool_use_message("call-1", "https://example.com")
+        )
+        await runtime._register_assistant_tool_approvals(
+            self._tool_use_message("call-2", "https://example.org")
+        )
+
+        for tool_use_id in ("call-1", "call-2"):
+            result = await runtime._pre_tool_use_hook(
+                input_data=make_hook_input(
+                    tool_name="mcp__tracecat-registry__core__http_request",
+                    tool_input={"url": "https://example.com"},
+                    tool_use_id=tool_use_id,
+                ),
+                tool_use_id=tool_use_id,
+                context=make_hook_context(),
+            )
+            hook_output = get_hook_output(result)
+            assert hook_output.get("permissionDecision") == "deny"
+
+        # No duplicate approval events from the hook, and a single interrupt.
+        assert len(_approval_events(mock_socket_writer)) == 2
+        interrupt.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_subagent_assistant_messages_are_skipped(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        runtime, _interrupt = self._make_runtime(mock_socket_writer)
+
+        await runtime._register_assistant_tool_approvals(
+            self._tool_use_message(
+                "call-sub",
+                "https://example.com",
+                parent_tool_use_id="call-task",
+            )
+        )
+
+        assert _approval_events(mock_socket_writer) == []
+        assert runtime._pending_approval_tool_ids == set()
+
+    @pytest.mark.anyio
+    async def test_auto_approved_tools_are_not_registered(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        runtime, _interrupt = self._make_runtime(mock_socket_writer)
+        runtime.tool_approvals = {"core.http_request": False}
+
+        await runtime._register_assistant_tool_approvals(
+            self._tool_use_message("call-1", "https://example.com")
+        )
+
+        assert _approval_events(mock_socket_writer) == []
+        assert runtime._pending_approval_tool_ids == set()
+
+    @pytest.mark.anyio
+    async def test_hook_fallback_emits_for_unregistered_call(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        """Calls the message path can't see (e.g. subagent) still get events."""
+        runtime, interrupt = self._make_runtime(mock_socket_writer)
+
+        result = await runtime._pre_tool_use_hook(
+            input_data=make_hook_input(
+                tool_name="mcp__tracecat-registry__core__http_request",
+                tool_input={"url": "https://example.com"},
+                tool_use_id="call-unseen",
+            ),
+            tool_use_id="call-unseen",
+            context=make_hook_context(),
+        )
+
+        hook_output = get_hook_output(result)
+        assert hook_output.get("permissionDecision") == "deny"
+        events = _approval_events(mock_socket_writer)
+        assert [item.id for event in events for item in event.approval_items or []] == [
+            "call-unseen"
+        ]
+        interrupt.assert_awaited_once()
 
 
 class TestClaudeAgentRuntimeStopHook:

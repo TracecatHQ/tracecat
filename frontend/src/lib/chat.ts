@@ -484,9 +484,9 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
         const trace = getTrace(toolCallId)
         recordDedupe(trace, posKey, hasOutput)
 
-        if (state === "input-available") {
+        if (state === "input-streaming" || state === "input-available") {
           // OPEN STATE
-          // If we encounter an input-available part, we open a tool call state.
+          // If we encounter an input part, we open a tool call state.
           // A fresh open supersedes any prior open/approval bookkeeping.
           trace.openPos = posKey
           trace.approvalPos = undefined

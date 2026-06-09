@@ -1845,7 +1845,9 @@ class AgentSessionService(BaseWorkspaceService):
         submitted_tool_call_id_set = set(submitted_tool_call_ids)
         if len(submitted_tool_call_ids) != len(submitted_tool_call_id_set):
             raise ValueError("Approval decisions contain duplicate tool call IDs")
-        if submitted_tool_call_id_set != pending_tool_call_ids:
+        if not submitted_tool_call_id_set or not submitted_tool_call_id_set.issubset(
+            pending_tool_call_ids
+        ):
             missing = sorted(pending_tool_call_ids - submitted_tool_call_id_set)
             unexpected = sorted(submitted_tool_call_id_set - pending_tool_call_ids)
             raise ValueError(
@@ -1894,7 +1896,7 @@ class AgentSessionService(BaseWorkspaceService):
         attempt: ApprovalContinuationAttempt,
         validated: _ValidatedContinuation,
         handle: Any,
-    ) -> None:
+    ) -> bool:
         """Submit the Temporal update, preserving the attempt on ambiguous failure.
 
         Ambiguous transport failures leave the attempt intact so a retry reuses
@@ -1906,7 +1908,7 @@ class AgentSessionService(BaseWorkspaceService):
         )
 
         try:
-            await handle.execute_update(
+            resumed = await handle.execute_update(
                 DurableAgentWorkflow.set_approvals,
                 WorkflowApprovalSubmission(
                     approvals=validated.approval_map,
@@ -1927,6 +1929,7 @@ class AgentSessionService(BaseWorkspaceService):
                     attempt=attempt,
                 )
             raise
+        return resumed is not False
 
     async def _continue_with_approvals(
         self,
@@ -2008,7 +2011,7 @@ class AgentSessionService(BaseWorkspaceService):
             submission_key=submission_key,
         )
 
-        await self._submit_approval_update(
+        did_resume = await self._submit_approval_update(
             agent_session=agent_session,
             curr_run_id=curr_run_id,
             attempt=attempt,
@@ -2021,6 +2024,7 @@ class AgentSessionService(BaseWorkspaceService):
             workflow_id=str(workflow_id),
             session_id=str(session_id),
             new_stream_id=str(attempt.stream_id),
+            resumed=did_resume,
         )
 
         return ChatResponse(
@@ -2589,6 +2593,20 @@ class AgentSessionService(BaseWorkspaceService):
             if isinstance(block, dict) and block.get("type") == "tool_use"
         ]
 
+    @classmethod
+    def _assistant_row_tool_call_ids(cls, entry: AgentSessionHistory) -> set[str]:
+        """Return tool_use IDs on an assistant history row, else empty."""
+        if entry.content.get("type") != "assistant":
+            return set()
+        message = entry.content.get("message", {})
+        if not isinstance(message, dict):
+            return set()
+        return {
+            tool_use_id
+            for tool_use in cls._extract_tool_uses_from_message(message)
+            if isinstance(tool_use_id := tool_use.get("id"), str)
+        }
+
     # =========================================================================
     # Approval Flow: Replace Interrupt Entries
     # =========================================================================
@@ -2626,30 +2644,68 @@ class AgentSessionService(BaseWorkspaceService):
 
         tool_call_ids = {tr.tool_call_id for tr in tool_results}
 
-        # Find the assistant message containing these tool_uses so we only delete
-        # interrupt artifacts that follow the pending tool call.
+        # Find the assistant rows containing these tool_uses so we only delete
+        # interrupt artifacts that follow the pending tool calls. Claude Code
+        # writes parallel tool calls as one assistant JSONL row per tool_use
+        # block, with every row of the batch sharing the API message id — so
+        # the pending IDs are unioned across rows of one message only; calls
+        # from different assistant turns must never be reconciled together.
+        # The tool_result entry must be anchored after the LAST such row,
+        # which is the first one encountered walking in reverse.
+        #
+        # `message.id` is best-effort: some SDK rows omit it. When it's
+        # present on the anchor row, union any earlier row sharing that id
+        # (order-independent). When it's absent, fall back to unioning only
+        # immediately adjacent assistant rows with no id of their own — a
+        # gap (any non-assistant row, or one that does carry an id) means a
+        # different assistant turn has begun.
         history = await self.get_session_history(session_id)
         assistant_entry: AgentSessionHistory | None = None
+        anchor_index: int | None = None
+        anchor_message_id: str | None = None
+        covered_tool_call_ids: set[str] = set()
 
-        for entry in reversed(history):
-            if entry.content.get("type") == "assistant":
-                tool_uses = self._extract_tool_uses_from_message(
-                    entry.content.get("message", {})
-                )
-                assistant_tool_call_ids = {
-                    tool_use_id
-                    for tool_use in tool_uses
-                    if isinstance(tool_use_id := tool_use.get("id"), str)
-                }
-                if tool_call_ids.issubset(assistant_tool_call_ids):
-                    assistant_entry = entry
+        for index in range(len(history) - 1, -1, -1):
+            entry = history[index]
+            row_tool_call_ids = self._assistant_row_tool_call_ids(entry)
+            matched = tool_call_ids & row_tool_call_ids
+            if not matched:
+                if assistant_entry is not None and anchor_message_id is None:
+                    # No message id to key off of: an unrelated row breaks
+                    # the contiguous run of the current batch.
                     break
+                continue
 
-        if assistant_entry is None:
+            message = entry.content.get("message", {})
+            message_id = message.get("id") if isinstance(message, dict) else None
+            message_id = message_id if isinstance(message_id, str) else None
+
+            if assistant_entry is None:
+                assistant_entry = entry
+                anchor_message_id = message_id
+            elif anchor_message_id is not None:
+                if message_id != anchor_message_id:
+                    continue
+            elif (
+                anchor_index is None
+                or index != anchor_index - 1
+                or message_id is not None
+            ):
+                # Not contiguous with the last unioned row, or this row has
+                # its own id - it belongs to a different batch/turn.
+                break
+
+            anchor_index = index
+            covered_tool_call_ids |= matched
+            if tool_call_ids.issubset(covered_tool_call_ids):
+                break
+
+        if assistant_entry is None or not tool_call_ids.issubset(covered_tool_call_ids):
             logger.warning(
-                "Could not find assistant message with tool_use for continuation",
+                "Could not find assistant message(s) with tool_use for continuation",
                 session_id=session_id,
                 tool_call_ids=tool_call_ids,
+                covered_tool_call_ids=covered_tool_call_ids,
             )
             return
 
