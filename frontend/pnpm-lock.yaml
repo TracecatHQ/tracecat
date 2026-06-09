@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  brace-expansion@5.0.2: 5.0.5
+  brace-expansion@5.0.2: 5.0.6
   handlebars@4.7.8: 4.7.9
   prismjs: 1.30.0
   glob: 13.0.6
@@ -28,7 +28,7 @@ overrides:
   micromatch>picomatch: 2.3.2
   jest-util@29.7.0>picomatch: 2.3.2
   jest-util@30.2.0>picomatch: 4.0.4
-  minimatch>brace-expansion: 5.0.5
+  minimatch>brace-expansion: 5.0.6
   class-variance-authority: 0.7.1
   clsx: 2.1.1
   emblor>tailwind-merge: 3.5.0
@@ -41,151 +41,151 @@ importers:
   .:
     dependencies:
       '@ai-sdk/react':
-        specifier: ^2.0.59
+        specifier: 2.0.59
         version: 2.0.59(react@18.3.1)(zod@3.25.76)
       '@codemirror/autocomplete':
-        specifier: ^6.19.0
+        specifier: 6.19.0
         version: 6.19.0
       '@codemirror/commands':
-        specifier: ^6.8.1
+        specifier: 6.8.1
         version: 6.8.1
       '@codemirror/lang-json':
-        specifier: ^6.0.2
+        specifier: 6.0.2
         version: 6.0.2
       '@codemirror/lang-python':
-        specifier: ^6.2.1
+        specifier: 6.2.1
         version: 6.2.1
       '@codemirror/lang-yaml':
-        specifier: ^6.1.2
+        specifier: 6.1.2
         version: 6.1.2
       '@codemirror/language':
-        specifier: ^6.11.3
+        specifier: 6.11.3
         version: 6.11.3
       '@codemirror/lint':
-        specifier: ^6.8.5
+        specifier: 6.8.5
         version: 6.8.5
       '@codemirror/state':
-        specifier: ^6.5.2
+        specifier: 6.5.2
         version: 6.5.2
       '@codemirror/view':
-        specifier: ^6.38.4
+        specifier: 6.38.4
         version: 6.38.4
       '@dagrejs/dagre':
-        specifier: ^1.1.5
+        specifier: 1.1.5
         version: 1.1.5
       '@dnd-kit/core':
-        specifier: ^6.3.1
+        specifier: 6.3.1
         version: 6.3.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@dnd-kit/sortable':
-        specifier: ^10.0.0
+        specifier: 10.0.0
         version: 10.0.0(@dnd-kit/core@6.3.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)
       '@dnd-kit/utilities':
-        specifier: ^3.2.2
+        specifier: 3.2.2
         version: 3.2.2(react@18.3.1)
       '@floating-ui/react':
-        specifier: ^0.27.16
+        specifier: 0.27.16
         version: 0.27.16(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@hookform/resolvers':
-        specifier: ^3.10.0
+        specifier: 3.10.0
         version: 3.10.0(react-hook-form@7.63.0(react@18.3.1))
       '@lezer/highlight':
-        specifier: ^1.2.1
+        specifier: 1.2.1
         version: 1.2.1
       '@radix-ui/react-accordion':
-        specifier: ^1.2.12
+        specifier: 1.2.12
         version: 1.2.12(@types/react-dom@18.3.7(@types/react@18.3.24))(@types/react@18.3.24)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-alert-dialog':
-        specifier: ^1.1.15
+        specifier: 1.1.15
         version: 1.1.15(@types/react-dom@18.3.7(@types/react@18.3.24))(@types/react@18.3.24)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-avatar':
-        specifier: ^1.1.10
+        specifier: 1.1.10
         version: 1.1.10(@types/react-dom@18.3.7(@types/react@18.3.24))(@types/react@18.3.24)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-checkbox':
-        specifier: ^1.3.3
+        specifier: 1.3.3
         version: 1.3.3(@types/react-dom@18.3.7(@types/react@18.3.24))(@types/react@18.3.24)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-collapsible':
-        specifier: ^1.1.12
+        specifier: 1.1.12
         version: 1.1.12(@types/react-dom@18.3.7(@types/react@18.3.24))(@types/react@18.3.24)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-context-menu':
-        specifier: ^2.2.16
+        specifier: 2.2.16
         version: 2.2.16(@types/react-dom@18.3.7(@types/react@18.3.24))(@types/react@18.3.24)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-dialog':
-        specifier: ^1.1.15
+        specifier: 1.1.15
         version: 1.1.15(@types/react-dom@18.3.7(@types/react@18.3.24))(@types/react@18.3.24)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-dropdown-menu':
-        specifier: ^2.1.16
+        specifier: 2.1.16
         version: 2.1.16(@types/react-dom@18.3.7(@types/react@18.3.24))(@types/react@18.3.24)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-hover-card':
-        specifier: ^1.1.15
+        specifier: 1.1.15
         version: 1.1.15(@types/react-dom@18.3.7(@types/react@18.3.24))(@types/react@18.3.24)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-icons':
-        specifier: ^1.3.2
+        specifier: 1.3.2
         version: 1.3.2(react@18.3.1)
       '@radix-ui/react-label':
-        specifier: ^2.1.7
+        specifier: 2.1.7
         version: 2.1.7(@types/react-dom@18.3.7(@types/react@18.3.24))(@types/react@18.3.24)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-popover':
-        specifier: ^1.1.15
+        specifier: 1.1.15
         version: 1.1.15(@types/react-dom@18.3.7(@types/react@18.3.24))(@types/react@18.3.24)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-progress':
-        specifier: ^1.1.7
+        specifier: 1.1.7
         version: 1.1.7(@types/react-dom@18.3.7(@types/react@18.3.24))(@types/react@18.3.24)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-scroll-area':
-        specifier: ^1.2.10
+        specifier: 1.2.10
         version: 1.2.10(@types/react-dom@18.3.7(@types/react@18.3.24))(@types/react@18.3.24)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-select':
-        specifier: ^2.2.6
+        specifier: 2.2.6
         version: 2.2.6(@types/react-dom@18.3.7(@types/react@18.3.24))(@types/react@18.3.24)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-separator':
-        specifier: ^1.1.7
+        specifier: 1.1.7
         version: 1.1.7(@types/react-dom@18.3.7(@types/react@18.3.24))(@types/react@18.3.24)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-slot':
-        specifier: ^1.2.3
+        specifier: 1.2.3
         version: 1.2.3(@types/react@18.3.24)(react@18.3.1)
       '@radix-ui/react-switch':
-        specifier: ^1.2.6
+        specifier: 1.2.6
         version: 1.2.6(@types/react-dom@18.3.7(@types/react@18.3.24))(@types/react@18.3.24)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-tabs':
-        specifier: ^1.1.13
+        specifier: 1.1.13
         version: 1.1.13(@types/react-dom@18.3.7(@types/react@18.3.24))(@types/react@18.3.24)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-toast':
-        specifier: ^1.2.15
+        specifier: 1.2.15
         version: 1.2.15(@types/react-dom@18.3.7(@types/react@18.3.24))(@types/react@18.3.24)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-tooltip':
-        specifier: ^1.2.8
+        specifier: 1.2.8
         version: 1.2.8(@types/react-dom@18.3.7(@types/react@18.3.24))(@types/react@18.3.24)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-use-controllable-state':
-        specifier: ^1.2.2
+        specifier: 1.2.2
         version: 1.2.2(@types/react@18.3.24)(react@18.3.1)
       '@t3-oss/env-nextjs':
-        specifier: ^0.9.2
+        specifier: 0.9.2
         version: 0.9.2(typescript@5.9.2)(zod@3.25.76)
       '@tanstack/react-query':
-        specifier: ^5.90.2
+        specifier: 5.90.2
         version: 5.90.2(react@18.3.1)
       '@tanstack/react-table':
-        specifier: ^8.21.3
+        specifier: 8.21.3
         version: 8.21.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@tanstack/react-virtual':
         specifier: 3.13.12
         version: 3.13.12(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@tiptap/extension-highlight':
-        specifier: ^3.7.1
+        specifier: 3.7.1
         version: 3.7.1(@tiptap/core@3.7.1(@tiptap/pm@3.7.1))
       '@tiptap/extension-horizontal-rule':
-        specifier: ^3.7.1
+        specifier: 3.7.1
         version: 3.7.1(@tiptap/core@3.7.1(@tiptap/pm@3.7.1))(@tiptap/pm@3.7.1)
       '@tiptap/extension-image':
-        specifier: ^3.7.1
+        specifier: 3.7.1
         version: 3.7.1(@tiptap/core@3.7.1(@tiptap/pm@3.7.1))
       '@tiptap/extension-list':
-        specifier: ^3.7.1
+        specifier: 3.7.1
         version: 3.7.1(@tiptap/core@3.7.1(@tiptap/pm@3.7.1))(@tiptap/pm@3.7.1)
       '@tiptap/extension-subscript':
-        specifier: ^3.7.1
+        specifier: 3.7.1
         version: 3.7.1(@tiptap/core@3.7.1(@tiptap/pm@3.7.1))(@tiptap/pm@3.7.1)
       '@tiptap/extension-superscript':
-        specifier: ^3.7.1
+        specifier: 3.7.1
         version: 3.7.1(@tiptap/core@3.7.1(@tiptap/pm@3.7.1))(@tiptap/pm@3.7.1)
       '@tiptap/extension-table':
         specifier: 3.7.1
@@ -200,47 +200,47 @@ importers:
         specifier: 3.7.1
         version: 3.7.1(@tiptap/extension-table@3.7.1(@tiptap/core@3.7.1(@tiptap/pm@3.7.1))(@tiptap/pm@3.7.1))
       '@tiptap/extension-text-align':
-        specifier: ^3.7.1
+        specifier: 3.7.1
         version: 3.7.1(@tiptap/core@3.7.1(@tiptap/pm@3.7.1))
       '@tiptap/extension-typography':
-        specifier: ^3.7.1
+        specifier: 3.7.1
         version: 3.7.1(@tiptap/core@3.7.1(@tiptap/pm@3.7.1))
       '@tiptap/extensions':
-        specifier: ^3.7.1
+        specifier: 3.7.1
         version: 3.7.1(@tiptap/core@3.7.1(@tiptap/pm@3.7.1))(@tiptap/pm@3.7.1)
       '@tiptap/markdown':
         specifier: 3.7.1
         version: 3.7.1(@tiptap/core@3.7.1(@tiptap/pm@3.7.1))(@tiptap/pm@3.7.1)
       '@tiptap/pm':
-        specifier: ^3.7.1
+        specifier: 3.7.1
         version: 3.7.1
       '@tiptap/react':
-        specifier: ^3.7.1
+        specifier: 3.7.1
         version: 3.7.1(@floating-ui/dom@1.7.4)(@tiptap/core@3.7.1(@tiptap/pm@3.7.1))(@tiptap/pm@3.7.1)(@types/react-dom@18.3.7(@types/react@18.3.24))(@types/react@18.3.24)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@tiptap/starter-kit':
-        specifier: ^3.7.1
+        specifier: 3.7.1
         version: 3.7.1
       '@uiw/react-codemirror':
-        specifier: ^4.25.2
+        specifier: 4.25.2
         version: 4.25.2(@babel/runtime@7.28.4)(@codemirror/autocomplete@6.19.0)(@codemirror/language@6.11.3)(@codemirror/lint@6.8.5)(@codemirror/search@6.5.11)(@codemirror/state@6.5.2)(@codemirror/theme-one-dark@6.1.3)(@codemirror/view@6.38.4)(codemirror@6.0.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@uiw/react-json-view':
         specifier: 1.12.2
         version: 1.12.2(@babel/runtime@7.28.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@xyflow/react':
-        specifier: ^12.8.6
+        specifier: 12.8.6
         version: 12.8.6(@types/react@18.3.24)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       ag-grid-community:
-        specifier: ^35.0.1
+        specifier: 35.0.1
         version: 35.0.1
       ag-grid-react:
-        specifier: ^35.0.1
+        specifier: 35.0.1
         version: 35.0.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       ai:
-        specifier: ^5.0.59
+        specifier: 5.0.59
         version: 5.0.59(zod@3.25.76)
       axios:
-        specifier: 1.15.2
-        version: 1.15.2
+        specifier: 1.16.0
+        version: 1.16.0
       class-variance-authority:
         specifier: 0.7.1
         version: 0.7.1
@@ -248,82 +248,82 @@ importers:
         specifier: 2.1.1
         version: 2.1.1
       cmdk:
-        specifier: ^0.2.1
+        specifier: 0.2.1
         version: 0.2.1(@types/react@18.3.24)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       date-fns:
-        specifier: ^4.1.0
+        specifier: 4.1.0
         version: 4.1.0
       embla-carousel-react:
-        specifier: ^8.6.0
+        specifier: 8.6.0
         version: 8.6.0(react@18.3.1)
       emblor:
-        specifier: ^1.4.8
+        specifier: 1.4.8
         version: 1.4.8(@types/react-dom@18.3.7(@types/react@18.3.24))(@types/react@18.3.24)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       fuzzysort:
-        specifier: ^3.1.0
+        specifier: 3.1.0
         version: 3.1.0
       ipaddr.js:
-        specifier: ^2.1.0
+        specifier: 2.2.0
         version: 2.2.0
       js-cookie:
-        specifier: ^3.0.5
-        version: 3.0.5
+        specifier: 3.0.8
+        version: 3.0.8
       lodash.throttle:
-        specifier: ^4.1.1
+        specifier: 4.1.1
         version: 4.1.1
       lucide-react:
-        specifier: ^0.561.0
+        specifier: 0.561.0
         version: 0.561.0(react@18.3.1)
       motion:
-        specifier: ^12.23.22
+        specifier: 12.23.22
         version: 12.23.22(@emotion/is-prop-valid@1.4.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       nanoid:
-        specifier: ^5.1.6
+        specifier: 5.1.6
         version: 5.1.6
       next:
         specifier: 15.5.18
         version: 15.5.18(@babel/core@7.28.4)(@opentelemetry/api@1.9.0)(@playwright/test@1.58.2)(babel-plugin-macros@3.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(sass@1.93.2)
       next-runtime-env:
-        specifier: ^3.3.0
+        specifier: 3.3.0
         version: 3.3.0(next@15.5.18(@babel/core@7.28.4)(@opentelemetry/api@1.9.0)(@playwright/test@1.58.2)(babel-plugin-macros@3.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(sass@1.93.2))(react@18.3.1)
       next-themes:
-        specifier: ^0.2.1
+        specifier: 0.2.1
         version: 0.2.1(next@15.5.18(@babel/core@7.28.4)(@opentelemetry/api@1.9.0)(@playwright/test@1.58.2)(babel-plugin-macros@3.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(sass@1.93.2))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       papaparse:
-        specifier: ^5.5.3
+        specifier: 5.5.3
         version: 5.5.3
       posthog-js:
-        specifier: ^1.268.8
+        specifier: 1.268.8
         version: 1.268.8
       preact:
         specifier: 10.27.3
         version: 10.27.3
       react:
-        specifier: ^18.3.1
+        specifier: 18.3.1
         version: 18.3.1
       react-colorful:
-        specifier: ^5.6.1
+        specifier: 5.6.1
         version: 5.6.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react-day-picker:
-        specifier: ^9.11.1
+        specifier: 9.11.1
         version: 9.11.1(react@18.3.1)
       react-diff-viewer-continued:
         specifier: 4.1.2
         version: 4.1.2(@types/react@18.3.24)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react-dom:
-        specifier: ^18.3.1
+        specifier: 18.3.1
         version: 18.3.1(react@18.3.1)
       react-hook-form:
-        specifier: ^7.63.0
+        specifier: 7.63.0
         version: 7.63.0(react@18.3.1)
       react-hotkeys-hook:
-        specifier: ^5.1.0
+        specifier: 5.1.0
         version: 5.1.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react-resizable-panels:
-        specifier: ^1.0.10
+        specifier: 1.0.10
         version: 1.0.10(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react-syntax-highlighter:
-        specifier: ^15.6.6
+        specifier: 15.6.6
         version: 15.6.6(react@18.3.1)
       react18-json-view:
         specifier: 0.2.9-canary.11
@@ -335,140 +335,137 @@ importers:
         specifier: 6.0.0
         version: 6.0.0
       sharp:
-        specifier: ^0.33.5
+        specifier: 0.33.5
         version: 0.33.5
       shiki:
-        specifier: ^3.13.0
+        specifier: 3.13.0
         version: 3.13.0
       streamdown:
-        specifier: ^1.3.0
+        specifier: 1.3.0
         version: 1.3.0(@types/react@18.3.24)(react@18.3.1)
       tailwind-merge:
-        specifier: ^2.6.0
+        specifier: 2.6.1
         version: 2.6.1
       tailwindcss-animate:
-        specifier: ^1.0.7
+        specifier: 1.0.7
         version: 1.0.7(tailwindcss@3.4.17)
       tar:
         specifier: 7.5.11
         version: 7.5.11
       tokenlens:
-        specifier: ^1.3.1
+        specifier: 1.3.1
         version: 1.3.1
       use-stick-to-bottom:
-        specifier: ^1.1.1
+        specifier: 1.1.1
         version: 1.1.1(react@18.3.1)
       uuid:
-        specifier: ^10.0.0
-        version: 10.0.0
+        specifier: 11.1.1
+        version: 11.1.1
       yaml:
         specifier: 2.8.3
         version: 2.8.3
       zod:
-        specifier: ^3.25.76
+        specifier: 3.25.76
         version: 3.25.76
     devDependencies:
       '@biomejs/biome':
         specifier: 2.0.4
         version: 2.0.4
       '@biomejs/cli-darwin-arm64':
-        specifier: ^2.2.4
+        specifier: 2.2.4
         version: 2.2.4
       '@hey-api/openapi-ts':
-        specifier: ^0.48.3
+        specifier: 0.48.3
         version: 0.48.3(typescript@5.9.2)
       '@hookform/devtools':
-        specifier: ^4.4.0
+        specifier: 4.4.0
         version: 4.4.0(@types/react@18.3.24)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@playwright/test':
         specifier: 1.58.2
         version: 1.58.2
       '@tailwindcss/container-queries':
-        specifier: ^0.1.1
+        specifier: 0.1.1
         version: 0.1.1(tailwindcss@3.4.17)
       '@tailwindcss/typography':
-        specifier: ^0.5.19
+        specifier: 0.5.19
         version: 0.5.19(tailwindcss@3.4.17)
       '@tanstack/react-query-devtools':
-        specifier: ^5.90.2
+        specifier: 5.90.2
         version: 5.90.2(@tanstack/react-query@5.90.2(react@18.3.1))(react@18.3.1)
       '@testing-library/jest-dom':
-        specifier: ^6.8.0
+        specifier: 6.8.0
         version: 6.8.0
       '@testing-library/react':
-        specifier: ^16.3.0
+        specifier: 16.3.0
         version: 16.3.0(@testing-library/dom@10.4.1)(@types/react-dom@18.3.7(@types/react@18.3.24))(@types/react@18.3.24)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@testing-library/user-event':
-        specifier: ^14.6.1
+        specifier: 14.6.1
         version: 14.6.1(@testing-library/dom@10.4.1)
       '@types/jest':
-        specifier: ^29.5.14
+        specifier: 29.5.14
         version: 29.5.14
       '@types/js-cookie':
-        specifier: ^3.0.6
+        specifier: 3.0.6
         version: 3.0.6
       '@types/json-schema':
-        specifier: ^7.0.15
+        specifier: 7.0.15
         version: 7.0.15
       '@types/lodash.throttle':
-        specifier: ^4.1.9
+        specifier: 4.1.9
         version: 4.1.9
       '@types/node':
-        specifier: ^20.19.17
+        specifier: 20.19.17
         version: 20.19.17
       '@types/papaparse':
-        specifier: ^5.3.16
+        specifier: 5.3.16
         version: 5.3.16
       '@types/react':
-        specifier: ^18.3.24
+        specifier: 18.3.24
         version: 18.3.24
       '@types/react-dom':
-        specifier: ^18.3.7
+        specifier: 18.3.7
         version: 18.3.7(@types/react@18.3.24)
       '@types/react-syntax-highlighter':
-        specifier: ^15.5.13
+        specifier: 15.5.13
         version: 15.5.13
-      '@types/uuid':
-        specifier: ^9.0.8
-        version: 9.0.8
       autoprefixer:
-        specifier: ^10.4.21
+        specifier: 10.4.21
         version: 10.4.21(postcss@8.5.10)
       cross-spawn:
         specifier: 7.0.6
         version: 7.0.6
       esbuild:
-        specifier: ^0.25.10
+        specifier: 0.25.10
         version: 0.25.10
       identity-obj-proxy:
-        specifier: ^3.0.0
+        specifier: 3.0.0
         version: 3.0.0
       jest:
-        specifier: ^29.7.0
+        specifier: 29.7.0
         version: 29.7.0(@types/node@20.19.17)(babel-plugin-macros@3.1.0)
       jest-environment-jsdom:
-        specifier: ^30.2.0
+        specifier: 30.2.0
         version: 30.2.0
       jest-transform-stub:
-        specifier: ^2.0.0
+        specifier: 2.0.0
         version: 2.0.0
       openapi-typescript:
-        specifier: ^7.9.1
+        specifier: 7.9.1
         version: 7.9.1(typescript@5.9.2)
       postcss:
         specifier: 8.5.10
         version: 8.5.10
       sass:
-        specifier: ^1.93.2
+        specifier: 1.93.2
         version: 1.93.2
       tailwindcss:
-        specifier: ^3.4.17
+        specifier: 3.4.17
         version: 3.4.17
       ts-jest:
-        specifier: ^29.4.4
+        specifier: 29.4.4
         version: 29.4.4(@babel/core@7.28.4)(@jest/transform@29.7.0)(@jest/types@30.2.0)(babel-jest@29.7.0(@babel/core@7.28.4))(esbuild@0.25.10)(jest-util@30.2.0)(jest@29.7.0(@types/node@20.19.17)(babel-plugin-macros@3.1.0))(typescript@5.9.2)
       typescript:
-        specifier: ^5.9.2
+        specifier: 5.9.2
         version: 5.9.2
 
 packages:
@@ -760,12 +757,6 @@ packages:
   '@codemirror/autocomplete@6.19.0':
     resolution: {integrity: sha512-61Hfv3cF07XvUxNeC3E7jhG8XNi1Yom1G0lRC936oLnlF+jrbrv8rc/J98XlYzcsAoTVupfsf5fLej1aI8kyIg==}
 
-  '@codemirror/autocomplete@6.20.0':
-    resolution: {integrity: sha512-bOwvTOIJcG5FVo5gUUupiwYh8MioPLQ4UcqbcRf7UQ98X90tCa9E1kZ3Z7tqwpZxYyOvh1YTYbmZE9RTfTp5hg==}
-
-  '@codemirror/commands@6.10.0':
-    resolution: {integrity: sha512-2xUIc5mHXQzT16JnyOFkh8PvfeXuIut3pslWGfsGOhxP/lpgRm9HOl/mpzLErgt5mXDovqA0d11P21gofRLb9w==}
-
   '@codemirror/commands@6.8.1':
     resolution: {integrity: sha512-KlGVYufHMQzxbdQONiLyGQDUW0itrLZwq3CcY7xpv9ZLRHqzkBSoteocBHtMCoY7/Ci4xhzSrToIeLg7FxHuaw==}
 
@@ -784,9 +775,6 @@ packages:
   '@codemirror/lint@6.8.5':
     resolution: {integrity: sha512-s3n3KisH7dx3vsoeGMxsbRAgKe4O1vbrnKBClm99PU0fWxmxsx5rR2PfqQgIt+2MMJBHbiJ5rfIdLYfB9NNvsA==}
 
-  '@codemirror/lint@6.9.2':
-    resolution: {integrity: sha512-sv3DylBiIyi+xKwRCJAAsBZZZWo82shJ/RTMymLabAdtbkV5cSKwWDeCgtUq3v8flTaXS2y1kKkICuRYtUswyQ==}
-
   '@codemirror/search@6.5.11':
     resolution: {integrity: sha512-KmWepDE6jUdL6n8cAAqIpRmLPBZ5ZKnicE8oGU/s3QrAVID+0VhLFrzUucVKHG5035/BSykhExDL/Xm7dHthiA==}
 
@@ -798,9 +786,6 @@ packages:
 
   '@codemirror/view@6.38.4':
     resolution: {integrity: sha512-hduz0suCcUSC/kM8Fq3A9iLwInJDl8fD1xLpTIk+5xkNm8z/FT7UsIa9sOXrkpChh+XXc18RzswE8QqELsVl+g==}
-
-  '@codemirror/view@6.39.3':
-    resolution: {integrity: sha512-ZR32LYnPMpf7XZcrYJpSrHJUHNZPTj73/amTtZLhAwzYhSKiDI2OZmCiXbTRvxL1T8X7QTHnCG+KfnRJvH/QsA==}
 
   '@csstools/color-helpers@5.1.0':
     resolution: {integrity: sha512-S11EXWJyy0Mz5SYvRmY8nJYTFFd1LCNV+7cXyAgQtOOuzb4EsgfqDufL+9esx72/eLhsRdGZwaldu/h+E4t4BA==}
@@ -861,9 +846,6 @@ packages:
     resolution: {integrity: sha512-+MKAJEOfaBe5SmV6t34p80MMKhjvUz0vRrvVJbPT0WElzaOJ/1xs+D+KDv+tD/NE5ujfrChEcshd4fLn0wpiqg==}
     peerDependencies:
       react: '>=16.8.0'
-
-  '@emnapi/runtime@1.5.0':
-    resolution: {integrity: sha512-97/BJ3iXHww3djw6hYIfErCZFee7qCtrneuLa20UXFCOTCfBM2cvQHjWJ2EG0s0MtdNwInarqCTz35i4wWXHsQ==}
 
   '@emnapi/runtime@1.7.1':
     resolution: {integrity: sha512-PVtJr5CmLwYAU9PZDMITZoR5iAOShYREoR45EyyLrbntV50mdePTgUn4AmOw90Ifcj+x2kRjdzr1HP3RrNiHGA==}
@@ -1523,17 +1505,11 @@ packages:
   '@jsdevtools/ono@7.1.3':
     resolution: {integrity: sha512-4JQNk+3mVzK3xh2rqd6RB4J46qUR19azEHBneZyTZM+c456qOrbbM/5xcR8huNCCcbVt7+UmizG6GuUvPvKUYg==}
 
-  '@lezer/common@1.2.3':
-    resolution: {integrity: sha512-w7ojc8ejBqr2REPsWxJjrMFsA/ysDCFICn8zEOR9mrqzOu2amhITYuLD8ag6XZf0CFXDrhKqw7+tW8cX66NaDA==}
-
   '@lezer/common@1.4.0':
     resolution: {integrity: sha512-DVeMRoGrgn/k45oQNu189BoW4SZwgZFzJ1+1TV5j2NJ/KFC83oa/enRqZSGshyeMk5cPWMhsKs9nx+8o0unwGg==}
 
   '@lezer/highlight@1.2.1':
     resolution: {integrity: sha512-Z5duk4RN/3zuVO7Jq0pGLJ3qynpxUVsh7IbUbGj88+uV2ApSAn6kWg2au3iJb+0Zi7kKtqffIESgNcRXWZWmSA==}
-
-  '@lezer/highlight@1.2.3':
-    resolution: {integrity: sha512-qXdH7UqTvGfdVBINrgKhDsVTJTxactNNxLk7+UMwZhU13lMHaOBlJe9Vqp907ya56Y3+ed2tlqzys7jDkTmW0g==}
 
   '@lezer/json@1.0.3':
     resolution: {integrity: sha512-BP9KzdF9Y35PDpv04r0VeSTKDeox5vVr3efE7eBbx3r4s3oNLfunchejZhjArmeieBH+nVOpgIiBJpEAv8ilqQ==}
@@ -3089,9 +3065,6 @@ packages:
   '@types/use-sync-external-store@0.0.6':
     resolution: {integrity: sha512-zFDAD+tlpf2r4asuHEj0XH6pY6i0g5NeAHPn+15wk3BV6JA69eERFXC1gyGThDkVa1zCyKr5jox1+2LbV/AMLg==}
 
-  '@types/uuid@9.0.8':
-    resolution: {integrity: sha512-jg+97EGIcY9AGHJJRaaPVgetKDsrTgbRjQ5Msgjh/DQKEFl0DtyRr/VCOyD1T2R1MNeWPK/u7JoGhlDZnKBAfA==}
-
   '@types/yargs-parser@21.0.3':
     resolution: {integrity: sha512-I4q9QU9MQv4oEOz4tAHJtNz1cwuLxn2F3xcc2iV5WdqLPpUnj30aUuxt1mAxYTG+oe8CZMV/+6rU4S4gRDzqtQ==}
 
@@ -3230,8 +3203,8 @@ packages:
     peerDependencies:
       postcss: 8.5.10
 
-  axios@1.15.2:
-    resolution: {integrity: sha512-wLrXxPtcrPTsNlJmKjkPnNPK2Ihe0hn0wGSaTEiHRPxwjvJwT3hKmXF4dpqxmPO9SoNb2FsYXj/xEo0gHN+D5A==}
+  axios@1.16.0:
+    resolution: {integrity: sha512-6hp5CwvTPlN2A31g5dxnwAX0orzM7pmCRDLnZSX772mv8WDqICwFjowHuPs04Mc8deIld1+ejhtaMn5vp6b+1w==}
 
   babel-jest@29.7.0:
     resolution: {integrity: sha512-BrvGY3xZSwEcCzKvKsCi2GgHqDqsYkOP4/by5xCgIwGXQxIEh+8ew3gmrE1y7XRR6LHZIj6yLYnUi/mm2KXKBg==}
@@ -3277,8 +3250,8 @@ packages:
     resolution: {integrity: sha512-Ceh+7ox5qe7LJuLHoY0feh3pHuUDHAcRUeyL2VYghZwfpkNIy/+8Ocg0a3UuSoYzavmylwuLWQOf3hl0jjMMIw==}
     engines: {node: '>=8'}
 
-  brace-expansion@5.0.5:
-    resolution: {integrity: sha512-VZznLgtwhn+Mact9tfiwx64fA9erHH/MCXEUfB/0bX/6Fz6ny5EGTXYltMocqg4xFAQZtnO3DHWWXi8RiuN7cQ==}
+  brace-expansion@5.0.6:
+    resolution: {integrity: sha512-kLpxurY4Z4r9sgMsyG0Z9uzsBlgiU/EFKhj/h91/8yHu0edo7XuixOIH3VcJ8kkxs6/jPzoI6U9Vj3WqbMQ94g==}
     engines: {node: 18 || 20 || >=22}
 
   braces@3.0.3:
@@ -3331,9 +3304,6 @@ packages:
   camelcase@8.0.0:
     resolution: {integrity: sha512-8WB3Jcas3swSvjIeA2yvCJ+Miyz5l1ZmB6HFb9R1317dt9LCQoswg/BGrmAmkWVEszSrrg4RwmO46qIm2OEnSA==}
     engines: {node: '>=16'}
-
-  caniuse-lite@1.0.30001745:
-    resolution: {integrity: sha512-ywt6i8FzvdgrrrGbr1jZVObnVv6adj+0if2/omv9cmR2oiZs30zL4DIyaptKcbOrBdOIc74QTMoJvSE2QHh5UQ==}
 
   caniuse-lite@1.0.30001760:
     resolution: {integrity: sha512-7AAMPcueWELt1p3mi13HR/LHH0TJLT11cnwDJEs3xA4+CK/PLKeO9Kl1oru24htkyUKtkGCvAx4ohB0Ttry8Dw==}
@@ -3754,10 +3724,6 @@ packages:
     resolution: {integrity: sha512-pGjwhsmsp4kL2RTz08wcOlGN83otlqHeD/Z5T8GXZB+/YcpQ/dgo+lbU8ZsGxV0HIvqqxo9l7mqYwyYMD9bKDg==}
     engines: {node: '>=0.10'}
     hasBin: true
-
-  detect-libc@2.1.1:
-    resolution: {integrity: sha512-ecqj/sy1jcK1uWrwpR67UhYrIFQ+5WlGxth34WquCbamhFA6hkkwiu37o6J5xCHdo1oixJRfVRw+ywV+Hq/0Aw==}
-    engines: {node: '>=8'}
 
   detect-libc@2.1.2:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
@@ -4470,9 +4436,8 @@ packages:
     resolution: {integrity: sha512-/imKNG4EbWNrVjoNC/1H5/9GFy+tqjGBHCaSsN+P2RnPqjsLmv6UD3Ej+Kj8nBWaRAwyk7kK5ZUc+OEatnTR3A==}
     hasBin: true
 
-  js-cookie@3.0.5:
-    resolution: {integrity: sha512-cEiJEAEoIbWfCZYKWhVwFuvPX1gETRYPw6LlaTKoxD3s2AkXzkCjnp6h0V77ozyqj0jakteJ4YqDJT830+lVGw==}
-    engines: {node: '>=14'}
+  js-cookie@3.0.8:
+    resolution: {integrity: sha512-yeJd4aNAdYZQjaon2bpD/Gb0B/omw7HQOsynXXcOiWVCacbBcPlgn8S/d1X6blFSaHao7ozqtW7NZW19xpCtIw==}
 
   js-levenshtein@1.1.6:
     resolution: {integrity: sha512-X2BB11YZtrRqY4EnQcLX5Rh373zbK4alC1FW7D7MBhL2gtcC17cTnr6DmfHZeS0s2rTHjUTMMHfG7gO8SSdw+g==}
@@ -4633,11 +4598,6 @@ packages:
 
   markdown-table@3.0.4:
     resolution: {integrity: sha512-wiYz4+JrLyb/DqW2hkFJxP7Vd7JuTDm77fvbM8VfEQdmSMqcImWeeRbHwZjBjIFki/VaMK2BhFi7oUUZeM5bqw==}
-
-  marked@16.3.0:
-    resolution: {integrity: sha512-K3UxuKu6l6bmA5FUwYho8CfJBlsUWAooKtdGgMcERSpF7gcBUrCGsLH7wDaaNOzwq18JzSUDyoEb/YsrqMac3w==}
-    engines: {node: '>= 20'}
-    hasBin: true
 
   marked@16.4.0:
     resolution: {integrity: sha512-CTPAcRBq57cn3R8n3hwc2REddc28hjR7RzDXQ+lXLmMJYqn20BaI2cGw6QjgZGIgVfp2Wdfw4aMzgNteQ6qJgQ==}
@@ -5525,11 +5485,6 @@ packages:
     resolution: {integrity: sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA==}
     hasBin: true
 
-  semver@7.7.2:
-    resolution: {integrity: sha512-RF0Fw+rO5AMf9MAyaRXI4AV0Ulj5lMHqVxxdSgiVbixSCXoEmmX/jk0CuJw4+3SqroYO9VoUh+HcuJivvtJemA==}
-    engines: {node: '>=10'}
-    hasBin: true
-
   semver@7.7.3:
     resolution: {integrity: sha512-SdsKMrI9TdgjdweUSR9MweHA4EJ8YxHn8DFaDisvhVlUOe4BF1tLD7GAj0lIqWVl+dPb/rExr0Btby5loQm20Q==}
     engines: {node: '>=10'}
@@ -5630,9 +5585,6 @@ packages:
   strip-json-comments@3.1.1:
     resolution: {integrity: sha512-6fPc+R4ihwqP6N/aIv2f1gMH8lOVtWQHoqC4yK6oSDVVocumAsfCqjkXnqiYMhmMwS/mEHLp7Vehlt3ql6lEig==}
     engines: {node: '>=8'}
-
-  style-mod@4.1.2:
-    resolution: {integrity: sha512-wnD1HyVqpJUI2+eKZ+eo1UwghftP6yuFheBqqe+bWCotBjC2K1YnteJILRMs3SM4V/0dLEW1SC27MWP5y+mwmw==}
 
   style-mod@4.1.3:
     resolution: {integrity: sha512-i/n8VsZydrugj3Iuzll8+x/00GH2vnYsk1eomD8QiRrSAeW6ItbCQDtfXCeJHd0iwiNagqjQkvpvREEPtW3IoQ==}
@@ -5907,11 +5859,6 @@ packages:
     peerDependencies:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
-  use-sync-external-store@1.5.0:
-    resolution: {integrity: sha512-Rb46I4cGGVBmjamjphe8L/UnvJD+uPPtTkNvX5mZgqdbavhI4EbgIWJiIHXJ8bc/i9EQGPRh4DwEURJ552Do0A==}
-    peerDependencies:
-      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
-
   use-sync-external-store@1.6.0:
     resolution: {integrity: sha512-Pp6GSwGP/NrPIrxVFAIkOQeyw8lFenOHijQWkUTrDvrF4ALqylP2C/KCkeS9dpUM3KvYRQhna5vt7IL95+ZQ9w==}
     peerDependencies:
@@ -5920,16 +5867,13 @@ packages:
   util-deprecate@1.0.2:
     resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
 
-  uuid@10.0.0:
-    resolution: {integrity: sha512-8XkAphELsDnEGrDxUOHB3RGvXz6TeuYSGEZBOjtTtPm2lwhGBjLgOzLHB63IUWfBpNucQjND6d3AOudO+H3RWQ==}
-    hasBin: true
-
   uuid@11.1.1:
     resolution: {integrity: sha512-vIYxrBCC/N/K+Js3qSN88go7kIfNPssr/hHCesKCQNAjmgvYS2oqr69kIufEG+O4+PfezOH4EbIeHCfFov8ZgQ==}
     hasBin: true
 
   uuid@8.3.2:
     resolution: {integrity: sha512-+NYs2QeMWy+GWFOEm9xnn6HCDp0l7QBD7ml8zLUmJ+93Q5NF0NocErnwkTkXVFNiX3/fpC6afS8Dhb/gz7R7eg==}
+    deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
     hasBin: true
 
   v8-to-istanbul@9.3.0:
@@ -6364,20 +6308,6 @@ snapshots:
       '@codemirror/language': 6.11.3
       '@codemirror/state': 6.5.2
       '@codemirror/view': 6.38.4
-      '@lezer/common': 1.2.3
-
-  '@codemirror/autocomplete@6.20.0':
-    dependencies:
-      '@codemirror/language': 6.11.3
-      '@codemirror/state': 6.5.2
-      '@codemirror/view': 6.39.3
-      '@lezer/common': 1.4.0
-
-  '@codemirror/commands@6.10.0':
-    dependencies:
-      '@codemirror/language': 6.11.3
-      '@codemirror/state': 6.5.2
-      '@codemirror/view': 6.39.3
       '@lezer/common': 1.4.0
 
   '@codemirror/commands@6.8.1':
@@ -6385,7 +6315,7 @@ snapshots:
       '@codemirror/language': 6.11.3
       '@codemirror/state': 6.5.2
       '@codemirror/view': 6.38.4
-      '@lezer/common': 1.2.3
+      '@lezer/common': 1.4.0
 
   '@codemirror/lang-json@6.0.2':
     dependencies:
@@ -6397,7 +6327,7 @@ snapshots:
       '@codemirror/autocomplete': 6.19.0
       '@codemirror/language': 6.11.3
       '@codemirror/state': 6.5.2
-      '@lezer/common': 1.2.3
+      '@lezer/common': 1.4.0
       '@lezer/python': 1.1.18
 
   '@codemirror/lang-yaml@6.1.2':
@@ -6405,7 +6335,7 @@ snapshots:
       '@codemirror/autocomplete': 6.19.0
       '@codemirror/language': 6.11.3
       '@codemirror/state': 6.5.2
-      '@lezer/common': 1.2.3
+      '@lezer/common': 1.4.0
       '@lezer/highlight': 1.2.1
       '@lezer/lr': 1.4.2
       '@lezer/yaml': 1.0.3
@@ -6414,10 +6344,10 @@ snapshots:
     dependencies:
       '@codemirror/state': 6.5.2
       '@codemirror/view': 6.38.4
-      '@lezer/common': 1.2.3
+      '@lezer/common': 1.4.0
       '@lezer/highlight': 1.2.1
       '@lezer/lr': 1.4.2
-      style-mod: 4.1.2
+      style-mod: 4.1.3
 
   '@codemirror/lint@6.8.5':
     dependencies:
@@ -6425,16 +6355,10 @@ snapshots:
       '@codemirror/view': 6.38.4
       crelt: 1.0.6
 
-  '@codemirror/lint@6.9.2':
-    dependencies:
-      '@codemirror/state': 6.5.2
-      '@codemirror/view': 6.39.3
-      crelt: 1.0.6
-
   '@codemirror/search@6.5.11':
     dependencies:
       '@codemirror/state': 6.5.2
-      '@codemirror/view': 6.39.3
+      '@codemirror/view': 6.38.4
       crelt: 1.0.6
 
   '@codemirror/state@6.5.2':
@@ -6445,17 +6369,10 @@ snapshots:
     dependencies:
       '@codemirror/language': 6.11.3
       '@codemirror/state': 6.5.2
-      '@codemirror/view': 6.39.3
-      '@lezer/highlight': 1.2.3
+      '@codemirror/view': 6.38.4
+      '@lezer/highlight': 1.2.1
 
   '@codemirror/view@6.38.4':
-    dependencies:
-      '@codemirror/state': 6.5.2
-      crelt: 1.0.6
-      style-mod: 4.1.2
-      w3c-keyname: 2.2.8
-
-  '@codemirror/view@6.39.3':
     dependencies:
       '@codemirror/state': 6.5.2
       crelt: 1.0.6
@@ -6514,11 +6431,6 @@ snapshots:
     dependencies:
       react: 18.3.1
       tslib: 2.8.1
-
-  '@emnapi/runtime@1.5.0':
-    dependencies:
-      tslib: 2.8.1
-    optional: true
 
   '@emnapi/runtime@1.7.1':
     dependencies:
@@ -6916,7 +6828,7 @@ snapshots:
 
   '@img/sharp-wasm32@0.33.5':
     dependencies:
-      '@emnapi/runtime': 1.5.0
+      '@emnapi/runtime': 1.7.1
     optional: true
 
   '@img/sharp-wasm32@0.34.5':
@@ -7182,37 +7094,31 @@ snapshots:
 
   '@jsdevtools/ono@7.1.3': {}
 
-  '@lezer/common@1.2.3': {}
-
   '@lezer/common@1.4.0': {}
 
   '@lezer/highlight@1.2.1':
-    dependencies:
-      '@lezer/common': 1.2.3
-
-  '@lezer/highlight@1.2.3':
     dependencies:
       '@lezer/common': 1.4.0
 
   '@lezer/json@1.0.3':
     dependencies:
-      '@lezer/common': 1.2.3
+      '@lezer/common': 1.4.0
       '@lezer/highlight': 1.2.1
       '@lezer/lr': 1.4.2
 
   '@lezer/lr@1.4.2':
     dependencies:
-      '@lezer/common': 1.2.3
+      '@lezer/common': 1.4.0
 
   '@lezer/python@1.1.18':
     dependencies:
-      '@lezer/common': 1.2.3
+      '@lezer/common': 1.4.0
       '@lezer/highlight': 1.2.1
       '@lezer/lr': 1.4.2
 
   '@lezer/yaml@1.0.3':
     dependencies:
-      '@lezer/common': 1.2.3
+      '@lezer/common': 1.4.0
       '@lezer/highlight': 1.2.1
       '@lezer/lr': 1.4.2
 
@@ -8109,7 +8015,7 @@ snapshots:
   '@radix-ui/react-use-is-hydrated@0.1.0(@types/react@18.3.24)(react@18.3.1)':
     dependencies:
       react: 18.3.1
-      use-sync-external-store: 1.5.0(react@18.3.1)
+      use-sync-external-store: 1.6.0(react@18.3.1)
     optionalDependencies:
       '@types/react': 18.3.24
 
@@ -8820,8 +8726,6 @@ snapshots:
 
   '@types/use-sync-external-store@0.0.6': {}
 
-  '@types/uuid@9.0.8': {}
-
   '@types/yargs-parser@21.0.3': {}
 
   '@types/yargs@17.0.33':
@@ -8962,14 +8866,14 @@ snapshots:
   autoprefixer@10.4.21(postcss@8.5.10):
     dependencies:
       browserslist: 4.26.2
-      caniuse-lite: 1.0.30001745
+      caniuse-lite: 1.0.30001760
       fraction.js: 4.3.7
       normalize-range: 0.1.2
       picocolors: 1.1.1
       postcss: 8.5.10
       postcss-value-parser: 4.2.0
 
-  axios@1.15.2:
+  axios@1.16.0:
     dependencies:
       follow-redirects: 1.16.0
       form-data: 4.0.5
@@ -9046,7 +8950,7 @@ snapshots:
 
   binary-extensions@2.3.0: {}
 
-  brace-expansion@5.0.5:
+  brace-expansion@5.0.6:
     dependencies:
       balanced-match: 4.0.3
 
@@ -9057,7 +8961,7 @@ snapshots:
   browserslist@4.26.2:
     dependencies:
       baseline-browser-mapping: 2.8.9
-      caniuse-lite: 1.0.30001745
+      caniuse-lite: 1.0.30001760
       electron-to-chromium: 1.5.227
       node-releases: 2.0.21
       update-browserslist-db: 1.1.3(browserslist@4.26.2)
@@ -9101,8 +9005,6 @@ snapshots:
   camelcase@6.3.0: {}
 
   camelcase@8.0.0: {}
-
-  caniuse-lite@1.0.30001745: {}
 
   caniuse-lite@1.0.30001760: {}
 
@@ -9189,13 +9091,13 @@ snapshots:
 
   codemirror@6.0.2:
     dependencies:
-      '@codemirror/autocomplete': 6.20.0
-      '@codemirror/commands': 6.10.0
+      '@codemirror/autocomplete': 6.19.0
+      '@codemirror/commands': 6.8.1
       '@codemirror/language': 6.11.3
-      '@codemirror/lint': 6.9.2
+      '@codemirror/lint': 6.8.5
       '@codemirror/search': 6.5.11
       '@codemirror/state': 6.5.2
-      '@codemirror/view': 6.39.3
+      '@codemirror/view': 6.38.4
 
   collect-v8-coverage@1.0.2: {}
 
@@ -9527,10 +9429,7 @@ snapshots:
   detect-libc@1.0.3:
     optional: true
 
-  detect-libc@2.1.1: {}
-
-  detect-libc@2.1.2:
-    optional: true
+  detect-libc@2.1.2: {}
 
   detect-newline@3.1.0: {}
 
@@ -10503,7 +10402,7 @@ snapshots:
 
   jiti@1.21.7: {}
 
-  js-cookie@3.0.5: {}
+  js-cookie@3.0.8: {}
 
   js-levenshtein@1.1.6: {}
 
@@ -10656,8 +10555,6 @@ snapshots:
       uc.micro: 2.1.0
 
   markdown-table@3.0.4: {}
-
-  marked@16.3.0: {}
 
   marked@16.4.0: {}
 
@@ -10943,7 +10840,7 @@ snapshots:
     dependencies:
       '@types/katex': 0.16.7
       devlop: 1.1.0
-      katex: 0.16.22
+      katex: 0.16.45
       micromark-factory-space: 2.0.1
       micromark-util-character: 2.1.1
       micromark-util-symbol: 2.0.1
@@ -11080,7 +10977,7 @@ snapshots:
 
   minimatch@10.2.3:
     dependencies:
-      brace-expansion: 5.0.5
+      brace-expansion: 5.0.6
 
   minimist@1.2.8: {}
 
@@ -11861,15 +11758,13 @@ snapshots:
 
   semver@6.3.1: {}
 
-  semver@7.7.2: {}
-
   semver@7.7.3: {}
 
   sharp@0.33.5:
     dependencies:
       color: 4.2.3
-      detect-libc: 2.1.1
-      semver: 7.7.2
+      detect-libc: 2.1.2
+      semver: 7.7.3
     optionalDependencies:
       '@img/sharp-darwin-arm64': 0.33.5
       '@img/sharp-darwin-x64': 0.33.5
@@ -11975,9 +11870,9 @@ snapshots:
     dependencies:
       clsx: 2.1.1
       harden-react-markdown: 1.0.5(react-markdown@10.1.0(@types/react@18.3.24)(react@18.3.1))(react@18.3.1)
-      katex: 0.16.22
+      katex: 0.16.45
       lucide-react: 0.542.0(react@18.3.1)
-      marked: 16.3.0
+      marked: 16.4.0
       mermaid: 11.15.0
       react: 18.3.1
       react-markdown: 10.1.0(@types/react@18.3.24)(react@18.3.1)
@@ -12020,8 +11915,6 @@ snapshots:
       min-indent: 1.0.1
 
   strip-json-comments@3.1.1: {}
-
-  style-mod@4.1.2: {}
 
   style-mod@4.1.3: {}
 
@@ -12071,7 +11964,7 @@ snapshots:
     dependencies:
       dequal: 2.0.3
       react: 18.3.1
-      use-sync-external-store: 1.5.0(react@18.3.1)
+      use-sync-external-store: 1.6.0(react@18.3.1)
 
   symbol-tree@3.2.4: {}
 
@@ -12188,7 +12081,7 @@ snapshots:
       json5: 2.2.3
       lodash.memoize: 4.1.2
       make-error: 1.3.6
-      semver: 7.7.2
+      semver: 7.7.3
       type-fest: 4.41.0
       typescript: 5.9.2
       yargs-parser: 21.1.1
@@ -12297,17 +12190,11 @@ snapshots:
     dependencies:
       react: 18.3.1
 
-  use-sync-external-store@1.5.0(react@18.3.1):
-    dependencies:
-      react: 18.3.1
-
   use-sync-external-store@1.6.0(react@18.3.1):
     dependencies:
       react: 18.3.1
 
   util-deprecate@1.0.2: {}
-
-  uuid@10.0.0: {}
 
   uuid@11.1.1: {}
 
@@ -12416,7 +12303,7 @@ snapshots:
 
   zustand@4.5.7(@types/react@18.3.24)(react@18.3.1):
     dependencies:
-      use-sync-external-store: 1.5.0(react@18.3.1)
+      use-sync-external-store: 1.6.0(react@18.3.1)
     optionalDependencies:
       '@types/react': 18.3.24
       react: 18.3.1
