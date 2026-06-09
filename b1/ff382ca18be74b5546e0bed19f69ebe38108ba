@@ -1,0 +1,33 @@
+tracecat/workflow/store/service.py
+  s_6b93d631eceb93::t_59c64ec7cd30bc 129
+tests/unit/test_workflow_import_service.py
+  s_6b93d631eceb93::t_b41755b92f1cc9 169
+  s_6b93d631eceb93::t_04c6ddb66c9cb4 89-91
+  s_6b93d631eceb93::t_bf07176262e125 96-101
+tracecat/webhooks/router.py
+  s_6b93d631eceb93::t_40a23bb151b1e4 514-516
+  s_6b93d631eceb93::t_4168362652f0e3 473-475
+tests/unit/test_workflow_store_service.py
+  s_6b93d631eceb93::t_3b0135584ac799 118-119
+  s_6b93d631eceb93::t_e1070982f644bc 63-65
+tracecat/workflow/store/schemas.py
+  s_6b93d631eceb93::t_fa9fd308999298 128-129
+tracecat/workflow/store/import_service.py
+  s_6b93d631eceb93::t_6a977afa2f019b 432
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "b1ff382ca18be74b5546e0bed19f69ebe38108ba",
+  "prompts": {},
+  "sessions": {
+    "s_6b93d631eceb93": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2a93ec5a-f7ce-49ef-bbfd-77bf4fb48bdf",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
