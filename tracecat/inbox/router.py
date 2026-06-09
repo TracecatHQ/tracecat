@@ -49,6 +49,11 @@ async def list_items(
     sort: Literal["asc", "desc"] | None = Query(
         default=None, description="Sort direction (asc or desc)"
     ),
+    search: str | None = Query(
+        default=None,
+        max_length=200,
+        description="Case-insensitive search on item title",
+    ),
 ) -> CursorPaginatedResponse[InboxItemRead]:
     """List inbox items with cursor-based pagination.
 
@@ -65,6 +70,7 @@ async def list_items(
             reverse=reverse,
             order_by=order_by,
             sort=sort,
+            search=search,
         )
     except ValueError as e:
         logger.warning(f"Invalid request for list inbox items: {e}")

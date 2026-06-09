@@ -3,6 +3,7 @@ import type {
   AgentSessionRead,
   ApprovalRead,
   ChatReadMinimal,
+  UserSummary,
   WorkflowExecutionStatus,
 } from "@/client"
 import { undoSlugify } from "@/lib/utils"
@@ -151,6 +152,7 @@ export interface InboxSessionItem {
   created_at: string
   updated_at: string
   parent_workflow: WorkflowSummary | null
+  created_by: UserSummary | null
   derivedStatus: AgentDerivedStatus
   statusLabel: string
   statusPriority: number

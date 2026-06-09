@@ -39,6 +39,7 @@ class InboxService(BaseWorkspaceService, BaseCursorPaginator):
         reverse: bool = False,
         order_by: str | None = None,
         sort: Literal["asc", "desc"] | None = None,
+        search: str | None = None,
     ) -> CursorPaginatedResponse[InboxItemRead]:
         """List inbox items with cursor-based pagination.
 
@@ -73,6 +74,7 @@ class InboxService(BaseWorkspaceService, BaseCursorPaginator):
                 reverse=reverse,
                 order_by=order_by,
                 sort=sort,
+                search=search,
             )
             all_items.extend(provider_response.items)
 
