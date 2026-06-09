@@ -21,6 +21,7 @@ from tracecat.concurrency import cooperative
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLInput
+from tracecat.dsl.schemas import TriggerInputs
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.ee.interactions.enums import InteractionCategory
 from tracecat.ee.interactions.schemas import InteractionInput
@@ -274,6 +275,7 @@ async def incoming_webhook_post(
         vendor=vendor,
         request=request,
         content_type=content_type,
+        include_headers=getattr(request.state, "webhook_include_headers", False),
     )
 
 
@@ -310,7 +312,26 @@ async def incoming_webhook_get(
         vendor=vendor,
         request=request,
         content_type=content_type,
+        include_headers=getattr(request.state, "webhook_include_headers", False),
     )
+
+
+# Auth headers that must never be exposed to workflows via the trigger envelope.
+_REDACTED_HEADERS = frozenset({"x-tracecat-api-key"})
+
+
+def _wrap_with_headers(
+    payload: TriggerInputs | None, request: Request
+) -> dict[str, Any]:
+    """Wrap the parsed body in a `core.http.request`-style envelope.
+
+    Strips sensitive auth headers so workflow authors can't read the webhook's
+    own credentials.
+    """
+    headers = {
+        k: v for k, v in request.headers.items() if k.lower() not in _REDACTED_HEADERS
+    }
+    return {"status_code": 200, "headers": headers, "data": payload}
 
 
 async def _incoming_webhook(
@@ -323,6 +344,7 @@ async def _incoming_webhook(
     vendor: str | None,
     request: Request,
     content_type: str | None,
+    include_headers: bool = False,
 ) -> WebhookResponse:
     logger.info("Webhook hit", path=workflow_id, role=ctx_role.get())
     logger.trace("Webhook payload", payload=payload)
@@ -341,7 +363,7 @@ async def _incoming_webhook(
             one_response = await service.create_workflow_execution_wait_for_start(
                 dsl=dsl_input,
                 wf_id=workflow_id,
-                payload=p,
+                payload=_wrap_with_headers(p, request) if include_headers else p,
                 trigger_type=TriggerType.WEBHOOK,
                 registry_lock=RegistryLock.model_validate(defn.registry_lock)
                 if defn.registry_lock
@@ -360,7 +382,9 @@ async def _incoming_webhook(
         response = await service.create_workflow_execution_wait_for_start(
             dsl=dsl_input,
             wf_id=workflow_id,
-            payload=payload,
+            payload=_wrap_with_headers(payload, request)
+            if include_headers
+            else payload,
             trigger_type=TriggerType.WEBHOOK,
             registry_lock=RegistryLock.model_validate(defn.registry_lock)
             if defn.registry_lock

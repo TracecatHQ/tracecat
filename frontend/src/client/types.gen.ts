@@ -8140,6 +8140,7 @@ export type WebhookCreate = {
   methods?: Array<WebhookMethod>
   entrypoint_ref?: string | null
   allowlisted_cidrs?: Array<string>
+  include_headers?: boolean
 }
 
 export type WebhookMethod = "GET" | "POST"
@@ -8157,6 +8158,7 @@ export type WebhookRead = {
    * Methods to allow
    */
   methods?: Array<WebhookMethod>
+  include_headers?: boolean
   workflow_id: string
   url: string
   api_key?: WebhookApiKeyRead | null
@@ -8184,6 +8186,7 @@ export type WebhookUpdate = {
   methods?: Array<WebhookMethod> | null
   entrypoint_ref?: string | null
   allowlisted_cidrs?: Array<string> | null
+  include_headers?: boolean | null
 }
 
 export type WorkflowAlias = {

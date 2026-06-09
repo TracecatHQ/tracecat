@@ -31,6 +31,7 @@ class WebhookRead(Schema):
     methods: list[WebhookMethod] = Field(
         default_factory=list, description="Methods to allow"
     )
+    include_headers: bool = False
     workflow_id: WorkflowID
     url: str
     api_key: WebhookApiKeyRead | None = None
@@ -59,6 +60,7 @@ class WebhookCreate(BaseModel):
     )
     entrypoint_ref: str | None = None
     allowlisted_cidrs: list[str] = Field(default_factory=list)
+    include_headers: bool = False
 
     @field_validator("allowlisted_cidrs")
     @classmethod
@@ -71,6 +73,7 @@ class WebhookUpdate(BaseModel):
     methods: list[WebhookMethod] | None = None
     entrypoint_ref: str | None = None
     allowlisted_cidrs: list[str] | None = None
+    include_headers: bool | None = None
 
     @field_validator("allowlisted_cidrs")
     @classmethod

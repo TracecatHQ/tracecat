@@ -27229,6 +27229,11 @@ export const $WebhookCreate = {
       type: "array",
       title: "Allowlisted Cidrs",
     },
+    include_headers: {
+      type: "boolean",
+      title: "Include Headers",
+      default: false,
+    },
   },
   type: "object",
   title: "WebhookCreate",
@@ -27283,6 +27288,11 @@ export const $WebhookRead = {
       type: "array",
       title: "Methods",
       description: "Methods to allow",
+    },
+    include_headers: {
+      type: "boolean",
+      title: "Include Headers",
+      default: false,
     },
     workflow_id: {
       type: "string",
@@ -27414,6 +27424,17 @@ export const $WebhookUpdate = {
         },
       ],
       title: "Allowlisted Cidrs",
+    },
+    include_headers: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Include Headers",
     },
   },
   type: "object",

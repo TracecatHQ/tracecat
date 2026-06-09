@@ -212,6 +212,7 @@ const webhookFormSchema = z.object({
       return Array.from(normalized.values())
     })
     .default([]),
+  include_headers: z.boolean().default(false),
 })
 
 type WebhookForm = z.infer<typeof webhookFormSchema>
@@ -394,6 +395,7 @@ export function WebhookControls({
           id: cidr,
           text: cidr,
         })) ?? [],
+      include_headers: webhook.include_headers ?? false,
     },
   })
 
@@ -495,6 +497,31 @@ export function WebhookControls({
           error,
           "An error occurred while updating the webhook status."
         ),
+      })
+    }
+  }
+
+  const handleIncludeHeadersChange = async (checked: boolean) => {
+    form.setValue("include_headers", checked)
+
+    try {
+      await mutateAsync({ include_headers: checked })
+      toast({
+        title: "Webhook trigger payload updated",
+        description: checked
+          ? "TRIGGER will include request headers and metadata"
+          : "TRIGGER will receive the request body only",
+      })
+    } catch (error) {
+      console.error("Failed to update webhook include_headers", error)
+      form.setValue("include_headers", webhook.include_headers ?? false)
+      toast({
+        title: "Failed to update trigger payload",
+        description: extractApiErrorMessage(
+          error,
+          "An error occurred while updating the webhook trigger payload."
+        ),
+        variant: "destructive",
       })
     }
   }
@@ -608,6 +635,35 @@ export function WebhookControls({
                   <Switch
                     checked={field.value === "online"}
                     onCheckedChange={handleStatusChange}
+                    className="data-[state=checked]:bg-emerald-500"
+                    disabled={isUpdatingWebhook}
+                  />
+                </FormControl>
+              </div>
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="include_headers"
+          render={({ field }) => (
+            <FormItem>
+              <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+                <div className="space-y-1">
+                  <Label className="text-xs font-semibold">
+                    Include request headers
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Pass request headers and metadata to TRIGGER as{" "}
+                    <code>{"{ status_code, headers, data }"}</code> instead of
+                    just the body
+                  </p>
+                </div>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={handleIncludeHeadersChange}
                     className="data-[state=checked]:bg-emerald-500"
                     disabled={isUpdatingWebhook}
                   />

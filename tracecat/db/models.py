@@ -1180,6 +1180,12 @@ class Webhook(WorkspaceModel):
         nullable=False,
         server_default=text("'[]'::jsonb"),
     )
+    include_headers: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        server_default=text("false"),
+    )
 
     workflow: Mapped[Workflow] = relationship(back_populates="webhook")
     api_key: Mapped[WebhookApiKey | None] = relationship(
