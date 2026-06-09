@@ -159,8 +159,8 @@ class PlatformMCPCatalogService(BaseService):
                     )
                     .where(MCPIntegration.workspace_id == workspace_id)
                     .order_by(
-                        MCPIntegration.created_at.asc(),
-                        MCPIntegration.id.asc(),
+                        MCPIntegration.created_at.desc(),
+                        MCPIntegration.id.desc(),
                     )
                 )
             )
@@ -168,18 +168,18 @@ class PlatformMCPCatalogService(BaseService):
             .all()
         )
 
+        # Multiple rows can map to one catalog entry. Rank candidates so an
+        # explicit catalog_slug binding beats the legacy provider-slug
+        # heuristic and a connected row beats a stale one; rows iterate
+        # newest-first, so remaining ties go to the most recent row.
         state_by_catalog_id: dict[uuid.UUID, tuple[MCPIntegration, bytes | None]] = {}
+        best_rank: dict[uuid.UUID, tuple[int, int]] = {}
         for mcp_integration, encrypted_access_token, provider_id, catalog_slug in rows:
             if isinstance(catalog_slug, str) and (
-                catalog_id := catalog_slug_to_id.get(catalog_slug)
+                slug_catalog_id := catalog_slug_to_id.get(catalog_slug)
             ):
-                state_by_catalog_id.setdefault(
-                    catalog_id,
-                    (mcp_integration, encrypted_access_token),
-                )
-                continue
-
-            if (
+                catalog_id, match_rank = slug_catalog_id, 0
+            elif (
                 isinstance(provider_id, str)
                 and (provider_catalog_id := provider_to_catalog_id.get(provider_id))
                 and self._mcp_integration_has_provider_slug(
@@ -187,9 +187,21 @@ class PlatformMCPCatalogService(BaseService):
                     provider_id=provider_id,
                 )
             ):
-                state_by_catalog_id.setdefault(
-                    provider_catalog_id,
-                    (mcp_integration, encrypted_access_token),
+                catalog_id, match_rank = provider_catalog_id, 1
+            else:
+                continue
+
+            state = self._catalog_state(
+                mcp_integration=mcp_integration,
+                encrypted_access_token=encrypted_access_token,
+            )
+            rank = (match_rank, 0 if state == "connected" else 1)
+            current = best_rank.get(catalog_id)
+            if current is None or rank < current:
+                best_rank[catalog_id] = rank
+                state_by_catalog_id[catalog_id] = (
+                    mcp_integration,
+                    encrypted_access_token,
                 )
         return state_by_catalog_id
 

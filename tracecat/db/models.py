@@ -4355,6 +4355,10 @@ class OAuthIntegration(TimestampMixin, Base):
         Text,
         nullable=True,
     )
+    token_endpoint_auth_method: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+    )
 
     # Relationships
     user: Mapped[User | None] = relationship("User")

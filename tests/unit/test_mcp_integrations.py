@@ -10,6 +10,7 @@ This test suite covers MCP integration functionality including:
 
 import socket
 import uuid
+from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -465,6 +466,85 @@ class TestMCPIntegrationCRUD:
         assert item.mcp_server_type is None
         assert item.mcp_auth_type is None
 
+    async def test_platform_mcp_catalog_state_prefers_connected_row(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """With multiple rows for one entry, a connected row beats an older stale one."""
+        catalog = _catalog_entry(
+            slug="multi-row-mcp",
+            name="Multi Row MCP",
+            description="Catalog row with several workspace integrations",
+            connection_spec={
+                "kind": "http_oauth2",
+                "server_type": "http",
+                "auth_type": "OAUTH2",
+                "requires_config": False,
+                "config_fields": [],
+                "credentials": [],
+                "server_uri": "https://mcp.example.com/mcp",
+                "scopes": [],
+                "oauth_authorization_endpoint": None,
+                "oauth_token_endpoint": None,
+            },
+            sort_key="0001:multi-row-mcp",
+        )
+        _install_catalog_entry(monkeypatch, catalog)
+
+        # Older abandoned OAuth attempt: provider configured, never connected.
+        stale_oauth = await integration_service.store_provider_config(
+            provider_key=ProviderKey(
+                id="custom_mcp_multi_row_stale",
+                grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+            ),
+            client_id="stale-client",
+        )
+        # Newer attempt that completed the OAuth flow.
+        live_oauth = await integration_service.store_integration(
+            provider_key=ProviderKey(
+                id="custom_mcp_multi_row_live",
+                grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+            ),
+            access_token=SecretStr("live-access-token"),
+        )
+        now = datetime.now(UTC)
+        stale_row = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name="Multi Row MCP",
+            slug="multi-row-mcp",
+            catalog_slug=catalog.slug,
+            server_type="http",
+            server_uri="https://mcp.example.com/mcp",
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_integration_id=stale_oauth.id,
+            created_at=now - timedelta(hours=1),
+        )
+        live_row = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name="Multi Row MCP",
+            slug="multi-row-mcp-2",
+            catalog_slug=catalog.slug,
+            server_type="http",
+            server_uri="https://mcp.example.com/mcp",
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_integration_id=live_oauth.id,
+            created_at=now,
+        )
+        session.add_all([stale_row, live_row])
+        await session.commit()
+
+        catalog_service = PlatformMCPCatalogService(session=session)
+        items, _ = await catalog_service.list_catalog(
+            workspace_id=integration_service.workspace_id,
+            agent_addons_entitled=True,
+            q=catalog.slug,
+        )
+        item = next(item for item in items if item.slug == catalog.slug)
+        assert item.state == "connected"
+        assert item.mcp_integration_id == live_row.id
+
     async def test_platform_mcp_catalog_connect_requires_entitlement_for_new_rows(
         self,
         integration_service: IntegrationService,
@@ -716,6 +796,55 @@ class TestMCPIntegrationCRUD:
         )
         item = next(item for item in items if item.slug == catalog.slug)
         assert item.mcp_integration_id == legacy.id
+
+    async def test_connect_platform_mcp_catalog_skips_legacy_row_with_other_auth(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A legacy row with a different auth type must not be adopted."""
+        catalog = _catalog_entry(
+            slug="legacy-auth-mismatch-mcp",
+            name="Legacy Auth Mismatch MCP",
+            description="Legacy catalog row",
+            connection_spec={
+                "kind": "http_none",
+                "server_type": "http",
+                "auth_type": "NONE",
+                "requires_config": False,
+                "config_fields": [],
+                "credentials": [],
+                "server_uri": "https://mcp.example.com/mcp",
+            },
+            sort_key="0003:legacy-auth-mismatch-mcp",
+        )
+        _install_catalog_entry(monkeypatch, catalog)
+        # Same slug and host as the recipe, but authenticates differently.
+        legacy = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name="Legacy Auth Mismatch MCP",
+            slug=catalog.slug,
+            server_type="http",
+            server_uri="https://mcp.example.com/mcp",
+            auth_type=MCPAuthType.CUSTOM,
+        )
+        session.add(legacy)
+        await session.flush()
+
+        result = await integration_service.connect_platform_mcp_catalog(
+            catalog_slug=catalog.slug
+        )
+
+        created = result.mcp_integration
+        assert created is not None
+        # A fresh platform row is created; the custom row is left untouched.
+        assert created.id != legacy.id
+        assert created.catalog_slug == catalog.slug
+        assert created.auth_type == MCPAuthType.NONE
+        await session.refresh(legacy)
+        assert legacy.catalog_slug is None
+        assert legacy.auth_type == MCPAuthType.CUSTOM
 
     async def test_platform_mcp_catalog_existing_row_connects_without_entitlement(
         self,
@@ -3188,7 +3317,7 @@ class TestMCPProviderOAuth:
         assert callback_state.token_auth_method == "client_secret_post"
         expected_code_verifier = callback_state.code_verifier
 
-        await integration_service.complete_mcp_oauth_discovery_callback(
+        stored = await integration_service.complete_mcp_oauth_discovery_callback(
             provider_id=provider_key.id,
             code="auth-code",
             state=str(state_id),
@@ -3200,6 +3329,97 @@ class TestMCPProviderOAuth:
         )
         assert FakeOAuthClient.init_calls[1]["token_endpoint_auth_method"] == (
             "client_secret_post"
+        )
+        # Persisted so refresh keeps using the registered method.
+        assert stored.token_endpoint_auth_method == "client_secret_post"
+
+    async def test_generic_mcp_refresh_uses_persisted_token_auth_method(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Refresh reuses the persisted token auth method over the heuristic pick."""
+        provider_key = ProviderKey(
+            id="custom_mcp_persisted_auth_method",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        integration = await integration_service.store_provider_config(
+            provider_key=provider_key,
+            client_id="persisted-client",
+            client_secret=SecretStr("persisted-secret"),
+            authorization_endpoint="https://auth.example.test/oauth/authorize",
+        )
+        integration.token_endpoint_auth_method = "client_secret_basic"
+        session.add(integration)
+        session.add(
+            MCPIntegration(
+                workspace_id=integration_service.workspace_id,
+                name="Persisted Auth Method MCP",
+                slug="persisted-auth-method-mcp",
+                server_type="http",
+                server_uri="https://mcp.example.test/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=integration.id,
+            )
+        )
+        await session.commit()
+
+        async def fake_discover(
+            *,
+            server_uri: str,
+        ) -> integration_service_module.MCPOAuthDiscoveryEndpoints:
+            assert server_uri == "https://mcp.example.test/mcp"
+            return integration_service_module.MCPOAuthDiscoveryEndpoints(
+                authorization_endpoint="https://auth.example.test/oauth/authorize",
+                token_endpoint="https://auth.example.test/oauth/token",
+                # The heuristic alone would pick client_secret_post here.
+                token_methods=["client_secret_basic", "client_secret_post"],
+                registration_endpoint=None,
+                resource="https://mcp.example.test/mcp",
+            )
+
+        class FakeOAuthClient:
+            init_calls: list[dict[str, object]] = []
+
+            def __init__(self, **kwargs: object) -> None:
+                self.init_calls.append(kwargs)
+
+            async def refresh_token(
+                self, *args: object, **kwargs: object
+            ) -> dict[str, object]:
+                _ = args, kwargs
+                return {
+                    "access_token": "refreshed-access-token",
+                    "refresh_token": "refreshed-refresh-token",
+                    "expires_in": 3600,
+                    "scope": "read",
+                }
+
+        async def fake_validate_oauth_endpoint(endpoint: str) -> None:
+            _ = endpoint
+
+        monkeypatch.setattr(
+            integration_service, "_discover_mcp_oauth_endpoints", fake_discover
+        )
+        monkeypatch.setattr(
+            integration_service_module,
+            "AsyncOAuth2Client",
+            FakeOAuthClient,
+        )
+        monkeypatch.setattr(
+            integration_service_module,
+            "validate_oauth_endpoint_resolves_public_async",
+            fake_validate_oauth_endpoint,
+        )
+
+        await integration_service._refresh_custom_mcp_integration(
+            integration=integration,
+            refresh_token="refresh-token",
+        )
+
+        assert FakeOAuthClient.init_calls[-1]["token_endpoint_auth_method"] == (
+            "client_secret_basic"
         )
 
     async def test_generic_mcp_refresh_rejects_private_token_endpoint_resolution(

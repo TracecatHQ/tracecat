@@ -1,4 +1,4 @@
-"""add mcp catalog slug
+"""add mcp catalog slug and oauth token endpoint auth method
 
 Revision ID: 9b52f7f18a31
 Revises: 0f18bea0c115
@@ -30,9 +30,14 @@ def upgrade() -> None:
         ["workspace_id", "catalog_slug"],
         unique=False,
     )
+    op.add_column(
+        "oauth_integration",
+        sa.Column("token_endpoint_auth_method", sa.String(), nullable=True),
+    )
 
 
 def downgrade() -> None:
+    op.drop_column("oauth_integration", "token_endpoint_auth_method")
     op.drop_index(
         "ix_mcp_integration_workspace_catalog_slug",
         table_name="mcp_integration",

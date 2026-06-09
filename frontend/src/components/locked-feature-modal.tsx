@@ -66,8 +66,8 @@ export function LockedFeatureModal({
         {bullets.length > 0 ? (
           <div className="space-y-4 px-5 py-4">
             <ul className="space-y-2 pl-4 text-sm text-muted-foreground">
-              {bullets.map((bullet) => (
-                <li key={bullet} className="list-disc">
+              {bullets.map((bullet, index) => (
+                <li key={`bullet-${index}`} className="list-disc">
                   {bullet}
                 </li>
               ))}

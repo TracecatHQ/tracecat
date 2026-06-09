@@ -1191,6 +1191,9 @@ class IntegrationService(BaseWorkspaceService):
             authorization_endpoint=provider_config.authorization_endpoint
             or endpoints.authorization_endpoint,
             token_endpoint=token_endpoint,
+            # Persist the method that just worked so refresh keeps using it
+            # instead of re-deriving one the server may reject.
+            token_endpoint_auth_method=token_auth_method,
         )
 
     async def _refresh_custom_mcp_integration(
@@ -1217,9 +1220,10 @@ class IntegrationService(BaseWorkspaceService):
             if provider_config.client_secret
             else None
         )
-        token_auth_method = self._select_mcp_token_auth_method(
+        token_auth_method = self._mcp_token_auth_method(
             methods=endpoints.token_methods,
             client_secret=client_secret,
+            registered_auth_method=integration.token_endpoint_auth_method,
         )
         client = self._build_mcp_oauth_client(
             client_id=provider_config.client_id,
@@ -1300,6 +1304,7 @@ class IntegrationService(BaseWorkspaceService):
         scope: str | None = None,
         authorization_endpoint: str | None = None,
         token_endpoint: str | None = None,
+        token_endpoint_auth_method: str | None = None,
     ) -> OAuthIntegration:
         """Store or update a user's integration."""
         # Calculate expiration time if expires_in is provided
@@ -1358,6 +1363,8 @@ class IntegrationService(BaseWorkspaceService):
                 new_token_endpoint,
                 field_name="token_endpoint",
             )
+            if token_endpoint_auth_method is not None:
+                integration.token_endpoint_auth_method = token_endpoint_auth_method
 
             self.session.add(integration)
             await self.session.commit()
@@ -1397,6 +1404,7 @@ class IntegrationService(BaseWorkspaceService):
                     resolve_endpoint(token_endpoint, None, default_token),
                     field_name="token_endpoint",
                 ),
+                token_endpoint_auth_method=token_endpoint_auth_method,
             )
 
             self.session.add(integration)
@@ -2716,12 +2724,16 @@ class IntegrationService(BaseWorkspaceService):
         """Whether a row's server config matches a catalog recipe.
 
         Used to adopt legacy (null ``catalog_slug``) rows: a matching server
-        type plus, for http, the same host (or a placeholder recipe where the
-        user supplies the host) or, for stdio, the same launch command. This
-        guards against hijacking a coincidentally same-named custom row that
-        points somewhere else.
+        type and auth type plus, for http, the same host (or a placeholder
+        recipe where the user supplies the host) or, for stdio, the same
+        launch command. This guards against hijacking a coincidentally
+        same-named custom row that points somewhere else or authenticates
+        differently (e.g. a header-auth row adopted as an OAuth catalog row
+        would show connected instead of prompting for OAuth setup).
         """
         if mcp_integration.server_type != spec.server_type:
+            return False
+        if mcp_integration.auth_type != spec.auth_type:
             return False
 
         if spec.server_type == "http":
