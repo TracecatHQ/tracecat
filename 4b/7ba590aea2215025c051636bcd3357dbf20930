@@ -1,0 +1,47 @@
+frontend/src/client/schemas.gen.ts
+  s_6b93d631eceb93::t_9f6a0ec0a0dc71 27232-27236,27292-27296,27428-27437
+tracecat/webhooks/dependencies.py
+  s_6b93d631eceb93::t_3e6aff4eb89ef8 112-117
+tests/unit/test_webhook_execution_path.py
+  s_6b93d631eceb93::t_14cb43414a1ec6 509-681,684
+  s_6b93d631eceb93::t_e9e60c06d35e70 682-683
+frontend/src/components/builder/panel/trigger-panel.tsx
+  s_6b93d631eceb93::t_0eaef7987d0168 504-528
+  s_6b93d631eceb93::t_2787e0c33d73b7 215
+  s_6b93d631eceb93::t_65fed61d79ed72 649-667
+  s_6b93d631eceb93::t_3d94f4c99ab2a4 398
+alembic/versions/c9d2e7a4f1b3_add_webhook_include_headers.py
+  s_6b93d631eceb93::t_0329e44bb54817 1-35
+tracecat/db/models.py
+  s_6b93d631eceb93::t_cbb4bbd9ec39fb 1183-1188
+tracecat/webhooks/router.py
+  s_6b93d631eceb93::t_9f6a0ec0a0dc71 332
+  s_6b93d631eceb93::t_ee790f4304a69e 315
+  s_6b93d631eceb93::t_d74b3e164d6142 24
+  s_6b93d631eceb93::t_30213501435f28 347
+  s_6b93d631eceb93::t_c9a7a7f7f68b9e 385-387
+  s_6b93d631eceb93::t_68e82894724d56 278
+  s_6b93d631eceb93::t_f426c5092e6840 319-331,333-336,366
+tracecat/webhooks/schemas.py
+  s_6b93d631eceb93::t_cd61f5a7c8ab22 34
+  s_6b93d631eceb93::t_5b9d2dfffb9b5b 76
+  s_6b93d631eceb93::t_19e1d5697eb363 63
+frontend/src/client/types.gen.ts
+  s_6b93d631eceb93::t_9f6a0ec0a0dc71 8143,8161,8189
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "4b7ba590aea2215025c051636bcd3357dbf20930",
+  "prompts": {},
+  "sessions": {
+    "s_6b93d631eceb93": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2a93ec5a-f7ce-49ef-bbfd-77bf4fb48bdf",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
