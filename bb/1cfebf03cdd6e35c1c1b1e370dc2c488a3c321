@@ -1,0 +1,19 @@
+tracecat/webhooks/router.py
+  s_6b93d631eceb93::t_d4bab1b14fc43f 323-331,334,343
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "bb1cfebf03cdd6e35c1c1b1e370dc2c488a3c321",
+  "prompts": {},
+  "sessions": {
+    "s_6b93d631eceb93": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2a93ec5a-f7ce-49ef-bbfd-77bf4fb48bdf",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
