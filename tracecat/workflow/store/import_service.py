@@ -429,6 +429,7 @@ class WorkflowImportService(BaseWorkspaceService):
         # The webhook ID doesn't matter
         webhook.methods = remote_webhook.methods
         webhook.status = remote_webhook.status
+        webhook.include_headers = remote_webhook.include_headers
 
     async def _update_case_trigger(
         self, workflow: Workflow, remote_case_trigger: RemoteCaseTrigger | None

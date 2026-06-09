@@ -126,6 +126,7 @@ class WorkflowStoreService(BaseWorkspaceService):
             webhook=RemoteWebhook(
                 methods=webhook.methods,
                 status=cast(Status, webhook.status),
+                include_headers=webhook.include_headers,
             ),
             case_trigger=case_trigger,
             definition=dsl,

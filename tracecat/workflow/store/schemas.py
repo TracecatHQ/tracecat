@@ -125,6 +125,8 @@ class RemoteWebhook(BaseModel):
     """The methods of the webhook."""
     status: Status = Field(default="online")
     """Status of the webhook, either 'online' or 'offline'."""
+    include_headers: bool = False
+    """Whether TRIGGER receives the full request envelope (headers + body)."""
 
 
 class RemoteCaseTrigger(BaseModel):

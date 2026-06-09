@@ -60,7 +60,9 @@ def _workflow_fixture(
         tags=[],
         folder=None,
         schedules=[],
-        webhook=SimpleNamespace(methods=["POST"], status="online"),
+        webhook=SimpleNamespace(
+            methods=["POST"], status="online", include_headers=True
+        ),
         case_trigger=case_trigger,
         git_sync_branch=None,
     )
@@ -113,6 +115,8 @@ async def test_publish_workflow_omits_inert_case_trigger(
 
     push_obj = sync_service.push.call_args.kwargs["objects"][0]
     assert push_obj.data.case_trigger is None
+    # include_headers must be exported so it survives a store round-trip
+    assert push_obj.data.webhook.include_headers is True
 
 
 @pytest.mark.anyio
