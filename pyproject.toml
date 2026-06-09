@@ -41,7 +41,7 @@ dependencies = [
     "fastapi-users[sqlalchemy,oauth]==15.0.2",
     "fastapi[standard]==0.133.0",
     "fastmcp==3.2.0",
-    "google-auth==2.49.0.dev0",
+    "google-auth==2.49.0",
     "greenlet==3.0.3",
     "griffe==2.0.2",
     "httpx==0.28.1",

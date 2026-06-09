@@ -1639,7 +1639,7 @@ def convert_chat_messages_to_ui(
                     )
 
                 # --- Tool call parts (pydantic-ai) ---
-                case "ToolCallPart" | "BuiltinToolCallPart":
+                case "ToolCallPart" | "NativeToolCallPart":
                     if approval_payload:
                         continue
                     tool_name = normalize_mcp_tool_name(part.tool_name)
@@ -1677,7 +1677,7 @@ def convert_chat_messages_to_ui(
                     tool_entries[part.id] = tool_part
 
                 # --- Tool return parts (pydantic-ai) ---
-                case "ToolReturnPart" | "BuiltinToolReturnPart":
+                case "ToolReturnPart" | "NativeToolReturnPart":
                     # Check for structured error format from MCP proxy
                     structured_error = _extract_structured_error(part.content)
 
