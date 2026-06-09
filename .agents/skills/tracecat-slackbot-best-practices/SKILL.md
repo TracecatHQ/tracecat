@@ -77,7 +77,9 @@ Slack-facing agents need explicit production posting rules in their own instruct
 - Always post to the original Slack channel and thread.
 - Use Slack mrkdwn, not generic Markdown, when posting text.
 - Use Block Kit only when the response needs buttons, links, compact review layout, or structured blocks.
-- Use a reasonable, calm, critical tone. Do not be alarmist, speculate about compromise, or inflate severity without evidence.
+- Use a reasonable, calm, critical tone. Keep risk language grounded in evidence rather than inflated.
+- Prefer positive, preferred-vocabulary instructions over avoid-word blocklists. Naming the exact words to avoid (e.g. "suspicious", "critical", "breach") seeds those tokens into context and can prime them; instead state the phrasing you want and require risk claims to be evidence-backed.
+- State each rule once. Don't restate rules in a large end-of-prompt validation checklist — duplication bloats the prompt and drifts out of sync.
 - Avoid emojis unless they make the point clearer or are part of a deliberate lightweight status convention.
 - Keep style rules in the preset or `ai.agent` instructions. The agent reads its own instructions, not repo files.
 - If a Slack post fails, return a concise failure reason and enough context for workflow debugging.
