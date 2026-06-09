@@ -521,11 +521,11 @@ async def choose_workspace(mcp: TracecatMCP) -> str:
 
 def isolated_workspace(case_dir: Path) -> Path:
     workspace = case_dir / "workspace"
-    skill_target = (
-        workspace / ".agents/skills/tracecat-automation-best-practices/SKILL.md"
-    )
+    skill_target = workspace / ".agents/skills/tracecat-automation-best-practices"
     skill_target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(SKILL_SOURCE, skill_target)
+    # Copy the whole skill directory so progressive-disclosure references/ files
+    # (loaded on demand by SKILL.md links) are present in the workspace too.
+    shutil.copytree(SKILL_SOURCE.parent, skill_target, dirs_exist_ok=True)
     return workspace
 
 
