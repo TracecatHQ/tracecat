@@ -320,9 +320,18 @@ async def incoming_webhook_get(
 _REDACTED_HEADERS = frozenset({"x-tracecat-api-key"})
 
 
+class WebhookTriggerEnvelope(TypedDict):
+    """`core.http.request`-style envelope passed to TRIGGER when a webhook opts
+    into ``include_headers``."""
+
+    status_code: int
+    headers: dict[str, str]
+    data: TriggerInputs | None
+
+
 def _wrap_with_headers(
     payload: TriggerInputs | None, request: Request
-) -> dict[str, Any]:
+) -> WebhookTriggerEnvelope:
     """Wrap the parsed body in a `core.http.request`-style envelope.
 
     Strips sensitive auth headers so workflow authors can't read the webhook's
@@ -331,7 +340,7 @@ def _wrap_with_headers(
     headers = {
         k: v for k, v in request.headers.items() if k.lower() not in _REDACTED_HEADERS
     }
-    return {"status_code": 200, "headers": headers, "data": payload}
+    return WebhookTriggerEnvelope(status_code=200, headers=headers, data=payload)
 
 
 async def _wrapped_payload(
