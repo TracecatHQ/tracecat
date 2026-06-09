@@ -470,7 +470,9 @@ async def incoming_webhook_wait(
     The workflow is identified by the `path` parameter, which is equivalent to the workflow id.
     """
     logger.info("Webhook hit", path=workflow_id, role=ctx_role.get())
-    logger.trace("Webhook payload", payload=payload)
+    # Do not log the payload here: it may be wrapped with request headers
+    # (include_headers), which can contain auth/signature values.
+    logger.trace("Webhook payload received")
 
     dsl_input = DSLInput(**defn.content)
 
@@ -509,7 +511,9 @@ async def incoming_webhook_draft(
     Child workflows using aliases will resolve to the latest draft aliases, not committed aliases.
     """
     logger.info("Draft webhook hit", path=workflow_id, role=ctx_role.get())
-    logger.trace("Draft webhook payload", payload=payload)
+    # Do not log the payload here: it may be wrapped with request headers
+    # (include_headers), which can contain auth/signature values.
+    logger.trace("Draft webhook payload received")
 
     service = await WorkflowExecutionsService.connect()
     response = await service.create_draft_workflow_execution_wait_for_start(

@@ -86,9 +86,17 @@ def remote_workflow_definition(sample_dsl: DSLInput) -> RemoteWorkflowDefinition
                 timeout=300.0,
             )
         ],
-        webhook=RemoteWebhook(methods=["POST", "PUT"], status="online"),
+        webhook=RemoteWebhook(
+            methods=["POST", "PUT"], status="online", include_headers=True
+        ),
         definition=sample_dsl,
     )
+
+
+def test_remote_webhook_defaults_include_headers_false():
+    """Store exports predating include_headers must import as False."""
+    rw = RemoteWebhook.model_validate({"methods": ["POST"], "status": "online"})
+    assert rw.include_headers is False
 
 
 class TestWorkflowImportService:
@@ -158,6 +166,7 @@ class TestWorkflowImportService:
         webhook = workflow.webhook
         assert webhook.methods == ["POST", "PUT"]
         assert webhook.status == "online"
+        assert webhook.include_headers is True
 
         # Verify workflow definition was created
         stmt = select(WorkflowDefinition).where(WorkflowDefinition.workflow_id == wf_id)
