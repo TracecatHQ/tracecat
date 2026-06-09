@@ -160,6 +160,15 @@ def _oauth_error_redirect_response(
     return RedirectResponse(_build_redirect_url(redirect_uri, params), status_code=302)
 
 
+def _mcp_continue_url(txn_id: str, *, org: str | None = None) -> str:
+    """Build the frontend continuation URL for an MCP OAuth transaction."""
+    params = {"txn": txn_id}
+    if org:
+        params["org"] = org
+    frontend_base = TRACECAT__PUBLIC_APP_URL.rstrip("/")
+    return f"{frontend_base}/oauth/mcp/continue?{urlencode(params)}"
+
+
 def _validate_pkce_s256(code_verifier: str, code_challenge: str) -> bool:
     """Validate PKCE S256: base64url(sha256(verifier)) == challenge.
 
@@ -271,6 +280,7 @@ async def _handle_authorize(
     state: str,
     resource: str | None,
     nonce: str | None,
+    org: str | None,
 ) -> Response:
     """Core authorization logic shared between /authorize and /authorize/resume."""
     # --- Parameter validation ---
@@ -310,7 +320,11 @@ async def _handle_authorize(
 
     # --- Session resolution ---
     try:
-        session_result = await resolve_authorize_session(user)
+        session_result = await resolve_authorize_session(
+            user,
+            request=request,
+            organization_hint=org,
+        )
     except ValueError as exc:
         # The OAuth client callback has already been validated at this point.
         logger.warning(
@@ -340,22 +354,19 @@ async def _handle_authorize(
                 "state": state,
                 "resource": resource,
                 **({"nonce": nonce} if nonce else {}),
+                **({"org": org} if org else {}),
             },
             created_at=time.time(),
             bound_ip=ip_hash,
         )
         await store_resume_transaction(txn)
 
-        frontend_base = TRACECAT__PUBLIC_APP_URL.rstrip("/")
         logger.info(
             "MCP OIDC: no session, redirecting to login",
             txn_id=txn_id,
             action=session_result.action,
         )
-        return RedirectResponse(
-            f"{frontend_base}/oauth/mcp/continue?txn={txn_id}",
-            status_code=302,
-        )
+        return RedirectResponse(_mcp_continue_url(txn_id, org=org), status_code=302)
 
     # --- Issue authorization code ---
     assert isinstance(session_result, SessionResult)
@@ -406,6 +417,7 @@ async def authorize(
     state: str = Query(...),
     resource: str | None = Query(default=None),
     nonce: str | None = Query(default=None),
+    org: str | None = Query(default=None),
 ) -> Response:
     """OIDC authorization endpoint (authorization-code + PKCE)."""
     return await _handle_authorize(
@@ -420,6 +432,7 @@ async def authorize(
         state=state,
         resource=resource,
         nonce=nonce,
+        org=org,
     )
 
 
@@ -428,6 +441,7 @@ async def authorize_resume(
     request: Request,
     user: OptionalUserDep,
     txn: str = Query(...),
+    org: str | None = Query(default=None),
 ) -> Response:
     """Resume an authorization request after login or org selection."""
     txn_data = await load_and_delete_resume_transaction(txn)
@@ -462,6 +476,7 @@ async def authorize_resume(
         )
 
     params = txn_data.authorize_params
+    org_hint = org or params.get("org")
     logger.info("MCP OIDC: resuming authorization", txn_id=txn)
 
     return await _handle_authorize(
@@ -476,6 +491,7 @@ async def authorize_resume(
         state=params.get("state", ""),
         resource=params.get("resource", ""),
         nonce=params.get("nonce"),
+        org=org_hint,
     )
 
 

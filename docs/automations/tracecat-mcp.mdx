@@ -25,6 +25,10 @@ MCP authentication uses a built-in OIDC provider. Your agent will be redirected 
 
 <McpInstallationSelfHosted />
 
+### Multi-organization deployments
+
+In multi-organization self-hosted deployments, MCP auth follows the active Tracecat organization selected in the browser. If you deep-link a specific organization during auth, keep `org=<organization-slug>` on the MCP continuation URL. Tracecat validates that the signed-in user belongs to that organization before issuing the MCP token, and stores the org context with the resume transaction so MCP auth can complete across multiple replicas.
+
 ## Cloud
 
 <Badge icon="credit-card" color="blue" size="lg" shape="pill">Subscription required</Badge>

@@ -19,6 +19,7 @@ function McpAuthContinueContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const txnId = searchParams?.get("txn")
+  const org = searchParams?.get("org")
 
   useEffect(() => {
     if (userIsLoading) return
@@ -27,16 +28,21 @@ function McpAuthContinueContent() {
       return
     }
 
+    const orgQuery = org ? `&org=${encodeURIComponent(org)}` : ""
+
     if (user) {
       // Already logged in — resume the authorization flow.
-      window.location.href = `/api/oauth/mcp/authorize/resume?txn=${encodeURIComponent(txnId)}`
+      window.location.href = `/api/oauth/mcp/authorize/resume?txn=${encodeURIComponent(txnId)}${orgQuery}`
       return
     }
 
     // Not logged in — redirect to sign-in with a return URL back here.
-    const returnUrl = `/oauth/mcp/continue?txn=${encodeURIComponent(txnId)}`
-    router.replace(`/sign-in?returnUrl=${encodeURIComponent(returnUrl)}`)
-  }, [user, userIsLoading, txnId, router])
+    const returnUrl = `/oauth/mcp/continue?txn=${encodeURIComponent(txnId)}${orgQuery}`
+    const signInOrgQuery = org ? `&org=${encodeURIComponent(org)}` : ""
+    router.replace(
+      `/sign-in?returnUrl=${encodeURIComponent(returnUrl)}${signInOrgQuery}`
+    )
+  }, [user, userIsLoading, txnId, org, router])
 
   return <CenteredSpinner />
 }
