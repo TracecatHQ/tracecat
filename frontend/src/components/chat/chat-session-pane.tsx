@@ -1824,6 +1824,9 @@ function ApprovalRequestPart({
   onSubmit?: (decisions: ApprovalDecision[]) => Promise<void>
 }) {
   const [decisions, setDecisions] = useState<Record<string, DecisionState>>({})
+  const [submittedDecisions, setSubmittedDecisions] = useState<
+    Record<string, DecisionState>
+  >({})
   const [submitting, setSubmitting] = useState(false)
 
   const approvalsKey = useMemo(
@@ -1833,11 +1836,23 @@ function ApprovalRequestPart({
 
   useEffect(() => {
     setDecisions({})
+    setSubmittedDecisions({})
   }, [approvalsKey])
 
-  const readyToSubmit =
+  const hasSelectedPendingDecision =
     approvals.length > 0 &&
-    approvals.every((approval) => decisions[approval.tool_call_id]?.action)
+    approvals.some((approval) => {
+      if (submittedDecisions[approval.tool_call_id]) {
+        return false
+      }
+      return Boolean(decisions[approval.tool_call_id]?.action)
+    })
+
+  const allApprovalsSubmitted =
+    approvals.length > 0 &&
+    approvals.every((approval) =>
+      Boolean(submittedDecisions[approval.tool_call_id])
+    )
 
   const setDecision = useCallback(
     (toolCallId: string, update: Partial<DecisionState>) => {
@@ -1853,26 +1868,28 @@ function ApprovalRequestPart({
   )
 
   const handleSubmit = useCallback(async () => {
-    if (!onSubmit || !readyToSubmit) {
+    if (!onSubmit || !hasSelectedPendingDecision) {
       toast({
         title: "Pending decisions",
-        description: "Choose an action for each tool before continuing.",
+        description:
+          "Choose an action for at least one tool before continuing.",
       })
       return
     }
 
     const payload: ApprovalDecision[] = []
+    const acceptedDecisions: Record<string, DecisionState> = {}
     for (const approval of approvals) {
+      if (submittedDecisions[approval.tool_call_id]) {
+        continue
+      }
       const decision = decisions[approval.tool_call_id]
       if (!decision?.action) {
-        toast({
-          title: "Missing decision",
-          description: `Select an action for ${approval.tool_name}.`,
-        })
-        return
+        continue
       }
       if (decision.action === "approve") {
         payload.push({ tool_call_id: approval.tool_call_id, action: "approve" })
+        acceptedDecisions[approval.tool_call_id] = decision
       } else if (decision.action === "override") {
         try {
           const parsed = decision.overrideArgs
@@ -1883,6 +1900,7 @@ function ApprovalRequestPart({
             action: "override",
             override_args: parsed,
           })
+          acceptedDecisions[approval.tool_call_id] = decision
         } catch {
           toast({
             variant: "destructive",
@@ -1897,19 +1915,36 @@ function ApprovalRequestPart({
           action: "deny",
           reason: decision.reason ?? "",
         })
+        acceptedDecisions[approval.tool_call_id] = decision
       }
     }
 
     try {
       setSubmitting(true)
       await onSubmit(payload)
-      setDecisions({})
+      setSubmittedDecisions((prev) => ({
+        ...prev,
+        ...acceptedDecisions,
+      }))
+      setDecisions((prev) => {
+        const next = { ...prev }
+        for (const toolCallId of Object.keys(acceptedDecisions)) {
+          delete next[toolCallId]
+        }
+        return next
+      })
     } catch (error) {
       console.error(error)
     } finally {
       setSubmitting(false)
     }
-  }, [approvals, decisions, onSubmit, readyToSubmit])
+  }, [
+    approvals,
+    decisions,
+    hasSelectedPendingDecision,
+    onSubmit,
+    submittedDecisions,
+  ])
 
   const disabled = !onSubmit
 
@@ -1923,19 +1958,31 @@ function ApprovalRequestPart({
         {approvals.map((approval, index) => {
           const actionId = approval.tool_name.replaceAll("__", ".")
           const decision = decisions[approval.tool_call_id]
+          const submittedDecision = submittedDecisions[approval.tool_call_id]
+          const visibleDecision = submittedDecision ?? decision
+          const isSubmitted = Boolean(submittedDecision)
           const initialOverrideArgs = formatArgs(approval.args)
           const isLastApproval = index === approvals.length - 1
           return (
             <div
               key={approval.tool_call_id}
-              className="space-y-3 rounded-md border border-border/60 bg-background p-3"
+              data-testid={`approval-card-${approval.tool_call_id}`}
+              className={cn(
+                "space-y-3 rounded-md border border-border/60 bg-background p-3 transition-colors",
+                isSubmitted && "bg-muted/10",
+                !isSubmitted &&
+                  visibleDecision?.action !== undefined &&
+                  "border-foreground/20"
+              )}
             >
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-2.5">
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2.5">
                     {getIcon(actionId, TOOL_ICON_PROPS)}
-                    <p className="font-medium text-sm">{actionId}</p>
-                    {getStatusBadge("approval-requested")}
+                    <p className="min-w-0 truncate font-medium text-sm">
+                      {actionId}
+                    </p>
+                    {isSubmitted ? null : getStatusBadge("approval-requested")}
                   </div>
                 </div>
                 <JsonViewWithControls
@@ -1949,7 +1996,7 @@ function ApprovalRequestPart({
                     type="button"
                     size="sm"
                     variant="outline"
-                    disabled={disabled || submitting}
+                    disabled={disabled || submitting || isSubmitted}
                     onClick={() =>
                       setDecision(approval.tool_call_id, {
                         action: "approve",
@@ -1958,8 +2005,8 @@ function ApprovalRequestPart({
                       })
                     }
                     className={cn(
-                      decision?.action === "approve" &&
-                        "border-success bg-background text-success hover:bg-success/10 hover:text-success"
+                      visibleDecision?.action === "approve" &&
+                        "border-success/55 text-success hover:border-success/65 hover:bg-background hover:text-success disabled:opacity-100"
                     )}
                   >
                     <CheckIcon className="mr-1 size-3" />
@@ -1969,7 +2016,7 @@ function ApprovalRequestPart({
                     type="button"
                     size="sm"
                     variant="outline"
-                    disabled={disabled || submitting}
+                    disabled={disabled || submitting || isSubmitted}
                     onClick={() =>
                       setDecision(approval.tool_call_id, {
                         action: "override",
@@ -1979,8 +2026,8 @@ function ApprovalRequestPart({
                       })
                     }
                     className={cn(
-                      decision?.action === "override" &&
-                        "border-success bg-background text-success hover:bg-success/10 hover:text-success"
+                      visibleDecision?.action === "override" &&
+                        "border-success/55 text-success hover:border-success/65 hover:bg-background hover:text-success disabled:opacity-100"
                     )}
                   >
                     <PencilIcon className="mr-1 size-3" />
@@ -1990,7 +2037,7 @@ function ApprovalRequestPart({
                     type="button"
                     size="sm"
                     variant="outline"
-                    disabled={disabled || submitting}
+                    disabled={disabled || submitting || isSubmitted}
                     onClick={() =>
                       setDecision(approval.tool_call_id, {
                         action: "deny",
@@ -1998,8 +2045,8 @@ function ApprovalRequestPart({
                       })
                     }
                     className={cn(
-                      decision?.action === "deny" &&
-                        "border-destructive bg-background text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      visibleDecision?.action === "deny" &&
+                        "border-destructive/55 text-destructive hover:border-destructive/65 hover:bg-background hover:text-destructive disabled:opacity-100"
                     )}
                   >
                     <XIcon className="mr-1 size-3" />
@@ -2007,19 +2054,24 @@ function ApprovalRequestPart({
                   </Button>
                 </div>
               </div>
-              {decision?.action === "override" && (
+              {visibleDecision?.action === "override" && (
                 <div
                   data-testid={`approval-override-editor-${approval.tool_call_id}`}
                 >
                   <CodeEditor
-                    value={decision.overrideArgs ?? initialOverrideArgs}
+                    value={visibleDecision.overrideArgs ?? initialOverrideArgs}
                     language="json"
-                    onChange={(value) =>
+                    readOnly={disabled || submitting || isSubmitted}
+                    onChange={(value) => {
+                      if (isSubmitted) {
+                        return
+                      }
                       setDecision(approval.tool_call_id, {
-                        ...decision,
+                        ...(decision ?? {}),
+                        action: "override",
                         overrideArgs: value,
                       })
-                    }
+                    }}
                     className={cn(
                       "text-xs",
                       "[&_.cm-editor]:!border [&_.cm-editor]:!border-input [&_.cm-editor]:!bg-background [&_.cm-editor]:rounded-md",
@@ -2028,35 +2080,48 @@ function ApprovalRequestPart({
                   />
                 </div>
               )}
-              {decision?.action === "deny" && (
+              {visibleDecision?.action === "deny" && (
                 <Textarea
                   className="text-xs"
                   rows={3}
-                  value={decision.reason ?? ""}
+                  value={visibleDecision.reason ?? ""}
                   onChange={(event) =>
                     setDecision(approval.tool_call_id, {
-                      ...decision,
+                      ...(decision ?? {}),
+                      action: "deny",
                       reason: event.target.value,
                     })
                   }
                   placeholder="Share a short reason"
-                  disabled={disabled || submitting}
+                  disabled={disabled || submitting || isSubmitted}
                 />
               )}
               {isLastApproval && (
                 <div className="flex flex-wrap justify-end gap-2 pt-1">
                   <Button
                     type="button"
+                    variant={allApprovalsSubmitted ? "outline" : "default"}
                     onClick={handleSubmit}
-                    disabled={disabled || submitting || !readyToSubmit}
-                    className="h-6 gap-1 px-2 text-xs"
+                    disabled={
+                      disabled ||
+                      submitting ||
+                      allApprovalsSubmitted ||
+                      !hasSelectedPendingDecision
+                    }
+                    className={cn(
+                      "h-6 gap-1 px-2 text-xs",
+                      allApprovalsSubmitted &&
+                        "border-border bg-muted text-muted-foreground disabled:opacity-100"
+                    )}
                   >
                     {submitting ? (
                       <Loader2 className="size-3 animate-spin" />
                     ) : (
                       <CheckIcon className="size-3" />
                     )}
-                    {submitting ? "Submitting..." : "Submit"}
+                    {submitting && "Submitting..."}
+                    {!submitting && allApprovalsSubmitted && "Submitted"}
+                    {!submitting && !allApprovalsSubmitted && "Submit"}
                   </Button>
                 </div>
               )}

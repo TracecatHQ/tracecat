@@ -27,6 +27,7 @@ from tracecat.agent.session.router import (
     stream_session_events,
 )
 from tracecat.agent.session.schemas import AgentSessionForkRequest
+from tracecat.agent.session.service import ApprovalContinuationResponse
 from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
 from tracecat.artifacts.schemas import CaseArtifact
 from tracecat.auth.types import Role
@@ -390,7 +391,12 @@ async def test_remove_session_artifact_removes_and_returns_artifacts() -> None:
 async def test_send_message_continue_uses_path_session_id_for_stream_key() -> None:
     session_id = uuid.uuid4()
     workspace_id = uuid.uuid4()
-    agent_session = _agent_session_stub(id=session_id, workspace_id=workspace_id)
+    agent_session = _agent_session_stub(
+        id=session_id,
+        workspace_id=workspace_id,
+        active_stream_id=uuid.uuid4(),
+        curr_run_id=uuid.uuid4(),
+    )
     role = Role(
         type="service",
         service_id="tracecat-api",
@@ -413,7 +419,12 @@ async def test_send_message_continue_uses_path_session_id_for_stream_key() -> No
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(return_value=agent_session),
         get_session=AsyncMock(return_value=agent_session),
-        run_turn=AsyncMock(return_value=None),
+        run_turn=AsyncMock(
+            return_value=ApprovalContinuationResponse(
+                curr_run_id=agent_session.curr_run_id,
+                resumed=True,
+            )
+        ),
         build_initial_artifact=AsyncMock(return_value=None),
     )
     fake_stream = SimpleNamespace(
@@ -445,7 +456,7 @@ async def test_send_message_continue_uses_path_session_id_for_stream_key() -> No
 
     assert isinstance(response, StreamingResponse)
     with_session_mock.assert_called_once_with(role=role)
-    # Continuation reuses the existing per-turn stream id (None here).
+    # Continuation reuses the existing per-turn stream id.
     stream_new_mock.assert_awaited_once_with(
         session_id=session_id,
         workspace_id=workspace_id,
@@ -462,6 +473,82 @@ async def test_send_message_continue_uses_path_session_id_for_stream_key() -> No
         request=request,
         active_stream_id=agent_session.active_stream_id,
     )
+
+
+@pytest.mark.anyio
+async def test_send_message_partial_continue_finishes_without_stream_attach() -> None:
+    session_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    agent_session = _agent_session_stub(
+        id=session_id,
+        workspace_id=workspace_id,
+        active_stream_id=uuid.uuid4(),
+        curr_run_id=uuid.uuid4(),
+    )
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute"}),
+    )
+    request = ContinueRunRequest(
+        decisions=[
+            ApprovalDecision(
+                tool_call_id="tool_call_123",
+                action="approve",
+            )
+        ],
+        source="inbox",
+    )
+
+    fake_svc = SimpleNamespace(
+        session=AsyncMock(),
+        is_legacy_session=AsyncMock(return_value=False),
+        validate_turn_request=AsyncMock(return_value=agent_session),
+        get_session=AsyncMock(return_value=agent_session),
+        run_turn=AsyncMock(
+            return_value=ApprovalContinuationResponse(
+                curr_run_id=agent_session.curr_run_id,
+                resumed=False,
+            )
+        ),
+        build_initial_artifact=AsyncMock(return_value=None),
+    )
+    fake_stream = SimpleNamespace(
+        error=AsyncMock(return_value=None),
+        done=AsyncMock(return_value=None),
+        sse=Mock(return_value=_empty_event_stream()),
+        finished_sse=Mock(return_value=_empty_event_stream()),
+    )
+
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService.with_session",
+            return_value=_AsyncContext(fake_svc),
+        ),
+        patch(
+            "tracecat.agent.session.router.AgentStream.new",
+            AsyncMock(return_value=fake_stream),
+        ),
+    ):
+        raw_send_message = cast(Any, send_message).__wrapped__
+        response = await raw_send_message(
+            session_id=session_id,
+            request=request,
+            role=role,
+            http_request=cast(
+                Any,
+                SimpleNamespace(is_disconnected=AsyncMock(return_value=False)),
+            ),
+        )
+
+    assert isinstance(response, StreamingResponse)
+    fake_stream.finished_sse.assert_called_once_with(
+        format="vercel",
+        message_id=f"{session_id}:{agent_session.curr_run_id}",
+    )
+    fake_stream.sse.assert_not_called()
 
 
 @pytest.mark.anyio

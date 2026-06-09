@@ -311,10 +311,18 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
 
       if (ai.isToolUIPart(part)) {
         const { state, toolCallId } = part
-        if (state === "input-available") {
+        if (state === "input-streaming" || state === "input-available") {
           // OPEN STATE
           // If we encounter an input-available part, we open a tool call state
-          states.set(toolCallId, { open: posKey })
+          const currState = states.get(toolCallId)
+          if (currState?.close) {
+            ignorePos.add(posKey)
+          } else {
+            if (currState?.open) {
+              ignorePos.add(currState.open)
+            }
+            states.set(toolCallId, { ...currState, open: posKey })
+          }
         } else if (state === "output-available" || state === "output-error") {
           // CLOSE STATE
           // If we encounter an output-* part:
@@ -327,6 +335,9 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
             }
             if (currState.approval) {
               ignorePos.add(currState.approval) // Hide approval state
+            }
+            if (currState.close) {
+              ignorePos.add(currState.close) // Hide duplicate terminal state
             }
           } else {
             states.set(toolCallId, { close: posKey })
@@ -350,6 +361,8 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
               // If we already have a close state, ignore this approval request
               if (currState.close) {
                 ignorePos.add(posKey)
+              } else if (currState.approval && currState.approval !== posKey) {
+                ignorePos.add(currState.approval)
               }
               states.set(approval.tool_call_id, {
                 ...currState,
