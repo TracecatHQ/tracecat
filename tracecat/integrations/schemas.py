@@ -17,6 +17,7 @@ from pydantic import (
     Field,
     SecretStr,
     Tag,
+    computed_field,
     field_validator,
 )
 
@@ -548,11 +549,12 @@ MCPConnectionTarget = Literal[
     "http_header",
     "stdio_env",
 ]
+# No stdio_oauth2: MCP OAuth is defined for HTTP transports only; stdio
+# servers receive credentials via environment variables.
 MCPConnectionKind = Literal[
     "http_oauth2",
     "http_custom",
     "http_none",
-    "stdio_oauth2",
     "stdio_custom",
     "stdio_none",
 ]
@@ -600,8 +602,23 @@ class _MCPConnectionSpecBase(BaseModel):
     """Base fields shared by all catalog connection spec variants."""
 
     requires_config: bool = False
-    config_fields: list[MCPConfigField] = Field(default_factory=list)
     credentials: list[MCPConnectionCredential] = Field(default_factory=list)
+
+    @computed_field
+    @property
+    def config_fields(self) -> list[MCPConfigField]:
+        """Configure-dialog view of ``credentials``; same data, UI field shape."""
+        return [
+            MCPConfigField(
+                key=credential.key,
+                label=credential.label,
+                description=credential.description,
+                target=credential.target,
+                required=credential.required,
+                secret=credential.secret,
+            )
+            for credential in self.credentials
+        ]
 
 
 class MCPHTTPOAuth2ConnectionSpec(_MCPConnectionSpecBase):
@@ -634,19 +651,6 @@ class MCPHTTPNoneConnectionSpec(_MCPConnectionSpecBase):
     server_uri: str
 
 
-class MCPStdioOAuth2ConnectionSpec(_MCPConnectionSpecBase):
-    """Stdio MCP server that also needs OAuth values."""
-
-    kind: Literal["stdio_oauth2"] = "stdio_oauth2"
-    server_type: Literal["stdio"] = "stdio"
-    auth_type: Literal[MCPAuthType.OAUTH2] = MCPAuthType.OAUTH2
-    stdio_command: str | None = None
-    stdio_args: list[str] = Field(default_factory=list)
-    stdio_env: list[str] = Field(default_factory=list)
-    packages: list[MCPPackageOption] = Field(default_factory=list)
-    scopes: list[str] = Field(default_factory=list)
-
-
 class MCPStdioCustomConnectionSpec(_MCPConnectionSpecBase):
     """Stdio MCP server using user-provided env vars."""
 
@@ -675,7 +679,6 @@ type MCPConnectionSpec = Annotated[
     MCPHTTPOAuth2ConnectionSpec
     | MCPHTTPCustomConnectionSpec
     | MCPHTTPNoneConnectionSpec
-    | MCPStdioOAuth2ConnectionSpec
     | MCPStdioCustomConnectionSpec
     | MCPStdioNoneConnectionSpec,
     Field(discriminator="kind"),

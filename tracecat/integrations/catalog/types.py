@@ -12,6 +12,7 @@ from tracecat.integrations.enums import MCPAuthType
 from tracecat.integrations.schemas import (
     MCPConnectionOption,
     MCPConnectionSpec,
+    MCPConnectionTarget,
     PlatformMCPCatalogStatus,
 )
 
@@ -40,7 +41,12 @@ class PlatformMCPCatalogEntry:
 
 
 class RawCredential(BaseModel):
-    """Credential row from bundled catalog JSON."""
+    """Credential row from bundled catalog JSON.
+
+    ``target`` is required: the catalog is repo-owned, so every credential
+    states explicitly where its value is routed at connect time instead of
+    relying on runtime inference.
+    """
 
     model_config = ConfigDict(extra="ignore")
 
@@ -49,7 +55,7 @@ class RawCredential(BaseModel):
     description: str | None = None
     required: bool = True
     secret: bool = True
-    target: str | None = None
+    target: MCPConnectionTarget
 
 
 class RawPackageOption(BaseModel):
@@ -86,14 +92,15 @@ class RawStdioConnectionSpec(BaseModel):
 
     ``auth_type`` is nullable because coming-soon rows ship without a connect
     recipe; the loader maps a null ``auth_type`` to "no connection spec".
+    OAuth is excluded: MCP OAuth is defined for HTTP transports only, so a
+    stdio spec claiming OAuth fails validation and drops the row.
     """
 
     model_config = ConfigDict(extra="ignore")
 
     server_type: Literal["stdio"]
-    auth_type: MCPAuthType | None = None
+    auth_type: Literal[MCPAuthType.CUSTOM, MCPAuthType.NONE] | None = None
     credentials: list[RawCredential] | None = None
-    scopes: list[str] | None = None
     stdio_command: str | None = None
     stdio_args: list[str] | None = None
     stdio_env: list[str] | None = None
@@ -121,16 +128,7 @@ class RawConnectionOption(BaseModel):
     label: str | None = None
     description: str | None = None
     docs: str | None = None
-    docs_url: str | None = None
     connection_spec: RawConnectionSpec | None = None
-    metadata: RawConnectionSpec | None = None
-
-    @property
-    def spec(self) -> RawConnectionSpec | None:
-        """Connection spec, preferring ``connection_spec`` over legacy ``metadata``."""
-        return (
-            self.connection_spec if self.connection_spec is not None else self.metadata
-        )
 
 
 class RawCatalogRow(BaseModel):
@@ -152,28 +150,9 @@ class RawCatalogRow(BaseModel):
     docs: str | None = None
     provider_id: str | None = None
     connection_spec: RawConnectionSpec | None = None
-    metadata: RawConnectionSpec | None = None
     connection_options: list[RawConnectionOption] | None = None
-    options: list[RawConnectionOption] | None = None
     default_connection_option: str | None = None
-    default_option: str | None = None
-
-    @property
-    def spec(self) -> RawConnectionSpec | None:
-        """Connection spec, preferring ``connection_spec`` over legacy ``metadata``."""
-        return (
-            self.connection_spec if self.connection_spec is not None else self.metadata
-        )
-
-    @property
-    def connect_options(self) -> list[RawConnectionOption] | None:
-        """Connect options, preferring ``connection_options`` over legacy ``options``."""
-        return (
-            self.connection_options
-            if self.connection_options is not None
-            else self.options
-        )
 
     @property
     def has_connection_metadata(self) -> bool:
-        return bool(self.spec or self.connect_options)
+        return bool(self.connection_spec or self.connection_options)

@@ -79,9 +79,7 @@ function connectionSpecFromIntegration(
       stdio_env: [],
       packages: [],
     }
-    if (integration.auth_type === "OAUTH2") {
-      return { ...stdio, kind: "stdio_oauth2", auth_type: "OAUTH2" }
-    }
+    // No stdio_oauth2 kind: MCP OAuth is HTTP-only, stdio rows never carry it.
     if (integration.auth_type === "CUSTOM") {
       return { ...stdio, kind: "stdio_custom", auth_type: "CUSTOM" }
     }
@@ -447,6 +445,14 @@ export default function McpServersPage() {
     }
 
     if (!canCreateMcp) {
+      return
+    }
+
+    // A configured catalog row already exists (e.g. OAuth was started but not
+    // completed); reconnect through the backend so it reuses the row instead
+    // of creating a duplicate via the config dialog.
+    if (entry.mcp_integration_id) {
+      catalogConnectMutation.mutate(entry)
       return
     }
 

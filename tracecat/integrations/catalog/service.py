@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from typing import NamedTuple
 
 import sqlalchemy as sa
 
@@ -24,6 +25,13 @@ from tracecat.service import BaseService
 _CATALOG_STATUSES: frozenset[PlatformMCPCatalogStatus] = frozenset(
     {"available", "coming_soon", "deprecated", "hidden"}
 )
+
+
+class CatalogWorkspaceState(NamedTuple):
+    """Workspace MCP row backing a catalog entry, with its OAuth token."""
+
+    mcp_integration: MCPIntegration
+    encrypted_access_token: bytes | None
 
 
 class PlatformMCPCatalogService(BaseService):
@@ -77,7 +85,7 @@ class PlatformMCPCatalogService(BaseService):
         state_entries = [
             state_entries_by_id.get(entry.id, entry) for entry in page_entries
         ]
-        state_by_catalog_id = await self._workspace_state_by_catalog_id(
+        state_by_catalog_id = await self._get_catalog_workspace_states(
             workspace_id=workspace_id,
             catalog_entries=state_entries,
         )
@@ -127,12 +135,22 @@ class PlatformMCPCatalogService(BaseService):
             filtered = [entry for entry in filtered if entry.status == status]
         return filtered
 
-    async def _workspace_state_by_catalog_id(
+    async def _get_catalog_workspace_states(
         self,
         *,
         workspace_id: uuid.UUID,
         catalog_entries: list[PlatformMCPCatalogEntry],
-    ) -> dict[uuid.UUID, tuple[MCPIntegration, bytes | None]]:
+    ) -> dict[uuid.UUID, CatalogWorkspaceState]:
+        """Pick the workspace MCP row that backs each catalog entry.
+
+        Matches every workspace MCP row to a catalog entry either by its
+        explicit ``catalog_slug`` binding or, for legacy rows, by the
+        provider-slug heuristic. When several rows map to the same entry,
+        the winner is chosen by rank: explicit binding beats heuristic,
+        connected beats stale, and remaining ties go to the newest row.
+        The OAuth access token rides along so callers can derive the
+        connected/configured state without another query.
+        """
         if not catalog_entries:
             return {}
 
@@ -172,7 +190,7 @@ class PlatformMCPCatalogService(BaseService):
         # explicit catalog_slug binding beats the legacy provider-slug
         # heuristic and a connected row beats a stale one; rows iterate
         # newest-first, so remaining ties go to the most recent row.
-        state_by_catalog_id: dict[uuid.UUID, tuple[MCPIntegration, bytes | None]] = {}
+        state_by_catalog_id: dict[uuid.UUID, CatalogWorkspaceState] = {}
         best_rank: dict[uuid.UUID, tuple[int, int]] = {}
         for mcp_integration, encrypted_access_token, provider_id, catalog_slug in rows:
             if isinstance(catalog_slug, str) and (
@@ -199,9 +217,9 @@ class PlatformMCPCatalogService(BaseService):
             current = best_rank.get(catalog_id)
             if current is None or rank < current:
                 best_rank[catalog_id] = rank
-                state_by_catalog_id[catalog_id] = (
-                    mcp_integration,
-                    encrypted_access_token,
+                state_by_catalog_id[catalog_id] = CatalogWorkspaceState(
+                    mcp_integration=mcp_integration,
+                    encrypted_access_token=encrypted_access_token,
                 )
         return state_by_catalog_id
 
@@ -251,12 +269,12 @@ class PlatformMCPCatalogService(BaseService):
         cls,
         *,
         entry: PlatformMCPCatalogEntry,
-        state: tuple[MCPIntegration, bytes | None] | None,
+        state: CatalogWorkspaceState | None,
         agent_addons_entitled: bool,
         now: datetime,
     ) -> PlatformMCPCatalogRead:
-        mcp_integration = state[0] if state else None
-        encrypted_access_token = state[1] if state else None
+        mcp_integration = state.mcp_integration if state else None
+        encrypted_access_token = state.encrypted_access_token if state else None
         locked = not agent_addons_entitled and mcp_integration is None
         connection_spec = entry.connection_spec if agent_addons_entitled else None
         connection_options = (

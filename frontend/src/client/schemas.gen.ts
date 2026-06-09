@@ -15125,9 +15125,6 @@ export const $MCPConnectionSpec = {
       $ref: "#/components/schemas/MCPHTTPNoneConnectionSpec",
     },
     {
-      $ref: "#/components/schemas/MCPStdioOAuth2ConnectionSpec",
-    },
-    {
       $ref: "#/components/schemas/MCPStdioCustomConnectionSpec",
     },
     {
@@ -15142,7 +15139,6 @@ export const $MCPConnectionSpec = {
       http_oauth2: "#/components/schemas/MCPHTTPOAuth2ConnectionSpec",
       stdio_custom: "#/components/schemas/MCPStdioCustomConnectionSpec",
       stdio_none: "#/components/schemas/MCPStdioNoneConnectionSpec",
-      stdio_oauth2: "#/components/schemas/MCPStdioOAuth2ConnectionSpec",
     },
   },
 } as const
@@ -15153,13 +15149,6 @@ export const $MCPHTTPCustomConnectionSpec = {
       type: "boolean",
       title: "Requires Config",
       default: false,
-    },
-    config_fields: {
-      items: {
-        $ref: "#/components/schemas/MCPConfigField",
-      },
-      type: "array",
-      title: "Config Fields",
     },
     credentials: {
       items: {
@@ -15190,9 +15179,19 @@ export const $MCPHTTPCustomConnectionSpec = {
       type: "string",
       title: "Server Uri",
     },
+    config_fields: {
+      items: {
+        $ref: "#/components/schemas/MCPConfigField",
+      },
+      type: "array",
+      title: "Config Fields",
+      description:
+        "Configure-dialog view of ``credentials``; same data, UI field shape.",
+      readOnly: true,
+    },
   },
   type: "object",
-  required: ["server_uri"],
+  required: ["server_uri", "config_fields"],
   title: "MCPHTTPCustomConnectionSpec",
   description: "HTTP MCP server using user-provided headers or API keys.",
 } as const
@@ -15203,13 +15202,6 @@ export const $MCPHTTPNoneConnectionSpec = {
       type: "boolean",
       title: "Requires Config",
       default: false,
-    },
-    config_fields: {
-      items: {
-        $ref: "#/components/schemas/MCPConfigField",
-      },
-      type: "array",
-      title: "Config Fields",
     },
     credentials: {
       items: {
@@ -15240,9 +15232,19 @@ export const $MCPHTTPNoneConnectionSpec = {
       type: "string",
       title: "Server Uri",
     },
+    config_fields: {
+      items: {
+        $ref: "#/components/schemas/MCPConfigField",
+      },
+      type: "array",
+      title: "Config Fields",
+      description:
+        "Configure-dialog view of ``credentials``; same data, UI field shape.",
+      readOnly: true,
+    },
   },
   type: "object",
-  required: ["server_uri"],
+  required: ["server_uri", "config_fields"],
   title: "MCPHTTPNoneConnectionSpec",
   description: "HTTP MCP server with no authentication.",
 } as const
@@ -15253,13 +15255,6 @@ export const $MCPHTTPOAuth2ConnectionSpec = {
       type: "boolean",
       title: "Requires Config",
       default: false,
-    },
-    config_fields: {
-      items: {
-        $ref: "#/components/schemas/MCPConfigField",
-      },
-      type: "array",
-      title: "Config Fields",
     },
     credentials: {
       items: {
@@ -15319,9 +15314,19 @@ export const $MCPHTTPOAuth2ConnectionSpec = {
       ],
       title: "Oauth Token Endpoint",
     },
+    config_fields: {
+      items: {
+        $ref: "#/components/schemas/MCPConfigField",
+      },
+      type: "array",
+      title: "Config Fields",
+      description:
+        "Configure-dialog view of ``credentials``; same data, UI field shape.",
+      readOnly: true,
+    },
   },
   type: "object",
-  required: ["server_uri"],
+  required: ["server_uri", "config_fields"],
   title: "MCPHTTPOAuth2ConnectionSpec",
   description: "HTTP MCP server using MCP OAuth.",
 } as const
@@ -16004,13 +16009,6 @@ export const $MCPStdioCustomConnectionSpec = {
       title: "Requires Config",
       default: false,
     },
-    config_fields: {
-      items: {
-        $ref: "#/components/schemas/MCPConfigField",
-      },
-      type: "array",
-      title: "Config Fields",
-    },
     credentials: {
       items: {
         $ref: "#/components/schemas/MCPConnectionCredential",
@@ -16068,8 +16066,19 @@ export const $MCPStdioCustomConnectionSpec = {
       type: "array",
       title: "Packages",
     },
+    config_fields: {
+      items: {
+        $ref: "#/components/schemas/MCPConfigField",
+      },
+      type: "array",
+      title: "Config Fields",
+      description:
+        "Configure-dialog view of ``credentials``; same data, UI field shape.",
+      readOnly: true,
+    },
   },
   type: "object",
+  required: ["config_fields"],
   title: "MCPStdioCustomConnectionSpec",
   description: "Stdio MCP server using user-provided env vars.",
 } as const
@@ -16183,13 +16192,6 @@ export const $MCPStdioNoneConnectionSpec = {
       title: "Requires Config",
       default: false,
     },
-    config_fields: {
-      items: {
-        $ref: "#/components/schemas/MCPConfigField",
-      },
-      type: "array",
-      title: "Config Fields",
-    },
     credentials: {
       items: {
         $ref: "#/components/schemas/MCPConnectionCredential",
@@ -16247,94 +16249,21 @@ export const $MCPStdioNoneConnectionSpec = {
       type: "array",
       title: "Packages",
     },
-  },
-  type: "object",
-  title: "MCPStdioNoneConnectionSpec",
-  description: "Stdio MCP server with no authentication.",
-} as const
-
-export const $MCPStdioOAuth2ConnectionSpec = {
-  properties: {
-    requires_config: {
-      type: "boolean",
-      title: "Requires Config",
-      default: false,
-    },
     config_fields: {
       items: {
         $ref: "#/components/schemas/MCPConfigField",
       },
       type: "array",
       title: "Config Fields",
-    },
-    credentials: {
-      items: {
-        $ref: "#/components/schemas/MCPConnectionCredential",
-      },
-      type: "array",
-      title: "Credentials",
-    },
-    kind: {
-      type: "string",
-      const: "stdio_oauth2",
-      title: "Kind",
-      default: "stdio_oauth2",
-    },
-    server_type: {
-      type: "string",
-      const: "stdio",
-      title: "Server Type",
-      default: "stdio",
-    },
-    auth_type: {
-      type: "string",
-      const: "OAUTH2",
-      title: "Auth Type",
-      default: "OAUTH2",
-    },
-    stdio_command: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Stdio Command",
-    },
-    stdio_args: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "Stdio Args",
-    },
-    stdio_env: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "Stdio Env",
-    },
-    packages: {
-      items: {
-        $ref: "#/components/schemas/MCPPackageOption",
-      },
-      type: "array",
-      title: "Packages",
-    },
-    scopes: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "Scopes",
+      description:
+        "Configure-dialog view of ``credentials``; same data, UI field shape.",
+      readOnly: true,
     },
   },
   type: "object",
-  title: "MCPStdioOAuth2ConnectionSpec",
-  description: "Stdio MCP server that also needs OAuth values.",
+  required: ["config_fields"],
+  title: "MCPStdioNoneConnectionSpec",
+  description: "Stdio MCP server with no authentication.",
 } as const
 
 export const $MCPStdioServerConfig = {

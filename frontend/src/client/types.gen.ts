@@ -4662,7 +4662,6 @@ export type MCPConnectionSpec =
   | MCPHTTPOAuth2ConnectionSpec
   | MCPHTTPCustomConnectionSpec
   | MCPHTTPNoneConnectionSpec
-  | MCPStdioOAuth2ConnectionSpec
   | MCPStdioCustomConnectionSpec
   | MCPStdioNoneConnectionSpec
 
@@ -4671,12 +4670,15 @@ export type MCPConnectionSpec =
  */
 export type MCPHTTPCustomConnectionSpec = {
   requires_config?: boolean
-  config_fields?: Array<MCPConfigField>
   credentials?: Array<MCPConnectionCredential>
   kind?: "http_custom"
   server_type?: "http"
   auth_type?: "CUSTOM"
   server_uri: string
+  /**
+   * Configure-dialog view of ``credentials``; same data, UI field shape.
+   */
+  readonly config_fields: Array<MCPConfigField>
 }
 
 /**
@@ -4684,12 +4686,15 @@ export type MCPHTTPCustomConnectionSpec = {
  */
 export type MCPHTTPNoneConnectionSpec = {
   requires_config?: boolean
-  config_fields?: Array<MCPConfigField>
   credentials?: Array<MCPConnectionCredential>
   kind?: "http_none"
   server_type?: "http"
   auth_type?: "NONE"
   server_uri: string
+  /**
+   * Configure-dialog view of ``credentials``; same data, UI field shape.
+   */
+  readonly config_fields: Array<MCPConfigField>
 }
 
 /**
@@ -4697,7 +4702,6 @@ export type MCPHTTPNoneConnectionSpec = {
  */
 export type MCPHTTPOAuth2ConnectionSpec = {
   requires_config?: boolean
-  config_fields?: Array<MCPConfigField>
   credentials?: Array<MCPConnectionCredential>
   kind?: "http_oauth2"
   server_type?: "http"
@@ -4706,6 +4710,10 @@ export type MCPHTTPOAuth2ConnectionSpec = {
   scopes?: Array<string>
   oauth_authorization_endpoint?: string | null
   oauth_token_endpoint?: string | null
+  /**
+   * Configure-dialog view of ``credentials``; same data, UI field shape.
+   */
+  readonly config_fields: Array<MCPConfigField>
 }
 
 /**
@@ -4889,7 +4897,6 @@ export type MCPServerType = "http" | "stdio"
  */
 export type MCPStdioCustomConnectionSpec = {
   requires_config?: boolean
-  config_fields?: Array<MCPConfigField>
   credentials?: Array<MCPConnectionCredential>
   kind?: "stdio_custom"
   server_type?: "stdio"
@@ -4898,6 +4905,10 @@ export type MCPStdioCustomConnectionSpec = {
   stdio_args?: Array<string>
   stdio_env?: Array<string>
   packages?: Array<MCPPackageOption>
+  /**
+   * Configure-dialog view of ``credentials``; same data, UI field shape.
+   */
+  readonly config_fields: Array<MCPConfigField>
 }
 
 /**
@@ -4942,7 +4953,6 @@ export type MCPStdioIntegrationCreate = {
  */
 export type MCPStdioNoneConnectionSpec = {
   requires_config?: boolean
-  config_fields?: Array<MCPConfigField>
   credentials?: Array<MCPConnectionCredential>
   kind?: "stdio_none"
   server_type?: "stdio"
@@ -4951,23 +4961,10 @@ export type MCPStdioNoneConnectionSpec = {
   stdio_args?: Array<string>
   stdio_env?: Array<string>
   packages?: Array<MCPPackageOption>
-}
-
-/**
- * Stdio MCP server that also needs OAuth values.
- */
-export type MCPStdioOAuth2ConnectionSpec = {
-  requires_config?: boolean
-  config_fields?: Array<MCPConfigField>
-  credentials?: Array<MCPConnectionCredential>
-  kind?: "stdio_oauth2"
-  server_type?: "stdio"
-  auth_type?: "OAUTH2"
-  stdio_command?: string | null
-  stdio_args?: Array<string>
-  stdio_env?: Array<string>
-  packages?: Array<MCPPackageOption>
-  scopes?: Array<string>
+  /**
+   * Configure-dialog view of ``credentials``; same data, UI field shape.
+   */
+  readonly config_fields: Array<MCPConfigField>
 }
 
 /**

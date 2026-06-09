@@ -53,6 +53,10 @@ def _stub_catalog_resource(monkeypatch: pytest.MonkeyPatch, payload: bytes) -> N
         b'{"servers": {"slug": "elastic-mcp"}}',
         b'{"servers": ["not-a-server", {"slug": "elastic-mcp"}]}',
         b'{"servers": [{"slug": "", "name": "Elastic", "description": "x", "category": "SIEM"}]}',
+        # Credentials must carry an explicit target; inference was removed.
+        b'{"servers": [{"slug": "x-mcp", "name": "X", "description": "x", "category": "SIEM",'
+        b' "connection_spec": {"server_type": "http", "auth_type": "CUSTOM",'
+        b' "server_uri": "https://x.example.com/mcp", "credentials": [{"key": "Authorization"}]}}]}',
     ],
 )
 def test_get_platform_mcp_catalog_entries_ignores_malformed_shapes(
@@ -80,13 +84,17 @@ def test_get_platform_mcp_catalog_entries_normalizes_specs_and_drops_malformed_r
                         "icon": "https://example.com/elastic.png",
                         "docs": "https://example.com/docs",
                         "status": "coming_soon",
-                        "metadata": {
+                        "connection_spec": {
                             "server_type": "http",
                             "auth_type": "CUSTOM",
                             "server_uri": "https://{KIBANA_URL}/api/mcp",
                             "credentials": [
-                                {"key": "KIBANA_URL", "secret": False},
-                                {"key": "Authorization"},
+                                {
+                                    "key": "KIBANA_URL",
+                                    "secret": False,
+                                    "target": "server_uri",
+                                },
+                                {"key": "Authorization", "target": "http_header"},
                             ],
                         },
                     },
@@ -102,7 +110,7 @@ def test_get_platform_mcp_catalog_entries_normalizes_specs_and_drops_malformed_r
                         "name": "Generic OAuth",
                         "description": "OAuth server without a provider",
                         "category": "Cloud",
-                        "metadata": {
+                        "connection_spec": {
                             "server_type": "http",
                             "auth_type": "OAUTH2",
                             "server_uri": "https://mcp.example.com/mcp",
@@ -114,7 +122,7 @@ def test_get_platform_mcp_catalog_entries_normalizes_specs_and_drops_malformed_r
                         "description": "OAuth server with a provider",
                         "category": "Cloud",
                         "provider_id": "runreveal_mcp",
-                        "metadata": {
+                        "connection_spec": {
                             "server_type": "http",
                             "auth_type": "OAUTH2",
                             "server_uri": "https://api.runreveal.com/mcp",
@@ -126,7 +134,7 @@ def test_get_platform_mcp_catalog_entries_normalizes_specs_and_drops_malformed_r
                         "description": "Bad server",
                         "category": "Cloud",
                         "status": "available",
-                        "metadata": {
+                        "connection_spec": {
                             "server_type": "grpc",
                             "auth_type": "CUSTOM",
                         },
@@ -136,7 +144,7 @@ def test_get_platform_mcp_catalog_entries_normalizes_specs_and_drops_malformed_r
                         "name": "User URL",
                         "description": "Server URI supplied by user",
                         "category": "Cloud",
-                        "metadata": {
+                        "connection_spec": {
                             "server_type": "http",
                             "auth_type": "CUSTOM",
                             "server_uri": None,
@@ -145,8 +153,9 @@ def test_get_platform_mcp_catalog_entries_normalizes_specs_and_drops_malformed_r
                                     "key": "SNOWFLAKE_MCP_URL",
                                     "label": "Snowflake MCP URL",
                                     "secret": False,
+                                    "target": "server_uri",
                                 },
-                                {"key": "Authorization"},
+                                {"key": "Authorization", "target": "http_header"},
                             ],
                         },
                     },
@@ -155,7 +164,7 @@ def test_get_platform_mcp_catalog_entries_normalizes_specs_and_drops_malformed_r
                         "name": "Local Only",
                         "description": "Needs user command",
                         "category": "IaC",
-                        "metadata": {
+                        "connection_spec": {
                             "server_type": "stdio",
                             "auth_type": "CUSTOM",
                             "stdio_command": None,
@@ -268,7 +277,7 @@ def test_get_platform_mcp_catalog_entries_normalizes_connection_options(
                             {
                                 "id": "remote-http",
                                 "label": "Remote OAuth",
-                                "metadata": {
+                                "connection_spec": {
                                     "server_type": "http",
                                     "auth_type": "OAUTH2",
                                     "server_uri": "https://api.<host>/mcp",
@@ -284,13 +293,18 @@ def test_get_platform_mcp_catalog_entries_normalizes_connection_options(
                             {
                                 "id": "local-stdio",
                                 "label": "Local stdio",
-                                "metadata": {
+                                "connection_spec": {
                                     "server_type": "stdio",
                                     "auth_type": "CUSTOM",
                                     "stdio_command": "uvx",
                                     "stdio_args": ["mcp-panther"],
                                     "stdio_env": ["PANTHER_API_TOKEN"],
-                                    "credentials": [{"key": "PANTHER_API_TOKEN"}],
+                                    "credentials": [
+                                        {
+                                            "key": "PANTHER_API_TOKEN",
+                                            "target": "stdio_env",
+                                        }
+                                    ],
                                 },
                             },
                         ],
@@ -350,7 +364,7 @@ def test_get_platform_mcp_catalog_entries_merges_private_mcp_catalog(
                 {
                     "slug": "scanner-mcp",
                     "docs": "https://docs.scanner.dev/mcp",
-                    "metadata": {
+                    "connection_spec": {
                         "server_type": "http",
                         "auth_type": "CUSTOM",
                         "server_uri": "https://mcp.example.scanner.dev/v1/mcp",
@@ -366,7 +380,7 @@ def test_get_platform_mcp_catalog_entries_merges_private_mcp_catalog(
                 {
                     "slug": "sumo-logic-mcp",
                     "docs": "https://www.sumologic.com/demo/mcp-server",
-                    "metadata": {
+                    "connection_spec": {
                         "server_type": "http",
                         "auth_type": None,
                         "server_uri": None,
@@ -427,7 +441,7 @@ def test_get_platform_mcp_catalog_entries_caches_static_catalog(
                 {
                     "slug": "scanner-mcp",
                     "docs": "https://docs.scanner.dev/mcp",
-                    "metadata": {
+                    "connection_spec": {
                         "server_type": "http",
                         "auth_type": "CUSTOM",
                         "server_uri": "https://mcp.example.scanner.dev/v1/mcp",

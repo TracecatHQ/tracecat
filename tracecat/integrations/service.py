@@ -1363,8 +1363,11 @@ class IntegrationService(BaseWorkspaceService):
                 new_token_endpoint,
                 field_name="token_endpoint",
             )
-            if token_endpoint_auth_method is not None:
-                integration.token_endpoint_auth_method = token_endpoint_auth_method
+            # Always sync to the method used by the exchange that just
+            # succeeded; a retained stale method (e.g. after the client lost
+            # its secret) would make refresh send client auth the server
+            # rejects.
+            integration.token_endpoint_auth_method = token_endpoint_auth_method
 
             self.session.add(integration)
             await self.session.commit()
