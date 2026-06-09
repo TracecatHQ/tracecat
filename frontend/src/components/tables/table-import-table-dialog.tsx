@@ -125,7 +125,9 @@ export function TableImportTableDialog({
       await importTable({
         workspaceId,
         formData: {
-          file,
+          // openapi-ts types binary multipart fields as `string`; axios sends
+          // the File as-is at runtime.
+          file: file as unknown as string,
           table_name: values.tableName ?? null,
         },
       })

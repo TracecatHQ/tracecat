@@ -35,13 +35,13 @@ from pydantic_ai.messages import (
     AgentStreamEvent,
     AudioUrl,
     BinaryContent,
-    BuiltinToolCallPart,
     DocumentUrl,
     FunctionToolResultEvent,
     ImageUrl,
     ModelRequest,
     ModelResponse,
     MultiModalContent,
+    NativeToolCallPart,
     PartDeltaEvent,
     PartStartEvent,
     RetryPromptPart,
@@ -138,7 +138,7 @@ def _extract_structured_error(output: Any) -> str | None:
     return None
 
 
-AnyToolCallPart = ToolCallPart | BuiltinToolCallPart
+AnyToolCallPart = ToolCallPart | NativeToolCallPart
 
 # ==============================================================================
 # 1. Models for UI Parts with Fixed 'type' Literals
@@ -1381,7 +1381,7 @@ def _extract_approval_payload_from_message(
                 first == APPROVAL_REQUEST_HEADER and parts
             ):
                 for part in parts:
-                    if isinstance(part, ToolCallPart | BuiltinToolCallPart):
+                    if isinstance(part, ToolCallPart | NativeToolCallPart):
                         approvals.append(
                             ToolCallPart(
                                 tool_name=part.tool_name,

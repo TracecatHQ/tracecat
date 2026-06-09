@@ -268,6 +268,7 @@ def to_pydantic_ai_tool(tool: Tool) -> PATool[Any]:
         requires_approval=tool.requires_approval,
         function_schema=FunctionSchema(
             function=tool_func,
+            name=tool_func.__name__,
             description=tool.description,
             validator=SchemaValidator(core_schema.any_schema()),
             json_schema=tool.parameters_json_schema,

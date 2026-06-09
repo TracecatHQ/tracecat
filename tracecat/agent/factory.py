@@ -5,6 +5,7 @@ from typing import Any, TypeGuard
 
 from pydantic_ai import Agent, ModelSettings
 from pydantic_ai.agent import AbstractAgent
+from pydantic_ai.capabilities import Instrumentation
 from pydantic_ai.mcp import MCPServerStreamableHTTP
 from pydantic_ai.tools import DeferredToolRequests
 from pydantic_ai.tools import Tool as PATool
@@ -60,7 +61,7 @@ async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
         instruction_parts = [instructions, tool_calling_prompt.prompt]
         instructions = "\n".join(part for part in instruction_parts if part)
 
-    toolsets = None
+    toolsets: list[MCPServerStreamableHTTP] | None = None
     if config.mcp_servers:
         http_servers = [
             server for server in config.mcp_servers if _is_http_server(server)
@@ -98,9 +99,9 @@ async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
         output_type=output_type_for_agent,
         model_settings=_model_settings,
         retries=config.retries,
-        instrument=True,
         tools=agent_tools,
         toolsets=toolsets,
         deps_type=config.deps_type or type(None),
+        capabilities=[Instrumentation()],
     )
     return agent

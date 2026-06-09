@@ -1041,9 +1041,11 @@ export function WorkflowsDashboard() {
         const createdWorkflow = await createWorkflow({
           workspaceId,
           formData: {
+            // openapi-ts types binary multipart fields as `string`; axios
+            // sends the Blob/File as-is at runtime.
             file: new Blob([JSON.stringify(duplicatedDefinition)], {
               type: "application/json",
-            }),
+            }) as unknown as string,
             use_workflow_id: false,
           },
         })

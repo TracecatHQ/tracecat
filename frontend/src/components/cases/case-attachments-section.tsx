@@ -152,7 +152,9 @@ export function CaseAttachmentsSection({
         caseId,
         workspaceId,
         formData: {
-          file,
+          // openapi-ts types binary multipart fields as `string`; axios sends
+          // the File as-is at runtime.
+          file: file as unknown as string,
         },
       })
     },

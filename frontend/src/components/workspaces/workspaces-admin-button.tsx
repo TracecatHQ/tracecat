@@ -62,7 +62,11 @@ export function WorkspaceManagementButton() {
       const response = await workflowsCreateWorkflow({
         workspaceId,
         formData: {
-          file: new Blob([data.file], { type: "application/yaml" }),
+          // openapi-ts types binary multipart fields as `string`; axios sends
+          // the Blob/File as-is at runtime.
+          file: new Blob([data.file], {
+            type: "application/yaml",
+          }) as unknown as string,
         },
       })
       router.push(`/workflows/${response.id}`)

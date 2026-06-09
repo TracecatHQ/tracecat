@@ -1190,17 +1190,6 @@ export type ArtifactScope = {
   parentToolCallId?: string | null
 }
 
-export type ArtifactType =
-  | "case"
-  | "workflow"
-  | "run"
-  | "table"
-  | "agent"
-  | "alert"
-  | "integration"
-  | "secret"
-  | "generic"
-
 /**
  * Event for when a case assignee is changed.
  */
@@ -1514,15 +1503,6 @@ export type BinaryContent = {
   readonly identifier: string
 }
 
-export type Body_auth_auth_database_login = {
-  grant_type?: string | null
-  username: string
-  password: string
-  scope?: string
-  client_id?: string | null
-  client_secret?: string | null
-}
-
 export type Body_auth_reset_forgot_password = {
   email: string
 }
@@ -1533,8 +1513,8 @@ export type Body_auth_reset_reset_password = {
 }
 
 export type Body_auth_sso_acs = {
-  saml_response: string
-  relay_state: string
+  SAMLResponse: string
+  RelayState: string
 }
 
 export type Body_auth_verify_request_token = {
@@ -1546,16 +1526,16 @@ export type Body_auth_verify_verify = {
 }
 
 export type Body_case_attachments_create_attachment = {
-  file: Blob | File
+  file: string
 }
 
 export type Body_tables_import_csv = {
-  file: Blob | File
+  file: string
   column_mapping: string
 }
 
 export type Body_tables_import_table_from_csv = {
-  file: Blob | File
+  file: string
   table_name?: string | null
 }
 
@@ -1566,7 +1546,7 @@ export type Body_workflows_create_workflow = {
    * Use the workflow ID if it is provided in the YAML file
    */
   use_workflow_id?: boolean
-  file?: (Blob | File) | null
+  file?: string | null
 }
 
 export type CachePoint = {
@@ -5102,7 +5082,7 @@ export type OrganizationSecretRead = {
   type: SecretType
   name: string
   description?: string | null
-  encrypted_keys: Blob | File
+  encrypted_keys: string
   environment: string
   tags?: {
     [key: string]: string
@@ -6265,7 +6245,7 @@ export type SecretRead = {
   type: SecretType
   name: string
   description?: string | null
-  encrypted_keys: Blob | File
+  encrypted_keys: string
   environment: string
   tags?: {
     [key: string]: string
@@ -7413,6 +7393,12 @@ export type TextBlock = {
   text: string
 }
 
+export type TextContent = {
+  content: string
+  metadata?: unknown
+  kind?: "text-content"
+}
+
 /**
  * A text part of a message.
  */
@@ -7526,11 +7512,13 @@ export type ToolReturn = {
     | string
     | Array<
         | string
+        | TextContent
         | ImageUrl
         | AudioUrl
         | DocumentUrl
         | VideoUrl
         | BinaryContent
+        | UploadedFile
         | CachePoint
       >
     | null
@@ -7544,6 +7532,7 @@ export type ToolReturnContent =
   | DocumentUrl
   | VideoUrl
   | BinaryContent
+  | UploadedFile
   | Array<ToolReturnContent>
   | {
       [key: string]: ToolReturnContent
@@ -7691,6 +7680,69 @@ export type UpdatedEventRead = {
   created_at: string
 }
 
+/**
+ * A reference to a file uploaded to a provider's file storage by ID.
+ *
+ * This allows referencing files that have been uploaded via provider-specific file APIs
+ * rather than providing the file content directly.
+ *
+ * Supported by:
+ *
+ * - [`AnthropicModel`][pydantic_ai.models.anthropic.AnthropicModel]
+ * - [`OpenAIChatModel`][pydantic_ai.models.openai.OpenAIChatModel]
+ * - [`OpenAIResponsesModel`][pydantic_ai.models.openai.OpenAIResponsesModel]
+ * - [`BedrockConverseModel`][pydantic_ai.models.bedrock.BedrockConverseModel]
+ * - [`GoogleModel`][pydantic_ai.models.google.GoogleModel] (Gemini API: [Files API](https://ai.google.dev/gemini-api/docs/files) URIs, Google Cloud: GCS `gs://` URIs)
+ * - [`XaiModel`][pydantic_ai.models.xai.XaiModel]
+ */
+export type UploadedFile = {
+  file_id: string
+  provider_name:
+    | "anthropic"
+    | "openai"
+    | "google"
+    | "google-cloud"
+    | "google-gla"
+    | "google-vertex"
+    | "bedrock"
+    | "xai"
+  vendor_metadata?: {
+    [key: string]: unknown
+  } | null
+  kind?: "uploaded-file"
+  /**
+   * Return the media type of the file, inferred from `file_id` if not explicitly provided.
+   *
+   * Note: Inference relies on the file extension in `file_id`.
+   * For opaque file IDs (e.g., `'file-abc123'`), the media type will default to `'application/octet-stream'`.
+   * Inference relies on Python's `mimetypes` module, whose results may vary across platforms.
+   *
+   * Required by some providers (e.g., Bedrock) for certain file types.
+   */
+  readonly media_type: string
+  /**
+   * The identifier of the file, such as a unique ID.
+   *
+   * This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
+   * and the tool can look up the file in question by iterating over the message history and finding the matching `UploadedFile`.
+   *
+   * This identifier is only automatically passed to the model when the `UploadedFile` is returned by a tool.
+   * If you're passing the `UploadedFile` as a user message, it's up to you to include a separate text part with the identifier,
+   * e.g. "This is file <identifier>:" preceding the `UploadedFile`.
+   */
+  readonly identifier: string
+}
+
+export type provider_name =
+  | "anthropic"
+  | "openai"
+  | "google"
+  | "google-cloud"
+  | "google-gla"
+  | "google-vertex"
+  | "bedrock"
+  | "xai"
+
 export type UserCreate = {
   email: string
   password: string
@@ -7823,6 +7875,10 @@ export type ValidationError = {
   loc: Array<string | number>
   msg: string
   type: string
+  input?: unknown
+  ctx?: {
+    [key: string]: unknown
+  }
 }
 
 export type ValidationResult =
@@ -8436,7 +8492,7 @@ export type WorkflowExecutionEvent = {
   workflow_timeout?: number | null
 }
 
-export type WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_ = {
+export type WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_ = {
   source_event_id: number
   schedule_time: string
   start_time?: string | null
@@ -8598,7 +8654,7 @@ export type status7 =
   | "CONTINUED_AS_NEW"
   | "TIMED_OUT"
 
-export type WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_ = {
+export type WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_ = {
   /**
    * The ID of the workflow execution
    */
@@ -8642,7 +8698,7 @@ export type WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_ = {
   /**
    * Compact events in the workflow execution
    */
-  events: Array<WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_>
+  events: Array<WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_>
   /**
    * The interactions in the workflow execution
    */
@@ -9049,6 +9105,15 @@ export type WorkspaceUpdate = {
 
 export type Yaml = {
   component_id?: "yaml"
+}
+
+export type login = {
+  grant_type?: string | null
+  username: string
+  password: string
+  scope?: string
+  client_id?: string | null
+  client_secret?: string | null
 }
 
 /**
@@ -9756,7 +9821,7 @@ export type WorkflowExecutionsGetWorkflowExecutionCompactData = {
 }
 
 export type WorkflowExecutionsGetWorkflowExecutionCompactResponse =
-  WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_
+  WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_
 
 export type WorkflowExecutionsGetWorkflowExecutionObjectDownloadData = {
   executionId: string
@@ -10916,7 +10981,16 @@ export type AgentSessionsGetSessionVercelResponse =
 
 export type AgentSessionsRemoveSessionArtifactData = {
   artifactId: string
-  artifactType: ArtifactType
+  artifactType:
+    | "case"
+    | "workflow"
+    | "run"
+    | "table"
+    | "agent"
+    | "alert"
+    | "integration"
+    | "secret"
+    | "generic"
   sessionId: string
   workspaceId: string
 }
@@ -12737,7 +12811,7 @@ export type UsersUsersDeleteUserData = {
 export type UsersUsersDeleteUserResponse = void
 
 export type AuthAuthDatabaseLoginData = {
-  formData: Body_auth_auth_database_login
+  formData: login
 }
 
 export type AuthAuthDatabaseLoginResponse = unknown | void
@@ -13760,7 +13834,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_
+        200: WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_
         /**
          * Validation Error
          */

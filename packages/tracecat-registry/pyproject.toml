@@ -30,7 +30,7 @@ dependencies = [
     "dnspython==2.6.1",
     "docker==7.1.0",
     "duckdb==1.4.3",
-    "google-auth==2.48.0",
+    "google-auth==2.49.0.dev0",
     "google-api-python-client==2.196.0",
     "grpcio==1.75.1",
     "grpcio-tools==1.75.1",

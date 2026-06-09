@@ -84,7 +84,9 @@ function ImportWorkflowDialog({
       const response = await createWorkflow({
         workspaceId,
         formData: {
-          file: new Blob([file], { type: contentType }),
+          // openapi-ts types binary multipart fields as `string`; axios sends
+          // the Blob/File as-is at runtime.
+          file: new Blob([file], { type: contentType }) as unknown as string,
           use_workflow_id,
         },
       })
