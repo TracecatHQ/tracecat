@@ -12,8 +12,8 @@ import {
   useDeleteApproval,
 } from "@/hooks/use-inbox"
 import type { InboxSessionItem } from "@/lib/agents"
-import { ActivityAccordion } from "./activity-accordion"
 import { InboxHeader } from "./inbox-header"
+import { RunsTable } from "./runs-table"
 
 interface ActivityLayoutProps {
   sessions: InboxSessionItem[]
@@ -150,7 +150,7 @@ export function ActivityLayout({
         onCreatedAfterChange={onCreatedAfterChange}
       />
       <div className="min-h-0 flex-1">
-        <ActivityAccordion
+        <RunsTable
           sessions={sessions}
           selectedId={selectedId}
           deletingId={deletingId ?? null}

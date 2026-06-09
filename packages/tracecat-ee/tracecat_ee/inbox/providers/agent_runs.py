@@ -1,4 +1,4 @@
-"""Approvals inbox provider for workflow-initiated agent sessions."""
+"""Agent runs inbox provider for Claude Code agent sessions."""
 
 from __future__ import annotations
 
@@ -11,10 +11,11 @@ from sqlalchemy import and_, distinct, func, or_, select
 from temporalio.client import WorkflowExecutionStatus
 
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.common.stream_types import HarnessType
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.models import AgentSession, Approval, Workflow
+from tracecat.db.models import AgentSession, Approval, User, Workflow
 from tracecat.dsl.client import get_temporal_client
-from tracecat.inbox.schemas import InboxItemRead, WorkflowSummary
+from tracecat.inbox.schemas import InboxItemRead, UserSummary, WorkflowSummary
 from tracecat.inbox.types import InboxItemStatus, InboxItemType
 from tracecat.logger import logger
 from tracecat.pagination import BaseCursorPaginator, CursorPaginatedResponse
@@ -30,14 +31,19 @@ FAILED_STATUSES = {
     WorkflowExecutionStatus.TERMINATED,
 }
 
+# Approvals are a workflow concept: only automation-initiated sessions surface
+# them in the inbox. Chat-surface approvals are handled inline in the chat UI.
+APPROVAL_ENTITY_TYPES = ("workflow", "external_channel")
+
 if TYPE_CHECKING:
     from tracecat.auth.types import Role
 
 
-class ApprovalsInboxProvider(BaseCursorPaginator):
-    """Provides approval items for the inbox.
+class AgentRunsInboxProvider(BaseCursorPaginator):
+    """Provides agent run items for the inbox.
 
-    Filters to workflow-initiated sessions only and enriches with workflow metadata.
+    Lists root Claude Code agent sessions (plus any legacy sessions with
+    approvals) and enriches them with approval and workflow metadata.
     """
 
     def __init__(self, session: AsyncDBSession, role: Role):
@@ -104,19 +110,45 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
         reverse: bool = False,
         order_by: str | None = None,
         sort: Literal["asc", "desc"] | None = None,
+        search: str | None = None,
     ) -> CursorPaginatedResponse[InboxItemRead]:
-        """List workflow approval items with cursor pagination."""
-        # Base query for workflow-initiated sessions with approvals
-        base_stmt = (
-            select(AgentSession)
-            .join(Approval, AgentSession.id == Approval.session_id)
-            .where(
-                AgentSession.workspace_id == self.workspace_id,
-                AgentSession.parent_session_id.is_(None),
-                AgentSession.entity_type.in_(["workflow", "external_channel"]),
-            )
-            .distinct()
+        """List agent run items with cursor pagination."""
+        # Root sessions only: all Claude Code runs, plus legacy sessions that
+        # already have approvals so existing inbox items don't disappear.
+        has_approvals = (
+            select(Approval.id).where(Approval.session_id == AgentSession.id).exists()
         )
+        base_stmt = select(AgentSession).where(
+            AgentSession.workspace_id == self.workspace_id,
+            AgentSession.parent_session_id.is_(None),
+            AgentSession.entity_type != "approval",
+            or_(
+                AgentSession.harness_type == HarnessType.CLAUDE_CODE,
+                and_(
+                    has_approvals,
+                    AgentSession.entity_type.in_(APPROVAL_ENTITY_TYPES),
+                ),
+            ),
+        )
+
+        if search:
+            like_term = f"%{search}%"
+            # Workflow-initiated sessions display the workflow alias/title in
+            # the inbox, so match those as well as the session title.
+            workflow_match = (
+                select(Workflow.id)
+                .where(
+                    Workflow.id == AgentSession.entity_id,
+                    or_(
+                        Workflow.title.ilike(like_term),
+                        Workflow.alias.ilike(like_term),
+                    ),
+                )
+                .exists()
+            )
+            base_stmt = base_stmt.where(
+                or_(AgentSession.title.ilike(like_term), workflow_match)
+            )
 
         # Determine sort column and direction
         sort_col = order_by or "created_at"
@@ -280,7 +312,7 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
                 Approval.status == ApprovalStatus.PENDING,
                 AgentSession.workspace_id == self.workspace_id,
                 AgentSession.parent_session_id.is_(None),
-                AgentSession.entity_type.in_(["workflow", "external_channel"]),
+                AgentSession.entity_type.in_(APPROVAL_ENTITY_TYPES),
             )
         )
         count = await self.session.scalar(stmt)
@@ -294,23 +326,23 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
         if not sessions:
             return []
 
-        session_ids = [s.id for s in sessions]
-
-        # Fetch approvals for these sessions
-        approval_stmt = select(Approval).where(
-            Approval.workspace_id == self.workspace_id,
-            Approval.session_id.in_(session_ids),
-        )
-        approval_result = await self.session.execute(approval_stmt)
-        approvals = approval_result.scalars().all()
-
-        # Group approvals by session
+        # Fetch approvals for automation-initiated sessions only; chat-surface
+        # approvals are resolved inline in the chat UI and never shown here.
+        approval_session_ids = [
+            s.id for s in sessions if s.entity_type in APPROVAL_ENTITY_TYPES
+        ]
         approvals_by_session: dict[uuid.UUID, list[Approval]] = {}
-        for approval in approvals:
-            if approval.session_id:
-                approvals_by_session.setdefault(approval.session_id, []).append(
-                    approval
-                )
+        if approval_session_ids:
+            approval_stmt = select(Approval).where(
+                Approval.workspace_id == self.workspace_id,
+                Approval.session_id.in_(approval_session_ids),
+            )
+            approval_result = await self.session.execute(approval_stmt)
+            for approval in approval_result.scalars().all():
+                if approval.session_id:
+                    approvals_by_session.setdefault(approval.session_id, []).append(
+                        approval
+                    )
 
         # Fetch workflow metadata for sessions with entity_id
         workflow_ids = {s.entity_id for s in sessions if s.entity_id}
@@ -322,6 +354,16 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
             workflow_result = await self.session.execute(workflow_stmt)
             workflows = workflow_result.scalars().all()
             workflows_by_id = {w.id: w for w in workflows}
+
+        # Fetch creators for user-initiated sessions
+        creator_ids = {s.created_by for s in sessions if s.created_by}
+        users_by_id: dict[uuid.UUID, User] = {}
+        if creator_ids:
+            user_stmt = select(User).where(
+                User.id.in_(list(creator_ids))  # pyright: ignore[reportAttributeAccessIssue]
+            )
+            user_result = await self.session.execute(user_stmt)
+            users_by_id = {u.id: u for u in user_result.scalars().all()}
 
         # Transform to InboxItemRead
         items: list[InboxItemRead] = []
@@ -356,8 +398,21 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
                 preview = "Execution failed"
             elif failed_count > 0:
                 preview = f"{failed_count} rejected"
+            elif temporal_status is None and not session_approvals:
+                preview = "Agent session"
             else:
                 preview = "Execution completed"
+
+            # Get creator info
+            created_by: UserSummary | None = None
+            if session.created_by and session.created_by in users_by_id:
+                user = users_by_id[session.created_by]
+                created_by = UserSummary(
+                    id=user.id,
+                    email=user.email,
+                    first_name=user.first_name,
+                    last_name=user.last_name,
+                )
 
             # Get workflow info
             workflow_summary: WorkflowSummary | None = None
@@ -393,7 +448,11 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
             items.append(
                 InboxItemRead(
                     id=session.id,
-                    type=InboxItemType.APPROVAL,
+                    type=(
+                        InboxItemType.APPROVAL
+                        if session_approvals
+                        else InboxItemType.AGENT_RUN
+                    ),
                     title=title,
                     preview=preview,
                     status=status,
@@ -401,6 +460,7 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
                     created_at=session.created_at,
                     updated_at=session.updated_at,
                     workflow=workflow_summary,
+                    created_by=created_by,
                     source_id=session.id,  # Always use parent session ID
                     source_type="agent_session",
                     metadata=metadata,

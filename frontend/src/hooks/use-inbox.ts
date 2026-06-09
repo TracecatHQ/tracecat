@@ -1,6 +1,7 @@
 "use client"
 
 import {
+  keepPreviousData,
   type Query,
   useMutation,
   useQuery,
@@ -15,6 +16,7 @@ import {
   type InboxListItemsResponse,
   inboxListItems,
 } from "@/client"
+import { useDebounce } from "@/hooks/use-debounce"
 import {
   type AgentDerivedStatus,
   type AgentStatusTone,
@@ -151,6 +153,7 @@ function inboxItemToSessionItem(item: InboxItemRead): InboxSessionItem {
           alias: item.workflow.alias,
         }
       : null,
+    created_by: item.created_by ?? null,
 
     // Status fields derived from inbox status
     ...statusInfo,
@@ -182,6 +185,7 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
   const workspaceId = useWorkspaceId()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
+  const [debouncedSearchQuery] = useDebounce(searchQuery, 300)
   const [entityType, setEntityType] = useState<AgentSessionEntity | "all">(
     "all"
   )
@@ -252,11 +256,12 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     error,
     refetch,
   } = useQuery<InboxListItemsResponse, TracecatApiError, InboxSessionItem[]>({
-    queryKey: ["inbox-items", workspaceId, limit],
+    queryKey: ["inbox-items", workspaceId, limit, debouncedSearchQuery],
     queryFn: () =>
       inboxListItems({
         workspaceId,
         limit,
+        search: debouncedSearchQuery.trim() || null,
       }),
     select: (data) => {
       // Convert inbox items to session format and sort by priority
@@ -274,6 +279,7 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     enabled: enabled && Boolean(workspaceId),
     retry: retryHandler,
     refetchInterval: computeRefetchInterval,
+    placeholderData: keepPreviousData,
   })
 
   // Apply client-side filtering (search, entity type, date filters)

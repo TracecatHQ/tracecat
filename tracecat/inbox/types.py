@@ -14,6 +14,7 @@ class InboxItemType(StrEnum):
     """Types of inbox items."""
 
     APPROVAL = "approval"
+    AGENT_RUN = "agent_run"
     # Future types:
     # MENTION = "mention"
     # ASSIGNMENT = "assignment"
@@ -43,6 +44,7 @@ class InboxProvider(Protocol):
         reverse: bool = False,
         order_by: str | None = None,
         sort: Literal["asc", "desc"] | None = None,
+        search: str | None = None,
     ) -> CursorPaginatedResponse[InboxItemRead]:
         """List inbox items with cursor-based pagination."""
         ...
