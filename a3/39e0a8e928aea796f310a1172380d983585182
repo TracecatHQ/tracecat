@@ -1,0 +1,19 @@
+.agents/skills/tracecat-slackbot-best-practices/SKILL.md
+  s_7cd7cc5fbead4e::t_1411cda49d92d1 80-82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "a339e0a8e928aea796f310a1172380d983585182",
+  "prompts": {},
+  "sessions": {
+    "s_7cd7cc5fbead4e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7d76335b-b237-4073-8d96-1676c3343291",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
