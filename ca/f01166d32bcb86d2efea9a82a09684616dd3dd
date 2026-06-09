@@ -1,0 +1,31 @@
+tracecat/workflow/management/router.py
+  s_6b93d631eceb93::t_9ad2c3b5095ed8 832
+frontend/src/components/builder/panel/trigger-panel.tsx
+  s_6b93d631eceb93::t_e36cc86f69de05 517-518
+tracecat/webhooks/schemas.py
+  s_6b93d631eceb93::t_eed606e0055ea9 55-62
+tests/unit/test_webhook_execution_path.py
+  s_6b93d631eceb93::t_4a18522b85fe04 1394-1452,1454-1493
+  s_6b93d631eceb93::t_89a81963a1897f 1453
+  s_6b93d631eceb93::t_36c5c7b579d9e9 39-43,45
+tracecat/webhooks/router.py
+  s_6b93d631eceb93::t_fb58879b2506b4 454
+  s_6b93d631eceb93::t_5c0a189f4575d4 504
+  s_6b93d631eceb93::t_7eadf978d4f0ec 337-353
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "caf01166d32bcb86d2efea9a82a09684616dd3dd",
+  "prompts": {},
+  "sessions": {
+    "s_6b93d631eceb93": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2a93ec5a-f7ce-49ef-bbfd-77bf4fb48bdf",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
