@@ -661,6 +661,62 @@ class TestMCPIntegrationCRUD:
         assert item.state == "connected"
         assert item.mcp_integration_id == created.id
 
+    async def test_connect_platform_mcp_catalog_adopts_legacy_matching_row(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A legacy null-slug row matching the recipe is healed, not duplicated."""
+        catalog = _catalog_entry(
+            slug="legacy-mcp",
+            name="Legacy MCP",
+            description="Legacy catalog row",
+            connection_spec={
+                "kind": "http_none",
+                "server_type": "http",
+                "auth_type": "NONE",
+                "requires_config": False,
+                "config_fields": [],
+                "credentials": [],
+                "server_uri": "https://mcp.example.com/mcp",
+            },
+            sort_key="0003:legacy-mcp",
+        )
+        _install_catalog_entry(monkeypatch, catalog)
+        # Predates catalog_slug, but points at the same host as the recipe.
+        legacy = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name="Legacy MCP",
+            slug=catalog.slug,
+            server_type="http",
+            server_uri="https://mcp.example.com/mcp",
+            auth_type=MCPAuthType.NONE,
+        )
+        session.add(legacy)
+        await session.flush()
+        assert legacy.catalog_slug is None
+
+        result = await integration_service.connect_platform_mcp_catalog(
+            catalog_slug=catalog.slug
+        )
+
+        adopted = result.mcp_integration
+        assert adopted is not None
+        # Same row, healed in place — no duplicate created.
+        assert adopted.id == legacy.id
+        assert adopted.slug == catalog.slug
+        assert adopted.catalog_slug == catalog.slug
+
+        catalog_service = PlatformMCPCatalogService(session=session)
+        items, _ = await catalog_service.list_catalog(
+            workspace_id=integration_service.workspace_id,
+            agent_addons_entitled=True,
+            q=catalog.slug,
+        )
+        item = next(item for item in items if item.slug == catalog.slug)
+        assert item.mcp_integration_id == legacy.id
+
     async def test_platform_mcp_catalog_existing_row_connects_without_entitlement(
         self,
         integration_service: IntegrationService,

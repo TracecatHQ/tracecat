@@ -2002,7 +2002,7 @@ class IntegrationService(BaseWorkspaceService):
             existing_catalog_mcp = await self.session.execute(
                 select(MCPIntegration).where(
                     MCPIntegration.workspace_id == self.workspace_id,
-                    MCPIntegration.catalog_slug == catalog_entry["slug"],
+                    MCPIntegration.catalog_slug == catalog_entry.slug,
                 )
             )
             mcp_integration = existing_catalog_mcp.scalars().first()
@@ -2046,7 +2046,7 @@ class IntegrationService(BaseWorkspaceService):
                 name=metadata.name,
                 description=metadata.description,
                 slug=slug,
-                catalog_slug=catalog_entry["slug"] if catalog_entry else None,
+                catalog_slug=catalog_entry.slug if catalog_entry else None,
                 server_uri=mcp_provider_impl.mcp_server_uri,
                 auth_type=MCPAuthType.OAUTH2,
                 oauth_integration_id=integration.id,
@@ -2079,7 +2079,7 @@ class IntegrationService(BaseWorkspaceService):
                     mcp_provider_impl,
                 )
             ):
-                mcp_integration.catalog_slug = catalog_entry["slug"]
+                mcp_integration.catalog_slug = catalog_entry.slug
                 updated = True
             if updated:
                 self.session.add(mcp_integration)
@@ -2107,7 +2107,7 @@ class IntegrationService(BaseWorkspaceService):
         else:
             slug = slugify(name, separator="-") or uuid4().hex[:8]
             catalog_slugs = {
-                entry["slug"]
+                entry.slug
                 for entry in get_platform_mcp_catalog_entries(include_private=True)
             }
             if slug in catalog_slugs:
@@ -2297,7 +2297,7 @@ class IntegrationService(BaseWorkspaceService):
         catalog_row = await self._resolve_create_platform_mcp_catalog(params=params)
         slug = await self._generate_mcp_integration_slug(
             name=params.name,
-            requested_slug=catalog_row["slug"] if catalog_row else None,
+            requested_slug=catalog_row.slug if catalog_row else None,
         )
 
         # Normalize server-type specific fields using discriminator narrowing.
@@ -2358,7 +2358,7 @@ class IntegrationService(BaseWorkspaceService):
             name=params.name.strip(),
             description=params.description.strip() if params.description else None,
             slug=slug,
-            catalog_slug=catalog_row["slug"] if catalog_row else None,
+            catalog_slug=catalog_row.slug if catalog_row else None,
             server_uri=server_uri,
             auth_type=auth_type,
             oauth_integration_id=oauth_integration_id,
@@ -2458,8 +2458,8 @@ class IntegrationService(BaseWorkspaceService):
         )
         if catalog is None:
             raise ValueError("Platform MCP catalog row not found")
-        if catalog["status"] != "available":
-            raise ValueError(f"{catalog['name']} is not available to connect")
+        if catalog.status != "available":
+            raise ValueError(f"{catalog.name} is not available to connect")
 
         existing = await self._get_mcp_integration_by_catalog(catalog)
         if existing is not None:
@@ -2479,7 +2479,7 @@ class IntegrationService(BaseWorkspaceService):
                             name=existing.name,
                             description=existing.description,
                             timeout=existing.timeout or 30,
-                            catalog_slug=catalog["slug"],
+                            catalog_slug=catalog.slug,
                             server_type="http",
                             server_uri=existing.server_uri,
                             auth_type=MCPAuthType.OAUTH2,
@@ -2500,14 +2500,14 @@ class IntegrationService(BaseWorkspaceService):
         if spec and spec.server_type == "http" and spec.auth_type == MCPAuthType.OAUTH2:
             if self._catalog_requires_user_config(spec):
                 raise ValueError(
-                    f"{catalog['name']} requires configuration before connect"
+                    f"{catalog.name} requires configuration before connect"
                 )
             return await self.connect_mcp_oauth_discovery(
                 params=MCPHttpIntegrationCreate(
-                    name=catalog["name"],
-                    description=catalog["description"],
+                    name=catalog.name,
+                    description=catalog.description,
                     timeout=30,
-                    catalog_slug=catalog["slug"],
+                    catalog_slug=catalog.slug,
                     server_type="http",
                     server_uri=spec.server_uri,
                     auth_type=MCPAuthType.OAUTH2,
@@ -2526,7 +2526,7 @@ class IntegrationService(BaseWorkspaceService):
         ):
             return provider_connect
 
-        raise ValueError(f"{catalog['name']} is not connectable yet")
+        raise ValueError(f"{catalog.name} is not connectable yet")
 
     async def _start_catalog_provider_oauth(
         self,
@@ -2534,7 +2534,7 @@ class IntegrationService(BaseWorkspaceService):
         catalog: PlatformMCPCatalogEntry,
         existing_mcp_integration: MCPIntegration | None = None,
     ) -> PlatformMCPCatalogConnectResult | None:
-        provider_id = catalog.get("provider_id")
+        provider_id = catalog.provider_id
         if not provider_id:
             return None
         provider_key = ProviderKey(
@@ -2561,13 +2561,47 @@ class IntegrationService(BaseWorkspaceService):
         """Return this workspace's MCP row for a catalog template, if present."""
         statement = select(MCPIntegration).where(
             MCPIntegration.workspace_id == self.workspace_id,
-            MCPIntegration.catalog_slug == catalog["slug"],
+            MCPIntegration.catalog_slug == catalog.slug,
         )
         result = await self.session.execute(statement)
         if mcp_integration := result.scalars().first():
             return mcp_integration
 
-        provider_id = catalog.get("provider_id")
+        # Legacy rows predate the ``catalog_slug`` column, so they carry no
+        # marker. Adopt a null-slug row only when its slug matches the catalog
+        # slug AND its server config matches the catalog recipe, then heal it
+        # in place. The recipe check prevents a coincidentally same-named custom
+        # integration from being hijacked as a platform row.
+        spec = self._catalog_connection_spec(catalog)
+        if spec is not None:
+            legacy = (
+                (
+                    await self.session.execute(
+                        select(MCPIntegration).where(
+                            MCPIntegration.workspace_id == self.workspace_id,
+                            MCPIntegration.catalog_slug.is_(None),
+                            MCPIntegration.slug == catalog.slug,
+                        )
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            if legacy is not None and self._mcp_integration_matches_catalog_recipe(
+                legacy, spec
+            ):
+                legacy.catalog_slug = catalog.slug
+                self.session.add(legacy)
+                await self.session.commit()
+                await self.session.refresh(legacy)
+                self.logger.info(
+                    "Adopted legacy MCP integration into catalog",
+                    mcp_integration_id=legacy.id,
+                    catalog_slug=catalog.slug,
+                )
+                return legacy
+
+        provider_id = catalog.provider_id
         if not provider_id:
             return None
         provider_impl = get_provider_class(
@@ -2609,7 +2643,7 @@ class IntegrationService(BaseWorkspaceService):
         catalog: PlatformMCPCatalogEntry,
     ) -> MCPConnectionSpec | None:
         """Return the validated runtime catalog connection spec."""
-        return catalog.get("connection_spec")
+        return catalog.connection_spec
 
     @staticmethod
     def _catalog_requires_user_config(spec: MCPConnectionSpec) -> bool:
@@ -2647,16 +2681,16 @@ class IntegrationService(BaseWorkspaceService):
     ) -> MCPIntegrationCreate:
         """Build create params for a catalog row that needs no user input."""
         if cls._catalog_requires_user_config(spec):
-            raise ValueError(f"{catalog['name']} requires configuration before connect")
+            raise ValueError(f"{catalog.name} requires configuration before connect")
 
         if spec.server_type == "http":
             if spec.auth_type == MCPAuthType.OAUTH2:
-                raise ValueError(f"{catalog['name']} requires OAuth before connect")
+                raise ValueError(f"{catalog.name} requires OAuth before connect")
             return MCPHttpIntegrationCreate(
-                name=catalog["name"],
-                description=catalog["description"],
+                name=catalog.name,
+                description=catalog.description,
                 timeout=30,
-                catalog_slug=catalog["slug"],
+                catalog_slug=catalog.slug,
                 server_type="http",
                 server_uri=spec.server_uri,
                 auth_type=spec.auth_type,
@@ -2664,16 +2698,46 @@ class IntegrationService(BaseWorkspaceService):
 
         command, args = cls._catalog_stdio_command(spec)
         if not command:
-            raise ValueError(f"{catalog['name']} requires configuration before connect")
+            raise ValueError(f"{catalog.name} requires configuration before connect")
         return MCPStdioIntegrationCreate(
-            name=catalog["name"],
-            description=catalog["description"],
+            name=catalog.name,
+            description=catalog.description,
             timeout=30,
-            catalog_slug=catalog["slug"],
+            catalog_slug=catalog.slug,
             server_type="stdio",
             stdio_command=command,
             stdio_args=args or None,
         )
+
+    @classmethod
+    def _mcp_integration_matches_catalog_recipe(
+        cls, mcp_integration: MCPIntegration, spec: MCPConnectionSpec
+    ) -> bool:
+        """Whether a row's server config matches a catalog recipe.
+
+        Used to adopt legacy (null ``catalog_slug``) rows: a matching server
+        type plus, for http, the same host (or a placeholder recipe where the
+        user supplies the host) or, for stdio, the same launch command. This
+        guards against hijacking a coincidentally same-named custom row that
+        points somewhere else.
+        """
+        if mcp_integration.server_type != spec.server_type:
+            return False
+
+        if spec.server_type == "http":
+            recipe_uri = spec.server_uri or ""
+            # Placeholder recipes (user supplies the host) can't be matched by
+            # host, so the slug + server-type agreement is the strongest signal.
+            if not recipe_uri or _CATALOG_PLACEHOLDER_RE.search(recipe_uri):
+                return True
+            recipe_host = urlparse(recipe_uri).hostname
+            row_host = urlparse(mcp_integration.server_uri or "").hostname
+            return recipe_host is not None and recipe_host == row_host
+
+        recipe_command, _ = cls._catalog_stdio_command(spec)
+        if not recipe_command:
+            return False
+        return mcp_integration.stdio_command == recipe_command
 
     @staticmethod
     def _mcp_integration_uses_provider_server(
@@ -2858,20 +2922,21 @@ class IntegrationService(BaseWorkspaceService):
             if not target_server_uri:
                 raise ValueError("server_uri is required for http-type servers")
 
-            target_auth_type = (
-                params.auth_type
-                if params.auth_type is not None
-                else MCPAuthType.NONE
-                if server_type_changed
-                else mcp_integration.auth_type
-            )
-            target_oauth_integration_id = (
-                params.oauth_integration_id
-                if oauth_integration_id_was_provided
-                else None
-                if server_type_changed
-                else mcp_integration.oauth_integration_id
-            )
+            # Prefer the request value; on a server-type switch reset to the
+            # http default; otherwise keep what's already stored.
+            if params.auth_type is not None:
+                target_auth_type = params.auth_type
+            elif server_type_changed:
+                target_auth_type = MCPAuthType.NONE
+            else:
+                target_auth_type = mcp_integration.auth_type
+
+            if oauth_integration_id_was_provided:
+                target_oauth_integration_id = params.oauth_integration_id
+            elif server_type_changed:
+                target_oauth_integration_id = None
+            else:
+                target_oauth_integration_id = mcp_integration.oauth_integration_id
 
             # Validate OAuth integration if auth_type is, or remains, oauth2.
             if target_auth_type == MCPAuthType.OAUTH2 and target_oauth_integration_id:

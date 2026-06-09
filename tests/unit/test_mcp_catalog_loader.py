@@ -10,6 +10,7 @@ import pytest
 from tracecat.db.models import MCPIntegration
 from tracecat.integrations.catalog import loader
 from tracecat.integrations.catalog.service import PlatformMCPCatalogService
+from tracecat.integrations.catalog.types import RawCatalogRow
 from tracecat.integrations.enums import MCPAuthType
 
 
@@ -63,7 +64,7 @@ def test_get_platform_mcp_catalog_entries_ignores_malformed_shapes(
     assert loader.get_platform_mcp_catalog_entries() == []
 
 
-def test_get_platform_mcp_catalog_entries_normalizes_specs_and_degrades_bad_specs(
+def test_get_platform_mcp_catalog_entries_normalizes_specs_and_drops_malformed_rows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _stub_catalog_resource(
@@ -170,18 +171,18 @@ def test_get_platform_mcp_catalog_entries_normalizes_specs_and_degrades_bad_spec
 
     entries = loader.get_platform_mcp_catalog_entries(include_private=True)
 
-    assert [entry["slug"] for entry in entries] == [
+    # bad-mcp has an unknown server_type, so the whole row fails validation.
+    assert [entry.slug for entry in entries] == [
         "elastic-mcp",
         "future-mcp",
         "generic-oauth-mcp",
         "provider-oauth-mcp",
-        "bad-mcp",
         "user-url-mcp",
         "local-only-mcp",
     ]
-    assert entries[0]["status"] == "available"
-    assert entries[0].get("docs_url") == "https://example.com/docs"
-    elastic_spec = entries[0].get("connection_spec")
+    assert entries[0].status == "available"
+    assert entries[0].docs_url == "https://example.com/docs"
+    elastic_spec = entries[0].connection_spec
     assert elastic_spec is not None
     assert elastic_spec.model_dump(mode="json") == {
         "kind": "http_custom",
@@ -226,26 +227,24 @@ def test_get_platform_mcp_catalog_entries_normalizes_specs_and_degrades_bad_spec
             },
         ],
     }
-    assert entries[1]["status"] == "coming_soon"
-    assert entries[1].get("connection_spec") is None
-    assert entries[2]["status"] == "available"
-    generic_oauth_spec = entries[2].get("connection_spec")
+    assert entries[1].status == "coming_soon"
+    assert entries[1].connection_spec is None
+    assert entries[2].status == "available"
+    generic_oauth_spec = entries[2].connection_spec
     assert generic_oauth_spec is not None
     assert generic_oauth_spec.auth_type == MCPAuthType.OAUTH2
-    assert entries[3]["status"] == "available"
-    assert entries[3].get("provider_id") == "runreveal_mcp"
-    provider_oauth_spec = entries[3].get("connection_spec")
+    assert entries[3].status == "available"
+    assert entries[3].provider_id == "runreveal_mcp"
+    provider_oauth_spec = entries[3].connection_spec
     assert provider_oauth_spec is not None
     assert provider_oauth_spec.auth_type == MCPAuthType.OAUTH2
-    assert entries[4]["status"] == "available"
-    assert entries[4].get("connection_spec") is None
-    user_url_spec = entries[5].get("connection_spec")
+    user_url_spec = entries[4].connection_spec
     assert user_url_spec is not None
     assert user_url_spec.server_type == "http"
     assert user_url_spec.server_uri == ""
     assert user_url_spec.requires_config is True
     assert user_url_spec.config_fields[0].target == "server_uri"
-    local_only_spec = entries[6].get("connection_spec")
+    local_only_spec = entries[5].connection_spec
     assert local_only_spec is not None
     assert local_only_spec.server_type == "stdio"
     assert local_only_spec.requires_config is True
@@ -304,11 +303,11 @@ def test_get_platform_mcp_catalog_entries_normalizes_connection_options(
     entries = loader.get_platform_mcp_catalog_entries(include_private=True)
 
     assert len(entries) == 1
-    assert entries[0]["status"] == "available"
-    connection_spec = entries[0].get("connection_spec")
+    assert entries[0].status == "available"
+    connection_spec = entries[0].connection_spec
     assert connection_spec is not None
     assert connection_spec.kind == "http_oauth2"
-    options = entries[0].get("connection_options")
+    options = entries[0].connection_options
     assert options is not None
     assert [option.id for option in options] == [
         "remote-http",
@@ -389,23 +388,20 @@ def test_get_platform_mcp_catalog_entries_merges_private_mcp_catalog(
     public_entries = loader.get_platform_mcp_catalog_entries()
 
     assert len(public_entries) == 2
-    assert public_entries[0]["slug"] == "scanner-mcp"
-    assert public_entries[0].get("docs_url") is None
-    assert public_entries[0].get("connection_spec") is None
+    assert public_entries[0].slug == "scanner-mcp"
+    assert public_entries[0].docs_url is None
+    assert public_entries[0].connection_spec is None
 
     private_entries = loader.get_platform_mcp_catalog_entries(include_private=True)
 
     assert len(private_entries) == 2
-    assert private_entries[0]["slug"] == "scanner-mcp"
-    assert private_entries[0].get("docs_url") == "https://docs.scanner.dev/mcp"
-    assert private_entries[0].get("connection_spec") is not None
-    assert private_entries[1]["slug"] == "sumo-logic-mcp"
-    assert private_entries[1]["status"] == "coming_soon"
-    assert (
-        private_entries[1].get("docs_url")
-        == "https://www.sumologic.com/demo/mcp-server"
-    )
-    assert private_entries[1].get("connection_spec") is None
+    assert private_entries[0].slug == "scanner-mcp"
+    assert private_entries[0].docs_url == "https://docs.scanner.dev/mcp"
+    assert private_entries[0].connection_spec is not None
+    assert private_entries[1].slug == "sumo-logic-mcp"
+    assert private_entries[1].status == "coming_soon"
+    assert private_entries[1].docs_url == "https://www.sumologic.com/demo/mcp-server"
+    assert private_entries[1].connection_spec is None
 
 
 def test_get_platform_mcp_catalog_entries_caches_static_catalog(
@@ -460,10 +456,10 @@ def test_get_platform_mcp_catalog_entries_caches_static_catalog(
     monkeypatch.setattr(loader.resources, "files", _files)
 
     first_entries = loader.get_platform_mcp_catalog_entries(include_private=True)
-    first_spec = first_entries[0].get("connection_spec")
+    first_spec = first_entries[0].connection_spec
     assert first_spec is not None
     assert first_spec.server_type == "http"
-    first_entries[0]["name"] = "Mutated"
+    first_entries[0].name = "Mutated"
     first_spec.server_uri = "https://mutated.example/mcp"
 
     second_entries = loader.get_platform_mcp_catalog_entries(include_private=True)
@@ -472,25 +468,45 @@ def test_get_platform_mcp_catalog_entries_caches_static_catalog(
         loader._CATALOG_PACKAGE: 1,
         loader._PRIVATE_CATALOG_PACKAGE: 1,
     }
-    assert second_entries[0]["name"] == "Scanner"
-    second_spec = second_entries[0].get("connection_spec")
+    assert second_entries[0].name == "Scanner"
+    second_spec = second_entries[0].connection_spec
     assert second_spec is not None
     assert second_spec.server_type == "http"
     assert second_spec.server_uri == "https://mcp.example.scanner.dev/v1/mcp"
+
+
+def test_bundled_catalog_rows_all_validate() -> None:
+    """Every bundled catalog row must validate strictly.
+
+    A failure here means the bundled JSON itself is broken and must be fixed
+    in the catalog, not papered over in the loader.
+    """
+    _clear_catalog_cache()
+    for include_private in (False, True):
+        catalog_data = loader._catalog_data(include_private=include_private)
+        servers = catalog_data.get("servers")
+        assert isinstance(servers, list)
+        assert servers
+        for raw in servers:
+            RawCatalogRow.model_validate(raw)
+        entries = loader.get_platform_mcp_catalog_entries(
+            include_private=include_private
+        )
+        assert len(entries) == len(servers)
 
 
 def test_private_catalog_overlay_does_not_drop_public_rows() -> None:
     _clear_catalog_cache()
     public_entries = loader.get_platform_mcp_catalog_entries()
     private_entries = loader.get_platform_mcp_catalog_entries(include_private=True)
-    private_by_slug = {entry["slug"]: entry for entry in private_entries}
+    private_by_slug = {entry.slug: entry for entry in private_entries}
 
     assert len(private_entries) >= len(public_entries)
     for entry in public_entries:
-        assert entry["slug"] in private_by_slug
+        assert entry.slug in private_by_slug
 
     for slug in ("jamf-mcp", "terraform-mcp"):
-        spec = private_by_slug[slug].get("connection_spec")
+        spec = private_by_slug[slug].connection_spec
         if spec is not None:
             assert spec.server_type == "stdio"
             assert spec.requires_config is True

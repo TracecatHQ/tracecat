@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import cast
 
 import sqlalchemy as sa
 
@@ -48,7 +47,7 @@ class PlatformMCPCatalogService(BaseService):
             include_private=agent_addons_entitled
         )
         state_entries_by_id = {
-            entry["id"]: entry
+            entry.id: entry
             for entry in get_platform_mcp_catalog_entries(include_private=True)
         }
         entries = self._filter_entries(
@@ -57,7 +56,7 @@ class PlatformMCPCatalogService(BaseService):
             category=category,
             status=status,
         )
-        entries.sort(key=lambda entry: (entry["sort_key"], str(entry["id"])))
+        entries.sort(key=lambda entry: (entry.sort_key, str(entry.id)))
 
         if params.cursor:
             cursor = BaseCursorPaginator.decode_cursor(params.cursor)
@@ -67,7 +66,7 @@ class PlatformMCPCatalogService(BaseService):
             entries = [
                 entry
                 for entry in entries
-                if (entry["sort_key"], entry["id"]) > (cursor.sort_value, cursor_id)
+                if (entry.sort_key, entry.id) > (cursor.sort_value, cursor_id)
             ]
 
         page_entries = entries[: params.limit + 1]
@@ -76,7 +75,7 @@ class PlatformMCPCatalogService(BaseService):
             page_entries = page_entries[: params.limit]
 
         state_entries = [
-            state_entries_by_id.get(entry["id"], entry) for entry in page_entries
+            state_entries_by_id.get(entry.id, entry) for entry in page_entries
         ]
         state_by_catalog_id = await self._workspace_state_by_catalog_id(
             workspace_id=workspace_id,
@@ -86,7 +85,7 @@ class PlatformMCPCatalogService(BaseService):
         items = [
             self._catalog_read_from_entry(
                 entry=entry,
-                state=state_by_catalog_id.get(entry["id"]),
+                state=state_by_catalog_id.get(entry.id),
                 agent_addons_entitled=agent_addons_entitled,
                 now=now,
             )
@@ -97,9 +96,9 @@ class PlatformMCPCatalogService(BaseService):
         if has_more and page_entries:
             last_entry = page_entries[-1]
             next_cursor = BaseCursorPaginator.encode_cursor(
-                last_entry["id"],
+                last_entry.id,
                 sort_column="sort_key",
-                sort_value=last_entry["sort_key"],
+                sort_value=last_entry.sort_key,
             )
         return items, next_cursor
 
@@ -118,14 +117,14 @@ class PlatformMCPCatalogService(BaseService):
                 filtered = [
                     entry
                     for entry in filtered
-                    if needle in entry["name"].casefold()
-                    or needle in entry["description"].casefold()
-                    or needle in entry["slug"].casefold()
+                    if needle in entry.name.casefold()
+                    or needle in entry.description.casefold()
+                    or needle in entry.slug.casefold()
                 ]
         if category:
-            filtered = [entry for entry in filtered if entry["category"] == category]
+            filtered = [entry for entry in filtered if entry.category == category]
         if status:
-            filtered = [entry for entry in filtered if entry["status"] == status]
+            filtered = [entry for entry in filtered if entry.status == status]
         return filtered
 
     async def _workspace_state_by_catalog_id(
@@ -138,28 +137,36 @@ class PlatformMCPCatalogService(BaseService):
             return {}
 
         provider_to_catalog_id = {
-            provider_id: entry["id"]
+            entry.provider_id: entry.id
             for entry in catalog_entries
-            if isinstance(provider_id := entry.get("provider_id"), str) and provider_id
+            if entry.provider_id
         }
-        catalog_slug_to_id = {entry["slug"]: entry["id"] for entry in catalog_entries}
+        catalog_slug_to_id = {entry.slug: entry.id for entry in catalog_entries}
         rows = (
-            await self.session.execute(
-                sa.select(
-                    MCPIntegration,
-                    OAuthIntegration.encrypted_access_token.label(
-                        "encrypted_access_token"
-                    ),
-                    OAuthIntegration.provider_id.label("provider_id"),
-                    MCPIntegration.catalog_slug.label("catalog_slug"),
+            (
+                await self.session.execute(
+                    sa.select(
+                        MCPIntegration,
+                        OAuthIntegration.encrypted_access_token.label(
+                            "encrypted_access_token"
+                        ),
+                        OAuthIntegration.provider_id.label("provider_id"),
+                        MCPIntegration.catalog_slug.label("catalog_slug"),
+                    )
+                    .outerjoin(
+                        OAuthIntegration,
+                        OAuthIntegration.id == MCPIntegration.oauth_integration_id,
+                    )
+                    .where(MCPIntegration.workspace_id == workspace_id)
+                    .order_by(
+                        MCPIntegration.created_at.asc(),
+                        MCPIntegration.id.asc(),
+                    )
                 )
-                .outerjoin(
-                    OAuthIntegration,
-                    OAuthIntegration.id == MCPIntegration.oauth_integration_id,
-                )
-                .where(MCPIntegration.workspace_id == workspace_id)
             )
-        ).all()
+            .tuples()
+            .all()
+        )
 
         state_by_catalog_id: dict[uuid.UUID, tuple[MCPIntegration, bytes | None]] = {}
         for mcp_integration, encrypted_access_token, provider_id, catalog_slug in rows:
@@ -219,6 +226,14 @@ class PlatformMCPCatalogService(BaseService):
             return status
         return "coming_soon"
 
+    @staticmethod
+    def _mcp_server_type(server_type: str | None) -> MCPServerType | None:
+        match server_type:
+            case "http" | "stdio":
+                return server_type
+            case _:
+                return None
+
     @classmethod
     def _catalog_read_from_entry(
         cls,
@@ -231,22 +246,20 @@ class PlatformMCPCatalogService(BaseService):
         mcp_integration = state[0] if state else None
         encrypted_access_token = state[1] if state else None
         locked = not agent_addons_entitled and mcp_integration is None
-        connection_spec = (
-            entry.get("connection_spec") if agent_addons_entitled else None
-        )
+        connection_spec = entry.connection_spec if agent_addons_entitled else None
         connection_options = (
-            (entry.get("connection_options") or []) if agent_addons_entitled else []
+            (entry.connection_options or []) if agent_addons_entitled else []
         )
         return PlatformMCPCatalogRead(
-            id=entry["id"],
-            slug=entry["slug"],
-            name=entry["name"],
-            description=entry["description"],
-            category=entry["category"],
-            status=cls._catalog_status(entry["status"]),
-            icon_url=entry.get("icon_url"),
-            docs_url=entry.get("docs_url") if agent_addons_entitled else None,
-            provider_id=entry.get("provider_id") if agent_addons_entitled else None,
+            id=entry.id,
+            slug=entry.slug,
+            name=entry.name,
+            description=entry.description,
+            category=entry.category,
+            status=cls._catalog_status(entry.status),
+            icon_url=entry.icon_url,
+            docs_url=entry.docs_url if agent_addons_entitled else None,
+            provider_id=entry.provider_id if agent_addons_entitled else None,
             connection_spec=connection_spec,
             connection_options=connection_options,
             locked=locked,
@@ -255,9 +268,9 @@ class PlatformMCPCatalogService(BaseService):
                 encrypted_access_token=encrypted_access_token,
             ),
             mcp_integration_id=mcp_integration.id if mcp_integration else None,
-            mcp_server_type=cast(MCPServerType, mcp_integration.server_type)
-            if mcp_integration and mcp_integration.server_type in {"http", "stdio"}
-            else None,
+            mcp_server_type=cls._mcp_server_type(
+                mcp_integration.server_type if mcp_integration else None
+            ),
             mcp_auth_type=mcp_integration.auth_type if mcp_integration else None,
             created_at=mcp_integration.created_at if mcp_integration else now,
             updated_at=mcp_integration.updated_at if mcp_integration else now,
