@@ -221,6 +221,19 @@ class TestCaseDropdownDefinitionsService:
         with pytest.raises(TracecatNotFoundError):
             await values_service.apply_values(uuid.uuid4(), [])
 
+    async def test_list_definitions_order_is_deterministic(
+        self, dropdown_service: CaseDropdownDefinitionsService
+    ) -> None:
+        """Position ties should fall back to creation order, stable across calls."""
+        refs = ["first", "second", "third"]
+        for ref in refs:
+            await _create_definition(dropdown_service, name=ref.title(), ref=ref)
+
+        listed = await dropdown_service.list_definitions()
+        assert [d.ref for d in listed] == refs
+        relisted = await dropdown_service.list_definitions()
+        assert [d.id for d in relisted] == [d.id for d in listed]
+
     async def test_reads_require_case_read_scope(
         self,
         session: AsyncSession,

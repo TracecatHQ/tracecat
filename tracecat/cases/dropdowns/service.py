@@ -43,7 +43,14 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
             select(CaseDropdownDefinition)
             .where(CaseDropdownDefinition.workspace_id == self.workspace_id)
             .options(selectinload(CaseDropdownDefinition.options))
-            .order_by(CaseDropdownDefinition.position)
+            # Deterministic insertion-order tiebreaker: position defaults to 0,
+            # and offset pagination over an unstable order can duplicate or
+            # drop items. created_at is unsuitable because now() is pinned
+            # within a transaction.
+            .order_by(
+                CaseDropdownDefinition.position,
+                CaseDropdownDefinition.surrogate_id,
+            )
         )
         result = await self.session.execute(stmt)
         return result.scalars().all()
