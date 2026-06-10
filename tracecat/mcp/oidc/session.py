@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from enum import StrEnum, auto
 
 from fastapi import Request
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.credentials import ACTIVE_ORG_COOKIE
@@ -99,11 +99,23 @@ async def _resolve_org_hint(
     if not cleaned_hint:
         return None
 
-    conditions = [Organization.slug == cleaned_hint]
     try:
-        conditions.append(Organization.id == uuid.UUID(cleaned_hint))
+        hinted_org_id = uuid.UUID(cleaned_hint)
     except ValueError:
-        pass
+        hinted_org_id = None
+
+    if hinted_org_id is not None:
+        result = await session.execute(
+            select(OrganizationMembership.organization_id)
+            .join(Organization, Organization.id == OrganizationMembership.organization_id)
+            .where(
+                OrganizationMembership.user_id == user.id,
+                OrganizationMembership.organization_id == hinted_org_id,
+                Organization.is_active.is_(True),
+            )
+        )
+        if org_id := result.scalar_one_or_none():
+            return org_id
 
     result = await session.execute(
         select(OrganizationMembership.organization_id)
@@ -111,7 +123,7 @@ async def _resolve_org_hint(
         .where(
             OrganizationMembership.user_id == user.id,
             Organization.is_active.is_(True),
-            or_(*conditions),
+            Organization.slug == cleaned_hint,
         )
     )
     return result.scalar_one_or_none()
@@ -151,14 +163,15 @@ async def _resolve_regular_user_org(
     Raises:
         ValueError: If the user does not have exactly one organization membership.
     """
-    if organization_hint:
-        org_id = await _resolve_org_hint(session, user, organization_hint)
+    normalized_org_hint = organization_hint.strip() if organization_hint else None
+    if normalized_org_hint:
+        org_id = await _resolve_org_hint(session, user, normalized_org_hint)
         if org_id is not None:
             return SessionResult(user=user, organization_id=org_id)
         logger.warning(
             "MCP OIDC: org hint does not match user membership",
             user_id=str(user.id),
-            organization_hint=organization_hint,
+            organization_hint=normalized_org_hint,
         )
         raise ValueError("Org hint does not match an active user membership")
 

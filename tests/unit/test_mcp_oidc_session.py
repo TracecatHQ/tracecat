@@ -118,6 +118,41 @@ async def test_resolve_regular_user_org_rejects_invalid_org_hint() -> None:
 
 
 @pytest.mark.anyio
+async def test_resolve_regular_user_org_treats_blank_org_hint_as_absent() -> None:
+    fallback_org_id = uuid.uuid4()
+    user = cast(
+        User,
+        SimpleNamespace(id=uuid.uuid4(), email="user@example.com"),
+    )
+
+    result = await oidc_session._resolve_regular_user_org(
+        cast("oidc_session.AsyncSession", _Session([fallback_org_id])),
+        user,
+        organization_hint="   ",
+    )
+
+    assert result.organization_id == fallback_org_id
+
+
+@pytest.mark.anyio
+async def test_resolve_org_hint_prefers_uuid_before_slug_lookup() -> None:
+    uuid_org_id = uuid.uuid4()
+    slug_org_id = uuid.uuid4()
+    user = cast(
+        User,
+        SimpleNamespace(id=uuid.uuid4(), email="user@example.com"),
+    )
+
+    result = await oidc_session._resolve_org_hint(
+        cast("oidc_session.AsyncSession", _Session([uuid_org_id], [slug_org_id])),
+        user,
+        str(uuid_org_id),
+    )
+
+    assert result == uuid_org_id
+
+
+@pytest.mark.anyio
 async def test_resolve_regular_user_org_uses_valid_active_org_cookie() -> None:
     cookie_org_id = uuid.uuid4()
     user = cast(
