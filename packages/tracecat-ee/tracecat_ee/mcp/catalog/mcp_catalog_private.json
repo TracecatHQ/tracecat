@@ -269,8 +269,8 @@
         "auth_type": "OAUTH2",
         "server_uri": "https://api.runreveal.com/mcp",
         "scopes": [],
-        "oauth_authorization_endpoint": null,
-        "oauth_token_endpoint": null,
+        "oauth_authorization_endpoint": "https://www-api.runreveal.com/oauth/authorize",
+        "oauth_token_endpoint": "https://www-api.runreveal.com/oauth/token",
         "credentials": []
       }
     },
@@ -364,9 +364,26 @@
       "docs": "https://www.sumologic.com/demo/mcp-server",
       "connection_spec": {
         "server_type": "http",
-        "auth_type": null,
+        "auth_type": "CUSTOM",
         "server_uri": null,
-        "credentials": [],
+        "credentials": [
+          {
+            "key": "url",
+            "label": "Sumo Logic MCP Server URL",
+            "description": "The MCP endpoint URL provided by Sumo Logic for your deployment. The official MCP server is in limited beta; use the endpoint Sumo Logic shares with your account team (deployments are region-scoped, e.g. https://api.<deployment>.sumologic.com).",
+            "required": true,
+            "secret": false,
+            "target": "server_uri"
+          },
+          {
+            "key": "Authorization",
+            "label": "Sumo Logic credentials (Authorization header)",
+            "description": "Authorization header for the MCP endpoint. Sumo Logic APIs typically use Basic auth with an Access ID and Access Key: 'Basic <base64(accessId:accessKey)>'. Create keys under Administration -> Security -> Access Keys. Use the scheme Sumo Logic specifies for your beta access if it differs.",
+            "required": true,
+            "secret": true,
+            "target": "http_header"
+          }
+        ],
         "confidence": "low",
         "docker_only": false,
         "research_notes": "The official Sumo Logic MCP Server exists but is in LIMITED BETA with select customers; Sumo Logic states wider availability is \"coming in early 2026.\" As of this research, there is NO publicly documented connection spec: no endpoint URL, no transport type, no auth scheme, and no published package or repository.\n\nWhat is verifiable from first-party sources: Sumo Logic markets the MCP Server as a way to make their \"Dojo AI\" the hub of the customer's AI ecosystem (connecting Dojo AI agents with external copilots, models, and tools). The framing strongly implies a hosted/remote (HTTP) offering tied to the Sumo Logic platform / Dojo AI, but the exact streamable-HTTP/SSE endpoint URL is NOT published. I therefore left server_type=unknown rather than guessing \"http\".\n\nThere is NO official MCP repo in the github.com/SumoLogic org (verified via `gh api /orgs/SumoLogic/repos` and org repo search for \"mcp\" -> 0 results), and no official npm/PyPI package found.\n\nIMPORTANT distinction: Multiple THIRD-PARTY community MCP servers exist (e.g. github.com/samwang0723/mcp-sumologic, github.com/vinit-devops/sumologic_mcp, github.com/greyaperez/mcp-sumologic). These are STDIO Python servers that authenticate with a Sumo Logic API Access ID + Access Key and an endpoint URL (env vars SUMOLOGIC_ACCESS_ID, SUMOLOGIC_ACCESS_KEY, SUMOLOGIC_ENDPOINT, e.g. https://api.<deployment>.sumologic.com). They are NOT first-party and were not used to populate the spec. If the catalog wants a working integration today, one of these community servers could be evaluated, but it would be community-maintained.\n\nRecommendation: Re-research once the official server reaches general availability (expected early 2026) to obtain the real endpoint URL and auth flow. Confidence kept low because no official technical spec is published yet.",
@@ -1496,21 +1513,8 @@
     },
     {
       "slug": "atlassian-mcp",
-      "docs": "https://www.atlassian.com/platform/remote-mcp-server",
-      "provider_id": "jira_mcp",
-      "connection_spec": {
-        "server_type": "http",
-        "auth_type": "OAUTH2",
-        "server_uri": "https://mcp.atlassian.com/v1/mcp",
-        "scopes": [],
-        "oauth_authorization_endpoint": null,
-        "oauth_token_endpoint": null,
-        "credentials": []
-      }
-    },
-    {
-      "slug": "atlassian-rovo-mcp",
       "docs": "https://support.atlassian.com/atlassian-rovo-mcp-server/docs/getting-started-with-the-atlassian-remote-mcp-server/",
+      "provider_id": "jira_mcp",
       "connection_spec": {
         "server_type": "http",
         "auth_type": "OAUTH2",
@@ -1665,8 +1669,8 @@
         "auth_type": "OAUTH2",
         "server_uri": "https://mcp.incident.io/mcp",
         "scopes": [],
-        "oauth_authorization_endpoint": null,
-        "oauth_token_endpoint": null,
+        "oauth_authorization_endpoint": "https://app.incident.io/auth/plugin/authorize",
+        "oauth_token_endpoint": "https://app.incident.io/auth/plugin/token",
         "credentials": [
           {
             "key": "Authorization",
@@ -2097,12 +2101,12 @@
         "auth_type": "OAUTH2",
         "server_uri": "https://mcp.vanta.com/mcp",
         "scopes": [],
-        "oauth_authorization_endpoint": null,
-        "oauth_token_endpoint": null,
+        "oauth_authorization_endpoint": "https://app.vanta.com/oauth/authorize",
+        "oauth_token_endpoint": "https://api.vanta.com/oauth/token",
         "credentials": [],
         "confidence": "high",
         "docker_only": false,
-        "research_notes": "Vanta ships two official MCP options. The preferred catalog default is the remote HTTP MCP server documented by Vanta's Help Center: US https://mcp.vanta.com/mcp, EU https://mcp.eu.vanta.com/mcp, and AUS https://mcp.aus.vanta.com/mcp. The remote server uses interactive OAuth in the user's Vanta app; Vanta Admin role is required. OAuth endpoints are discovered by the MCP client, so explicit authorization/token endpoint overrides are null. US endpoint is used as the default; users in EU/AUS can configure the URI to the regional endpoint. Tracecat follows the MCP/OAuth discovery metadata from the configured server URI rather than requiring every discovered OAuth endpoint host to be enumerated in catalog JSON. Vanta also ships an npm STDIO package @vantasdk/vanta-mcp-server, but it requires VANTA_ENV_FILE to point at a JSON credential file containing client_id/client_secret. Tracecat currently stores stdio env as encrypted key/value pairs, not materialized files, so the HTTP variant is the better platform default.",
+        "research_notes": "Vanta ships two official MCP options. The preferred catalog default is the remote HTTP MCP server documented by Vanta's Help Center: US https://mcp.vanta.com/mcp, EU https://mcp.eu.vanta.com/mcp, and AUS https://mcp.aus.vanta.com/mcp. The remote server uses interactive OAuth in the user's Vanta app; Vanta Admin role is required. OAuth endpoints are discovered by the MCP client, so explicit authorization/token endpoint overrides are null. US endpoint is used as the default; users in EU/AUS can configure the URI to the regional endpoint. Discovery metadata on mcp.vanta.com advertises endpoints on sibling hosts (authorize on app.vanta.com, token/register on api.vanta.com), so the US endpoints are pinned here to mark those hosts trusted; regional EU/AUS servers likely use their own sibling hosts and may need their own pins if connected. Vanta also ships an npm STDIO package @vantasdk/vanta-mcp-server, but it requires VANTA_ENV_FILE to point at a JSON credential file containing client_id/client_secret. Tracecat currently stores stdio env as encrypted key/value pairs, not materialized files, so the HTTP variant is the better platform default.",
         "sources": [
           "https://help.vanta.com/en/articles/14094979-connecting-to-vanta-mcp",
           "https://github.com/VantaInc/vanta-mcp-server/",
@@ -2129,8 +2133,8 @@
           "read:assigned-policies",
           "read:monitor-test"
         ],
-        "oauth_authorization_endpoint": null,
-        "oauth_token_endpoint": null,
+        "oauth_authorization_endpoint": "https://mcp.drata.com/auth0-proxy/authorize",
+        "oauth_token_endpoint": "https://drata-prod.us.auth0.com/oauth/token",
         "credentials": [
           {
             "key": "server_url",

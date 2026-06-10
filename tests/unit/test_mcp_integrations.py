@@ -51,6 +51,7 @@ from tracecat.integrations.schemas import (
     MCPConnectionOption,
     MCPConnectionSpec,
     MCPHttpIntegrationCreate,
+    MCPHTTPOAuth2ConnectionSpec,
     MCPIntegrationCreate,
     MCPIntegrationUpdate,
     MCPStdioIntegrationCreate,
@@ -3538,6 +3539,91 @@ class TestMCPProviderOAuth:
             await integration_service._discover_mcp_oauth_endpoints(
                 server_uri="https://mcp.example.com/mcp",
             )
+
+    async def test_generic_mcp_discovery_allows_catalog_pinned_endpoint_hosts(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Hosts of catalog-pinned OAuth endpoints are trusted in discovery.
+
+        Mirrors incident.io: metadata on mcp.* advertises authorization/token
+        endpoints on app.*, with registration staying on the metadata host.
+        """
+        docs = {
+            "https://mcp.example.com/.well-known/oauth-protected-resource/mcp": None,
+            "https://mcp.example.com/.well-known/oauth-protected-resource": None,
+            "https://mcp.example.com/.well-known/oauth-authorization-server": {
+                "authorization_endpoint": "https://app.example.com/oauth/authorize",
+                "token_endpoint": "https://app.example.com/oauth/token",
+                "registration_endpoint": "https://mcp.example.com/oauth/register",
+                "token_endpoint_auth_methods_supported": ["none"],
+            },
+        }
+
+        async def fake_fetch(url: str) -> OAuthServerMetadata | None:
+            return OAuthServerMetadata.from_json(docs[url])
+
+        monkeypatch.setattr(integration_service, "_fetch_oauth_json", fake_fetch)
+
+        # Unrelated hosts are still rejected even with an allowlist present.
+        with pytest.raises(ValueError, match="does not match expected domain"):
+            await integration_service._discover_mcp_oauth_endpoints(
+                server_uri="https://mcp.example.com/mcp",
+                allowed_endpoint_hosts=frozenset({"other.example.com"}),
+            )
+
+        endpoints = await integration_service._discover_mcp_oauth_endpoints(
+            server_uri="https://mcp.example.com/mcp",
+            allowed_endpoint_hosts=frozenset({"app.example.com"}),
+        )
+
+        assert endpoints.authorization_endpoint == (
+            "https://app.example.com/oauth/authorize"
+        )
+        assert endpoints.token_endpoint == "https://app.example.com/oauth/token"
+        assert endpoints.registration_endpoint == (
+            "https://mcp.example.com/oauth/register"
+        )
+
+    async def test_connect_mcp_oauth_discovery_trusts_catalog_pinned_hosts(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Connect derives trusted endpoint hosts from catalog-pinned endpoints."""
+        captured_hosts: list[frozenset[str]] = []
+
+        async def fake_discover(
+            *,
+            server_uri: str,
+            allowed_endpoint_hosts: frozenset[str] = frozenset(),
+        ) -> integration_service_module.MCPOAuthDiscoveryEndpoints:
+            _ = server_uri
+            captured_hosts.append(allowed_endpoint_hosts)
+            raise RuntimeError("stop after capture")
+
+        monkeypatch.setattr(
+            integration_service, "_discover_mcp_oauth_endpoints", fake_discover
+        )
+
+        catalog_spec = MCPHTTPOAuth2ConnectionSpec(
+            server_uri="https://mcp.example.com/mcp",
+            oauth_authorization_endpoint="https://app.example.com/oauth/authorize",
+            oauth_token_endpoint="https://app.example.com/oauth/token",
+        )
+
+        with pytest.raises(RuntimeError, match="stop after capture"):
+            await integration_service.connect_mcp_oauth_discovery(
+                params=MCPHttpIntegrationCreate(
+                    name="Pinned Hosts MCP",
+                    server_uri="https://mcp.example.com/mcp",
+                    auth_type=MCPAuthType.OAUTH2,
+                ),
+                catalog_spec=catalog_spec,
+            )
+
+        assert captured_hosts == [frozenset({"app.example.com"})]
 
     async def test_generic_mcp_discovery_uses_protected_resource_identifier(
         self,

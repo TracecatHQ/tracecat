@@ -61,6 +61,7 @@ from tracecat.integrations.schemas import (
     IntegrationOAuthConnect,
     MCPConnectionSpec,
     MCPHttpIntegrationCreate,
+    MCPHTTPOAuth2ConnectionSpec,
     MCPIntegrationCreate,
     MCPIntegrationSource,
     MCPIntegrationUpdate,
@@ -552,18 +553,24 @@ class IntegrationService(BaseWorkspaceService):
         endpoint: str,
         *,
         base_domain: str | None = None,
+        allowed_hosts: frozenset[str] = frozenset(),
     ) -> str:
         """Validate a generic MCP OAuth endpoint discovered from metadata.
 
         Generic BYO/catalog DCR follows the trust chain from the user-supplied
         MCP server URI to protected-resource or authorization-server metadata.
-        Endpoint hosts must match the metadata host that advertised them.
+        Endpoint hosts must match the metadata host that advertised them,
+        except for exact hosts of OAuth endpoints pinned on the repo-owned
+        catalog row (still SSRF-validated).
         """
         hostname = urlparse(endpoint).hostname
         if not hostname:
             raise InsecureOAuthEndpointError(
                 f"oauth_endpoint must include a hostname: {endpoint}"
             )
+        if hostname in allowed_hosts:
+            validate_oauth_endpoint(endpoint)
+            return endpoint
         validate_oauth_endpoint(endpoint, base_domain=base_domain)
         return endpoint
 
@@ -711,6 +718,7 @@ class IntegrationService(BaseWorkspaceService):
         self,
         *,
         server_uri: str,
+        allowed_endpoint_hosts: frozenset[str] = frozenset(),
     ) -> MCPOAuthDiscoveryEndpoints:
         resource_uri = self._mcp_resource_uri(server_uri)
         resource_host = urlparse(resource_uri).hostname
@@ -764,15 +772,18 @@ class IntegrationService(BaseWorkspaceService):
             authorization_endpoint=self._validate_mcp_oauth_endpoint(
                 authorization_endpoint,
                 base_domain=direct_metadata_host,
+                allowed_hosts=allowed_endpoint_hosts,
             ),
             token_endpoint=self._validate_mcp_oauth_endpoint(
                 token_endpoint,
                 base_domain=direct_metadata_host,
+                allowed_hosts=allowed_endpoint_hosts,
             ),
             token_methods=token_methods,
             registration_endpoint=self._validate_mcp_oauth_endpoint(
                 registration_endpoint,
                 base_domain=direct_metadata_host,
+                allowed_hosts=allowed_endpoint_hosts,
             )
             if registration_endpoint
             else None,
@@ -977,16 +988,26 @@ class IntegrationService(BaseWorkspaceService):
             )
             if catalog is not None:
                 catalog_spec = self._catalog_connection_spec(catalog)
+        allowed_endpoint_hosts: frozenset[str] = frozenset()
         if catalog_spec is not None:
-            if (
-                catalog_spec.server_type != "http"
-                or catalog_spec.auth_type != MCPAuthType.OAUTH2
-            ):
+            if not isinstance(catalog_spec, MCPHTTPOAuth2ConnectionSpec):
                 raise ValueError("Catalog option is not an HTTP OAuth MCP server")
             scopes = catalog_spec.scopes
+            # Hosts of catalog-pinned OAuth endpoints are trusted during
+            # discovery; the catalog is repo-owned, so a pinned endpoint
+            # states explicitly where the provider serves OAuth.
+            allowed_endpoint_hosts = frozenset(
+                hostname
+                for endpoint in (
+                    catalog_spec.oauth_authorization_endpoint,
+                    catalog_spec.oauth_token_endpoint,
+                )
+                if endpoint and (hostname := urlparse(endpoint).hostname)
+            )
 
         endpoints = await self._discover_mcp_oauth_endpoints(
             server_uri=params.server_uri,
+            allowed_endpoint_hosts=allowed_endpoint_hosts,
         )
         # Prefer user-supplied OAuth client credentials; otherwise fall back to
         # dynamic client registration (DCR) against the discovered endpoint.

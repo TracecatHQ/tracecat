@@ -630,6 +630,13 @@ class MCPHTTPOAuth2ConnectionSpec(_MCPConnectionSpecBase):
     server_uri: str
     scopes: list[str] = Field(default_factory=list)
     oauth_authorization_endpoint: str | None = None
+    """Known OAuth authorization endpoint pinned by the repo-owned catalog row.
+
+    Some providers serve OAuth endpoints on a sibling host of the MCP server
+    (e.g. incident.io's mcp.* metadata advertises app.* endpoints). Pinning
+    the endpoint here marks its host as trusted during MCP OAuth discovery
+    without relaxing same-host validation globally.
+    """
     oauth_token_endpoint: str | None = None
 
 
