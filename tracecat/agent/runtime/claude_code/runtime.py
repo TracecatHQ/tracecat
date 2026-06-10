@@ -63,6 +63,8 @@ from tracecat.agent.common.types import (
     MCPServerConfig,
     MCPStdioServerConfig,
     MCPToolDefinition,
+    RuntimeResolution,
+    output_type_kind,
 )
 from tracecat.agent.llm_routing import get_litellm_route_model
 from tracecat.agent.mcp.metadata import (
@@ -132,6 +134,7 @@ class RuntimeEventWriter(Protocol):
         num_turns: int | None = None,
         duration_ms: int | None = None,
         output: Any = None,
+        runtime_resolution: RuntimeResolution | None = None,
     ) -> None:
         """Send the final Claude result."""
 
@@ -1220,6 +1223,62 @@ class ClaudeAgentRuntime:
             output_format=build_sdk_output_format(payload.config.output_type),
         )
 
+    def _runtime_resolution(
+        self,
+        *,
+        payload: RuntimeInitPayload,
+        options: ClaudeAgentOptions,
+        resume_session_id: str | None,
+        fork_session: bool,
+        mcp_servers: dict[str, McpServerConfig],
+        stdio_mcp_servers: dict[str, McpStdioServerConfig],
+        agent_definitions: dict[str, AgentDefinition] | None,
+    ) -> RuntimeResolution:
+        """Build secret-free diagnostics for the resolved Claude runtime turn."""
+        config = payload.config
+        instructions = config.instructions or ""
+        allowed_tools = getattr(options, "allowed_tools", None)
+        disallowed_tools = getattr(options, "disallowed_tools", None)
+        system_prompt = getattr(options, "system_prompt", None)
+        model_route = getattr(options, "model", None)
+
+        return RuntimeResolution(
+            runtime="claude_code",
+            model_provider=config.model_provider,
+            model_name=config.model_name,
+            model_route=model_route if isinstance(model_route, str) else None,
+            passthrough=config.passthrough,
+            base_url_configured=config.base_url is not None,
+            instructions_present=bool(instructions),
+            instructions_length=len(instructions),
+            system_prompt_length=len(system_prompt)
+            if isinstance(system_prompt, str)
+            else None,
+            system_prompt_fragment_count=len(self._system_prompt_fragments),
+            user_prompt_length=len(payload.user_prompt),
+            output_type_kind=output_type_kind(config.output_type),
+            actions_count=len(payload.allowed_actions)
+            if payload.allowed_actions is not None
+            else None,
+            allowed_tools_count=len(allowed_tools)
+            if isinstance(allowed_tools, list)
+            else None,
+            disallowed_tools_count=len(disallowed_tools)
+            if isinstance(disallowed_tools, list)
+            else None,
+            approval_policy_count=len(config.tool_approvals or {}),
+            approvals_enabled=bool(config.tool_approvals),
+            mcp_server_count=len(mcp_servers),
+            stdio_mcp_server_count=len(stdio_mcp_servers),
+            subagent_count=len(agent_definitions or {}),
+            skills_count=config.skills_count,
+            thinking_enabled=config.enable_thinking,
+            internet_access_enabled=config.enable_internet_access,
+            resumed=resume_session_id is not None,
+            forked=fork_session,
+            approval_continuation=payload.is_approval_continuation,
+        )
+
     async def _handle_system_message(self, message: SystemMessage) -> None:
         """Handle SDK system events that need side effects in Tracecat."""
         await self._emit_new_session_lines()
@@ -1358,6 +1417,20 @@ class ClaudeAgentRuntime:
                 agent_definitions=agent_definitions,
                 stderr=handle_claude_stderr,
             )
+            runtime_resolution = self._runtime_resolution(
+                payload=payload,
+                options=options,
+                resume_session_id=resume_session_id,
+                fork_session=fork_session,
+                mcp_servers=mcp_servers,
+                stdio_mcp_servers=stdio_mcp_servers,
+                agent_definitions=agent_definitions,
+            )
+            await self._event_writer.send_stream_event(
+                UnifiedStreamEvent.runtime_resolution_event(
+                    runtime_resolution.to_metadata()
+                )
+            )
 
             async def drain_stderr() -> None:
                 """Background task to drain stderr queue to loopback."""
@@ -1476,6 +1549,7 @@ class ClaudeAgentRuntime:
                                 num_turns=message.num_turns,
                                 duration_ms=message.duration_ms,
                                 output=result_output,
+                                runtime_resolution=runtime_resolution,
                             )
 
                         elif isinstance(message, SystemMessage):

@@ -1,0 +1,48 @@
+---
+title: "Runtime diagnostics"
+description: "Inspect resolved agent runtime metadata without exposing prompts, tool names, headers, or secrets."
+---
+
+Runtime diagnostics help explain which agent runtime configuration Tracecat used for a run.
+
+When an agent run completes, its result may include `runtime_resolution`. The same metadata is also emitted as a `runtime_resolution` stream event before the model call starts, so operators can inspect the selected runtime even if the model call or a later tool call fails.
+
+## What is included
+
+The diagnostic block includes metadata such as:
+
+- runtime type
+- selected model provider, model name, and runtime route
+- whether custom-provider passthrough was enabled
+- instruction and system prompt lengths
+- output type shape
+- tool, MCP server, approval policy, subagent, and skill counts
+- thinking, internet access, resume, fork, and approval-continuation flags
+
+## What is not included
+
+Runtime diagnostics do not include prompt bodies, tool names, MCP headers, OAuth tokens, secret values, or resolved variables.
+
+This keeps the field safe to show in run results and stream events while still making configuration issues easier to debug.
+
+## Example
+
+```json
+{
+  "runtime": "claude_code",
+  "model_provider": "anthropic",
+  "model_name": "claude-3-5-sonnet-latest",
+  "model_route": "anthropic/claude-3-5-sonnet-latest",
+  "instructions_present": true,
+  "instructions_length": 482,
+  "system_prompt_length": 1880,
+  "actions_count": 6,
+  "allowed_tools_count": 8,
+  "mcp_server_count": 2,
+  "subagent_count": 1,
+  "skills_count": 3,
+  "approval_continuation": false
+}
+```
+
+Use this when a run behaves differently than expected, for example when an instruction override appears missing, a custom provider route is not selected, or the available tool surface is larger than intended.
