@@ -175,7 +175,7 @@ function SettingsModalContent() {
   const showSyncNav = hasEntitlement("git_sync")
 
   return (
-    <DialogContent className="h-[600px] max-w-[900px] gap-0 overflow-hidden p-0">
+    <DialogContent className="h-[600px] max-w-[900px] grid-rows-[100%] gap-0 overflow-hidden p-0">
       <TooltipProvider>
         <DialogTitle className="sr-only">Settings</DialogTitle>
         <DialogDescription className="sr-only">
