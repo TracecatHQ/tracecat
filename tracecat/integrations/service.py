@@ -217,13 +217,28 @@ class IntegrationService(BaseWorkspaceService):
         return result.scalars().first() is not None
 
     async def _generate_custom_provider_id(
-        self, *, name: str, requested_id: str | None, grant_type: OAuthGrantType
+        self,
+        *,
+        name: str,
+        requested_id: str | None,
+        grant_type: OAuthGrantType,
+        allow_reserved_id: bool = False,
     ) -> str:
         """Generate a unique provider identifier for a custom provider."""
         base_source = requested_id or name
         slug = slugify(base_source, separator="_") or uuid4().hex
         if not slug.startswith("custom_"):
             slug = f"custom_{slug}"
+        if not allow_reserved_id and slug.startswith(_CUSTOM_MCP_OAUTH_PROVIDER_PREFIX):
+            # The MCP OAuth discovery pipeline owns the ``custom_mcp_`` id
+            # namespace (callback, refresh, and delete branch on it), so a
+            # regular custom provider must never land in it.
+            if requested_id is not None:
+                raise ValueError(
+                    f"Provider IDs starting with "
+                    f"'{_CUSTOM_MCP_OAUTH_PROVIDER_PREFIX}' are reserved"
+                )
+            slug = f"custom_oauth_{slug.removeprefix('custom_')}"
 
         candidate = slug
         suffix = 1
@@ -311,13 +326,17 @@ class IntegrationService(BaseWorkspaceService):
 
     @require_scope("integration:create")
     async def create_custom_provider(
-        self, *, params: CustomOAuthProviderCreate
+        self,
+        *,
+        params: CustomOAuthProviderCreate,
+        allow_reserved_id: bool = False,
     ) -> WorkspaceOAuthProvider:
         """Create a new custom OAuth provider for the workspace."""
         provider_id = await self._generate_custom_provider_id(
             name=params.name,
             requested_id=params.provider_id,
             grant_type=params.grant_type,
+            allow_reserved_id=allow_reserved_id,
         )
         authorization_endpoint = self._validate_https_endpoint(
             params.authorization_endpoint, field_name="authorization_endpoint"
@@ -887,6 +906,7 @@ class IntegrationService(BaseWorkspaceService):
     ) -> OAuthIntegration:
         provider_id = await self._generate_custom_mcp_provider_id(name=name)
         await self.create_custom_provider(
+            allow_reserved_id=True,
             params=CustomOAuthProviderCreate(
                 provider_id=provider_id,
                 name=name,
@@ -899,7 +919,7 @@ class IntegrationService(BaseWorkspaceService):
                 client_secret=SecretStr(registration.client_secret)
                 if registration.client_secret
                 else None,
-            )
+            ),
         )
         provider_key = ProviderKey(
             id=provider_id, grant_type=OAuthGrantType.AUTHORIZATION_CODE
@@ -2317,9 +2337,45 @@ class IntegrationService(BaseWorkspaceService):
         )
         if catalog_entry is None:
             raise ValueError("Platform MCP catalog row not found")
+        if catalog_entry.status != "available":
+            raise ValueError(f"{catalog_entry.name} is not available to connect")
+        if not self._params_match_catalog_connection_specs(
+            params=params, catalog_entry=catalog_entry
+        ):
+            raise ValueError(
+                f"Requested server and auth configuration does not match any "
+                f"connection option for {catalog_entry.name}"
+            )
 
         await self.require_entitlement(Entitlement.AGENT_ADDONS)
         return catalog_entry
+
+    @staticmethod
+    def _params_match_catalog_connection_specs(
+        *,
+        params: MCPIntegrationCreate,
+        catalog_entry: PlatformMCPCatalogEntry,
+    ) -> bool:
+        """Whether create params match one of a catalog row's connect recipes.
+
+        Guards against binding an arbitrary payload to a platform catalog row
+        (e.g. an auth-less row spoofing an OAuth-only connector as connected).
+        HTTP params must match a spec's server and auth type; stdio create
+        params carry no auth type (credentials ride in ``stdio_env``), so any
+        stdio spec the row offers is accepted.
+        """
+        specs: list[MCPConnectionSpec] = []
+        if catalog_entry.connection_spec is not None:
+            specs.append(catalog_entry.connection_spec)
+        specs.extend(
+            option.connection_spec for option in catalog_entry.connection_options or []
+        )
+        for spec in specs:
+            if spec.server_type != params.server_type:
+                continue
+            if params.server_type == "stdio" or spec.auth_type == params.auth_type:
+                return True
+        return False
 
     @require_scope("integration:create")
     async def create_mcp_integration(
@@ -2500,6 +2556,11 @@ class IntegrationService(BaseWorkspaceService):
                     mcp_integration=existing
                 ):
                     return PlatformMCPCatalogConnectResult(mcp_integration=existing)
+                # Re-establishing auth on an existing (e.g. migrated) catalog row
+                # is a reconnect, gated the same as a fresh catalog connect.
+                # Unentitled workspaces keep connected rows and may disconnect,
+                # but must reconnect as a custom MCP server.
+                await self.require_entitlement(Entitlement.AGENT_ADDONS)
                 if custom_connect := await self._start_existing_custom_mcp_oauth(
                     mcp_integration=existing
                 ):

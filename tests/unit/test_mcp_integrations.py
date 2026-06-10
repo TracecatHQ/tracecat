@@ -48,6 +48,7 @@ from tracecat.integrations.providers.runreveal.mcp import RunRevealMCPProvider
 from tracecat.integrations.providers.sentry.mcp import SentryMCPProvider
 from tracecat.integrations.providers.wiz.mcp import WizMCPProvider
 from tracecat.integrations.schemas import (
+    CustomOAuthProviderCreate,
     MCPConnectionOption,
     MCPConnectionSpec,
     MCPHttpIntegrationCreate,
@@ -624,6 +625,124 @@ class TestMCPIntegrationCRUD:
                 )
             )
 
+    async def test_create_mcp_integration_rejects_catalog_auth_shape_mismatch(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Creates cannot bind payloads that no catalog connect recipe offers."""
+        catalog = _catalog_entry(
+            slug="oauth-only-mcp",
+            name="OAuth Only MCP",
+            description="OAuth-only catalog row",
+            connection_spec={
+                "kind": "http_oauth2",
+                "server_type": "http",
+                "auth_type": "OAUTH2",
+                "requires_config": False,
+                "config_fields": [],
+                "credentials": [],
+                "server_uri": "https://mcp.example.com/mcp",
+                "scopes": [],
+                "oauth_authorization_endpoint": None,
+                "oauth_token_endpoint": None,
+            },
+            sort_key="0003:oauth-only-mcp",
+        )
+        _install_catalog_entry(monkeypatch, catalog)
+
+        with pytest.raises(ValueError, match="does not match any connection option"):
+            await integration_service.create_mcp_integration(
+                params=MCPHttpIntegrationCreate(
+                    name=catalog.name,
+                    description=catalog.description,
+                    catalog_slug=catalog.slug,
+                    server_uri="https://mcp.example.com/mcp",
+                    auth_type=MCPAuthType.NONE,
+                )
+            )
+
+    async def test_create_mcp_integration_accepts_matching_connection_option(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Creates may match any of the catalog row's connection options."""
+        catalog = _catalog_entry(
+            slug="multi-option-mcp",
+            name="Multi Option MCP",
+            description="Catalog row with OAuth default and custom option",
+            connection_spec={
+                "kind": "http_oauth2",
+                "server_type": "http",
+                "auth_type": "OAUTH2",
+                "requires_config": False,
+                "config_fields": [],
+                "credentials": [],
+                "server_uri": "https://mcp.example.com/mcp",
+                "scopes": [],
+                "oauth_authorization_endpoint": None,
+                "oauth_token_endpoint": None,
+            },
+            connection_options=[
+                {
+                    "id": "custom",
+                    "label": "API key",
+                    "connection_spec": {
+                        "kind": "http_custom",
+                        "server_type": "http",
+                        "auth_type": "CUSTOM",
+                        "requires_config": False,
+                        "config_fields": [],
+                        "credentials": [],
+                        "server_uri": "https://mcp.example.com/mcp",
+                    },
+                }
+            ],
+            sort_key="0003:multi-option-mcp",
+        )
+        _install_catalog_entry(monkeypatch, catalog)
+
+        created = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name=catalog.name,
+                description=catalog.description,
+                catalog_slug=catalog.slug,
+                server_uri="https://mcp.example.com/mcp",
+                auth_type=MCPAuthType.CUSTOM,
+                custom_credentials=SecretStr('{"Authorization": "Bearer test-token"}'),
+            )
+        )
+
+        assert created.catalog_slug == catalog.slug
+        assert created.auth_type == MCPAuthType.CUSTOM
+
+    async def test_create_mcp_integration_rejects_coming_soon_catalog_row(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Creates cannot bind rows that are not yet available to connect."""
+        catalog = _catalog_entry(
+            slug="coming-soon-mcp",
+            name="Coming Soon MCP",
+            description="Coming soon catalog row",
+            status="coming_soon",
+            sort_key="0003:coming-soon-mcp",
+        )
+        _install_catalog_entry(monkeypatch, catalog)
+
+        with pytest.raises(ValueError, match="not available to connect"):
+            await integration_service.create_mcp_integration(
+                params=MCPHttpIntegrationCreate(
+                    name=catalog.name,
+                    description=catalog.description,
+                    catalog_slug=catalog.slug,
+                    server_uri="https://mcp.example.com/mcp",
+                    auth_type=MCPAuthType.NONE,
+                )
+            )
+
     async def test_byo_mcp_slug_collision_does_not_configure_catalog(
         self,
         integration_service: IntegrationService,
@@ -895,6 +1014,89 @@ class TestMCPIntegrationCRUD:
 
         assert result.mcp_integration is not None
         assert result.mcp_integration.id == existing_mcp.id
+
+    async def test_platform_mcp_catalog_oauth_reconnect_requires_entitlement(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Re-auth of a disconnected platform OAuth row is gated like a new connect."""
+        monkeypatch.setattr(
+            tier_defaults,
+            "DEFAULT_ENTITLEMENTS",
+            tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(
+                update={"agent_addons": False}
+            ),
+        )
+        catalog = _catalog_entry(
+            slug="oauth-reconnect-locked-mcp",
+            name="OAuth Reconnect Locked MCP",
+            description="Disconnected OAuth catalog row",
+            connection_spec={
+                "kind": "http_oauth2",
+                "server_type": "http",
+                "auth_type": "OAUTH2",
+                "requires_config": False,
+                "config_fields": [],
+                "credentials": [],
+                "server_uri": "https://mcp.example.com/mcp",
+                "scopes": [],
+                "oauth_authorization_endpoint": None,
+                "oauth_token_endpoint": None,
+            },
+            sort_key="0000:oauth-reconnect-locked-mcp",
+        )
+        _install_catalog_entry(monkeypatch, catalog)
+        existing_mcp = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name=catalog.name,
+            slug=catalog.slug,
+            catalog_slug=catalog.slug,
+            server_type="http",
+            server_uri="https://mcp.example.com/mcp",
+            auth_type=MCPAuthType.OAUTH2,
+        )
+        session.add(existing_mcp)
+        await session.flush()
+
+        with pytest.raises(EntitlementRequired, match="agent_addons"):
+            await integration_service.connect_platform_mcp_catalog(
+                catalog_slug=catalog.slug
+            )
+
+    async def test_create_custom_provider_avoids_reserved_mcp_prefix(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """User-created providers never land in the custom_mcp_ id namespace."""
+        provider = await integration_service.create_custom_provider(
+            params=CustomOAuthProviderCreate(
+                name="MCP Foo",
+                grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+                authorization_endpoint="https://auth.example.com/authorize",
+                token_endpoint="https://auth.example.com/token",
+                client_id="test-client-id",
+                client_secret=SecretStr("test-client-secret"),
+            )
+        )
+
+        assert not integration_service._is_custom_mcp_oauth_provider(
+            provider.provider_id
+        )
+
+        with pytest.raises(ValueError, match="reserved"):
+            await integration_service.create_custom_provider(
+                params=CustomOAuthProviderCreate(
+                    provider_id="custom_mcp_bar",
+                    name="Custom MCP Bar",
+                    grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+                    authorization_endpoint="https://auth.example.com/authorize",
+                    token_endpoint="https://auth.example.com/token",
+                    client_id="test-client-id",
+                    client_secret=SecretStr("test-client-secret"),
+                )
+            )
 
     async def test_mcp_provider_oauth_does_not_auto_create_without_entitlement(
         self,

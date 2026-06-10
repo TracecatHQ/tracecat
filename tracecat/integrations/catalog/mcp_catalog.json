@@ -218,13 +218,6 @@
       "icon": "https://www.google.com/s2/favicons?domain=www.atlassian.com&sz=128"
     },
     {
-      "slug": "atlassian-rovo-mcp",
-      "name": "Atlassian Rovo",
-      "description": "Search and act across Jira and Confluence via the Rovo agent endpoint",
-      "category": "Ticketing",
-      "icon": "https://www.google.com/s2/favicons?domain=support.atlassian.com&sz=128"
-    },
-    {
       "slug": "servicenow-mcp",
       "name": "ServiceNow",
       "description": "Query and update ServiceNow ITSM records via the Zurich MCP server",

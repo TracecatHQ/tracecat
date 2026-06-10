@@ -1,7 +1,7 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowRight, ExternalLink, Loader2, Sparkles } from "lucide-react"
+import { ArrowRight, ExternalLink, Loader2, Lock, Sparkles } from "lucide-react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
 import {
@@ -27,6 +27,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { toast } from "@/components/ui/use-toast"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import {
   getMcpOAuthConnectErrorDetail,
   type TracecatApiError,
@@ -207,6 +208,8 @@ export default function McpServersPage() {
   const canCreateMcp = canCreate === true
   const canUpdateIntegrations = canUpdate === true
   const canDeleteMcp = canDelete === true
+  const { hasEntitlement } = useEntitlements()
+  const agentAddonsEnabled = hasEntitlement("agent_addons")
 
   const [searchQuery, setSearchQuery] = useState("")
   const [activeCategory, setActiveCategory] = useState<string>(ALL_CATEGORY)
@@ -436,6 +439,13 @@ export default function McpServersPage() {
       return
     }
 
+    // Migrated catalog rows can be disconnected without the entitlement, but
+    // reconnecting through the platform catalog requires the upgrade.
+    if (entry.mcp_integration_id && !agentAddonsEnabled) {
+      setLockedCatalogEntry(entry)
+      return
+    }
+
     if (!connectable) {
       toast({
         title: `${entry.name} is coming soon`,
@@ -569,6 +579,13 @@ export default function McpServersPage() {
                 canDelete={canDeleteMcp}
                 isActionPending={isActionPending(item)}
                 isDisconnecting={isDisconnectPending(item)}
+                reconnectLocked={
+                  item.kind === "catalog" &&
+                  !item.entry.locked &&
+                  Boolean(item.entry.mcp_integration_id) &&
+                  item.entry.state !== "connected" &&
+                  !agentAddonsEnabled
+                }
                 onConnect={() => handleConnect(item)}
                 onConfigure={() => handleConfigure(item)}
               />
@@ -662,6 +679,7 @@ interface McpCatalogCardProps {
   canDelete: boolean
   isActionPending: boolean
   isDisconnecting: boolean
+  reconnectLocked: boolean
   onConnect: () => void
   onConfigure: () => void
 }
@@ -673,6 +691,7 @@ function McpCatalogCard({
   canDelete,
   isActionPending,
   isDisconnecting,
+  reconnectLocked,
   onConnect,
   onConfigure,
 }: McpCatalogCardProps) {
@@ -683,8 +702,17 @@ function McpCatalogCard({
   const configured = !connected && (entry.state === "configured" || hasMcpRow)
   const hasWorkspaceConfig = configured || connected
   const connectable = isCatalogEntryConnectable(entry)
-  const comingSoon = !locked && (entry.status === "coming_soon" || !connectable)
-  const transports = catalogTransports(entry)
+  // Rows with a workspace integration stay actionable even when the catalog
+  // response hides connection specs (e.g. unentitled with a migrated row).
+  const comingSoon =
+    !locked && !hasMcpRow && (entry.status === "coming_soon" || !connectable)
+  const specTransports = catalogTransports(entry)
+  const transports =
+    specTransports.length > 0
+      ? specTransports
+      : entry.mcp_server_type
+        ? [entry.mcp_server_type]
+        : []
   const docsUrl = locked ? null : entry.docs_url
   const disconnectable = connected && hasMcpRow
   let actionLabel = "Connect"
@@ -695,7 +723,7 @@ function McpCatalogCard({
   }
   const canManage = entry.mcp_integration_id ? canUpdate : false
   let canAct = false
-  if (locked) {
+  if (locked || reconnectLocked) {
     canAct = true
   } else if (disconnectable) {
     canAct = canDelete
@@ -718,6 +746,9 @@ function McpCatalogCard({
   if (isActionPending) {
     statusLabel = isDisconnecting ? "Disconnecting" : "Connecting"
     statusClassName = "border-blue-200 bg-blue-50 text-blue-700"
+  } else if (locked) {
+    statusLabel = "Locked"
+    statusClassName = "border-muted bg-muted/30 text-muted-foreground"
   } else if (connected) {
     statusLabel = "Connected"
     statusClassName = "border-emerald-200 bg-emerald-50 text-emerald-700"
@@ -736,6 +767,13 @@ function McpCatalogCard({
   }
   if (isActionPending) {
     buttonLabel = statusLabel
+  }
+  const actionLocked = locked || reconnectLocked
+  let actionClassName = "text-blue-600 hover:text-blue-700"
+  if (actionLocked) {
+    actionClassName = "text-muted-foreground hover:text-foreground"
+  } else if (disconnectable) {
+    actionClassName = "text-destructive hover:text-destructive"
   }
 
   return (
@@ -761,7 +799,7 @@ function McpCatalogCard({
       <div className="flex items-start justify-between gap-3">
         <ProviderIcon
           providerId={getMcpProviderIconId(entry.provider_id ?? entry.slug)}
-          className="size-9 shrink-0"
+          className={cn("size-9 shrink-0", locked && "opacity-50 grayscale")}
         />
 
         <div className="flex flex-wrap justify-end gap-1">
@@ -792,6 +830,7 @@ function McpCatalogCard({
             {isActionPending ? (
               <Loader2 className="size-3 animate-spin" />
             ) : null}
+            {!isActionPending && locked ? <Lock className="size-3" /> : null}
             {statusLabel}
           </Badge>
         </div>
@@ -832,9 +871,7 @@ function McpCatalogCard({
           variant="ghost"
           className={cn(
             "-mr-2 h-7 gap-1 px-2 text-xs font-medium shadow-none hover:bg-transparent focus:bg-transparent focus-visible:bg-transparent active:bg-transparent disabled:text-muted-foreground",
-            disconnectable
-              ? "text-destructive hover:text-destructive"
-              : "text-blue-600 hover:text-blue-700"
+            actionClassName
           )}
           disabled={comingSoon || !canAct || isActionPending}
           onClick={(event) => {

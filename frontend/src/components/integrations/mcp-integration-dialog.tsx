@@ -37,6 +37,8 @@ import {
   MCP_INTEGRATION_FORM_DEFAULTS,
   type MCPIntegrationFormValues,
   mcpIntegrationFormSchema,
+  missingRequiredOAuthClientCredentials,
+  normalizeOAuthClientKey,
   SERVER_TYPES,
 } from "@/components/integrations/mcp-integration-schema"
 import {
@@ -158,13 +160,6 @@ function hasOAuthClientConfig(spec: MCPConnectionSpec | null | undefined) {
       (credential) => credential.target === "oauth_client"
     )
   )
-}
-
-function normalizeOAuthClientKey(key: string) {
-  return key
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
 }
 
 function isClientSecretKey(key: string) {
@@ -575,6 +570,21 @@ export function MCPIntegrationDialog({
             }
             const oauthClientCredentials =
               values.oauth_client_credentials?.trim() ?? ""
+            // Block submission when the spec marks OAuth client credentials as
+            // required but the pasted JSON still has empty values; otherwise an
+            // empty client_secret is silently dropped and the OAuth callback
+            // token exchange fails.
+            const missingCredentials = missingRequiredOAuthClientCredentials(
+              spec,
+              oauthClientCredentials
+            )
+            if (missingCredentials.length > 0) {
+              form.setError("oauth_client_credentials", {
+                type: "manual",
+                message: `Missing required values: ${missingCredentials.join(", ")}`,
+              })
+              return
+            }
             setCatalogOAuthClientIsPending(true)
             // Without advertised endpoints, the backend does dynamic registration
             // from the pasted credentials; otherwise create the OAuth client here.

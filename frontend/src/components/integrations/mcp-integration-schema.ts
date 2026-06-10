@@ -91,6 +91,51 @@ export function isValidStringMap(
   }
 }
 
+/**
+ * Normalize an OAuth client credential key for lenient comparisons, e.g.
+ * "Client-Secret" and "client_secret" normalize to the same value.
+ */
+export function normalizeOAuthClientKey(key: string) {
+  return key
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+}
+
+/**
+ * Return the labels of credentials the spec marks required for the OAuth
+ * client target but that are empty (or missing) in the pasted JSON. The JSON
+ * shape itself is validated by the form schema before this runs, so parse
+ * failures are treated as "nothing missing" here.
+ */
+export function missingRequiredOAuthClientCredentials(
+  spec: MCPConnectionSpec,
+  value: string
+): string[] {
+  let parsed: Record<string, unknown>
+  try {
+    parsed = JSON.parse(value) as Record<string, unknown>
+  } catch {
+    return []
+  }
+  const valuesByKey = new Map(
+    Object.entries(parsed).map(([key, entryValue]) => [
+      normalizeOAuthClientKey(key),
+      typeof entryValue === "string" ? entryValue.trim() : "",
+    ])
+  )
+  const missing: string[] = []
+  for (const credential of spec.credentials ?? []) {
+    if (credential.target !== "oauth_client" || !credential.required) {
+      continue
+    }
+    if (!valuesByKey.get(normalizeOAuthClientKey(credential.key))) {
+      missing.push(credential.label || credential.key)
+    }
+  }
+  return missing
+}
+
 export const mcpIntegrationFormSchema = z
   .object({
     name: z

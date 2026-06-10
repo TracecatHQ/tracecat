@@ -1,7 +1,7 @@
 """add mcp catalog slug and oauth token endpoint auth method
 
 Revision ID: 9b52f7f18a31
-Revises: 0f18bea0c115
+Revises: c9d2e7a4f1b3
 Create Date: 2026-06-08 00:00:00.000000
 
 """
@@ -14,7 +14,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "9b52f7f18a31"
-down_revision: str | None = "0f18bea0c115"
+down_revision: str | None = "c9d2e7a4f1b3"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
