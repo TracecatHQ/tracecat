@@ -1,8 +1,9 @@
 """Service for managing agent model catalog."""
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, NotRequired, TypedDict
+from typing import Any, TypedDict
 from uuid import UUID
 
 import sqlalchemy as sa
@@ -30,12 +31,17 @@ class _CatalogRowValues(TypedDict):
     last_refreshed_at: datetime
 
 
-class PlatformCatalogEntry(TypedDict):
-    """Input row for bulk platform-catalog seeding."""
+@dataclass(frozen=True, slots=True)
+class PlatformCatalogEntry:
+    """Input row for bulk platform-catalog seeding.
+
+    Already validated at the trust boundary (see
+    ``tracecat.agent.catalog.loader``), so fields are trusted here.
+    """
 
     model_provider: str
     model_name: str
-    metadata: NotRequired[dict[str, Any]]
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class AgentCatalogService(BaseService):
@@ -52,25 +58,17 @@ class AgentCatalogService(BaseService):
             return 0
 
         now = datetime.now(UTC)
-        values: list[_CatalogRowValues] = []
-        for entry in entries:
-            model_provider = entry.get("model_provider")
-            model_name = entry.get("model_name")
-            if not isinstance(model_provider, str) or not isinstance(model_name, str):
-                continue
-            values.append(
-                {
-                    "organization_id": None,
-                    "custom_provider_id": None,
-                    "model_provider": model_provider,
-                    "model_name": model_name,
-                    "model_metadata": entry.get("metadata") or {},
-                    "last_refreshed_at": now,
-                }
-            )
-
-        if not values:
-            return 0
+        values: list[_CatalogRowValues] = [
+            {
+                "organization_id": None,
+                "custom_provider_id": None,
+                "model_provider": entry.model_provider,
+                "model_name": entry.model_name,
+                "model_metadata": entry.metadata,
+                "last_refreshed_at": now,
+            }
+            for entry in entries
+        ]
 
         stmt = insert(AgentCatalog).values(values)
         stmt = stmt.on_conflict_do_update(
