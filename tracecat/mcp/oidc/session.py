@@ -107,7 +107,9 @@ async def _resolve_org_hint(
     if hinted_org_id is not None:
         result = await session.execute(
             select(OrganizationMembership.organization_id)
-            .join(Organization, Organization.id == OrganizationMembership.organization_id)
+            .join(
+                Organization, Organization.id == OrganizationMembership.organization_id
+            )
             .where(
                 OrganizationMembership.user_id == user.id,
                 OrganizationMembership.organization_id == hinted_org_id,
@@ -126,7 +128,17 @@ async def _resolve_org_hint(
             Organization.slug == cleaned_hint,
         )
     )
-    return result.scalar_one_or_none()
+    slug_org_ids = [row[0] for row in result.all()]
+    if len(slug_org_ids) == 1:
+        return slug_org_ids[0]
+    if len(slug_org_ids) > 1:
+        logger.warning(
+            "MCP OIDC: org hint matched multiple active memberships",
+            user_id=str(user.id),
+            organization_hint=cleaned_hint,
+            org_count=len(slug_org_ids),
+        )
+    return None
 
 
 async def _resolve_cookie_org(

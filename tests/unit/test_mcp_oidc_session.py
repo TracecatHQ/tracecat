@@ -153,6 +153,25 @@ async def test_resolve_org_hint_prefers_uuid_before_slug_lookup() -> None:
 
 
 @pytest.mark.anyio
+async def test_resolve_org_hint_rejects_ambiguous_slug_matches() -> None:
+    user = cast(
+        User,
+        SimpleNamespace(id=uuid.uuid4(), email="user@example.com"),
+    )
+
+    result = await oidc_session._resolve_org_hint(
+        cast(
+            "oidc_session.AsyncSession",
+            _Session([uuid.uuid4(), uuid.uuid4()]),
+        ),
+        user,
+        "shared-slug",
+    )
+
+    assert result is None
+
+
+@pytest.mark.anyio
 async def test_resolve_regular_user_org_uses_valid_active_org_cookie() -> None:
     cookie_org_id = uuid.uuid4()
     user = cast(
@@ -170,7 +189,9 @@ async def test_resolve_regular_user_org_uses_valid_active_org_cookie() -> None:
 
 
 @pytest.mark.anyio
-async def test_resolve_regular_user_org_requires_disambiguation_for_multi_org_user() -> None:
+async def test_resolve_regular_user_org_requires_disambiguation_for_multi_org_user() -> (
+    None
+):
     user = cast(
         User,
         SimpleNamespace(id=uuid.uuid4(), email="user@example.com"),
