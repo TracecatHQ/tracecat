@@ -1,0 +1,22 @@
+tracecat/cases/dropdowns/service.py
+  s_d9b732a96c2b02::t_31bf17459b387d 50-51,53
+  s_d9b732a96c2b02::t_8aeb1d271f2348 46-49,52
+tests/unit/test_case_dropdown_service.py
+  s_d9b732a96c2b02::t_c9e0c95796a122 224-236
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "f4a0f166612aec179dc1e33edc1f30be4d43aa1c",
+  "prompts": {},
+  "sessions": {
+    "s_d9b732a96c2b02": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3c59e2bb-a3eb-41af-be74-726c66131b4d",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
