@@ -1460,6 +1460,38 @@ async def test_authorize_resume_rejects_ip_mismatch(
 
 
 @pytest.mark.anyio
+async def test_authorize_resume_rejects_malformed_authorize_params(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    authorize_params = _authorize_params()
+    authorize_params.pop("code_challenge")
+    txn = ResumeTransaction(
+        transaction_id="txn-malformed",
+        authorize_params=authorize_params,
+        created_at=time.time(),
+        bound_ip=_TESTCLIENT_IP_HASH,
+    )
+    resolver = AsyncMock()
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.load_and_delete_resume_transaction",
+        AsyncMock(return_value=txn),
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.resolve_authorize_session",
+        resolver,
+    )
+
+    response = client.get("/authorize/resume", params={"txn": "txn-malformed"})
+
+    assert response.status_code == 400
+    body = response.json()
+    assert body["error"] == "invalid_request"
+    assert "missing required OAuth parameters" in body["error_description"]
+    resolver.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_authorize_resume_replays_authorize_on_success(
     client: TestClient,
     mock_user: SimpleNamespace,

@@ -66,6 +66,16 @@ router = APIRouter()
 
 OptionalUserDep = Annotated[User | None, Depends(optional_current_active_user)]
 
+_RESUME_AUTHORIZE_REQUIRED_PARAMS = (
+    "response_type",
+    "client_id",
+    "redirect_uri",
+    "code_challenge",
+    "code_challenge_method",
+    "scope",
+    "state",
+)
+
 
 def _get_client_ip(request: Request) -> str:
     """Return the client IP, preferring forwarded headers from the reverse proxy."""
@@ -141,6 +151,27 @@ def _build_redirect_url(url: str, params: dict[str, str]) -> str:
         [*parse_qsl(parts.query, keep_blank_values=True), *params.items()]
     )
     return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
+
+
+def _validate_resume_authorize_params(
+    txn_id: str,
+    params: dict[str, str],
+) -> JSONResponse | None:
+    missing = [
+        name for name in _RESUME_AUTHORIZE_REQUIRED_PARAMS if not params.get(name)
+    ]
+    if not missing:
+        return None
+
+    logger.warning(
+        "MCP OIDC: malformed resume transaction",
+        txn_id=txn_id,
+        missing_params=missing,
+    )
+    return _error_response(
+        "invalid_request",
+        "Resume transaction is missing required OAuth parameters",
+    )
 
 
 def _oauth_error_redirect_response(
@@ -476,20 +507,23 @@ async def authorize_resume(
         )
 
     params = txn_data.authorize_params
+    if validation_error := _validate_resume_authorize_params(txn, params):
+        return validation_error
+
     org_hint = org or params.get("org")
     logger.info("MCP OIDC: resuming authorization", txn_id=txn)
 
     return await _handle_authorize(
         request=request,
         user=user,
-        response_type=params.get("response_type", "code"),
-        client_id=params.get("client_id", ""),
-        redirect_uri=params.get("redirect_uri", ""),
-        code_challenge=params.get("code_challenge", ""),
-        code_challenge_method=params.get("code_challenge_method", "S256"),
-        scope=params.get("scope", "openid"),
-        state=params.get("state", ""),
-        resource=params.get("resource", ""),
+        response_type=params["response_type"],
+        client_id=params["client_id"],
+        redirect_uri=params["redirect_uri"],
+        code_challenge=params["code_challenge"],
+        code_challenge_method=params["code_challenge_method"],
+        scope=params["scope"],
+        state=params["state"],
+        resource=params.get("resource"),
         nonce=params.get("nonce"),
         org=org_hint,
     )
