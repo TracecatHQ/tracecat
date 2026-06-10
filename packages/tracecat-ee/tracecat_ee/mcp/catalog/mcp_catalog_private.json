@@ -657,115 +657,142 @@
     },
     {
       "slug": "jamf-mcp",
-      "docs": "https://github.com/Jamf-Concepts/mcp-hub",
-      "connection_spec": {
-        "server_type": "stdio",
-        "auth_type": "CUSTOM",
-        "stdio_command": null,
-        "stdio_args": [
-          "run",
-          "--directory",
-          "/path/to/mcp-hub",
-          "jamf-mcp"
-        ],
-        "stdio_env": [
-          "JAMF_PRO_URL",
-          "JAMF_PRO_CLIENT_ID",
-          "JAMF_PRO_CLIENT_SECRET",
-          "JAMF_PROTECT_URL",
-          "JAMF_PROTECT_CLIENT_ID",
-          "JAMF_PROTECT_PASSWORD",
-          "JAMF_SECURITY_URL",
-          "JAMF_SECURITY_APP_ID",
-          "JAMF_SECURITY_APP_SECRET"
-        ],
-        "packages": [],
-        "credentials": [
-          {
-            "key": "JAMF_PRO_URL",
-            "label": "Jamf Pro URL",
-            "description": "Jamf Pro instance base URL, e.g. https://yourcompany.jamfcloud.com",
-            "required": true,
-            "secret": false,
-            "target": "stdio_env"
-          },
-          {
-            "key": "JAMF_PRO_CLIENT_ID",
-            "label": "Jamf Pro API Client ID",
-            "description": "OAuth client ID for a Jamf Pro API Role/Client (client-credentials).",
-            "required": true,
-            "secret": false,
-            "target": "stdio_env"
-          },
-          {
-            "key": "JAMF_PRO_CLIENT_SECRET",
-            "label": "Jamf Pro API Client Secret",
-            "description": "OAuth client secret for the Jamf Pro API client. Shown once at creation.",
-            "required": true,
-            "secret": true,
-            "target": "stdio_env"
-          },
-          {
-            "key": "JAMF_PROTECT_URL",
-            "label": "Jamf Protect URL",
-            "description": "Jamf Protect tenant URL. Optional; only needed to enable Jamf Protect tools.",
-            "required": false,
-            "secret": false,
-            "target": "stdio_env"
-          },
-          {
-            "key": "JAMF_PROTECT_CLIENT_ID",
-            "label": "Jamf Protect Client ID",
-            "description": "Jamf Protect API client ID. Optional; only needed for Jamf Protect tools.",
-            "required": false,
-            "secret": false,
-            "target": "stdio_env"
-          },
-          {
-            "key": "JAMF_PROTECT_PASSWORD",
-            "label": "Jamf Protect Password/Secret",
-            "description": "Jamf Protect API client password/secret. Optional; only needed for Jamf Protect tools.",
-            "required": false,
-            "secret": true,
-            "target": "stdio_env"
-          },
-          {
-            "key": "JAMF_SECURITY_URL",
-            "label": "Jamf Security Cloud URL",
-            "description": "Jamf Security Cloud (RADAR/RISK API) base URL. Optional; only needed for Security Cloud tools.",
-            "required": false,
-            "secret": false,
-            "target": "stdio_env"
-          },
-          {
-            "key": "JAMF_SECURITY_APP_ID",
-            "label": "Jamf Security Cloud Application ID",
-            "description": "Jamf Security Cloud API application ID. Optional; only needed for Security Cloud tools.",
-            "required": false,
-            "secret": false,
-            "target": "stdio_env"
-          },
-          {
-            "key": "JAMF_SECURITY_APP_SECRET",
-            "label": "Jamf Security Cloud Application Secret",
-            "description": "Jamf Security Cloud API application secret. Optional; only needed for Security Cloud tools.",
-            "required": false,
-            "secret": true,
-            "target": "stdio_env"
+      "docs": "https://developer.jamf.com/developer-guide/docs/mcp",
+      "default_connection_option": "remote-http",
+      "connection_options": [
+        {
+          "id": "remote-http",
+          "label": "Remote HTTP",
+          "description": "Connect to Jamf's hosted MCP server to search Jamf developer documentation and generate Jamf API integration code. No authentication required.",
+          "docs": "https://developer.jamf.com/developer-guide/docs/mcp",
+          "connection_spec": {
+            "server_type": "http",
+            "auth_type": "NONE",
+            "server_uri": "https://developer.jamf.com/mcp",
+            "credentials": [],
+            "confidence": "high",
+            "docker_only": false,
+            "research_notes": "Official Jamf-hosted remote MCP server at https://developer.jamf.com/mcp, documented at developer.jamf.com/developer-guide/docs/mcp. Transport is streamable HTTP; first-party client configs (Cursor, Windsurf, Claude Desktop) are just {\"url\": \"https://developer.jamf.com/mcp\"} with no OAuth flow or API key, so auth_type=NONE. Scope is Jamf DEVELOPER DOCUMENTATION search and API code-generation assistance only — it does NOT manage devices or query Jamf Pro/Protect/Security Cloud tenant data. Device management requires the local-stdio mcp-hub option. Jamf also publishes an AI-agent index at https://developer.jamf.com/llms.txt.",
+            "sources": [
+              "https://developer.jamf.com/developer-guide/docs/mcp"
+            ]
           }
-        ],
-        "confidence": "high",
-        "docker_only": false,
-        "research_notes": "Official server is the first-party Jamf open-source repo Jamf-Concepts/mcp-hub (\"Jamf's open source mcp for Jamf Pro, Jamf Protect and Jamf Security\"), matching the catalog description. Transport is stdio. Python project (hatchling) with console script `jamf-mcp` (entry jamf_mcp.server:main); project version 0.1.0.\n\nIMPORTANT: NOT published to any package index. `pip install jamf-mcp` and `uvx jamf-mcp` will fail (PyPI returns 404, no npm package). The ONLY documented install is to git-clone the repo and run it from the local directory: `uv run --directory /path/to/mcp-hub jamf-mcp` (or `pip install -e .` inside the clone, then `jamf-mcp`). Because the canonical launcher is `uv run --directory <local-clone>` and our allowlisted commands (npx/uvx/python/python3/node) cannot pull this from a registry, I set stdio_command=null and packages=[] rather than fabricate a registry install. stdio_args/stdio_package reflect the documented `uv run` invocation against a local clone, with package name \"jamf-mcp\". This server requires git-clone setup — not docker (so docker_only=false) and not a registry package; it likely needs a follow-up decision on how to support local-clone-only servers.\n\nAuth (auth_type=CUSTOM): user supplies static API credentials via env vars. Jamf Pro uses a client-credentials API Role/Client (JAMF_PRO_CLIENT_ID/SECRET) — this is OAuth2 client_credentials internally, but from the user's perspective it is API-key-style credential entry (no browser sign-in, no DCR), so classified CUSTOM rather than OAUTH2. Required: JAMF_PRO_URL, JAMF_PRO_CLIENT_ID, JAMF_PRO_CLIENT_SECRET. Optional product modules: Jamf Protect (JAMF_PROTECT_URL/CLIENT_ID/PASSWORD) and Jamf Security Cloud (JAMF_SECURITY_URL/APP_ID/APP_SECRET) — only needed to enable those toolsets; README notes the server starts in \"onboarding mode\" with no credentials.\n\nNote there is a separate official Jamf remote MCP at https://developer.jamf.com/mcp, but that one only serves Jamf developer DOCUMENTATION search, not device management — it does not match this catalog entry's \"manage Apple devices\" description, so it was not used.",
-        "sources": [
-          "https://github.com/Jamf-Concepts/mcp-hub",
-          "https://raw.githubusercontent.com/Jamf-Concepts/mcp-hub/main/docs/INSTALLATION.md",
-          "https://raw.githubusercontent.com/Jamf-Concepts/mcp-hub/main/README.md",
-          "https://raw.githubusercontent.com/Jamf-Concepts/mcp-hub/main/pyproject.toml",
-          "https://raw.githubusercontent.com/Jamf-Concepts/mcp-hub/main/.env.example",
-          "https://pypi.org/pypi/jamf-mcp/json"
-        ]
-      }
+        },
+        {
+          "id": "local-stdio",
+          "label": "Local stdio",
+          "description": "Run Jamf's open-source mcp-hub server locally to manage Apple devices across Jamf Pro, Protect, and Security Cloud. Requires a local clone of the repo plus API credentials.",
+          "docs": "https://github.com/Jamf-Concepts/mcp-hub",
+          "connection_spec": {
+            "server_type": "stdio",
+            "auth_type": "CUSTOM",
+            "stdio_command": null,
+            "stdio_args": [
+              "run",
+              "--directory",
+              "/path/to/mcp-hub",
+              "jamf-mcp"
+            ],
+            "stdio_env": [
+              "JAMF_PRO_URL",
+              "JAMF_PRO_CLIENT_ID",
+              "JAMF_PRO_CLIENT_SECRET",
+              "JAMF_PROTECT_URL",
+              "JAMF_PROTECT_CLIENT_ID",
+              "JAMF_PROTECT_PASSWORD",
+              "JAMF_SECURITY_URL",
+              "JAMF_SECURITY_APP_ID",
+              "JAMF_SECURITY_APP_SECRET"
+            ],
+            "packages": [],
+            "credentials": [
+              {
+                "key": "JAMF_PRO_URL",
+                "label": "Jamf Pro URL",
+                "description": "Jamf Pro instance base URL, e.g. https://yourcompany.jamfcloud.com",
+                "required": true,
+                "secret": false,
+                "target": "stdio_env"
+              },
+              {
+                "key": "JAMF_PRO_CLIENT_ID",
+                "label": "Jamf Pro API Client ID",
+                "description": "OAuth client ID for a Jamf Pro API Role/Client (client-credentials).",
+                "required": true,
+                "secret": false,
+                "target": "stdio_env"
+              },
+              {
+                "key": "JAMF_PRO_CLIENT_SECRET",
+                "label": "Jamf Pro API Client Secret",
+                "description": "OAuth client secret for the Jamf Pro API client. Shown once at creation.",
+                "required": true,
+                "secret": true,
+                "target": "stdio_env"
+              },
+              {
+                "key": "JAMF_PROTECT_URL",
+                "label": "Jamf Protect URL",
+                "description": "Jamf Protect tenant URL. Optional; only needed to enable Jamf Protect tools.",
+                "required": false,
+                "secret": false,
+                "target": "stdio_env"
+              },
+              {
+                "key": "JAMF_PROTECT_CLIENT_ID",
+                "label": "Jamf Protect Client ID",
+                "description": "Jamf Protect API client ID. Optional; only needed for Jamf Protect tools.",
+                "required": false,
+                "secret": false,
+                "target": "stdio_env"
+              },
+              {
+                "key": "JAMF_PROTECT_PASSWORD",
+                "label": "Jamf Protect Password/Secret",
+                "description": "Jamf Protect API client password/secret. Optional; only needed for Jamf Protect tools.",
+                "required": false,
+                "secret": true,
+                "target": "stdio_env"
+              },
+              {
+                "key": "JAMF_SECURITY_URL",
+                "label": "Jamf Security Cloud URL",
+                "description": "Jamf Security Cloud (RADAR/RISK API) base URL. Optional; only needed for Security Cloud tools.",
+                "required": false,
+                "secret": false,
+                "target": "stdio_env"
+              },
+              {
+                "key": "JAMF_SECURITY_APP_ID",
+                "label": "Jamf Security Cloud Application ID",
+                "description": "Jamf Security Cloud API application ID. Optional; only needed for Security Cloud tools.",
+                "required": false,
+                "secret": false,
+                "target": "stdio_env"
+              },
+              {
+                "key": "JAMF_SECURITY_APP_SECRET",
+                "label": "Jamf Security Cloud Application Secret",
+                "description": "Jamf Security Cloud API application secret. Optional; only needed for Security Cloud tools.",
+                "required": false,
+                "secret": true,
+                "target": "stdio_env"
+              }
+            ],
+            "confidence": "high",
+            "docker_only": false,
+            "research_notes": "Official server is the first-party Jamf open-source repo Jamf-Concepts/mcp-hub (\"Jamf's open source mcp for Jamf Pro, Jamf Protect and Jamf Security\"), matching the catalog description. Transport is stdio. Python project (hatchling) with console script `jamf-mcp` (entry jamf_mcp.server:main); project version 0.1.0.\n\nIMPORTANT: NOT published to any package index. `pip install jamf-mcp` and `uvx jamf-mcp` will fail (PyPI returns 404, no npm package). The ONLY documented install is to git-clone the repo and run it from the local directory: `uv run --directory /path/to/mcp-hub jamf-mcp` (or `pip install -e .` inside the clone, then `jamf-mcp`). Because the canonical launcher is `uv run --directory <local-clone>` and our allowlisted commands (npx/uvx/python/python3/node) cannot pull this from a registry, I set stdio_command=null and packages=[] rather than fabricate a registry install. stdio_args/stdio_package reflect the documented `uv run` invocation against a local clone, with package name \"jamf-mcp\". This server requires git-clone setup — not docker (so docker_only=false) and not a registry package; it likely needs a follow-up decision on how to support local-clone-only servers.\n\nAuth (auth_type=CUSTOM): user supplies static API credentials via env vars. Jamf Pro uses a client-credentials API Role/Client (JAMF_PRO_CLIENT_ID/SECRET) — this is OAuth2 client_credentials internally, but from the user's perspective it is API-key-style credential entry (no browser sign-in, no DCR), so classified CUSTOM rather than OAUTH2. Required: JAMF_PRO_URL, JAMF_PRO_CLIENT_ID, JAMF_PRO_CLIENT_SECRET. Optional product modules: Jamf Protect (JAMF_PROTECT_URL/CLIENT_ID/PASSWORD) and Jamf Security Cloud (JAMF_SECURITY_URL/APP_ID/APP_SECRET) — only needed to enable those toolsets; README notes the server starts in \"onboarding mode\" with no credentials.\n\nThe separate official Jamf remote MCP at https://developer.jamf.com/mcp only serves Jamf developer DOCUMENTATION search, not device management — it is covered by the remote-http connection option on this entry.",
+            "sources": [
+              "https://github.com/Jamf-Concepts/mcp-hub",
+              "https://raw.githubusercontent.com/Jamf-Concepts/mcp-hub/main/docs/INSTALLATION.md",
+              "https://raw.githubusercontent.com/Jamf-Concepts/mcp-hub/main/README.md",
+              "https://raw.githubusercontent.com/Jamf-Concepts/mcp-hub/main/pyproject.toml",
+              "https://raw.githubusercontent.com/Jamf-Concepts/mcp-hub/main/.env.example",
+              "https://pypi.org/pypi/jamf-mcp/json"
+            ]
+          }
+        }
+      ]
     },
     {
       "slug": "iru-mcp",
