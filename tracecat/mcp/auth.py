@@ -1334,9 +1334,10 @@ async def resolve_role_for_request(workspace_id: WorkspaceID) -> Role:
 async def resolve_org_role_for_request() -> Role:
     """Resolve a role with organization context from the current MCP token.
 
-    Mirrors the HTTP API's ``_resolve_org_for_regular_user`` and the MCP
-    ``list_user_workspaces`` patterns: looks up the caller's organization
-    memberships and rejects ambiguous multi-org cases. When the token carries
+    Looks up the caller's organization memberships and rejects ambiguous
+    multi-org cases. Unlike the HTTP API's ``_resolve_org_for_regular_user``,
+    which falls back to a stable active membership, tokens have an explicit
+    scoping mechanism, so ambiguity is an error here. When the token carries
     an ``organization_id`` claim or ``org:<uuid>`` scope, that scoping is
     intersected with the user's memberships before the ambiguity check, so a
     single-org-scoped token resolves cleanly even when the user belongs to

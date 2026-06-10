@@ -52,6 +52,7 @@ from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
     GroupMember,
     GroupRoleAssignment,
+    Organization,
     OrganizationMembership,
     RoleScope,
     Scope,
@@ -599,7 +600,7 @@ async def _resolve_org_for_regular_user(
     value cannot grant access to an org the user does not belong to.
 
     Raises:
-        HTTPException(400): If user has no org memberships or multiple orgs.
+        HTTPException(400): If user has no org memberships.
     """
     if cookie_value := request.cookies.get(ACTIVE_ORG_COOKIE):
         try:
@@ -607,9 +608,17 @@ async def _resolve_org_for_regular_user(
         except ValueError:
             cookie_org_id = None
         if cookie_org_id is not None:
-            membership_stmt = select(OrganizationMembership.organization_id).where(
-                OrganizationMembership.user_id == user.id,
-                OrganizationMembership.organization_id == cookie_org_id,
+            membership_stmt = (
+                select(OrganizationMembership.organization_id)
+                .join(
+                    Organization,
+                    Organization.id == OrganizationMembership.organization_id,
+                )
+                .where(
+                    OrganizationMembership.user_id == user.id,
+                    OrganizationMembership.organization_id == cookie_org_id,
+                    Organization.is_active.is_(True),
+                )
             )
             membership_row = (
                 await session.execute(membership_stmt)
@@ -617,23 +626,28 @@ async def _resolve_org_for_regular_user(
             if membership_row is not None:
                 return cookie_org_id
 
-    org_mem_stmt = select(OrganizationMembership.organization_id).where(
-        OrganizationMembership.user_id == user.id
+    org_mem_stmt = (
+        select(OrganizationMembership.organization_id)
+        .join(Organization, Organization.id == OrganizationMembership.organization_id)
+        .where(
+            OrganizationMembership.user_id == user.id,
+            Organization.is_active.is_(True),
+        )
+        .order_by(Organization.created_at.asc(), Organization.id.asc())
     )
     org_membership_result = await session.execute(org_mem_stmt)
-    org_ids = {row[0] for row in org_membership_result.all()}
+    org_ids = org_membership_result.scalars().all()
 
     if len(org_ids) == 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User has no organization memberships",
         )
-    if len(org_ids) == 1:
-        return next(iter(org_ids))
-    raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail="Multiple organizations found. Provide workspace_id to select an organization.",
-    )
+    # If no explicit active-org cookie/workspace context is available, choose a
+    # stable active membership instead of blocking login for multi-org users.
+    # Callers that need a specific org can still pass workspace_id or set the
+    # active-org cookie; both are re-validated above/before this fallback.
+    return org_ids[0]
 
 
 def _invalidate_user_scope_cache(

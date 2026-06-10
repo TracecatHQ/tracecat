@@ -2,7 +2,9 @@
 
 import time
 import uuid
+from datetime import UTC, datetime, timedelta
 from statistics import mean
+from typing import Literal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -861,12 +863,12 @@ async def test_organization_id_populated_when_require_workspace_no(
     test_org_id = uuid.uuid4()
 
     # Mock session - need to properly mock execute() for org membership lookup
-    # The code does: org_ids = {row[0] for row in org_membership_result.all()}
+    # The code does: org_ids = org_membership_result.scalars().all()
     mock_session = AsyncMock()
 
     # First call: OrganizationMembership query returns the org_id
     org_result = MagicMock()
-    org_result.all.return_value = [(test_org_id,)]
+    org_result.scalars.return_value.all.return_value = [test_org_id]
 
     # Second call: OrganizationMembership lookup for org_role returns None
     org_role_result = MagicMock()
@@ -974,11 +976,15 @@ async def test_role_dependency_infers_org_from_single_membership(
 
 @pytest.mark.anyio
 @pytest.mark.usefixtures("db")
-async def test_role_dependency_requires_workspace_for_multi_org(
-    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("require_workspace", ["no", "optional"])
+async def test_role_dependency_uses_stable_org_for_multi_org_without_workspace(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    require_workspace: Literal["no", "optional"],
 ):
     monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
 
+    base_time = datetime(2024, 1, 1, tzinfo=UTC)
     org_a_id = uuid.uuid4()
     org_b_id = uuid.uuid4()
     org_a = Organization(
@@ -986,12 +992,14 @@ async def test_role_dependency_requires_workspace_for_multi_org(
         name="Org A",
         slug=f"org-a-{org_a_id.hex[:8]}",
         is_active=True,
+        created_at=base_time,
     )
     org_b = Organization(
         id=org_b_id,
         name="Org B",
         slug=f"org-b-{org_b_id.hex[:8]}",
         is_active=True,
+        created_at=base_time + timedelta(days=1),
     )
     user = User(
         id=uuid.uuid4(),
@@ -1037,18 +1045,19 @@ async def test_role_dependency_requires_workspace_for_multi_org(
     request = MagicMock(spec=Request)
     request.state = MagicMock()
     request.state.auth_cache = None
+    request.cookies = {}
 
-    # User belongs to multiple orgs, so require_workspace="no" should fail
-    with pytest.raises(HTTPException) as excinfo:
-        await _role_dependency(
-            request=request,
-            session=session,
-            workspace_id=None,
-            user=user,
-            api_key=None,
-            allow_user=True,
-            allow_service=False,
-            require_workspace="no",
-        )
+    role = await _role_dependency(
+        request=request,
+        session=session,
+        workspace_id=None,
+        user=user,
+        api_key=None,
+        allow_user=True,
+        allow_service=False,
+        require_workspace=require_workspace,
+    )
 
-    assert excinfo.value.status_code == status.HTTP_400_BAD_REQUEST
+    assert role.organization_id == org_a.id
+    assert role.workspace_id is None
+    assert role.user_id == user.id
