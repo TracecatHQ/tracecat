@@ -386,9 +386,9 @@ async def _resolve_workspace_role(workspace_id: uuid.UUID) -> tuple[uuid.UUID, R
 async def _resolve_org_role() -> Role:
     """Resolve a role with organization context for the caller's token.
 
-    Mirrors the HTTP API: queries the caller's OrganizationMembership rows
-    directly. Errors with a clear message on the multi-org case (matching
-    `_resolve_org_for_regular_user` in tracecat/auth/credentials.py).
+    Queries the caller's OrganizationMembership rows directly. Errors with a
+    clear message on the multi-org case; tokens must carry explicit org
+    scoping to disambiguate (see `resolve_org_role_for_request`).
     """
     try:
         return await resolve_org_role_for_request()
