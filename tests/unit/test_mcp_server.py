@@ -38,6 +38,9 @@ from tracecat.agent.skill.schemas import (
 from tracecat.agent.stream.events import StreamDelta, StreamEnd
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
+    EntitlementRequired,
+    ScopeDeniedError,
+    TracecatNotFoundError,
     TracecatValidationError,
 )
 from tracecat.expressions.common import ExprType
@@ -4027,6 +4030,651 @@ async def test_update_case_field_parses_type_and_options(monkeypatch):
     assert str(captured["type"]) == "MULTI_SELECT"
     assert captured["options"] == ["p1", "p2"]
     assert "updated successfully" in payload["message"]
+
+
+# ---------------------------------------------------------------------------
+# Case dropdown tests
+# ---------------------------------------------------------------------------
+
+
+def _fake_dropdown_definition(**overrides: Any) -> SimpleNamespace:
+    defaults: dict[str, Any] = {
+        "id": uuid.uuid4(),
+        "name": "Threat Level",
+        "ref": "threat_level",
+        "icon_name": None,
+        "is_ordered": True,
+        "required_on_closure": False,
+        "position": 0,
+        "options": [],
+    }
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
+
+
+def _fake_dropdown_option(**overrides: Any) -> SimpleNamespace:
+    defaults: dict[str, Any] = {
+        "id": uuid.uuid4(),
+        "label": "High",
+        "ref": "high",
+        "icon_name": None,
+        "color": None,
+        "position": 0,
+    }
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
+
+
+def _patch_dropdown_definitions_service(monkeypatch, service: SimpleNamespace) -> None:
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseDropdownDefinitionsService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(service)),
+    )
+
+
+def _patch_dropdown_values_service(monkeypatch, service: SimpleNamespace) -> None:
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseDropdownValuesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(service)),
+    )
+
+
+@pytest.mark.anyio
+async def test_list_case_dropdowns(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    definitions = [
+        _fake_dropdown_definition(
+            options=[
+                _fake_dropdown_option(label="Low", ref="low", position=0),
+                _fake_dropdown_option(label="High", ref="high", position=1),
+            ]
+        ),
+        _fake_dropdown_definition(name="Disposition", ref="disposition", position=1),
+    ]
+
+    async def _list_definitions():
+        return definitions
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _patch_dropdown_definitions_service(
+        monkeypatch, SimpleNamespace(list_definitions=_list_definitions)
+    )
+
+    result = await _tool(mcp_server.list_case_dropdowns)(workspace_id=str(uuid.uuid4()))
+    payload = _payload(result)
+    assert payload["has_more"] is False
+    assert len(payload["items"]) == 2
+    assert payload["items"][0]["name"] == "Threat Level"
+    assert payload["items"][0]["ref"] == "threat_level"
+    assert payload["items"][0]["is_ordered"] is True
+    assert payload["items"][0]["required_on_closure"] is False
+    assert payload["items"][0]["options"][0]["label"] == "Low"
+    assert payload["items"][0]["options"][1]["ref"] == "high"
+    assert payload["items"][1]["ref"] == "disposition"
+
+
+@pytest.mark.anyio
+async def test_list_case_dropdowns_missing_scope(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    async def _list_definitions():
+        raise ScopeDeniedError(
+            required_scopes=["case:read"], missing_scopes=["case:read"]
+        )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _patch_dropdown_definitions_service(
+        monkeypatch, SimpleNamespace(list_definitions=_list_definitions)
+    )
+
+    with pytest.raises(ToolError, match="Missing required scope: case:read"):
+        await _tool(mcp_server.list_case_dropdowns)(workspace_id=str(uuid.uuid4()))
+
+
+@pytest.mark.anyio
+async def test_create_case_dropdown_slugifies_refs(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    captured: dict[str, Any] = {}
+
+    async def _create_definition(params):
+        captured["params"] = params
+        return _fake_dropdown_definition(
+            name=params.name,
+            ref=params.ref,
+            options=[
+                _fake_dropdown_option(
+                    label=opt.label, ref=opt.ref, position=opt.position
+                )
+                for opt in params.options
+            ],
+        )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _patch_dropdown_definitions_service(
+        monkeypatch, SimpleNamespace(create_definition=_create_definition)
+    )
+
+    result = await _tool(mcp_server.create_case_dropdown)(
+        workspace_id=str(uuid.uuid4()),
+        name="Threat Level",
+        options=[
+            mcp_server.CaseDropdownOptionInput(label="Very High!"),
+            mcp_server.CaseDropdownOptionInput(label="Low"),
+        ],
+    )
+    payload = _payload(result)
+    params = captured["params"]
+    assert params.ref == "threat_level"
+    assert params.options[0].ref == "very_high"
+    assert params.options[0].position == 0
+    assert params.options[1].ref == "low"
+    assert params.options[1].position == 1
+    assert payload["ref"] == "threat_level"
+    assert payload["options"][0]["ref"] == "very_high"
+
+
+@pytest.mark.anyio
+async def test_create_case_dropdown_explicit_ref_passthrough(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    captured: dict[str, Any] = {}
+
+    async def _create_definition(params):
+        captured["params"] = params
+        return _fake_dropdown_definition(name=params.name, ref=params.ref)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _patch_dropdown_definitions_service(
+        monkeypatch, SimpleNamespace(create_definition=_create_definition)
+    )
+
+    await _tool(mcp_server.create_case_dropdown)(
+        workspace_id=str(uuid.uuid4()),
+        name="Threat Level",
+        ref="custom_ref",
+        options=[
+            mcp_server.CaseDropdownOptionInput(
+                label="High", ref="explicit_high", position=7
+            )
+        ],
+    )
+    params = captured["params"]
+    assert params.ref == "custom_ref"
+    assert params.options[0].ref == "explicit_high"
+    assert params.options[0].position == 7
+
+
+@pytest.mark.anyio
+async def test_create_case_dropdown_invalid_name(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    async def _create_definition(params):
+        raise AssertionError("create_definition should not be called")
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _patch_dropdown_definitions_service(
+        monkeypatch, SimpleNamespace(create_definition=_create_definition)
+    )
+
+    with pytest.raises(ToolError, match="valid reference"):
+        await _tool(mcp_server.create_case_dropdown)(
+            workspace_id=str(uuid.uuid4()),
+            name="!!!",
+        )
+
+
+@pytest.mark.anyio
+async def test_update_case_dropdown_partial(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    definition = _fake_dropdown_definition()
+    captured: dict[str, Any] = {}
+
+    async def _get_definition(definition_id):
+        return definition
+
+    async def _update_definition(defn, params):
+        captured["params"] = params
+        return _fake_dropdown_definition(name="New Name", ref="new_name")
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _patch_dropdown_definitions_service(
+        monkeypatch,
+        SimpleNamespace(
+            get_definition=_get_definition, update_definition=_update_definition
+        ),
+    )
+
+    result = await _tool(mcp_server.update_case_dropdown)(
+        workspace_id=str(uuid.uuid4()),
+        dropdown_id=str(definition.id),
+        name="New Name",
+    )
+    payload = _payload(result)
+    assert captured["params"].model_dump(exclude_unset=True) == {"name": "New Name"}
+    assert payload["name"] == "New Name"
+
+
+@pytest.mark.anyio
+async def test_update_case_dropdown_not_found(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    async def _get_definition(definition_id):
+        raise TracecatNotFoundError(f"Dropdown definition {definition_id} not found")
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _patch_dropdown_definitions_service(
+        monkeypatch, SimpleNamespace(get_definition=_get_definition)
+    )
+
+    with pytest.raises(ToolError, match="not found"):
+        await _tool(mcp_server.update_case_dropdown)(
+            workspace_id=str(uuid.uuid4()),
+            dropdown_id=str(uuid.uuid4()),
+            name="New Name",
+        )
+
+
+@pytest.mark.anyio
+async def test_delete_case_dropdown(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    definition = _fake_dropdown_definition()
+    deleted: list[Any] = []
+
+    async def _get_definition(definition_id):
+        return definition
+
+    async def _delete_definition(defn):
+        deleted.append(defn)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _patch_dropdown_definitions_service(
+        monkeypatch,
+        SimpleNamespace(
+            get_definition=_get_definition, delete_definition=_delete_definition
+        ),
+    )
+
+    result = await _tool(mcp_server.delete_case_dropdown)(
+        workspace_id=str(uuid.uuid4()),
+        dropdown_id=str(definition.id),
+    )
+    payload = _payload(result)
+    assert "deleted successfully" in payload["message"]
+    assert deleted == [definition]
+
+
+@pytest.mark.anyio
+async def test_delete_case_dropdown_missing_scope(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    definition = _fake_dropdown_definition()
+
+    async def _get_definition(definition_id):
+        return definition
+
+    async def _delete_definition(defn):
+        raise ScopeDeniedError(
+            required_scopes=["case:delete"], missing_scopes=["case:delete"]
+        )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _patch_dropdown_definitions_service(
+        monkeypatch,
+        SimpleNamespace(
+            get_definition=_get_definition, delete_definition=_delete_definition
+        ),
+    )
+
+    with pytest.raises(ToolError, match="Missing required scope: case:delete"):
+        await _tool(mcp_server.delete_case_dropdown)(
+            workspace_id=str(uuid.uuid4()),
+            dropdown_id=str(definition.id),
+        )
+
+
+@pytest.mark.anyio
+async def test_add_case_dropdown_option_defaults(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    # Sparse positions (e.g. after deletions): default must append after the
+    # max position, not at the option count.
+    definition = _fake_dropdown_definition(
+        options=[
+            _fake_dropdown_option(label="Low", ref="low", position=0),
+            _fake_dropdown_option(label="Medium", ref="medium", position=5),
+        ]
+    )
+    captured: dict[str, Any] = {}
+
+    async def _get_definition(definition_id):
+        return definition
+
+    async def _add_option(definition_id, params):
+        captured["definition_id"] = definition_id
+        captured["params"] = params
+        return _fake_dropdown_option(
+            label=params.label, ref=params.ref, position=params.position
+        )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _patch_dropdown_definitions_service(
+        monkeypatch,
+        SimpleNamespace(get_definition=_get_definition, add_option=_add_option),
+    )
+
+    result = await _tool(mcp_server.add_case_dropdown_option)(
+        workspace_id=str(uuid.uuid4()),
+        dropdown_id=str(definition.id),
+        label="Very High!",
+    )
+    payload = _payload(result)
+    params = captured["params"]
+    assert captured["definition_id"] == definition.id
+    assert params.ref == "very_high"
+    assert params.position == 6
+    assert payload["label"] == "Very High!"
+    assert payload["ref"] == "very_high"
+
+
+@pytest.mark.anyio
+async def test_update_case_dropdown_option(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    definition = _fake_dropdown_definition()
+    option_id = uuid.uuid4()
+    captured: dict[str, Any] = {}
+
+    async def _get_definition(definition_id):
+        return definition
+
+    async def _update_option(did, oid, params):
+        captured["definition_id"] = did
+        captured["option_id"] = oid
+        captured["params"] = params
+        return _fake_dropdown_option(id=oid, label="Renamed", color="red")
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _patch_dropdown_definitions_service(
+        monkeypatch,
+        SimpleNamespace(get_definition=_get_definition, update_option=_update_option),
+    )
+
+    result = await _tool(mcp_server.update_case_dropdown_option)(
+        workspace_id=str(uuid.uuid4()),
+        dropdown_id=str(definition.id),
+        option_id=str(option_id),
+        label="Renamed",
+        color="red",
+    )
+    payload = _payload(result)
+    assert captured["definition_id"] == definition.id
+    assert captured["option_id"] == option_id
+    assert captured["params"].model_dump(exclude_unset=True) == {
+        "label": "Renamed",
+        "color": "red",
+    }
+    assert payload["label"] == "Renamed"
+
+
+@pytest.mark.anyio
+async def test_delete_case_dropdown_option(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    definition = _fake_dropdown_definition()
+    option_id = uuid.uuid4()
+    deleted: list[tuple[uuid.UUID, uuid.UUID]] = []
+
+    async def _get_definition(definition_id):
+        return definition
+
+    async def _delete_option(did, oid):
+        deleted.append((did, oid))
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _patch_dropdown_definitions_service(
+        monkeypatch,
+        SimpleNamespace(get_definition=_get_definition, delete_option=_delete_option),
+    )
+
+    result = await _tool(mcp_server.delete_case_dropdown_option)(
+        workspace_id=str(uuid.uuid4()),
+        dropdown_id=str(definition.id),
+        option_id=str(option_id),
+    )
+    payload = _payload(result)
+    assert "deleted successfully" in payload["message"]
+    assert deleted == [(definition.id, option_id)]
+
+
+@pytest.mark.anyio
+async def test_set_case_dropdown_value_by_ref(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    case_id = uuid.uuid4()
+    captured: dict[str, Any] = {}
+    value_read = mcp_server.CaseDropdownValueRead(
+        id=uuid.uuid4(),
+        definition_id=uuid.uuid4(),
+        definition_ref="threat_level",
+        definition_name="Threat Level",
+        option_id=uuid.uuid4(),
+        option_label="High",
+        option_ref="high",
+    )
+
+    async def _set_value_from_input(cid, value):
+        captured["case_id"] = cid
+        captured["value"] = value
+        return value_read
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _patch_dropdown_values_service(
+        monkeypatch, SimpleNamespace(set_value_from_input=_set_value_from_input)
+    )
+
+    result = await _tool(mcp_server.set_case_dropdown_value)(
+        workspace_id=str(uuid.uuid4()),
+        case_id=str(case_id),
+        definition_ref="threat_level",
+        option_ref="high",
+    )
+    payload = _payload(result)
+    assert captured["case_id"] == case_id
+    value_input = captured["value"]
+    assert value_input.definition_ref == "threat_level"
+    assert value_input.option_ref == "high"
+    assert value_input.definition_id is None
+    assert value_input.option_id is None
+    assert payload["definition_ref"] == "threat_level"
+    assert payload["option_label"] == "High"
+
+
+@pytest.mark.anyio
+async def test_set_case_dropdown_value_clears(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    case_id = uuid.uuid4()
+    captured: dict[str, Any] = {}
+    value_read = mcp_server.CaseDropdownValueRead(
+        id=uuid.uuid4(),
+        definition_id=uuid.uuid4(),
+        definition_ref="threat_level",
+        definition_name="Threat Level",
+    )
+
+    async def _set_value_from_input(cid, value):
+        captured["value"] = value
+        return value_read
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _patch_dropdown_values_service(
+        monkeypatch, SimpleNamespace(set_value_from_input=_set_value_from_input)
+    )
+
+    result = await _tool(mcp_server.set_case_dropdown_value)(
+        workspace_id=str(uuid.uuid4()),
+        case_id=str(case_id),
+        definition_ref="threat_level",
+    )
+    payload = _payload(result)
+    value_input = captured["value"]
+    assert value_input.option_id is None
+    assert value_input.option_ref is None
+    assert payload["option_id"] is None
+    assert payload["option_label"] is None
+
+
+@pytest.mark.anyio
+async def test_set_case_dropdown_value_requires_definition(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    async def _set_value_from_input(cid, value):
+        raise AssertionError("set_value_from_input should not be called")
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _patch_dropdown_values_service(
+        monkeypatch, SimpleNamespace(set_value_from_input=_set_value_from_input)
+    )
+
+    with pytest.raises(ToolError, match="exactly one of definition_id"):
+        await _tool(mcp_server.set_case_dropdown_value)(
+            workspace_id=str(uuid.uuid4()),
+            case_id=str(uuid.uuid4()),
+            option_ref="high",
+        )
+
+
+@pytest.mark.anyio
+async def test_set_case_dropdown_value_not_entitled(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    async def _set_value_from_input(cid, value):
+        raise EntitlementRequired("case_addons")
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _patch_dropdown_values_service(
+        monkeypatch, SimpleNamespace(set_value_from_input=_set_value_from_input)
+    )
+
+    with pytest.raises(ToolError, match="requires an upgraded plan"):
+        await _tool(mcp_server.set_case_dropdown_value)(
+            workspace_id=str(uuid.uuid4()),
+            case_id=str(uuid.uuid4()),
+            definition_ref="threat_level",
+            option_ref="high",
+        )
+
+
+@pytest.mark.anyio
+async def test_create_case_with_dropdown_values(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    case_id = uuid.uuid4()
+    captured: dict[str, Any] = {}
+
+    async def _create_case(params):
+        captured["params"] = params
+        return SimpleNamespace(id=case_id, short_id="CASE-0007")
+
+    cases_service = SimpleNamespace(create_case=_create_case)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(cases_service)),
+    )
+
+    result = await _tool(mcp_server.create_case)(
+        workspace_id=str(uuid.uuid4()),
+        summary="Dropdown incident",
+        description="With dropdowns",
+        status="new",
+        priority="high",
+        severity="medium",
+        dropdown_values=[
+            mcp_server.CaseDropdownValueInput(
+                definition_ref="threat_level", option_ref="high"
+            )
+        ],
+    )
+    payload = _payload(result)
+    assert "created successfully" in payload["message"]
+    params = captured["params"]
+    assert params.dropdown_values is not None
+    assert params.dropdown_values[0].definition_ref == "threat_level"
+    assert params.dropdown_values[0].option_ref == "high"
+
+
+@pytest.mark.anyio
+async def test_update_case_with_dropdown_values(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    case_id = uuid.uuid4()
+    case = SimpleNamespace(id=case_id)
+    captured: dict[str, Any] = {}
+
+    async def _get_case(parsed_id, **kwargs):
+        return case
+
+    async def _update_case(c, params):
+        captured["params"] = params
+        return c
+
+    cases_service = SimpleNamespace(get_case=_get_case, update_case=_update_case)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(cases_service)),
+    )
+
+    await _tool(mcp_server.update_case)(
+        workspace_id=str(uuid.uuid4()),
+        case_id=str(case_id),
+        dropdown_values=[
+            mcp_server.CaseDropdownValueInput(
+                definition_ref="threat_level", option_ref="high"
+            )
+        ],
+    )
+    params = captured["params"]
+    assert params.dropdown_values is not None
+    assert params.dropdown_values[0].definition_ref == "threat_level"
+
+    captured.clear()
+    await _tool(mcp_server.update_case)(
+        workspace_id=str(uuid.uuid4()),
+        case_id=str(case_id),
+        summary="No dropdown change",
+    )
+    params = captured["params"]
+    assert "dropdown_values" not in params.model_dump(exclude_unset=True)
 
 
 # ---------------------------------------------------------------------------
