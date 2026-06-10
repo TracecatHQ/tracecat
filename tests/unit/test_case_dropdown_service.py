@@ -10,6 +10,7 @@ from tracecat.cases.dropdowns.schemas import (
     CaseDropdownDefinitionUpdate,
     CaseDropdownOptionCreate,
     CaseDropdownOptionUpdate,
+    CaseDropdownValueInput,
 )
 from tracecat.cases.dropdowns.service import (
     CaseDropdownDefinitionsService,
@@ -190,3 +191,32 @@ class TestCaseDropdownDefinitionsService:
         )
         with pytest.raises(ScopeDeniedError):
             await viewer_values_service.apply_values(uuid.uuid4(), [])
+        with pytest.raises(ScopeDeniedError):
+            await viewer_values_service.set_value_from_input(
+                uuid.uuid4(),
+                CaseDropdownValueInput(definition_ref="analyst_verdict"),
+            )
+
+    async def test_set_value_requires_update_scope(
+        self,
+        session: AsyncSession,
+        dropdown_service: CaseDropdownDefinitionsService,
+    ) -> None:
+        """A create-only role may not set dropdown values on existing cases."""
+        create_only_role = dropdown_service.role.model_copy(
+            update={"scopes": VIEWER_SCOPES | {"case:create"}}
+        )
+        values_service = CaseDropdownValuesService(
+            session=session, role=create_only_role
+        )
+
+        with pytest.raises(ScopeDeniedError):
+            await values_service.set_value_from_input(
+                uuid.uuid4(),
+                CaseDropdownValueInput(definition_ref="analyst_verdict"),
+            )
+
+        # apply_values serves the scope-guarded CasesService create path, so a
+        # create-only role passes its scope gate (and fails later on lookup).
+        with pytest.raises(TracecatNotFoundError):
+            await values_service.apply_values(uuid.uuid4(), [])

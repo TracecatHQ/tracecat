@@ -515,6 +515,40 @@ class CaseDropdownValuesService(BaseWorkspaceService):
             await self.session.flush()
         return result
 
+    @require_scope("case:update")
+    @requires_entitlement(Entitlement.CASE_ADDONS)
+    async def set_value_from_input(
+        self,
+        case_id: uuid.UUID,
+        value: CaseDropdownValueInput,
+        *,
+        commit: bool = True,
+    ) -> CaseDropdownValueRead:
+        """Resolve identifiers and set or clear a single dropdown value on a case."""
+        case = await self._get_case(case_id)
+        definition_id = await self._resolve_definition_id(
+            definition_id=value.definition_id,
+            definition_ref=value.definition_ref,
+        )
+        option_id = await self._resolve_option_id(
+            definition_id=definition_id,
+            option_id=value.option_id,
+            option_ref=value.option_ref,
+        )
+        result = await self._set_value(
+            case=case,
+            definition_id=definition_id,
+            params=CaseDropdownValueSet(option_id=option_id),
+        )
+        if commit:
+            await self.session.commit()
+        else:
+            await self.session.flush()
+        return result
+
+    # Note: dual create/update scope because this serves both the case-create
+    # and case-update paths, whose CasesService callers enforce the specific
+    # scope. Direct value updates must use set_value or set_value_from_input.
     @require_scope("case:create", "case:update", require_all=False)
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def apply_values(

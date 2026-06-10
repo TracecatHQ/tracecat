@@ -4460,14 +4460,14 @@ async def test_set_case_dropdown_value_by_ref(monkeypatch):
         option_ref="high",
     )
 
-    async def _apply_values(cid, values):
+    async def _set_value_from_input(cid, value):
         captured["case_id"] = cid
-        captured["values"] = values
-        return [value_read]
+        captured["value"] = value
+        return value_read
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     _patch_dropdown_values_service(
-        monkeypatch, SimpleNamespace(apply_values=_apply_values)
+        monkeypatch, SimpleNamespace(set_value_from_input=_set_value_from_input)
     )
 
     result = await _tool(mcp_server.set_case_dropdown_value)(
@@ -4478,8 +4478,7 @@ async def test_set_case_dropdown_value_by_ref(monkeypatch):
     )
     payload = _payload(result)
     assert captured["case_id"] == case_id
-    assert len(captured["values"]) == 1
-    value_input = captured["values"][0]
+    value_input = captured["value"]
     assert value_input.definition_ref == "threat_level"
     assert value_input.option_ref == "high"
     assert value_input.definition_id is None
@@ -4502,13 +4501,13 @@ async def test_set_case_dropdown_value_clears(monkeypatch):
         definition_name="Threat Level",
     )
 
-    async def _apply_values(cid, values):
-        captured["values"] = values
-        return [value_read]
+    async def _set_value_from_input(cid, value):
+        captured["value"] = value
+        return value_read
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     _patch_dropdown_values_service(
-        monkeypatch, SimpleNamespace(apply_values=_apply_values)
+        monkeypatch, SimpleNamespace(set_value_from_input=_set_value_from_input)
     )
 
     result = await _tool(mcp_server.set_case_dropdown_value)(
@@ -4517,7 +4516,7 @@ async def test_set_case_dropdown_value_clears(monkeypatch):
         definition_ref="threat_level",
     )
     payload = _payload(result)
-    value_input = captured["values"][0]
+    value_input = captured["value"]
     assert value_input.option_id is None
     assert value_input.option_ref is None
     assert payload["option_id"] is None
@@ -4529,12 +4528,12 @@ async def test_set_case_dropdown_value_requires_definition(monkeypatch):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()
 
-    async def _apply_values(cid, values):
-        raise AssertionError("apply_values should not be called")
+    async def _set_value_from_input(cid, value):
+        raise AssertionError("set_value_from_input should not be called")
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     _patch_dropdown_values_service(
-        monkeypatch, SimpleNamespace(apply_values=_apply_values)
+        monkeypatch, SimpleNamespace(set_value_from_input=_set_value_from_input)
     )
 
     with pytest.raises(ToolError, match="exactly one of definition_id"):
@@ -4550,12 +4549,12 @@ async def test_set_case_dropdown_value_not_entitled(monkeypatch):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()
 
-    async def _apply_values(cid, values):
+    async def _set_value_from_input(cid, value):
         raise EntitlementRequired("case_addons")
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     _patch_dropdown_values_service(
-        monkeypatch, SimpleNamespace(apply_values=_apply_values)
+        monkeypatch, SimpleNamespace(set_value_from_input=_set_value_from_input)
     )
 
     with pytest.raises(ToolError, match="requires an upgraded plan"):

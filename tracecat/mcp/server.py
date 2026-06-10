@@ -7974,8 +7974,7 @@ async def set_case_dropdown_value(
             option_ref=option_ref,
         )
         async with CaseDropdownValuesService.with_session(role=role) as svc:
-            results = await svc.apply_values(case_id, [value_input])
-            return results[0]
+            return await svc.set_value_from_input(case_id, value_input)
     except ToolError:
         raise
     except ScopeDeniedError as e:
