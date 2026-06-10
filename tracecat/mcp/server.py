@@ -7849,7 +7849,7 @@ async def update_case_dropdown_option(
         async with CaseDropdownDefinitionsService.with_session(role=role) as svc:
             await svc.get_definition(dropdown_id)
             option = await svc.update_option(
-                option_id, CaseDropdownOptionUpdate(**update_kwargs)
+                dropdown_id, option_id, CaseDropdownOptionUpdate(**update_kwargs)
             )
             return _case_dropdown_option_payload(option)
     except ToolError:
@@ -7890,7 +7890,7 @@ async def delete_case_dropdown_option(
         _, role = await _resolve_workspace_role(workspace_id)
         async with CaseDropdownDefinitionsService.with_session(role=role) as svc:
             await svc.get_definition(dropdown_id)
-            await svc.delete_option(option_id)
+            await svc.delete_option(dropdown_id, option_id)
             return MCPMessageResponse(
                 message=f"Case dropdown option {option_id} deleted successfully"
             )

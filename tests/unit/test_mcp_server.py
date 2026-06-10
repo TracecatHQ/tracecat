@@ -4352,7 +4352,8 @@ async def test_update_case_dropdown_option(monkeypatch):
     async def _get_definition(definition_id):
         return definition
 
-    async def _update_option(oid, params):
+    async def _update_option(did, oid, params):
+        captured["definition_id"] = did
         captured["option_id"] = oid
         captured["params"] = params
         return _fake_dropdown_option(id=oid, label="Renamed", color="red")
@@ -4371,6 +4372,7 @@ async def test_update_case_dropdown_option(monkeypatch):
         color="red",
     )
     payload = _payload(result)
+    assert captured["definition_id"] == definition.id
     assert captured["option_id"] == option_id
     assert captured["params"].model_dump(exclude_unset=True) == {
         "label": "Renamed",
@@ -4386,13 +4388,13 @@ async def test_delete_case_dropdown_option(monkeypatch):
 
     definition = _fake_dropdown_definition()
     option_id = uuid.uuid4()
-    deleted: list[uuid.UUID] = []
+    deleted: list[tuple[uuid.UUID, uuid.UUID]] = []
 
     async def _get_definition(definition_id):
         return definition
 
-    async def _delete_option(oid):
-        deleted.append(oid)
+    async def _delete_option(did, oid):
+        deleted.append((did, oid))
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     _patch_dropdown_definitions_service(
@@ -4407,7 +4409,7 @@ async def test_delete_case_dropdown_option(monkeypatch):
     )
     payload = _payload(result)
     assert "deleted successfully" in payload["message"]
-    assert deleted == [option_id]
+    assert deleted == [(definition.id, option_id)]
 
 
 @pytest.mark.anyio

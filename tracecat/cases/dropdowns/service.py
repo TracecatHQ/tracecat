@@ -173,8 +173,10 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
 
     # --- Option CRUD ---
 
-    async def _get_option(self, option_id: uuid.UUID) -> CaseDropdownOption:
-        """Get an option by ID, scoped to the current workspace."""
+    async def _get_option(
+        self, definition_id: uuid.UUID, option_id: uuid.UUID
+    ) -> CaseDropdownOption:
+        """Get an option by ID, scoped to the definition and current workspace."""
         stmt = (
             select(CaseDropdownOption)
             .join(
@@ -183,13 +185,16 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
             )
             .where(
                 CaseDropdownOption.id == option_id,
+                CaseDropdownOption.definition_id == definition_id,
                 CaseDropdownDefinition.workspace_id == self.workspace_id,
             )
         )
         result = await self.session.execute(stmt)
         option = result.scalar_one_or_none()
         if option is None:
-            raise TracecatNotFoundError(f"Dropdown option {option_id} not found")
+            raise TracecatNotFoundError(
+                f"Dropdown option {option_id} not found for definition {definition_id}"
+            )
         return option
 
     @requires_entitlement(Entitlement.CASE_ADDONS)
@@ -221,11 +226,12 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def update_option(
         self,
+        definition_id: uuid.UUID,
         option_id: uuid.UUID,
         params: CaseDropdownOptionUpdate,
     ) -> CaseDropdownOption:
-        """Update a dropdown option."""
-        option = await self._get_option(option_id)
+        """Update a dropdown option belonging to the given definition."""
+        option = await self._get_option(definition_id, option_id)
         for key, value in params.model_dump(exclude_unset=True).items():
             setattr(option, key, value)
         try:
@@ -239,9 +245,11 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
         return option
 
     @requires_entitlement(Entitlement.CASE_ADDONS)
-    async def delete_option(self, option_id: uuid.UUID) -> None:
-        """Delete a dropdown option."""
-        option = await self._get_option(option_id)
+    async def delete_option(
+        self, definition_id: uuid.UUID, option_id: uuid.UUID
+    ) -> None:
+        """Delete a dropdown option belonging to the given definition."""
+        option = await self._get_option(definition_id, option_id)
         await self.session.delete(option)
         await self.session.commit()
 
