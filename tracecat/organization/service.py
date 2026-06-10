@@ -5,8 +5,10 @@ import uuid
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from typing import Any
+from typing import cast as type_cast
 
-from sqlalchemy import and_, cast, func, select, update
+from sqlalchemy import and_, cast, delete, func, select, update
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,11 +27,17 @@ from tracecat.auth.users import (
 from tracecat.authz.controls import has_scope, require_scope
 from tracecat.db.models import (
     AccessToken,
+    Group,
+    GroupMember,
+    MCPPersonalAccessToken,
+    MCPRefreshToken,
+    Membership,
     Organization,
     OrganizationInvitation,
     OrganizationMembership,
     User,
     UserRoleAssignment,
+    Workspace,
 )
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import (
@@ -286,9 +294,12 @@ class OrgService(BaseOrgService):
         """
         Remove a member of the organization.
 
-        This method deletes a specified member from the organization.
-        It first checks if the member is a superuser and raises an
-        authorization error if so, as superusers cannot be deleted.
+        This method removes a specified member from the current organization
+        without deleting the global user record, so memberships in other
+        organizations are preserved. It revokes global app sessions and
+        organization-scoped MCP tokens so removed members lose stale access
+        immediately. It raises an authorization error for superusers, as
+        superusers cannot be removed.
 
         Args:
             user_id (UserID): The unique identifier of the user to be removed.
@@ -299,8 +310,62 @@ class OrgService(BaseOrgService):
         user = await self.get_member(user_id)
         if user.is_superuser:
             raise TracecatAuthorizationError("Cannot delete superuser")
-        async with self._manager() as user_manager:
-            await user_manager.delete(user)
+
+        await self.session.execute(
+            delete(AccessToken).where(type_cast(Any, AccessToken.user_id) == user.id)
+        )
+        await self.session.execute(
+            update(MCPRefreshToken)
+            .where(
+                MCPRefreshToken.user_id == user.id,
+                MCPRefreshToken.organization_id == self.organization_id,
+                MCPRefreshToken.status != "revoked",
+            )
+            .values(status="revoked")
+        )
+        await self.session.execute(
+            update(MCPPersonalAccessToken)
+            .where(
+                MCPPersonalAccessToken.user_id == user.id,
+                MCPPersonalAccessToken.organization_id == self.organization_id,
+                MCPPersonalAccessToken.revoked_at.is_(None),
+            )
+            .values(revoked_at=datetime.now(UTC), revoked_by=self.role.user_id)
+        )
+
+        workspace_ids = select(Workspace.id).where(
+            Workspace.organization_id == self.organization_id
+        )
+        group_ids = select(Group.id).where(
+            Group.organization_id == self.organization_id
+        )
+
+        await self.session.execute(
+            delete(Membership).where(
+                Membership.user_id == user.id,
+                Membership.workspace_id.in_(workspace_ids),
+            )
+        )
+        await self.session.execute(
+            delete(UserRoleAssignment).where(
+                UserRoleAssignment.user_id == user.id,
+                UserRoleAssignment.organization_id == self.organization_id,
+            )
+        )
+        await self.session.execute(
+            delete(GroupMember).where(
+                GroupMember.user_id == user.id,
+                GroupMember.group_id.in_(group_ids),
+            )
+        )
+        await self.session.execute(
+            delete(OrganizationMembership).where(
+                OrganizationMembership.user_id == user.id,
+                OrganizationMembership.organization_id == self.organization_id,
+            )
+        )
+
+        await self.session.commit()
 
     @require_scope("org:member:update")
     @audit_log(resource_type="organization_member", action="update")
