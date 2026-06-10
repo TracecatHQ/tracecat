@@ -4574,6 +4574,12 @@ class MCPIntegration(TimestampMixin, Base):
         nullable=True,
         doc="Timeout in seconds (HTTP timeout for http type, process timeout for stdio type)",
     )
+    tools: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Tools discovered at the last successful connection verification "
+        "([{name, description}]); null means the server is unverified",
+    )
 
     oauth_integration: Mapped[OAuthIntegration | None] = relationship(
         "OAuthIntegration",

@@ -47,6 +47,21 @@ class MCPValidationError(ValueError):
     pass
 
 
+class MCPConfigurationError(Exception):
+    """Raised when an MCP integration cannot be resolved into a usable server config."""
+
+    pass
+
+
+class MCPConnectionVerificationError(Exception):
+    """Raised when connectivity verification against an MCP server fails."""
+
+    def __init__(self, message: str, error: str | None = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.error = error
+
+
 def validate_mcp_command(command: str) -> None:
     """Validate that a command is in the allowlist.
 

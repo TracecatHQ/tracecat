@@ -13,6 +13,7 @@ from tracecat.integrations.catalog.loader import get_platform_mcp_catalog_entrie
 from tracecat.integrations.catalog.types import PlatformMCPCatalogEntry
 from tracecat.integrations.enums import MCPAuthType
 from tracecat.integrations.schemas import (
+    MCPToolSummary,
     PlatformMCPCatalogRead,
     PlatformMCPCatalogState,
     PlatformMCPCatalogStatus,
@@ -240,15 +241,15 @@ class PlatformMCPCatalogService(BaseService):
     ) -> PlatformMCPCatalogState:
         if mcp_integration is None:
             return "not_configured"
-        if (
-            mcp_integration.auth_type == MCPAuthType.OAUTH2
-            and encrypted_access_token is not None
-            and is_set(encrypted_access_token)
+        if mcp_integration.auth_type == MCPAuthType.OAUTH2 and not (
+            encrypted_access_token is not None and is_set(encrypted_access_token)
         ):
-            return "connected"
-        if mcp_integration.auth_type != MCPAuthType.OAUTH2:
-            return "connected"
-        return "configured"
+            return "configured"
+        # HTTP servers must also have a verified tool listing to count as
+        # connected; stdio servers cannot be verified and rely on config alone.
+        if mcp_integration.server_type == "http" and mcp_integration.tools is None:
+            return "configured"
+        return "connected"
 
     @staticmethod
     def _catalog_status(status: str) -> PlatformMCPCatalogStatus:
@@ -302,6 +303,11 @@ class PlatformMCPCatalogService(BaseService):
                 mcp_integration.server_type if mcp_integration else None
             ),
             mcp_auth_type=mcp_integration.auth_type if mcp_integration else None,
+            tools=(
+                [MCPToolSummary.model_validate(tool) for tool in mcp_integration.tools]
+                if mcp_integration and mcp_integration.tools is not None
+                else None
+            ),
             created_at=mcp_integration.created_at if mcp_integration else now,
             updated_at=mcp_integration.updated_at if mcp_integration else now,
             last_refreshed_at=None,

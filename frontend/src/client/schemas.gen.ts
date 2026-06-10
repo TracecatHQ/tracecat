@@ -15622,6 +15622,20 @@ export const $MCPIntegrationRead = {
       ],
       title: "Timeout",
     },
+    tools: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/MCPToolSummary",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tools",
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -15653,6 +15667,135 @@ export const $MCPIntegrationRead = {
   ],
   title: "MCPIntegrationRead",
   description: "Response model for MCP integration.",
+} as const
+
+export const $MCPIntegrationTestConnectionRequest = {
+  properties: {
+    mcp_integration_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid4",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Integration Id",
+    },
+    server_uri: {
+      type: "string",
+      maxLength: 2048,
+      minLength: 1,
+      title: "Server Uri",
+    },
+    auth_type: {
+      $ref: "#/components/schemas/MCPAuthType",
+      default: "NONE",
+    },
+    oauth_integration_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid4",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Oauth Integration Id",
+    },
+    custom_credentials: {
+      anyOf: [
+        {
+          type: "string",
+          format: "password",
+          writeOnly: true,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Custom Credentials",
+      description:
+        "JSON object of custom headers; falls back to stored headers when omitted",
+    },
+    timeout: {
+      anyOf: [
+        {
+          type: "integer",
+          maximum: 300,
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Timeout",
+    },
+  },
+  type: "object",
+  required: ["server_uri"],
+  title: "MCPIntegrationTestConnectionRequest",
+  description: `Request to test connectivity against an unsaved HTTP MCP configuration.
+
+Carries the (possibly edited, not yet persisted) form values. When
+\`\`mcp_integration_id\`\` is set, stored secrets from that row are used as a
+fallback for fields the caller leaves blank (e.g. unchanged credentials).`,
+} as const
+
+export const $MCPIntegrationTestConnectionResponse = {
+  properties: {
+    success: {
+      type: "boolean",
+      title: "Success",
+    },
+    mcp_integration_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid4",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Integration Id",
+    },
+    tools: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/MCPToolSummary",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tools",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error",
+    },
+  },
+  type: "object",
+  required: ["success", "message"],
+  title: "MCPIntegrationTestConnectionResponse",
+  description: "Response for testing connectivity to an MCP server.",
 } as const
 
 export const $MCPIntegrationUpdate = {
@@ -16308,6 +16451,30 @@ export const $MCPStdioServerConfig = {
   required: ["type", "name", "command"],
   title: "MCPStdioServerConfig",
   description: "Configuration for a stdio MCP server.",
+} as const
+
+export const $MCPToolSummary = {
+  properties: {
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "MCPToolSummary",
+  description: "Summary of a tool discovered on a remote MCP server.",
 } as const
 
 export const $MessageKind = {
@@ -17925,6 +18092,20 @@ export const $PlatformMCPCatalogRead = {
           type: "null",
         },
       ],
+    },
+    tools: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/MCPToolSummary",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tools",
     },
     created_at: {
       type: "string",

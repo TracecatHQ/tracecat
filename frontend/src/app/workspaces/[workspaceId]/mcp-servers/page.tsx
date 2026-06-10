@@ -36,7 +36,29 @@ import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const CREATE_MCP_SERVER_PARAM = "createMcpServer"
+const MCP_VERIFY_ERROR_PARAM = "mcp_verify_error"
 const ALL_CATEGORY = "All"
+
+/**
+ * Badge treatments for an HTTP server whose connection has not been verified
+ * (never tested, or the last test failed). Trial variants — pick one at review.
+ */
+const UNVERIFIED_BADGE_VARIANTS = {
+  unverified: {
+    label: "Unverified",
+    className: "border-amber-200 bg-amber-50 text-amber-700",
+  },
+  "connection-failed": {
+    label: "Connection failed",
+    className: "border-red-200 bg-red-50 text-red-700",
+  },
+  "needs-verification": {
+    label: "Needs verification",
+    className: "border-amber-200 bg-amber-50 text-amber-700",
+  },
+} as const
+const UNVERIFIED_BADGE_VARIANT: keyof typeof UNVERIFIED_BADGE_VARIANTS =
+  "unverified"
 const CUSTOM_CATEGORY = "Custom"
 const MCP_CATEGORIES = [
   "SIEM / Datalake",
@@ -140,6 +162,7 @@ function workspaceIntegrationToCatalogEntry(
     mcp_integration_id: integration.id,
     mcp_server_type: integration.server_type,
     mcp_auth_type: integration.auth_type,
+    tools: integration.tools ?? null,
     created_at: integration.created_at,
     updated_at: integration.updated_at,
     last_refreshed_at: null,
@@ -358,6 +381,25 @@ export default function McpServersPage() {
     router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canCreate, createSignal, pathname, router])
+
+  // Surface a connection verification failure carried back from the MCP
+  // OAuth callback redirect, then strip the param from the URL.
+  const verifyErrorSignal = searchParams?.get(MCP_VERIFY_ERROR_PARAM) ?? null
+  useEffect(() => {
+    if (!verifyErrorSignal || !pathname) {
+      return
+    }
+    toast({
+      title: "Connection failed",
+      description: verifyErrorSignal,
+      variant: "destructive",
+    })
+    const params = new URLSearchParams(searchParams?.toString() ?? "")
+    params.delete(MCP_VERIFY_ERROR_PARAM)
+    const next = params.toString()
+    router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [verifyErrorSignal, pathname, router])
 
   const items = useMemo<CatalogItem[]>(() => {
     const catalogMcpIntegrationIds = new Set(
@@ -741,6 +783,9 @@ function McpCatalogCard({
     canConfigure = canCreate
   }
   const configureLabel = "Configure"
+  const isHttpServer = entry.mcp_server_type === "http"
+  const verifiedToolCount = entry.tools?.length ?? null
+  const unverifiedBadge = UNVERIFIED_BADGE_VARIANTS[UNVERIFIED_BADGE_VARIANT]
   let statusLabel = "Not connected"
   let statusClassName = "border-muted bg-muted/30 text-muted-foreground"
   if (isActionPending) {
@@ -750,11 +795,21 @@ function McpCatalogCard({
     statusLabel = "Locked"
     statusClassName = "border-muted bg-muted/30 text-muted-foreground"
   } else if (connected) {
-    statusLabel = "Connected"
+    statusLabel =
+      isHttpServer && verifiedToolCount !== null
+        ? `Connected · ${verifiedToolCount} ${verifiedToolCount === 1 ? "tool" : "tools"}`
+        : "Connected"
     statusClassName = "border-emerald-200 bg-emerald-50 text-emerald-700"
   } else if (configured) {
-    statusLabel = "Configured"
-    statusClassName = "border-blue-200 bg-blue-50 text-blue-700"
+    // An HTTP row with config but no verified tool listing is not known to
+    // work — show it as a problem rather than a neutral setup state.
+    if (isHttpServer && hasMcpRow) {
+      statusLabel = unverifiedBadge.label
+      statusClassName = unverifiedBadge.className
+    } else {
+      statusLabel = "Configured"
+      statusClassName = "border-blue-200 bg-blue-50 text-blue-700"
+    }
   } else if (comingSoon) {
     statusLabel = "Coming soon"
     statusClassName = "border-muted bg-muted/30 text-muted-foreground"

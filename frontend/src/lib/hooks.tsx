@@ -141,6 +141,7 @@ import {
   listEnabledModels,
   type MCPIntegrationCreate,
   type MCPIntegrationRead,
+  type MCPIntegrationTestConnectionRequest,
   type MCPIntegrationUpdate,
   type McpIntegrationsListMcpIntegrationsData,
   type ModelCredentialCreate,
@@ -150,6 +151,7 @@ import {
   mcpIntegrationsDeleteMcpIntegration,
   mcpIntegrationsGetMcpIntegration,
   mcpIntegrationsListMcpIntegrations,
+  mcpIntegrationsTestMcpConnectionConfig,
   mcpIntegrationsUpdateMcpIntegration,
   type OAuthGrantType,
   type OrganizationDeleteOrgMemberData,
@@ -4766,6 +4768,56 @@ export function useUpdateMcpIntegration(workspaceId: string) {
     updateMcpIntegration,
     updateMcpIntegrationIsPending,
     updateMcpIntegrationError,
+  }
+}
+
+/**
+ * Test connectivity against an unsaved (possibly edited) HTTP MCP
+ * configuration. Fully ephemeral: nothing is persisted server-side and no
+ * queries are invalidated — saving via connect/update runs its own
+ * verification.
+ */
+export function useTestMcpConnectionConfig(workspaceId: string) {
+  const {
+    mutateAsync: testMcpConnectionConfig,
+    isPending: testMcpConnectionConfigIsPending,
+    error: testMcpConnectionConfigError,
+  } = useMutation({
+    mutationFn: async (params: MCPIntegrationTestConnectionRequest) => {
+      return await mcpIntegrationsTestMcpConnectionConfig({
+        workspaceId,
+        requestBody: params,
+      })
+    },
+    onSuccess: (result) => {
+      if (result.success) {
+        const toolCount = result.tools?.length ?? 0
+        toast({
+          title: "Connection verified",
+          description: `${toolCount} ${toolCount === 1 ? "tool" : "tools"} available`,
+        })
+      } else {
+        toast({
+          title: "Connection failed",
+          description: result.error || result.message,
+          variant: "destructive",
+        })
+      }
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to test MCP connection:", error)
+      toast({
+        title: "Test failed",
+        description: `Could not test connection: ${error.body?.detail || error.message}`,
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    testMcpConnectionConfig,
+    testMcpConnectionConfigIsPending,
+    testMcpConnectionConfigError,
   }
 }
 

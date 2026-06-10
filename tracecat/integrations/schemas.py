@@ -692,6 +692,13 @@ type MCPConnectionSpec = Annotated[
 ]
 
 
+class MCPToolSummary(BaseModel):
+    """Summary of a tool discovered on a remote MCP server."""
+
+    name: str
+    description: str | None = None
+
+
 class MCPConnectionOption(BaseModel):
     """A connectable transport/auth option for one catalog provider."""
 
@@ -723,6 +730,8 @@ class PlatformMCPCatalogRead(BaseModel):
     mcp_integration_id: UUID4 | None
     mcp_server_type: MCPServerType | None = None
     mcp_auth_type: MCPAuthType | None = None
+    tools: list[MCPToolSummary] | None = None
+    """Tools discovered at the last successful verification; null means unverified."""
     created_at: datetime
     updated_at: datetime
     last_refreshed_at: datetime | None
@@ -758,8 +767,39 @@ class MCPIntegrationRead(BaseModel):
     """Whether stdio_env is configured (actual values are not exposed)."""
     # General fields
     timeout: int | None
+    tools: list[MCPToolSummary] | None = None
+    """Tools discovered at the last successful verification; null means unverified."""
     created_at: datetime
     updated_at: datetime
+
+
+class MCPIntegrationTestConnectionRequest(BaseModel):
+    """Request to test connectivity against an unsaved HTTP MCP configuration.
+
+    Carries the (possibly edited, not yet persisted) form values. When
+    ``mcp_integration_id`` is set, stored secrets from that row are used as a
+    fallback for fields the caller leaves blank (e.g. unchanged credentials).
+    """
+
+    mcp_integration_id: UUID4 | None = None
+    server_uri: str = Field(..., min_length=1, max_length=2048)
+    auth_type: MCPAuthType = MCPAuthType.NONE
+    oauth_integration_id: UUID4 | None = None
+    custom_credentials: SecretStr | None = Field(
+        default=None,
+        description="JSON object of custom headers; falls back to stored headers when omitted",
+    )
+    timeout: int | None = Field(default=None, ge=1, le=300)
+
+
+class MCPIntegrationTestConnectionResponse(BaseModel):
+    """Response for testing connectivity to an MCP server."""
+
+    success: bool
+    mcp_integration_id: UUID4 | None = None
+    tools: list[MCPToolSummary] | None = None
+    message: str
+    error: str | None = None
 
 
 class MCPCatalogConnectResponse(BaseModel):

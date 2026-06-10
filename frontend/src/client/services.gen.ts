@@ -456,6 +456,10 @@ import type {
   McpIntegrationsListMcpIntegrationsResponse,
   McpIntegrationsListPlatformMcpCatalogData,
   McpIntegrationsListPlatformMcpCatalogResponse,
+  McpIntegrationsTestMcpConnectionConfigData,
+  McpIntegrationsTestMcpConnectionConfigResponse,
+  McpIntegrationsTestMcpIntegrationConnectionData,
+  McpIntegrationsTestMcpIntegrationConnectionResponse,
   McpIntegrationsUpdateMcpIntegrationData,
   McpIntegrationsUpdateMcpIntegrationResponse,
   McpPersonalAccessTokensCreateMcpPersonalAccessTokenData,
@@ -11634,6 +11638,60 @@ export const mcpIntegrationsDeleteMcpIntegration = (
   return __request(OpenAPI, {
     method: "DELETE",
     url: "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}",
+    path: {
+      mcp_integration_id: data.mcpIntegrationId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Test Mcp Connection Config
+ * Test connectivity against an unsaved HTTP MCP configuration.
+ *
+ * Ephemeral: nothing is persisted and stored verification state is never
+ * touched — use this for testing edited form values before saving.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns MCPIntegrationTestConnectionResponse Successful Response
+ * @throws ApiError
+ */
+export const mcpIntegrationsTestMcpConnectionConfig = (
+  data: McpIntegrationsTestMcpConnectionConfigData
+): CancelablePromise<McpIntegrationsTestMcpConnectionConfigResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/mcp-integrations/test",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Test Mcp Integration Connection
+ * Test connectivity to an HTTP MCP server and refresh its tool listing.
+ * @param data The data for the request.
+ * @param data.mcpIntegrationId
+ * @param data.workspaceId
+ * @returns MCPIntegrationTestConnectionResponse Successful Response
+ * @throws ApiError
+ */
+export const mcpIntegrationsTestMcpIntegrationConnection = (
+  data: McpIntegrationsTestMcpIntegrationConnectionData
+): CancelablePromise<McpIntegrationsTestMcpIntegrationConnectionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}/test",
     path: {
       mcp_integration_id: data.mcpIntegrationId,
       workspace_id: data.workspaceId,
