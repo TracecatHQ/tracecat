@@ -28,6 +28,7 @@ import {
   adminDeleteOrganization,
   adminDeleteOrganizationDomain,
   adminDeleteTier,
+  adminDeleteUser,
   adminDemoteFromSuperuser,
   adminGetOrganization,
   adminGetOrganizationInvitationToken,
@@ -418,6 +419,20 @@ export function useAdminUsers() {
         queryClient.invalidateQueries({ queryKey: ["admin", "users"] }),
     })
 
+  const { mutateAsync: deleteUser, isPending: deletePending } = useMutation<
+    void,
+    Error,
+    string
+  >({
+    mutationFn: async (userId) => {
+      await adminDeleteUser({ userId })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "users"] })
+      queryClient.invalidateQueries({ queryKey: ["sessions"] })
+    },
+  })
+
   return {
     users,
     isLoading,
@@ -428,6 +443,8 @@ export function useAdminUsers() {
     promotePending,
     demoteFromSuperuser,
     demotePending,
+    deleteUser,
+    deletePending,
   }
 }
 

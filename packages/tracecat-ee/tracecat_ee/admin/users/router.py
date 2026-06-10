@@ -9,6 +9,7 @@ from fastapi_users import InvalidPasswordException
 
 from tracecat.auth.credentials import SuperuserRole
 from tracecat.db.dependencies import AsyncDBSessionBypass
+from tracecat.exceptions import TracecatNotFoundError
 
 from .schemas import AdminUserCreate, AdminUserRead
 from .service import AdminUserService
@@ -105,6 +106,29 @@ async def demote_from_superuser(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
             ) from e
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+
+
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(
+    role: SuperuserRole,
+    session: AsyncDBSessionBypass,
+    user_id: uuid.UUID,
+) -> None:
+    """Delete a platform user globally, clearing sessions and dependencies first."""
+    if role.user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete user without authenticated user context",
+        )
+    service = AdminUserService(session, role)
+    try:
+        await service.delete_user(user_id, current_user_id=role.user_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
