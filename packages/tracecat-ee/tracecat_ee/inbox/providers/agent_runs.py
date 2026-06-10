@@ -7,7 +7,7 @@ import uuid
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
-from sqlalchemy import and_, distinct, func, or_, select
+from sqlalchemy import String, and_, cast, distinct, func, or_, select
 from temporalio.client import WorkflowExecutionStatus
 
 from tracecat.agent.approvals.enums import ApprovalStatus
@@ -147,7 +147,11 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                 .exists()
             )
             base_stmt = base_stmt.where(
-                or_(AgentSession.title.ilike(like_term), workflow_match)
+                or_(
+                    AgentSession.title.ilike(like_term),
+                    cast(AgentSession.entity_id, String).ilike(like_term),
+                    workflow_match,
+                )
             )
 
         # Determine sort column and direction
