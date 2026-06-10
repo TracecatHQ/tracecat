@@ -13,6 +13,7 @@ from tracecat_ee.admin.users.schemas import AdminUserRead
 
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
+from tracecat.exceptions import TracecatNotFoundError
 
 
 def _user_read(
@@ -194,7 +195,9 @@ async def test_delete_user_not_found(client: TestClient, test_admin_role: Role) 
 
     with patch.object(users_router, "AdminUserService") as MockService:
         mock_svc = AsyncMock()
-        mock_svc.delete_user.side_effect = ValueError(f"User {user_id} not found")
+        mock_svc.delete_user.side_effect = TracecatNotFoundError(
+            f"User {user_id} not found"
+        )
         MockService.return_value = mock_svc
 
         response = client.delete(f"/admin/users/{user_id}")

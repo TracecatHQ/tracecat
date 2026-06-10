@@ -9,6 +9,7 @@ from fastapi_users import InvalidPasswordException
 
 from tracecat.auth.credentials import SuperuserRole
 from tracecat.db.dependencies import AsyncDBSessionBypass
+from tracecat.exceptions import TracecatNotFoundError
 
 from .schemas import AdminUserCreate, AdminUserRead
 from .service import AdminUserService
@@ -125,11 +126,9 @@ async def delete_user(
     service = AdminUserService(session, role)
     try:
         await service.delete_user(user_id, current_user_id=role.user_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     except ValueError as e:
-        if "not found" in str(e).lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
-            ) from e
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e

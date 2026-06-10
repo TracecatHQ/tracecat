@@ -12,6 +12,7 @@ from tracecat.audit.service import AuditService
 from tracecat.auth.schemas import UserCreate, UserRole
 from tracecat.auth.users import get_user_db_context, get_user_manager_context
 from tracecat.db.models import AccessToken, Approval, Membership, User
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.organization.management import (
     ensure_single_tenant_user_defaults_for_session,
 )
@@ -154,7 +155,7 @@ class AdminUserService(BasePlatformService):
         result = await self.session.execute(stmt)
         user = result.scalar_one_or_none()
         if not user:
-            raise ValueError(f"User {user_id} not found")
+            raise TracecatNotFoundError(f"User {user_id} not found")
 
         if user.is_superuser:
             count_stmt = (
