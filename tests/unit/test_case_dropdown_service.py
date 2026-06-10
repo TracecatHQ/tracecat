@@ -262,3 +262,17 @@ class TestCaseDropdownDefinitionsService:
         )
         definitions = await viewer_service.list_definitions()
         assert [d.id for d in definitions] == [definition.id]
+
+        # Write-only roles can fetch a definition (mutation flows look it up
+        # first) but cannot list the read surface. case:create is used here
+        # because case:update implies case:read platform-wide.
+        create_only_role = dropdown_service.role.model_copy(
+            update={"scopes": frozenset({"case:create"})}
+        )
+        create_only_service = CaseDropdownDefinitionsService(
+            session=session, role=create_only_role
+        )
+        fetched = await create_only_service.get_definition(definition.id)
+        assert fetched.id == definition.id
+        with pytest.raises(ScopeDeniedError):
+            await create_only_service.list_definitions()

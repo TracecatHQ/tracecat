@@ -7798,12 +7798,18 @@ async def add_case_dropdown_option(
         _, role = await _resolve_workspace_role(workspace_id)
         async with CaseDropdownDefinitionsService.with_session(role=role) as svc:
             definition = await svc.get_definition(dropdown_id)
+            if position is None:
+                # Append after the highest position; deletions leave gaps, so
+                # the option count can collide with an existing position.
+                position = (
+                    max((opt.position for opt in definition.options), default=-1) + 1
+                )
             params = CaseDropdownOptionCreate(
                 label=label,
                 ref=ref or _slugify_dropdown_ref(label, field_name="label"),
                 icon_name=icon_name,
                 color=color,
-                position=position if position is not None else len(definition.options),
+                position=position,
             )
             option = await svc.add_option(dropdown_id, params)
             return _case_dropdown_option_payload(option)

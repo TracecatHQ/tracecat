@@ -4352,10 +4352,12 @@ async def test_add_case_dropdown_option_defaults(monkeypatch):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()
 
+    # Sparse positions (e.g. after deletions): default must append after the
+    # max position, not at the option count.
     definition = _fake_dropdown_definition(
         options=[
             _fake_dropdown_option(label="Low", ref="low", position=0),
-            _fake_dropdown_option(label="Medium", ref="medium", position=1),
+            _fake_dropdown_option(label="Medium", ref="medium", position=5),
         ]
     )
     captured: dict[str, Any] = {}
@@ -4385,7 +4387,7 @@ async def test_add_case_dropdown_option_defaults(monkeypatch):
     params = captured["params"]
     assert captured["definition_id"] == definition.id
     assert params.ref == "very_high"
-    assert params.position == 2
+    assert params.position == 6
     assert payload["label"] == "Very High!"
     assert payload["ref"] == "very_high"
 

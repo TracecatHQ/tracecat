@@ -55,7 +55,12 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
-    @require_scope("case:read")
+    # Any case scope may fetch a definition: mutation flows (REST handlers and
+    # MCP tools) look up the definition first, so requiring case:read alone
+    # would block write-only roles.
+    @require_scope(
+        "case:read", "case:create", "case:update", "case:delete", require_all=False
+    )
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def get_definition(self, definition_id: uuid.UUID) -> CaseDropdownDefinition:
         """Get a single dropdown definition by ID."""
@@ -75,7 +80,9 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
             )
         return definition
 
-    @require_scope("case:read")
+    @require_scope(
+        "case:read", "case:create", "case:update", "case:delete", require_all=False
+    )
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def get_definition_by_ref(self, ref: str) -> CaseDropdownDefinition:
         """Get a single dropdown definition by its slug ref."""
