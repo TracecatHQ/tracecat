@@ -245,7 +245,7 @@ function useInboxGroupQuery({
       lastPage.has_more && lastPage.next_cursor ? lastPage.next_cursor : null,
     enabled,
     retry: retryHandler,
-    refetchInterval: () => {
+    refetchInterval: (query) => {
       if (!autoRefresh) {
         return false
       }
@@ -253,6 +253,12 @@ function useInboxGroupQuery({
         typeof document !== "undefined" &&
         document.visibilityState === "hidden"
       ) {
+        return false
+      }
+      // Only poll when a single page is loaded; additional pages from "show
+      // more" would each be re-fetched on every tick, causing request fan-out.
+      const pageCount = query.state.data?.pages.length ?? 0
+      if (pageCount > 1) {
         return false
       }
       return pollMs
@@ -375,9 +381,13 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
   const isLoading = INBOX_GROUP_ORDER.some(
     (group) => groupQueries[group].isLoading
   )
+  const allErrors = INBOX_GROUP_ORDER.map(
+    (group) => groupQueries[group].error
+  ).filter(Boolean)
   const error =
-    INBOX_GROUP_ORDER.map((group) => groupQueries[group].error).find(Boolean) ??
-    null
+    allErrors.length === INBOX_GROUP_ORDER.length
+      ? (allErrors[0] ?? null)
+      : null
   const refetch = () => {
     for (const group of INBOX_GROUP_ORDER) {
       void groupQueries[group].refetch()

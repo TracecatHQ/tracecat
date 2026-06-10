@@ -170,6 +170,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         if group is not None:
             return await self._list_items_grouped(
                 limit=limit,
+                cursor=cursor,
                 order_by=order_by,
                 sort=sort,
                 search=search,
@@ -351,6 +352,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         self,
         *,
         limit: int,
+        cursor: str | None,
         order_by: str | None,
         sort: Literal["asc", "desc"] | None,
         search: str | None,
@@ -361,8 +363,13 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         Group membership requires enrichment (approval counts and live Temporal
         status), so this scans sessions in keyset batches, classifies each
         batch, and stops once enough matches are collected or the scan cap is
-        reached. Cursor pagination over the matched items is handled by the
-        aggregating InboxService, which slices the merged result in memory.
+        reached.
+
+        The cursor encodes the scan position (created_at/updated_at + id of the
+        last scanned session), not the last returned item. This means "show
+        more" resumes the scan where it left off rather than restarting from the
+        top, so groups whose matching items sit beyond GROUP_SCAN_MAX_SESSIONS
+        candidates are still reachable.
         """
         sort_col = "updated_at" if order_by == "updated_at" else "created_at"
         sort_desc = sort != "asc"
@@ -391,12 +398,22 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             # Necessary (not sufficient) condition: a live Temporal run exists
             base_stmt = base_stmt.where(AgentSession.curr_run_id.is_not(None))
 
+        # Decode cursor as a scan-position keyset (sort_value + id of last
+        # scanned session). This lets subsequent pages resume exactly where
+        # the previous scan stopped instead of restarting from the top.
+        last_key: tuple[Any, uuid.UUID] | None = None
+        if cursor:
+            try:
+                cursor_data = self.decode_cursor(cursor)
+                last_key = (cursor_data.sort_value, uuid.UUID(cursor_data.id))
+            except (ValueError, KeyError) as e:
+                logger.warning("Invalid grouped inbox cursor", error=str(e))
+
         matches: list[InboxItemRead] = []
         scanned = 0
         exhausted = False
-        last_key: tuple[Any, uuid.UUID] | None = None
 
-        while len(matches) <= limit and scanned < GROUP_SCAN_MAX_SESSIONS:
+        while len(matches) < limit + 1 and scanned < GROUP_SCAN_MAX_SESSIONS:
             stmt = base_stmt
             if last_key is not None:
                 last_value, last_id = last_key
@@ -435,15 +452,49 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                 exhausted = True
                 break
 
+        page_items = matches[:limit]
         has_more = len(matches) > limit or not exhausted
-        items = matches[:limit]
+
+        # Two cases where we can paginate forward:
+        # 1. We collected more matches than the page size — encode a cursor from
+        #    the last returned item so the next request skips past it.
+        # 2. We hit the scan cap before exhausting the base query — encode the
+        #    scan position (last_key) so the next request resumes scanning there.
+        next_cursor: str | None = None
+        if has_more and last_key is not None:
+            if len(matches) > limit:
+                # Item-based cursor: skip past the last item on this page.
+                last_item = page_items[-1]
+                next_cursor = self.encode_cursor(
+                    id=last_item.id,
+                    sort_column=sort_col,
+                    sort_value=getattr(last_item, sort_col),
+                )
+            else:
+                # Scan-position cursor: resume scanning from where we stopped.
+                scan_value, scan_id = last_key
+                next_cursor = self.encode_cursor(
+                    id=scan_id,
+                    sort_column=sort_col,
+                    sort_value=scan_value,
+                )
+
+        prev_cursor: str | None = None
+        if cursor and page_items:
+            # For backwards compat: encode position of first returned item
+            first = page_items[0]
+            prev_cursor = self.encode_cursor(
+                id=first.id,
+                sort_column=sort_col,
+                sort_value=getattr(first, sort_col),
+            )
 
         return CursorPaginatedResponse(
-            items=items,
-            next_cursor=None,
-            prev_cursor=None,
+            items=page_items,
+            next_cursor=next_cursor,
+            prev_cursor=prev_cursor,
             has_more=has_more,
-            has_previous=False,
+            has_previous=cursor is not None,
             total_estimate=None,
         )
 

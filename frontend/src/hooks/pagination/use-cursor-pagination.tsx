@@ -44,7 +44,10 @@ export interface UseCursorPaginationOptions<
     | false
     | ((query: Query<CursorPaginationResponse<T>, ApiError>) => number | false)
   refetchIntervalInBackground?: boolean
-  retry?: (failureCount: number, error: ApiError) => boolean
+  retry?:
+    | boolean
+    | number
+    | ((failureCount: number, error: ApiError) => boolean)
   placeholderData?: (
     previousData: CursorPaginationResponse<T> | undefined,
     previousQuery: Query<CursorPaginationResponse<T>, ApiError> | undefined
