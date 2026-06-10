@@ -6455,6 +6455,9 @@ async def create_case(
             )
     except ToolError:
         raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except EntitlementRequired as e:
         raise ToolError(str(e)) from e
     except TracecatNotFoundError as e:
@@ -6558,6 +6561,9 @@ async def update_case(
             return MCPMessageResponse(message=f"Case {case_id} updated successfully")
     except ToolError:
         raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except EntitlementRequired as e:
         raise ToolError(str(e)) from e
     except TracecatNotFoundError as e:
@@ -7572,6 +7578,9 @@ async def list_case_dropdowns(
             return page
     except ToolError:
         raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except EntitlementRequired as e:
         raise ToolError(str(e)) from e
     except ValueError as e:
@@ -7637,6 +7646,9 @@ async def create_case_dropdown(
             return _case_dropdown_definition_payload(definition)
     except ToolError:
         raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except EntitlementRequired as e:
         raise ToolError(str(e)) from e
     except TracecatValidationError as e:
@@ -7700,6 +7712,9 @@ async def update_case_dropdown(
             return _case_dropdown_definition_payload(updated)
     except ToolError:
         raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except EntitlementRequired as e:
         raise ToolError(str(e)) from e
     except TracecatNotFoundError as e:
@@ -7739,6 +7754,9 @@ async def delete_case_dropdown(
             )
     except ToolError:
         raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except EntitlementRequired as e:
         raise ToolError(str(e)) from e
     except TracecatNotFoundError as e:
@@ -7791,6 +7809,9 @@ async def add_case_dropdown_option(
             return _case_dropdown_option_payload(option)
     except ToolError:
         raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except EntitlementRequired as e:
         raise ToolError(str(e)) from e
     except TracecatNotFoundError as e:
@@ -7854,6 +7875,9 @@ async def update_case_dropdown_option(
             return _case_dropdown_option_payload(option)
     except ToolError:
         raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except EntitlementRequired as e:
         raise ToolError(str(e)) from e
     except TracecatNotFoundError as e:
@@ -7896,6 +7920,9 @@ async def delete_case_dropdown_option(
             )
     except ToolError:
         raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except EntitlementRequired as e:
         raise ToolError(str(e)) from e
     except TracecatNotFoundError as e:
@@ -7951,6 +7978,9 @@ async def set_case_dropdown_value(
             return results[0]
     except ToolError:
         raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except EntitlementRequired as e:
         raise ToolError(str(e)) from e
     except TracecatNotFoundError as e:

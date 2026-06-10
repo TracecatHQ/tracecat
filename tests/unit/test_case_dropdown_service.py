@@ -1,15 +1,25 @@
+import uuid
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import VIEWER_SCOPES
 from tracecat.cases.dropdowns.schemas import (
     CaseDropdownDefinitionCreate,
     CaseDropdownDefinitionUpdate,
     CaseDropdownOptionCreate,
     CaseDropdownOptionUpdate,
 )
-from tracecat.cases.dropdowns.service import CaseDropdownDefinitionsService
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.cases.dropdowns.service import (
+    CaseDropdownDefinitionsService,
+    CaseDropdownValuesService,
+)
+from tracecat.exceptions import (
+    ScopeDeniedError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -136,3 +146,47 @@ class TestCaseDropdownDefinitionsService:
         await dropdown_service.delete_option(definition_b.id, option_b.id)
         with pytest.raises(TracecatNotFoundError, match="not found for definition"):
             await dropdown_service.delete_option(definition_b.id, option_b.id)
+
+    async def test_mutations_require_case_scopes(
+        self,
+        session: AsyncSession,
+        dropdown_service: CaseDropdownDefinitionsService,
+    ) -> None:
+        """Mutation methods should reject roles without case mutation scopes."""
+        definition = await _create_definition(dropdown_service)
+        option = await dropdown_service.add_option(
+            definition.id,
+            CaseDropdownOptionCreate(label="High", ref="high"),
+        )
+
+        viewer_role = dropdown_service.role.model_copy(update={"scopes": VIEWER_SCOPES})
+        viewer_service = CaseDropdownDefinitionsService(
+            session=session, role=viewer_role
+        )
+
+        with pytest.raises(ScopeDeniedError):
+            await viewer_service.create_definition(
+                CaseDropdownDefinitionCreate(name="Blocked", ref="blocked", options=[])
+            )
+        with pytest.raises(ScopeDeniedError):
+            await viewer_service.update_definition(
+                definition, CaseDropdownDefinitionUpdate(name="Blocked")
+            )
+        with pytest.raises(ScopeDeniedError):
+            await viewer_service.delete_definition(definition)
+        with pytest.raises(ScopeDeniedError):
+            await viewer_service.add_option(
+                definition.id, CaseDropdownOptionCreate(label="Low", ref="low")
+            )
+        with pytest.raises(ScopeDeniedError):
+            await viewer_service.update_option(
+                definition.id, option.id, CaseDropdownOptionUpdate(label="Blocked")
+            )
+        with pytest.raises(ScopeDeniedError):
+            await viewer_service.delete_option(definition.id, option.id)
+
+        viewer_values_service = CaseDropdownValuesService(
+            session=session, role=viewer_role
+        )
+        with pytest.raises(ScopeDeniedError):
+            await viewer_values_service.apply_values(uuid.uuid4(), [])

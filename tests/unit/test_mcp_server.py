@@ -39,6 +39,7 @@ from tracecat.agent.stream.events import StreamDelta, StreamEnd
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
     EntitlementRequired,
+    ScopeDeniedError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -4295,6 +4296,36 @@ async def test_delete_case_dropdown(monkeypatch):
     payload = _payload(result)
     assert "deleted successfully" in payload["message"]
     assert deleted == [definition]
+
+
+@pytest.mark.anyio
+async def test_delete_case_dropdown_missing_scope(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    definition = _fake_dropdown_definition()
+
+    async def _get_definition(definition_id):
+        return definition
+
+    async def _delete_definition(defn):
+        raise ScopeDeniedError(
+            required_scopes=["case:delete"], missing_scopes=["case:delete"]
+        )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _patch_dropdown_definitions_service(
+        monkeypatch,
+        SimpleNamespace(
+            get_definition=_get_definition, delete_definition=_delete_definition
+        ),
+    )
+
+    with pytest.raises(ToolError, match="Missing required scope: case:delete"):
+        await _tool(mcp_server.delete_case_dropdown)(
+            workspace_id=str(uuid.uuid4()),
+            dropdown_id=str(definition.id),
+        )
 
 
 @pytest.mark.anyio

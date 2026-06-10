@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
+from tracecat.authz.controls import require_scope
 from tracecat.cases.dropdowns.schemas import (
     CaseDropdownDefinitionCreate,
     CaseDropdownDefinitionUpdate,
@@ -84,6 +85,7 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
             )
         return definition
 
+    @require_scope("case:create")
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def create_definition(
         self, params: CaseDropdownDefinitionCreate
@@ -122,6 +124,7 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
         await self.session.refresh(definition)
         return definition
 
+    @require_scope("case:update")
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def update_definition(
         self,
@@ -165,6 +168,7 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
         await self.session.refresh(definition)
         return definition
 
+    @require_scope("case:delete")
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def delete_definition(self, definition: CaseDropdownDefinition) -> None:
         """Delete a dropdown definition and all associated options/values."""
@@ -197,6 +201,7 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
             )
         return option
 
+    @require_scope("case:create")
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def add_option(
         self,
@@ -223,6 +228,7 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
         await self.session.refresh(option)
         return option
 
+    @require_scope("case:update")
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def update_option(
         self,
@@ -244,6 +250,7 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
         await self.session.refresh(option)
         return option
 
+    @require_scope("case:delete")
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def delete_option(
         self, definition_id: uuid.UUID, option_id: uuid.UUID
@@ -253,6 +260,7 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
         await self.session.delete(option)
         await self.session.commit()
 
+    @require_scope("case:update")
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def reorder_options(
         self, definition_id: uuid.UUID, option_ids: list[uuid.UUID]
@@ -484,6 +492,7 @@ class CaseDropdownValuesService(BaseWorkspaceService):
             option_color=new_option.color if new_option else None,
         )
 
+    @require_scope("case:update")
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def set_value(
         self,
@@ -506,6 +515,7 @@ class CaseDropdownValuesService(BaseWorkspaceService):
             await self.session.flush()
         return result
 
+    @require_scope("case:create", "case:update", require_all=False)
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def apply_values(
         self,
