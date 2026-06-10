@@ -220,3 +220,32 @@ class TestCaseDropdownDefinitionsService:
         # create-only role passes its scope gate (and fails later on lookup).
         with pytest.raises(TracecatNotFoundError):
             await values_service.apply_values(uuid.uuid4(), [])
+
+    async def test_reads_require_case_read_scope(
+        self,
+        session: AsyncSession,
+        dropdown_service: CaseDropdownDefinitionsService,
+    ) -> None:
+        """Definition reads should reject roles without case:read."""
+        definition = await _create_definition(dropdown_service)
+
+        scopeless_role = dropdown_service.role.model_copy(
+            update={"scopes": frozenset()}
+        )
+        scopeless_service = CaseDropdownDefinitionsService(
+            session=session, role=scopeless_role
+        )
+
+        with pytest.raises(ScopeDeniedError):
+            await scopeless_service.list_definitions()
+        with pytest.raises(ScopeDeniedError):
+            await scopeless_service.get_definition(definition.id)
+        with pytest.raises(ScopeDeniedError):
+            await scopeless_service.get_definition_by_ref(definition.ref)
+
+        viewer_role = dropdown_service.role.model_copy(update={"scopes": VIEWER_SCOPES})
+        viewer_service = CaseDropdownDefinitionsService(
+            session=session, role=viewer_role
+        )
+        definitions = await viewer_service.list_definitions()
+        assert [d.id for d in definitions] == [definition.id]

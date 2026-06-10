@@ -4118,6 +4118,25 @@ async def test_list_case_dropdowns(monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_list_case_dropdowns_missing_scope(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    async def _list_definitions():
+        raise ScopeDeniedError(
+            required_scopes=["case:read"], missing_scopes=["case:read"]
+        )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _patch_dropdown_definitions_service(
+        monkeypatch, SimpleNamespace(list_definitions=_list_definitions)
+    )
+
+    with pytest.raises(ToolError, match="Missing required scope: case:read"):
+        await _tool(mcp_server.list_case_dropdowns)(workspace_id=str(uuid.uuid4()))
+
+
+@pytest.mark.anyio
 async def test_create_case_dropdown_slugifies_refs(monkeypatch):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()

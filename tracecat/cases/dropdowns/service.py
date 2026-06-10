@@ -35,6 +35,7 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
 
     service_name = "case_dropdown_definitions"
 
+    @require_scope("case:read")
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def list_definitions(self) -> Sequence[CaseDropdownDefinition]:
         """List all dropdown definitions for the workspace, ordered by position."""
@@ -47,6 +48,7 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
+    @require_scope("case:read")
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def get_definition(self, definition_id: uuid.UUID) -> CaseDropdownDefinition:
         """Get a single dropdown definition by ID."""
@@ -66,6 +68,7 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
             )
         return definition
 
+    @require_scope("case:read")
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def get_definition_by_ref(self, ref: str) -> CaseDropdownDefinition:
         """Get a single dropdown definition by its slug ref."""
