@@ -96,6 +96,28 @@ Case field and table `type` values are:
 - `SELECT`
 - `MULTI_SELECT`
 
+## Case dropdown tools
+
+- `list_case_dropdowns(workspace_id, limit=20, cursor=None)` returns dropdown definitions with embedded `options`
+- `create_case_dropdown(workspace_id, name, ref=None, icon_name=None, is_ordered=False, required_on_closure=False, position=0, options=None)`
+- `update_case_dropdown(workspace_id, dropdown_id, name=None, ref=None, icon_name=None, is_ordered=None, required_on_closure=None, position=None)`
+- `delete_case_dropdown(workspace_id, dropdown_id)` deletes the definition with all its options and per-case values
+- `add_case_dropdown_option(workspace_id, dropdown_id, label, ref=None, icon_name=None, color=None, position=None)`
+- `update_case_dropdown_option(workspace_id, dropdown_id, option_id, label=None, ref=None, icon_name=None, color=None, position=None)`
+- `delete_case_dropdown_option(workspace_id, dropdown_id, option_id)`
+- `set_case_dropdown_value(workspace_id, case_id, definition_id=None, definition_ref=None, option_id=None, option_ref=None)`
+
+Notes:
+
+- All case dropdown tools require the case add-ons entitlement.
+- Dropdown and option `ref` values default to the slugified name or label
+  (e.g. `Threat Level` becomes `threat_level`).
+- `set_case_dropdown_value` takes exactly one of `definition_id` or
+  `definition_ref`, and at most one of `option_id` or `option_ref`; omitting
+  both option arguments clears the value.
+- `create_case` and `update_case` accept a `dropdown_values` list with the
+  same per-item identifier rules to set dropdown values in the same call.
+
 ## Table tools
 
 - `list_tables(workspace_id, limit=20, cursor=None)`

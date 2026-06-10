@@ -295,6 +295,40 @@
   Update a case field definition.
 </ResponseField>
 
+<ResponseField name="list_case_dropdowns" type="tool">
+  List case dropdown definitions in a workspace. Requires the case add-ons entitlement.
+
+  Returns a paginated JSON array of dropdown objects with `id`, `name`, `ref`, `icon_name`, `is_ordered`, `required_on_closure`, `position`, and embedded `options`.
+</ResponseField>
+
+<ResponseField name="create_case_dropdown" type="tool">
+  Create a case dropdown definition with optional initial options. Requires the case add-ons entitlement.
+</ResponseField>
+
+<ResponseField name="update_case_dropdown" type="tool">
+  Update a case dropdown definition. Only provided fields are changed. Requires the case add-ons entitlement.
+</ResponseField>
+
+<ResponseField name="delete_case_dropdown" type="tool">
+  Delete a case dropdown definition along with all its options and per-case values. Requires the case add-ons entitlement.
+</ResponseField>
+
+<ResponseField name="add_case_dropdown_option" type="tool">
+  Add an option to a case dropdown definition. Requires the case add-ons entitlement.
+</ResponseField>
+
+<ResponseField name="update_case_dropdown_option" type="tool">
+  Update an option within a case dropdown definition. Only provided fields are changed. Requires the case add-ons entitlement.
+</ResponseField>
+
+<ResponseField name="delete_case_dropdown_option" type="tool">
+  Delete an option from a case dropdown definition. Requires the case add-ons entitlement.
+</ResponseField>
+
+<ResponseField name="set_case_dropdown_value" type="tool">
+  Set or clear a dropdown value on a case. Provide exactly one of `definition_id` or `definition_ref`, and at most one of `option_id` or `option_ref`; omit both option arguments to clear the value. Requires the case add-ons entitlement.
+</ResponseField>
+
 <ResponseField name="list_tables" type="tool">
   List workspace tables.
 </ResponseField>
