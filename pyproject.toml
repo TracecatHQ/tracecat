@@ -23,7 +23,7 @@ classifiers = [
 dependencies = [
     "aioboto3==15.5.0",
     "aiocache==0.12.3",
-    "aiohttp==3.13.5",
+    "aiohttp==3.14.0",
     "alembic-postgresql-enum==1.7.0",
     "alembic==1.13.2",
     "async-lru==2.0.4",
@@ -70,7 +70,7 @@ dependencies = [
     "tomli==2.2.1",
     "tracecat-ee",
     "tracecat-registry",
-    "uv==0.11.6",
+    "uv==0.11.15",
     "uvicorn==0.35.0",
     "uvloop==0.21.0",
 ]
@@ -96,7 +96,7 @@ members = ["packages/*"]
 override-dependencies = [
     "pyasn1==0.6.3",
     "requests==2.33.0",
-    "aiohttp==3.13.5",
+    "aiohttp==3.14.0",
     "uvicorn==0.35.0",
     "boto3==1.40.61",
     "python-multipart==0.0.27",
