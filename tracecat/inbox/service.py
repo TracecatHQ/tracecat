@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal
 
 from tracecat.inbox.schemas import InboxItemRead
-from tracecat.inbox.types import InboxItemStatus
+from tracecat.inbox.types import InboxGroup, InboxItemStatus
 from tracecat.pagination import BaseCursorPaginator, CursorPaginatedResponse
 from tracecat.service import BaseWorkspaceService
 
@@ -40,6 +40,7 @@ class InboxService(BaseWorkspaceService, BaseCursorPaginator):
         order_by: str | None = None,
         sort: Literal["asc", "desc"] | None = None,
         search: str | None = None,
+        group: InboxGroup | None = None,
     ) -> CursorPaginatedResponse[InboxItemRead]:
         """List inbox items with cursor-based pagination.
 
@@ -52,6 +53,7 @@ class InboxService(BaseWorkspaceService, BaseCursorPaginator):
         # TODO: Optimize for large inboxes with cross-provider cursor pagination
 
         all_items: list[InboxItemRead] = []
+        providers_have_more = False
 
         # Decode cursor to get target item ID if present
         cursor_id: str | None = None
@@ -75,8 +77,10 @@ class InboxService(BaseWorkspaceService, BaseCursorPaginator):
                 order_by=order_by,
                 sort=sort,
                 search=search,
+                group=group,
             )
             all_items.extend(provider_response.items)
+            providers_have_more = providers_have_more or provider_response.has_more
 
         # Sort all items
         sort_desc = sort != "asc"
@@ -103,11 +107,12 @@ class InboxService(BaseWorkspaceService, BaseCursorPaginator):
                 reverse=sort_desc,
             )
 
-        # Find cursor position in merged results
+        # Find cursor position in merged results. Item IDs are UUIDs while the
+        # decoded cursor ID is a string, so compare their string forms.
         start_idx = 0
         if cursor_id:
             for i, item in enumerate(all_items):
-                if item.id == cursor_id:
+                if str(item.id) == cursor_id:
                     start_idx = i + 1 if not reverse else i
                     break
 
@@ -120,8 +125,9 @@ class InboxService(BaseWorkspaceService, BaseCursorPaginator):
         else:
             items = all_items[start_idx : start_idx + limit]
 
-        # Determine pagination state
-        has_more = start_idx + limit < len(all_items)
+        # Determine pagination state. Providers may have truncated their own
+        # result sets (e.g. grouped scans), so propagate their has_more flag.
+        has_more = start_idx + limit < len(all_items) or providers_have_more
         has_previous = start_idx > 0
 
         # Generate cursors

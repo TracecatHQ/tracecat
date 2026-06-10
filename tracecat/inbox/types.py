@@ -28,6 +28,19 @@ class InboxItemStatus(StrEnum):
     FAILED = "failed"
 
 
+class InboxGroup(StrEnum):
+    """Display groups for inbox items.
+
+    Groups are derived from approval state and live workflow execution status,
+    so membership cannot be expressed as a pure SQL filter.
+    """
+
+    REVIEW_REQUIRED = "review_required"
+    RUNNING = "running"
+    ERROR = "error"
+    COMPLETED = "completed"
+
+
 class InboxProvider(Protocol):
     """Protocol for inbox item providers.
 
@@ -45,6 +58,7 @@ class InboxProvider(Protocol):
         order_by: str | None = None,
         sort: Literal["asc", "desc"] | None = None,
         search: str | None = None,
+        group: InboxGroup | None = None,
     ) -> CursorPaginatedResponse[InboxItemRead]:
         """List inbox items with cursor-based pagination."""
         ...

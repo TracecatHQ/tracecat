@@ -15,6 +15,7 @@ export default function InboxPage() {
 
   const {
     sessions,
+    groups,
     selectedId,
     setSelectedId,
     isLoading: inboxIsLoading,
@@ -55,6 +56,7 @@ export default function InboxPage() {
   return (
     <ActivityLayout
       sessions={sessions}
+      groups={groups}
       selectedId={selectedId}
       onSelect={setSelectedId}
       isLoading={inboxIsLoading}
