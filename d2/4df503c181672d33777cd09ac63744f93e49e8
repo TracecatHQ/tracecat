@@ -1,0 +1,38 @@
+docs/snippets/mcp-tools.mdx
+  s_d9b732a96c2b02::t_42b9eef675a35f 298-331
+tests/unit/test_mcp_server.py
+  s_d9b732a96c2b02::t_152b440f8dc4c1 4035-4094,4096-4105,4107-4626
+  s_d9b732a96c2b02::t_397c53bace3fc3 41-42
+  s_d9b732a96c2b02::t_2987e7d4e3a654 4095,4106
+tracecat/mcp/server.py
+  s_d9b732a96c2b02::t_b60099bb9705a2 6561-6564
+  s_d9b732a96c2b02::t_ef28c30f36b058 85-98
+  s_d9b732a96c2b02::t_f77bcfd66a2dfd 6396,6417-6420
+  s_d9b732a96c2b02::t_298405227692b7 6439
+  s_d9b732a96c2b02::t_71f85fc86e0123 6458-6463
+  s_d9b732a96c2b02::t_345aa0009406a0 805-821
+  s_d9b732a96c2b02::t_00d5f4c51612f6 6485,6507-6510
+  s_d9b732a96c2b02::t_2a188119995f39 155
+  s_d9b732a96c2b02::t_9f727375fd10b9 7539-7787,7789-7964
+  s_d9b732a96c2b02::t_a087ac0d4cb162 7788
+  s_d9b732a96c2b02::t_06ec73436710c7 6538-6539
+  s_d9b732a96c2b02::t_ff9a6cf08bc6fd 3790-3807
+tracecat/mcp/README.md
+  s_d9b732a96c2b02::t_5d841339d143f6 99-120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "d24df503c181672d33777cd09ac63744f93e49e8",
+  "prompts": {},
+  "sessions": {
+    "s_d9b732a96c2b02": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3c59e2bb-a3eb-41af-be74-726c66131b4d",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
