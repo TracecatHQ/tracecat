@@ -19,6 +19,7 @@ import {
   XCircleIcon,
 } from "lucide-react"
 import { useMemo, useState } from "react"
+import type { InboxGroup } from "@/client"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -38,7 +39,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import UserAvatar from "@/components/user-avatar"
-import type { AgentDerivedStatus, InboxSessionItem } from "@/lib/agents"
+import { INBOX_GROUP_ORDER, type InboxGroupState } from "@/hooks/use-inbox"
+import type { InboxSessionItem } from "@/lib/agents"
 import { getDisplayName as getUserDisplayName } from "@/lib/auth"
 import { cn } from "@/lib/utils"
 
@@ -75,12 +77,11 @@ const SOURCE_CONFIGS: Record<SourceType, SourceConfig> = {
   },
 }
 
-type StatusGroup = "review_required" | "running" | "error" | "completed"
+type StatusGroup = InboxGroup
 
 interface StatusGroupConfig {
   label: string
   icon: React.ComponentType<{ className?: string }>
-  statuses: AgentDerivedStatus[]
   iconColor: string
 }
 
@@ -88,35 +89,24 @@ const STATUS_GROUPS: Record<StatusGroup, StatusGroupConfig> = {
   review_required: {
     label: "Review required",
     icon: CirclePauseIcon,
-    statuses: ["PENDING_APPROVAL"],
     iconColor: "text-primary",
   },
   running: {
     label: "In progress",
     icon: LoaderCircleIcon,
-    statuses: ["RUNNING", "CONTINUED_AS_NEW"],
     iconColor: "text-muted-foreground",
   },
   error: {
     label: "Error",
     icon: XCircleIcon,
-    statuses: ["FAILED", "TIMED_OUT", "TERMINATED"],
     iconColor: "text-red-600",
   },
   completed: {
     label: "Completed",
     icon: CheckCircle2Icon,
-    statuses: ["COMPLETED", "CANCELED", "UNKNOWN"],
     iconColor: "text-green-600",
   },
 }
-
-const GROUP_ORDER: StatusGroup[] = [
-  "review_required",
-  "running",
-  "error",
-  "completed",
-]
 
 // Shared column template so the global header and group rows stay aligned.
 const GRID_COLS = "grid-cols-[minmax(0,1fr)_7rem_10rem_8rem_8rem]"
@@ -346,7 +336,7 @@ function RunRow({
 }
 
 interface RunsTableProps {
-  sessions: InboxSessionItem[]
+  groups: Record<InboxGroup, InboxGroupState>
   selectedId: string | null
   deletingId: string | null
   onSelect: (id: string) => void
@@ -355,11 +345,13 @@ interface RunsTableProps {
 
 /**
  * Agent runs grouped by status into accordion sections, with sortable
- * columns shared across groups. Rows are clickable and open the run's
- * session detail; runs with pending approvals can be dismissed inline.
+ * columns shared across groups. Each group is paginated independently on
+ * the server and exposes a "Show more" row when more items exist. Rows are
+ * clickable and open the run's session detail; runs with pending approvals
+ * can be dismissed inline.
  */
 export function RunsTable({
-  sessions,
+  groups,
   selectedId,
   deletingId,
   onSelect,
@@ -382,27 +374,12 @@ export function RunsTable({
     }
   }
 
-  // Group sessions by status category, sorted by the active column
+  // Sort each server-provided group's loaded sessions by the active column
   const groupedSessions = useMemo(() => {
-    const groups: Record<StatusGroup, InboxSessionItem[]> = {
-      review_required: [],
-      running: [],
-      error: [],
-      completed: [],
-    }
-
-    for (const session of sessions) {
-      for (const [groupKey, config] of Object.entries(STATUS_GROUPS)) {
-        if (config.statuses.includes(session.derivedStatus)) {
-          groups[groupKey as StatusGroup].push(session)
-          break
-        }
-      }
-    }
-
     const factor = sortDirection === "asc" ? 1 : -1
-    for (const groupKey of Object.keys(groups) as StatusGroup[]) {
-      groups[groupKey].sort((a, b) => {
+    const sorted = {} as Record<StatusGroup, InboxSessionItem[]>
+    for (const groupKey of INBOX_GROUP_ORDER) {
+      sorted[groupKey] = [...groups[groupKey].sessions].sort((a, b) => {
         const primary = compareSessions(a, b, sortKey) * factor
         if (primary !== 0) {
           return primary
@@ -413,14 +390,15 @@ export function RunsTable({
         )
       })
     }
+    return sorted
+  }, [groups, sortKey, sortDirection])
 
-    return groups
-  }, [sessions, sortKey, sortDirection])
-
-  // Only render groups that have items; empty groups are hidden entirely
+  // Only render groups that have items (loaded or unloaded); empty groups are hidden
   const visibleGroups = useMemo(() => {
-    return GROUP_ORDER.filter((group) => groupedSessions[group].length > 0)
-  }, [groupedSessions])
+    return INBOX_GROUP_ORDER.filter(
+      (group) => groupedSessions[group].length > 0 || groups[group].hasMore
+    )
+  }, [groupedSessions, groups])
 
   const expandedGroups = visibleGroups.filter(
     (group) => !collapsedGroups.includes(group)
@@ -493,6 +471,7 @@ export function RunsTable({
           {visibleGroups.map((groupKey) => {
             const config = STATUS_GROUPS[groupKey]
             const groupSessions = groupedSessions[groupKey]
+            const groupState = groups[groupKey]
             const StatusIcon = config.icon
 
             return (
@@ -538,6 +517,7 @@ export function RunsTable({
                       </span>
                       <span className="text-xs text-muted-foreground">
                         {groupSessions.length}
+                        {groupState.hasMore ? "+" : ""}
                       </span>
                     </div>
                   </AccordionPrimitive.Trigger>
@@ -558,6 +538,28 @@ export function RunsTable({
                       }
                     />
                   ))}
+                  {groupState.hasMore && (
+                    <button
+                      type="button"
+                      onClick={groupState.loadMore}
+                      disabled={groupState.isLoadingMore}
+                      className={cn(
+                        "flex w-full items-center justify-center gap-1.5 border-b border-border/50 py-2 text-xs text-muted-foreground transition-colors",
+                        "hover:bg-muted/50 hover:text-foreground",
+                        groupState.isLoadingMore &&
+                          "cursor-not-allowed opacity-50"
+                      )}
+                    >
+                      {groupState.isLoadingMore ? (
+                        <>
+                          <LoaderCircleIcon className="size-3.5 animate-spin" />
+                          Loading…
+                        </>
+                      ) : (
+                        "Show more"
+                      )}
+                    </button>
+                  )}
                 </AccordionPrimitive.Content>
               </AccordionPrimitive.Item>
             )

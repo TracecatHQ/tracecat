@@ -16,7 +16,7 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import AgentSession, Approval, User, Workflow
 from tracecat.dsl.client import get_temporal_client
 from tracecat.inbox.schemas import InboxItemRead, UserSummary, WorkflowSummary
-from tracecat.inbox.types import InboxItemStatus, InboxItemType
+from tracecat.inbox.types import InboxGroup, InboxItemStatus, InboxItemType
 from tracecat.logger import logger
 from tracecat.pagination import BaseCursorPaginator, CursorPaginatedResponse
 from tracecat_ee.agent.types import AgentWorkflowID
@@ -34,6 +34,15 @@ FAILED_STATUSES = {
 # Approvals are a workflow concept: only automation-initiated sessions surface
 # them in the inbox. Chat-surface approvals are handled inline in the chat UI.
 APPROVAL_ENTITY_TYPES = ("workflow", "external_channel")
+
+# Group membership depends on live Temporal status, so grouped listing scans
+# sessions in batches and classifies after enrichment. Each scanned session may
+# cost a Temporal describe call, so the scan is hard-capped per request.
+GROUP_SCAN_BATCH_SIZE = 50
+GROUP_SCAN_MAX_SESSIONS = 300
+
+RUNNING_STATUS_NAMES = {s.name for s in RUNNING_STATUSES}
+FAILED_STATUS_NAMES = {s.name for s in FAILED_STATUSES}
 
 if TYPE_CHECKING:
     from tracecat.auth.types import Role
@@ -102,17 +111,8 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                 statuses[session_id] = status
         return statuses
 
-    async def list_items(
-        self,
-        *,
-        limit: int = 20,
-        cursor: str | None = None,
-        reverse: bool = False,
-        order_by: str | None = None,
-        sort: Literal["asc", "desc"] | None = None,
-        search: str | None = None,
-    ) -> CursorPaginatedResponse[InboxItemRead]:
-        """List agent run items with cursor pagination."""
+    def _base_query(self, search: str | None):
+        """Base statement selecting inbox-eligible root sessions."""
         # Root sessions only: all Claude Code runs, plus legacy sessions that
         # already have approvals so existing inbox items don't disappear.
         has_approvals = (
@@ -153,6 +153,30 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                     workflow_match,
                 )
             )
+        return base_stmt
+
+    async def list_items(
+        self,
+        *,
+        limit: int = 20,
+        cursor: str | None = None,
+        reverse: bool = False,
+        order_by: str | None = None,
+        sort: Literal["asc", "desc"] | None = None,
+        search: str | None = None,
+        group: InboxGroup | None = None,
+    ) -> CursorPaginatedResponse[InboxItemRead]:
+        """List agent run items with cursor pagination."""
+        if group is not None:
+            return await self._list_items_grouped(
+                limit=limit,
+                order_by=order_by,
+                sort=sort,
+                search=search,
+                group=group,
+            )
+
+        base_stmt = self._base_query(search)
 
         # Determine sort column and direction
         sort_col = order_by or "created_at"
@@ -302,6 +326,124 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             prev_cursor=prev_cursor,
             has_more=has_more,
             has_previous=cursor is not None,
+            total_estimate=None,
+        )
+
+    @staticmethod
+    def _classify_item(item: InboxItemRead) -> InboxGroup:
+        """Classify an enriched inbox item into its display group.
+
+        Must stay in sync with the status grouping in the inbox UI.
+        """
+        metadata = item.metadata or {}
+        if metadata.get("pending_count"):
+            return InboxGroup.REVIEW_REQUIRED
+        temporal_status = metadata.get("temporal_status")
+        if temporal_status in RUNNING_STATUS_NAMES:
+            return InboxGroup.RUNNING
+        if temporal_status in FAILED_STATUS_NAMES:
+            return InboxGroup.ERROR
+        if item.status == InboxItemStatus.FAILED:
+            return InboxGroup.ERROR
+        return InboxGroup.COMPLETED
+
+    async def _list_items_grouped(
+        self,
+        *,
+        limit: int,
+        order_by: str | None,
+        sort: Literal["asc", "desc"] | None,
+        search: str | None,
+        group: InboxGroup,
+    ) -> CursorPaginatedResponse[InboxItemRead]:
+        """List items belonging to a single display group.
+
+        Group membership requires enrichment (approval counts and live Temporal
+        status), so this scans sessions in keyset batches, classifies each
+        batch, and stops once enough matches are collected or the scan cap is
+        reached. Cursor pagination over the matched items is handled by the
+        aggregating InboxService, which slices the merged result in memory.
+        """
+        sort_col = "updated_at" if order_by == "updated_at" else "created_at"
+        sort_desc = sort != "asc"
+        column = (
+            AgentSession.updated_at
+            if sort_col == "updated_at"
+            else AgentSession.created_at
+        )
+
+        base_stmt = self._base_query(search)
+        # Narrow the scan with SQL predicates where group membership implies one
+        if group is InboxGroup.REVIEW_REQUIRED:
+            pending_exists = (
+                select(Approval.id)
+                .where(
+                    Approval.session_id == AgentSession.id,
+                    Approval.status == ApprovalStatus.PENDING,
+                )
+                .exists()
+            )
+            base_stmt = base_stmt.where(
+                pending_exists,
+                AgentSession.entity_type.in_(APPROVAL_ENTITY_TYPES),
+            )
+        elif group is InboxGroup.RUNNING:
+            # Necessary (not sufficient) condition: a live Temporal run exists
+            base_stmt = base_stmt.where(AgentSession.curr_run_id.is_not(None))
+
+        matches: list[InboxItemRead] = []
+        scanned = 0
+        exhausted = False
+        last_key: tuple[Any, uuid.UUID] | None = None
+
+        while len(matches) <= limit and scanned < GROUP_SCAN_MAX_SESSIONS:
+            stmt = base_stmt
+            if last_key is not None:
+                last_value, last_id = last_key
+                if sort_desc:
+                    stmt = stmt.where(
+                        or_(
+                            column < last_value,
+                            and_(column == last_value, AgentSession.id < last_id),
+                        )
+                    )
+                else:
+                    stmt = stmt.where(
+                        or_(
+                            column > last_value,
+                            and_(column == last_value, AgentSession.id > last_id),
+                        )
+                    )
+            order_clause = column.desc() if sort_desc else column.asc()
+            id_order = AgentSession.id.desc() if sort_desc else AgentSession.id.asc()
+            stmt = stmt.order_by(order_clause, id_order).limit(GROUP_SCAN_BATCH_SIZE)
+
+            result = await self.session.execute(stmt)
+            sessions = list(result.scalars().all())
+            if not sessions:
+                exhausted = True
+                break
+
+            scanned += len(sessions)
+            last_session = sessions[-1]
+            last_key = (getattr(last_session, sort_col), last_session.id)
+
+            items = await self._enrich_sessions(sessions)
+            matches.extend(item for item in items if self._classify_item(item) == group)
+
+            if len(sessions) < GROUP_SCAN_BATCH_SIZE:
+                exhausted = True
+                break
+
+        has_more = len(matches) > limit or not exhausted
+        items = matches[:limit]
+
+        return CursorPaginatedResponse(
+            items=items,
+            next_cursor=None,
+            prev_cursor=None,
+            has_more=has_more,
+            has_previous=False,
             total_estimate=None,
         )
 

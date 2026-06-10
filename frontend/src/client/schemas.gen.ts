@@ -14113,6 +14113,16 @@ distinguish multiple files.`,
   description: "A URL to an image.",
 } as const
 
+export const $InboxGroup = {
+  type: "string",
+  enum: ["review_required", "running", "error", "completed"],
+  title: "InboxGroup",
+  description: `Display groups for inbox items.
+
+Groups are derived from approval state and live workflow execution status,
+so membership cannot be expressed as a pure SQL filter.`,
+} as const
+
 export const $InboxItemRead = {
   properties: {
     id: {

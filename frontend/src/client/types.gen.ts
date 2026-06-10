@@ -4272,6 +4272,14 @@ export type ImageUrl = {
 }
 
 /**
+ * Display groups for inbox items.
+ *
+ * Groups are derived from approval state and live workflow execution status,
+ * so membership cannot be expressed as a pure SQL filter.
+ */
+export type InboxGroup = "review_required" | "running" | "error" | "completed"
+
+/**
  * Read model for inbox items.
  */
 export type InboxItemRead = {
@@ -11613,6 +11621,10 @@ export type InboxGetPendingCountResponse = InboxPendingCount
 
 export type InboxListItemsData = {
   cursor?: string | null
+  /**
+   * Filter items to a single display group
+   */
+  group?: InboxGroup | null
   limit?: number
   /**
    * Column name to order by (created_at, updated_at, status)

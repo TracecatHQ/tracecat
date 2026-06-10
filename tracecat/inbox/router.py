@@ -11,6 +11,7 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.inbox.dependencies import get_inbox_providers
 from tracecat.inbox.schemas import InboxItemRead, InboxPendingCount
 from tracecat.inbox.service import InboxService
+from tracecat.inbox.types import InboxGroup
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse
 
@@ -54,6 +55,10 @@ async def list_items(
         max_length=200,
         description="Case-insensitive search on item title",
     ),
+    group: InboxGroup | None = Query(
+        default=None,
+        description="Filter items to a single display group",
+    ),
 ) -> CursorPaginatedResponse[InboxItemRead]:
     """List inbox items with cursor-based pagination.
 
@@ -73,6 +78,7 @@ async def list_items(
             order_by=order_by,
             sort=sort,
             search=search,
+            group=group,
         )
     except ValueError as e:
         logger.warning(f"Invalid request for list inbox items: {e}")
