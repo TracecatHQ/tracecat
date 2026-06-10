@@ -863,12 +863,12 @@ async def test_organization_id_populated_when_require_workspace_no(
     test_org_id = uuid.uuid4()
 
     # Mock session - need to properly mock execute() for org membership lookup
-    # The code does: org_ids = {row[0] for row in org_membership_result.all()}
+    # The code does: org_ids = org_membership_result.scalars().all()
     mock_session = AsyncMock()
 
     # First call: OrganizationMembership query returns the org_id
     org_result = MagicMock()
-    org_result.all.return_value = [(test_org_id,)]
+    org_result.scalars.return_value.all.return_value = [test_org_id]
 
     # Second call: OrganizationMembership lookup for org_role returns None
     org_role_result = MagicMock()

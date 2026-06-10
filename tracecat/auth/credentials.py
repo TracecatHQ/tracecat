@@ -636,7 +636,7 @@ async def _resolve_org_for_regular_user(
         .order_by(Organization.created_at.asc(), Organization.id.asc())
     )
     org_membership_result = await session.execute(org_mem_stmt)
-    org_ids = [row[0] for row in org_membership_result.all()]
+    org_ids = org_membership_result.scalars().all()
 
     if len(org_ids) == 0:
         raise HTTPException(
