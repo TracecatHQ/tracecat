@@ -134,7 +134,7 @@ async def _call_litellm(
     max_tokens: int | None,
     timeout_seconds: float,
 ) -> str:
-    body: dict[str, Any] = {"messages": messages, "temperature": 0}
+    body: dict[str, Any] = {"messages": messages}
     if max_tokens is not None:
         body["max_tokens"] = max_tokens
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
@@ -164,7 +164,6 @@ async def _call_passthrough(
     body: dict[str, Any] = {
         "model": model_name,
         "messages": messages,
-        "temperature": 0,
     }
     if max_tokens is not None:
         body["max_tokens"] = max_tokens
