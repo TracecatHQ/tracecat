@@ -186,6 +186,7 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [debouncedSearchQuery] = useDebounce(searchQuery, 300)
+  const normalizedSearchQuery = debouncedSearchQuery.trim()
   const [entityType, setEntityType] = useState<AgentSessionEntity | "all">(
     "all"
   )
@@ -256,12 +257,12 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     error,
     refetch,
   } = useQuery<InboxListItemsResponse, TracecatApiError, InboxSessionItem[]>({
-    queryKey: ["inbox-items", workspaceId, limit, debouncedSearchQuery],
+    queryKey: ["inbox-items", workspaceId, limit, normalizedSearchQuery],
     queryFn: () =>
       inboxListItems({
         workspaceId,
         limit,
-        search: debouncedSearchQuery.trim() || null,
+        search: normalizedSearchQuery || null,
       }),
     select: (data) => {
       // Convert inbox items to session format and sort by priority

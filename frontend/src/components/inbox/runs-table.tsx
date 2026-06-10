@@ -272,6 +272,9 @@ function RunRow({
     <div
       onClick={() => onSelect(session.id)}
       onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) {
+          return
+        }
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault()
           onSelect(session.id)

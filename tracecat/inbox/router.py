@@ -63,6 +63,8 @@ async def list_items(
     providers = get_inbox_providers(session, role)
     service = InboxService(session, role, providers)
 
+    search = search.strip() or None if search else None
+
     try:
         return await service.list_items(
             limit=limit,
