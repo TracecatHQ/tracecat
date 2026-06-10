@@ -1,0 +1,36 @@
+tests/unit/test_case_dropdown_service.py
+  s_d9b732a96c2b02::t_cf98d7761a54f6 134-135,137-138
+  s_d9b732a96c2b02::t_7c165c164137f6 8-9,12
+  s_d9b732a96c2b02::t_7020520718b357 86-133,136
+tracecat/mcp/server.py
+  s_d9b732a96c2b02::t_edcb8aecbeba73 7852
+  s_d9b732a96c2b02::t_3980cac80a8fd1 7893
+tracecat/cases/dropdowns/router.py
+  s_d9b732a96c2b02::t_7e701040bca17d 231
+  s_d9b732a96c2b02::t_5b8ddbad84dff2 196
+tracecat/cases/dropdowns/service.py
+  s_d9b732a96c2b02::t_450c354daf522b 248-252
+  s_d9b732a96c2b02::t_fba0a2a2532809 229,233-234
+  s_d9b732a96c2b02::t_93ac5ad135d65c 176-179,188,195-197
+tests/unit/test_mcp_server.py
+  s_d9b732a96c2b02::t_0a9a722944fdc1 4375
+  s_d9b732a96c2b02::t_96799ce25fea9d 4412
+  s_d9b732a96c2b02::t_64ee3dc448f77c 4355-4356
+  s_d9b732a96c2b02::t_1691e44f09b33c 4391,4396-4397
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "b4de50a7c6b3c02cdc8209168f455e4da3c3d10a",
+  "prompts": {},
+  "sessions": {
+    "s_d9b732a96c2b02": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3c59e2bb-a3eb-41af-be74-726c66131b4d",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
