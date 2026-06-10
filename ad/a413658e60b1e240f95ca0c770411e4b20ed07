@@ -1,0 +1,37 @@
+tests/unit/test_case_dropdown_service.py
+  s_d9b732a96c2b02::t_cc98748f725d98 149-161,163-192
+  s_d9b732a96c2b02::t_ac39a58a1f9a84 162
+  s_d9b732a96c2b02::t_79b27c322388e6 1-2,7,14-21
+tracecat/cases/dropdowns/service.py
+  s_d9b732a96c2b02::t_2b89eef452b50a 231
+  s_d9b732a96c2b02::t_6d9885663e0e15 11
+  s_d9b732a96c2b02::t_55cd06de85d535 171
+  s_d9b732a96c2b02::t_e5d4b8211f4161 495
+  s_d9b732a96c2b02::t_083d7b92008dd6 518
+  s_d9b732a96c2b02::t_9fbc13d116bdcb 127
+  s_d9b732a96c2b02::t_8f3c6ae6dd53ca 263
+  s_d9b732a96c2b02::t_ac7c2df97c4b9c 88
+  s_d9b732a96c2b02::t_25712d8f7e6c32 253
+  s_d9b732a96c2b02::t_4a42a677e3c59d 204
+tracecat/mcp/server.py
+  s_d9b732a96c2b02::t_2b9e2ca8409e76 6458-6460,6564-6566,7581-7583,7649-7651,7715-7717,7757-7759,7812-7814,7878-7880,7923-7925,7981-7983
+tests/unit/test_mcp_server.py
+  s_d9b732a96c2b02::t_ccf5cab1948582 42
+  s_d9b732a96c2b02::t_f8455580e7f807 4302-4330
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "ada413658e60b1e240f95ca0c770411e4b20ed07",
+  "prompts": {},
+  "sessions": {
+    "s_d9b732a96c2b02": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3c59e2bb-a3eb-41af-be74-726c66131b4d",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
