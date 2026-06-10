@@ -29,6 +29,9 @@
 #   Cluster 2: 180, 3100, 5532, 6479, 7333, 8100, 8181, 9100, 9101
 #   Cluster 3: 280, 3200, 5632, 6579, 7433, 8200, 8281, 9200, 9201
 #   ...
+#
+#   With portless enabled, the Caddy/public app port starts at 10080 instead
+#   of 80 because portless itself owns ports 80 and 443.
 
 set -euo pipefail
 
@@ -332,6 +335,7 @@ auto_select_cluster() {
 
 # Base ports (cluster 1 defaults)
 BASE_PUBLIC_APP_PORT=80
+BASE_PORTLESS_PUBLIC_APP_PORT=10080
 BASE_UI_PORT=3000
 BASE_PG_PORT=5432
 BASE_REDIS_PORT=6379
@@ -475,8 +479,13 @@ normalize_bool() {
 calculate_ports() {
     local cluster_num=$1
     local offset=$(( (cluster_num - 1) * 100 ))
+    local public_app_base=$BASE_PUBLIC_APP_PORT
 
-    PUBLIC_APP_PORT=$(( BASE_PUBLIC_APP_PORT + offset ))
+    if portless_enabled; then
+        public_app_base=$BASE_PORTLESS_PUBLIC_APP_PORT
+    fi
+
+    PUBLIC_APP_PORT=$(( public_app_base + offset ))
     UI_PORT=$(( BASE_UI_PORT + offset ))
     PG_PORT=$(( BASE_PG_PORT + offset ))
     REDIS_PORT_HOST=$(( BASE_REDIS_PORT + offset ))
