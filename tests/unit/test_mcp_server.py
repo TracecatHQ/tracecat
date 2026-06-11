@@ -20,6 +20,8 @@ from fastmcp.server.middleware.middleware import MiddlewareContext
 from fastmcp.tools import ToolResult
 from mcp.types import CallToolRequestParams
 from pydantic import ValidationError
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
 import tracecat.mcp.auth as mcp_auth
@@ -36,6 +38,8 @@ from tracecat.agent.skill.schemas import (
     SkillVersionRead,
 )
 from tracecat.agent.stream.events import StreamDelta, StreamEnd
+from tracecat.auth.types import Role
+from tracecat.db.models import Schedule, Workflow
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
     EntitlementRequired,
@@ -57,6 +61,7 @@ from tracecat.validation.schemas import (
     ValidationResultType,
 )
 from tracecat.workflow.management import layout as layout_module
+from tracecat.workflow.schedules import bridge as schedules_bridge
 
 _original_create_mcp_auth = mcp_auth.create_mcp_auth
 try:
@@ -2360,6 +2365,80 @@ async def test_replace_workflow_schedules_creates_schedules_with_payload_status(
 
     assert deleted_ids == [existing_schedule_id]
     assert [params.status for params in created_params] == ["offline", "online"]
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_apply_workflow_yaml_update_replaces_schedules_without_stale_state(
+    session: AsyncSession, svc_role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression test: replacing schedules must not leave deleted Schedule
+    instances in the eagerly-loaded workflow.schedules collection, where the
+    save-update cascade from session.add(workflow) raises
+    "Instance '<Schedule ...>' has been deleted".
+    """
+
+    async def _create_schedule(**kwargs: Any) -> Any:
+        _ = kwargs
+        return SimpleNamespace(id="fake-temporal-handle")
+
+    async def _delete_schedule(schedule_id: Any) -> None:
+        _ = schedule_id
+
+    monkeypatch.setattr(schedules_bridge, "create_schedule", _create_schedule)
+    monkeypatch.setattr(schedules_bridge, "delete_schedule", _delete_schedule)
+
+    workflow = Workflow(
+        title="Scheduled workflow",
+        description="Schedule replacement regression test",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    session.add(workflow)
+    await session.flush()
+    schedule = Schedule(
+        workspace_id=svc_role.workspace_id,
+        workflow_id=workflow.id,
+        every=timedelta(hours=1),
+        inputs={},
+        status="offline",
+        timeout=0,
+    )
+    session.add(schedule)
+    await session.commit()
+    old_schedule_id = schedule.id
+
+    service = mcp_server.WorkflowsManagementService(session, role=svc_role)
+    workflow_id = mcp_server.WorkflowUUID.new(workflow.id)
+    loaded = await service.get_workflow(workflow_id, for_update=True)
+    assert loaded is not None
+
+    await mcp_server._apply_workflow_yaml_update(
+        role=svc_role,
+        service=service,
+        workflow=loaded,
+        workflow_id=workflow_id,
+        update_params=mcp_server.WorkflowUpdate(),
+        yaml_payload=mcp_server.WorkflowYamlPayload(
+            schedules=[
+                mcp_server.WorkflowSchedule(
+                    every=timedelta(hours=2),
+                    status="offline",
+                    inputs={},
+                    timeout=0,
+                )
+            ]
+        ),
+        definition_yaml=None,
+        update_mode="replace",
+    )
+
+    result = await session.execute(
+        select(Schedule).where(Schedule.workflow_id == workflow.id)
+    )
+    persisted = result.scalars().all()
+    assert [s.every for s in persisted] == [timedelta(hours=2)]
+    assert old_schedule_id not in {s.id for s in persisted}
 
 
 @pytest.mark.anyio

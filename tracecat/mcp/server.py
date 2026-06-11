@@ -2796,6 +2796,11 @@ async def _apply_workflow_yaml_update(
             workflow_id=workflow_id,
             schedules=yaml_payload.schedules,
         )
+        # The deleted Schedule rows are already flushed, but the eagerly-loaded
+        # workflow.schedules collection still references them; expire it so the
+        # save-update cascade from session.add(workflow) below does not touch
+        # deleted instances.
+        service.session.expire(workflow, ["schedules"])
 
     if yaml_payload is not None and yaml_payload.case_trigger is not None:
         case_trigger_service = CaseTriggersService(service.session, role=role)
