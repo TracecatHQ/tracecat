@@ -791,6 +791,30 @@ class MCPIntegrationTestConnectionRequest(BaseModel):
     )
     timeout: int | None = Field(default=None, ge=1, le=300)
 
+    @field_validator("server_uri", mode="before")
+    @classmethod
+    def _validate_server_uri(cls, value: str | None) -> str:
+        """Validate and sanitize the MCP server URI.
+
+        Input-only validation that mirrors ``MCPHttpIntegrationCreate``. It does
+        NOT perform DNS resolution; the runtime SSRF block at probe time is the
+        real defense against private/loopback/link-local targets.
+        """
+        if value is None:
+            raise ValueError("server_uri is required")
+        if isinstance(value, str):
+            value = value.strip()
+        if not value:
+            raise ValueError("server_uri is required")
+
+        parsed = urlparse(value)
+        if not parsed.netloc:
+            raise ValueError("Server URI must include a hostname")
+        if parsed.scheme.lower() not in ("http", "https"):
+            raise ValueError("Server URI must use HTTP or HTTPS")
+
+        return value
+
 
 class MCPIntegrationTestConnectionResponse(BaseModel):
     """Response for testing connectivity to an MCP server."""

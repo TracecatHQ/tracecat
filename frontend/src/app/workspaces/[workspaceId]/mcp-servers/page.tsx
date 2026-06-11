@@ -740,7 +740,11 @@ function McpCatalogCard({
   const { entry } = item
   const locked = entry.locked === true
   const hasMcpRow = Boolean(entry.mcp_integration_id)
-  const connected = entry.state === "connected"
+  const isHttpServer = entry.mcp_server_type === "http"
+  // An HTTP row with no tool listing hasn't been successfully verified yet;
+  // treat it as "configured" so the unverified badge branch is reachable.
+  const connected =
+    entry.state === "connected" && !(isHttpServer && entry.tools === null)
   const configured = !connected && (entry.state === "configured" || hasMcpRow)
   const hasWorkspaceConfig = configured || connected
   const connectable = isCatalogEntryConnectable(entry)
@@ -783,7 +787,6 @@ function McpCatalogCard({
     canConfigure = canCreate
   }
   const configureLabel = "Configure"
-  const isHttpServer = entry.mcp_server_type === "http"
   const verifiedToolCount = entry.tools?.length ?? null
   const unverifiedBadge = UNVERIFIED_BADGE_VARIANTS[UNVERIFIED_BADGE_VARIANT]
   let statusLabel = "Not connected"

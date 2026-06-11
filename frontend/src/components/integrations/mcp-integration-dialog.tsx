@@ -104,6 +104,7 @@ import {
   useGetMcpIntegration,
   useIntegrations,
   useTestMcpConnectionConfig,
+  useTestMcpIntegrationConnection,
   useUpdateMcpIntegration,
 } from "@/lib/hooks"
 import { isMcpProvider } from "@/lib/integrations"
@@ -308,6 +309,12 @@ export function MCPIntegrationDialog({
   )
   const { testMcpConnectionConfig, testMcpConnectionConfigIsPending } =
     useTestMcpConnectionConfig(workspaceId)
+  const {
+    testMcpIntegrationConnection,
+    testMcpIntegrationConnectionIsPending,
+  } = useTestMcpIntegrationConnection(workspaceId)
+  const testConnectionIsPending =
+    testMcpConnectionConfigIsPending || testMcpIntegrationConnectionIsPending
   const canDelete = useScopeCheck("integration:delete") === true
   const canUpdate = useScopeCheck("integration:update") === true
   const [internalOpen, setInternalOpen] = useState(false)
@@ -355,7 +362,34 @@ export function MCPIntegrationDialog({
       void form.trigger("server_uri")
       return
     }
-    const customCredentials = values.custom_credentials?.trim()
+    // For a saved integration without unsaved connection edits, test through
+    // the integration-scoped endpoint so a successful probe persists the
+    // discovered tools and refreshes the Tools list (matching the "test the
+    // connection to discover tools" copy). With dirty connection fields, the
+    // stored config no longer reflects what would be saved, so test the form
+    // values through the ephemeral config-test endpoint instead; it back-fills
+    // secrets the form leaves blank from the saved integration.
+    const dirtyFields = form.formState.dirtyFields
+    const connectionFieldsAreDirty = Boolean(
+      dirtyFields.server_uri ||
+        dirtyFields.auth_type ||
+        dirtyFields.oauth_setup ||
+        dirtyFields.oauth_integration_id ||
+        dirtyFields.custom_credentials ||
+        dirtyFields.timeout
+    )
+    if (isEditMode && mcpIntegrationId && !connectionFieldsAreDirty) {
+      await testMcpIntegrationConnection(mcpIntegrationId)
+      return
+    }
+    // Mirror the save path: an edited-but-empty editor means the user cleared
+    // the credentials, so send "" (test without headers) rather than null,
+    // which the backend back-fills from the stored secret.
+    const trimmedCredentials = values.custom_credentials?.trim() ?? ""
+    let customCredentials: string | null = trimmedCredentials || null
+    if (!trimmedCredentials && dirtyFields.custom_credentials) {
+      customCredentials = ""
+    }
     await testMcpConnectionConfig({
       mcp_integration_id: mcpIntegrationId ?? null,
       server_uri: serverUri,
@@ -364,7 +398,7 @@ export function MCPIntegrationDialog({
         values.oauth_integration_id ||
         mcpIntegration?.oauth_integration_id ||
         null,
-      custom_credentials: customCredentials || null,
+      custom_credentials: customCredentials,
       timeout: values.timeout ?? null,
     })
   }
@@ -733,7 +767,8 @@ export function MCPIntegrationDialog({
     updateMcpIntegrationIsPending
 
   // Connection actions menu mirroring the OAuth integration details dialog.
-  // Tests the form's current (possibly unsaved) values without persisting.
+  // Tests the form's current values; with unsaved connection edits the probe
+  // is ephemeral, otherwise it persists the discovered tools.
   const connectionActions =
     isEditMode && mcpIntegrationId && canUpdate ? (
       <DropdownMenu>
@@ -743,10 +778,10 @@ export function MCPIntegrationDialog({
             variant="ghost"
             size="icon"
             className="size-8 shrink-0 text-muted-foreground"
-            disabled={testMcpConnectionConfigIsPending}
+            disabled={testConnectionIsPending}
             aria-label="Connection actions"
           >
-            {testMcpConnectionConfigIsPending ? (
+            {testConnectionIsPending ? (
               <Loader2 className="size-4 animate-spin" />
             ) : (
               <MoreHorizontal className="size-4" />
@@ -755,9 +790,7 @@ export function MCPIntegrationDialog({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-44">
           <DropdownMenuItem
-            disabled={
-              serverType === "stdio" || testMcpConnectionConfigIsPending
-            }
+            disabled={serverType === "stdio" || testConnectionIsPending}
             title={
               serverType === "stdio"
                 ? "Stdio servers can't be tested"

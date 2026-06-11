@@ -152,6 +152,7 @@ import {
   mcpIntegrationsGetMcpIntegration,
   mcpIntegrationsListMcpIntegrations,
   mcpIntegrationsTestMcpConnectionConfig,
+  mcpIntegrationsTestMcpIntegrationConnection,
   mcpIntegrationsUpdateMcpIntegration,
   type OAuthGrantType,
   type OrganizationDeleteOrgMemberData,
@@ -367,8 +368,10 @@ import {
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 import type { ModelInfo } from "@/lib/chat"
 import {
+  getApiErrorDetail,
   getMcpOAuthConnectErrorDetail,
   retryHandler,
+  sanitizeUrlsInText,
   type TracecatApiError,
 } from "@/lib/errors"
 import type { WorkflowExecutionReadCompact } from "@/lib/event-history"
@@ -4799,16 +4802,21 @@ export function useTestMcpConnectionConfig(workspaceId: string) {
       } else {
         toast({
           title: "Connection failed",
-          description: result.error || result.message,
+          description: sanitizeUrlsInText(result.error || result.message),
           variant: "destructive",
         })
       }
     },
     onError: (error: TracecatApiError) => {
-      console.error("Failed to test MCP connection:", error)
+      // The server URI is caller-controlled and may carry credentials in its
+      // userinfo/query; strip those from any URLs before logging or surfacing.
+      const detail = sanitizeUrlsInText(
+        getApiErrorDetail(error) ?? error.message
+      )
+      console.error("Failed to test MCP connection:", detail)
       toast({
         title: "Test failed",
-        description: `Could not test connection: ${error.body?.detail || error.message}`,
+        description: `Could not test connection: ${detail}`,
         variant: "destructive",
       })
     },
@@ -4818,6 +4826,72 @@ export function useTestMcpConnectionConfig(workspaceId: string) {
     testMcpConnectionConfig,
     testMcpConnectionConfigIsPending,
     testMcpConnectionConfigError,
+  }
+}
+
+/**
+ * Test connectivity to a saved MCP integration and persist its tool listing.
+ *
+ * Unlike {@link useTestMcpConnectionConfig} (which hits the ephemeral
+ * config-test endpoint and never persists), this calls the integration-scoped
+ * endpoint that refreshes and stores the discovered tools. On success it
+ * invalidates the integration query so the Tools list reflects the new
+ * verification result.
+ */
+export function useTestMcpIntegrationConnection(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutateAsync: testMcpIntegrationConnection,
+    isPending: testMcpIntegrationConnectionIsPending,
+    error: testMcpIntegrationConnectionError,
+  } = useMutation({
+    mutationFn: async (mcpIntegrationId: string) => {
+      return await mcpIntegrationsTestMcpIntegrationConnection({
+        workspaceId,
+        mcpIntegrationId,
+      })
+    },
+    onSuccess: (result, mcpIntegrationId) => {
+      // Tools are persisted on success or cleared on failure, so refresh the
+      // integration regardless of outcome.
+      queryClient.invalidateQueries({
+        queryKey: ["mcp-integration", workspaceId, mcpIntegrationId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["mcp-integrations", workspaceId],
+      })
+      if (result.success) {
+        const toolCount = result.tools?.length ?? 0
+        toast({
+          title: "Connection verified",
+          description: `${toolCount} ${toolCount === 1 ? "tool" : "tools"} available`,
+        })
+      } else {
+        toast({
+          title: "Connection failed",
+          description: sanitizeUrlsInText(result.error || result.message),
+          variant: "destructive",
+        })
+      }
+    },
+    onError: (error: TracecatApiError) => {
+      const detail = sanitizeUrlsInText(
+        getApiErrorDetail(error) ?? error.message
+      )
+      console.error("Failed to test MCP connection:", detail)
+      toast({
+        title: "Test failed",
+        description: `Could not test connection: ${detail}`,
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    testMcpIntegrationConnection,
+    testMcpIntegrationConnectionIsPending,
+    testMcpIntegrationConnectionError,
   }
 }
 

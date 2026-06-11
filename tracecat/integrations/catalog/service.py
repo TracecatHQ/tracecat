@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import NamedTuple
 
 import sqlalchemy as sa
+from pydantic import ValidationError
 
 from tracecat.db.models import MCPIntegration, OAuthIntegration
 from tracecat.integrations.catalog.loader import get_platform_mcp_catalog_entries
@@ -19,6 +20,7 @@ from tracecat.integrations.schemas import (
     PlatformMCPCatalogStatus,
 )
 from tracecat.integrations.types import MCPServerType
+from tracecat.logger import logger
 from tracecat.pagination import BaseCursorPaginator, CursorPaginationParams
 from tracecat.secrets.encryption import is_set
 from tracecat.service import BaseService
@@ -245,10 +247,6 @@ class PlatformMCPCatalogService(BaseService):
             encrypted_access_token is not None and is_set(encrypted_access_token)
         ):
             return "configured"
-        # HTTP servers must also have a verified tool listing to count as
-        # connected; stdio servers cannot be verified and rely on config alone.
-        if mcp_integration.server_type == "http" and mcp_integration.tools is None:
-            return "configured"
         return "connected"
 
     @staticmethod
@@ -256,6 +254,29 @@ class PlatformMCPCatalogService(BaseService):
         if status in _CATALOG_STATUSES:
             return status
         return "coming_soon"
+
+    @staticmethod
+    def _catalog_tools(
+        mcp_integration: MCPIntegration | None,
+    ) -> list[MCPToolSummary] | None:
+        """Validate stored tool entries, skipping any malformed records.
+
+        Stored tool JSON is best-effort: a single corrupt entry must not crash
+        the entire catalog listing, so invalid records are dropped with a
+        warning instead of raising.
+        """
+        if mcp_integration is None or mcp_integration.tools is None:
+            return None
+        tools: list[MCPToolSummary] = []
+        for tool in mcp_integration.tools:
+            try:
+                tools.append(MCPToolSummary.model_validate(tool))
+            except ValidationError:
+                logger.warning(
+                    "Skipping malformed MCP catalog tool entry",
+                    mcp_integration_id=str(mcp_integration.id),
+                )
+        return tools
 
     @staticmethod
     def _mcp_server_type(server_type: str | None) -> MCPServerType | None:
@@ -303,11 +324,7 @@ class PlatformMCPCatalogService(BaseService):
                 mcp_integration.server_type if mcp_integration else None
             ),
             mcp_auth_type=mcp_integration.auth_type if mcp_integration else None,
-            tools=(
-                [MCPToolSummary.model_validate(tool) for tool in mcp_integration.tools]
-                if mcp_integration and mcp_integration.tools is not None
-                else None
-            ),
+            tools=cls._catalog_tools(mcp_integration),
             created_at=mcp_integration.created_at if mcp_integration else now,
             updated_at=mcp_integration.updated_at if mcp_integration else now,
             last_refreshed_at=None,

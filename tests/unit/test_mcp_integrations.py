@@ -41,7 +41,6 @@ from tracecat.integrations.catalog.service import PlatformMCPCatalogService
 from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
 from tracecat.integrations.mcp_validation import (
     MCPConfigurationError,
-    MCPConnectionVerificationError,
 )
 from tracecat.integrations.providers.base import (
     DynamicRegistrationResult,
@@ -61,7 +60,6 @@ from tracecat.integrations.schemas import (
     MCPIntegrationTestConnectionRequest,
     MCPIntegrationUpdate,
     MCPStdioIntegrationCreate,
-    MCPToolSummary,
     ProviderConfig,
     ProviderKey,
     ProviderMetadata,
@@ -380,7 +378,6 @@ class TestMCPIntegrationCRUD:
             server_type="http",
             server_uri="https://mcp.example.com/mcp",
             auth_type=MCPAuthType.NONE,
-            tools=[{"name": "ping", "description": "Ping tool"}],
         )
         session.add(existing_mcp)
         await session.flush()
@@ -446,10 +443,6 @@ class TestMCPIntegrationCRUD:
                 oauth_integration_id=oauth_integration.id,
             )
         )
-        # Mark the row as verified so it reports as connected.
-        mcp_integration.tools = [{"name": "ping", "description": "Ping tool"}]
-        session.add(mcp_integration)
-        await session.flush()
         catalog_service = PlatformMCPCatalogService(session=session)
 
         connected_items, _ = await catalog_service.list_catalog(
@@ -543,7 +536,6 @@ class TestMCPIntegrationCRUD:
             server_uri="https://mcp.example.com/mcp",
             auth_type=MCPAuthType.OAUTH2,
             oauth_integration_id=live_oauth.id,
-            tools=[{"name": "ping", "description": "Ping tool"}],
             created_at=now,
         )
         session.add_all([stale_row, live_row])
@@ -863,11 +855,6 @@ class TestMCPIntegrationCRUD:
         assert created.id != custom.id
         assert created.slug == f"{catalog.slug}-1"
         assert created.catalog_slug == catalog.slug
-
-        # Mark the new row as verified so it reports as connected.
-        created.tools = [{"name": "ping", "description": "Ping tool"}]
-        session.add(created)
-        await session.flush()
 
         items, _ = await catalog_service.list_catalog(
             workspace_id=integration_service.workspace_id,
@@ -1740,13 +1727,6 @@ class TestMCPIntegrationCRUD:
                 auth_type=MCPAuthType.NONE,
             )
         )
-        # Mark rows with working credentials as verified; HTTP rows only count
-        # as connected once a tool listing has been stored.
-        verified_tools = [{"name": "ping", "description": "Ping tool"}]
-        connected_mcp.tools = verified_tools
-        none_mcp.tools = verified_tools
-        integration_service.session.add_all([connected_mcp, none_mcp])
-        await integration_service.session.flush()
 
         rows = await integration_service.list_mcp_integrations_with_state()
         state_by_id = {row.integration.id: row.state for row in rows}
@@ -4265,112 +4245,6 @@ class TestMCPConnectionVerification:
                 custom_without_headers
             )
 
-    async def test_verify_success_persists_tools(
-        self,
-        integration_service: IntegrationService,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """A successful verification stores the discovered tools."""
-        mcp_integration = await integration_service.create_mcp_integration(
-            params=MCPHttpIntegrationCreate(
-                name="Verified MCP",
-                server_uri="https://verified.example.com/mcp",
-                auth_type=MCPAuthType.NONE,
-            )
-        )
-
-        async def fake_list_tools(server_config):
-            assert server_config["url"] == "https://verified.example.com/mcp"
-            return [
-                MCPToolSummary(name="search", description="Search things"),
-                MCPToolSummary(name="fetch", description=None),
-            ]
-
-        monkeypatch.setattr(
-            integration_service_module, "list_remote_mcp_tools", fake_list_tools
-        )
-
-        result = await integration_service.verify_mcp_integration(
-            mcp_integration=mcp_integration
-        )
-
-        assert result.success is True
-        assert result.tools is not None
-        assert [tool.name for tool in result.tools] == ["search", "fetch"]
-        assert mcp_integration.tools == [
-            {"name": "search", "description": "Search things"},
-            {"name": "fetch", "description": None},
-        ]
-        state = await integration_service.mcp_integration_state(
-            mcp_integration=mcp_integration
-        )
-        assert state == "connected"
-
-    async def test_verify_failure_clears_tools(
-        self,
-        integration_service: IntegrationService,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Last attempt wins: a failed verification clears stored tools."""
-        mcp_integration = await integration_service.create_mcp_integration(
-            params=MCPHttpIntegrationCreate(
-                name="Broken MCP",
-                server_uri="https://broken.example.com/mcp",
-                auth_type=MCPAuthType.NONE,
-            )
-        )
-        mcp_integration.tools = [{"name": "old", "description": "Stale"}]
-        integration_service.session.add(mcp_integration)
-        await integration_service.session.flush()
-
-        async def fake_list_tools(server_config):
-            raise RuntimeError("connection refused")
-
-        monkeypatch.setattr(
-            integration_service_module, "list_remote_mcp_tools", fake_list_tools
-        )
-
-        result = await integration_service.verify_mcp_integration(
-            mcp_integration=mcp_integration
-        )
-
-        assert result.success is False
-        assert result.error == "connection refused"
-        assert result.tools is None
-        assert mcp_integration.tools is None
-        state = await integration_service.mcp_integration_state(
-            mcp_integration=mcp_integration
-        )
-        assert state == "configured"
-
-    async def test_verify_timeout_reports_timeout_message(
-        self,
-        integration_service: IntegrationService,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Timeouts produce the dedicated timeout message."""
-        mcp_integration = await integration_service.create_mcp_integration(
-            params=MCPHttpIntegrationCreate(
-                name="Slow MCP",
-                server_uri="https://slow.example.com/mcp",
-                auth_type=MCPAuthType.NONE,
-            )
-        )
-
-        async def fake_list_tools(server_config):
-            raise TimeoutError
-
-        monkeypatch.setattr(
-            integration_service_module, "list_remote_mcp_tools", fake_list_tools
-        )
-
-        result = await integration_service.verify_mcp_integration(
-            mcp_integration=mcp_integration
-        )
-
-        assert result.success is False
-        assert result.message == "Connection to the MCP server timed out"
-
     async def test_verify_stdio_is_configuration_error(
         self, integration_service: IntegrationService
     ) -> None:
@@ -4391,166 +4265,151 @@ class TestMCPConnectionVerification:
         assert result.message == "MCP integration is not configured correctly"
         assert stdio_integration.tools is None
 
-    async def test_ephemeral_test_does_not_touch_stored_tools(
+
+class TestMCPTestConnectionRequestSchema:
+    """Input validation for ``MCPIntegrationTestConnectionRequest.server_uri``."""
+
+    @pytest.mark.parametrize(
+        "server_uri",
+        [
+            "ftp://api.example.com/mcp",
+            "file:///etc/passwd",
+            "api.example.com/mcp",  # no scheme
+            "https:///mcp",  # no host
+        ],
+    )
+    def test_rejects_invalid_server_uri(self, server_uri: str) -> None:
+        with pytest.raises(ValueError):
+            MCPIntegrationTestConnectionRequest(server_uri=server_uri)
+
+    def test_strips_and_accepts_valid_uri(self) -> None:
+        request = MCPIntegrationTestConnectionRequest(
+            server_uri="  https://api.example.com/mcp  "
+        )
+        assert request.server_uri == "https://api.example.com/mcp"
+
+    @pytest.mark.parametrize(
+        "server_uri",
+        [
+            "http://localhost:8080/mcp",
+            "http://127.0.0.1/mcp",
+            "https://api.example.com/mcp",
+        ],
+    )
+    def test_accepts_localhost_for_self_hosted(self, server_uri: str) -> None:
+        """Loopback hosts are valid so self-hosted MCP servers can connect."""
+        request = MCPIntegrationTestConnectionRequest(server_uri=server_uri)
+        assert request.server_uri == server_uri
+
+
+class TestCatalogToolsGuard:
+    """A single malformed stored tool must not crash catalog listing."""
+
+    def test_skips_malformed_tool_entries(self) -> None:
+        integration = MCPIntegration(
+            id=uuid.uuid4(),
+            workspace_id=uuid.uuid4(),
+            name="Catalog MCP",
+            slug="catalog-mcp",
+            server_type="http",
+            server_uri="https://api.example.com/mcp",
+            auth_type=MCPAuthType.NONE,
+            tools=[
+                {"name": "good", "description": "ok"},
+                {"description": "missing required name"},  # invalid
+                {"name": "also_good", "description": None},
+            ],
+        )
+
+        tools = PlatformMCPCatalogService._catalog_tools(integration)
+
+        assert tools is not None
+        assert [t.name for t in tools] == ["good", "also_good"]
+
+    def test_returns_none_when_unverified(self) -> None:
+        integration = MCPIntegration(
+            id=uuid.uuid4(),
+            workspace_id=uuid.uuid4(),
+            name="Catalog MCP",
+            slug="catalog-mcp",
+            server_type="http",
+            server_uri="https://api.example.com/mcp",
+            auth_type=MCPAuthType.NONE,
+            tools=None,
+        )
+
+        assert PlatformMCPCatalogService._catalog_tools(integration) is None
+        assert PlatformMCPCatalogService._catalog_tools(None) is None
+
+
+@pytest.mark.anyio
+class TestMCPOAuthAuthorizationPending:
+    """The connect/save verification gate must skip pre-authorization OAuth."""
+
+    async def test_pending_when_oauth_token_absent(
         self,
         integration_service: IntegrationService,
-        monkeypatch: pytest.MonkeyPatch,
+        oauth_integration: OAuthIntegration,
     ) -> None:
-        """Testing an unsaved config never clears a row's stored verification."""
+        """A linked-but-unauthorized OAuth integration reads as pending."""
+        oauth_integration.encrypted_access_token = b""
+        integration_service.session.add(oauth_integration)
+        await integration_service.session.commit()
+
         mcp_integration = await integration_service.create_mcp_integration(
             params=MCPHttpIntegrationCreate(
-                name="Dirty Form MCP",
-                server_uri="https://saved.example.com/mcp",
-                auth_type=MCPAuthType.NONE,
-            )
-        )
-        stored_tools = [{"name": "saved", "description": "Saved tool"}]
-        mcp_integration.tools = stored_tools
-        integration_service.session.add(mcp_integration)
-        await integration_service.session.flush()
-
-        seen_urls: list[str] = []
-
-        async def fake_list_tools(server_config):
-            seen_urls.append(server_config["url"])
-            raise RuntimeError("edited server unreachable")
-
-        monkeypatch.setattr(
-            integration_service_module, "list_remote_mcp_tools", fake_list_tools
-        )
-
-        result = await integration_service.test_mcp_http_connection(
-            params=MCPIntegrationTestConnectionRequest(
-                mcp_integration_id=mcp_integration.id,
-                server_uri="https://edited.example.com/mcp",
-                auth_type=MCPAuthType.NONE,
+                name="Pending OAuth MCP",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
             )
         )
 
-        assert result.success is False
-        # The edited (dirty) URL was probed, not the persisted one.
-        assert seen_urls == ["https://edited.example.com/mcp"]
-        # Stored verification state is untouched.
-        assert mcp_integration.tools == stored_tools
-        assert mcp_integration.server_uri == "https://saved.example.com/mcp"
+        assert (
+            await integration_service.mcp_oauth_authorization_pending(
+                mcp_integration=mcp_integration
+            )
+            is True
+        )
 
-    async def test_ephemeral_test_uses_form_credentials_with_stored_fallback(
+    async def test_not_pending_when_oauth_token_present(
         self,
         integration_service: IntegrationService,
-        monkeypatch: pytest.MonkeyPatch,
+        oauth_integration: OAuthIntegration,
     ) -> None:
-        """Edited credentials are used directly; blank ones fall back to stored."""
+        """An authorized OAuth integration (token stored) is not pending."""
         mcp_integration = await integration_service.create_mcp_integration(
             params=MCPHttpIntegrationCreate(
-                name="Custom Fallback MCP",
-                server_uri="https://custom.example.com/mcp",
-                auth_type=MCPAuthType.CUSTOM,
-                custom_credentials=SecretStr('{"X-API-Key": "stored-key"}'),
+                name="Authorized OAuth MCP",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
             )
         )
 
-        seen_headers: list[dict[str, str] | None] = []
-
-        async def fake_list_tools(server_config):
-            seen_headers.append(server_config.get("headers"))
-            return [MCPToolSummary(name="ping", description=None)]
-
-        monkeypatch.setattr(
-            integration_service_module, "list_remote_mcp_tools", fake_list_tools
-        )
-
-        # Blank credentials in the form: fall back to the stored secret.
-        fallback = await integration_service.test_mcp_http_connection(
-            params=MCPIntegrationTestConnectionRequest(
-                mcp_integration_id=mcp_integration.id,
-                server_uri="https://custom.example.com/mcp",
-                auth_type=MCPAuthType.CUSTOM,
+        assert (
+            await integration_service.mcp_oauth_authorization_pending(
+                mcp_integration=mcp_integration
             )
+            is False
         )
-        assert fallback.success is True
-        assert seen_headers[-1] == {"X-API-Key": "stored-key"}
 
-        # Edited credentials win without being persisted.
-        edited = await integration_service.test_mcp_http_connection(
-            params=MCPIntegrationTestConnectionRequest(
-                mcp_integration_id=mcp_integration.id,
-                server_uri="https://custom.example.com/mcp",
-                auth_type=MCPAuthType.CUSTOM,
-                custom_credentials=SecretStr('{"X-API-Key": "edited-key"}'),
-            )
-        )
-        assert edited.success is True
-        assert seen_headers[-1] == {"X-API-Key": "edited-key"}
-        decrypted = integration_service._decrypt_mcp_custom_headers(mcp_integration)
-        assert decrypted == {"X-API-Key": "stored-key"}
-
-    async def test_update_with_failed_verification_preserves_existing_connection(
+    async def test_non_oauth_never_pending(
         self,
         integration_service: IntegrationService,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """A failed verified update is rejected without disturbing the row."""
+        """NONE/CUSTOM auth integrations are never gated on a token."""
         mcp_integration = await integration_service.create_mcp_integration(
             params=MCPHttpIntegrationCreate(
-                name="Stable MCP",
-                server_uri="https://stable.example.com/mcp",
-                auth_type=MCPAuthType.NONE,
-            )
-        )
-        stored_tools = [{"name": "saved", "description": "Saved tool"}]
-        mcp_integration.tools = stored_tools
-        integration_service.session.add(mcp_integration)
-        await integration_service.session.flush()
-
-        async def failing_list_tools(server_config):
-            assert server_config["url"] == "https://broken.example.com/mcp"
-            raise RuntimeError("connection refused")
-
-        monkeypatch.setattr(
-            integration_service_module, "list_remote_mcp_tools", failing_list_tools
-        )
-
-        with pytest.raises(MCPConnectionVerificationError):
-            await integration_service.update_mcp_integration(
-                mcp_integration_id=mcp_integration.id,
-                params=MCPIntegrationUpdate(
-                    server_uri="https://broken.example.com/mcp"
-                ),
-                verify_connection=True,
-            )
-
-        await integration_service.session.refresh(mcp_integration)
-        assert mcp_integration.server_uri == "https://stable.example.com/mcp"
-        assert mcp_integration.tools == stored_tools
-
-    async def test_update_with_successful_verification_stores_fresh_tools(
-        self,
-        integration_service: IntegrationService,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """A verified update persists the new config with its tool listing."""
-        mcp_integration = await integration_service.create_mcp_integration(
-            params=MCPHttpIntegrationCreate(
-                name="Movable MCP",
-                server_uri="https://old.example.com/mcp",
+                name="No Auth MCP",
+                server_uri="https://api.example.com/mcp",
                 auth_type=MCPAuthType.NONE,
             )
         )
 
-        async def fake_list_tools(server_config):
-            assert server_config["url"] == "https://new.example.com/mcp"
-            return [MCPToolSummary(name="ping", description=None)]
-
-        monkeypatch.setattr(
-            integration_service_module, "list_remote_mcp_tools", fake_list_tools
+        assert (
+            await integration_service.mcp_oauth_authorization_pending(
+                mcp_integration=mcp_integration
+            )
+            is False
         )
-
-        updated = await integration_service.update_mcp_integration(
-            mcp_integration_id=mcp_integration.id,
-            params=MCPIntegrationUpdate(server_uri="https://new.example.com/mcp"),
-            verify_connection=True,
-        )
-
-        assert updated is not None
-        assert updated.server_uri == "https://new.example.com/mcp"
-        assert updated.tools == [{"name": "ping", "description": None}]

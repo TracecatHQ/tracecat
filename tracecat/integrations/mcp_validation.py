@@ -53,6 +53,26 @@ class MCPConfigurationError(Exception):
     pass
 
 
+_URL_PATTERN = re.compile(r"\bhttps?://\S+", re.IGNORECASE)
+_URL_USERINFO_PATTERN = re.compile(r"^(https?://)[^/@]*@", re.IGNORECASE)
+
+
+def sanitize_urls_in_text(text: str) -> str:
+    """Strip credentials and query strings from any URLs embedded in free text.
+
+    Transport errors can echo a user-supplied server URI, which may carry
+    secrets in its userinfo (``user:pass@``) or query string. Sanitize before
+    storing such text in errors, logs, or API responses. Non-URL text is
+    returned unchanged.
+    """
+
+    def _sanitize(match: re.Match[str]) -> str:
+        url = _URL_USERINFO_PATTERN.sub(r"\1", match.group(0))
+        return re.sub(r"[?#].*$", "", url)
+
+    return _URL_PATTERN.sub(_sanitize, text)
+
+
 class MCPConnectionVerificationError(Exception):
     """Raised when connectivity verification against an MCP server fails."""
 

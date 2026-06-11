@@ -115,18 +115,30 @@ def _mcp_integration_read(
 
 
 async def _gate_mcp_connect_verification(
-    svc: IntegrationService, mcp_integration: MCPIntegration
+    svc: IntegrationService,
+    mcp_integration: MCPIntegration,
+    *,
+    delete_on_failure: bool = True,
 ) -> None:
     """Verify HTTP MCP connectivity as part of connect/save.
 
-    The row is already persisted; a failed verification clears its stored
-    tools (demoting the connection state) and surfaces the failure as an
-    HTTP error so the connect/save does not report success.
+    When the row was created by this request, a failed verification deletes it
+    so that retries don't accumulate orphaned rows. Pre-existing rows returned
+    by idempotent connects are kept (``delete_on_failure=False``) so a
+    transient outage doesn't destroy a saved integration; the failed
+    verification has already cleared its stored tools. Either way the failure
+    surfaces as an HTTP error so the connect/save does not report success.
     """
     if mcp_integration.server_type != "http":
         return
+    if await svc.mcp_oauth_authorization_pending(mcp_integration=mcp_integration):
+        # No access token exists until the user completes the OAuth redirect;
+        # the OAuth callback runs its own verification after token exchange.
+        return
     result = await svc.verify_mcp_integration(mcp_integration=mcp_integration)
     if not result.success:
+        if delete_on_failure:
+            await svc._delete_mcp_integration_row(mcp_integration)
         detail = f"{result.message}: {result.error}" if result.error else result.message
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -148,7 +160,11 @@ async def _mcp_catalog_connect_response(
     mcp_read = None
     if mcp_integration:
         if not oauth_connect:
-            await _gate_mcp_connect_verification(svc, mcp_integration)
+            await _gate_mcp_connect_verification(
+                svc,
+                mcp_integration,
+                delete_on_failure=connect_result.created,
+            )
         mcp_read = _mcp_integration_read(
             mcp_integration,
             state=await svc.mcp_integration_state(mcp_integration=mcp_integration),
