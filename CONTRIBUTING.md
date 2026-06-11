@@ -27,20 +27,66 @@ We will only accept bug reports that met the following criteria:
 ## Development Setup
 
 > [!NOTE]
-> Check our our [development setup guide](/docs/development-setup) in the docs for more information.
+> Local development requires a Unix-like environment. Use Linux, macOS, or WSL2
+> on Windows. Native Windows shells such as PowerShell and Git Bash are not
+> supported for the full setup because Tracecat depends on Python packages that
+> do not support Windows, such as `uvloop`.
 
-We use `docker compose` and the `docker-compose.dev.yml` files for development.
+Install the required tools before starting the stack:
+
+- `bash`
+- Docker with Compose
+- `curl`
+- `git`
+- `jq`
+- `node`
+- `openssl`
+- `pnpm`
+- `uv`
+- `just`
+
+On Windows, run the commands from WSL2 and enable Docker Desktop's WSL
+integration for your Linux distribution. If PowerShell reports that `sh` is
+missing, open WSL2 and run the commands there.
+
+We use `just cluster` to manage the Docker Compose development stack.
+Check your environment first:
+
+```bash
+just doctor
+```
 
 To set up your development environment, run:
+
 ```bash
 just cluster up -d --seed
 ```
 
-This starts the development environment and seeds a test user (`test@tracecat.com` / `password1234`).
-You can then access the application at [http://localhost:80](http://localhost:80).
+This creates `.env` if needed, syncs Python dependencies, installs frontend
+dependencies, starts the `docker-compose.dev.yml` stack, and seeds local users.
+
+Default seeded users:
+
+- `test@tracecat.com` / `password1234`
+- `dev@tracecat.com` / `password1234`
 
 > [!IMPORTANT]
-> `--seed` creates a test user only. Superadmin is determined by `TRACECAT__AUTH_SUPERADMIN_EMAIL` in `.env` (set via `./env.sh`), and the first signup/login with that email becomes the organization owner.
+> `--seed` creates local development users directly. The seeded platform
+> superuser defaults to `test@tracecat.com` and can be changed with
+> `TRACECAT__DEV_SUPERUSER_EMAIL`. `TRACECAT__AUTH_SUPERADMIN_EMAIL` in `.env`
+> controls the first-user bootstrap flow when users sign up normally.
+
+You can then access the application at [http://localhost:80](http://localhost:80).
+
+Useful commands:
+
+```bash
+just cluster ps
+just cluster ports
+just cluster logs api
+just cluster restart api
+just cluster down
+```
 
 ## PR and Commit Message Guidelines
 
