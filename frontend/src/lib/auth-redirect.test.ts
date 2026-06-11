@@ -4,63 +4,40 @@ import {
 } from "@/lib/auth-redirect"
 
 describe("getPostAuthRedirectPath", () => {
-  it("keeps multi-tenant superusers on normal app routes", () => {
+  it("passes through a normal returnUrl", () => {
     expect(
-      getPostAuthRedirectPath({
-        isSuperuser: true,
-        eeMultiTenant: true,
-        returnUrl: "/workspaces/tenant-path",
-      })
+      getPostAuthRedirectPath({ returnUrl: "/workspaces/tenant-path" })
     ).toBe("/workspaces/tenant-path")
   })
 
-  it("honors MCP OAuth continuation paths for multi-tenant superusers", () => {
+  it("honors MCP OAuth continuation paths", () => {
     expect(
-      getPostAuthRedirectPath({
-        isSuperuser: true,
-        eeMultiTenant: true,
-        returnUrl: "/oauth/mcp/continue?txn=abc123",
-      })
+      getPostAuthRedirectPath({ returnUrl: "/oauth/mcp/continue?txn=abc123" })
     ).toBe("/oauth/mcp/continue?txn=abc123")
   })
 
   it("rewrites legacy MCP OAuth org-selection paths", () => {
     expect(
-      getPostAuthRedirectPath({
-        isSuperuser: true,
-        eeMultiTenant: true,
-        returnUrl: "/oauth/mcp/select-org?txn=abc123",
-      })
+      getPostAuthRedirectPath({ returnUrl: "/oauth/mcp/select-org?txn=abc123" })
     ).toBe("/oauth/mcp/continue?txn=abc123")
   })
 
   it("does not treat similar MCP paths as continuation paths", () => {
     expect(
       getPostAuthRedirectPath({
-        isSuperuser: true,
-        eeMultiTenant: true,
         returnUrl: "/oauth/mcp/continue-later?txn=abc123",
       })
     ).toBe("/oauth/mcp/continue-later?txn=abc123")
   })
 
-  it("keeps single-tenant superusers on normal app routes", () => {
-    expect(
-      getPostAuthRedirectPath({
-        isSuperuser: true,
-        eeMultiTenant: false,
-        returnUrl: "/workspaces/default",
-      })
-    ).toBe("/workspaces/default")
+  it("passes through a workspace returnUrl", () => {
+    expect(getPostAuthRedirectPath({ returnUrl: "/workspaces/default" })).toBe(
+      "/workspaces/default"
+    )
   })
 
-  it("uses workspaces as the default app route", () => {
-    expect(
-      getPostAuthRedirectPath({
-        isSuperuser: false,
-        eeMultiTenant: true,
-      })
-    ).toBe("/workspaces")
+  it("defaults to /workspaces when no returnUrl is given", () => {
+    expect(getPostAuthRedirectPath({})).toBe("/workspaces")
   })
 })
 
