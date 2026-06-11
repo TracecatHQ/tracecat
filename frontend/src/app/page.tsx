@@ -12,28 +12,18 @@ import PrivacyPolicy from "@/components/privacy-policy"
 import { buttonVariants } from "@/components/ui/button"
 import { useAuth } from "@/hooks/use-auth"
 import { getPostAuthRedirectPath } from "@/lib/auth-redirect"
-import { useAppInfo } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 
 export default function HomePage() {
   const { user, userIsLoading } = useAuth()
-  const { appInfo, appInfoIsLoading } = useAppInfo()
   const router = useRouter()
 
   useEffect(() => {
     if (!user || userIsLoading) {
       return
     }
-    if (user.isSuperuser && appInfoIsLoading) {
-      return
-    }
-    router.push(
-      getPostAuthRedirectPath({
-        isSuperuser: user.isSuperuser,
-        eeMultiTenant: appInfo?.ee_multi_tenant ?? false,
-      })
-    )
-  }, [appInfo?.ee_multi_tenant, appInfoIsLoading, user, router, userIsLoading])
+    router.push(getPostAuthRedirectPath({}))
+  }, [user, router, userIsLoading])
 
   if (userIsLoading || user) {
     return <CenteredSpinner />
