@@ -72,7 +72,7 @@ import { ActionSelect } from "@/components/chat/action-select"
 import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
-import { getIcon, ProviderIcon } from "@/components/icons"
+import { getIcon, getMcpProviderIconId, ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { MultiTagCommandInput, type Suggestion } from "@/components/tags-input"
 import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
@@ -195,54 +195,6 @@ const RESERVED_SUBAGENT_ALIASES = new Set([
   "task",
 ])
 const AGENT_PRESET_TAB_QUERY_PARAM = "tab"
-
-/**
- * Maps MCP integration slugs to provider IDs for icon lookup.
- * This handles both built-in MCP providers and custom integrations.
- */
-function getMcpProviderId(slug: string): string | undefined {
-  // Map common slugs to provider IDs
-  const slugMap: Record<string, string> = {
-    "github-copilot": "github_mcp",
-    github: "github_mcp",
-    sentry: "sentry_mcp",
-    notion: "notion_mcp",
-    linear: "linear_mcp",
-    jira: "jira_mcp",
-    runreveal: "runreveal_mcp",
-    "secure-annex": "secureannex_mcp",
-    secureannex: "secureannex_mcp",
-    wiz: "wiz_mcp",
-  }
-
-  const normalized = slug.toLowerCase()
-  if (slugMap[normalized]) {
-    return slugMap[normalized]
-  }
-
-  // Normalize "<name>[-_]mcp" into "<normalized_name>_mcp".
-  // Examples:
-  // - github_mcp -> github_mcp
-  // - secure_annex_mcp -> secureannex_mcp
-  // - secure-annex-mcp -> secureannex_mcp
-  const mcpMatch = normalized.match(/^(.*?)(?:[_-]?mcp)$/)
-  if (mcpMatch && mcpMatch[1]) {
-    const compactBase = mcpMatch[1].replace(/[^a-z0-9]/g, "")
-    if (compactBase) {
-      return `${compactBase}_mcp`
-    }
-  }
-
-  if (normalized.endsWith("_mcp")) {
-    return normalized
-  }
-
-  if (normalized.endsWith("-mcp")) {
-    return normalized.replace(/-/g, "_")
-  }
-
-  return undefined
-}
 
 function AgentPresetLoadError({
   title,
@@ -514,7 +466,7 @@ export function AgentPresetsBuilder({
         id: integration.id,
         name: integration.name,
         description: integration.description,
-        providerId: getMcpProviderId(integration.slug),
+        providerId: getMcpProviderIconId(integration.slug),
       }))
       .sort((a, b) => a.name.localeCompare(b.name))
   }, [mcpIntegrations])
@@ -793,7 +745,7 @@ export function AgentPresetArtifactView({
         id: integration.id,
         name: integration.name,
         description: integration.description,
-        providerId: getMcpProviderId(integration.slug),
+        providerId: getMcpProviderIconId(integration.slug),
       }))
       .sort((a, b) => a.name.localeCompare(b.name))
   }, [mcpIntegrations])
@@ -1232,7 +1184,7 @@ type McpIntegrationOption = {
   id: string
   name: string
   description?: string | null
-  providerId?: string
+  providerId: string
 }
 
 type EnabledModelOption = {
@@ -2542,8 +2494,8 @@ function AgentPresetConfigurationPanel({
                       description: integration.description || "MCP Integration",
                       icon: (
                         <ProviderIcon
-                          providerId={integration.providerId || "custom"}
-                          className="size-3 bg-transparent p-0 mx-1"
+                          providerId={integration.providerId}
+                          className="size-4 bg-transparent p-0"
                         />
                       ),
                     }))}

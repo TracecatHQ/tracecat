@@ -383,6 +383,34 @@ class TestIntegrationService:
         assert updated.authorization_endpoint == "https://api.v2.example.com/authorize"
         assert updated.token_endpoint == "https://api.v2.example.com/token"
 
+    async def test_store_integration_clears_stale_token_auth_method(
+        self,
+        integration_service: IntegrationService,
+        mock_token_response: TokenResponse,
+    ) -> None:
+        """Updating without a token auth method clears the stored one."""
+        provider_key = ProviderKey(
+            id="test_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+
+        integration = await integration_service.store_integration(
+            provider_key=provider_key,
+            access_token=mock_token_response.access_token,
+            token_endpoint_auth_method="client_secret_post",
+        )
+        assert integration.token_endpoint_auth_method == "client_secret_post"
+
+        # A later token exchange that succeeded without an explicit auth
+        # method must not leave the old method behind for refresh to reuse.
+        updated = await integration_service.store_integration(
+            provider_key=provider_key,
+            access_token=SecretStr("new_access_token"),
+        )
+
+        assert updated.id == integration.id
+        assert updated.token_endpoint_auth_method is None
+
     async def test_list_integrations(
         self,
         integration_service: IntegrationService,

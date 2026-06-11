@@ -4610,6 +4610,113 @@ export type JoinStrategy = "any" | "all"
 export type MCPAuthType = "OAUTH2" | "CUSTOM" | "NONE"
 
 /**
+ * Response for connecting a platform MCP catalog entry.
+ */
+export type MCPCatalogConnectResponse = {
+  status: "connected" | "oauth_redirect"
+  mcp_integration?: MCPIntegrationRead | null
+  auth_url?: string | null
+  provider_id?: string | null
+}
+
+export type status3 = "connected" | "oauth_redirect"
+
+/**
+ * Typed configure-dialog field declared by a catalog spec.
+ */
+export type MCPConfigField = {
+  key: string
+  label: string
+  description: string
+  target: "server_uri" | "oauth_client" | "http_header" | "stdio_env"
+  required?: boolean
+  secret?: boolean
+}
+
+export type target = "server_uri" | "oauth_client" | "http_header" | "stdio_env"
+
+/**
+ * User-supplied value needed to materialize a catalog connection.
+ */
+export type MCPConnectionCredential = {
+  key: string
+  label: string
+  description: string
+  required?: boolean
+  secret?: boolean
+  target: "server_uri" | "oauth_client" | "http_header" | "stdio_env"
+}
+
+/**
+ * A connectable transport/auth option for one catalog provider.
+ */
+export type MCPConnectionOption = {
+  id: string
+  label: string
+  description?: string | null
+  docs_url?: string | null
+  connection_spec: MCPConnectionSpec
+}
+
+export type MCPConnectionSpec =
+  | MCPHTTPOAuth2ConnectionSpec
+  | MCPHTTPCustomConnectionSpec
+  | MCPHTTPNoneConnectionSpec
+  | MCPStdioCustomConnectionSpec
+  | MCPStdioNoneConnectionSpec
+
+/**
+ * HTTP MCP server using user-provided headers or API keys.
+ */
+export type MCPHTTPCustomConnectionSpec = {
+  requires_config?: boolean
+  credentials?: Array<MCPConnectionCredential>
+  kind?: "http_custom"
+  server_type?: "http"
+  auth_type?: "CUSTOM"
+  server_uri: string
+  /**
+   * Configure-dialog view of ``credentials``; same data, UI field shape.
+   */
+  readonly config_fields: Array<MCPConfigField>
+}
+
+/**
+ * HTTP MCP server with no authentication.
+ */
+export type MCPHTTPNoneConnectionSpec = {
+  requires_config?: boolean
+  credentials?: Array<MCPConnectionCredential>
+  kind?: "http_none"
+  server_type?: "http"
+  auth_type?: "NONE"
+  server_uri: string
+  /**
+   * Configure-dialog view of ``credentials``; same data, UI field shape.
+   */
+  readonly config_fields: Array<MCPConfigField>
+}
+
+/**
+ * HTTP MCP server using MCP OAuth.
+ */
+export type MCPHTTPOAuth2ConnectionSpec = {
+  requires_config?: boolean
+  credentials?: Array<MCPConnectionCredential>
+  kind?: "http_oauth2"
+  server_type?: "http"
+  auth_type?: "OAUTH2"
+  server_uri: string
+  scopes?: Array<string>
+  oauth_authorization_endpoint?: string | null
+  oauth_token_endpoint?: string | null
+  /**
+   * Configure-dialog view of ``credentials``; same data, UI field shape.
+   */
+  readonly config_fields: Array<MCPConfigField>
+}
+
+/**
  * Request model for creating an HTTP MCP integration.
  */
 export type MCPHttpIntegrationCreate = {
@@ -4625,6 +4732,10 @@ export type MCPHttpIntegrationCreate = {
    * Timeout in seconds
    */
   timeout?: number | null
+  /**
+   * Platform MCP catalog slug this workspace config is created from
+   */
+  catalog_slug?: string | null
   server_type?: "http"
   /**
    * MCP server endpoint URL (required for http type)
@@ -4695,6 +4806,7 @@ export type MCPIntegrationRead = {
   server_uri: string | null
   auth_type: MCPAuthType
   oauth_integration_id: string | null
+  state: "not_configured" | "configured" | "connected" | "error"
   stdio_command: string | null
   stdio_args: Array<string> | null
   has_stdio_env?: boolean
@@ -4703,12 +4815,18 @@ export type MCPIntegrationRead = {
   updated_at: string
 }
 
+export type state = "not_configured" | "configured" | "connected" | "error"
+
 /**
  * Request model for updating an MCP integration.
  */
 export type MCPIntegrationUpdate = {
   name?: string | null
   description?: string | null
+  /**
+   * MCP server type. Changing this clears fields from the previous type.
+   */
+  server_type?: MCPServerType | null
   server_uri?: string | null
   auth_type?: MCPAuthType | null
   oauth_integration_id?: string | null
@@ -4734,6 +4852,16 @@ export type MCPIntegrationUpdate = {
    * Timeout in seconds
    */
   timeout?: number | null
+}
+
+/**
+ * Supported stdio package launch option.
+ */
+export type MCPPackageOption = {
+  manager: string
+  command: string
+  args?: Array<string>
+  package?: string | null
 }
 
 export type MCPPersonalAccessTokenCreate = {
@@ -4765,6 +4893,25 @@ export type MCPPersonalAccessTokenRead = {
 export type MCPServerType = "http" | "stdio"
 
 /**
+ * Stdio MCP server using user-provided env vars.
+ */
+export type MCPStdioCustomConnectionSpec = {
+  requires_config?: boolean
+  credentials?: Array<MCPConnectionCredential>
+  kind?: "stdio_custom"
+  server_type?: "stdio"
+  auth_type?: "CUSTOM"
+  stdio_command?: string | null
+  stdio_args?: Array<string>
+  stdio_env?: Array<string>
+  packages?: Array<MCPPackageOption>
+  /**
+   * Configure-dialog view of ``credentials``; same data, UI field shape.
+   */
+  readonly config_fields: Array<MCPConfigField>
+}
+
+/**
  * Request model for creating a stdio MCP integration.
  */
 export type MCPStdioIntegrationCreate = {
@@ -4780,6 +4927,10 @@ export type MCPStdioIntegrationCreate = {
    * Timeout in seconds
    */
   timeout?: number | null
+  /**
+   * Platform MCP catalog slug this workspace config is created from
+   */
+  catalog_slug?: string | null
   server_type?: "stdio"
   /**
    * Stdio command to run for stdio-type servers (e.g., 'npx')
@@ -4795,6 +4946,25 @@ export type MCPStdioIntegrationCreate = {
   stdio_env?: {
     [key: string]: string
   } | null
+}
+
+/**
+ * Stdio MCP server with no authentication.
+ */
+export type MCPStdioNoneConnectionSpec = {
+  requires_config?: boolean
+  credentials?: Array<MCPConnectionCredential>
+  kind?: "stdio_none"
+  server_type?: "stdio"
+  auth_type?: "NONE"
+  stdio_command?: string | null
+  stdio_args?: Array<string>
+  stdio_env?: Array<string>
+  packages?: Array<MCPPackageOption>
+  /**
+   * Configure-dialog view of ``credentials``; same data, UI field shape.
+   */
+  readonly config_fields: Array<MCPConfigField>
 }
 
 /**
@@ -5182,6 +5352,44 @@ export type PayloadChangedEventRead = {
 }
 
 /**
+ * Cursor-paginated platform MCP catalog response.
+ */
+export type PlatformMCPCatalogListResponse = {
+  items: Array<PlatformMCPCatalogRead>
+  next_cursor?: string | null
+}
+
+/**
+ * Catalog row joined with workspace-specific MCP state.
+ */
+export type PlatformMCPCatalogRead = {
+  id: string
+  slug: string
+  name: string
+  description: string
+  category: string
+  status: "available" | "coming_soon" | "deprecated" | "hidden"
+  icon_url: string | null
+  docs_url: string | null
+  provider_id: string | null
+  connection_spec: MCPConnectionSpec | null
+  connection_options?: Array<MCPConnectionOption>
+  /**
+   * Whether this platform MCP catalog row is locked by entitlement.
+   */
+  locked: boolean
+  state: "not_configured" | "configured" | "connected" | "error"
+  mcp_integration_id: string | null
+  mcp_server_type?: MCPServerType | null
+  mcp_auth_type?: MCPAuthType | null
+  created_at: string
+  updated_at: string
+  last_refreshed_at: string | null
+}
+
+export type status4 = "available" | "coming_soon" | "deprecated" | "hidden"
+
+/**
  * Platform registry settings response.
  */
 export type PlatformRegistrySettingsRead = {
@@ -5422,7 +5630,7 @@ export type RateLimitInfo = {
   }
 }
 
-export type status3 = "allowed" | "allowed_warning" | "rejected"
+export type status5 = "allowed" | "allowed_warning" | "rejected"
 
 export type ReadinessResponse = {
   status: string
@@ -5443,7 +5651,7 @@ export type ReasoningUIPart = {
   }
 }
 
-export type state = "streaming" | "done"
+export type state2 = "streaming" | "done"
 
 export type ReceiveInteractionResponse = {
   message: string
@@ -6025,7 +6233,7 @@ export type RunArtifact = {
   startedAt: string
 }
 
-export type status4 = "running" | "success" | "failed" | "cancelled"
+export type status6 = "running" | "success" | "failed" | "cancelled"
 
 /**
  * This is the runtime context model for a workflow run. Passed into activities.
@@ -8215,7 +8423,7 @@ export type WorkflowCommitResponse = {
   } | null
 }
 
-export type status5 = "success" | "failure"
+export type status7 = "success" | "failure"
 
 /**
  * API response model for persisted workflow definitions.
@@ -8274,7 +8482,7 @@ export type WorkflowDslPublishResult = {
   message: string
 }
 
-export type status6 = "committed" | "no_op"
+export type status8 = "committed" | "no_op"
 
 export type WorkflowEntrypointValidationRequest = {
   expects?: {
@@ -8592,7 +8800,7 @@ export type WorkflowExecutionRead = {
   interactions?: Array<InteractionRead>
 }
 
-export type status7 =
+export type status9 =
   | "RUNNING"
   | "COMPLETED"
   | "FAILED"
@@ -12477,6 +12685,46 @@ export type McpIntegrationsListMcpIntegrationsData = {
 export type McpIntegrationsListMcpIntegrationsResponse =
   Array<MCPIntegrationRead>
 
+export type McpIntegrationsListPlatformMcpCatalogData = {
+  /**
+   * Filter by category
+   */
+  category?: string | null
+  /**
+   * Cursor for pagination
+   */
+  cursor?: string | null
+  limit?: number
+  /**
+   * Search name, slug, description
+   */
+  q?: string | null
+  /**
+   * Filter by catalog status
+   */
+  status?: "available" | "coming_soon" | "deprecated" | "hidden" | null
+  workspaceId: string
+}
+
+export type McpIntegrationsListPlatformMcpCatalogResponse =
+  PlatformMCPCatalogListResponse
+
+export type McpIntegrationsConnectPlatformMcpCatalogData = {
+  catalogSlug: string
+  workspaceId: string
+}
+
+export type McpIntegrationsConnectPlatformMcpCatalogResponse =
+  MCPCatalogConnectResponse
+
+export type McpIntegrationsConnectMcpIntegrationData = {
+  requestBody: MCPIntegrationCreate
+  workspaceId: string
+}
+
+export type McpIntegrationsConnectMcpIntegrationResponse =
+  MCPCatalogConnectResponse
+
 export type McpIntegrationsGetMcpIntegrationData = {
   mcpIntegrationId: string
   workspaceId: string
@@ -12498,6 +12746,13 @@ export type McpIntegrationsDeleteMcpIntegrationData = {
 }
 
 export type McpIntegrationsDeleteMcpIntegrationResponse = void
+
+export type McpIntegrationsDisconnectMcpIntegrationData = {
+  mcpIntegrationId: string
+  workspaceId: string
+}
+
+export type McpIntegrationsDisconnectMcpIntegrationResponse = void
 
 export type FeatureFlagsGetFeatureFlagsResponse = FeatureFlagsRead
 
@@ -18524,6 +18779,51 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/mcp-integrations/catalog": {
+    get: {
+      req: McpIntegrationsListPlatformMcpCatalogData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PlatformMCPCatalogListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/mcp-integrations/catalog/{catalog_slug}/connect": {
+    post: {
+      req: McpIntegrationsConnectPlatformMcpCatalogData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: MCPCatalogConnectResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/mcp-integrations/connect": {
+    post: {
+      req: McpIntegrationsConnectMcpIntegrationData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: MCPCatalogConnectResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}": {
     get: {
       req: McpIntegrationsGetMcpIntegrationData
@@ -18553,6 +18853,21 @@ export type $OpenApiTs = {
     }
     delete: {
       req: McpIntegrationsDeleteMcpIntegrationData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}/disconnect": {
+    post: {
+      req: McpIntegrationsDisconnectMcpIntegrationData
       res: {
         /**
          * Successful Response

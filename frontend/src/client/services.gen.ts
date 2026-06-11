@@ -440,14 +440,22 @@ import type {
   ListCustomProvidersResponse,
   ListEnabledModelsData,
   ListEnabledModelsResponse,
+  McpIntegrationsConnectMcpIntegrationData,
+  McpIntegrationsConnectMcpIntegrationResponse,
+  McpIntegrationsConnectPlatformMcpCatalogData,
+  McpIntegrationsConnectPlatformMcpCatalogResponse,
   McpIntegrationsCreateMcpIntegrationData,
   McpIntegrationsCreateMcpIntegrationResponse,
   McpIntegrationsDeleteMcpIntegrationData,
   McpIntegrationsDeleteMcpIntegrationResponse,
+  McpIntegrationsDisconnectMcpIntegrationData,
+  McpIntegrationsDisconnectMcpIntegrationResponse,
   McpIntegrationsGetMcpIntegrationData,
   McpIntegrationsGetMcpIntegrationResponse,
   McpIntegrationsListMcpIntegrationsData,
   McpIntegrationsListMcpIntegrationsResponse,
+  McpIntegrationsListPlatformMcpCatalogData,
+  McpIntegrationsListPlatformMcpCatalogResponse,
   McpIntegrationsUpdateMcpIntegrationData,
   McpIntegrationsUpdateMcpIntegrationResponse,
   McpPersonalAccessTokensCreateMcpPersonalAccessTokenData,
@@ -11473,6 +11481,92 @@ export const mcpIntegrationsListMcpIntegrations = (
 }
 
 /**
+ * List Platform Mcp Catalog
+ * List platform MCP catalog rows with workspace connection state.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.q Search name, slug, description
+ * @param data.category Filter by category
+ * @param data.status Filter by catalog status
+ * @param data.cursor Cursor for pagination
+ * @param data.limit
+ * @returns PlatformMCPCatalogListResponse Successful Response
+ * @throws ApiError
+ */
+export const mcpIntegrationsListPlatformMcpCatalog = (
+  data: McpIntegrationsListPlatformMcpCatalogData
+): CancelablePromise<McpIntegrationsListPlatformMcpCatalogResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/mcp-integrations/catalog",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      q: data.q,
+      category: data.category,
+      status: data.status,
+      cursor: data.cursor,
+      limit: data.limit,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Connect Platform Mcp Catalog
+ * Create or return a workspace MCP integration from catalog defaults.
+ * @param data The data for the request.
+ * @param data.catalogSlug
+ * @param data.workspaceId
+ * @returns MCPCatalogConnectResponse Successful Response
+ * @throws ApiError
+ */
+export const mcpIntegrationsConnectPlatformMcpCatalog = (
+  data: McpIntegrationsConnectPlatformMcpCatalogData
+): CancelablePromise<McpIntegrationsConnectPlatformMcpCatalogResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/mcp-integrations/catalog/{catalog_slug}/connect",
+    path: {
+      catalog_slug: data.catalogSlug,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Connect Mcp Integration
+ * Create an MCP integration or start generic MCP OAuth discovery.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns MCPCatalogConnectResponse Successful Response
+ * @throws ApiError
+ */
+export const mcpIntegrationsConnectMcpIntegration = (
+  data: McpIntegrationsConnectMcpIntegrationData
+): CancelablePromise<McpIntegrationsConnectMcpIntegrationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/mcp-integrations/connect",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Get Mcp Integration
  * Get an MCP integration by ID.
  * @param data The data for the request.
@@ -11540,6 +11634,31 @@ export const mcpIntegrationsDeleteMcpIntegration = (
   return __request(OpenAPI, {
     method: "DELETE",
     url: "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}",
+    path: {
+      mcp_integration_id: data.mcpIntegrationId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Disconnect Mcp Integration
+ * Disconnect an MCP integration by deleting the workspace MCP row.
+ * @param data The data for the request.
+ * @param data.mcpIntegrationId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const mcpIntegrationsDisconnectMcpIntegration = (
+  data: McpIntegrationsDisconnectMcpIntegrationData
+): CancelablePromise<McpIntegrationsDisconnectMcpIntegrationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}/disconnect",
     path: {
       mcp_integration_id: data.mcpIntegrationId,
       workspace_id: data.workspaceId,

@@ -1,0 +1,403 @@
+{
+  "servers": [
+    {
+      "slug": "elastic-mcp",
+      "name": "Elastic",
+      "description": "Search and analyze security telemetry across the Elastic stack",
+      "category": "SIEM / Datalake",
+      "icon": "https://www.google.com/s2/favicons?domain=www.elastic.co&sz=128"
+    },
+    {
+      "slug": "panther-mcp",
+      "name": "Panther",
+      "description": "Investigate alerts and run detections on Panther",
+      "category": "SIEM / Datalake",
+      "icon": "https://www.google.com/s2/favicons?domain=panther.com&sz=128"
+    },
+    {
+      "slug": "splunk-mcp",
+      "name": "Splunk",
+      "description": "Search indexes and triage events on Splunk (Cloud or on-prem)",
+      "category": "SIEM / Datalake",
+      "icon": "https://www.google.com/s2/favicons?domain=help.splunk.com&sz=128"
+    },
+    {
+      "slug": "scanner-mcp",
+      "name": "Scanner",
+      "description": "Search security data and investigate alerts with Scanner",
+      "category": "SIEM / Datalake",
+      "icon": "https://www.google.com/s2/favicons?domain=scanner.dev&sz=128"
+    },
+    {
+      "slug": "microsoft-sentinel-mcp",
+      "name": "Microsoft Sentinel",
+      "description": "Query Sentinel's data lake and triage incidents across Microsoft Defender",
+      "category": "SIEM / Datalake",
+      "icon": "https://www.google.com/s2/favicons?domain=learn.microsoft.com&sz=128"
+    },
+    {
+      "slug": "runreveal-mcp",
+      "name": "RunReveal",
+      "description": "Query security data and run detections on RunReveal",
+      "category": "SIEM / Datalake",
+      "icon": "https://www.google.com/s2/favicons?domain=docs.runreveal.com&sz=128"
+    },
+    {
+      "slug": "google-cloud-secops-mcp",
+      "name": "Google Cloud SecOps",
+      "description": "Triage SIEM alerts and run SOAR workflows on Google Cloud SecOps",
+      "category": "SIEM / Datalake",
+      "icon": "https://www.google.com/s2/favicons?domain=cloud.google.com&sz=128"
+    },
+    {
+      "slug": "sumo-logic-mcp",
+      "name": "Sumo Logic",
+      "description": "Search logs and triage incidents on Sumo Logic Cloud SIEM and SOAR",
+      "category": "SIEM / Datalake",
+      "icon": "https://www.google.com/s2/favicons?domain=www.sumologic.com&sz=128"
+    },
+    {
+      "slug": "datadog-mcp",
+      "name": "Datadog",
+      "description": "Query Datadog metrics, logs, traces, monitors, and incidents",
+      "category": "SIEM / Datalake",
+      "icon": "https://www.google.com/s2/favicons?domain=docs.datadoghq.com&sz=128"
+    },
+    {
+      "slug": "sentry-mcp",
+      "name": "Sentry",
+      "description": "Search issues, events, and releases on Sentry",
+      "category": "SIEM / Datalake",
+      "icon": "https://cdn.simpleicons.org/sentry"
+    },
+    {
+      "slug": "clickhouse-mcp",
+      "name": "ClickHouse",
+      "description": "Run SQL against ClickHouse analytical databases",
+      "category": "SIEM / Datalake",
+      "icon": "https://cdn.simpleicons.org/clickhouse"
+    },
+    {
+      "slug": "crowdstrike-falcon-mcp",
+      "name": "CrowdStrike Falcon",
+      "description": "Investigate detections and devices on CrowdStrike Falcon",
+      "category": "Endpoint",
+      "icon": "https://www.google.com/s2/favicons?domain=crowdstrike.com&sz=128"
+    },
+    {
+      "slug": "sentinelone-mcp",
+      "name": "SentinelOne Purple",
+      "description": "Query Purple AI, alerts, and vulnerabilities on SentinelOne",
+      "category": "Endpoint",
+      "icon": "https://www.google.com/s2/favicons?domain=sentinelone.com&sz=128"
+    },
+    {
+      "slug": "jamf-mcp",
+      "name": "Jamf",
+      "description": "Manage Apple devices across Jamf Pro, Protect, and Security Cloud",
+      "category": "Endpoint",
+      "icon": "https://www.google.com/s2/favicons?domain=jamf.com&sz=128"
+    },
+    {
+      "slug": "iru-mcp",
+      "name": "Iru / Kandji",
+      "description": "Manage Apple devices and inventory across Iru (formerly Kandji) endpoints",
+      "category": "Endpoint",
+      "icon": "https://www.iru.com/hubfs/assets/favicons/favicon-96x96.png"
+    },
+    {
+      "slug": "secure-annex-mcp",
+      "name": "Secure Annex",
+      "description": "Investigate browser and code editor extension risk",
+      "category": "Endpoint",
+      "icon": "https://www.google.com/s2/favicons?domain=secureannex.com&sz=128"
+    },
+    {
+      "slug": "microsoft-defender-xdr-mcp",
+      "name": "Microsoft Defender XDR",
+      "description": "Triage Defender XDR detections across endpoints, identity, and email",
+      "category": "Endpoint",
+      "icon": "https://www.google.com/s2/favicons?domain=learn.microsoft.com&sz=128"
+    },
+    {
+      "slug": "wiz-mcp",
+      "name": "Wiz",
+      "description": "Investigate cloud security findings, identities, and exposures on Wiz",
+      "category": "Threat Intelligence",
+      "icon": "https://www.google.com/s2/favicons?domain=docs.wiz.io&sz=128"
+    },
+    {
+      "slug": "greynoise-mcp",
+      "name": "GreyNoise",
+      "description": "Check IP context and trending vulnerabilities on GreyNoise",
+      "category": "Threat Intelligence",
+      "icon": "https://www.google.com/s2/favicons?domain=www.labs.greynoise.io&sz=128"
+    },
+    {
+      "slug": "feedly-mcp",
+      "name": "Feedly",
+      "description": "Read curated threat intelligence feeds from Feedly",
+      "category": "Threat Intelligence",
+      "icon": "https://www.google.com/s2/favicons?domain=docs.feedly.com&sz=128"
+    },
+    {
+      "slug": "virustotal-mcp",
+      "name": "VirusTotal",
+      "description": "Look up file, URL, IP, and domain reputation via Google Threat Intelligence",
+      "category": "Threat Intelligence",
+      "icon": "https://cdn.simpleicons.org/virustotal"
+    },
+    {
+      "slug": "microsoft-entra-id-mcp",
+      "name": "Microsoft Entra ID",
+      "description": "Query users, groups, and access policies through Microsoft Graph",
+      "category": "Identity",
+      "icon": "https://upload.wikimedia.org/wikipedia/commons/8/8c/Microsoft_Entra_ID_color_icon.svg"
+    },
+    {
+      "slug": "okta-mcp",
+      "name": "Okta",
+      "description": "Manage users, groups, apps, policies, and logs on Okta",
+      "category": "Identity",
+      "icon": "https://cdn.simpleicons.org/okta"
+    },
+    {
+      "slug": "hashicorp-vault-mcp",
+      "name": "HashiCorp Vault",
+      "description": "Read mounts, KV secrets, and PKI from HashiCorp Vault",
+      "category": "Identity",
+      "icon": "https://cdn.simpleicons.org/vault"
+    },
+    {
+      "slug": "aws-mcp",
+      "name": "AWS",
+      "description": "Call any of 15,000+ AWS APIs via the official AWS MCP server",
+      "category": "Cloud",
+      "icon": "https://www.google.com/s2/favicons?domain=docs.aws.amazon.com&sz=128"
+    },
+    {
+      "slug": "cloudflare-mcp",
+      "name": "Cloudflare",
+      "description": "Control Cloudflare edge, DNS, WAF, and Zero Trust",
+      "category": "Cloud",
+      "icon": "https://www.google.com/s2/favicons?domain=developers.cloudflare.com&sz=128"
+    },
+    {
+      "slug": "zscaler-mcp",
+      "name": "Zscaler",
+      "description": "Query ZIA, ZPA, ZDX, and the rest of the Zscaler SASE stack",
+      "category": "Network",
+      "icon": "https://www.google.com/s2/favicons?domain=zscaler.com&sz=128"
+    },
+    {
+      "slug": "palo-alto-mcp",
+      "name": "Palo Alto Networks",
+      "description": "Investigate incidents and assets on Cortex XSIAM and XDR",
+      "category": "Network",
+      "icon": "https://cdn.simpleicons.org/paloaltonetworks"
+    },
+    {
+      "slug": "sixtyfour-mcp",
+      "name": "Sixtyfour",
+      "description": "Enrich people and companies on demand with Sixtyfour",
+      "category": "Network",
+      "icon": "https://www.google.com/s2/favicons?domain=www.sixtyfour.ai&sz=128"
+    },
+    {
+      "slug": "linear-mcp",
+      "name": "Linear",
+      "description": "Create, search, and update Linear issues and projects",
+      "category": "Ticketing",
+      "icon": "https://www.google.com/s2/favicons?domain=linear.app&sz=128"
+    },
+    {
+      "slug": "atlassian-mcp",
+      "name": "Jira / Atlassian",
+      "description": "Read and write Jira issues, Confluence pages, and Atlassian Cloud objects",
+      "category": "Ticketing",
+      "icon": "https://www.google.com/s2/favicons?domain=www.atlassian.com&sz=128"
+    },
+    {
+      "slug": "servicenow-mcp",
+      "name": "ServiceNow",
+      "description": "Query and update ServiceNow ITSM records via the Zurich MCP server",
+      "category": "Ticketing",
+      "icon": "https://www.google.com/s2/favicons?domain=www.servicenow.com&sz=128"
+    },
+    {
+      "slug": "incident-io-mcp",
+      "name": "Incident.io",
+      "description": "Create incidents, manage alerts, and respond to escalations on incident.io",
+      "category": "On-Call",
+      "icon": "https://www.google.com/s2/favicons?domain=docs.incident.io&sz=128"
+    },
+    {
+      "slug": "pagerduty-mcp",
+      "name": "PagerDuty",
+      "description": "Read incidents, schedules, services, and on-call from PagerDuty",
+      "category": "On-Call",
+      "icon": "https://cdn.simpleicons.org/pagerduty"
+    },
+    {
+      "slug": "rootly-mcp",
+      "name": "Rootly",
+      "description": "Manage incidents and on-call rotations on Rootly",
+      "category": "On-Call",
+      "icon": "https://www.google.com/s2/favicons?domain=rootly.com&sz=128"
+    },
+    {
+      "slug": "slack-mcp",
+      "name": "Slack",
+      "description": "Search messages, post to channels, and manage canvases on Slack",
+      "category": "Communication",
+      "icon": "https://www.google.com/s2/favicons?domain=slack.com&sz=128"
+    },
+    {
+      "slug": "microsoft-teams-mcp",
+      "name": "Microsoft Teams",
+      "description": "Send chats, manage channels, and run team operations on Microsoft Teams",
+      "category": "Communication",
+      "icon": "https://res.cdn.office.net/files/fabric-cdn-prod_20230815.001/assets/brand-icons/product/svg/teams_48x1.svg"
+    },
+    {
+      "slug": "gmail-mcp",
+      "name": "Gmail",
+      "description": "Search, label, and send mail through Gmail",
+      "category": "Email",
+      "icon": "https://upload.wikimedia.org/wikipedia/commons/7/7e/Gmail_icon_%282020%29.svg"
+    },
+    {
+      "slug": "microsoft-mail-mcp",
+      "name": "Microsoft Mail",
+      "description": "Read, create, and send mail through Microsoft 365",
+      "category": "Email",
+      "icon": "https://res.cdn.office.net/files/fabric-cdn-prod_20230815.001/assets/brand-icons/product/svg/outlook_48x1.svg"
+    },
+    {
+      "slug": "semgrep-mcp",
+      "name": "Semgrep",
+      "description": "Run SAST scans and review findings with Semgrep",
+      "category": "AppSec",
+      "icon": "https://www.google.com/s2/favicons?domain=semgrep.dev&sz=128"
+    },
+    {
+      "slug": "snyk-mcp",
+      "name": "Snyk",
+      "description": "Scan code, dependencies, containers, and IaC with Snyk",
+      "category": "AppSec",
+      "icon": "https://www.google.com/s2/favicons?domain=docs.snyk.io&sz=128"
+    },
+    {
+      "slug": "vanta-mcp",
+      "name": "Vanta",
+      "description": "Review controls, tests, and risks across Vanta compliance frameworks",
+      "category": "Compliance",
+      "icon": "https://www.google.com/s2/favicons?domain=vanta.com&sz=128"
+    },
+    {
+      "slug": "drata-mcp",
+      "name": "Drata",
+      "description": "Query controls, evidence, and audit data across Drata trust workflows",
+      "category": "Compliance",
+      "icon": "https://www.google.com/s2/favicons?domain=drata.com&sz=128"
+    },
+    {
+      "slug": "grafana-mcp",
+      "name": "Grafana",
+      "description": "Query dashboards, Prometheus, Loki, and alerts on Grafana",
+      "category": "Observability",
+      "icon": "https://cdn.simpleicons.org/grafana"
+    },
+    {
+      "slug": "snowflake-mcp",
+      "name": "Snowflake",
+      "description": "Query Snowflake via Cortex Agents and run SQL",
+      "category": "Observability",
+      "icon": "https://www.google.com/s2/favicons?domain=docs.snowflake.com&sz=128"
+    },
+    {
+      "slug": "databricks-mcp",
+      "name": "Databricks",
+      "description": "Query Databricks SQL, Vector Search, Genie, and Unity Catalog",
+      "category": "Observability",
+      "icon": "https://www.google.com/s2/favicons?domain=docs.databricks.com&sz=128"
+    },
+    {
+      "slug": "github-mcp",
+      "name": "GitHub",
+      "description": "Read repos, issues, PRs, and code search on GitHub",
+      "category": "Source Control",
+      "icon": "https://www.google.com/s2/favicons?domain=github.com&sz=128"
+    },
+    {
+      "slug": "gitlab-mcp",
+      "name": "GitLab",
+      "description": "Read repos, issues, MRs, and pipelines on GitLab",
+      "category": "Source Control",
+      "icon": "https://www.google.com/s2/favicons?domain=docs.gitlab.com&sz=128"
+    },
+    {
+      "slug": "terraform-mcp",
+      "name": "Terraform",
+      "description": "Plan and apply infrastructure changes with Terraform",
+      "category": "IaC",
+      "icon": "https://cdn.simpleicons.org/terraform"
+    },
+    {
+      "slug": "ansible-mcp",
+      "name": "Ansible",
+      "description": "Run playbooks and manage automation jobs on Ansible Automation Platform",
+      "category": "IaC",
+      "icon": "https://cdn.simpleicons.org/ansible"
+    },
+    {
+      "slug": "microsoft-graph-me-mcp",
+      "name": "Microsoft user profiles",
+      "description": "Read user, manager, and directory data through Microsoft Graph /me",
+      "category": "Productivity",
+      "icon": "https://res.cdn.office.net/files/fabric-cdn-prod_20230815.001/assets/brand-icons/product/svg/m365_48x1.svg"
+    },
+    {
+      "slug": "microsoft-word-mcp",
+      "name": "Microsoft Word",
+      "description": "Create documents and comments in Microsoft Word",
+      "category": "Productivity",
+      "icon": "https://res.cdn.office.net/files/fabric-cdn-prod_20230815.001/assets/brand-icons/product/svg/word_48x1.svg"
+    },
+    {
+      "slug": "microsoft-onedrive-mcp",
+      "name": "Microsoft OneDrive",
+      "description": "Search, share, and manage files on OneDrive",
+      "category": "Productivity",
+      "icon": "https://res.cdn.office.net/files/fabric-cdn-prod_20230815.001/assets/brand-icons/product/svg/onedrive_48x1.svg"
+    },
+    {
+      "slug": "microsoft-sharepoint-mcp",
+      "name": "Microsoft SharePoint",
+      "description": "Work with sites, lists, drives, and files on SharePoint",
+      "category": "Productivity",
+      "icon": "https://res.cdn.office.net/files/fabric-cdn-prod_20230815.001/assets/brand-icons/product/svg/sharepoint_48x1.svg"
+    },
+    {
+      "slug": "google-drive-mcp",
+      "name": "Google Drive",
+      "description": "Search, read, and create files on Google Drive",
+      "category": "Productivity",
+      "icon": "https://upload.wikimedia.org/wikipedia/commons/1/12/Google_Drive_icon_%282020%29.svg"
+    },
+    {
+      "slug": "google-calendar-mcp",
+      "name": "Google Calendar",
+      "description": "Read events and schedule meetings on Google Calendar",
+      "category": "Productivity",
+      "icon": "https://upload.wikimedia.org/wikipedia/commons/a/a5/Google_Calendar_icon_%282020%29.svg"
+    },
+    {
+      "slug": "notion-mcp",
+      "name": "Notion",
+      "description": "Read and write pages, databases, and comments on Notion",
+      "category": "Productivity",
+      "icon": "https://www.google.com/s2/favicons?domain=developers.notion.com&sz=128"
+    }
+  ]
+}

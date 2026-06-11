@@ -1,0 +1,2661 @@
+{
+  "servers": [
+    {
+      "slug": "elastic-mcp",
+      "docs": "https://www.elastic.co/docs/explore-analyze/ai-features/agent-builder/mcp-server",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "CUSTOM",
+        "server_uri": "https://{KIBANA_URL}/api/agent_builder/mcp",
+        "credentials": [
+          {
+            "key": "KIBANA_URL",
+            "label": "Kibana base URL",
+            "description": "Base URL of your Kibana / Elastic deployment, e.g. https://my-deployment.kb.us-central1.gcp.cloud.es.io. The MCP endpoint is {KIBANA_URL}/api/agent_builder/mcp (or /s/{SPACE_NAME}/api/agent_builder/mcp for a custom space).",
+            "required": true,
+            "secret": false,
+            "target": "server_uri"
+          },
+          {
+            "key": "Authorization",
+            "label": "Elastic API Key (Authorization header)",
+            "description": "Elasticsearch/Kibana API key sent as the Authorization header in the form 'ApiKey <base64-encoded-api-key>'. The key must include Kibana privileges feature_agentBuilder.read and feature_actions.read, or the endpoint returns 403 Forbidden.",
+            "required": true,
+            "secret": true,
+            "target": "http_header"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Elastic has two distinct MCP offerings. (1) The CURRENT, non-deprecated server is the Elastic Agent Builder MCP server, a native streamable-HTTP endpoint at {KIBANA_URL}/api/agent_builder/mcp (or {KIBANA_URL}/s/{SPACE_NAME}/api/agent_builder/mcp for custom spaces), available in Elastic 9.2.0+ and Elasticsearch Serverless. It uses an API-key custom header: 'Authorization: ApiKey <key>'. No OAuth/DCR/discovery — auth is a user-supplied API key, so auth_type=CUSTOM, not OAUTH2. There is no single fixed vendor host; KIBANA_URL is the user's own Kibana/Elastic Cloud deployment URL, hence server_uri is templated. Elastic's docs show clients that lack native HTTP-MCP support connecting via the third-party 'npx mcp-remote {url} --header Authorization:ApiKey <key>' proxy, but the real transport is HTTP, which matches the intended transport, so I selected server_type=http rather than stdio. (2) The OLDER repo elastic/mcp-server-elasticsearch (npm @elastic/mcp-server-elasticsearch, also Docker docker.elastic.co/mcp/elasticsearch) is now explicitly DEPRECATED ('will only receive critical security updates') and superseded by Agent Builder; it talks directly to Elasticsearch (ES_URL + ES_API_KEY or ES_USERNAME/ES_PASSWORD) and supports stdio/SSE/streamable-HTTP. I did not select it because it is deprecated. No uvx/pip distribution exists for either. packages[] left empty because the chosen offering is a remote HTTP endpoint (not a locally installed npx/uvx/pip package); the only local launcher is the generic mcp-remote proxy which is not an Elastic package.",
+        "sources": [
+          "https://www.elastic.co/docs/solutions/search/agent-builder/mcp-server",
+          "https://github.com/elastic/mcp-server-elasticsearch",
+          "https://github.com/elastic/mcp-server-elasticsearch/blob/main/README.md",
+          "https://www.elastic.co/search-labs/blog/model-context-protocol-elasticsearch"
+        ]
+      }
+    },
+    {
+      "slug": "panther-mcp",
+      "docs": "https://docs.panther.com/ai/mcp/panther-remote-mcp",
+      "default_connection_option": "remote-http",
+      "connection_options": [
+        {
+          "id": "remote-http",
+          "label": "Remote OAuth",
+          "description": "Connect to Panther Remote MCP over HTTPS with OAuth 2.1 and dynamic client registration.",
+          "docs": "https://docs.panther.com/ai/mcp/panther-remote-mcp",
+          "connection_spec": {
+            "server_type": "http",
+            "auth_type": "OAUTH2",
+            "server_uri": "https://api.<your-panther-host>/mcp",
+            "scopes": [],
+            "oauth_authorization_endpoint": null,
+            "oauth_token_endpoint": null,
+            "credentials": [
+              {
+                "key": "your-panther-host",
+                "label": "Panther host",
+                "description": "Your Panther host without the api. prefix, e.g. acme.runpanther.net. Remote MCP uses https://api.<your-panther-host>/mcp and requires the api. subdomain to be configured.",
+                "target": "server_uri",
+                "required": true,
+                "secret": false
+              }
+            ],
+            "confidence": "high",
+            "docker_only": false,
+            "research_notes": "Panther Remote MCP is a hosted HTTPS endpoint at https://api.<your-panther-host>/mcp. It uses OAuth 2.1 + PKCE and dynamic client registration as a public client; Panther's docs explicitly state no client_secret is issued and API tokens are not supported for Remote MCP. The api. subdomain must be configured for the Panther deployment.",
+            "sources": [
+              "https://docs.panther.com/ai/mcp/panther-remote-mcp"
+            ]
+          }
+        },
+        {
+          "id": "local-stdio",
+          "label": "Local stdio",
+          "description": "Run the first-party Panther MCP server locally with a Panther instance URL and API token.",
+          "docs": "https://docs.panther.com/ai/mcp/mcp-server",
+          "connection_spec": {
+            "server_type": "stdio",
+            "auth_type": "CUSTOM",
+            "stdio_command": "uvx",
+            "stdio_args": [
+              "mcp-panther"
+            ],
+            "stdio_env": [
+              "PANTHER_INSTANCE_URL",
+              "PANTHER_API_TOKEN"
+            ],
+            "packages": [
+              {
+                "manager": "uvx",
+                "command": "uvx",
+                "args": [
+                  "mcp-panther"
+                ],
+                "package": "mcp-panther"
+              }
+            ],
+            "credentials": [
+              {
+                "key": "PANTHER_INSTANCE_URL",
+                "label": "Panther Instance URL",
+                "description": "Your Panther instance URL, including the https:// scheme (e.g. https://acme.runpanther.net).",
+                "required": true,
+                "secret": false,
+                "target": "stdio_env"
+              },
+              {
+                "key": "PANTHER_API_TOKEN",
+                "label": "Panther API Token",
+                "description": "API token used to authenticate to the Panther API. Created in the Panther console under API Tokens.",
+                "required": true,
+                "secret": true,
+                "target": "stdio_env"
+              }
+            ],
+            "confidence": "high",
+            "docker_only": false,
+            "research_notes": "Official first-party local MCP server is panther-labs/mcp-panther. Auth is a user-supplied Panther API token (PANTHER_API_TOKEN) plus Panther instance URL (PANTHER_INSTANCE_URL), not OAuth. Distribution: PyPI package mcp-panther runnable via uvx and Docker image ghcr.io/panther-labs/mcp-panther.",
+            "sources": [
+              "https://github.com/panther-labs/mcp-panther",
+              "https://docs.panther.com/ai/mcp/mcp-server",
+              "https://pypi.org/project/mcp-panther/"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "slug": "splunk-mcp",
+      "docs": "https://help.splunk.com/en/splunk-cloud-platform/mcp-server-for-splunk-platform/1.1/about-mcp-server-for-splunk-platform",
+      "connection_spec": {
+        "server_type": "stdio",
+        "auth_type": "CUSTOM",
+        "stdio_command": "python",
+        "stdio_args": [
+          "server.py"
+        ],
+        "stdio_env": [
+          "TRANSPORT",
+          "SPLUNK_HOST",
+          "SPLUNK_PORT",
+          "SPLUNK_USERNAME",
+          "SPLUNK_PASSWORD",
+          "SPLUNK_TOKEN",
+          "VERIFY_SSL",
+          "SPL_MAX_EVENTS_COUNT",
+          "SPL_RISK_TOLERANCE",
+          "SPL_SAFE_TIMERANGE",
+          "SPL_SANITIZE_OUTPUT"
+        ],
+        "packages": [],
+        "credentials": [
+          {
+            "key": "SPLUNK_HOST",
+            "label": "Splunk Host",
+            "description": "Hostname of the Splunk Enterprise/Cloud management instance (e.g. splunk.example.com). Used for the Splunk REST API.",
+            "required": true,
+            "secret": false,
+            "target": "stdio_env"
+          },
+          {
+            "key": "SPLUNK_PORT",
+            "label": "Splunk Management Port",
+            "description": "Splunk management REST API port. Defaults to 8089.",
+            "required": false,
+            "secret": false,
+            "target": "stdio_env"
+          },
+          {
+            "key": "SPLUNK_TOKEN",
+            "label": "Splunk Auth Token",
+            "description": "Splunk authentication (bearer) token. Preferred over username/password. Provide this OR username+password.",
+            "required": false,
+            "secret": true,
+            "target": "stdio_env"
+          },
+          {
+            "key": "SPLUNK_USERNAME",
+            "label": "Splunk Username",
+            "description": "Splunk account username. Used with SPLUNK_PASSWORD if a token is not supplied.",
+            "required": false,
+            "secret": false,
+            "target": "stdio_env"
+          },
+          {
+            "key": "SPLUNK_PASSWORD",
+            "label": "Splunk Password",
+            "description": "Splunk account password. Used with SPLUNK_USERNAME if a token is not supplied.",
+            "required": false,
+            "secret": true,
+            "target": "stdio_env"
+          },
+          {
+            "key": "VERIFY_SSL",
+            "label": "Verify SSL",
+            "description": "Whether to verify the Splunk server's TLS certificate. Optional.",
+            "required": false,
+            "secret": false,
+            "target": "stdio_env"
+          }
+        ],
+        "confidence": "medium",
+        "docker_only": false,
+        "research_notes": "Two distinct Splunk MCP offerings exist, and neither cleanly matches our install constraints.\n\n1) OFFICIAL hosted server: Splunk markets a GA \"MCP Server for Splunk platform\" distributed as a Splunkbase app (app/7931) that you install INTO your own Splunk Enterprise/Cloud instance. It speaks streamable HTTP and uses Splunk token-based auth + RBAC (NOT OAuth2 sign-in). However it is self-hosted, so there is no canonical/public server_uri — the endpoint is your own Splunk host path, which the public docs do not pin down. So I did not set server_type=http with a URL.\n\n2) splunk/splunk-mcp-server2 (in the Splunk GitHub org) is EXPLICITLY self-described as \"Unofficial.\" It supports stdio/SSE and is what matches our intended STDIO transport. It runs via `python server.py` with TRANSPORT=stdio. Auth is CUSTOM: Splunk REST API on port 8089 using either SPLUNK_TOKEN (bearer) or SPLUNK_USERNAME+SPLUNK_PASSWORD.\n\nPACKAGE GAP (why packages[] is empty and stdio_package is null): there is NO published npx/uvx/pip package for any Splunk-org MCP server. Confirmed PyPI 404 for splunk-mcp-server2 and splunk-mcp-server, and npm 404 for splunk-mcp-server2. The repo only documents `pip install -e .` from a git clone (local editable install) plus a Docker option — neither is a package-manager install we support. The `python server.py` command also requires running from the cloned repo directory, so it is not runnable standalone via our allowlist. A third-party PyPI package `mcp-server-splunk` (200 on PyPI) exists but it is jkosik's Go implementation, not first-party Splunk.\n\nRecommendation: this catalog entry cannot be fulfilled with a supported npx/uvx/pip STDIO package today. Either (a) wait for Splunk to publish a packaged server, or (b) reclassify as HTTP and require the user to supply their self-hosted Splunk MCP endpoint URL + token. Confidence set to medium because env vars/auth/transport are sourced from first-party (Splunk-org) docs, but the canonical install path and official-vs-unofficial story are unresolved.",
+        "sources": [
+          "https://github.com/splunk/splunk-mcp-server2",
+          "https://github.com/splunk/splunk-mcp-server2/blob/main/python/README.md",
+          "https://raw.githubusercontent.com/splunk/splunk-mcp-server2/main/python/README.md",
+          "https://help.splunk.com/en/splunk-cloud-platform/mcp-server-for-splunk-platform/1.1/about-mcp-server-for-splunk-platform",
+          "https://splunkbase.splunk.com/app/7931"
+        ]
+      }
+    },
+    {
+      "slug": "scanner-mcp",
+      "docs": "https://docs.scanner.dev/scanner/using-scanner-complete-feature-reference/mcp-and-ai-secops/getting-started",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "CUSTOM",
+        "server_uri": "https://mcp.your-env-here.scanner.dev/v1/mcp",
+        "credentials": [
+          {
+            "key": "Authorization",
+            "label": "Scanner API key (Authorization header)",
+            "description": "Scanner API key sent as the Authorization header in the form 'Bearer <api-key>'. The key needs Read and Query permissions on the indexes you want to investigate, or team-level IndexReadAny and IndexQueryAny permissions.",
+            "required": true,
+            "secret": true,
+            "target": "http_header"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Scanner's first-party MCP server is a hosted HTTP endpoint. The docs instruct users to configure `https://mcp.your-env-here.scanner.dev/v1/mcp` and pass `Authorization: Bearer API_KEY_HERE`; there is no OAuth flow or local stdio package. The API key is created in Scanner Settings > API Keys and must have Read and Query permissions on target indexes, or team-level IndexReadAny and IndexQueryAny permissions. The environment slug comes from the user's Scanner API URL / API key settings, so the catalog URI uses the documented placeholder host for users to edit.",
+        "sources": [
+          "https://docs.scanner.dev/scanner/using-scanner-complete-feature-reference/mcp-and-ai-secops/getting-started"
+        ]
+      }
+    },
+    {
+      "slug": "microsoft-sentinel-mcp",
+      "docs": "https://learn.microsoft.com/en-us/azure/sentinel/datalake/sentinel-mcp-chatgpt-claude-connector",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://sentinel.microsoft.com/mcp/data-exploration",
+        "scopes": [],
+        "oauth_authorization_endpoint": null,
+        "oauth_token_endpoint": null,
+        "credentials": [],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Official, fully Microsoft-hosted remote MCP server (no infrastructure to deploy, no local process). Confirmed via Microsoft Learn docs. There are THREE separate remote HTTP endpoints, each a distinct tool collection: data-exploration (https://sentinel.microsoft.com/mcp/data-exploration), Security Copilot agent creation (https://sentinel.microsoft.com/mcp/security-copilot-agent-creation), and triage (https://sentinel.microsoft.com/mcp/triage). I selected data-exploration as server_uri because it best matches our catalog description (\"query Sentinel's data lake and triage incidents\"); the triage endpoint covers incident/threat-hunting across Defender XDR + Sentinel. Consider adding the other two as separate catalog entries if needed.\n\nTransport: VS Code setup instructs choosing \"HTTP (HTTP or Server-Sent Events)\" - it is streamable HTTP (SSE is deprecated upstream per MCP). Auth: uses Microsoft Entra for identity. The VS Code flow is a browser \"Allow\" sign-in (interactive authorization-code OAuth2 / Entra), NOT a user-supplied API key or bearer token - so no manual credentials. The server advertises its OAuth authorization/token endpoints via MCP auth discovery (protected-resource metadata pointing at Microsoft Entra / login.microsoftonline.com), which is why oauth_authorization_endpoint and oauth_token_endpoint are left null. OAuth endpoints are discovered from the MCP metadata chain. No explicit OAuth scopes are documented; access is governed by Entra roles (minimum \"Security reader\" role required to list/invoke tools). Prerequisite: tenant must be onboarded to the Microsoft Sentinel data lake (and optionally Defender XDR / Security Copilot for some tools).",
+        "sources": [
+          "https://learn.microsoft.com/en-us/azure/sentinel/datalake/sentinel-mcp-tools-overview",
+          "https://learn.microsoft.com/en-us/azure/sentinel/datalake/sentinel-mcp-overview",
+          "https://learn.microsoft.com/en-us/azure/sentinel/datalake/sentinel-mcp-get-started",
+          "https://learn.microsoft.com/en-us/azure/sentinel/datalake/sentinel-mcp-use-tool-visual-studio-code"
+        ]
+      }
+    },
+    {
+      "slug": "runreveal-mcp",
+      "docs": "https://docs.runreveal.com/ai-chat/model-context-protocol",
+      "provider_id": "runreveal_mcp",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://api.runreveal.com/mcp",
+        "scopes": [],
+        "oauth_authorization_endpoint": "https://www-api.runreveal.com/oauth/authorize",
+        "oauth_token_endpoint": "https://www-api.runreveal.com/oauth/token",
+        "credentials": []
+      }
+    },
+    {
+      "slug": "google-cloud-secops-mcp",
+      "docs": "https://google.github.io/mcp-security/servers/scc_mcp.html",
+      "connection_spec": {
+        "server_type": "stdio",
+        "auth_type": "CUSTOM",
+        "stdio_command": "uvx",
+        "stdio_args": [
+          "--from",
+          "google-secops-mcp",
+          "secops_mcp"
+        ],
+        "stdio_env": [
+          "CHRONICLE_PROJECT_ID",
+          "CHRONICLE_CUSTOMER_ID",
+          "CHRONICLE_REGION",
+          "SECOPS_SA_PATH"
+        ],
+        "packages": [
+          {
+            "manager": "uvx",
+            "command": "uvx",
+            "args": [
+              "--from",
+              "google-secops-mcp",
+              "secops_mcp"
+            ],
+            "package": "google-secops-mcp"
+          },
+          {
+            "manager": "pip",
+            "command": "python",
+            "args": [
+              "-m",
+              "secops_mcp"
+            ],
+            "package": "google-secops-mcp"
+          }
+        ],
+        "credentials": [
+          {
+            "key": "CHRONICLE_PROJECT_ID",
+            "label": "Chronicle Google Cloud Project ID",
+            "description": "The Google Cloud project ID bound to your Chronicle/SecOps instance.",
+            "required": true,
+            "secret": false,
+            "target": "stdio_env"
+          },
+          {
+            "key": "CHRONICLE_CUSTOMER_ID",
+            "label": "Chronicle Customer ID",
+            "description": "The Chronicle instance customer identifier (UUID), e.g. 01234567-abcd-4321-1234-0123456789ab.",
+            "required": true,
+            "secret": false,
+            "target": "stdio_env"
+          },
+          {
+            "key": "CHRONICLE_REGION",
+            "label": "Chronicle Region",
+            "description": "Geographic region of the SecOps instance: one of us, eu, or asia.",
+            "required": true,
+            "secret": false,
+            "target": "stdio_env"
+          },
+          {
+            "key": "SECOPS_SA_PATH",
+            "label": "Service Account Key File Path",
+            "description": "Optional path to a Google Cloud service account JSON key file. Used for non-interactive auth; takes precedence over Application Default Credentials. If unset, the server uses ADC from `gcloud auth application-default login`.",
+            "required": false,
+            "secret": true,
+            "target": "stdio_env"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Official Google repo: github.com/google/mcp-security (the SecOps/Chronicle server lives under server/secops). Distributed on PyPI as `google-secops-mcp` v0.7.0 with console entry point `secops_mcp`. Canonical STDIO launch per official README: `uvx --from google-secops-mcp secops_mcp`. Also installable via `uv tool install google-secops-mcp` or `pip install google-secops-mcp` (then run module `secops_mcp`).\n\nAuth classified as CUSTOM: the user does NOT pass a bearer token to the server. Instead the server authenticates to Google Cloud via Application Default Credentials (set up out-of-band with `gcloud auth application-default login`) OR via a service account JSON key file referenced by SECOPS_SA_PATH (optional, secret). The user must always supply non-secret identifiers CHRONICLE_PROJECT_ID, CHRONICLE_CUSTOMER_ID, and CHRONICLE_REGION. Underlying ADC is technically a Google OAuth2 credential, but from the connection-spec perspective there is no in-band OAuth flow the MCP server performs, so OAUTH2 fields are left null.\n\nGoogle ALSO offers a separate fully-managed REMOTE/HTTP MCP server for SecOps with a regional streamable-HTTP endpoint pattern like https://chronicle.<region>.rep.googleapis.com/mcp (region-specific). That remote variant is a different deployment than the STDIO package requested here; since the intended transport is STDIO, the STDIO local package is specified. If the HTTP remote variant is later wanted, server_uri would be the regional .../mcp endpoint and auth would be Google Cloud IAM/OAuth.",
+        "sources": [
+          "https://github.com/google/mcp-security",
+          "https://github.com/google/mcp-security/blob/main/README.md",
+          "https://google.github.io/mcp-security/servers/secops_mcp.html",
+          "https://pypi.org/project/google-secops-mcp/",
+          "https://docs.cloud.google.com/chronicle/docs/secops/use-google-secops-mcp"
+        ]
+      }
+    },
+    {
+      "slug": "sumo-logic-mcp",
+      "docs": "https://www.sumologic.com/demo/mcp-server",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "CUSTOM",
+        "server_uri": null,
+        "credentials": [
+          {
+            "key": "url",
+            "label": "Sumo Logic MCP Server URL",
+            "description": "The MCP endpoint URL provided by Sumo Logic for your deployment. The official MCP server is in limited beta; use the endpoint Sumo Logic shares with your account team (deployments are region-scoped, e.g. https://api.<deployment>.sumologic.com).",
+            "required": true,
+            "secret": false,
+            "target": "server_uri"
+          },
+          {
+            "key": "Authorization",
+            "label": "Sumo Logic credentials (Authorization header)",
+            "description": "Authorization header for the MCP endpoint. Sumo Logic APIs typically use Basic auth with an Access ID and Access Key: 'Basic <base64(accessId:accessKey)>'. Create keys under Administration -> Security -> Access Keys. Use the scheme Sumo Logic specifies for your beta access if it differs.",
+            "required": true,
+            "secret": true,
+            "target": "http_header"
+          }
+        ],
+        "confidence": "low",
+        "docker_only": false,
+        "research_notes": "The official Sumo Logic MCP Server exists but is in LIMITED BETA with select customers; Sumo Logic states wider availability is \"coming in early 2026.\" As of this research, there is NO publicly documented connection spec: no endpoint URL, no transport type, no auth scheme, and no published package or repository.\n\nWhat is verifiable from first-party sources: Sumo Logic markets the MCP Server as a way to make their \"Dojo AI\" the hub of the customer's AI ecosystem (connecting Dojo AI agents with external copilots, models, and tools). The framing strongly implies a hosted/remote (HTTP) offering tied to the Sumo Logic platform / Dojo AI, but the exact streamable-HTTP/SSE endpoint URL is NOT published. I therefore left server_type=unknown rather than guessing \"http\".\n\nThere is NO official MCP repo in the github.com/SumoLogic org (verified via `gh api /orgs/SumoLogic/repos` and org repo search for \"mcp\" -> 0 results), and no official npm/PyPI package found.\n\nIMPORTANT distinction: Multiple THIRD-PARTY community MCP servers exist (e.g. github.com/samwang0723/mcp-sumologic, github.com/vinit-devops/sumologic_mcp, github.com/greyaperez/mcp-sumologic). These are STDIO Python servers that authenticate with a Sumo Logic API Access ID + Access Key and an endpoint URL (env vars SUMOLOGIC_ACCESS_ID, SUMOLOGIC_ACCESS_KEY, SUMOLOGIC_ENDPOINT, e.g. https://api.<deployment>.sumologic.com). They are NOT first-party and were not used to populate the spec. If the catalog wants a working integration today, one of these community servers could be evaluated, but it would be community-maintained.\n\nRecommendation: Re-research once the official server reaches general availability (expected early 2026) to obtain the real endpoint URL and auth flow. Confidence kept low because no official technical spec is published yet.",
+        "sources": [
+          "https://www.sumologic.com/glossary/model-context-protocol-mcp",
+          "https://www.sumologic.com/blog/agents-dojo-ai-soc-analyst-mcp",
+          "https://www.sumologic.com/demo/mcp-server",
+          "https://www.sumologic.com/solutions/dojo-ai",
+          "https://github.com/SumoLogic",
+          "https://github.com/orgs/SumoLogic/repositories?q=mcp"
+        ]
+      }
+    },
+    {
+      "slug": "datadog-mcp",
+      "docs": "https://docs.datadoghq.com/bits_ai/mcp_server/",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://mcp.datadoghq.com/api/unstable/mcp-server/mcp",
+        "scopes": [],
+        "oauth_authorization_endpoint": null,
+        "oauth_token_endpoint": null,
+        "credentials": [],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Official Datadog MCP Server (Bits AI). Verified first-party from docs.datadoghq.com. Transport: Streamable HTTP (remote). Endpoint path is /api/unstable/mcp-server/mcp; hostname is site-specific. US1 host is mcp.datadoghq.com (full URL: https://mcp.datadoghq.com/api/unstable/mcp-server/mcp). Other sites replace the host: EU=mcp.datadoghq.eu, US3=mcp.us3.datadoghq.com, US5=mcp.us5.datadoghq.com, AP1/AP2 analogous; same path. app.ddog-gov.com (GovCloud) is NOT supported. Primary auth is OAuth 2.0 with a browser-based sign-in/redirect (\"You are prompted to login through OAuth\"). The docs do not state whether DCR or discovery metadata is used; as a modern remote MCP server it almost certainly advertises authorization/token endpoints via OAuth discovery (.well-known), so oauth_authorization_endpoint/token_endpoint are left null and OAuth endpoints are discovered from the MCP metadata chain. No specific OAuth scopes are documented. ALTERNATIVE auth (not chosen here, since intended transport is HTTP+OAuth) for headless/server environments: pass two HTTP headers DD_API_KEY and DD_APPLICATION_KEY (Datadog recommends a scoped service-account API key + application key). If the catalog instead wants the API-key path, switch auth_type to CUSTOM with two required secret credentials keyed DD_API_KEY and DD_APPLICATION_KEY plus an optional non-secret site/host field for region selection. A toolsets query param controls available tools (?toolsets=all, default core, or comma-separated e.g. apm,llmobs,monitors,logs). No npx/uvx/pip package — it is a hosted remote server, so packages[] is empty.",
+        "sources": [
+          "https://docs.datadoghq.com/bits_ai/mcp_server/",
+          "https://docs.datadoghq.com/bits_ai/mcp_server/setup/",
+          "https://www.datadoghq.com/blog/datadog-remote-mcp-server/",
+          "https://www.datadoghq.com/knowledge-center/mcp-server/"
+        ]
+      }
+    },
+    {
+      "slug": "sentry-mcp",
+      "docs": "https://github.com/getsentry/sentry-mcp",
+      "provider_id": "sentry_mcp",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://mcp.sentry.dev/mcp",
+        "scopes": [],
+        "oauth_authorization_endpoint": null,
+        "oauth_token_endpoint": null,
+        "credentials": []
+      }
+    },
+    {
+      "slug": "clickhouse-mcp",
+      "docs": "https://github.com/ClickHouse/mcp-clickhouse",
+      "connection_spec": {
+        "server_type": "stdio",
+        "auth_type": "CUSTOM",
+        "stdio_command": "uvx",
+        "stdio_args": [
+          "mcp-clickhouse"
+        ],
+        "stdio_env": [
+          "CLICKHOUSE_HOST",
+          "CLICKHOUSE_USER",
+          "CLICKHOUSE_PASSWORD",
+          "CLICKHOUSE_PORT",
+          "CLICKHOUSE_SECURE",
+          "CLICKHOUSE_VERIFY",
+          "CLICKHOUSE_DATABASE",
+          "CLICKHOUSE_MCP_SERVER_TRANSPORT"
+        ],
+        "packages": [
+          {
+            "manager": "uvx",
+            "command": "uvx",
+            "args": [
+              "mcp-clickhouse"
+            ],
+            "package": "mcp-clickhouse"
+          },
+          {
+            "manager": "pip",
+            "command": "python",
+            "args": [
+              "-m",
+              "mcp_clickhouse.main"
+            ],
+            "package": "mcp-clickhouse"
+          }
+        ],
+        "credentials": [
+          {
+            "key": "CLICKHOUSE_HOST",
+            "label": "ClickHouse Host",
+            "description": "Hostname of the ClickHouse server (e.g. your-instance.clickhouse.cloud). For ClickHouse Cloud this is the service endpoint.",
+            "required": true,
+            "secret": false,
+            "target": "stdio_env"
+          },
+          {
+            "key": "CLICKHOUSE_USER",
+            "label": "ClickHouse Username",
+            "description": "Username for the ClickHouse connection (e.g. default).",
+            "required": true,
+            "secret": false,
+            "target": "stdio_env"
+          },
+          {
+            "key": "CLICKHOUSE_PASSWORD",
+            "label": "ClickHouse Password",
+            "description": "Password for the ClickHouse user. Use an empty string for passwordless local servers.",
+            "required": true,
+            "secret": true,
+            "target": "stdio_env"
+          },
+          {
+            "key": "CLICKHOUSE_PORT",
+            "label": "ClickHouse Port",
+            "description": "Connection port. Defaults to 8443 (HTTPS) or 8123 (HTTP). Only set for non-standard ports.",
+            "required": false,
+            "secret": false,
+            "target": "stdio_env"
+          },
+          {
+            "key": "CLICKHOUSE_SECURE",
+            "label": "Use HTTPS",
+            "description": "Whether to use an HTTPS/TLS connection. Defaults to true. Set to false for plain HTTP local servers.",
+            "required": false,
+            "secret": false,
+            "target": "stdio_env"
+          },
+          {
+            "key": "CLICKHOUSE_VERIFY",
+            "label": "Verify SSL Certificate",
+            "description": "Whether to verify the server's SSL certificate. Defaults to true.",
+            "required": false,
+            "secret": false,
+            "target": "stdio_env"
+          },
+          {
+            "key": "CLICKHOUSE_DATABASE",
+            "label": "Default Database",
+            "description": "Optional default database to connect to.",
+            "required": false,
+            "secret": false,
+            "target": "stdio_env"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Official first-party server: ClickHouse/mcp-clickhouse (PyPI package mcp-clickhouse). Default transport is STDIO with NO auth at the MCP layer (stdio communicates only over stdin/stdout). The \"auth\" here is the ClickHouse database connection itself, supplied via env vars — hence auth_type=CUSTOM (host/user/password). The README's canonical launch is `uv run --with mcp-clickhouse --python 3.10 mcp-clickhouse`, which pins Python 3.10 and isolates the dependency; the equivalent within our allowlist is `uvx mcp-clickhouse` (uvx runs the mcp-clickhouse console script). The pip option runs `python -m mcp_clickhouse.main` after `pip install mcp-clickhouse`. Optional chDB support is available via the `mcp-clickhouse[chdb]` extra plus CHDB_ENABLED/CHDB_DATA_PATH env vars (not included as required). The server ALSO supports HTTP/SSE transport (endpoint http://<host>:<port>/mcp) which then requires auth — either a static bearer token (CLICKHOUSE_MCP_AUTH_TOKEN) or a FastMCP OAuth/OIDC provider (FASTMCP_SERVER_AUTH). That HTTP mode is not the intended STDIO transport and there is no vendor-hosted remote URL, so STDIO is reported. CLICKHOUSE_PASSWORD may be an empty string for passwordless servers but is still expected to be set.",
+        "sources": [
+          "https://github.com/ClickHouse/mcp-clickhouse",
+          "https://raw.githubusercontent.com/ClickHouse/mcp-clickhouse/main/README.md",
+          "https://pypi.org/project/mcp-clickhouse/",
+          "https://clickhouse.com/docs/use-cases/AI/MCP"
+        ]
+      }
+    },
+    {
+      "slug": "crowdstrike-falcon-mcp",
+      "docs": "https://crowdstrike.github.io/falcon-mcp/",
+      "connection_spec": {
+        "server_type": "stdio",
+        "auth_type": "CUSTOM",
+        "stdio_command": "uvx",
+        "stdio_args": [
+          "falcon-mcp"
+        ],
+        "stdio_env": [
+          "FALCON_CLIENT_ID",
+          "FALCON_CLIENT_SECRET",
+          "FALCON_BASE_URL"
+        ],
+        "packages": [
+          {
+            "manager": "uvx",
+            "command": "uvx",
+            "args": [
+              "falcon-mcp"
+            ],
+            "package": "falcon-mcp"
+          },
+          {
+            "manager": "pip",
+            "command": "python",
+            "args": [
+              "-m",
+              "falcon_mcp"
+            ],
+            "package": "falcon-mcp"
+          }
+        ],
+        "credentials": [
+          {
+            "key": "FALCON_CLIENT_ID",
+            "label": "CrowdStrike Falcon API Client ID",
+            "description": "OAuth2 API client ID created in the CrowdStrike Falcon console (Support > API Clients and Keys). Identifies the API client; not itself secret but pairs with the client secret.",
+            "required": true,
+            "secret": false,
+            "target": "stdio_env"
+          },
+          {
+            "key": "FALCON_CLIENT_SECRET",
+            "label": "CrowdStrike Falcon API Client Secret",
+            "description": "OAuth2 API client secret for the Falcon API client. Used by the server to obtain bearer tokens against the Falcon API.",
+            "required": true,
+            "secret": true,
+            "target": "stdio_env"
+          },
+          {
+            "key": "FALCON_BASE_URL",
+            "label": "CrowdStrike Falcon API Base URL",
+            "description": "Regional Falcon API base URL, e.g. https://api.crowdstrike.com (US-1), https://api.us-2.crowdstrike.com (US-2), https://api.eu-1.crowdstrike.com (EU-1), or https://api.laggar.gcw.crowdstrike.com (GovCloud). Must match the cloud your Falcon tenant runs in.",
+            "required": true,
+            "secret": false,
+            "target": "stdio_env"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Official CrowdStrike repo: github.com/CrowdStrike/falcon-mcp (maintained by CrowdStrike, currently public preview / pre-1.0). Published to PyPI as `falcon-mcp` with console entrypoint `falcon-mcp` (also runnable as `python -m falcon_mcp`). Default transport is stdio; it also supports streamable-http via `--transport streamable-http --host 0.0.0.0` (default port 8000), so it is NOT a remote-only hosted endpoint — there is no vendor-hosted MCP URL, hence server_uri is null. Auth is CUSTOM: the server uses CrowdStrike Falcon OAuth2 API client credentials (client ID + secret) under the hood via falconpy, but from the user's perspective they supply a static API key pair plus regional base URL as env vars — not an interactive OAuth browser flow, so auth_type=CUSTOM not OAUTH2. The official README's primary container example uses Docker (quay.io/crowdstrike/falcon-mcp), but Docker is NOT the only distribution — `uvx falcon-mcp` and `pip install falcon-mcp` are first-party supported, so docker_only=false. Optional CLI flag `--modules detections,hosts,intel,...` selects which tool modules load (not a credential). FALCON_BASE_URL marked required because EU/US-2/GovCloud tenants must override the US-1 default.",
+        "sources": [
+          "https://github.com/CrowdStrike/falcon-mcp",
+          "https://github.com/CrowdStrike/falcon-mcp/blob/main/README.md",
+          "https://pypi.org/project/falcon-mcp/",
+          "https://crowdstrike.github.io/falcon-mcp/"
+        ]
+      }
+    },
+    {
+      "slug": "sentinelone-mcp",
+      "docs": "https://github.com/Sentinel-One/purple-mcp",
+      "connection_spec": {
+        "server_type": "stdio",
+        "auth_type": "CUSTOM",
+        "stdio_command": "uvx",
+        "stdio_args": [
+          "--from",
+          "git+https://github.com/Sentinel-One/purple-mcp.git",
+          "purple-mcp",
+          "--mode",
+          "stdio"
+        ],
+        "stdio_env": [
+          "PURPLEMCP_CONSOLE_TOKEN",
+          "PURPLEMCP_CONSOLE_BASE_URL"
+        ],
+        "packages": [
+          {
+            "manager": "uvx",
+            "command": "uvx",
+            "args": [
+              "--from",
+              "git+https://github.com/Sentinel-One/purple-mcp.git",
+              "purple-mcp",
+              "--mode",
+              "stdio"
+            ],
+            "package": "git+https://github.com/Sentinel-One/purple-mcp.git"
+          }
+        ],
+        "credentials": [
+          {
+            "key": "PURPLEMCP_CONSOLE_TOKEN",
+            "label": "SentinelOne Service User Token",
+            "description": "Service user API token from the SentinelOne console with Account or Site-level permissions (not Global). Used to authenticate to Purple AI and security services.",
+            "required": true,
+            "secret": true,
+            "target": "stdio_env"
+          },
+          {
+            "key": "PURPLEMCP_CONSOLE_BASE_URL",
+            "label": "SentinelOne Console Base URL",
+            "description": "The SentinelOne management console endpoint, e.g. https://your-console.sentinelone.net",
+            "required": true,
+            "secret": false,
+            "target": "stdio_env"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Official open-source server: github.com/Sentinel-One/purple-mcp. Read-only access to Purple AI, Alerts, Vulnerabilities, Misconfigurations, Events (PowerQuery), and Asset Inventory. Supports three transports: stdio (default, matches intended transport), sse, and streamable-http (selected via --mode flag). For the local STDIO use case the canonical install is `uvx --from git+https://github.com/Sentinel-One/purple-mcp.git purple-mcp --mode=stdio`. NOT published to PyPI or npm as a named package; it is distributed as a git source repo, so uvx installs it directly from the git URL (uvx supports git+ specs). A Dockerfile is also provided but Docker is not the only distribution, so docker_only=false. Auth is CUSTOM: a SentinelOne service-user token plus the console base URL, both passed as env vars; the token must have Account or Site-level (not Global) permissions. No OAuth flow.\"",
+        "sources": [
+          "https://github.com/Sentinel-One/purple-mcp",
+          "https://raw.githubusercontent.com/Sentinel-One/purple-mcp/main/README.md",
+          "https://aws.amazon.com/marketplace/pp/prodview-v3jszvcu3fdzk"
+        ]
+      }
+    },
+    {
+      "slug": "jamf-mcp",
+      "docs": "https://developer.jamf.com/developer-guide/docs/mcp",
+      "default_connection_option": "remote-http",
+      "connection_options": [
+        {
+          "id": "remote-http",
+          "label": "Remote HTTP",
+          "description": "Connect to Jamf's hosted MCP server to search Jamf developer documentation and generate Jamf API integration code. No authentication required.",
+          "docs": "https://developer.jamf.com/developer-guide/docs/mcp",
+          "connection_spec": {
+            "server_type": "http",
+            "auth_type": "NONE",
+            "server_uri": "https://developer.jamf.com/mcp",
+            "credentials": [],
+            "confidence": "high",
+            "docker_only": false,
+            "research_notes": "Official Jamf-hosted remote MCP server at https://developer.jamf.com/mcp, documented at developer.jamf.com/developer-guide/docs/mcp. Transport is streamable HTTP; first-party client configs (Cursor, Windsurf, Claude Desktop) are just {\"url\": \"https://developer.jamf.com/mcp\"} with no OAuth flow or API key, so auth_type=NONE. Scope is Jamf DEVELOPER DOCUMENTATION search and API code-generation assistance only — it does NOT manage devices or query Jamf Pro/Protect/Security Cloud tenant data. Device management requires the local-stdio mcp-hub option. Jamf also publishes an AI-agent index at https://developer.jamf.com/llms.txt.",
+            "sources": [
+              "https://developer.jamf.com/developer-guide/docs/mcp"
+            ]
+          }
+        },
+        {
+          "id": "local-stdio",
+          "label": "Local stdio",
+          "description": "Run Jamf's open-source mcp-hub server locally to manage Apple devices across Jamf Pro, Protect, and Security Cloud. Requires a local clone of the repo plus API credentials.",
+          "docs": "https://github.com/Jamf-Concepts/mcp-hub",
+          "connection_spec": {
+            "server_type": "stdio",
+            "auth_type": "CUSTOM",
+            "stdio_command": null,
+            "stdio_args": [
+              "run",
+              "--directory",
+              "/path/to/mcp-hub",
+              "jamf-mcp"
+            ],
+            "stdio_env": [
+              "JAMF_PRO_URL",
+              "JAMF_PRO_CLIENT_ID",
+              "JAMF_PRO_CLIENT_SECRET",
+              "JAMF_PROTECT_URL",
+              "JAMF_PROTECT_CLIENT_ID",
+              "JAMF_PROTECT_PASSWORD",
+              "JAMF_SECURITY_URL",
+              "JAMF_SECURITY_APP_ID",
+              "JAMF_SECURITY_APP_SECRET"
+            ],
+            "packages": [],
+            "credentials": [
+              {
+                "key": "JAMF_PRO_URL",
+                "label": "Jamf Pro URL",
+                "description": "Jamf Pro instance base URL, e.g. https://yourcompany.jamfcloud.com",
+                "required": true,
+                "secret": false,
+                "target": "stdio_env"
+              },
+              {
+                "key": "JAMF_PRO_CLIENT_ID",
+                "label": "Jamf Pro API Client ID",
+                "description": "OAuth client ID for a Jamf Pro API Role/Client (client-credentials).",
+                "required": true,
+                "secret": false,
+                "target": "stdio_env"
+              },
+              {
+                "key": "JAMF_PRO_CLIENT_SECRET",
+                "label": "Jamf Pro API Client Secret",
+                "description": "OAuth client secret for the Jamf Pro API client. Shown once at creation.",
+                "required": true,
+                "secret": true,
+                "target": "stdio_env"
+              },
+              {
+                "key": "JAMF_PROTECT_URL",
+                "label": "Jamf Protect URL",
+                "description": "Jamf Protect tenant URL. Optional; only needed to enable Jamf Protect tools.",
+                "required": false,
+                "secret": false,
+                "target": "stdio_env"
+              },
+              {
+                "key": "JAMF_PROTECT_CLIENT_ID",
+                "label": "Jamf Protect Client ID",
+                "description": "Jamf Protect API client ID. Optional; only needed for Jamf Protect tools.",
+                "required": false,
+                "secret": false,
+                "target": "stdio_env"
+              },
+              {
+                "key": "JAMF_PROTECT_PASSWORD",
+                "label": "Jamf Protect Password/Secret",
+                "description": "Jamf Protect API client password/secret. Optional; only needed for Jamf Protect tools.",
+                "required": false,
+                "secret": true,
+                "target": "stdio_env"
+              },
+              {
+                "key": "JAMF_SECURITY_URL",
+                "label": "Jamf Security Cloud URL",
+                "description": "Jamf Security Cloud (RADAR/RISK API) base URL. Optional; only needed for Security Cloud tools.",
+                "required": false,
+                "secret": false,
+                "target": "stdio_env"
+              },
+              {
+                "key": "JAMF_SECURITY_APP_ID",
+                "label": "Jamf Security Cloud Application ID",
+                "description": "Jamf Security Cloud API application ID. Optional; only needed for Security Cloud tools.",
+                "required": false,
+                "secret": false,
+                "target": "stdio_env"
+              },
+              {
+                "key": "JAMF_SECURITY_APP_SECRET",
+                "label": "Jamf Security Cloud Application Secret",
+                "description": "Jamf Security Cloud API application secret. Optional; only needed for Security Cloud tools.",
+                "required": false,
+                "secret": true,
+                "target": "stdio_env"
+              }
+            ],
+            "confidence": "high",
+            "docker_only": false,
+            "research_notes": "Official server is the first-party Jamf open-source repo Jamf-Concepts/mcp-hub (\"Jamf's open source mcp for Jamf Pro, Jamf Protect and Jamf Security\"), matching the catalog description. Transport is stdio. Python project (hatchling) with console script `jamf-mcp` (entry jamf_mcp.server:main); project version 0.1.0.\n\nIMPORTANT: NOT published to any package index. `pip install jamf-mcp` and `uvx jamf-mcp` will fail (PyPI returns 404, no npm package). The ONLY documented install is to git-clone the repo and run it from the local directory: `uv run --directory /path/to/mcp-hub jamf-mcp` (or `pip install -e .` inside the clone, then `jamf-mcp`). Because the canonical launcher is `uv run --directory <local-clone>` and our allowlisted commands (npx/uvx/python/python3/node) cannot pull this from a registry, I set stdio_command=null and packages=[] rather than fabricate a registry install. stdio_args/stdio_package reflect the documented `uv run` invocation against a local clone, with package name \"jamf-mcp\". This server requires git-clone setup — not docker (so docker_only=false) and not a registry package; it likely needs a follow-up decision on how to support local-clone-only servers.\n\nAuth (auth_type=CUSTOM): user supplies static API credentials via env vars. Jamf Pro uses a client-credentials API Role/Client (JAMF_PRO_CLIENT_ID/SECRET) — this is OAuth2 client_credentials internally, but from the user's perspective it is API-key-style credential entry (no browser sign-in, no DCR), so classified CUSTOM rather than OAUTH2. Required: JAMF_PRO_URL, JAMF_PRO_CLIENT_ID, JAMF_PRO_CLIENT_SECRET. Optional product modules: Jamf Protect (JAMF_PROTECT_URL/CLIENT_ID/PASSWORD) and Jamf Security Cloud (JAMF_SECURITY_URL/APP_ID/APP_SECRET) — only needed to enable those toolsets; README notes the server starts in \"onboarding mode\" with no credentials.\n\nThe separate official Jamf remote MCP at https://developer.jamf.com/mcp only serves Jamf developer DOCUMENTATION search, not device management — it is covered by the remote-http connection option on this entry.",
+            "sources": [
+              "https://github.com/Jamf-Concepts/mcp-hub",
+              "https://raw.githubusercontent.com/Jamf-Concepts/mcp-hub/main/docs/INSTALLATION.md",
+              "https://raw.githubusercontent.com/Jamf-Concepts/mcp-hub/main/README.md",
+              "https://raw.githubusercontent.com/Jamf-Concepts/mcp-hub/main/pyproject.toml",
+              "https://raw.githubusercontent.com/Jamf-Concepts/mcp-hub/main/.env.example",
+              "https://pypi.org/pypi/jamf-mcp/json"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "slug": "iru-mcp",
+      "docs": "https://docs.iru.com/en/endpoint/api/model-context-protocol/iru-mcp",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "CUSTOM",
+        "server_uri": "https://YOUR_TENANT.connect.iru.dev/mcp-server/connector/YOUR_CONNECTOR_SLUG/tools",
+        "credentials": [
+          {
+            "key": "url",
+            "label": "Iru MCP Server URL",
+            "description": "The full tenant-specific MCP endpoint URL Iru shows you after creating an MCP-enabled API token, e.g. https://YOUR_TENANT.connect.iru.dev/mcp-server/connector/YOUR_CONNECTOR_SLUG/tools. Found under Access -> API tokens -> Add Token (with MCP enabled) -> copy MCP configuration.",
+            "required": true,
+            "secret": false,
+            "target": "server_uri"
+          },
+          {
+            "key": "X-API-Key",
+            "label": "Iru API Key",
+            "description": "The Iru API key sent as the X-API-Key HTTP header. Must be copied exactly as Iru shows it, including the sk_live: prefix (e.g. sk_live:YOUR_API_KEY). Created via Access -> API tokens with MCP enabled.",
+            "required": true,
+            "secret": true,
+            "target": "http_header"
+          },
+          {
+            "key": "X-MCP-Profile",
+            "label": "Iru MCP Profile ID",
+            "description": "The MCP profile identifier sent as the X-MCP-Profile HTTP header, provided in the MCP configuration snippet alongside the URL and API key.",
+            "required": true,
+            "secret": false,
+            "target": "http_header"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Official first-party Iru (formerly Kandji) MCP server, documented at docs.iru.com. Transport is streamable HTTP (config uses \"type\": \"http\"). Auth is CUSTOM via two HTTP headers: X-API-Key (the API key, must include the sk_live: prefix exactly as shown) and X-MCP-Profile (a profile ID). No OAuth. The endpoint URL is tenant- and connector-specific (https://<tenant>.connect.iru.dev/mcp-server/connector/<connector-slug>/tools), so the user must paste the exact URL Iru generates rather than a fixed global endpoint; hence the URL itself is treated as a user-supplied (non-secret) credential. Token must be created with MCP enabled under Access -> API tokens -> Add Token, then copy the provided MCP configuration JSON (url + headers). A separate third-party stdio implementation exists (github.com/mangopudding/mcp-server-iru-api, KANDJI_API_TOKEN/KANDJI_SUBDOMAIN/KANDJI_REGION, not published to npm), but it is community-built and not the official server; the official HTTP server matches the intended transport.",
+        "sources": [
+          "https://docs.iru.com/en/endpoint/api/model-context-protocol/iru-mcp",
+          "https://www.iru.com/blog/iru-mcp"
+        ]
+      }
+    },
+    {
+      "slug": "secure-annex-mcp",
+      "docs": "https://github.com/arsolutioner/secure-annex-mcp",
+      "provider_id": "secureannex_mcp",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://mcp.secureannex.com/mcp",
+        "scopes": [],
+        "oauth_authorization_endpoint": null,
+        "oauth_token_endpoint": null,
+        "credentials": []
+      }
+    },
+    {
+      "slug": "microsoft-defender-xdr-mcp",
+      "docs": "https://learn.microsoft.com/en-us/azure/sentinel/datalake/sentinel-mcp-get-started",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://sentinel.microsoft.com/mcp/triage",
+        "scopes": [],
+        "oauth_authorization_endpoint": null,
+        "oauth_token_endpoint": null,
+        "credentials": [],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "There is NO standalone official \"Microsoft Defender XDR MCP server\". The first-party Microsoft offering that triages Defender XDR detections across endpoints (devices), identity (users), and email (incidents/alerts/evidence) is the Microsoft Sentinel MCP server, specifically its TRIAGE tool collection, hosted at https://sentinel.microsoft.com/mcp/triage. This matches the catalog intent (HTTP transport; triage Defender XDR detections). The triage collection's documented prerequisite is \"Microsoft Defender XDR, Microsoft Defender for Endpoint, or Microsoft Sentinel onboarded to the Defender portal\", and its tools (ListIncidents, GetIncidentById, ListAlerts, GetDefenderMachine, ListUserRelatedAlerts, RunAdvancedHuntingQuery, etc.) operate over Defender data.\n\nTransport: remote HTTP. In VS Code you add it via \"MCP: Add Server\" -> \"HTTP (HTTP or Server-Sent Events)\" and paste the URL. Streaming is HTTP with a 120-second streaming limit. So server_type=http.\n\nAuth: Microsoft Entra ID. Docs state \"Microsoft Sentinel MCP server implements the latest authorization specifications from MCP\" and the client prompts the user to \"Allow\" an interactive sign-in (browser/Entra). This is OAuth2 authorization-code; the server advertises its authorization/token endpoints via MCP OAuth discovery (.well-known/oauth-authorization-server + protected-resource), so oauth_authorization_endpoint and oauth_token_endpoint are intentionally left null — clients discover them. The underlying Entra token endpoint is login.microsoftonline.com; the resource/discovery host is sentinel.microsoft.com. No static OAuth scopes are documented; access is governed by Entra RBAC (minimum \"Security reader\" role; triage collection enforces the user's existing permissions). No user-supplied API key/token is needed (sign-in flow), so credentials[] is empty.\n\nOther endpoints in the same Sentinel MCP server: data-exploration is at https://sentinel.microsoft.com/mcp/data-exploration (per the official microsoft/mcp catalog). The triage endpoint is the correct one for \"triage Defender XDR detections\". Triage is in PREVIEW per the application card.\n\nConstraints/limits: home-tenant only (no guest/delegated access), English-only, optimized for specific regions (AU, CA, EU, IN, JP, NO, SEA, CH, UK, US). Requires onboarding to the Defender portal / Sentinel data lake.\n\nNon-first-party alternatives exist but were NOT used as the spec basis: github.com/MenkW/Defender-MCP (local Node, dual Entra app-registration tokens) and github.com/markolauren/ResponseMCP (Azure Container Apps). These are community projects requiring a self-registered Entra app + client secret; ignore unless a self-hosted CUSTOM-auth variant is desired.",
+        "sources": [
+          "https://learn.microsoft.com/en-us/azure/sentinel/datalake/sentinel-mcp-get-started",
+          "https://learn.microsoft.com/en-us/azure/sentinel/datalake/sentinel-mcp-triage-tool",
+          "https://learn.microsoft.com/en-us/azure/sentinel/datalake/sentinel-mcp-use-tool-visual-studio-code",
+          "https://learn.microsoft.com/en-us/azure/sentinel/datalake/sentinel-mcp-application-card",
+          "https://github.com/microsoft/mcp"
+        ]
+      }
+    },
+    {
+      "slug": "wiz-mcp",
+      "docs": "https://docs.wiz.io/docs/set-up-wiz-mcp-server",
+      "provider_id": "wiz_mcp",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://mcp.app.wiz.io/",
+        "scopes": [],
+        "oauth_authorization_endpoint": null,
+        "oauth_token_endpoint": null,
+        "credentials": []
+      }
+    },
+    {
+      "slug": "greynoise-mcp",
+      "docs": "https://www.labs.greynoise.io/mcp/",
+      "connection_spec": {
+        "server_type": "stdio",
+        "auth_type": "CUSTOM",
+        "stdio_command": "npx",
+        "stdio_args": [
+          "@greynoise/greynoise-mcp-server"
+        ],
+        "stdio_env": [
+          "GREYNOISE_API_KEY"
+        ],
+        "packages": [
+          {
+            "manager": "npx",
+            "command": "npx",
+            "args": [
+              "@greynoise/greynoise-mcp-server"
+            ],
+            "package": "@greynoise/greynoise-mcp-server"
+          }
+        ],
+        "credentials": [
+          {
+            "key": "GREYNOISE_API_KEY",
+            "label": "GreyNoise Enterprise API Key",
+            "description": "GreyNoise Enterprise API key used to authenticate all calls to api.greynoise.io. Found in the GreyNoise account/visualizer under My Account > API Key. The MCP server requires an Enterprise-tier key (no community tier).",
+            "required": true,
+            "secret": true,
+            "target": "stdio_env"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Official first-party MCP server published by GreyNoise (GitHub org GreyNoise-Intelligence). Verified package on npm: @greynoise/greynoise-mcp-server v0.4.0, bin name \"gnapi\", build/index.js entrypoint. Default transport is stdio (matches intended STDIO); the server also supports an optional HTTP transport via --transport http but that requires installing Express separately and is not the canonical/default mode and exposes no hosted endpoint — there is NO vendor-hosted remote MCP URL. Auth is a single Enterprise API key passed via the GREYNOISE_API_KEY env var (the underlying API at api.greynoise.io uses key/header auth, not OAuth). Claude Desktop config uses command=npx, args=[\"@greynoise/greynoise-mcp-server\"], env GREYNOISE_API_KEY. Also distributed as an MCPB/DXT bundle for Claude Desktop (key stored in OS keychain), but npx is the canonical cross-client install. Not docker-only.",
+        "sources": [
+          "https://github.com/GreyNoise-Intelligence/greynoise-mcp-server",
+          "https://docs.greynoise.io/docs/mcp-server",
+          "https://registry.npmjs.org/@greynoise/greynoise-mcp-server"
+        ]
+      }
+    },
+    {
+      "slug": "feedly-mcp",
+      "docs": "https://docs.feedly.com/article/820-what-is-mcp-feedly",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://mcp.feedly.com/mcp",
+        "scopes": [],
+        "oauth_authorization_endpoint": null,
+        "oauth_token_endpoint": null,
+        "credentials": [],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Official Feedly \"Threat Graph\" MCP server is a remote/hosted HTTP server at https://mcp.feedly.com/mcp. Endpoints ending in /mcp are streamable-HTTP transport (not SSE). Setup per official docs: in Claude, Connectors > \"Add custom connector\", Name \"Feedly Threat Graph\", Server URL https://mcp.feedly.com/mcp, then \"Connect\" and authenticate with a Feedly Enterprise or Advanced account. This Connect + browser sign-in flow is the standard remote-MCP OAuth2 authorization-code flow; modern remote MCP servers advertise authorization/token endpoints via OAuth protected-resource / authorization-server discovery, so the explicit authorization_endpoint and token_endpoint are left null (resolved at runtime via .well-known discovery against mcp.feedly.com / feedly.com). No documented scopes. Requires a paid Feedly Enterprise or Advanced (CTI) account; there is no user-supplied API key/token in the documented Claude connector flow (auth is the OAuth sign-in). No npx/uvx/pip package and no Docker image — it is a vendor-hosted remote server only, so packages[] is empty and docker_only=false. NOTE: several third-party community Feedly MCP servers exist on GitHub (c0ffee0wl/feedly-mcp-server, hafnium49/mcp_server_feedly, shaojiejiang/feedly-mcp) that use a Feedly API token via stdio, but those are NOT first-party; the catalog slug describes curated threat-intel feeds which matches the official Feedly Threat Graph remote server.",
+        "sources": [
+          "https://docs.feedly.com/article/822-setting-up-the-feedly-mcp-server-in-claude",
+          "https://docs.feedly.com/category/819-mcp-server",
+          "https://feedly.com/new-features/posts/feedly-mcp-server-automate-cti-workflows-with-claude-and-the-feedly-threat-graph"
+        ]
+      }
+    },
+    {
+      "slug": "virustotal-mcp",
+      "docs": "https://google.github.io/mcp-security/servers/gti_mcp.html",
+      "connection_spec": {
+        "server_type": "stdio",
+        "auth_type": "CUSTOM",
+        "stdio_command": "uvx",
+        "stdio_args": [
+          "--from",
+          "gti-mcp",
+          "gti_mcp"
+        ],
+        "stdio_env": [
+          "VT_APIKEY",
+          "STATELESS"
+        ],
+        "packages": [
+          {
+            "manager": "uvx",
+            "command": "uvx",
+            "args": [
+              "--from",
+              "gti-mcp",
+              "gti_mcp"
+            ],
+            "package": "gti-mcp"
+          },
+          {
+            "manager": "pip",
+            "command": "python",
+            "args": [
+              "-m",
+              "gti_mcp.server"
+            ],
+            "package": "gti-mcp"
+          }
+        ],
+        "credentials": [
+          {
+            "key": "VT_APIKEY",
+            "label": "VirusTotal / Google Threat Intelligence API Key",
+            "description": "64-character hexadecimal VirusTotal (GTI) API key. Obtain from your VirusTotal account profile at virustotal.com. Required for all lookups.",
+            "required": true,
+            "secret": true,
+            "target": "stdio_env"
+          },
+          {
+            "key": "STATELESS",
+            "label": "Stateless mode",
+            "description": "Optional. Set to \"1\" to create a fresh transport per request without session persistence. Leave unset for normal stdio operation.",
+            "required": false,
+            "secret": false,
+            "target": "stdio_env"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "The official VirusTotal/Google Threat Intelligence MCP server is the \"gti\" server in Google's first-party monorepo google/mcp-security (maintained by the Google SecOps Team, chronicle@google.com). It matches our catalog description and intended STDIO transport: server.py runs with transport='stdio'.\n\nDistribution: published to PyPI as `gti-mcp` (v0.1.2, 2025-09-05). pyproject.toml defines a console script entry point `gti_mcp = \"gti_mcp.server:main\"` (also aliased as `gti-mcp`), so `uvx --from gti-mcp gti_mcp` is the canonical zero-install runner. pip install + `python -m gti_mcp.server` also works (module is gti_mcp, entry main()). The official README documents running from cloned source (`uv --directory server/gti/gti_mcp run server.py`), but the PyPI package is the cleaner supported path and uses the same entry point.\n\nAuth: CUSTOM. Requires VT_APIKEY (VirusTotal API key, 64-char hex) passed as an environment variable; server raises if missing. No OAuth. Optional STATELESS=1 env toggles per-request transport. No proxy/base-url env vars are read.\n\nNote: several third-party/unofficial VirusTotal MCP servers exist (e.g. npm @burtthecoder/mcp-virustotal, BurtTheCoder/mcp-virustotal; Python barvhaim/virustotal-mcp-server). These are NOT first-party; the catalog description specifically references Google Threat Intelligence, which is the google/mcp-security `gti` server selected here.",
+        "sources": [
+          "https://github.com/google/mcp-security",
+          "https://google.github.io/mcp-security/servers/gti_mcp.html",
+          "https://pypi.org/project/gti-mcp/",
+          "https://raw.githubusercontent.com/google/mcp-security/main/server/gti/README.md",
+          "https://raw.githubusercontent.com/google/mcp-security/main/server/gti/pyproject.toml",
+          "https://raw.githubusercontent.com/google/mcp-security/main/server/gti/gti_mcp/server.py"
+        ]
+      }
+    },
+    {
+      "slug": "microsoft-entra-id-mcp",
+      "docs": "https://learn.microsoft.com/en-us/graph/mcp-server/overview",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://mcp.svc.cloud.microsoft/enterprise",
+        "scopes": [
+          "api://e8c77dc2-69b3-43f4-bc51-3213c9d915b4/.default"
+        ],
+        "oauth_authorization_endpoint": "https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize",
+        "oauth_token_endpoint": "https://login.microsoftonline.com/organizations/oauth2/v2.0/token",
+        "credentials": [
+          {
+            "key": "client_id",
+            "label": "Microsoft Entra Application (client) ID",
+            "description": "Application (client) ID of the Microsoft Entra app registration configured for Microsoft MCP Server for Enterprise.",
+            "required": true,
+            "secret": false,
+            "target": "oauth_client"
+          },
+          {
+            "key": "client_secret",
+            "label": "Microsoft Entra client secret",
+            "description": "Optional confidential-client secret for the Entra app registration. Leave blank for public-client OAuth flows.",
+            "required": false,
+            "secret": true,
+            "target": "oauth_client"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Official first-party server is the \"Microsoft MCP Server for Enterprise\" (microsoft/EnterpriseMCP), a Microsoft-hosted remote streamable-HTTP MCP server. VS Code install config from Microsoft Learn explicitly states type=http and url=https://mcp.svc.cloud.microsoft/enterprise. It exposes microsoft_graph_suggest_queries, microsoft_graph_get, and microsoft_graph_list_properties to read users, groups, applications, devices, and policies in the Entra tenant via Microsoft Graph — matching the catalog description. Currently public PREVIEW.\n\nAuth: delegated OAuth2 (authorization-code / interactive sign-in) against Microsoft Entra ID (login.microsoftonline.com). The MCP server is a Microsoft-owned service identity (appId e8c77dc2-69b3-43f4-bc51-3213c9d915b4). IMPORTANT: Entra's authorization server does NOT support DCR (dynamic client registration) or CIMD, so a remote MCP client cannot auto-register. Instead, an Entra admin must (a) provision the server once per tenant via PowerShell (Grant-EntraBetaMCPServerPermission), and (b) register an Entra app as the OAuth client. Microsoft Copilot Studio docs list fixed organizations endpoints for this server: authorize https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize and token https://login.microsoftonline.com/organizations/oauth2/v2.0/token, with scope api://e8c77dc2-69b3-43f4-bc51-3213c9d915b4/.default. App-only/client-credentials flows are NOT supported — delegated only.\n\nNo npm/PyPI package and no local/stdio distribution — it is a hosted remote endpoint only, so packages[] and stdio_* are empty/null and docker_only=false. The user supplies an Entra Application (client) ID for the OAuth client; the actual access token is obtained interactively via browser sign-in. Several third-party community Entra/Graph MCP servers exist (e.g. hieuttmmo/entraid-mcp-server, ry-ops/microsoft-graph-mcp-server) but are not first-party and were not used.",
+        "sources": [
+          "https://learn.microsoft.com/en-us/graph/mcp-server/overview",
+          "https://learn.microsoft.com/en-us/graph/mcp-server/get-started",
+          "https://github.com/microsoft/EnterpriseMCP"
+        ]
+      }
+    },
+    {
+      "slug": "okta-mcp",
+      "docs": "https://github.com/okta/okta-mcp-server",
+      "connection_spec": {
+        "server_type": "stdio",
+        "auth_type": "CUSTOM",
+        "stdio_command": null,
+        "stdio_args": [],
+        "stdio_env": [
+          "OKTA_ORG_URL",
+          "OKTA_CLIENT_ID",
+          "OKTA_SCOPES",
+          "OKTA_PRIVATE_KEY",
+          "OKTA_KEY_ID",
+          "PYTHON_KEYRING_BACKEND"
+        ],
+        "packages": [],
+        "credentials": [
+          {
+            "key": "OKTA_ORG_URL",
+            "label": "Okta Org URL",
+            "description": "Your Okta tenant org URL, e.g. https://your-org.okta.com or https://integrator-1234567.okta.com.",
+            "required": true,
+            "secret": false,
+            "target": "stdio_env"
+          },
+          {
+            "key": "OKTA_CLIENT_ID",
+            "label": "Okta Client ID",
+            "description": "Client ID of the Okta OAuth app (API Services / native app) used by the MCP server.",
+            "required": true,
+            "secret": false,
+            "target": "stdio_env"
+          },
+          {
+            "key": "OKTA_SCOPES",
+            "label": "Okta Scopes",
+            "description": "Space-separated list of Okta API scopes granted to the app, e.g. 'okta.users.read okta.groups.read'. Determines which tools are enabled at startup.",
+            "required": true,
+            "secret": false,
+            "target": "stdio_env"
+          },
+          {
+            "key": "OKTA_PRIVATE_KEY",
+            "label": "Okta Private Key (PEM)",
+            "description": "RSA private key in PEM format (starts with -----BEGIN PRIVATE KEY-----). Required only for browserless Private Key JWT auth; omit for interactive Device Authorization Grant.",
+            "required": false,
+            "secret": true,
+            "target": "stdio_env"
+          },
+          {
+            "key": "OKTA_KEY_ID",
+            "label": "Okta Key ID (KID)",
+            "description": "Key ID (KID) associated with the private key. Required only for Private Key JWT auth.",
+            "required": false,
+            "secret": false,
+            "target": "stdio_env"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Official server is okta/okta-mcp-server (Python, built on Okta Python SDK), STDIO transport. There is NO match against our package allowlist: the only documented installs are (1) Docker (`docker run ... okta-mcp-server` built locally / via docker-compose) and (2) git clone + `uv sync` + run via `uv run --directory /path/to/okta-mcp-server okta-mcp-server`. No published PyPI/npm package and no `uvx`/`pip install <name>`/`npx` invocation is documented, so packages[] is empty and stdio_command/args/package are null. docker_only=false because a non-Docker uv path exists, but it is NOT a `uvx` one-shot — it requires a local checkout, which our installer cannot do automatically.\n\nAuth: classified CUSTOM because the user must supply Okta OAuth app config + credentials (OKTA_CLIENT_ID, OKTA_ORG_URL, OKTA_SCOPES, and for browserless use OKTA_PRIVATE_KEY + OKTA_KEY_ID). Underlying mechanism is OAuth2 against Okta itself: either Device Authorization Grant (interactive browser code flow; only needs org url/client id/scopes; tokens cached in keyring, requires PYTHON_KEYRING_BACKEND=keyrings.alt.file.PlaintextKeyring in Docker) or Private Key JWT (client-credentials-style, browserless, server-to-server; needs private key + key id). This is not a remote-MCP DCR sign-in, so OAUTH2 fields (grant_type/endpoints/hosts) are left null/empty. The OAuth endpoints would be the user's own Okta org domain (OKTA_ORG_URL), not a fixed vendor host.\n\nNote there are popular third-party servers (fctr-id/okta-mcp-server, kapilduraphe/okta-mcp-server) but okta/okta-mcp-server is the first-party official one.",
+        "sources": [
+          "https://github.com/okta/okta-mcp-server",
+          "https://raw.githubusercontent.com/okta/okta-mcp-server/main/README.md",
+          "https://developer.okta.com/docs/guides/start-mcp-server/main/",
+          "https://developer.okta.com/blog/2025/09/22/okta-mcp-server",
+          "https://developer.okta.com/docs/concepts/mcp-server/"
+        ]
+      }
+    },
+    {
+      "slug": "hashicorp-vault-mcp",
+      "docs": "https://github.com/hashicorp/vault-mcp-server",
+      "connection_spec": {
+        "server_type": "stdio",
+        "auth_type": "CUSTOM",
+        "stdio_command": null,
+        "stdio_args": [],
+        "stdio_env": [
+          "VAULT_ADDR",
+          "VAULT_TOKEN",
+          "VAULT_NAMESPACE"
+        ],
+        "packages": [],
+        "credentials": [
+          {
+            "key": "VAULT_ADDR",
+            "label": "Vault Server Address",
+            "description": "Base URL of the HashiCorp Vault server, e.g. http://127.0.0.1:8200. Defaults to http://127.0.0.1:8200 if unset.",
+            "required": true,
+            "secret": false,
+            "target": "stdio_env"
+          },
+          {
+            "key": "VAULT_TOKEN",
+            "label": "Vault Token",
+            "description": "Vault authentication token used to access mounts, KV secrets, and PKI. Passed via VAULT_TOKEN env var (or X-Vault-Token header in HTTP mode).",
+            "required": true,
+            "secret": true,
+            "target": "stdio_env"
+          },
+          {
+            "key": "VAULT_NAMESPACE",
+            "label": "Vault Namespace",
+            "description": "Optional Vault Enterprise/HCP namespace to scope operations.",
+            "required": false,
+            "secret": false,
+            "target": "stdio_env"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": true,
+        "research_notes": "Official server is hashicorp/vault-mcp-server (HashiCorp GitHub org), written in Go and currently in beta. It supports BOTH stdio (default) and streamable-HTTP transports. However, the ONLY official distributions are a Docker image (hashicorp/vault-mcp-server), a precompiled Go binary from releases.hashicorp.com/vault-mcp-server, and `go install github.com/hashicorp/vault-mcp-server/cmd/vault-mcp-server@latest`. There is NO npm/npx, PyPI/pip, uvx, or Node package, so packages[] is empty and docker_only=true per the constraint (command must be npx/uvx/python/python3/node).\n\nAlthough the intended catalog transport is HTTP, the HTTP (\"streamable-http\") mode is NOT a vendor-hosted remote MCP endpoint — it is a self-hosted local process. Default HTTP bind is 127.0.0.1:8080 with MCP path /mcp (full URL http://127.0.0.1:8080/mcp), and HashiCorp explicitly recommends running it locally only and not exposing it to the network. Because there is no fixed public/remote URL to publish, server_uri is left null and server_type is set to stdio (local process) with docker_only=true.\n\nAuth is CUSTOM (Vault native token), not OAuth. In stdio/Docker mode credentials come from env vars: VAULT_ADDR (default http://127.0.0.1:8200), VAULT_TOKEN (required), VAULT_NAMESPACE (optional). In HTTP mode the token can alternatively be passed per-request via the X-Vault-Token header (and X-Vault-Namespace). HTTP-mode-only config env vars (TRANSPORT_MODE/host/port, MCP_ENDPOINT, MCP_ALLOWED_ORIGINS, MCP_CORS_MODE, MCP_TLS_*, MCP_RATE_LIMIT_*) are server tuning, not user secrets, so they are excluded from credentials.",
+        "sources": [
+          "https://github.com/hashicorp/vault-mcp-server",
+          "https://raw.githubusercontent.com/hashicorp/vault-mcp-server/main/README.md",
+          "https://developer.hashicorp.com/vault/docs/mcp-server/deploy",
+          "https://developer.hashicorp.com/vault/docs/mcp-server/overview"
+        ]
+      }
+    },
+    {
+      "slug": "aws-mcp",
+      "docs": "https://docs.aws.amazon.com/agent-toolkit/latest/userguide/mcp-server.html",
+      "connection_spec": {
+        "server_type": "stdio",
+        "auth_type": "CUSTOM",
+        "stdio_command": "uvx",
+        "stdio_args": [
+          "mcp-proxy-for-aws@latest",
+          "https://aws-mcp.us-east-1.api.aws/mcp",
+          "--metadata",
+          "AWS_REGION=us-east-1"
+        ],
+        "stdio_env": [
+          "AWS_REGION",
+          "AWS_PROFILE",
+          "AWS_ACCESS_KEY_ID",
+          "AWS_SECRET_ACCESS_KEY",
+          "AWS_SESSION_TOKEN"
+        ],
+        "packages": [
+          {
+            "manager": "uvx",
+            "command": "uvx",
+            "args": [
+              "mcp-proxy-for-aws@latest",
+              "https://aws-mcp.us-east-1.api.aws/mcp",
+              "--metadata",
+              "AWS_REGION=us-east-1"
+            ],
+            "package": "mcp-proxy-for-aws"
+          },
+          {
+            "manager": "pip",
+            "command": "python",
+            "args": [
+              "-m",
+              "mcp_proxy_for_aws",
+              "https://aws-mcp.us-east-1.api.aws/mcp",
+              "--metadata",
+              "AWS_REGION=us-east-1"
+            ],
+            "package": "mcp-proxy-for-aws"
+          }
+        ],
+        "credentials": [
+          {
+            "key": "AWS_ACCESS_KEY_ID",
+            "label": "AWS Access Key ID",
+            "description": "AWS IAM access key ID. The mcp-proxy-for-aws reads credentials from the standard boto3 credential chain and signs requests to the managed AWS MCP Server with SigV4. Not required if using AWS_PROFILE or aws login (SSO).",
+            "required": false,
+            "secret": false,
+            "target": "stdio_env"
+          },
+          {
+            "key": "AWS_SECRET_ACCESS_KEY",
+            "label": "AWS Secret Access Key",
+            "description": "AWS IAM secret access key paired with the access key ID. Not required if using AWS_PROFILE or aws login (SSO).",
+            "required": false,
+            "secret": true,
+            "target": "stdio_env"
+          },
+          {
+            "key": "AWS_SESSION_TOKEN",
+            "label": "AWS Session Token",
+            "description": "Temporary session token for STS/SSO credentials. Optional; only needed for temporary credentials.",
+            "required": false,
+            "secret": true,
+            "target": "stdio_env"
+          },
+          {
+            "key": "AWS_PROFILE",
+            "label": "AWS Profile",
+            "description": "Named AWS CLI profile to source credentials from (~/.aws/config). Alternative to passing raw access keys.",
+            "required": false,
+            "secret": false,
+            "target": "stdio_env"
+          },
+          {
+            "key": "AWS_REGION",
+            "label": "AWS Region",
+            "description": "Default AWS region for operations the server performs. Passed via --metadata AWS_REGION=<region>. Defaults to us-east-1 if unset.",
+            "required": false,
+            "secret": false,
+            "target": "stdio_env"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "The catalog description (\"Call any of 15,000+ AWS APIs via the official AWS MCP server\") and \"HTTP\" intended transport map to the managed remote AWS MCP Server (GA May 2026), exposing tools like aws___call_aws. The remote endpoint is a SigV4-authenticated streamable-HTTP service at https://aws-mcp.us-east-1.api.aws/mcp (also https://aws-mcp.eu-central-1.api.aws/mcp). However, the endpoint uses AWS IAM SigV4, NOT OAuth, so it is NOT directly connectable as a plain remote MCP URL by an OAuth/header-token client. AWS's official and only documented connection method is the local stdio proxy 'mcp-proxy-for-aws' (run via uvx), which translates MCP traffic into SigV4-signed requests using the standard boto3 credential chain. Hence server_type is reported as stdio with the canonical uvx command; the remote URL is recorded in server_uri and the proxy args. auth_type=CUSTOM because the user supplies AWS IAM credentials (access key/secret/session token or a named profile, or 'aws login' SSO) — there is no user-facing OAuth flow. Optional proxy flags: --read-only (disable write tools), --profile, --region, --skip-auth. pip install option exists (pip install mcp-proxy-for-aws); a public ECR Docker image also exists but is not used since uvx/pip cover it. The endpoint Region (in the URL) is independent of the AWS_REGION metadata (default region for operations). Requires AWS CLI v2.32.0+ for the 'aws login' flow.",
+        "sources": [
+          "https://aws.amazon.com/blogs/aws/the-aws-mcp-server-is-now-generally-available/",
+          "https://docs.aws.amazon.com/aws-mcp/latest/userguide/getting-started-aws-mcp-server.html",
+          "https://docs.aws.amazon.com/aws-mcp/latest/userguide/understanding-mcp-server-tools.html",
+          "https://github.com/aws/mcp-proxy-for-aws",
+          "https://pypi.org/project/mcp-proxy-for-aws/"
+        ]
+      }
+    },
+    {
+      "slug": "cloudflare-mcp",
+      "docs": "https://developers.cloudflare.com/agents/model-context-protocol/mcp-servers-for-cloudflare/",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://mcp.cloudflare.com/mcp",
+        "scopes": [],
+        "oauth_authorization_endpoint": null,
+        "oauth_token_endpoint": null,
+        "credentials": [],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Cloudflare's primary general-purpose remote MCP server is https://mcp.cloudflare.com/mcp (the \"Code Mode\" server in the cloudflare/mcp repo), exposing ~2,500 Cloudflare API endpoints (DNS, Workers, R2, WAF, Zero Trust, etc.) via two tools (search/execute). This matches the catalog's intended HTTP transport and \"edge, DNS, WAF, Zero Trust\" description. Transport is streamable-http at the /mcp path (an /sse path also exists but is deprecated).\n\nAuth: recommended path is OAuth 2.1 sign-in — connecting to the URL redirects the user to Cloudflare (dash.cloudflare.com) to authorize and select permissions. Built on Cloudflare's workers-oauth-provider, which exposes /authorize, /token, and /register endpoints — i.e. supports Dynamic Client Registration (DCR) and advertises endpoints via standard remote-MCP /.well-known discovery, so oauth_authorization_endpoint/token_endpoint are left null (client discovers them). Grant type is authorization_code. Scopes are user-selected interactively during the consent/permission step and are not a fixed documented list, so scopes is left empty.\n\nAlternative auth (not the primary catalog transport): for CI/CD the server also accepts a Cloudflare API token passed as a Bearer token (Authorization: Bearer <token>). If we wanted to model the API-token path instead, auth_type would be CUSTOM with a single secret credential \"Authorization\" (Cloudflare API token). Given the intended transport is the hosted HTTP/OAuth experience, OAUTH2 is the correct primary spec.\n\nCloudflare also runs many product-specific remote servers (docs.mcp.cloudflare.com, bindings.mcp.cloudflare.com, observability.mcp.cloudflare.com, radar.mcp.cloudflare.com, logs.mcp.cloudflare.com, casb.mcp.cloudflare.com, dex.mcp.cloudflare.com, graphql.mcp.cloudflare.com, etc.), all same OAuth pattern; mcp.cloudflare.com/mcp is the all-in-one. No official local stdio/npx/uvx/pip distribution of the hosted server — it is remote-hosted only, so packages[] is empty and docker_only is false.",
+        "sources": [
+          "https://developers.cloudflare.com/agents/model-context-protocol/mcp-servers-for-cloudflare/",
+          "https://github.com/cloudflare/mcp",
+          "https://developers.cloudflare.com/agents/model-context-protocol/authorization/",
+          "https://developers.cloudflare.com/agents/model-context-protocol/transport/"
+        ]
+      }
+    },
+    {
+      "slug": "zscaler-mcp",
+      "docs": "https://github.com/zscaler/zscaler-mcp-server",
+      "connection_spec": {
+        "server_type": "stdio",
+        "auth_type": "CUSTOM",
+        "stdio_command": "uvx",
+        "stdio_args": [
+          "zscaler-mcp"
+        ],
+        "stdio_env": [
+          "ZSCALER_CLIENT_ID",
+          "ZSCALER_CLIENT_SECRET",
+          "ZSCALER_PRIVATE_KEY",
+          "ZSCALER_VANITY_DOMAIN",
+          "ZSCALER_CUSTOMER_ID",
+          "ZSCALER_CLOUD"
+        ],
+        "packages": [
+          {
+            "manager": "uvx",
+            "command": "uvx",
+            "args": [
+              "zscaler-mcp"
+            ],
+            "package": "zscaler-mcp"
+          },
+          {
+            "manager": "pip",
+            "command": "python",
+            "args": [
+              "-m",
+              "zscaler_mcp"
+            ],
+            "package": "zscaler-mcp"
+          }
+        ],
+        "credentials": [
+          {
+            "key": "ZSCALER_CLIENT_ID",
+            "label": "Zscaler OneAPI Client ID",
+            "description": "OAuth2 client ID from the Zscaler OneAPI (ZIdentity) API client. Required for OneAPI authentication.",
+            "required": true,
+            "secret": false,
+            "target": "stdio_env"
+          },
+          {
+            "key": "ZSCALER_CLIENT_SECRET",
+            "label": "Zscaler OneAPI Client Secret",
+            "description": "OAuth2 client secret for the OneAPI client. Required unless using ZSCALER_PRIVATE_KEY (JWT) instead.",
+            "required": false,
+            "secret": true,
+            "target": "stdio_env"
+          },
+          {
+            "key": "ZSCALER_PRIVATE_KEY",
+            "label": "Zscaler OneAPI Private Key (PEM)",
+            "description": "PEM-encoded private key used for JWT client-assertion auth as an alternative to ZSCALER_CLIENT_SECRET.",
+            "required": false,
+            "secret": true,
+            "target": "stdio_env"
+          },
+          {
+            "key": "ZSCALER_VANITY_DOMAIN",
+            "label": "Zscaler Vanity Domain",
+            "description": "Organization vanity domain used to resolve the ZIdentity/OneAPI token endpoint.",
+            "required": true,
+            "secret": false,
+            "target": "stdio_env"
+          },
+          {
+            "key": "ZSCALER_CUSTOMER_ID",
+            "label": "Zscaler Customer ID",
+            "description": "ZPA customer/tenant ID. Required for ZPA tools; optional for other services.",
+            "required": false,
+            "secret": false,
+            "target": "stdio_env"
+          },
+          {
+            "key": "ZSCALER_CLOUD",
+            "label": "Zscaler Cloud",
+            "description": "Cloud environment override (e.g. 'beta'). Optional; defaults to production.",
+            "required": false,
+            "secret": false,
+            "target": "stdio_env"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Official server: github.com/zscaler/zscaler-mcp-server; PyPI package `zscaler-mcp` (v0.12.3, MIT, alpha), console script `zscaler-mcp`, Python 3.11+. Canonical/recommended install is `uvx zscaler-mcp`; the docs MCP client config uses `command: uvx, args: [\"--env-file\", \"/path/.env\", \"zscaler-mcp\"]`. STDIO is the default transport (matches intended); the server can ALSO run as a remote HTTP server via `--transport streamable-http`/`sse` (default host 127.0.0.1:8000, path /mcp), but that is a self-hosted deployment with no fixed public URL, so server_uri is null.\n\nAuth: classified CUSTOM because the user supplies OneAPI credentials (client_id + client_secret, or a PEM private key for JWT, plus vanity domain and ZPA customer_id) as env vars. Under the hood the server performs a OneAPI OAuth2 client-credentials grant against the Zscaler ZIdentity token endpoint, but there is no interactive authorization-code/DCR browser flow for the MCP connection itself, so this is not OAUTH2 from a connection-spec perspective. (Separately, the HTTP transport offers optional Layer-2 MCP client auth modes — api-key/JWT/zscaler/OAuth 2.1 via ZSCALER_MCP_AUTH_* — but those gate the HTTP listener, not the STDIO upstream auth.)\n\npip package import module is `zscaler_mcp` (underscore); pip run shown as `python -m zscaler_mcp` though the primary entry point is the `zscaler-mcp` console script. Either ZSCALER_CLIENT_SECRET or ZSCALER_PRIVATE_KEY is required (one of the two). Docker image `zscaler/zscaler-mcp-server:latest` also exists but is not the only distribution, so docker_only=false.",
+        "sources": [
+          "https://github.com/zscaler/zscaler-mcp-server",
+          "https://github.com/zscaler/zscaler-mcp-server/blob/master/README.md",
+          "https://zscaler-mcp-server.readthedocs.io/en/latest/getting-started.html",
+          "https://pypi.org/project/zscaler-mcp/"
+        ]
+      }
+    },
+    {
+      "slug": "palo-alto-mcp",
+      "docs": "https://docs-cortex.paloaltonetworks.com/r/Cortex-XSIAM/Cortex-XSIAM-Enterprise-Documentation/Cortex-MCP-server",
+      "connection_spec": {
+        "server_type": "stdio",
+        "auth_type": "CUSTOM",
+        "stdio_command": null,
+        "stdio_args": [],
+        "stdio_env": [
+          "CORTEX_MCP_PAPI_URL",
+          "CORTEX_MCP_PAPI_AUTH_HEADER",
+          "CORTEX_MCP_PAPI_AUTH_ID"
+        ],
+        "packages": [],
+        "credentials": [
+          {
+            "key": "CORTEX_MCP_PAPI_URL",
+            "label": "Cortex Tenant API URL",
+            "description": "The Cortex (XSIAM/XDR) tenant API base URL for your tenant, e.g. https://api-<tenant>.xdr.<region>.paloaltonetworks.com. Used as CORTEX_MCP_PAPI_URL.",
+            "required": true,
+            "secret": false,
+            "target": "stdio_env"
+          },
+          {
+            "key": "CORTEX_MCP_PAPI_AUTH_HEADER",
+            "label": "Cortex API Key",
+            "description": "The Cortex API key secret generated under Settings > Configurations > API Keys. Passed as the Authorization header value via CORTEX_MCP_PAPI_AUTH_HEADER.",
+            "required": true,
+            "secret": true,
+            "target": "stdio_env"
+          },
+          {
+            "key": "CORTEX_MCP_PAPI_AUTH_ID",
+            "label": "Cortex API Key ID",
+            "description": "The numeric ID associated with the Cortex API key (the x-xdr-auth-id). Passed via CORTEX_MCP_PAPI_AUTH_ID.",
+            "required": true,
+            "secret": false,
+            "target": "stdio_env"
+          }
+        ],
+        "confidence": "medium",
+        "docker_only": true,
+        "research_notes": "The official Palo Alto Networks \"Cortex MCP server\" (open beta as of late 2025) covers Cortex XSIAM and Cortex XDR. It is distributed ONLY as a Docker image and runs locally, so the real transport is stdio, NOT the HTTP transport intended in our catalog. Our environment does not support docker/bunx/deno launchers, hence docker_only=true and stdio_command/args/package left null; there is no official npx/uvx/pip package from Palo Alto Networks.\n\nOfficial install per Palo Alto docs/LIVEcommunity runs: `docker run --env-file ./cortex-xdr.env -it cortex-mcp` (image built/pulled per Palo Alto's docs at docs-cortex.paloaltonetworks.com under \"Install the Cortex MCP server\" / \"Configure the MCP client\"). Auth is CUSTOM (Cortex API key + key ID), not OAuth. The three env vars are CORTEX_MCP_PAPI_URL (tenant API URL), CORTEX_MCP_PAPI_AUTH_HEADER (API key secret), and CORTEX_MCP_PAPI_AUTH_ID (numeric API key ID / x-xdr-auth-id).\n\nConfidence is medium, not high: the docs-cortex.paloaltonetworks.com pages are JavaScript-rendered and returned truncated content to the fetcher, so exact image registry path/tag and the precise env var semantics were corroborated from the official PANW blog + LIVEcommunity thread + search snippets of the official docs rather than a fully-read install page. The exact tenant-URL format for CORTEX_MCP_PAPI_URL should be verified against the user's tenant.\n\nCAUTION on confusable sources: search engines heavily conflate this with unrelated \"Cortex\" projects that are NOT Palo Alto — cortexapps/cortex-mcp and mcp.cortex.io (Cortex.io internal developer portal), Snowflake Cortex Agents MCP, and gbrigandi/mcp-server-cortex (TheHive Cortex analyzer). Those use CORTEX_API_TOKEN / mcp.cortex.io and must NOT be used for Palo Alto Networks. Values above are sourced only from paloaltonetworks.com / docs-cortex.paloaltonetworks.com.",
+        "sources": [
+          "https://www.paloaltonetworks.com/blog/security-operations/introducing-the-cortex-mcp-server/",
+          "https://docs-cortex.paloaltonetworks.com/r/Cortex-XDR/Cortex-XDR-5.x-Documentation/Cortex-MCP-server-overview",
+          "https://docs-cortex.paloaltonetworks.com/r/Cortex-XSIAM/Cortex-XSIAM-Enterprise-Documentation/Install-the-Cortex-MCP-server",
+          "https://docs-cortex.paloaltonetworks.com/r/Cortex-CLOUD/Cortex-Cloud-Runtime-Security-Documentation/Cortex-MCP-server",
+          "https://live.paloaltonetworks.com/t5/cortex-xdr-discussions/try-to-install-the-cortex-mcp-server/td-p/1250623"
+        ]
+      }
+    },
+    {
+      "slug": "sixtyfour-mcp",
+      "docs": "https://docs.sixtyfour.ai/developer-tools/mcp-setup",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "CUSTOM",
+        "server_uri": "https://mcp.sixtyfour.ai/mcp",
+        "credentials": [
+          {
+            "key": "api_key",
+            "label": "Sixtyfour API Key",
+            "description": "Sixtyfour API key. For the Filter Search MCP server it is passed as a query-string parameter on the endpoint URL (https://mcp.sixtyfour.ai/mcp?api_key=YOUR_API_KEY). It is the same key used as the x-api-key header for the Sixtyfour REST API. Generate it from the Sixtyfour dashboard.",
+            "required": true,
+            "secret": true,
+            "target": "http_header"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Our catalog assumed STDIO, but Sixtyfour's official MCP offering is HTTP (streamable HTTP), per their official docs at docs.sixtyfour.ai/developer-tools/mcp-setup. There is NO STDIO/npx/uvx/pip/docker package distribution.\n\nSixtyfour actually publishes TWO remote MCP servers:\n1. Documentation MCP - https://docs.sixtyfour.ai/mcp - NO auth required (answers questions about the API/docs).\n2. Filter Search MCP - https://mcp.sixtyfour.ai/mcp?api_key=YOUR_API_KEY - requires an API key, used for company filter searches that chain into enrichment (enrich_company / enrich_lead). This is the functional server matching the catalog description 'enrich people and companies', so it is the one specified here as server_uri.\n\nAuth note: The API key is passed as a QUERY-STRING parameter (?api_key=...) on the endpoint URL, not as a header. This is unusual; if our connector model only supports headers, the key may need to be appended to the URL instead. It is the same API key used as the x-api-key header on the Sixtyfour REST API (https://docs.sixtyfour.ai). No OAuth flow is involved.\n\nOfficial Claude Code install commands from the docs:\n  claude mcp add --transport http sixtyfour-docs \"https://docs.sixtyfour.ai/mcp\"\n  claude mcp add --transport http sixtyfour-filter-search \"https://mcp.sixtyfour.ai/mcp?api_key=YOUR_API_KEY\"\n\nConfidence high: values taken directly from Sixtyfour's first-party documentation page that I read.",
+        "sources": [
+          "https://docs.sixtyfour.ai/developer-tools/mcp-setup.md",
+          "https://docs.sixtyfour.ai/llms.txt",
+          "https://www.sixtyfour.ai/blog/build-smarter-gtm-pipelines-with-sixtyfour-s-mcp-integration",
+          "https://docs.sixtyfour.ai/introduction"
+        ]
+      }
+    },
+    {
+      "slug": "linear-mcp",
+      "docs": "https://linear.app/docs/mcp",
+      "provider_id": "linear_mcp",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://mcp.linear.app/mcp",
+        "scopes": [],
+        "oauth_authorization_endpoint": null,
+        "oauth_token_endpoint": null,
+        "credentials": []
+      }
+    },
+    {
+      "slug": "atlassian-mcp",
+      "docs": "https://support.atlassian.com/atlassian-rovo-mcp-server/docs/getting-started-with-the-atlassian-remote-mcp-server/",
+      "provider_id": "jira_mcp",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://mcp.atlassian.com/v1/mcp/authv2",
+        "scopes": [],
+        "oauth_authorization_endpoint": null,
+        "oauth_token_endpoint": null,
+        "credentials": [],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Official Atlassian Rovo (Remote) MCP Server. Intended transport HTTP confirmed: it is a cloud-hosted remote streamable-HTTP MCP server, no local install required. Canonical endpoint per Atlassian IDE setup docs is https://mcp.atlassian.com/v1/mcp/authv2 (the modern authv2 path). The bare https://mcp.atlassian.com/v1/mcp also works; the legacy SSE endpoint https://mcp.atlassian.com/v1/sse is deprecated after 2026-06-30. Auth is OAuth 2.1 with a browser sign-in flow; if the client supports dynamic client registration (DCR) no OAuth app needs to be created (the server handles authorization). Authorization/token endpoints are advertised via OAuth discovery (well-known metadata), so they are left null here. OAuth flow touches mcp.atlassian.com and Atlassian's identity host auth.atlassian.com (browser redirect). Scopes are granted/managed by Atlassian per site permissions and are not enumerated as explicit user-supplied scope strings in the docs, so left empty. No user-supplied credential needed for the OAuth path (browser sign-in). Atlassian also offers an API-token path for headless clients (admin must enable it), but the primary documented flow is OAuth 2.1, matching auth_type=OAUTH2. For non-OAuth-native clients, Atlassian documents using the mcp-remote bridge: npx -y mcp-remote@latest https://mcp.atlassian.com/v1/mcp/authv2 — but this is a client-side adapter, not the MCP server itself, so the server remains http and no stdio package is recorded.",
+        "sources": [
+          "https://github.com/atlassian/atlassian-mcp-server",
+          "https://support.atlassian.com/atlassian-rovo-mcp-server/docs/setting-up-ides/",
+          "https://support.atlassian.com/atlassian-rovo-mcp-server/docs/getting-started-with-the-atlassian-remote-mcp-server/",
+          "https://www.atlassian.com/platform/remote-mcp-server"
+        ]
+      }
+    },
+    {
+      "slug": "servicenow-mcp",
+      "docs": "https://www.servicenow.com/docs/r/zurich/intelligent-experiences/mcp-platform-manager-landing.html",
+      "connection_spec": {
+        "server_type": "stdio",
+        "auth_type": "CUSTOM",
+        "stdio_command": "uvx",
+        "stdio_args": [
+          "servicenow-mcp"
+        ],
+        "stdio_env": [
+          "SERVICENOW_INSTANCE_URL",
+          "SERVICENOW_AUTH_TYPE",
+          "SERVICENOW_USERNAME",
+          "SERVICENOW_PASSWORD",
+          "SERVICENOW_CLIENT_ID",
+          "SERVICENOW_CLIENT_SECRET",
+          "SERVICENOW_TOKEN_URL",
+          "SERVICENOW_API_KEY",
+          "MCP_TOOL_PACKAGE"
+        ],
+        "packages": [
+          {
+            "manager": "uvx",
+            "command": "uvx",
+            "args": [
+              "servicenow-mcp"
+            ],
+            "package": "servicenow-mcp"
+          },
+          {
+            "manager": "pip",
+            "command": "python",
+            "args": [
+              "-m",
+              "servicenow_mcp.cli"
+            ],
+            "package": "servicenow-mcp"
+          }
+        ],
+        "credentials": [
+          {
+            "key": "SERVICENOW_INSTANCE_URL",
+            "label": "ServiceNow Instance URL",
+            "description": "Base URL of your ServiceNow instance, e.g. https://your-instance.service-now.com",
+            "required": true,
+            "secret": false,
+            "target": "stdio_env"
+          },
+          {
+            "key": "SERVICENOW_AUTH_TYPE",
+            "label": "Auth Type",
+            "description": "Authentication method: 'basic', 'oauth', or 'api_key'. Defaults to basic in the docs.",
+            "required": true,
+            "secret": false,
+            "target": "stdio_env"
+          },
+          {
+            "key": "SERVICENOW_USERNAME",
+            "label": "ServiceNow Username",
+            "description": "Username for basic authentication (auth_type=basic).",
+            "required": false,
+            "secret": false,
+            "target": "stdio_env"
+          },
+          {
+            "key": "SERVICENOW_PASSWORD",
+            "label": "ServiceNow Password",
+            "description": "Password for basic authentication (auth_type=basic).",
+            "required": false,
+            "secret": true,
+            "target": "stdio_env"
+          },
+          {
+            "key": "SERVICENOW_CLIENT_ID",
+            "label": "OAuth Client ID",
+            "description": "OAuth application client ID from System OAuth > Application Registry (auth_type=oauth).",
+            "required": false,
+            "secret": false,
+            "target": "stdio_env"
+          },
+          {
+            "key": "SERVICENOW_CLIENT_SECRET",
+            "label": "OAuth Client Secret",
+            "description": "OAuth application client secret (auth_type=oauth).",
+            "required": false,
+            "secret": true,
+            "target": "stdio_env"
+          },
+          {
+            "key": "SERVICENOW_TOKEN_URL",
+            "label": "OAuth Token URL",
+            "description": "OAuth token endpoint, e.g. https://your-instance.service-now.com/oauth_token.do (auth_type=oauth).",
+            "required": false,
+            "secret": false,
+            "target": "stdio_env"
+          },
+          {
+            "key": "SERVICENOW_API_KEY",
+            "label": "ServiceNow API Key",
+            "description": "API key for api_key authentication (auth_type=api_key).",
+            "required": false,
+            "secret": true,
+            "target": "stdio_env"
+          },
+          {
+            "key": "MCP_TOOL_PACKAGE",
+            "label": "Tool Package",
+            "description": "Optional. Loads a specific subset of tools (e.g. 'catalog_builder', 'service_desk').",
+            "required": false,
+            "secret": false,
+            "target": "stdio_env"
+          }
+        ],
+        "confidence": "medium",
+        "docker_only": false,
+        "research_notes": "PROVENANCE/DISCREPANCY: The catalog slug `servicenow-mcp` exactly matches the community Python package `servicenow-mcp` (repo github.com/osomai/servicenow-mcp, aka echelon-ai-labs/servicenow-mcp), published to PyPI as `servicenow-mcp` v0.1.1 (\"MCP for ServiceNow\", requires Python >=3.12). This is a THIRD-PARTY server, not first-party ServiceNow. It talks to a ServiceNow instance via the REST API and supports three user-supplied auth modes (basic username/password [default], oauth client-credentials-style with client id/secret/token URL, api_key) — hence auth_type=CUSTOM, not the platform's OAuth 2.1 browser flow.\n\nThe catalog DESCRIPTION (\"via the Zurich MCP server\", HTTP) instead refers to ServiceNow's NATIVE Zurich-release MCP feature (MCP Server Console / AI Agent Studio), which uses Streamable HTTP + OAuth 2.1 with PKCE. That native feature is NOT a downloadable/installable package — it is a per-instance, governed endpoint configured inside the customer's ServiceNow tenant (no fixed public MCP URL; the docs are JS-rendered and could not be fully read). If Tracecat actually wants the first-party Zurich endpoint, this spec is the wrong artifact and should be revisited: it would be server_type=http, auth_type=OAUTH2 (authorization_code + PKCE, likely DCR/discovery), with a per-instance server_uri the user provides — not the community package below.\n\nTRANSPORT: The osomai package ships as stdio (entry point `servicenow-mcp` -> servicenow_mcp.cli:main) and self-hosted SSE (entry point `servicenow-mcp-sse` -> servicenow_mcp.server_sse:main, binds 0.0.0.0:8080 /sse). There is no vendor-hosted HTTP endpoint, so I selected stdio as the real transport (server_uri left null). For SSE you would self-host `uvx --from servicenow-mcp servicenow-mcp-sse`. uvx works because the PyPI dist defines console_scripts; `python -m servicenow_mcp.cli` is the documented from-source alternative. Confidence MEDIUM: package name/version/entry points/env vars verified on PyPI and the repo README, but the stdio-vs-Zurich-HTTP intent conflict and the per-instance OAuth specifics for the native option are unresolved.",
+        "sources": [
+          "https://github.com/osomai/servicenow-mcp",
+          "https://raw.githubusercontent.com/osomai/servicenow-mcp/main/README.md",
+          "https://github.com/osomai/servicenow-mcp/blob/main/pyproject.toml",
+          "https://pypi.org/pypi/servicenow-mcp/json",
+          "https://www.servicenow.com/docs/bundle/zurich-intelligent-experiences/page/administer/model-context-protocol-client/task/add-an-oauth-2-1-mcp-server.html",
+          "https://mcpservers.org/servers/osomai/servicenow-mcp"
+        ]
+      }
+    },
+    {
+      "slug": "incident-io-mcp",
+      "docs": "https://docs.incident.io/ai/remote-mcp",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://mcp.incident.io/mcp",
+        "scopes": [],
+        "oauth_authorization_endpoint": "https://app.incident.io/auth/plugin/authorize",
+        "oauth_token_endpoint": "https://app.incident.io/auth/plugin/token",
+        "credentials": [
+          {
+            "key": "Authorization",
+            "label": "incident.io API Key (Bearer token)",
+            "description": "Optional alternative to OAuth for programmatic/automation access. Create an API key in the incident.io dashboard under Settings -> API keys with the scopes you need, then pass it as 'Authorization: Bearer <api-key>'. API keys authenticate as a service actor and do not expire until deleted. Not required when using the interactive OAuth2 browser flow.",
+            "required": false,
+            "secret": true,
+            "target": "http_header"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Official, hosted remote MCP server by incident.io (Public Beta), confirmed via official docs at docs.incident.io/ai/remote-mcp. Transport is HTTP (streamable) at https://mcp.incident.io/mcp; example: `claude mcp add incident-io --transport http https://mcp.incident.io/mcp`. Two auth modes: (1) OAuth2 authorization-code browser flow for human/interactive clients (Claude, ChatGPT, Cursor) — the MCP client handles the flow and users approve in browser. Discovery metadata on mcp.incident.io advertises authorization/token endpoints on the sibling host app.incident.io (verified live), so those endpoints are pinned here to mark app.incident.io trusted during discovery; the live discovered endpoints are still what gets used. (2) API key passed as `Authorization: Bearer <key>` for programmatic agents/automation. I set auth_type=OAUTH2 as the primary mode matching the interactive intended use, and captured the API-key option as an optional credential. No OAuth scopes are documented for the OAuth flow (API-key scopes are configured per-key in the dashboard but are not MCP OAuth scopes). OAuth endpoints are discovered from the MCP metadata chain; exact auth hostname beyond 'redirected to incident.io' is not enumerated verbatim in docs. A separate unofficial Golang local/stdio prototype exists (github.com/incident-io/incidentio-mcp-golang) but it is explicitly an early prototype and not the official transport, so it is excluded.",
+        "sources": [
+          "https://docs.incident.io/ai/remote-mcp",
+          "https://incident.io/changelog/introducing-incident-io-mcp"
+        ]
+      }
+    },
+    {
+      "slug": "pagerduty-mcp",
+      "docs": "https://github.com/PagerDuty/pagerduty-mcp-server",
+      "connection_spec": {
+        "server_type": "stdio",
+        "auth_type": "CUSTOM",
+        "stdio_command": "uvx",
+        "stdio_args": [
+          "pagerduty-mcp"
+        ],
+        "stdio_env": [
+          "PAGERDUTY_USER_API_KEY",
+          "PAGERDUTY_API_HOST"
+        ],
+        "packages": [
+          {
+            "manager": "uvx",
+            "command": "uvx",
+            "args": [
+              "pagerduty-mcp"
+            ],
+            "package": "pagerduty-mcp"
+          },
+          {
+            "manager": "pip",
+            "command": "python",
+            "args": [
+              "-m",
+              "pagerduty_mcp"
+            ],
+            "package": "pagerduty-mcp"
+          }
+        ],
+        "credentials": [
+          {
+            "key": "PAGERDUTY_USER_API_KEY",
+            "label": "PagerDuty User API Token",
+            "description": "PagerDuty User API token (REST API key) created from your PagerDuty account under User Settings > API Access / Create API User Token. Used as a bearer token for all PagerDuty API calls.",
+            "required": true,
+            "secret": true,
+            "target": "stdio_env"
+          },
+          {
+            "key": "PAGERDUTY_API_HOST",
+            "label": "PagerDuty API Host",
+            "description": "Optional API base URL. Defaults to https://api.pagerduty.com. Set to https://api.eu.pagerduty.com for EU-region PagerDuty accounts.",
+            "required": false,
+            "secret": false,
+            "target": "stdio_env"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Official server is PagerDuty/pagerduty-mcp-server (GitHub), distributed on PyPI as package name `pagerduty-mcp` (NOT `pagerduty-mcp-server`; that PyPI name is a separate third-party project by wpfleger96 and should not be used). Transport is STDIO only — no HTTP/remote endpoint and no OAuth flow; matches intended STDIO transport. Auth = PagerDuty User API Token via PAGERDUTY_USER_API_KEY env var (CUSTOM). Canonical launch is `uvx pagerduty-mcp`. The server defaults to read-only tools; write tools require an explicit `--enable-write-tools` flag which I omitted from args to keep the read-only scope described in the catalog (read incidents, schedules, services, on-call). pip-install path runs via `python -m pagerduty_mcp` (module name uses underscore). Official Docker image also exists but is not the only distribution, so docker_only=false. Module entry point name (pagerduty_mcp) confirmed from README local-dev command `python -m pagerduty_mcp`.",
+        "sources": [
+          "https://github.com/PagerDuty/pagerduty-mcp-server",
+          "https://raw.githubusercontent.com/PagerDuty/pagerduty-mcp-server/main/README.md",
+          "https://pypi.org/project/pagerduty-mcp/"
+        ]
+      }
+    },
+    {
+      "slug": "rootly-mcp",
+      "docs": "https://github.com/Rootly-AI-Labs/Rootly-MCP-server",
+      "connection_spec": {
+        "server_type": "stdio",
+        "auth_type": "CUSTOM",
+        "stdio_command": "uvx",
+        "stdio_args": [
+          "--from",
+          "rootly-mcp-server",
+          "rootly-mcp-server"
+        ],
+        "stdio_env": [
+          "ROOTLY_API_TOKEN",
+          "ROOTLY_MCP_ENABLE_WRITE_TOOLS",
+          "ROOTLY_MCP_ENABLED_TOOLS"
+        ],
+        "packages": [
+          {
+            "manager": "uvx",
+            "command": "uvx",
+            "args": [
+              "--from",
+              "rootly-mcp-server",
+              "rootly-mcp-server"
+            ],
+            "package": "rootly-mcp-server"
+          },
+          {
+            "manager": "pip",
+            "command": "python",
+            "args": [
+              "-m",
+              "rootly_mcp_server"
+            ],
+            "package": "rootly-mcp-server"
+          }
+        ],
+        "credentials": [
+          {
+            "key": "ROOTLY_API_TOKEN",
+            "label": "Rootly API Token",
+            "description": "Rootly API key generated in Account > Manage API keys > Generate New API Key. Can be Global, Team, or Personal scope. Passed to the local STDIO process as an environment variable.",
+            "required": true,
+            "secret": true,
+            "target": "stdio_env"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Official MCP server is from Rootly AI Labs (Apache 2.0). Rootly offers BOTH transports: (1) STDIO local process via the rootly-mcp-server PyPI package, run with `uvx --from rootly-mcp-server rootly-mcp-server`, authenticated with the ROOTLY_API_TOKEN env var (CUSTOM auth, personal/team/global API key). This matches the intended STDIO transport, so it is the selected spec. (2) A hosted remote HTTP server at https://mcp.rootly.com/mcp (streamable HTTP), with SSE at https://mcp.rootly.com/sse and a code-mode variant at https://mcp.rootly.com/mcp-codemode. The hosted endpoint supports OAuth2 browser sign-in (automatic for Claude Desktop/Code/Cursor) OR a Bearer API token header. If you instead want the HTTP variant, server_type=http, server_uri=https://mcp.rootly.com/mcp, auth_type=OAUTH2 (grant=authorization_code, allowed host mcp.rootly.com, endpoints advertised via discovery) or CUSTOM with Authorization: Bearer <ROOTLY_API_TOKEN>. Requires Python 3.12+. The pip-based package entrypoint (python -m rootly_mcp_server) is inferred from the PyPI module name and was not explicitly documented; the canonical/documented install is uvx. ROOTLY_MCP_ENABLE_WRITE_TOOLS (toggle write ops) and ROOTLY_MCP_ENABLED_TOOLS (comma-separated allowlist) are optional env vars; ~150+ tools available.",
+        "sources": [
+          "https://github.com/Rootly-AI-Labs/Rootly-MCP-server",
+          "https://docs.rootly.com/integrations/mcp-server",
+          "https://pypi.org/project/rootly-mcp-server/",
+          "https://rootly.com/blog/introducing-the-rootly-mcp-server"
+        ]
+      }
+    },
+    {
+      "slug": "slack-mcp",
+      "docs": "https://github.com/slackapi/slack-mcp-plugin",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://mcp.slack.com/mcp",
+        "scopes": [
+          "search:read.public",
+          "chat:write",
+          "channels:history",
+          "channels:read",
+          "canvases:write",
+          "canvases:read",
+          "users:read"
+        ],
+        "oauth_authorization_endpoint": "https://slack.com/oauth/v2_user/authorize",
+        "oauth_token_endpoint": "https://slack.com/api/oauth.v2.user.access",
+        "credentials": [
+          {
+            "key": "client_id",
+            "label": "Slack App Client ID",
+            "description": "OAuth client_id of a registered Slack app. Slack MCP requires confidential OAuth with a fixed/hardcoded app ID; Dynamic Client Registration is not supported, so the user must register a Slack app and supply its client_id.",
+            "required": true,
+            "secret": false,
+            "target": "oauth_client"
+          },
+          {
+            "key": "client_secret",
+            "label": "Slack App Client Secret",
+            "description": "OAuth client_secret of the registered Slack app, used for confidential OAuth token exchange.",
+            "required": true,
+            "secret": true,
+            "target": "oauth_client"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Official first-party Slack MCP server, hosted remote HTTP (Streamable HTTP / JSON-RPC 2.0) at https://mcp.slack.com/mcp. This is the correct server matching the catalog description (search, post, canvases) and the intended HTTP transport.\n\nAuth: OAuth 2.0 \"confidential OAuth\" (authorization_code grant) using a registered Slack app's client_id + client_secret. Dynamic Client Registration (DCR) is NOT supported and SSE transport is NOT supported. The server advertises OAuth metadata via RFC 8414 discovery: https://mcp.slack.com/.well-known/oauth-protected-resource and https://mcp.slack.com/.well-known/oauth-authorization-server (so clients can auto-discover endpoints). Slack also documents explicit endpoints: authorize https://slack.com/oauth/v2_user/authorize and token https://slack.com/api/oauth.v2.user.access — I included these explicitly since they are documented, but a compliant client can rely on discovery. PKCE is supported for desktop clients.\n\nScopes are per-tool and the list above is a representative/documented subset (e.g. search:read.public, chat:write, channels:history, canvases:write); the exact required set depends on which tools are enabled.\n\nNo stdio/npx/pip distribution: the slackapi/slack-mcp-plugin repo is config-only (a Claude Code plugin pointing at the remote URL); there is no local server package. The unrelated @modelcontextprotocol/server-slack npm package is a separate, older community/reference stdio server using bot tokens — NOT this official hosted server, so it was not used for the spec.\n\nOAuth flow hosts: mcp.slack.com (resource + metadata discovery) and slack.com (authorize + token).",
+        "sources": [
+          "https://docs.slack.dev/ai/slack-mcp-server/",
+          "https://github.com/slackapi/slack-mcp-plugin",
+          "https://slack.com/blog/news/mcp-real-time-search-api-now-available",
+          "https://slack.com/help/articles/48855576908307-Guide-to-the-Slack-MCP-server"
+        ]
+      }
+    },
+    {
+      "slug": "microsoft-teams-mcp",
+      "docs": "https://learn.microsoft.com/en-us/microsoft-agent-365/mcp-server-reference/teams",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://agent365.svc.cloud.microsoft/agents/tenants/{tenantId}/servers/mcp_TeamsServer",
+        "scopes": [
+          "McpServers.Teams.All"
+        ],
+        "oauth_authorization_endpoint": null,
+        "oauth_token_endpoint": null,
+        "credentials": [
+          {
+            "key": "tenantId",
+            "label": "Microsoft Entra Tenant ID",
+            "description": "Your Microsoft Entra (Azure AD) directory/tenant ID. Substituted into the MCP server URL path: https://agent365.svc.cloud.microsoft/agents/tenants/{tenantId}/servers/mcp_TeamsServer",
+            "required": true,
+            "secret": false,
+            "target": "server_uri"
+          },
+          {
+            "key": "clientId",
+            "label": "Entra App (client) ID",
+            "description": "Application (client) ID of the Microsoft Entra enterprise application you register as the OAuth public client. It must be granted the WorkIQ-TeamsServer / McpServers.Teams.All permission and have a localhost redirect URI (e.g. http://localhost:8080/callback). Used to drive the authorization-code (PKCE) sign-in flow.",
+            "required": true,
+            "secret": false,
+            "target": "oauth_client"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Official server is Microsoft \"Work IQ Teams\" (server ID mcp_TeamsServer) under Microsoft Agent 365, a remote streamable-HTTP MCP server (config uses \"type\": \"http\"). It manages Teams chats, channels, teams, members, and messages via Microsoft Graph. The endpoint is tenant-scoped: tenantId must be substituted into the URL path. Feature is in PREVIEW as of May 2026 and REQUIRES a Microsoft 365 Copilot license.\n\nAuth is Microsoft Entra ID OAuth2 authorization-code with PKCE (the desktop/CLI public-client pattern documented for Claude Code / GitHub Copilot CLI / VS Code). The user registers their own Entra enterprise application (clientId) granted the WorkIQ-TeamsServer permission (scope McpServers.Teams.All) with a localhost redirect URI (e.g. http://localhost:8080/callback). The MCP client config only supplies clientId + callbackPort; the authorization and token endpoints are not hard-coded by the user — they are resolved against Microsoft Entra (login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize and /token), advertised/negotiated via the OAuth flow, hence oauth_authorization_endpoint/token_endpoint left null. One known caveat from MS docs: Entra ID rejects the \"resource\" parameter sent by some MCP SDKs, which can break the flow.\n\nNeither tenantId nor clientId is a secret. There is no static API key or bearer token the user pastes in — sign-in is interactive (browser). This is NOT a stdio/npx/pip package; there is no published npm/PyPI distribution, so packages[] is empty and stdio_* are null (not docker-only — it is a hosted remote HTTP service). Note: Microsoft also has an OLDER, still-supported \"Microsoft Teams MCP server\" predecessor; for new connections MS recommends Work IQ Teams (documented here). Numerous unofficial community Teams MCP servers exist (InditexTech/mcp-teams-server [PyPI/uvx], floriscornel/teams-mcp, softeria/ms-365-mcp-server) but those are third-party, not first-party Microsoft, so they were not selected given the \"official\" + \"HTTP\" intent.",
+        "sources": [
+          "https://learn.microsoft.com/en-us/microsoft-agent-365/mcp-server-reference/teams",
+          "https://learn.microsoft.com/en-us/microsoft-agent-365/tooling-servers-overview",
+          "https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow"
+        ]
+      }
+    },
+    {
+      "slug": "gmail-mcp",
+      "docs": "https://developers.google.com/workspace/guides/configure-mcp-servers",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://gmailmcp.googleapis.com/mcp/v1",
+        "scopes": [
+          "https://www.googleapis.com/auth/gmail.readonly",
+          "https://www.googleapis.com/auth/gmail.compose"
+        ],
+        "oauth_authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
+        "oauth_token_endpoint": "https://oauth2.googleapis.com/token",
+        "credentials": [
+          {
+            "key": "client_id",
+            "label": "Google OAuth Client ID",
+            "description": "OAuth 2.0 client ID created in the Google Cloud console (Web application type) with https://claude.ai/api/mcp/auth_callback as an authorized redirect URI. Required because the Gmail MCP server does NOT support dynamic client registration.",
+            "required": true,
+            "secret": false,
+            "target": "oauth_client"
+          },
+          {
+            "key": "client_secret",
+            "label": "Google OAuth Client Secret",
+            "description": "OAuth 2.0 client secret paired with the client ID created in the Google Cloud console.",
+            "required": true,
+            "secret": true,
+            "target": "oauth_client"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "First-party Google-hosted remote MCP server (gmailmcp.googleapis.com), matching the intended HTTP transport. Official Google docs confirm: transport = HTTP (streamable httpUrl https://gmailmcp.googleapis.com/mcp/v1), auth = OAuth 2.0. CRITICAL: Google does NOT support dynamic client registration for these MCP servers — the user must manually create an OAuth client ID + secret in the Google Cloud console and add the platform's redirect URI (Google docs example uses https://claude.ai/api/mcp/auth_callback for Claude; select 'Web application' app type). Grant type is the standard Google OAuth 2.0 authorization_code flow; authorization endpoint = accounts.google.com/o/oauth2/v2/auth and token endpoint = oauth2.googleapis.com/token (Google's well-known OAuth 2.0 endpoints, not enumerated on the MCP page itself but standard for all Google OAuth). Documented Gmail scopes: gmail.readonly and gmail.compose (read/search/list-labels + create-draft/label tools). Sibling Google servers exist at drivemcp.googleapis.com/mcp/v1 and calendarmcp.googleapis.com/mcp/v1. Many third-party Gmail MCP servers also exist on GitHub (e.g. GongRzhe/Gmail-MCP-Server, taylorwilsdon/google_workspace_mcp) but those are STDIO/self-hosted; the official first-party HTTP server is the Google-hosted one selected here.",
+        "sources": [
+          "https://developers.google.com/workspace/gmail/api/guides/configure-mcp-server",
+          "https://developers.google.com/workspace/guides/configure-mcp-servers",
+          "https://developers.google.com/workspace/gmail/api/reference/mcp"
+        ]
+      }
+    },
+    {
+      "slug": "microsoft-mail-mcp",
+      "docs": "https://learn.microsoft.com/en-us/microsoft-agent-365/mcp-server-reference/mail",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://agent365.svc.cloud.microsoft/agents/tenants/{tenantId}/servers/mcp_MailTools",
+        "scopes": [
+          "WorkIQ-MailServer"
+        ],
+        "oauth_authorization_endpoint": null,
+        "oauth_token_endpoint": null,
+        "credentials": [
+          {
+            "key": "tenantId",
+            "label": "Microsoft Entra Tenant ID (GUID)",
+            "description": "The Microsoft Entra Directory (tenant) ID. Substituted into the MCP server URL path: https://agent365.svc.cloud.microsoft/agents/tenants/{tenantId}/servers/mcp_MailTools",
+            "required": true,
+            "secret": false,
+            "target": "server_uri"
+          },
+          {
+            "key": "clientId",
+            "label": "Microsoft Entra Application (client) ID",
+            "description": "The Application (client) ID of the registered Entra enterprise/public-client application that is granted the WorkIQ-MailServer permission. Supplied in the MCP oauth config to drive the authorization-code sign-in flow.",
+            "required": true,
+            "secret": false,
+            "target": "oauth_client"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "This is Microsoft's official first-party \"Work IQ Mail\" MCP server, part of Microsoft Agent 365 (currently in public preview). Verified from Microsoft Learn docs I read directly.\n\nTransport: remote streamable HTTP. The official config uses \"type\": \"http\" with URL https://agent365.svc.cloud.microsoft/agents/tenants/{tenantId}/servers/mcp_MailTools (server ID mcp_MailTools). There is no stdio / npx / uvx / pip distribution — it is a hosted remote server only, so packages[] is empty and stdio_* are null. NOT docker_only (it's a remote URL, not a Docker image).\n\nAuth: OAuth2 authorization-code \"sign in\" browser flow against Microsoft Entra. The user must (1) register an Entra enterprise/public-client app, (2) grant it the WorkIQ-MailServer API permission (the \"scope\"), and (3) add a redirect URI such as http://localhost:8080/callback. The MCP client config then provides clientId + a callbackPort (default 8080); tenantId goes in the URL path. The server advertises its OAuth authorization/token endpoints via discovery, so oauth_authorization_endpoint/token_endpoint are left null (they resolve to Microsoft Entra login.microsoftonline.com under the hood). Backed by Microsoft Graph Mail APIs.\n\nNote clientId/tenantId are configuration identifiers (not secrets) the user supplies; secret=false for both. There is no static API key/bearer token to store — the access token is obtained interactively via the OAuth flow.\n\nPrerequisite: a Microsoft 365 Copilot license is required to use Work IQ MCP servers. Confirmed working with Claude Code, GitHub Copilot CLI, and VS Code per the docs.\n\nDistinct from the third-party Softeria/ms-365-mcp-server (npx @softeria/ms-365-mcp-server), which is NOT first-party; given the intended HTTP transport and \"Microsoft 365 mail\" description, the official Agent 365 Work IQ Mail server is the correct match.",
+        "sources": [
+          "https://learn.microsoft.com/en-us/microsoft-agent-365/mcp-server-reference/mail",
+          "https://learn.microsoft.com/en-us/microsoft-agent-365/tooling-servers-overview",
+          "https://github.com/microsoft/mcp"
+        ]
+      }
+    },
+    {
+      "slug": "semgrep-mcp",
+      "docs": "https://github.com/semgrep/semgrep/tree/develop/cli/src/semgrep/mcp",
+      "connection_spec": {
+        "server_type": "stdio",
+        "auth_type": "CUSTOM",
+        "stdio_command": "uvx",
+        "stdio_args": [
+          "semgrep-mcp"
+        ],
+        "stdio_env": [
+          "SEMGREP_APP_TOKEN"
+        ],
+        "packages": [
+          {
+            "manager": "uvx",
+            "command": "uvx",
+            "args": [
+              "semgrep-mcp"
+            ],
+            "package": "semgrep-mcp"
+          },
+          {
+            "manager": "pip",
+            "command": "python",
+            "args": [
+              "-m",
+              "semgrep_mcp"
+            ],
+            "package": "semgrep-mcp"
+          }
+        ],
+        "credentials": [
+          {
+            "key": "SEMGREP_APP_TOKEN",
+            "label": "Semgrep App Token",
+            "description": "API token for the Semgrep AppSec Platform. Optional; only required to access cloud features such as fetching findings from the platform (semgrep_findings tool). Basic local scans work without it. Generate at https://semgrep.dev/orgs/-/settings/tokens/api",
+            "required": false,
+            "secret": true,
+            "target": "stdio_env"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Official server is semgrep/mcp (PyPI package `semgrep-mcp`). Default transport is STDIO, matching the intended transport. Canonical install is `uvx semgrep-mcp`; also installable via `pip install semgrep-mcp` (exposes the `semgrep-mcp` console script; the `python -m semgrep_mcp` module form is the standard module path but not explicitly documented). Auth is CUSTOM via SEMGREP_APP_TOKEN, which is OPTIONAL — passed as an env var. The server also supports streamable-http (`-t streamable-http` on 127.0.0.1:8000/mcp) and SSE (`-t sse` on 127.0.0.1:8000/sse), and there is an experimental hosted endpoint at https://mcp.semgrep.ai/sse (documented as experimental and may break), but these are not the intended STDIO transport. DEPRECATION: the standalone semgrep/mcp repo has been moved into the main semgrep repo (cli/src/semgrep/mcp); future updates ship via the `semgrep` binary using `semgrep mcp`. However `uvx semgrep-mcp` remains the documented, currently-working install in the README, so it is used here.",
+        "sources": [
+          "https://github.com/semgrep/mcp",
+          "https://github.com/semgrep/mcp/blob/main/README.md",
+          "https://raw.githubusercontent.com/semgrep/mcp/main/README.md",
+          "https://pypi.org/project/semgrep-mcp/",
+          "https://semgrep.dev/docs/mcp"
+        ]
+      }
+    },
+    {
+      "slug": "snyk-mcp",
+      "docs": "https://docs.snyk.io/integrations/snyk-studio-agentic-integrations",
+      "connection_spec": {
+        "server_type": "stdio",
+        "auth_type": "CUSTOM",
+        "stdio_command": "npx",
+        "stdio_args": [
+          "-y",
+          "snyk@latest",
+          "mcp",
+          "-t",
+          "stdio"
+        ],
+        "stdio_env": [
+          "SNYK_TOKEN",
+          "SNYK_CFG_ORG"
+        ],
+        "packages": [
+          {
+            "manager": "npx",
+            "command": "npx",
+            "args": [
+              "-y",
+              "snyk@latest",
+              "mcp",
+              "-t",
+              "stdio"
+            ],
+            "package": "snyk"
+          }
+        ],
+        "credentials": [
+          {
+            "key": "SNYK_TOKEN",
+            "label": "Snyk API Token",
+            "description": "Snyk API token (personal access token) used to authenticate the CLI/MCP server in non-interactive environments. Without it, the server falls back to an interactive browser-based login (snyk_auth), which is not viable for headless/automated use.",
+            "required": true,
+            "secret": true,
+            "target": "stdio_env"
+          },
+          {
+            "key": "SNYK_CFG_ORG",
+            "label": "Snyk Organization ID",
+            "description": "Target Snyk organization ID (or slug). Required when your account belongs to multiple organizations so scans run against the correct org; otherwise optional.",
+            "required": false,
+            "secret": false,
+            "target": "stdio_env"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "The official Snyk MCP server is built into the Snyk CLI (the `snyk` npm package), invoked as `snyk mcp -t stdio`. Official recommended config uses `npx -y snyk@latest mcp -t stdio`, confirmed in Snyk's own blog and docs. Requires Snyk CLI >= 1.1296.2. Feature was launched as experimental (`--experimental` flag in earliest docs) and has since moved to early-access/GA-style docs where the flag is no longer required in the recommended config; the canonical command is `mcp -t stdio`.\n\nTransport: STDIO is the primary/intended transport. The CLI also supports `-t sse` (SSE) as a local-process transport, but that still runs the same local `snyk` binary, not a hosted remote endpoint, so there is no remote MCP server_uri.\n\nAuth (CUSTOM): The server uses two mechanisms. (1) Default interactive browser login via the `snyk_auth` tool (OAuth-style sign-in handled by the CLI, opens a browser). (2) For headless/automated/restricted environments, set the `SNYK_TOKEN` env var (Snyk API token). Because our use case is non-interactive, the practical required credential is the API token, hence auth_type=CUSTOM rather than OAUTH2. `SNYK_CFG_ORG` is an optional org selector. Other standard Snyk CLI env vars (proxy settings, SNYK_API for self-hosted/region endpoints) are also honored but not required for the default SaaS case.\n\nSeparately, Snyk also offers a newer hosted \"Snyk API & Web MCP Server\" (Snyk Studio) which is a remote/HTTP MCP. That is a distinct product from this CLI-based `snyk mcp` STDIO server; this spec covers the STDIO CLI server matching the intended transport.\n\nThe `pip`/`uvx` install path does not apply — the CLI is distributed via npm (and standalone binaries / Homebrew / Docker), not PyPI.",
+        "sources": [
+          "https://snyk.io/articles/secure-ai-coding-with-snyk-now-supporting-model-context-protocol-mcp/",
+          "https://snyk.io/articles/snyk-mcp-cheat-sheet/",
+          "https://docs.snyk.io/cli-ide-and-ci-cd-integrations/snyk-cli/developer-guardrails-for-agentic-workflows/snyk-mcp-early-access/snyk-mcp-installation-configuration-and-startup",
+          "https://docs.snyk.io/integrations/developer-guardrails-for-agentic-workflows/quickstart-guides-for-mcp"
+        ]
+      }
+    },
+    {
+      "slug": "vanta-mcp",
+      "docs": "https://help.vanta.com/en/articles/14094979-connecting-to-vanta-mcp",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://mcp.vanta.com/mcp",
+        "scopes": [],
+        "oauth_authorization_endpoint": "https://app.vanta.com/oauth/authorize",
+        "oauth_token_endpoint": "https://api.vanta.com/oauth/token",
+        "credentials": [],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Vanta ships two official MCP options. The preferred catalog default is the remote HTTP MCP server documented by Vanta's Help Center: US https://mcp.vanta.com/mcp, EU https://mcp.eu.vanta.com/mcp, and AUS https://mcp.aus.vanta.com/mcp. The remote server uses interactive OAuth in the user's Vanta app; Vanta Admin role is required. OAuth endpoints are discovered by the MCP client, so explicit authorization/token endpoint overrides are null. US endpoint is used as the default; users in EU/AUS can configure the URI to the regional endpoint. Discovery metadata on mcp.vanta.com advertises endpoints on sibling hosts (authorize on app.vanta.com, token/register on api.vanta.com), so the US endpoints are pinned here to mark those hosts trusted; regional EU/AUS servers likely use their own sibling hosts and may need their own pins if connected. Vanta also ships an npm STDIO package @vantasdk/vanta-mcp-server, but it requires VANTA_ENV_FILE to point at a JSON credential file containing client_id/client_secret. Tracecat currently stores stdio env as encrypted key/value pairs, not materialized files, so the HTTP variant is the better platform default.",
+        "sources": [
+          "https://help.vanta.com/en/articles/14094979-connecting-to-vanta-mcp",
+          "https://github.com/VantaInc/vanta-mcp-server/",
+          "https://raw.githubusercontent.com/VantaInc/vanta-mcp-server/main/README.md",
+          "https://www.npmjs.com/package/@vantasdk/vanta-mcp-server",
+          "https://developer.vanta.com/docs/api-access-setup"
+        ]
+      }
+    },
+    {
+      "slug": "drata-mcp",
+      "docs": "https://drata.com/mcp",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://mcp.drata.com/mcp/",
+        "scopes": [
+          "read:risk",
+          "read:controls",
+          "read:control",
+          "read:policy",
+          "read:workspace",
+          "read:risk-registers",
+          "read:assigned-policies",
+          "read:monitor-test"
+        ],
+        "oauth_authorization_endpoint": "https://mcp.drata.com/auth0-proxy/authorize",
+        "oauth_token_endpoint": "https://drata-prod.us.auth0.com/oauth/token",
+        "credentials": [
+          {
+            "key": "server_url",
+            "label": "Drata MCP Region Endpoint",
+            "description": "The regional Drata MCP endpoint to connect to. US: https://mcp.drata.com/mcp/ , EU: https://mcp-euc1.drata.com/mcp/ , APAC: https://mcp-apse2.drata.com/mcp/ . Authentication is handled via OAuth browser sign-in; no token is pasted by the user.",
+            "required": true,
+            "secret": false,
+            "target": "server_uri"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Official Drata-hosted remote MCP server (Beta). Transport is HTTP (streamable HTTP at the /mcp/ path); no SSE path documented. Authentication is OAuth 2.0 via browser sign-in — Drata explicitly states \"your credentials are never shared with the AI client,\" so the user supplies no API token, only completes the OAuth flow. Admins create an OAuth configuration in Drata Settings > MCP Configuration (name, expiration date, selected read scopes) before connecting a client. Three regional endpoints exist: US https://mcp.drata.com/mcp/, EU https://mcp-euc1.drata.com/mcp/, APAC https://mcp-apse2.drata.com/mcp/ — default/US is used as server_uri. Discovery metadata on mcp.drata.com advertises the token/registration endpoints on Drata's Auth0 tenant drata-prod.us.auth0.com (verified live), so the authorization/token endpoints are pinned here to mark that host trusted during discovery; the live discovered endpoints are still what gets used. Regional EU/APAC servers may advertise different hosts and would need their own pins if connected. Eight read scopes are documented. Note: there are unofficial third-party Drata MCP servers (e.g. github.com/sderosiaux/drata-mcp, StackOne) — those are NOT first-party and were not used for this spec.",
+        "sources": [
+          "https://developers.drata.com/developer-portal/v2/recipes/mcp-oauth-setup/",
+          "https://help.drata.com/en/articles/13379899-mcp-configuration-new-experience",
+          "https://drata.com/blog/drata-mcp-built-for-ai-native-trust-management"
+        ]
+      }
+    },
+    {
+      "slug": "grafana-mcp",
+      "docs": "https://github.com/grafana/mcp-grafana",
+      "connection_spec": {
+        "server_type": "stdio",
+        "auth_type": "CUSTOM",
+        "stdio_command": "uvx",
+        "stdio_args": [
+          "mcp-grafana",
+          "-t",
+          "stdio"
+        ],
+        "stdio_env": [
+          "GRAFANA_URL",
+          "GRAFANA_SERVICE_ACCOUNT_TOKEN"
+        ],
+        "packages": [
+          {
+            "manager": "uvx",
+            "command": "uvx",
+            "args": [
+              "mcp-grafana",
+              "-t",
+              "stdio"
+            ],
+            "package": "mcp-grafana"
+          }
+        ],
+        "credentials": [
+          {
+            "key": "GRAFANA_URL",
+            "label": "Grafana Instance URL",
+            "description": "Base URL of your Grafana instance, e.g. http://localhost:3000 or https://myinstance.grafana.net for Grafana Cloud.",
+            "required": true,
+            "secret": false,
+            "target": "stdio_env"
+          },
+          {
+            "key": "GRAFANA_SERVICE_ACCOUNT_TOKEN",
+            "label": "Grafana Service Account Token",
+            "description": "Service account token created in Grafana 9.0+ (Administration > Service accounts). Used as the primary authentication method for the MCP server.",
+            "required": true,
+            "secret": true,
+            "target": "stdio_env"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Official server is grafana/mcp-grafana (Go binary, Apache-2.0). It is also published to PyPI as `mcp-grafana` (publisher: grafana-machine-learning, latest v0.14.0, May 2026), which is the recommended way to run it via `uvx mcp-grafana`. The PyPI wrapper downloads/runs the Go binary, so no npm package exists (npx not supported). STDIO is fully supported and is the intended transport; pass `-t stdio` (the binary defaults to stdio for local use, but the Docker entrypoint defaults to SSE, so the explicit flag is safest). Auth is CUSTOM via a Grafana service account token (GRAFANA_SERVICE_ACCOUNT_TOKEN). Legacy/optional alternatives the binary also reads: GRAFANA_API_KEY (deprecated), GRAFANA_USERNAME/GRAFANA_PASSWORD (basic auth), GRAFANA_ORG_ID — not included as required credentials. The server can alternatively run as a remote HTTP/SSE/streamable-http server, and Grafana Cloud offers a hosted MCP endpoint, but the catalog intent is STDIO so the local uvx process is specified here.",
+        "sources": [
+          "https://github.com/grafana/mcp-grafana",
+          "https://grafana.com/docs/grafana/latest/developer-resources/mcp/set-up/install-with-uvx/",
+          "https://grafana.com/docs/grafana/latest/developer-resources/mcp/",
+          "https://pypi.org/project/mcp-grafana/"
+        ]
+      }
+    },
+    {
+      "slug": "snowflake-mcp",
+      "docs": "https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-agents-mcp",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "CUSTOM",
+        "server_uri": null,
+        "credentials": [
+          {
+            "key": "SNOWFLAKE_MCP_URL",
+            "label": "Snowflake-managed MCP server URL",
+            "description": "Full endpoint URL of the Snowflake-managed MCP server, formatted as https://<org>-<account>.snowflakecomputing.com/api/v2/databases/<db>/schemas/<schema>/mcp-servers/<name>. The account host, database, schema, and server name are account-specific and must be supplied by the user.",
+            "required": true,
+            "secret": false,
+            "target": "server_uri"
+          },
+          {
+            "key": "Authorization",
+            "label": "Snowflake Programmatic Access Token (PAT)",
+            "description": "Bearer token used to authenticate to the managed MCP endpoint. The getting-started guide authenticates with a Programmatic Access Token sent as 'Authorization: Bearer <PAT>'. OAuth 2.0 is also supported but requires manually creating a Snowflake OAuth security integration (client id/secret) since dynamic client registration is not supported.",
+            "required": true,
+            "secret": true,
+            "target": "http_header"
+          }
+        ],
+        "confidence": "medium",
+        "docker_only": false,
+        "research_notes": "Two official Snowflake MCP options exist. (1) The Snowflake-MANAGED remote MCP server (matches the intended HTTP transport): no single fixed vendor URL — the endpoint is account/database/schema/server-name specific, formatted as https://<org>-<account>.snowflakecomputing.com/api/v2/databases/{database}/schemas/{schema}/mcp-servers/{name}. The user must create the MCP server object in their Snowflake account and supply the full URL, so server_uri is left null. Auth: the getting-started guide demonstrates Programmatic Access Token (PAT) Bearer auth ('Authorization: Bearer <PAT>'), which is why I modeled this as CUSTOM. The docs also state it supports OAuth 2.0 'aligned with the MCP protocol authorization recommendation' but explicitly does NOT support dynamic client registration — you must manually create an OAuth security integration to get client id/secret, so it's not a turnkey browser DCR flow. If modeled as OAuth instead, grant would be authorization_code over *.snowflakecomputing.com with discovery/.well-known metadata (not separately documented). (2) The self-hosted Snowflake-Labs/mcp (PyPI 'snowflake-labs-mcp', `uvx snowflake-labs-mcp --service-config-file config.yaml`, transports stdio/streamable-http, default endpoint /mcp port 9000, env SNOWFLAKE_ACCOUNT/USER/PASSWORD/ROLE/WAREHOUSE/PRIVATE_KEY) is now DEPRECATED — its PyPI page and README state it is no longer maintained and direct users to the managed server. I therefore did not populate packages[] with the deprecated project. Confidence medium because the precise OAuth grant type / discovery metadata is not explicitly documented and the per-account URL cannot be a fixed value.",
+        "sources": [
+          "https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-agents-mcp",
+          "https://www.snowflake.com/en/developers/guides/getting-started-with-snowflake-mcp-server/",
+          "https://github.com/Snowflake-Labs/mcp",
+          "https://pypi.org/project/snowflake-labs-mcp/"
+        ]
+      }
+    },
+    {
+      "slug": "databricks-mcp",
+      "docs": "https://docs.databricks.com/aws/en/generative-ai/mcp/",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://<workspace-hostname>/api/2.0/mcp/sql",
+        "scopes": [
+          "genie",
+          "vector-search",
+          "sql",
+          "unity-catalog",
+          "all-apis",
+          "offline_access"
+        ],
+        "oauth_authorization_endpoint": null,
+        "oauth_token_endpoint": null,
+        "credentials": [
+          {
+            "key": "workspace-hostname",
+            "label": "Databricks Workspace Hostname",
+            "description": "The hostname of your Databricks workspace, e.g. dbc-xxxxxxxx-xxxx.cloud.databricks.com (AWS) or adb-xxxx.azuredatabricks.net (Azure). Used to build the MCP server URL https://<workspace-hostname>/api/2.0/mcp/...",
+            "required": true,
+            "secret": false,
+            "target": "server_uri"
+          },
+          {
+            "key": "Authorization",
+            "label": "Databricks Personal Access Token (alternative to OAuth)",
+            "description": "Optional Databricks personal access token, passed as 'Bearer <token>' in the Authorization header when using PAT auth instead of the recommended OAuth flow. Managed MCP servers support both OAuth and PAT.",
+            "required": false,
+            "secret": true,
+            "target": "http_header"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Databricks ships first-party \"managed MCP servers\" (Public Preview) hosted per-workspace, governed by Unity Catalog / Unity AI Gateway. Transport is streamable HTTP (the docs show client config type \"http\"/\"streamable-http\"; the databricks-mcp Python SDK uses mcp's streamablehttp_client). There is NO single global MCP endpoint — the URL is workspace-specific and tool-family-specific. The five documented URL patterns are:\n- Databricks SQL: https://<workspace-hostname>/api/2.0/mcp/sql (scope: sql)\n- Genie (all spaces): https://<workspace-hostname>/api/2.0/mcp/genie (scope: genie)\n- Genie single space: https://<workspace-hostname>/api/2.0/mcp/genie/{genie_space_id} (scope: genie)\n- Vector Search: https://<workspace-hostname>/api/2.0/mcp/vector-search/{catalog}/{schema}/{index_name} (scope: vector-search)\n- Unity Catalog functions: https://<workspace-hostname>/api/2.0/mcp/functions/{catalog}/{schema}/{function_name} (scope: unity-catalog)\nI set server_uri to the SQL endpoint as a representative example since the catalog description leads with \"Query Databricks SQL\"; substitute the desired family/path. <workspace-hostname> must be replaced with the user's actual workspace host.\n\nAUTH: Two supported methods. (1) OAuth (recommended) — authorization-code flow with browser sign-in via `databricks auth login`; supports public (no secret) and confidential (with secret) clients; uses scoped permissions + automatic token refresh; granular scopes genie/vector-search/sql/unity-catalog plus all-apis (broad) and offline_access (refresh). The server advertises endpoints via discovery (the docs/SDK use mcp's OAuthClientProvider against the workspace host), so I left oauth_authorization_endpoint/token_endpoint null — both live on the workspace hostname. (2) PAT alternative — Databricks personal access token passed as `Authorization: Bearer <token>` header; supported for managed and external MCP servers. I reported auth_type=OAUTH2 since that's the recommended/primary flow and matches the HTTP intent; PAT is captured as an optional credential.\n\nPyPI package `databricks-mcp` (DatabricksMCPClient) exists but is a helper SDK for building/deploying agents that CALL these servers (resource discovery + auth helpers), NOT a standalone stdio MCP server to install — so no stdio/packages entries. Several unofficial third-party stdio Databricks MCP servers exist on GitHub/PyPI (e.g. RafaelCartenet/mcp-databricks-server, databricks-mcp-server, databrickslabs/mcp) but those are NOT the first-party managed offering matching the HTTP intent.",
+        "sources": [
+          "https://docs.databricks.com/aws/en/generative-ai/mcp/managed-mcp",
+          "https://learn.microsoft.com/en-us/azure/databricks/generative-ai/mcp/managed-mcp",
+          "https://docs.databricks.com/aws/en/generative-ai/mcp/connect-clients",
+          "https://docs.databricks.com/aws/en/generative-ai/mcp/",
+          "https://pypi.org/project/databricks-mcp/",
+          "https://www.databricks.com/blog/announcing-managed-mcp-servers-unity-catalog-and-mosaic-ai-integration"
+        ]
+      }
+    },
+    {
+      "slug": "github-mcp",
+      "docs": "https://github.com/github/github-mcp-server",
+      "provider_id": "github_mcp",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://api.githubcopilot.com/mcp",
+        "scopes": [],
+        "oauth_authorization_endpoint": "https://github.com/login/oauth/authorize",
+        "oauth_token_endpoint": "https://github.com/login/oauth/access_token",
+        "credentials": [
+          {
+            "key": "client_id",
+            "label": "OAuth client ID",
+            "description": "GitHub OAuth app client ID for GitHub Copilot MCP.",
+            "required": true,
+            "secret": false,
+            "target": "oauth_client"
+          },
+          {
+            "key": "client_secret",
+            "label": "OAuth client secret",
+            "description": "GitHub OAuth app client secret for GitHub Copilot MCP.",
+            "required": true,
+            "secret": true,
+            "target": "oauth_client"
+          }
+        ]
+      }
+    },
+    {
+      "slug": "gitlab-mcp",
+      "docs": "https://docs.gitlab.com/user/gitlab_duo/model_context_protocol/mcp_server/",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://gitlab.com/api/v4/mcp",
+        "scopes": [],
+        "oauth_authorization_endpoint": null,
+        "oauth_token_endpoint": null,
+        "credentials": [],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Official first-party GitLab MCP server, introduced in GitLab 18.6. Recommended transport is HTTP (streamable) at the path /api/v4/mcp. For GitLab.com the endpoint is https://gitlab.com/api/v4/mcp; self-managed instances use https://<gitlab.example.com>/api/v4/mcp (server_uri should be templated per-instance for self-managed). Auth is OAuth 2.0 with Dynamic Client Registration (DCR) — the AI client auto-registers as an OAuth application, opens the browser for an authorization-code flow, and receives an access token. Authorization and token endpoints are advertised via OAuth discovery (protected-resource / authorization-server metadata at the gitlab.com host), so they are left null here. No explicit scopes are documented. The OAuth flow only touches the GitLab host (gitlab.com for SaaS). No user-supplied static credentials are required for the HTTP/OAuth path; the browser sign-in handles authorization. GitLab also documents an alternative stdio transport via the `mcp-remote` Node proxy, but the recommended and intended transport is HTTP, so HTTP is reported here. Several popular community servers exist (zereight/gitlab-mcp via npm @zereight/mcp-gitlab using a GitLab personal access token) but those are third-party, not the official server referenced by this catalog slug.",
+        "sources": [
+          "https://docs.gitlab.com/user/gitlab_duo/model_context_protocol/mcp_server/",
+          "https://about.gitlab.com/blog/duo-agent-platform-with-mcp/"
+        ]
+      }
+    },
+    {
+      "slug": "terraform-mcp",
+      "docs": "https://github.com/hashicorp/terraform-mcp-server",
+      "connection_spec": {
+        "server_type": "stdio",
+        "auth_type": "CUSTOM",
+        "stdio_command": null,
+        "stdio_args": [],
+        "stdio_env": [
+          "TFE_TOKEN",
+          "TFE_ADDRESS",
+          "TFE_SKIP_TLS_VERIFY",
+          "TRANSPORT_MODE",
+          "TRANSPORT_HOST",
+          "TRANSPORT_PORT",
+          "MCP_ENDPOINT",
+          "MCP_SESSION_MODE",
+          "ENABLE_TF_OPERATIONS"
+        ],
+        "packages": [],
+        "credentials": [
+          {
+            "key": "TFE_TOKEN",
+            "label": "HCP Terraform / Terraform Enterprise API Token",
+            "description": "API token used to authenticate against HCP Terraform or Terraform Enterprise for workspace, organization, and private registry operations. Optional for read-only public registry tools (provider docs, modules, policies) but required for any TFE/HCP workspace functionality and for approval-gated TF operations.",
+            "required": false,
+            "secret": true,
+            "target": "stdio_env"
+          },
+          {
+            "key": "TFE_ADDRESS",
+            "label": "Terraform Endpoint URL",
+            "description": "Base URL of the HCP Terraform / Terraform Enterprise instance. Defaults to https://app.terraform.io. Set this to your TFE host for self-managed/Enterprise deployments.",
+            "required": false,
+            "secret": false,
+            "target": "stdio_env"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": true,
+        "research_notes": "Official server: hashicorp/terraform-mcp-server. DOCKER_ONLY: the only official prebuilt distributions are a Docker image (hashicorp/terraform-mcp-server:0.5.2) and a Go binary (go install github.com/hashicorp/terraform-mcp-server/cmd/terraform-mcp-server@latest). There is NO npm, PyPI, npx, uvx, python, or node entrypoint, so packages[] is empty and stdio_* are null per the constraint. The canonical stdio launch is `docker run -i --rm hashicorp/terraform-mcp-server:0.5.2`; HTTP/streamable mode is `docker run -p 8080:8080 -e TRANSPORT_MODE=streamable-http -e TRANSPORT_HOST=0.0.0.0 hashicorp/terraform-mcp-server:0.5.2`.\\n\\nTransport: supports both STDIO (default) and streamable-HTTP. Chosen server_type=stdio to match intended transport. The HTTP mode is LOCAL ONLY (binds to 127.0.0.1:8080, endpoint path /mcp, health /health) — HashiCorp does NOT offer a hosted/remote managed MCP URL, so server_uri is null.\\n\\nAuth = CUSTOM (TFE_TOKEN bearer-style API token passed via env var; no OAuth flow). TFE_TOKEN and TFE_ADDRESS are technically OPTIONAL — the public Terraform Registry tools (provider docs, module search, Sentinel/policy lookup) work with no auth, and the token is only required for HCP Terraform / Terraform Enterprise workspace operations. Marked both credentials required=false accordingly; if a deployment needs TFE workspace features, TFE_TOKEN becomes required. Feature is currently labeled beta by HashiCorp. ENABLE_TF_OPERATIONS=true gates approval-required mutating tools.",
+        "sources": [
+          "https://github.com/hashicorp/terraform-mcp-server",
+          "https://github.com/hashicorp/terraform-mcp-server/blob/main/README.md",
+          "https://developer.hashicorp.com/terraform/mcp-server"
+        ]
+      }
+    },
+    {
+      "slug": "ansible-mcp",
+      "docs": "https://github.com/ansible/aap-mcp-server",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "CUSTOM",
+        "server_uri": null,
+        "credentials": [
+          {
+            "key": "AAP_TOKEN",
+            "label": "Ansible Automation Platform API Token",
+            "description": "Personal API token created in the AAP dashboard (Access Management -> Users -> your user -> Tokens) with at least Write scope. Sent as a bearer token; the MCP server inherits this user's RBAC permissions.",
+            "required": true,
+            "secret": true,
+            "target": "http_header"
+          },
+          {
+            "key": "AAP_URL",
+            "label": "Ansible Automation Platform Base URL",
+            "description": "Base URL of the deployed MCP server / AAP instance, e.g. https://aap.example.com:8448 (the MCP server is exposed on port 8448 over HTTPS within the AAP installation).",
+            "required": true,
+            "secret": false,
+            "target": "server_uri"
+          }
+        ],
+        "confidence": "medium",
+        "docker_only": false,
+        "research_notes": "CATALOG/TRANSPORT MISMATCH — read carefully.\n\nThe catalog description (\"Run playbooks and manage automation jobs on Ansible Automation Platform\") maps to the OFFICIAL Red Hat \"MCP server for Ansible Automation Platform\" (Technology Preview, AAP 2.6.4+). That server is NOT a packaged local stdio process. It is deployed INSIDE an AAP installation (as a pod via the containerized RHEL installer, or via the AAP Operator on OpenShift) and exposed as a REMOTE HTTPS service on port 8448 (service base URL e.g. https://aap.example.com:8448). It connects directly to the AAP controller APIs and enforces dual-layer security: server-level config + the calling user's RBAC, derived from an AAP API token. So I classified it server_type=http, auth_type=CUSTOM (bearer API token). This contradicts the catalog's \"intended transport: STDIO\".\n\nserver_uri is left null because there is no vendor-hosted public endpoint — the URL is the customer's own AAP instance (host + :8448). The exact MCP path (e.g. /mcp vs SSE) was not confirmed; Red Hat's detailed docs pages return HTTP 403 to the fetcher. Auth is via AAP_TOKEN (create in AAP dashboard, Write scope) against AAP_URL; I could verify the token+base-URL model and port 8448/HTTPS from the Red Hat blog and forum, but not the literal header/path, hence medium confidence.\n\nNO official npx/uvx/pip distribution exists for the AAP MCP server — its only official distribution is the AAP containerized installer / OpenShift operator (container image ansible-automation-platform-26/mcp-tools-rhel9 in the Red Hat catalog). We cannot run that as a stdio subprocess, so packages[] is empty. I did NOT set docker_only=true because the real interaction model is HTTP-to-a-self-hosted-service, not \"run a docker image locally as the MCP server\".\n\nSEPARATE, DIFFERENT official server (do not conflate): @ansible/ansible-mcp-server (the \"Ansible Development Tools MCP Server\", repo github.com/ansible/vscode-ansible, latest 26.5.0). That one IS stdio and npx-runnable: `npx -y @ansible/ansible-mcp-server --stdio`, reads env WORKSPACE_ROOT/NODE_OPTIONS, requires Node 24+, and has NO auth. BUT its scope is local linting, workspace access, and authoring prompts — it does NOT run playbooks or manage jobs on AAP, so it does not match this catalog entry's description.\n\nThere are also numerous community AAP MCP servers (sibilleb/AAP-Enterprise-MCP-Server, rlopez133/mcp, mancubus77/mcp-server-aap) that wrap the AAP API as a local stdio process using AAP_TOKEN + AAP_URL/AAP_BASE_URL env vars — this is likely where the catalog's \"STDIO\" intent and the AAP_TOKEN/AAP_URL credential names originate. None are first-party Red Hat, so I did not adopt any as the canonical spec. RECOMMENDATION: confirm with stakeholders whether this catalog entry should represent (a) the official Red Hat AAP HTTP server [as specified here], (b) the official stdio dev-tools npm server, or (c) a community stdio AAP wrapper.",
+        "sources": [
+          "https://www.redhat.com/en/blog/it-automation-agentic-ai-introducing-mcp-server-red-hat-ansible-automation-platform",
+          "https://docs.redhat.com/en/documentation/red_hat_ansible_automation_platform/2.6/html/containerized_installation/deploying-ansible-mcp-server",
+          "https://docs.redhat.com/en/documentation/red_hat_ansible_automation_platform/2.6/html/installing_on_openshift_container_platform/deploy-ansible-mcp-server-operator-install",
+          "https://forum.ansible.com/t/introducing-the-mcp-server-for-red-hat-ansible-automation-platform/45246",
+          "https://docs.ansible.com/projects/vscode-ansible/mcp/",
+          "https://www.npmjs.com/package/@ansible/ansible-mcp-server"
+        ]
+      }
+    },
+    {
+      "slug": "microsoft-graph-me-mcp",
+      "docs": "https://learn.microsoft.com/en-us/microsoft-agent-365/mcp-server-reference/me",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://agent365.svc.cloud.microsoft/agents/tenants/{tenantId}/servers/mcp_MeServer",
+        "scopes": [],
+        "oauth_authorization_endpoint": null,
+        "oauth_token_endpoint": null,
+        "credentials": [
+          {
+            "key": "tenantId",
+            "label": "Microsoft Entra Tenant ID",
+            "description": "The Microsoft Entra (Azure AD) directory/tenant GUID. Substituted into the MCP server URL path: https://agent365.svc.cloud.microsoft/agents/tenants/{tenantId}/servers/mcp_MeServer",
+            "required": true,
+            "secret": false,
+            "target": "server_uri"
+          },
+          {
+            "key": "clientId",
+            "label": "Entra Application (client) ID",
+            "description": "The Application (client) ID of the registered Microsoft Entra public-client enterprise app used to perform the OAuth sign-in. Must be granted the WorkIQ-MeServer (Work IQ User) API permission with admin/user consent. Configured in the MCP client oauth block.",
+            "required": true,
+            "secret": false,
+            "target": "oauth_client"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "This is the Microsoft Agent 365 \"Work IQ User\" MCP server (internal server ID mcp_MeServer, display name \"Work IQ User\"), which surfaces Microsoft Graph /me + directory data (getMyProfile, getMyManager, getUserProfile, getUsersManager, getDirectReports, listUsers). It is a Microsoft-hosted REMOTE HTTP/streamable MCP server, not an npm/pip/stdio package — confirmed by official .mcp.json examples that use \"type\": \"http\". There is no installable package, so packages[] and stdio_* are empty.\n\nServer URL is TENANT-SCOPED: https://agent365.svc.cloud.microsoft/agents/tenants/{tenantId}/servers/mcp_MeServer — the user must substitute their Entra tenant GUID. (The Microsoft Foundry/Copilot Studio low-code UIs fill this in automatically; pro-code/CLI clients require the explicit URL.)\n\nAuth is OAuth2 authorization-code via Microsoft Entra ID delegated (On-Behalf-Of / agentic user identity) auth. The official Claude Code / VS Code / Copilot CLI examples use an oauth block { \"clientId\": \"<app id>\", \"callbackPort\": 8080 } with a localhost redirect (http://localhost:8080/callback). The clientId is a Microsoft Entra public-client enterprise app the user/admin registers and grants the Work IQ User API permission to (permission naming follows the WorkIQ-*Server pattern, e.g. WorkIQ-MailServer for Mail; the User server permission follows the same convention). OAuth authorization/token endpoints are NOT hardcoded — they are obtained via Entra (login.microsoftonline.com) and MCP/OAuth discovery against the agent365 host, so they are left null. No plain OAuth scope strings are documented; access is gated by Entra API permissions + admin consent rather than scope strings, hence scopes[] is empty.\n\nRequires a Microsoft 365 Copilot license. Currently in PREVIEW (catalog status coming_soon is consistent). Both tenantId and clientId are non-secret identifiers (no static token/secret the user pastes; the secret is obtained interactively via browser sign-in).",
+        "sources": [
+          "https://learn.microsoft.com/en-us/microsoft-agent-365/mcp-server-reference/me",
+          "https://learn.microsoft.com/en-us/microsoft-agent-365/tooling-servers-overview",
+          "https://github.com/microsoft/work-iq"
+        ]
+      }
+    },
+    {
+      "slug": "microsoft-word-mcp",
+      "docs": "https://learn.microsoft.com/en-us/microsoft-agent-365/mcp-server-reference/word",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://agent365.svc.cloud.microsoft/agents/tenants/{tenantId}/servers/mcp_WordServer",
+        "scopes": [],
+        "oauth_authorization_endpoint": null,
+        "oauth_token_endpoint": null,
+        "credentials": [
+          {
+            "key": "tenantId",
+            "label": "Microsoft Entra Tenant ID",
+            "description": "Your Microsoft Entra (Azure AD) directory/tenant ID (GUID). Substituted into the MCP server URL path: https://agent365.svc.cloud.microsoft/agents/tenants/{tenantId}/servers/mcp_WordServer.",
+            "required": true,
+            "secret": false,
+            "target": "server_uri"
+          },
+          {
+            "key": "clientId",
+            "label": "Microsoft Entra App (Client) ID",
+            "description": "Application (client) ID of the Microsoft Entra enterprise app registration you create as the OAuth client (e.g. a WorkIQ public MCP client). Used in the MCP oauth config. Not a secret (public client / authorization-code with localhost callback).",
+            "required": true,
+            "secret": false,
+            "target": "oauth_client"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Official server is Microsoft Agent 365 \"Work IQ Word\" (server ID mcp_WordServer), a remote HTTP MCP server. Verified from Microsoft Learn. Exact endpoint: https://agent365.svc.cloud.microsoft/agents/tenants/{tenantId}/servers/mcp_WordServer — {tenantId} is the user's Entra tenant GUID. Tools: WordCreateNewDocument, WordGetDocumentContent, WordCreateNewComment, WordReplyToComment (matches catalog \"create documents and comments\"). Transport is \"http\" (streamable HTTP) per official .mcp.json samples (\"type\":\"http\").\n\nAuth: OAuth2 authorization-code (browser sign-in) against Microsoft Entra. The official MCP client config supplies only url + oauth.clientId + callbackPort (localhost:8080), so the authorization/token endpoints are obtained via OAuth/protected-resource discovery from the resource server rather than hardcoded — hence oauth_authorization_endpoint/token_endpoint left null. Microsoft Entra OAuth touches login.microsoftonline.com. The clientId comes from an Entra app registration the user must create themselves (public client with redirect http://localhost:8080/callback); only tenant admins can fully provision. No client secret is used in the documented public-client flow, so clientId is marked non-secret. Scopes: the docs grant API permissions like WorkIQ-WordServer on the app registration rather than passing OAuth scope strings in the connection, so scopes left empty.\n\nPrerequisite: a Microsoft 365 Copilot license. Feature is in preview as of 2026-05. Note: there are many third-party \"Word MCP\" servers (e.g. GongRzhe/Office-Word-MCP-Server on PyPI/uvx, stdio), but those operate on local .docx files and are NOT the official Microsoft server; the catalog description (OneDrive/SharePoint documents + comments, HTTP transport) matches the official Agent 365 Work IQ Word server selected here.",
+        "sources": [
+          "https://learn.microsoft.com/en-us/microsoft-agent-365/mcp-server-reference/word",
+          "https://learn.microsoft.com/en-us/microsoft-agent-365/tooling-servers-overview"
+        ]
+      }
+    },
+    {
+      "slug": "microsoft-onedrive-mcp",
+      "docs": "https://learn.microsoft.com/en-us/microsoft-agent-365/mcp-server-reference/onedrive",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://agent365.svc.cloud.microsoft/agents/tenants/{tenantId}/servers/mcp_OneDriveRemoteServer",
+        "scopes": [],
+        "oauth_authorization_endpoint": null,
+        "oauth_token_endpoint": null,
+        "credentials": [
+          {
+            "key": "tenantId",
+            "label": "Microsoft Entra Tenant ID",
+            "description": "The Microsoft Entra (Azure AD) directory/tenant ID, substituted into the MCP server URL path. Find it in the Microsoft Entra admin center under your app registration's Overview (Directory/tenant ID).",
+            "required": true,
+            "secret": false,
+            "target": "server_uri"
+          },
+          {
+            "key": "clientId",
+            "label": "Entra Application (Client) ID",
+            "description": "The Application (client) ID of the enterprise app you register in Microsoft Entra to act as the OAuth client for Work IQ MCP servers. Used in the OAuth config (clientId). Not itself a secret; the OAuth authorization-code browser sign-in obtains the token.",
+            "required": true,
+            "secret": false,
+            "target": "oauth_client"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Official server is Microsoft \"Work IQ OneDrive\" (server ID mcp_OneDriveRemoteServer), part of Microsoft Agent 365 / Work IQ MCP (currently preview). It is a remote HTTP (streamable, type \"http\") MCP server, NOT stdio. Endpoint is tenant-scoped: https://agent365.svc.cloud.microsoft/agents/tenants/{tenantId}/servers/mcp_OneDriveRemoteServer — the {tenantId} placeholder must be replaced with the user's Entra tenant ID.\n\nAuth is OAuth2 (authorization_code) via Microsoft Entra ID. Microsoft's documented client config uses {\"type\":\"http\",\"url\":\"...\",\"oauth\":{\"clientId\":\"<appId>\",\"callbackPort\":8080}} — i.e. the MCP client performs an OAuth authorization-code browser sign-in. The server advertises auth via discovery, so explicit authorization/token endpoints are not published in the docs (they resolve to login.microsoftonline.com / Entra). I left oauth_authorization_endpoint and oauth_token_endpoint null for that reason.\n\nPrerequisites per Microsoft docs: (1) a Microsoft 365 Copilot license, and (2) a registered Microsoft Entra enterprise application (public client) with the relevant Work IQ server API permission granted. The documented example uses WorkIQ-MailServer permission for the Mail server; the OneDrive server requires the analogous WorkIQ-OneDrive(Server) permission (exact permission display name for OneDrive not explicitly shown in the doc, so not asserted as a scope). Redirect URI http://localhost:8080/callback (or http://127.0.0.1, etc.) must be configured on the app registration.\n\nThe older combined server (mcp_ODSPRemoteServer, \"Microsoft SharePoint and OneDrive MCP server\") is deprecated as of 2026-03-13 and is replaced by separate Work IQ OneDrive and Work IQ SharePoint servers; this spec targets the current OneDrive server.\n\nNo npx/uvx/pip package distribution exists — it is a Microsoft-hosted remote endpoint, so packages[] is empty and stdio fields are null. docker_only is false (not a Docker image either).\n\nCredentials clientId/tenantId are connection identifiers, not secrets; the actual bearer token is acquired interactively via the OAuth flow rather than supplied by the user.",
+        "sources": [
+          "https://learn.microsoft.com/en-us/microsoft-agent-365/mcp-server-reference/onedrive",
+          "https://learn.microsoft.com/en-us/microsoft-agent-365/tooling-servers-overview",
+          "https://learn.microsoft.com/en-us/microsoft-agent-365/mcp-server-reference/odspremoteserver"
+        ]
+      }
+    },
+    {
+      "slug": "microsoft-sharepoint-mcp",
+      "docs": "https://learn.microsoft.com/en-us/microsoft-agent-365/mcp-server-reference/sharepoint",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://agent365.svc.cloud.microsoft/agents/tenants/{tenantId}/servers/mcp_SharePointRemoteServer",
+        "scopes": [],
+        "oauth_authorization_endpoint": null,
+        "oauth_token_endpoint": null,
+        "credentials": [
+          {
+            "key": "tenantId",
+            "label": "Microsoft Entra Tenant ID",
+            "description": "Your Microsoft 365 / Entra tenant ID (GUID). Substituted into the tenant-specific MCP endpoint URL: https://agent365.svc.cloud.microsoft/agents/tenants/{tenantId}/servers/mcp_SharePointRemoteServer",
+            "required": true,
+            "secret": false,
+            "target": "server_uri"
+          }
+        ],
+        "confidence": "medium",
+        "docker_only": false,
+        "research_notes": "The official first-party SharePoint MCP server is the \"Work IQ SharePoint\" server in Microsoft Agent 365 (server ID `mcp_SharePointRemoteServer`), currently in PREVIEW as of 2026-05. It supersedes the now-deprecated (since 2026-03-13) combined \"Microsoft SharePoint and OneDrive MCP server\" (`mcp_ODSPRemoteServer`). It covers sites, lists, list items, columns, document libraries (drives), files, folders, and sharing (file ops limited to <=5MB).\n\nTRANSPORT: Remote HTTP MCP server (streamable HTTP via the Agent 365 tooling gateway). The endpoint is tenant-specific and templated: https://agent365.svc.cloud.microsoft/agents/tenants/{tenantId}/servers/mcp_SharePointRemoteServer — the {tenantId} must be replaced with the caller's Entra tenant GUID. This is NOT a single static public URL.\n\nAUTH: Microsoft Entra ID OAuth2 (bearer token). The Agent 365 tooling model uses delegated/OBO (authorization_code-family) tokens or agentic auth. Auth is gated behind: (1) a one-time per-tenant service principal for \"Agent 365 Tools\" (app id ea9ffc3e-8a23-4a7d-836d-234d7c7565c1) created via a Microsoft PowerShell script, (2) an Entra app/agent blueprint with admin-consented API permissions, and (3) Global Administrator consent. So this is NOT a self-service \"sign in with browser and go\" DCR-style remote MCP server; it requires tenant admin onboarding and the Agent 365 CLI to provision permissions.\n\nSCOPE/AUDIENCE: The CLI auto-populates an OAuth `scope` and `audience` per server from the Agent 365 MCP catalog and writes them to ToolingManifest.json. The docs show the pattern using the MAIL server example: scope `McpServers.Mail.All`, audience `api://05879165-0320-489e-b644-f72b33f3edf0`. The SharePoint-specific scope (likely of the form `McpServers.SharePoint.All` or similar) and its audience GUID are NOT published on the pages reviewed, so scopes left empty and oauth endpoints left null. Confidence is MEDIUM because endpoint URL + transport + Entra-OAuth model are verified from official Microsoft Learn docs, but the exact SharePoint scope string/audience GUID and the precise OAuth discovery endpoints were not confirmed first-hand. Set required=true on tenantId because the URL is unusable without it.\n\nMany community/third-party SharePoint MCP servers exist (e.g. mcp-sharepoint on PyPI, DEmodoriGatsuO/sharepoint-mcp, sekops, ftaricano/mcp-onedrive-sharepoint via Graph + device-code). Those are NOT first-party and were not selected; the intended transport is HTTP and the official first-party offering is the Agent 365 remote HTTP server above.",
+        "sources": [
+          "https://learn.microsoft.com/en-us/microsoft-agent-365/mcp-server-reference/sharepoint",
+          "https://learn.microsoft.com/en-us/microsoft-agent-365/mcp-server-reference/odspremoteserver",
+          "https://learn.microsoft.com/en-us/microsoft-agent-365/developer/tooling"
+        ]
+      }
+    },
+    {
+      "slug": "google-drive-mcp",
+      "docs": "https://developers.google.com/workspace/guides/configure-mcp-servers",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://drivemcp.googleapis.com/mcp/v1",
+        "scopes": [
+          "https://www.googleapis.com/auth/drive.readonly",
+          "https://www.googleapis.com/auth/drive.file"
+        ],
+        "oauth_authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
+        "oauth_token_endpoint": "https://oauth2.googleapis.com/token",
+        "credentials": [
+          {
+            "key": "client_id",
+            "label": "Google OAuth Client ID",
+            "description": "OAuth 2.0 Client ID created in Google Cloud Console for the project with the Drive API enabled. Used to authenticate the user via the standard Google OAuth authorization-code flow.",
+            "required": true,
+            "secret": false,
+            "target": "oauth_client"
+          },
+          {
+            "key": "client_secret",
+            "label": "Google OAuth Client Secret",
+            "description": "OAuth 2.0 Client Secret paired with the Client ID, created in Google Cloud Console. Used in the authorization-code token exchange.",
+            "required": true,
+            "secret": true,
+            "target": "oauth_client"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Google publishes an official first-party REMOTE (HTTP/streamable) MCP server for Google Drive at https://drivemcp.googleapis.com/mcp/v1, which matches the intended HTTP transport. This is the canonical official server (Google for Developers docs), not a community STDIO reference server. Auth is OAuth 2.0 authorization-code flow: the user must create their own OAuth Client ID/Secret in Google Cloud Console (with the Drive API enabled) and configure scopes drive.readonly and drive.file. The client config example uses an \"oauth\" block with clientId/clientSecret/scopes (Gemini CLI desktop-app client; Claude uses a web-app client with redirect URI https://claude.ai/api/mcp/auth_callback). I set oauth_authorization_endpoint/token_endpoint to Google's standard well-known OAuth endpoints (accounts.google.com / oauth2.googleapis.com) since these are Google's documented OAuth 2.0 endpoints; the server may also advertise them via MCP discovery, but the configure-mcp-server doc shows credentials are supplied by the user rather than via dynamic client registration. Tools exposed: copy_file, create_file, download_file_content, get_file_metadata, get_file_permissions, list_recent_files, read_file_content, search_files. Note: numerous community STDIO servers exist (e.g. modelcontextprotocol reference gdrive npm package, isaacphi/mcp-gdrive) but the official Google remote HTTP server is the better match here.",
+        "sources": [
+          "https://developers.google.com/workspace/drive/api/guides/configure-mcp-server",
+          "https://developers.google.com/workspace/drive/api/reference/mcp",
+          "https://docs.cloud.google.com/mcp/supported-products"
+        ]
+      }
+    },
+    {
+      "slug": "google-calendar-mcp",
+      "docs": "https://developers.google.com/workspace/guides/configure-mcp-servers",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://calendarmcp.googleapis.com/mcp/v1",
+        "scopes": [
+          "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+          "https://www.googleapis.com/auth/calendar.events.readonly",
+          "https://www.googleapis.com/auth/calendar.events.freebusy",
+          "https://www.googleapis.com/auth/calendar.events"
+        ],
+        "oauth_authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
+        "oauth_token_endpoint": "https://oauth2.googleapis.com/token",
+        "credentials": [],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Google ships a FIRST-PARTY remote (HTTP) Google Calendar MCP server at https://calendarmcp.googleapis.com/mcp/v1 — this matches the intended HTTP transport and is preferred over community stdio servers (e.g. nspady/@cocal/google-calendar-mcp on npm). Transport is described as a \"remote MCP server\" over HTTP (streamable HTTP); not SSE. Auth is OAuth 2.0 authorization-code. The server exposes 8 tools: list_events, get_event, list_calendars, suggest_time, create_event, update_event, delete_event, respond_to_event — i.e. it supports both reads and writes (creating/scheduling/updating/deleting events), so a write scope (calendar.events) is required in addition to the read-only scopes Google lists in the config guide.\n\nOAuth notes: the user must create their own OAuth 2.0 client in Google Cloud Console (https://console.cloud.google.com/auth/clients/create) and enable the Calendar API — this is standard Google OAuth, NOT RFC 7591 dynamic client registration. For Claude integration the documented redirect/callback URI is https://claude.ai/api/mcp/auth_callback. Google's OAuth uses well-known endpoints: authorization at accounts.google.com/o/oauth2/v2/auth and token exchange at oauth2.googleapis.com/token (these are Google's standard OAuth2 endpoints, not explicitly restated on the MCP config page but are the canonical Google OAuth endpoints). The client_id/client_secret from the user's own Google Cloud OAuth client are supplied by the OAuth platform configuration rather than as static per-user header credentials, so credentials[] is left empty (no user-supplied API key/token/host is passed directly to the MCP endpoint at request time). The read-only scopes explicitly listed in Google's guide are calendar.calendarlist.readonly, calendar.events.readonly, and calendar.events.freebusy; calendar.events (read/write) is required for the write tools.",
+        "sources": [
+          "https://developers.google.com/workspace/calendar/api/guides/configure-mcp-server",
+          "https://developers.google.com/workspace/calendar/api/v3/reference/mcp",
+          "https://developers.google.com/workspace/guides/configure-mcp-servers"
+        ]
+      }
+    },
+    {
+      "slug": "notion-mcp",
+      "docs": "https://developers.notion.com/docs/mcp",
+      "provider_id": "notion_mcp",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "OAUTH2",
+        "server_uri": "https://mcp.notion.com/mcp",
+        "scopes": [],
+        "oauth_authorization_endpoint": null,
+        "oauth_token_endpoint": null,
+        "credentials": []
+      }
+    }
+  ]
+}
