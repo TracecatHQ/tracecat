@@ -41,7 +41,7 @@ from tracecat.exceptions import (
     RegistryError,
     RegistryValidationError,
 )
-from tracecat.expressions.eval import extract_expressions
+from tracecat.expressions.eval import extract_expressions, extract_templated_secrets
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.validator.validator import (
     TemplateActionExprValidator,
@@ -1569,6 +1569,26 @@ async def validate_action_template(
         )
         for e in expr_errs
     )
+    # 3. Validate that all referenced SECRETS are declared in definition.secrets
+    declared_secret_names = {secret.name for secret in defn.secrets or []}
+    used_secret_paths = extract_templated_secrets(
+        {"steps": [step.args for step in defn.steps], "returns": defn.returns}
+    )
+    used_secret_names = {path.split(".", maxsplit=1)[0] for path in used_secret_paths}
+    undeclared_secret_names = sorted(used_secret_names - declared_secret_names)
+    for secret_name in undeclared_secret_names:
+        val_errs.append(
+            RegistryActionValidationErrorInfo(
+                loc_primary="definition.secrets",
+                loc_secondary=secret_name,
+                type=TemplateActionValidationErrorType.SECRET_NOT_DECLARED,
+                details=[
+                    "Secret is referenced in template expressions but missing from "
+                    "`definition.secrets`."
+                ],
+                is_template=action.is_template,
+            )
+        )
 
     return val_errs
 
