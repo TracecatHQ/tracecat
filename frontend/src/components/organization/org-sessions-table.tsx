@@ -29,7 +29,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { getRelativeTime } from "@/lib/event-history"
+import { formatExactTimestamp } from "@/lib/event-history"
 import { useSessions } from "@/lib/hooks"
 
 export function OrgSessionsTable() {
@@ -91,11 +91,10 @@ export function OrgSessionsTable() {
                 const createdAt =
                   row.getValue<SessionRead["created_at"]>("created_at")
                 const date = new Date(createdAt)
-                const ago = getRelativeTime(date)
+                const exactTimestamp = formatExactTimestamp(date)
                 return (
-                  <div className="space-x-2 text-xs">
-                    <span>{date.toLocaleString()}</span>
-                    <span className="text-muted-foreground">({ago})</span>
+                  <div className="text-xs text-muted-foreground">
+                    {exactTimestamp}
                   </div>
                 )
               },

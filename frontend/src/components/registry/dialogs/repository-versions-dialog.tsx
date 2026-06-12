@@ -54,7 +54,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
-import { getRelativeTime } from "@/lib/event-history"
+import { formatExactTimestamp } from "@/lib/event-history"
 
 /** Shorten a version string if it looks like a full commit SHA. */
 function shortVersion(version: string): string {
@@ -383,7 +383,7 @@ function VersionsView({
                   )}
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground">
-                  {getRelativeTime(new Date(version.created_at))}
+                  {formatExactTimestamp(new Date(version.created_at))}
                 </TableCell>
                 <TableCell>
                   {isCurrent && (
