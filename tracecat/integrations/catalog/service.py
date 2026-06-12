@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 from typing import NamedTuple
 
 import sqlalchemy as sa
-from pydantic import ValidationError
 
 from tracecat.db.models import MCPIntegration, OAuthIntegration
 from tracecat.integrations.catalog.loader import get_platform_mcp_catalog_entries
@@ -20,7 +19,6 @@ from tracecat.integrations.schemas import (
     PlatformMCPCatalogStatus,
 )
 from tracecat.integrations.types import MCPServerType
-from tracecat.logger import logger
 from tracecat.pagination import BaseCursorPaginator, CursorPaginationParams
 from tracecat.secrets.encryption import is_set
 from tracecat.service import BaseService
@@ -259,24 +257,12 @@ class PlatformMCPCatalogService(BaseService):
     def _catalog_tools(
         mcp_integration: MCPIntegration | None,
     ) -> list[MCPToolSummary] | None:
-        """Validate stored tool entries, skipping any malformed records.
-
-        Stored tool JSON is best-effort: a single corrupt entry must not crash
-        the entire catalog listing, so invalid records are dropped with a
-        warning instead of raising.
-        """
-        if mcp_integration is None or mcp_integration.tools is None:
+        """Validate stored tool entries, skipping any malformed records."""
+        if mcp_integration is None:
             return None
-        tools: list[MCPToolSummary] = []
-        for tool in mcp_integration.tools:
-            try:
-                tools.append(MCPToolSummary.model_validate(tool))
-            except ValidationError:
-                logger.warning(
-                    "Skipping malformed MCP catalog tool entry",
-                    mcp_integration_id=str(mcp_integration.id),
-                )
-        return tools
+        return MCPToolSummary.validate_stored(
+            mcp_integration.tools, mcp_integration_id=mcp_integration.id
+        )
 
     @staticmethod
     def _mcp_server_type(server_type: str | None) -> MCPServerType | None:

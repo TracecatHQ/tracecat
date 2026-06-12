@@ -3113,12 +3113,7 @@ class IntegrationService(BaseWorkspaceService):
             # path, which maps "" to no headers rather than back-filling.
             raw_credentials = params.custom_credentials.get_secret_value()
             encrypted_headers = (
-                encrypt_value(
-                    raw_credentials.encode("utf-8"),
-                    key=get_db_encryption_key(),
-                )
-                if raw_credentials
-                else None
+                self._encrypt_token(raw_credentials) if raw_credentials else None
             )
         else:
             encrypted_headers = reusable.encrypted_headers if reusable else None
@@ -3452,7 +3447,15 @@ class IntegrationService(BaseWorkspaceService):
                     target_auth_type=target_auth_type,
                     target_oauth_integration_id=target_oauth_integration_id,
                 )
-                verified_tools = await self._probe_mcp_http_server(update_target)
+                # Skip the probe while an OAuth2 target still lacks an access
+                # token: the user hasn't completed (or has lost) authorization,
+                # so a benign edit must not be rejected. Mirrors the connect/save
+                # gate (_gate_mcp_connect_verification); the OAuth callback runs
+                # its own verification after token exchange.
+                if not await self.mcp_oauth_authorization_pending(
+                    mcp_integration=update_target
+                ):
+                    verified_tools = await self._probe_mcp_http_server(update_target)
         elif target_server_type == "stdio" and (
             server_type_changed
             or params.stdio_command is not None

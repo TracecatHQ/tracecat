@@ -4413,3 +4413,42 @@ class TestMCPOAuthAuthorizationPending:
             )
             is False
         )
+
+    async def test_update_skips_verification_when_oauth_pending(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A benign edit of an unauthorized OAuth MCP server must not be probed.
+
+        The connect/save gate skips verification while OAuth is pending; the
+        update path must do the same, otherwise a rename/timeout bump on an
+        integration awaiting authorization is rejected with a 502.
+        """
+        oauth_integration.encrypted_access_token = b""
+        integration_service.session.add(oauth_integration)
+        await integration_service.session.commit()
+
+        mcp_integration = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Pending OAuth MCP",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            )
+        )
+
+        async def _fail_probe(*args: object, **kwargs: object) -> object:
+            raise AssertionError("probe must be skipped while OAuth is pending")
+
+        monkeypatch.setattr(integration_service, "_probe_mcp_http_server", _fail_probe)
+
+        updated = await integration_service.update_mcp_integration(
+            mcp_integration_id=mcp_integration.id,
+            params=MCPIntegrationUpdate(name="Pending OAuth MCP renamed"),
+            verify_connection=True,
+        )
+
+        assert updated is not None
+        assert updated.name == "Pending OAuth MCP renamed"

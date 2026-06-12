@@ -40,25 +40,13 @@ const MCP_VERIFY_ERROR_PARAM = "mcp_verify_error"
 const ALL_CATEGORY = "All"
 
 /**
- * Badge treatments for an HTTP server whose connection has not been verified
- * (never tested, or the last test failed). Trial variants — pick one at review.
+ * Badge treatment for an HTTP server whose connection has not been verified
+ * (never tested, or the last test failed).
  */
-const UNVERIFIED_BADGE_VARIANTS = {
-  unverified: {
-    label: "Unverified",
-    className: "border-amber-200 bg-amber-50 text-amber-700",
-  },
-  "connection-failed": {
-    label: "Connection failed",
-    className: "border-red-200 bg-red-50 text-red-700",
-  },
-  "needs-verification": {
-    label: "Needs verification",
-    className: "border-amber-200 bg-amber-50 text-amber-700",
-  },
+const UNVERIFIED_BADGE = {
+  label: "Unverified",
+  className: "border-amber-200 bg-amber-50 text-amber-700",
 } as const
-const UNVERIFIED_BADGE_VARIANT: keyof typeof UNVERIFIED_BADGE_VARIANTS =
-  "unverified"
 const CUSTOM_CATEGORY = "Custom"
 const MCP_CATEGORIES = [
   "SIEM / Datalake",
@@ -389,10 +377,11 @@ export default function McpServersPage() {
     if (!verifyErrorSignal || !pathname) {
       return
     }
+    // Not `destructive`: a verification failure is a remote/config issue
+    // (unreachable server, bad credentials), not a platform fault.
     toast({
       title: "Connection failed",
       description: verifyErrorSignal,
-      variant: "destructive",
     })
     const params = new URLSearchParams(searchParams?.toString() ?? "")
     params.delete(MCP_VERIFY_ERROR_PARAM)
@@ -466,7 +455,13 @@ export default function McpServersPage() {
       setLockedCatalogEntry(entry)
       return
     }
-    const connected = entry.state === "connected"
+    // Mirror McpCatalogCard's derivation: an HTTP row with no tool listing
+    // hasn't been verified yet, so it is "configured"/reconnect, not a
+    // connected disconnect. Keeping this in sync avoids showing "Reconnect"
+    // while routing through the disconnect/no-op path.
+    const isHttpServer = entry.mcp_server_type === "http"
+    const connected =
+      entry.state === "connected" && !(isHttpServer && entry.tools === null)
     const connectable = isCatalogEntryConnectable(entry)
 
     if (entry.mcp_integration_id && connected) {
@@ -788,7 +783,7 @@ function McpCatalogCard({
   }
   const configureLabel = "Configure"
   const verifiedToolCount = entry.tools?.length ?? null
-  const unverifiedBadge = UNVERIFIED_BADGE_VARIANTS[UNVERIFIED_BADGE_VARIANT]
+  const unverifiedBadge = UNVERIFIED_BADGE
   let statusLabel = "Not connected"
   let statusClassName = "border-muted bg-muted/30 text-muted-foreground"
   if (isActionPending) {

@@ -106,10 +106,8 @@ def _mcp_integration_read(
         stdio_args=mcp_integration.stdio_args,
         has_stdio_env=bool(mcp_integration.encrypted_stdio_env),
         timeout=mcp_integration.timeout,
-        tools=(
-            [MCPToolSummary.model_validate(tool) for tool in mcp_integration.tools]
-            if mcp_integration.tools is not None
-            else None
+        tools=MCPToolSummary.validate_stored(
+            mcp_integration.tools, mcp_integration_id=mcp_integration.id
         ),
     )
 
@@ -1199,7 +1197,7 @@ async def update_mcp_integration(
 
 
 @mcp_router.post("/test")
-@require_scope("integration:create", "integration:update", require_all=False)
+@require_scope("integration:update")
 async def test_mcp_connection_config(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,

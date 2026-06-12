@@ -17,6 +17,7 @@ from pydantic import (
     Field,
     SecretStr,
     Tag,
+    ValidationError,
     computed_field,
     field_validator,
 )
@@ -24,6 +25,7 @@ from pydantic import (
 from tracecat.identifiers import UserID, WorkspaceID
 from tracecat.integrations.enums import IntegrationStatus, MCPAuthType, OAuthGrantType
 from tracecat.integrations.types import MCPServerType
+from tracecat.logger import logger
 
 
 # Pydantic models for API responses
@@ -697,6 +699,31 @@ class MCPToolSummary(BaseModel):
 
     name: str
     description: str | None = None
+
+    @classmethod
+    def validate_stored(
+        cls, tools: list[Any] | None, *, mcp_integration_id: object | None = None
+    ) -> list[Self] | None:
+        """Validate stored tool entries, skipping any malformed records.
+
+        Stored tool JSON is best-effort: a single corrupt entry (manual DB
+        edit, future schema drift) must not crash listing or read responses,
+        so invalid records are dropped with a warning instead of raising.
+        """
+        if tools is None:
+            return None
+        validated: list[Self] = []
+        for tool in tools:
+            try:
+                validated.append(cls.model_validate(tool))
+            except ValidationError:
+                logger.warning(
+                    "Skipping malformed MCP tool entry",
+                    mcp_integration_id=str(mcp_integration_id)
+                    if mcp_integration_id is not None
+                    else None,
+                )
+        return validated
 
 
 class MCPConnectionOption(BaseModel):
