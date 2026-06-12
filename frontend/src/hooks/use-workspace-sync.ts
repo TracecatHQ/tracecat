@@ -1,9 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
+  type ChangeSetCreate,
+  type ChangeSetExport,
+  type ChangeSetRead,
   type GitCommitInfo,
   type PullResult,
   type WorkflowSyncPullRequest,
+  type WorkspaceSyncExportResult,
+  type WorkspaceSyncPendingChanges,
+  type WorkspaceSyncStatus,
+  workflowsCreateWorkspaceSyncChangeset,
+  workflowsExportWorkspaceSyncChangeset,
+  workflowsGetWorkspaceSyncStatus,
   workflowsListWorkflowCommits,
+  workflowsListWorkspaceSyncChangesets,
+  workflowsListWorkspaceSyncPendingChanges,
   workflowsPullWorkflows,
 } from "@/client"
 
@@ -98,5 +109,121 @@ export function useRepositoryCommits(
     commits,
     commitsIsLoading,
     commitsError,
+  }
+}
+
+/**
+ * Fetches the workspace-level Git sync status for the current repository.
+ */
+export function useWorkspaceSyncStatus(
+  workspaceId: string | undefined,
+  options?: { enabled?: boolean }
+) {
+  return useQuery<WorkspaceSyncStatus>({
+    queryKey: ["workspace-sync-status", workspaceId],
+    queryFn: async () => {
+      if (!workspaceId) {
+        throw new Error("Workspace ID is required")
+      }
+      return await workflowsGetWorkspaceSyncStatus({ workspaceId })
+    },
+    enabled: !!workspaceId && options?.enabled !== false,
+  })
+}
+
+/**
+ * Fetches local workspace changes that can be exported to Git.
+ */
+export function useWorkspaceSyncPendingChanges(
+  workspaceId: string | undefined,
+  options?: { enabled?: boolean }
+) {
+  return useQuery<WorkspaceSyncPendingChanges>({
+    queryKey: ["workspace-sync-pending", workspaceId],
+    queryFn: async () => {
+      if (!workspaceId) {
+        throw new Error("Workspace ID is required")
+      }
+      return await workflowsListWorkspaceSyncPendingChanges({ workspaceId })
+    },
+    enabled: !!workspaceId && options?.enabled !== false,
+  })
+}
+
+/**
+ * Fetches recent workspace sync changesets for review and re-selection.
+ */
+export function useWorkspaceSyncChangesets(
+  workspaceId: string | undefined,
+  options?: { enabled?: boolean; limit?: number }
+) {
+  return useQuery<ChangeSetRead[]>({
+    queryKey: ["workspace-sync-changesets", workspaceId, options?.limit ?? 20],
+    queryFn: async () => {
+      if (!workspaceId) {
+        throw new Error("Workspace ID is required")
+      }
+      return await workflowsListWorkspaceSyncChangesets({
+        workspaceId,
+        limit: options?.limit ?? 20,
+      })
+    },
+    enabled: !!workspaceId && options?.enabled !== false,
+  })
+}
+
+/**
+ * Provides mutations for creating and exporting workspace sync changesets.
+ */
+export function useWorkspaceSyncChangesetActions(
+  workspaceId: string | undefined
+) {
+  const queryClient = useQueryClient()
+  const invalidateSyncQueries = () => {
+    queryClient.invalidateQueries({
+      queryKey: ["workspace-sync-status", workspaceId],
+    })
+    queryClient.invalidateQueries({
+      queryKey: ["workspace-sync-pending", workspaceId],
+    })
+    queryClient.invalidateQueries({
+      queryKey: ["workspace-sync-changesets", workspaceId],
+    })
+  }
+
+  const createChangeset = useMutation<ChangeSetRead, Error, ChangeSetCreate>({
+    mutationFn: async (requestBody) => {
+      if (!workspaceId) {
+        throw new Error("Workspace ID is required")
+      }
+      return await workflowsCreateWorkspaceSyncChangeset({
+        workspaceId,
+        requestBody,
+      })
+    },
+    onSuccess: invalidateSyncQueries,
+  })
+
+  const exportChangeset = useMutation<
+    WorkspaceSyncExportResult,
+    Error,
+    { changesetId: string; requestBody: ChangeSetExport }
+  >({
+    mutationFn: async ({ changesetId, requestBody }) => {
+      if (!workspaceId) {
+        throw new Error("Workspace ID is required")
+      }
+      return await workflowsExportWorkspaceSyncChangeset({
+        workspaceId,
+        changesetId,
+        requestBody,
+      })
+    },
+    onSuccess: invalidateSyncQueries,
+  })
+
+  return {
+    createChangeset,
+    exportChangeset,
   }
 }

@@ -10,8 +10,10 @@ from fastapi.testclient import TestClient
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatValidationError
 from tracecat.registry.repositories.schemas import GitBranchInfo
+from tracecat.sync import CommitInfo, PushStatus
 from tracecat.vcs.github.app import GitHubAppError
 from tracecat.workflow.store.schemas import WorkflowDslPublishResult
+from tracecat.workspace_sync.schemas import ChangeSetRead, WorkspaceSyncExportResult
 
 
 def _sample_dsl_content() -> dict[str, object]:
@@ -186,7 +188,9 @@ async def test_list_workflow_branches_success(
     """Test GET /workflows/sync/branches returns branch list."""
     with (
         patch("tracecat.workflow.store.router.WorkspaceService") as mock_workspace_cls,
-        patch("tracecat.workflow.store.router.WorkflowSyncService") as mock_sync_cls,
+        patch(
+            "tracecat.workflow.store.router.WorkspaceGitSyncService"
+        ) as mock_sync_cls,
     ):
         mock_workspace_svc = AsyncMock()
         mock_workspace = Mock()
@@ -246,7 +250,9 @@ async def test_list_workflow_branches_github_error_returns_400(
     """Test GET /workflows/sync/branches maps GitHub errors to 400."""
     with (
         patch("tracecat.workflow.store.router.WorkspaceService") as mock_workspace_cls,
-        patch("tracecat.workflow.store.router.WorkflowSyncService") as mock_sync_cls,
+        patch(
+            "tracecat.workflow.store.router.WorkspaceGitSyncService"
+        ) as mock_sync_cls,
     ):
         mock_workspace_svc = AsyncMock()
         mock_workspace = Mock()
@@ -269,3 +275,111 @@ async def test_list_workflow_branches_github_error_returns_400(
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert "Unable to access repository" in response.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_workspace_sync_changeset_routes(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    changeset_id = uuid.uuid4()
+    changeset = ChangeSetRead(
+        id=changeset_id,
+        title="Export workflow",
+        selected_resources=[
+            {
+                "resource_type": "workflow",
+                "source_id": "detect-okta-risk",
+                "source_path": "workflows/detect-okta-risk/definition.yml",
+            }
+        ],
+        selected_paths=[
+            "tracecat.json",
+            "workflows/detect-okta-risk/definition.yml",
+        ],
+        validation_status="valid",
+        validation_result={},
+        status="validated",
+    )
+
+    with patch("tracecat.workflow.store.router.WorkspaceGitSyncService") as sync_cls:
+        sync_svc = AsyncMock()
+        sync_svc.create_changeset.return_value = changeset
+        sync_svc.get_changeset.return_value = changeset
+        sync_svc.list_changesets.return_value = [changeset]
+        sync_svc.export_changeset.return_value = WorkspaceSyncExportResult(
+            changeset_id=changeset_id,
+            commit=CommitInfo(
+                status=PushStatus.COMMITTED,
+                sha="c" * 40,
+                ref="sync/detect-okta-risk",
+                base_ref="main",
+                pr_url="https://github.com/test-org/test-repo/pull/1",
+                pr_number=1,
+                pr_reused=False,
+                message="Committed workspace sync changes.",
+            ),
+        )
+        sync_cls.return_value = sync_svc
+
+        create_response = client.post(
+            "/workflows/sync/changesets",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={
+                "title": "Export workflow",
+                "resources": [
+                    {
+                        "resource_type": "workflow",
+                        "source_id": "detect-okta-risk",
+                        "source_path": "workflows/detect-okta-risk/definition.yml",
+                    }
+                ],
+            },
+        )
+        list_response = client.get(
+            "/workflows/sync/changesets",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+        get_response = client.get(
+            f"/workflows/sync/changesets/{changeset_id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+        export_response = client.post(
+            f"/workflows/sync/changesets/{changeset_id}/export",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={
+                "message": "Export workflow",
+                "branch": "sync/detect-okta-risk",
+                "create_pr": True,
+            },
+        )
+
+    assert create_response.status_code == status.HTTP_201_CREATED
+    assert list_response.status_code == status.HTTP_200_OK
+    assert get_response.status_code == status.HTTP_200_OK
+    assert export_response.status_code == status.HTTP_200_OK
+    assert create_response.json()["selected_resources"][0]["source_id"] == (
+        "detect-okta-risk"
+    )
+    assert list_response.json()[0]["id"] == str(changeset_id)
+    assert get_response.json()["status"] == "validated"
+    assert export_response.json()["commit"]["pr_number"] == 1
+
+
+@pytest.mark.anyio
+async def test_workspace_sync_changeset_export_invalid_branch_returns_400(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    response = client.post(
+        f"/workflows/sync/changesets/{uuid.uuid4()}/export",
+        params={"workspace_id": str(test_admin_role.workspace_id)},
+        json={
+            "message": "Export workflow",
+            "branch": "refs/heads/sync/detect-okta-risk",
+            "create_pr": True,
+        },
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "short branch name" in response.json()["detail"]

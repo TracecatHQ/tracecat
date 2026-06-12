@@ -2415,6 +2415,36 @@ export type CaseViewedEventRead = {
   created_at: string
 }
 
+export type ChangeSetCreate = {
+  title: string
+  description?: string | null
+  resources: Array<ResourceRef>
+}
+
+export type ChangeSetExport = {
+  message: string
+  branch: string
+  create_pr?: boolean
+  pr_base_branch?: string | null
+}
+
+export type ChangeSetRead = {
+  id: string
+  title: string
+  description?: string | null
+  base_commit_sha?: string | null
+  base_spec_hash?: string | null
+  selected_resources: Array<{
+    [key: string]: unknown
+  }>
+  selected_paths: Array<string>
+  validation_status: string
+  validation_result: {
+    [key: string]: unknown
+  }
+  status: string
+}
+
 /**
  * Supported external channel types.
  */
@@ -2834,6 +2864,17 @@ export type CommentUpdatedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+export type CommitInfo = {
+  status: PushStatus
+  sha: string | null
+  ref: string
+  base_ref: string
+  pr_url?: string | null
+  pr_number?: number | null
+  pr_reused?: boolean
+  message?: string
 }
 
 /**
@@ -5605,6 +5646,11 @@ export type PullResult = {
   message: string
 }
 
+/**
+ * Status of a push/commit operation.
+ */
+export type PushStatus = "committed" | "no_op"
+
 export type RateLimitEvent = {
   rate_limit_info: RateLimitInfo
   uuid: string
@@ -6045,6 +6091,13 @@ export type ResolvedAttachedSubagentRef = {
   max_turns?: number | null
   preset_id: string
   preset_version_id: string
+}
+
+export type ResourceRef = {
+  resource_type: string
+  source_id: string
+  source_path?: string | null
+  local_id?: string | null
 }
 
 /**
@@ -7029,6 +7082,22 @@ export type StringListFieldChange = {
   added?: Array<string>
   removed?: Array<string>
 }
+
+export type SyncOperation =
+  | "create"
+  | "update"
+  | "delete"
+  | "archive"
+  | "disable"
+
+export type SyncStateStatus =
+  | "never_synced"
+  | "clean"
+  | "local_dirty"
+  | "remote_ahead"
+  | "diverged"
+  | "conflicted"
+  | "error"
 
 export type SyntaxToken = {
   type: string
@@ -9253,6 +9322,42 @@ export type WorkspaceSettingsUpdate = {
   validate_attachment_magic_number?: boolean | null
 }
 
+export type WorkspaceSyncExportResult = {
+  changeset_id: string
+  commit: CommitInfo
+}
+
+export type WorkspaceSyncPendingChange = {
+  resource_type: string
+  source_id: string
+  source_path: string
+  local_id?: string | null
+  operation: SyncOperation
+  title?: string | null
+  alias?: string | null
+  before_spec_hash?: string | null
+  after_spec_hash?: string | null
+  exportable?: boolean
+}
+
+export type WorkspaceSyncPendingChanges = {
+  base_spec_hash?: string | null
+  local_spec_hash: string
+  changes?: Array<WorkspaceSyncPendingChange>
+}
+
+export type WorkspaceSyncStatus = {
+  status: SyncStateStatus
+  base_spec_hash: string | null
+  local_spec_hash: string
+  remote_spec_hash?: string | null
+  base_commit_sha?: string | null
+  remote_commit_sha?: string | null
+  target_ref?: string | null
+  pending_change_count?: number
+  diagnostics?: Array<PullDiagnostic>
+}
+
 export type WorkspaceUpdate = {
   name?: string | null
   settings?: WorkspaceSettingsUpdate | null
@@ -10120,6 +10225,49 @@ export type WorkflowsListWorkflowBranchesData = {
 }
 
 export type WorkflowsListWorkflowBranchesResponse = Array<GitBranchInfo>
+
+export type WorkflowsGetWorkspaceSyncStatusData = {
+  workspaceId: string
+}
+
+export type WorkflowsGetWorkspaceSyncStatusResponse = WorkspaceSyncStatus
+
+export type WorkflowsListWorkspaceSyncPendingChangesData = {
+  workspaceId: string
+}
+
+export type WorkflowsListWorkspaceSyncPendingChangesResponse =
+  WorkspaceSyncPendingChanges
+
+export type WorkflowsListWorkspaceSyncChangesetsData = {
+  limit?: number
+  workspaceId: string
+}
+
+export type WorkflowsListWorkspaceSyncChangesetsResponse = Array<ChangeSetRead>
+
+export type WorkflowsCreateWorkspaceSyncChangesetData = {
+  requestBody: ChangeSetCreate
+  workspaceId: string
+}
+
+export type WorkflowsCreateWorkspaceSyncChangesetResponse = ChangeSetRead
+
+export type WorkflowsGetWorkspaceSyncChangesetData = {
+  changesetId: string
+  workspaceId: string
+}
+
+export type WorkflowsGetWorkspaceSyncChangesetResponse = ChangeSetRead
+
+export type WorkflowsExportWorkspaceSyncChangesetData = {
+  changesetId: string
+  requestBody: ChangeSetExport
+  workspaceId: string
+}
+
+export type WorkflowsExportWorkspaceSyncChangesetResponse =
+  WorkspaceSyncExportResult
 
 export type WorkflowsPullWorkflowsData = {
   requestBody: WorkflowSyncPullRequest
@@ -14287,6 +14435,94 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: Array<GitBranchInfo>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/sync/status": {
+    get: {
+      req: WorkflowsGetWorkspaceSyncStatusData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkspaceSyncStatus
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/sync/pending": {
+    get: {
+      req: WorkflowsListWorkspaceSyncPendingChangesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkspaceSyncPendingChanges
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/sync/changesets": {
+    get: {
+      req: WorkflowsListWorkspaceSyncChangesetsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ChangeSetRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: WorkflowsCreateWorkspaceSyncChangesetData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: ChangeSetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/sync/changesets/{changeset_id}": {
+    get: {
+      req: WorkflowsGetWorkspaceSyncChangesetData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ChangeSetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/sync/changesets/{changeset_id}/export": {
+    post: {
+      req: WorkflowsExportWorkspaceSyncChangesetData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkspaceSyncExportResult
         /**
          * Validation Error
          */

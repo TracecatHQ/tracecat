@@ -513,6 +513,266 @@ class Workspace(OrganizationModel):
     )
 
 
+class WorkspaceSyncState(RecordModel):
+    """Workspace-level Git sync metadata."""
+
+    __tablename__ = "workspace_sync_state"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "provider",
+            "repo_url",
+            "target_ref",
+            name="uq_workspace_sync_state_workspace_provider_repo_ref",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    provider: Mapped[str] = mapped_column(
+        String(32), default="git", server_default=text("'git'"), nullable=False
+    )
+    repo_url: Mapped[str] = mapped_column(String, nullable=False)
+    target_ref: Mapped[str] = mapped_column(
+        String, default="main", server_default=text("'main'"), nullable=False
+    )
+    base_commit_sha: Mapped[str | None] = mapped_column(String, nullable=True)
+    base_tree_sha: Mapped[str | None] = mapped_column(String, nullable=True)
+    base_spec_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    last_remote_commit_sha: Mapped[str | None] = mapped_column(String, nullable=True)
+    last_remote_tree_sha: Mapped[str | None] = mapped_column(String, nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(32),
+        default="never_synced",
+        server_default=text("'never_synced'"),
+        nullable=False,
+    )
+    last_direction: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    last_error: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    last_synced_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+
+
+class WorkspaceSyncResourceMapping(RecordModel):
+    """Maps stable sync source identities to workspace-local resource UUIDs."""
+
+    __tablename__ = "workspace_sync_resource_mapping"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "provider",
+            "resource_type",
+            "source_id",
+            name="uq_workspace_sync_mapping_source",
+        ),
+        UniqueConstraint(
+            "workspace_id",
+            "provider",
+            "resource_type",
+            "local_id",
+            name="uq_workspace_sync_mapping_local",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    provider: Mapped[str] = mapped_column(
+        String(32), default="git", server_default=text("'git'"), nullable=False
+    )
+    resource_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_id: Mapped[str] = mapped_column(String, nullable=False)
+    source_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    local_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    last_synced_commit_sha: Mapped[str | None] = mapped_column(String, nullable=True)
+    last_synced_spec_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    sync_status: Mapped[str] = mapped_column(
+        String(32),
+        default="untracked",
+        server_default=text("'untracked'"),
+        nullable=False,
+    )
+
+
+class WorkspaceSyncEvent(RecordModel):
+    """Append-only provenance for Git-relevant workspace mutations."""
+
+    __tablename__ = "workspace_sync_event"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    provider: Mapped[str] = mapped_column(
+        String(32), default="git", server_default=text("'git'"), nullable=False
+    )
+    resource_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    local_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
+    operation: Mapped[str] = mapped_column(String(32), nullable=False)
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
+    base_commit_sha: Mapped[str | None] = mapped_column(String, nullable=True)
+    before_spec_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    after_spec_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    affected_paths: Mapped[list[str]] = mapped_column(
+        JSONB, default=list, server_default=text("'[]'::jsonb"), nullable=False
+    )
+    metadata_: Mapped[dict[str, Any]] = mapped_column(
+        "metadata",
+        JSONB,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
+        nullable=False,
+    )
+    superseded_by: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
+    changeset_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
+
+
+class WorkspaceSyncChangeSet(RecordModel):
+    """Tracecat-side review and export unit for syncable workspace changes."""
+
+    __tablename__ = "workspace_sync_changeset"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    provider: Mapped[str] = mapped_column(
+        String(32), default="git", server_default=text("'git'"), nullable=False
+    )
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    base_commit_sha: Mapped[str | None] = mapped_column(String, nullable=True)
+    base_spec_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    selected_resources: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, default=list, server_default=text("'[]'::jsonb"), nullable=False
+    )
+    selected_paths: Mapped[list[str]] = mapped_column(
+        JSONB, default=list, server_default=text("'[]'::jsonb"), nullable=False
+    )
+    rendered_files: Mapped[dict[str, str]] = mapped_column(
+        JSONB, default=dict, server_default=text("'{}'::jsonb"), nullable=False
+    )
+    validation_status: Mapped[str] = mapped_column(
+        String(32),
+        default="pending",
+        server_default=text("'pending'"),
+        nullable=False,
+    )
+    validation_result: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, server_default=text("'{}'::jsonb"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(
+        String(32),
+        default="open",
+        server_default=text("'open'"),
+        nullable=False,
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
+
+
+class WorkspaceSyncChangeSetItem(RecordModel):
+    """A resource/path selected into a workspace sync ChangeSet."""
+
+    __tablename__ = "workspace_sync_changeset_item"
+    __table_args__ = (
+        UniqueConstraint(
+            "changeset_id",
+            "resource_type",
+            "source_id",
+            name="uq_workspace_sync_changeset_item_resource",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    changeset_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("workspace_sync_changeset.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    resource_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_id: Mapped[str] = mapped_column(String, nullable=False)
+    source_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    local_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
+    operation: Mapped[str] = mapped_column(String(32), nullable=False)
+    spec_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    dependencies: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, default=list, server_default=text("'[]'::jsonb"), nullable=False
+    )
+
+
+class WorkspaceSyncMaterialization(RecordModel):
+    """Git branch, commit, and PR output for a materialized ChangeSet."""
+
+    __tablename__ = "workspace_sync_materialization"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    changeset_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("workspace_sync_changeset.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    provider: Mapped[str] = mapped_column(
+        String(32), default="git", server_default=text("'git'"), nullable=False
+    )
+    branch: Mapped[str] = mapped_column(String, nullable=False)
+    base_ref: Mapped[str | None] = mapped_column(String, nullable=True)
+    pr_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pr_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    commit_shas: Mapped[list[str]] = mapped_column(
+        JSONB, default=list, server_default=text("'[]'::jsonb"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(
+        String(32),
+        default="pending",
+        server_default=text("'pending'"),
+        nullable=False,
+    )
+    error: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+
+
 class User(SQLAlchemyBaseUserTableUUID, Base):
     __tablename__ = "user"
 
