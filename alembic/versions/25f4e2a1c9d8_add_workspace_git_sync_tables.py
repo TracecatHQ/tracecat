@@ -1,7 +1,7 @@
 """add workspace git sync tables
 
 Revision ID: 25f4e2a1c9d8
-Revises: 0f18bea0c115
+Revises: 9b52f7f18a31
 Create Date: 2026-06-05 00:00:00.000000
 
 """
@@ -21,7 +21,7 @@ from tracecat.db.tenant_rls import (
 
 # revision identifiers, used by Alembic.
 revision: str = "25f4e2a1c9d8"
-down_revision: str | None = "0f18bea0c115"
+down_revision: str | None = "9b52f7f18a31"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -54,7 +54,6 @@ def _timestamps() -> list[sa.Column[datetime]]:
 
 def _tenant_columns() -> list[sa.Column[uuid.UUID]]:
     return [
-        sa.Column("organization_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("workspace_id", postgresql.UUID(as_uuid=True), nullable=False),
     ]
 
@@ -68,12 +67,6 @@ def _record_columns() -> list[sa.Column[uuid.UUID] | sa.Column[int]]:
 
 def _tenant_fks(table_name: str) -> list[sa.Constraint]:
     return [
-        sa.ForeignKeyConstraint(
-            ["organization_id"],
-            ["organization.id"],
-            name=op.f(f"fk_{table_name}_organization_id_organization"),
-            ondelete="RESTRICT",
-        ),
         sa.ForeignKeyConstraint(
             ["workspace_id"],
             ["workspace.id"],

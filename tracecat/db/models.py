@@ -530,11 +530,6 @@ class WorkspaceSyncState(RecordModel):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
     )
-    organization_id: Mapped[OrganizationID] = mapped_column(
-        UUID,
-        ForeignKey("organization.id", ondelete="RESTRICT"),
-        nullable=False,
-    )
     workspace_id: Mapped[WorkspaceID] = mapped_column(
         UUID,
         ForeignKey("workspace.id", ondelete="CASCADE"),
@@ -590,11 +585,6 @@ class WorkspaceSyncResourceMapping(RecordModel):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
     )
-    organization_id: Mapped[OrganizationID] = mapped_column(
-        UUID,
-        ForeignKey("organization.id", ondelete="RESTRICT"),
-        nullable=False,
-    )
     workspace_id: Mapped[WorkspaceID] = mapped_column(
         UUID,
         ForeignKey("workspace.id", ondelete="CASCADE"),
@@ -625,11 +615,6 @@ class WorkspaceSyncEvent(RecordModel):
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
-    )
-    organization_id: Mapped[OrganizationID] = mapped_column(
-        UUID,
-        ForeignKey("organization.id", ondelete="RESTRICT"),
-        nullable=False,
     )
     workspace_id: Mapped[WorkspaceID] = mapped_column(
         UUID,
@@ -669,11 +654,6 @@ class WorkspaceSyncChangeSet(RecordModel):
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
-    )
-    organization_id: Mapped[OrganizationID] = mapped_column(
-        UUID,
-        ForeignKey("organization.id", ondelete="RESTRICT"),
-        nullable=False,
     )
     workspace_id: Mapped[WorkspaceID] = mapped_column(
         UUID,
@@ -731,11 +711,6 @@ class WorkspaceSyncChangeSetItem(RecordModel):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
     )
-    organization_id: Mapped[OrganizationID] = mapped_column(
-        UUID,
-        ForeignKey("organization.id", ondelete="RESTRICT"),
-        nullable=False,
-    )
     workspace_id: Mapped[WorkspaceID] = mapped_column(
         UUID,
         ForeignKey("workspace.id", ondelete="CASCADE"),
@@ -766,11 +741,6 @@ class WorkspaceSyncMaterialization(RecordModel):
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
-    )
-    organization_id: Mapped[OrganizationID] = mapped_column(
-        UUID,
-        ForeignKey("organization.id", ondelete="RESTRICT"),
-        nullable=False,
     )
     workspace_id: Mapped[WorkspaceID] = mapped_column(
         UUID,

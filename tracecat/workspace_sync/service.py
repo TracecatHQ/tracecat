@@ -398,7 +398,6 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
         )
 
         materialization = WorkspaceSyncMaterialization(
-            organization_id=self.organization_id,
             workspace_id=self.workspace_id,
             changeset_id=changeset.id,
             provider=SyncProvider.GIT.value,
@@ -474,7 +473,6 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
         )
 
         materialization = WorkspaceSyncMaterialization(
-            organization_id=self.organization_id,
             workspace_id=self.workspace_id,
             changeset_id=changeset.id,
             provider=SyncProvider.GIT.value,
@@ -583,7 +581,6 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
             reserved_source_ids=reserved_source_ids,
         )
         mapping = WorkspaceSyncResourceMapping(
-            organization_id=self.organization_id,
             workspace_id=self.workspace_id,
             provider=SyncProvider.GIT.value,
             resource_type=resource_type,
@@ -726,7 +723,6 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
         mapping = (await self.session.execute(stmt)).scalar_one_or_none()
         if mapping is None:
             mapping = WorkspaceSyncResourceMapping(
-                organization_id=self.organization_id,
                 workspace_id=self.workspace_id,
                 provider=SyncProvider.GIT.value,
                 resource_type=SyncResourceType.WORKFLOW.value,
@@ -927,7 +923,6 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
             for spec in specs
         ]
         changeset = WorkspaceSyncChangeSet(
-            organization_id=self.organization_id,
             workspace_id=self.workspace_id,
             provider=SyncProvider.GIT.value,
             title=title,
@@ -947,7 +942,6 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
         for spec in specs:
             mapping = mappings_by_source_id.get(spec.id)
             item = WorkspaceSyncChangeSetItem(
-                organization_id=self.organization_id,
                 workspace_id=self.workspace_id,
                 changeset_id=changeset.id,
                 resource_type=SyncResourceType.WORKFLOW.value,
@@ -1020,7 +1014,6 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
         insert_stmt = (
             insert(WorkspaceSyncState)
             .values(
-                organization_id=self.organization_id,
                 workspace_id=self.workspace_id,
                 provider=SyncProvider.GIT.value,
                 repo_url=repo_url,
@@ -1050,7 +1043,6 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
 
     def _unsaved_state(self, *, url: GitUrl) -> WorkspaceSyncState:
         return WorkspaceSyncState(
-            organization_id=self.organization_id,
             workspace_id=self.workspace_id,
             provider=SyncProvider.GIT.value,
             repo_url=url.to_url(),

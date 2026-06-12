@@ -91,7 +91,9 @@ def test_workflow_spec_does_not_serialize_local_uuid(sample_dsl: DSLInput) -> No
         tags=[],
         folder=None,
         schedules=[],
-        webhook=SimpleNamespace(methods=["POST"], status="online"),
+        webhook=SimpleNamespace(
+            methods=["POST"], status="online", include_headers=False
+        ),
         case_trigger=SimpleNamespace(
             status="offline",
             event_types=[],
@@ -118,7 +120,9 @@ def test_workflow_spec_includes_configured_case_trigger(sample_dsl: DSLInput) ->
         tags=[],
         folder=None,
         schedules=[],
-        webhook=SimpleNamespace(methods=["POST"], status="online"),
+        webhook=SimpleNamespace(
+            methods=["POST"], status="online", include_headers=False
+        ),
         case_trigger=SimpleNamespace(
             status="online",
             event_types=[CaseEventType.CASE_CREATED.value],
