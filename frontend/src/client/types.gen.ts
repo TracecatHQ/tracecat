@@ -5262,6 +5262,7 @@ export type OrgUpdate = {
   name?: string | null
   slug?: string | null
   is_active?: boolean | null
+  disable_github_workflow_pulls?: boolean | null
 }
 
 /**
@@ -9315,6 +9316,7 @@ export type tracecat__organization__schemas__OrgDomainRead = {
 export type tracecat__organization__schemas__OrgRead = {
   id: string
   name: string
+  disable_github_workflow_pulls: boolean
 }
 
 /**
@@ -9378,6 +9380,7 @@ export type tracecat_ee__admin__organizations__schemas__OrgRead = {
   name: string
   slug: string
   is_active: boolean
+  disable_github_workflow_pulls: boolean
   created_at: string
   updated_at?: string | null
 }

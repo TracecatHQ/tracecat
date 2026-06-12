@@ -7,7 +7,9 @@ import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 
+from tracecat.api.app import app
 from tracecat.auth.types import Role
+from tracecat.db.engine import get_async_session, get_async_session_bypass_rls
 from tracecat.exceptions import TracecatValidationError
 from tracecat.registry.repositories.schemas import GitBranchInfo
 from tracecat.vcs.github.app import GitHubAppError
@@ -232,6 +234,74 @@ async def test_list_workflow_branches_missing_repo_returns_400(
         response = client.get(
             "/workflows/sync/branches",
             params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "Git repository URL not configured" in response.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_pull_workflows_blocked_when_org_flag_set(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """POST /workflows/sync/pull returns 403 when the org has pulls disabled."""
+    org_result = Mock()
+    org_result.scalar_one_or_none.return_value = True
+
+    session_mock = AsyncMock(name="org_disabled_session")
+    session_mock.execute = AsyncMock(return_value=org_result)
+
+    async def _override_session() -> AsyncMock:
+        return session_mock
+
+    app.dependency_overrides[get_async_session] = _override_session
+    app.dependency_overrides[get_async_session_bypass_rls] = _override_session
+
+    response = client.post(
+        "/workflows/sync/pull",
+        params={"workspace_id": str(test_admin_role.workspace_id)},
+        json={"commit_sha": "abc1234567890", "dry_run": False},
+    )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert "disabled by your organization administrator" in response.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_pull_workflows_passes_gate_when_org_flag_unset(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """POST /workflows/sync/pull proceeds past the gate when the flag is off."""
+    org_result = Mock()
+    org_result.scalar_one_or_none.return_value = False
+
+    session_mock = AsyncMock(name="org_allowed_session")
+    session_mock.execute = AsyncMock(return_value=org_result)
+
+    async def _override_session() -> AsyncMock:
+        return session_mock
+
+    app.dependency_overrides[get_async_session] = _override_session
+    app.dependency_overrides[get_async_session_bypass_rls] = _override_session
+
+    with (
+        patch("tracecat.workflow.store.router.WorkspaceService") as mock_workspace_cls,
+        patch("tracecat.workflow.store.router.WorkflowSyncService") as mock_sync_cls,
+    ):
+        mock_workspace_svc = AsyncMock()
+        mock_workspace = Mock()
+        mock_workspace.settings = {"git_repo_url": ""}
+        mock_workspace_svc.get_workspace.return_value = mock_workspace
+        mock_workspace_cls.return_value = mock_workspace_svc
+
+        mock_sync_cls.return_value = AsyncMock()
+
+        response = client.post(
+            "/workflows/sync/pull",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"commit_sha": "abc1234567890", "dry_run": False},
         )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST

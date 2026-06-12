@@ -205,6 +205,7 @@ export function useAdminOrganization(orgId: string) {
           queryKey: ["admin", "organizations", orgId],
         })
         queryClient.invalidateQueries({ queryKey: ["admin", "organizations"] })
+        queryClient.invalidateQueries({ queryKey: ["current-organization"] })
       },
     })
 

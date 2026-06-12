@@ -17,6 +17,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { useOrganization } from "@/hooks/use-organization"
 import { validateGitSshUrl } from "@/lib/git"
 import { useWorkspaceSettings } from "@/lib/hooks"
 import { WorkflowPullDialog } from "../organization/workflow-pull-dialog"
@@ -40,6 +41,8 @@ export function WorkspaceSyncSettings({
 }: WorkspaceSyncSettingsProps) {
   const [pullDialogOpen, setPullDialogOpen] = useState(false)
   const { updateWorkspace, isUpdating } = useWorkspaceSettings(workspace.id)
+  const { organization } = useOrganization()
+  const pullsDisabled = organization?.disable_github_workflow_pulls ?? false
 
   const form = useForm<SyncSettingsForm>({
     resolver: zodResolver(syncSettingsSchema),
@@ -92,7 +95,7 @@ export function WorkspaceSyncSettings({
         </form>
       </Form>
 
-      {persistedGitUrl && (
+      {persistedGitUrl && !pullsDisabled && (
         <div className="rounded-lg border bg-muted/30 p-4">
           <div className="mb-4 flex items-center justify-between">
             <div>

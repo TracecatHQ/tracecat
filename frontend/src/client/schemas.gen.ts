@@ -17348,6 +17348,17 @@ export const $OrgUpdate = {
       ],
       title: "Is Active",
     },
+    disable_github_workflow_pulls: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Disable Github Workflow Pulls",
+    },
   },
   type: "object",
   title: "OrgUpdate",
@@ -31549,9 +31560,13 @@ export const $tracecat__organization__schemas__OrgRead = {
       type: "string",
       title: "Name",
     },
+    disable_github_workflow_pulls: {
+      type: "boolean",
+      title: "Disable Github Workflow Pulls",
+    },
   },
   type: "object",
-  required: ["id", "name"],
+  required: ["id", "name", "disable_github_workflow_pulls"],
   title: "OrgRead",
 } as const
 
@@ -31809,6 +31824,10 @@ export const $tracecat_ee__admin__organizations__schemas__OrgRead = {
       type: "boolean",
       title: "Is Active",
     },
+    disable_github_workflow_pulls: {
+      type: "boolean",
+      title: "Disable Github Workflow Pulls",
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -31828,7 +31847,14 @@ export const $tracecat_ee__admin__organizations__schemas__OrgRead = {
     },
   },
   type: "object",
-  required: ["id", "name", "slug", "is_active", "created_at"],
+  required: [
+    "id",
+    "name",
+    "slug",
+    "is_active",
+    "disable_github_workflow_pulls",
+    "created_at",
+  ],
   title: "OrgRead",
   description: "Organization response.",
 } as const
