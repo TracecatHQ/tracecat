@@ -29889,6 +29889,56 @@ export const $WorkflowExecutionResetPointRead = {
       type: "string",
       title: "Label",
     },
+    action_ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Action Ref",
+      description: "Workflow action ref used to describe this reset point.",
+    },
+    action_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Action Name",
+      description: "Workflow action name used to describe this reset point.",
+    },
+    action_event_id: {
+      anyOf: [
+        {
+          type: "integer",
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Action Event Id",
+      description: "Temporal source or close event id for the related action.",
+    },
+    action_relation: {
+      anyOf: [
+        {
+          type: "string",
+          enum: ["after", "after_scheduling", "before"],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Action Relation",
+      description: "How the reset checkpoint relates to the related action.",
+    },
     is_start: {
       type: "boolean",
       title: "Is Start",
@@ -30551,6 +30601,51 @@ export const $WorkflowRunReadMinimal = {
       title: "Workflow Alias",
       description:
         "Workflow alias from workspace metadata or execution search attributes.",
+    },
+    has_been_reset: {
+      type: "boolean",
+      title: "Has Been Reset",
+      description:
+        "True when this run belongs to an execution that has reset runs.",
+      default: false,
+    },
+    is_reset_run: {
+      type: "boolean",
+      title: "Is Reset Run",
+      description: "True when this specific Temporal run was created by reset.",
+      default: false,
+    },
+    reset_original_run_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Reset Original Run Id",
+      description: "Temporal run ID of the original run in this reset lineage.",
+    },
+    reset_run_count: {
+      type: "integer",
+      minimum: 0,
+      title: "Reset Run Count",
+      description: "Number of reset-created runs in this execution lineage.",
+      default: 0,
+    },
+    reset_run_index: {
+      anyOf: [
+        {
+          type: "integer",
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Reset Run Index",
+      description: "One-based index of this reset-created run in reset order.",
     },
   },
   type: "object",
