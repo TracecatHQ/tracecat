@@ -89,6 +89,9 @@ class CaseDurationEventAnchor(BaseModel):
         ):
             return self
 
+        if self.event_type is CaseEventType.CASE_VIEWED:
+            raise ValueError("case_viewed cannot be used as a duration anchor")
+
         filters = self.filters
         allowed_fields = _allowed_filter_fields_for_event_type(self.event_type)
         active_fields = _active_filter_fields(filters)

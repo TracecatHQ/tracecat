@@ -1,12 +1,13 @@
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES, SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
@@ -34,9 +35,19 @@ pytestmark = pytest.mark.usefixtures("db")
 
 @pytest.fixture(autouse=True)
 def stub_case_duration_sync() -> Iterator[None]:
-    with patch(
-        "tracecat.cases.service.CaseDurationService.sync_case_durations",
-        new=AsyncMock(return_value=None),
+    with (
+        patch(
+            "tracecat.cases.service.CaseDurationService.sync_case_durations",
+            new=AsyncMock(return_value=None),
+        ),
+        patch(
+            "tracecat.cases.service.enqueue_case_duration_sync_after_commit",
+            return_value=None,
+        ),
+        patch(
+            "tracecat.cases.service.publish_case_event_payload",
+            new=AsyncMock(return_value=None),
+        ),
     ):
         yield
 
@@ -90,6 +101,101 @@ async def test_case(cases_service: CasesService):
 
 @pytest.mark.anyio
 class TestCaseEventsService:
+    async def test_create_event_queues_duration_sync_by_default(
+        self,
+        case_events_service: CaseEventsService,
+        test_case,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Case events should enqueue duration sync outside the request transaction."""
+        enqueue_calls: list[dict[str, object]] = []
+        sync_mock = AsyncMock(return_value=None)
+
+        def fake_enqueue(*args, **kwargs) -> None:
+            enqueue_calls.append(kwargs)
+
+        monkeypatch.setattr(
+            "tracecat.cases.service.enqueue_case_duration_sync_after_commit",
+            fake_enqueue,
+        )
+        monkeypatch.setattr(
+            "tracecat.cases.service.CaseDurationService.sync_case_durations",
+            sync_mock,
+        )
+
+        event_data = StatusChangedEvent(
+            type=CaseEventType.STATUS_CHANGED,
+            old=CaseStatus.NEW,
+            new=CaseStatus.IN_PROGRESS,
+        )
+        await case_events_service.create_event(test_case, event_data)
+
+        sync_mock.assert_not_awaited()
+        assert len(enqueue_calls) == 1
+        assert enqueue_calls[0]["workspace_id"] == test_case.workspace_id
+        assert enqueue_calls[0]["case_id"] == test_case.id
+        assert enqueue_calls[0]["event_type"] == CaseEventType.STATUS_CHANGED.value
+        assert enqueue_calls[0]["reason"] == "case_event"
+
+    async def test_create_event_can_sync_durations_inline(
+        self,
+        case_events_service: CaseEventsService,
+        test_case,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Create-case and explicit callers can still request inline materialization."""
+        enqueue_mock = MagicMock()
+        sync_mock = AsyncMock(return_value=None)
+
+        monkeypatch.setattr(
+            "tracecat.cases.service.enqueue_case_duration_sync_after_commit",
+            enqueue_mock,
+        )
+        monkeypatch.setattr(
+            "tracecat.cases.service.CaseDurationService.sync_case_durations",
+            sync_mock,
+        )
+
+        event_data = CreatedEvent(type=CaseEventType.CASE_CREATED)
+        await case_events_service.create_event(
+            test_case,
+            event_data,
+            duration_sync="inline",
+        )
+
+        sync_mock.assert_awaited_once()
+        enqueue_mock.assert_not_called()
+
+    async def test_create_event_syncs_inline_when_async_duration_sync_disabled(
+        self,
+        case_events_service: CaseEventsService,
+        test_case,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Disabling the async worker should fall back to prior inline sync behavior."""
+        enqueue_mock = MagicMock()
+        sync_mock = AsyncMock(return_value=None)
+
+        monkeypatch.setattr(config, "TRACECAT__CASE_DURATION_SYNC_ENABLED", False)
+        monkeypatch.setattr(
+            "tracecat.cases.service.enqueue_case_duration_sync_after_commit",
+            enqueue_mock,
+        )
+        monkeypatch.setattr(
+            "tracecat.cases.service.CaseDurationService.sync_case_durations",
+            sync_mock,
+        )
+
+        event_data = StatusChangedEvent(
+            type=CaseEventType.STATUS_CHANGED,
+            old=CaseStatus.NEW,
+            new=CaseStatus.IN_PROGRESS,
+        )
+        await case_events_service.create_event(test_case, event_data)
+
+        sync_mock.assert_awaited_once()
+        enqueue_mock.assert_not_called()
+
     async def test_create_case_created_event(
         self, case_events_service: CaseEventsService, test_case
     ) -> None:
@@ -522,12 +628,24 @@ class TestCaseEventsService:
         self,
         case_events_service: CaseEventsService,
         test_case,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Case viewed events should be created at most once within the dedupe window."""
+        enqueue_calls: list[dict[str, object]] = []
+
+        def fake_enqueue(*args, **kwargs) -> None:
+            enqueue_calls.append(kwargs)
+
+        monkeypatch.setattr(
+            "tracecat.cases.service.enqueue_case_duration_sync_after_commit",
+            fake_enqueue,
+        )
+
         first_event = await case_events_service.create_case_viewed_event(test_case)
         assert first_event is not None
         assert first_event.type == CaseEventType.CASE_VIEWED
         assert first_event.user_id == case_events_service.role.user_id
+        assert enqueue_calls == []
         await case_events_service.session.commit()
 
         duplicate_event = await case_events_service.create_case_viewed_event(
