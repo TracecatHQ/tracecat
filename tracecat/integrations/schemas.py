@@ -17,6 +17,7 @@ from pydantic import (
     Field,
     SecretStr,
     Tag,
+    ValidationError,
     computed_field,
     field_validator,
 )
@@ -24,6 +25,7 @@ from pydantic import (
 from tracecat.identifiers import UserID, WorkspaceID
 from tracecat.integrations.enums import IntegrationStatus, MCPAuthType, OAuthGrantType
 from tracecat.integrations.types import MCPServerType
+from tracecat.logger import logger
 
 
 # Pydantic models for API responses
@@ -692,6 +694,38 @@ type MCPConnectionSpec = Annotated[
 ]
 
 
+class MCPToolSummary(BaseModel):
+    """Summary of a tool discovered on a remote MCP server."""
+
+    name: str
+    description: str | None = None
+
+    @classmethod
+    def validate_stored(
+        cls, tools: list[Any] | None, *, mcp_integration_id: object | None = None
+    ) -> list[Self] | None:
+        """Validate stored tool entries, skipping any malformed records.
+
+        Stored tool JSON is best-effort: a single corrupt entry (manual DB
+        edit, future schema drift) must not crash listing or read responses,
+        so invalid records are dropped with a warning instead of raising.
+        """
+        if tools is None:
+            return None
+        validated: list[Self] = []
+        for tool in tools:
+            try:
+                validated.append(cls.model_validate(tool))
+            except ValidationError:
+                logger.warning(
+                    "Skipping malformed MCP tool entry",
+                    mcp_integration_id=str(mcp_integration_id)
+                    if mcp_integration_id is not None
+                    else None,
+                )
+        return validated
+
+
 class MCPConnectionOption(BaseModel):
     """A connectable transport/auth option for one catalog provider."""
 
@@ -723,6 +757,8 @@ class PlatformMCPCatalogRead(BaseModel):
     mcp_integration_id: UUID4 | None
     mcp_server_type: MCPServerType | None = None
     mcp_auth_type: MCPAuthType | None = None
+    tools: list[MCPToolSummary] | None = None
+    """Tools discovered at the last successful verification; null means unverified."""
     created_at: datetime
     updated_at: datetime
     last_refreshed_at: datetime | None
@@ -758,8 +794,63 @@ class MCPIntegrationRead(BaseModel):
     """Whether stdio_env is configured (actual values are not exposed)."""
     # General fields
     timeout: int | None
+    tools: list[MCPToolSummary] | None = None
+    """Tools discovered at the last successful verification; null means unverified."""
     created_at: datetime
     updated_at: datetime
+
+
+class MCPIntegrationTestConnectionRequest(BaseModel):
+    """Request to test connectivity against an unsaved HTTP MCP configuration.
+
+    Carries the (possibly edited, not yet persisted) form values. When
+    ``mcp_integration_id`` is set, stored secrets from that row are used as a
+    fallback for fields the caller leaves blank (e.g. unchanged credentials).
+    """
+
+    mcp_integration_id: UUID4 | None = None
+    server_uri: str = Field(..., min_length=1, max_length=2048)
+    auth_type: MCPAuthType = MCPAuthType.NONE
+    oauth_integration_id: UUID4 | None = None
+    custom_credentials: SecretStr | None = Field(
+        default=None,
+        description="JSON object of custom headers; falls back to stored headers when omitted",
+    )
+    timeout: int | None = Field(default=None, ge=1, le=300)
+
+    @field_validator("server_uri", mode="before")
+    @classmethod
+    def _validate_server_uri(cls, value: str | None) -> str:
+        """Validate and sanitize the MCP server URI.
+
+        Input-only validation that mirrors ``MCPHttpIntegrationCreate``. It does
+        NOT perform DNS resolution; the runtime SSRF block at probe time is the
+        real defense against private/loopback/link-local targets.
+        """
+        if value is None:
+            raise ValueError("server_uri is required")
+        if isinstance(value, str):
+            value = value.strip()
+        if not value:
+            raise ValueError("server_uri is required")
+
+        parsed = urlparse(value)
+        if not parsed.netloc:
+            raise ValueError("Server URI must include a hostname")
+        if parsed.scheme.lower() not in ("http", "https"):
+            raise ValueError("Server URI must use HTTP or HTTPS")
+
+        return value
+
+
+class MCPIntegrationTestConnectionResponse(BaseModel):
+    """Response for testing connectivity to an MCP server."""
+
+    success: bool
+    mcp_integration_id: UUID4 | None = None
+    tools: list[MCPToolSummary] | None = None
+    message: str
+    error: str | None = None
 
 
 class MCPCatalogConnectResponse(BaseModel):

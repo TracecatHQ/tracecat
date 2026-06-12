@@ -66,6 +66,33 @@ export function getApiErrorDetail(error: unknown): string | null {
   return error.message
 }
 
+/**
+ * Strip credentials and query parameters from any URLs embedded in free text.
+ *
+ * Backend connection errors can echo a user-supplied server URI, which may
+ * carry secrets in its userinfo (`user:pass@`) or query string. Sanitize before
+ * surfacing such text in toasts or the console so those values are not leaked
+ * into UI output or logs. Non-URL text is returned unchanged.
+ */
+export function sanitizeUrlsInText(text: string): string {
+  return text.replace(/\bhttps?:\/\/[^\s]+/gi, (match) => {
+    try {
+      const url = new URL(match)
+      url.username = ""
+      url.password = ""
+      url.search = ""
+      url.hash = ""
+      return url.toString()
+    } catch {
+      // Not a parseable URL (e.g. trailing punctuation captured); fall back to
+      // dropping everything from the first `?` and any `userinfo@` segment.
+      return match
+        .replace(/^(https?:\/\/)[^/@]*@/i, "$1")
+        .replace(/[?#].*$/, "")
+    }
+  })
+}
+
 const MCP_OAUTH_DISCOVERY_ERROR_PATTERNS = [
   "dynamic registration",
   "discover oauth",

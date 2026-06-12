@@ -141,6 +141,7 @@ import {
   listEnabledModels,
   type MCPIntegrationCreate,
   type MCPIntegrationRead,
+  type MCPIntegrationTestConnectionRequest,
   type MCPIntegrationUpdate,
   type McpIntegrationsListMcpIntegrationsData,
   type ModelCredentialCreate,
@@ -150,6 +151,8 @@ import {
   mcpIntegrationsDeleteMcpIntegration,
   mcpIntegrationsGetMcpIntegration,
   mcpIntegrationsListMcpIntegrations,
+  mcpIntegrationsTestMcpConnectionConfig,
+  mcpIntegrationsTestMcpIntegrationConnection,
   mcpIntegrationsUpdateMcpIntegration,
   type OAuthGrantType,
   type OrganizationDeleteOrgMemberData,
@@ -365,8 +368,10 @@ import {
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 import type { ModelInfo } from "@/lib/chat"
 import {
+  getApiErrorDetail,
   getMcpOAuthConnectErrorDetail,
   retryHandler,
+  sanitizeUrlsInText,
   type TracecatApiError,
 } from "@/lib/errors"
 import type { WorkflowExecutionReadCompact } from "@/lib/event-history"
@@ -4766,6 +4771,127 @@ export function useUpdateMcpIntegration(workspaceId: string) {
     updateMcpIntegration,
     updateMcpIntegrationIsPending,
     updateMcpIntegrationError,
+  }
+}
+
+/**
+ * Test connectivity against an unsaved (possibly edited) HTTP MCP
+ * configuration. Fully ephemeral: nothing is persisted server-side and no
+ * queries are invalidated — saving via connect/update runs its own
+ * verification.
+ */
+export function useTestMcpConnectionConfig(workspaceId: string) {
+  const {
+    mutateAsync: testMcpConnectionConfig,
+    isPending: testMcpConnectionConfigIsPending,
+    error: testMcpConnectionConfigError,
+  } = useMutation({
+    mutationFn: async (params: MCPIntegrationTestConnectionRequest) => {
+      return await mcpIntegrationsTestMcpConnectionConfig({
+        workspaceId,
+        requestBody: params,
+      })
+    },
+    onSuccess: (result) => {
+      if (result.success) {
+        const toolCount = result.tools?.length ?? 0
+        toast({
+          title: "Connection verified",
+          description: `${toolCount} ${toolCount === 1 ? "tool" : "tools"} available`,
+        })
+      } else {
+        toast({
+          title: "Connection failed",
+          description: sanitizeUrlsInText(result.error || result.message),
+          variant: "destructive",
+        })
+      }
+    },
+    onError: (error: TracecatApiError) => {
+      // The server URI is caller-controlled and may carry credentials in its
+      // userinfo/query; strip those from any URLs before logging or surfacing.
+      const detail = sanitizeUrlsInText(
+        getApiErrorDetail(error) ?? error.message
+      )
+      console.error("Failed to test MCP connection:", detail)
+      toast({
+        title: "Test failed",
+        description: `Could not test connection: ${detail}`,
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    testMcpConnectionConfig,
+    testMcpConnectionConfigIsPending,
+    testMcpConnectionConfigError,
+  }
+}
+
+/**
+ * Test connectivity to a saved MCP integration and persist its tool listing.
+ *
+ * Unlike {@link useTestMcpConnectionConfig} (which hits the ephemeral
+ * config-test endpoint and never persists), this calls the integration-scoped
+ * endpoint that refreshes and stores the discovered tools. On success it
+ * invalidates the integration query so the Tools list reflects the new
+ * verification result.
+ */
+export function useTestMcpIntegrationConnection(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutateAsync: testMcpIntegrationConnection,
+    isPending: testMcpIntegrationConnectionIsPending,
+    error: testMcpIntegrationConnectionError,
+  } = useMutation({
+    mutationFn: async (mcpIntegrationId: string) => {
+      return await mcpIntegrationsTestMcpIntegrationConnection({
+        workspaceId,
+        mcpIntegrationId,
+      })
+    },
+    onSuccess: (result, mcpIntegrationId) => {
+      // Tools are persisted on success or cleared on failure, so refresh the
+      // integration regardless of outcome.
+      queryClient.invalidateQueries({
+        queryKey: ["mcp-integration", workspaceId, mcpIntegrationId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["mcp-integrations", workspaceId],
+      })
+      if (result.success) {
+        const toolCount = result.tools?.length ?? 0
+        toast({
+          title: "Connection verified",
+          description: `${toolCount} ${toolCount === 1 ? "tool" : "tools"} available`,
+        })
+      } else {
+        toast({
+          title: "Connection failed",
+          description: sanitizeUrlsInText(result.error || result.message),
+          variant: "destructive",
+        })
+      }
+    },
+    onError: (error: TracecatApiError) => {
+      const detail = sanitizeUrlsInText(
+        getApiErrorDetail(error) ?? error.message
+      )
+      console.error("Failed to test MCP connection:", detail)
+      toast({
+        title: "Test failed",
+        description: `Could not test connection: ${detail}`,
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    testMcpIntegrationConnection,
+    testMcpIntegrationConnectionIsPending,
+    testMcpIntegrationConnectionError,
   }
 }
 

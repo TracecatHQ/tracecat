@@ -19,6 +19,7 @@ from tracecat.agent.mcp.utils import (
     LEGACY_REGISTRY_MCP_SERVER_NAME,
     REGISTRY_MCP_SERVER_NAME,
 )
+from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.logger import logger
 
 
@@ -38,6 +39,28 @@ def _create_transport(
         return SSETransport(url=url, headers=headers, sse_read_timeout=timeout)
     # Default to HTTP (Streamable HTTP transport)
     return StreamableHttpTransport(url=url, headers=headers, sse_read_timeout=timeout)
+
+
+async def list_remote_mcp_tools(
+    config: MCPHttpServerConfig,
+) -> list[MCPToolSummary]:
+    """Connect to a remote HTTP/SSE MCP server and list its tools.
+
+    Raises:
+        Exception: If the server is unreachable or the MCP handshake fails.
+    """
+    transport = _create_transport(
+        config["url"],
+        config.get("transport", "http"),
+        config.get("headers"),
+        config.get("timeout"),
+    )
+    async with Client(transport) as client:
+        server_tools = await client.list_tools()
+    return [
+        MCPToolSummary(name=tool.name, description=tool.description)
+        for tool in server_tools
+    ]
 
 
 class UserMCPClient:

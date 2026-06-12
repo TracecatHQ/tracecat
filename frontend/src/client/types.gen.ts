@@ -4811,11 +4811,42 @@ export type MCPIntegrationRead = {
   stdio_args: Array<string> | null
   has_stdio_env?: boolean
   timeout: number | null
+  tools?: Array<MCPToolSummary> | null
   created_at: string
   updated_at: string
 }
 
 export type state = "not_configured" | "configured" | "connected" | "error"
+
+/**
+ * Request to test connectivity against an unsaved HTTP MCP configuration.
+ *
+ * Carries the (possibly edited, not yet persisted) form values. When
+ * ``mcp_integration_id`` is set, stored secrets from that row are used as a
+ * fallback for fields the caller leaves blank (e.g. unchanged credentials).
+ */
+export type MCPIntegrationTestConnectionRequest = {
+  mcp_integration_id?: string | null
+  server_uri: string
+  auth_type?: MCPAuthType
+  oauth_integration_id?: string | null
+  /**
+   * JSON object of custom headers; falls back to stored headers when omitted
+   */
+  custom_credentials?: string | null
+  timeout?: number | null
+}
+
+/**
+ * Response for testing connectivity to an MCP server.
+ */
+export type MCPIntegrationTestConnectionResponse = {
+  success: boolean
+  mcp_integration_id?: string | null
+  tools?: Array<MCPToolSummary> | null
+  message: string
+  error?: string | null
+}
 
 /**
  * Request model for updating an MCP integration.
@@ -4980,6 +5011,14 @@ export type MCPStdioServerConfig = {
   }
   timeout?: number
   id?: string
+}
+
+/**
+ * Summary of a tool discovered on a remote MCP server.
+ */
+export type MCPToolSummary = {
+  name: string
+  description?: string | null
 }
 
 /**
@@ -5382,6 +5421,7 @@ export type PlatformMCPCatalogRead = {
   mcp_integration_id: string | null
   mcp_server_type?: MCPServerType | null
   mcp_auth_type?: MCPAuthType | null
+  tools?: Array<MCPToolSummary> | null
   created_at: string
   updated_at: string
   last_refreshed_at: string | null
@@ -12747,6 +12787,22 @@ export type McpIntegrationsDeleteMcpIntegrationData = {
 
 export type McpIntegrationsDeleteMcpIntegrationResponse = void
 
+export type McpIntegrationsTestMcpConnectionConfigData = {
+  requestBody: MCPIntegrationTestConnectionRequest
+  workspaceId: string
+}
+
+export type McpIntegrationsTestMcpConnectionConfigResponse =
+  MCPIntegrationTestConnectionResponse
+
+export type McpIntegrationsTestMcpIntegrationConnectionData = {
+  mcpIntegrationId: string
+  workspaceId: string
+}
+
+export type McpIntegrationsTestMcpIntegrationConnectionResponse =
+  MCPIntegrationTestConnectionResponse
+
 export type McpIntegrationsDisconnectMcpIntegrationData = {
   mcpIntegrationId: string
   workspaceId: string
@@ -18858,6 +18914,36 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/mcp-integrations/test": {
+    post: {
+      req: McpIntegrationsTestMcpConnectionConfigData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MCPIntegrationTestConnectionResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}/test": {
+    post: {
+      req: McpIntegrationsTestMcpIntegrationConnectionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MCPIntegrationTestConnectionResponse
         /**
          * Validation Error
          */

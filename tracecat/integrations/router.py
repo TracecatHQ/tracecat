@@ -2,6 +2,7 @@ import json
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated, NoReturn, cast
+from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, Body, HTTPException, Query, status
@@ -26,6 +27,7 @@ from tracecat.integrations.dependencies import (
     ProviderInfoDep,
 )
 from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
+from tracecat.integrations.mcp_validation import MCPConnectionVerificationError
 from tracecat.integrations.providers import all_providers
 from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
@@ -45,7 +47,10 @@ from tracecat.integrations.schemas import (
     MCPIntegrationCreate,
     MCPIntegrationRead,
     MCPIntegrationSource,
+    MCPIntegrationTestConnectionRequest,
+    MCPIntegrationTestConnectionResponse,
     MCPIntegrationUpdate,
+    MCPToolSummary,
     PlatformMCPCatalogListResponse,
     PlatformMCPCatalogState,
     PlatformMCPCatalogStatus,
@@ -101,7 +106,42 @@ def _mcp_integration_read(
         stdio_args=mcp_integration.stdio_args,
         has_stdio_env=bool(mcp_integration.encrypted_stdio_env),
         timeout=mcp_integration.timeout,
+        tools=MCPToolSummary.validate_stored(
+            mcp_integration.tools, mcp_integration_id=mcp_integration.id
+        ),
     )
+
+
+async def _gate_mcp_connect_verification(
+    svc: IntegrationService,
+    mcp_integration: MCPIntegration,
+    *,
+    delete_on_failure: bool = True,
+) -> None:
+    """Verify HTTP MCP connectivity as part of connect/save.
+
+    When the row was created by this request, a failed verification deletes it
+    so that retries don't accumulate orphaned rows. Pre-existing rows returned
+    by idempotent connects are kept (``delete_on_failure=False``) so a
+    transient outage doesn't destroy a saved integration; the failed
+    verification has already cleared its stored tools. Either way the failure
+    surfaces as an HTTP error so the connect/save does not report success.
+    """
+    if mcp_integration.server_type != "http":
+        return
+    if await svc.mcp_oauth_authorization_pending(mcp_integration=mcp_integration):
+        # No access token exists until the user completes the OAuth redirect;
+        # the OAuth callback runs its own verification after token exchange.
+        return
+    result = await svc.verify_mcp_integration(mcp_integration=mcp_integration)
+    if not result.success:
+        if delete_on_failure:
+            await svc._delete_mcp_integration_row(mcp_integration)
+        detail = f"{result.message}: {result.error}" if result.error else result.message
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=detail,
+        )
 
 
 async def _mcp_catalog_connect_response(
@@ -117,6 +157,12 @@ async def _mcp_catalog_connect_response(
     mcp_integration = connect_result.mcp_integration
     mcp_read = None
     if mcp_integration:
+        if not oauth_connect:
+            await _gate_mcp_connect_verification(
+                svc,
+                mcp_integration,
+                delete_on_failure=connect_result.created,
+            )
         mcp_read = _mcp_integration_read(
             mcp_integration,
             state=await svc.mcp_integration_state(mcp_integration=mcp_integration),
@@ -232,7 +278,7 @@ async def oauth_callback(
 
     if svc._is_custom_mcp_oauth_provider(oauth_state_db.provider_id):
         try:
-            await svc.complete_mcp_oauth_discovery_callback(
+            oauth_integration = await svc.complete_mcp_oauth_discovery_callback(
                 provider_id=oauth_state_db.provider_id,
                 code=code,
                 state=str(state),
@@ -259,13 +305,31 @@ async def oauth_callback(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Workspace ID is required",
             )
+
+        # Verify connectivity now that the token is stored. Failure must not
+        # block the redirect — it clears stored tools so the integration
+        # lands demoted, and the error is surfaced via the redirect URL.
+        verification_error: str | None = None
+        mcp_integration = await svc._mcp_integration_for_oauth_integration(
+            oauth_integration_id=oauth_integration.id
+        )
+        if mcp_integration is not None and mcp_integration.server_type == "http":
+            result = await svc.verify_mcp_integration(mcp_integration=mcp_integration)
+            if not result.success:
+                verification_error = result.error or result.message
+
+        redirect_url = (
+            f"{config.TRACECAT__PUBLIC_APP_URL}/workspaces/"
+            f"{role.workspace_id}/mcp-servers"
+        )
+        if verification_error:
+            redirect_url += "?" + urlencode(
+                {"mcp_verify_error": verification_error[:500]}
+            )
         return IntegrationOAuthCallback(
             status="connected",
             provider_id=oauth_state_db.provider_id,
-            redirect_url=(
-                f"{config.TRACECAT__PUBLIC_APP_URL}/workspaces/"
-                f"{role.workspace_id}/mcp-servers"
-            ),
+            redirect_url=redirect_url,
         )
 
     key = ProviderKey(
@@ -910,6 +974,7 @@ async def create_mcp_integration(
             detail=str(exc),
         ) from exc
 
+    await _gate_mcp_connect_verification(svc, mcp_integration)
     return _mcp_integration_read(
         mcp_integration,
         state=await svc.mcp_integration_state(mcp_integration=mcp_integration),
@@ -1043,15 +1108,17 @@ async def connect_mcp_integration(
             return await _mcp_catalog_connect_response(svc, connect_result)
 
         mcp_integration = await svc.create_mcp_integration(params=params)
-        return MCPCatalogConnectResponse(
-            status="connected",
-            mcp_integration=_mcp_integration_read(
-                mcp_integration,
-                state=await svc.mcp_integration_state(mcp_integration=mcp_integration),
-            ),
-        )
     except Exception as exc:
         _raise_mcp_connect_http_error(exc)
+
+    await _gate_mcp_connect_verification(svc, mcp_integration)
+    return MCPCatalogConnectResponse(
+        status="connected",
+        mcp_integration=_mcp_integration_read(
+            mcp_integration,
+            state=await svc.mcp_integration_state(mcp_integration=mcp_integration),
+        ),
+    )
 
 
 @mcp_router.get("/{mcp_integration_id}")
@@ -1099,14 +1166,24 @@ async def update_mcp_integration(
 
     svc = IntegrationService(session, role=role)
     try:
+        # Verification runs against the merged config BEFORE anything is
+        # persisted — a failed update never disturbs the existing connection.
         integration = await svc.update_mcp_integration(
-            mcp_integration_id=mcp_integration_id, params=params
+            mcp_integration_id=mcp_integration_id,
+            params=params,
+            verify_connection=True,
         )
         if integration is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="MCP integration not found",
             )
+    except MCPConnectionVerificationError as exc:
+        detail = f"{exc.message}: {exc.error}" if exc.error else exc.message
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=detail,
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1117,6 +1194,58 @@ async def update_mcp_integration(
         integration,
         state=await svc.mcp_integration_state(mcp_integration=integration),
     )
+
+
+@mcp_router.post("/test")
+@require_scope("integration:update")
+async def test_mcp_connection_config(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    params: Annotated[MCPIntegrationTestConnectionRequest, Body(...)],
+) -> MCPIntegrationTestConnectionResponse:
+    """Test connectivity against an unsaved HTTP MCP configuration.
+
+    Ephemeral: nothing is persisted and stored verification state is never
+    touched — use this for testing edited form values before saving.
+    """
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+
+    svc = IntegrationService(session, role=role)
+    return await svc.test_mcp_http_connection(params=params)
+
+
+@mcp_router.post("/{mcp_integration_id}/test")
+@require_scope("integration:update")
+async def test_mcp_integration_connection(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    mcp_integration_id: uuid.UUID,
+) -> MCPIntegrationTestConnectionResponse:
+    """Test connectivity to an HTTP MCP server and refresh its tool listing."""
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+
+    svc = IntegrationService(session, role=role)
+    integration = await svc.get_mcp_integration(mcp_integration_id=mcp_integration_id)
+    if integration is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="MCP integration not found",
+        )
+    if integration.server_type != "http":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Connection testing is only supported for HTTP MCP servers",
+        )
+
+    return await svc.verify_mcp_integration(mcp_integration=integration)
 
 
 @mcp_router.post(

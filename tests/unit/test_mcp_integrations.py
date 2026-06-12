@@ -39,6 +39,9 @@ from tracecat.exceptions import EntitlementRequired
 from tracecat.integrations.catalog.loader import catalog_id_for_slug
 from tracecat.integrations.catalog.service import PlatformMCPCatalogService
 from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
+from tracecat.integrations.mcp_validation import (
+    MCPConfigurationError,
+)
 from tracecat.integrations.providers.base import (
     DynamicRegistrationResult,
     MCPAuthProvider,
@@ -54,6 +57,7 @@ from tracecat.integrations.schemas import (
     MCPHttpIntegrationCreate,
     MCPHTTPOAuth2ConnectionSpec,
     MCPIntegrationCreate,
+    MCPIntegrationTestConnectionRequest,
     MCPIntegrationUpdate,
     MCPStdioIntegrationCreate,
     ProviderConfig,
@@ -4113,3 +4117,338 @@ class TestMCPProviderOAuth:
             provider._get_additional_token_params()["resource"]
             == SentryMCPProvider.mcp_server_uri
         )
+
+
+@pytest.mark.anyio
+class TestMCPConnectionVerification:
+    """Tests for HTTP MCP config resolution and connection verification."""
+
+    async def test_resolve_http_config_none_auth(
+        self, integration_service: IntegrationService
+    ) -> None:
+        """NONE-auth HTTP integrations resolve with empty headers."""
+        mcp_integration = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="No Auth MCP",
+                server_uri="https://none.example.com/mcp",
+                auth_type=MCPAuthType.NONE,
+                timeout=30,
+            )
+        )
+
+        server_config = await integration_service.resolve_mcp_http_server_config(
+            mcp_integration
+        )
+
+        assert server_config["url"] == "https://none.example.com/mcp"
+        assert server_config.get("headers") == {}
+        assert server_config.get("timeout") == 30
+        assert server_config.get("id") == str(mcp_integration.id)
+
+    async def test_resolve_http_config_custom_headers(
+        self, integration_service: IntegrationService
+    ) -> None:
+        """CUSTOM-auth integrations resolve their decrypted headers."""
+        mcp_integration = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Custom Auth MCP",
+                server_uri="https://custom.example.com/mcp",
+                auth_type=MCPAuthType.CUSTOM,
+                custom_credentials=SecretStr('{"X-API-Key": "secret-key"}'),
+            )
+        )
+
+        server_config = await integration_service.resolve_mcp_http_server_config(
+            mcp_integration
+        )
+
+        assert server_config.get("headers") == {"X-API-Key": "secret-key"}
+
+    async def test_resolve_http_config_oauth2_drops_custom_authorization(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+    ) -> None:
+        """OAuth2 resolution attaches the access token; custom Authorization loses."""
+        mcp_integration = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="OAuth MCP",
+                server_uri="https://oauth.example.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+                custom_credentials=SecretStr(
+                    '{"authorization": "Bearer attacker", "X-Tenant": "t1"}'
+                ),
+            )
+        )
+
+        server_config = await integration_service.resolve_mcp_http_server_config(
+            mcp_integration
+        )
+
+        headers = server_config.get("headers")
+        assert headers is not None
+        assert headers["Authorization"] == "Bearer test_access_token"
+        assert "authorization" not in headers
+        assert headers["X-Tenant"] == "t1"
+
+    async def test_resolve_http_config_errors(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+    ) -> None:
+        """Unresolvable integrations raise MCPConfigurationError."""
+        stdio_integration = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Stdio MCP",
+                stdio_command="npx",
+                stdio_args=["@example/mcp-server"],
+            )
+        )
+        with pytest.raises(MCPConfigurationError):
+            await integration_service.resolve_mcp_http_server_config(stdio_integration)
+
+        missing_uri = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name="Missing URI MCP",
+            slug="missing-uri-mcp",
+            server_type="http",
+            server_uri=None,
+            auth_type=MCPAuthType.NONE,
+        )
+        with pytest.raises(MCPConfigurationError):
+            await integration_service.resolve_mcp_http_server_config(missing_uri)
+
+        unlinked_oauth = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name="Unlinked OAuth MCP",
+            slug="unlinked-oauth-mcp",
+            server_type="http",
+            server_uri="https://oauth.example.com/mcp",
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_integration_id=None,
+        )
+        with pytest.raises(MCPConfigurationError):
+            await integration_service.resolve_mcp_http_server_config(unlinked_oauth)
+
+        custom_without_headers = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name="Custom No Headers MCP",
+            slug="custom-no-headers-mcp",
+            server_type="http",
+            server_uri="https://custom.example.com/mcp",
+            auth_type=MCPAuthType.CUSTOM,
+            encrypted_headers=None,
+        )
+        with pytest.raises(MCPConfigurationError):
+            await integration_service.resolve_mcp_http_server_config(
+                custom_without_headers
+            )
+
+    async def test_verify_stdio_is_configuration_error(
+        self, integration_service: IntegrationService
+    ) -> None:
+        """Stdio integrations cannot be verified."""
+        stdio_integration = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Stdio Verify MCP",
+                stdio_command="npx",
+                stdio_args=["@example/mcp-server"],
+            )
+        )
+
+        result = await integration_service.verify_mcp_integration(
+            mcp_integration=stdio_integration
+        )
+
+        assert result.success is False
+        assert result.message == "MCP integration is not configured correctly"
+        assert stdio_integration.tools is None
+
+
+class TestMCPTestConnectionRequestSchema:
+    """Input validation for ``MCPIntegrationTestConnectionRequest.server_uri``."""
+
+    @pytest.mark.parametrize(
+        "server_uri",
+        [
+            "ftp://api.example.com/mcp",
+            "file:///etc/passwd",
+            "api.example.com/mcp",  # no scheme
+            "https:///mcp",  # no host
+        ],
+    )
+    def test_rejects_invalid_server_uri(self, server_uri: str) -> None:
+        with pytest.raises(ValueError):
+            MCPIntegrationTestConnectionRequest(server_uri=server_uri)
+
+    def test_strips_and_accepts_valid_uri(self) -> None:
+        request = MCPIntegrationTestConnectionRequest(
+            server_uri="  https://api.example.com/mcp  "
+        )
+        assert request.server_uri == "https://api.example.com/mcp"
+
+    @pytest.mark.parametrize(
+        "server_uri",
+        [
+            "http://localhost:8080/mcp",
+            "http://127.0.0.1/mcp",
+            "https://api.example.com/mcp",
+        ],
+    )
+    def test_accepts_localhost_for_self_hosted(self, server_uri: str) -> None:
+        """Loopback hosts are valid so self-hosted MCP servers can connect."""
+        request = MCPIntegrationTestConnectionRequest(server_uri=server_uri)
+        assert request.server_uri == server_uri
+
+
+class TestCatalogToolsGuard:
+    """A single malformed stored tool must not crash catalog listing."""
+
+    def test_skips_malformed_tool_entries(self) -> None:
+        integration = MCPIntegration(
+            id=uuid.uuid4(),
+            workspace_id=uuid.uuid4(),
+            name="Catalog MCP",
+            slug="catalog-mcp",
+            server_type="http",
+            server_uri="https://api.example.com/mcp",
+            auth_type=MCPAuthType.NONE,
+            tools=[
+                {"name": "good", "description": "ok"},
+                {"description": "missing required name"},  # invalid
+                {"name": "also_good", "description": None},
+            ],
+        )
+
+        tools = PlatformMCPCatalogService._catalog_tools(integration)
+
+        assert tools is not None
+        assert [t.name for t in tools] == ["good", "also_good"]
+
+    def test_returns_none_when_unverified(self) -> None:
+        integration = MCPIntegration(
+            id=uuid.uuid4(),
+            workspace_id=uuid.uuid4(),
+            name="Catalog MCP",
+            slug="catalog-mcp",
+            server_type="http",
+            server_uri="https://api.example.com/mcp",
+            auth_type=MCPAuthType.NONE,
+            tools=None,
+        )
+
+        assert PlatformMCPCatalogService._catalog_tools(integration) is None
+        assert PlatformMCPCatalogService._catalog_tools(None) is None
+
+
+@pytest.mark.anyio
+class TestMCPOAuthAuthorizationPending:
+    """The connect/save verification gate must skip pre-authorization OAuth."""
+
+    async def test_pending_when_oauth_token_absent(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+    ) -> None:
+        """A linked-but-unauthorized OAuth integration reads as pending."""
+        oauth_integration.encrypted_access_token = b""
+        integration_service.session.add(oauth_integration)
+        await integration_service.session.commit()
+
+        mcp_integration = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Pending OAuth MCP",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            )
+        )
+
+        assert (
+            await integration_service.mcp_oauth_authorization_pending(
+                mcp_integration=mcp_integration
+            )
+            is True
+        )
+
+    async def test_not_pending_when_oauth_token_present(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+    ) -> None:
+        """An authorized OAuth integration (token stored) is not pending."""
+        mcp_integration = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Authorized OAuth MCP",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            )
+        )
+
+        assert (
+            await integration_service.mcp_oauth_authorization_pending(
+                mcp_integration=mcp_integration
+            )
+            is False
+        )
+
+    async def test_non_oauth_never_pending(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """NONE/CUSTOM auth integrations are never gated on a token."""
+        mcp_integration = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="No Auth MCP",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.NONE,
+            )
+        )
+
+        assert (
+            await integration_service.mcp_oauth_authorization_pending(
+                mcp_integration=mcp_integration
+            )
+            is False
+        )
+
+    async def test_update_skips_verification_when_oauth_pending(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A benign edit of an unauthorized OAuth MCP server must not be probed.
+
+        The connect/save gate skips verification while OAuth is pending; the
+        update path must do the same, otherwise a rename/timeout bump on an
+        integration awaiting authorization is rejected with a 502.
+        """
+        oauth_integration.encrypted_access_token = b""
+        integration_service.session.add(oauth_integration)
+        await integration_service.session.commit()
+
+        mcp_integration = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Pending OAuth MCP",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            )
+        )
+
+        async def _fail_probe(*args: object, **kwargs: object) -> object:
+            raise AssertionError("probe must be skipped while OAuth is pending")
+
+        monkeypatch.setattr(integration_service, "_probe_mcp_http_server", _fail_probe)
+
+        updated = await integration_service.update_mcp_integration(
+            mcp_integration_id=mcp_integration.id,
+            params=MCPIntegrationUpdate(name="Pending OAuth MCP renamed"),
+            verify_connection=True,
+        )
+
+        assert updated is not None
+        assert updated.name == "Pending OAuth MCP renamed"
