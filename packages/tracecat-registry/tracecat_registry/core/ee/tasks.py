@@ -188,6 +188,9 @@ async def delete_task(
         str,
         Doc("The ID of the task to delete."),
     ],
-) -> None:
+) -> dict[str, str]:
     """Delete a case task."""
-    await get_context().cases.delete_task(task_id)
+    ctx = get_context()
+    task = await ctx.cases.get_task(task_id)
+    await ctx.cases.delete_task(task_id)
+    return {"case_id": str(task["case_id"])}

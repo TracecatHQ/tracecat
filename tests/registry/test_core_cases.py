@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import tracecat_registry.core.cases as cases_core
+import tracecat_registry.core.ee.tasks as case_tasks_core
 import tracecat_registry.types as registry_types
 from tracecat_registry.core.cases import (
     add_case_tag,
@@ -36,6 +37,7 @@ from tracecat_registry.core.cases import (
     upload_attachment,
     upload_attachment_from_url,
 )
+from tracecat_registry.core.ee.tasks import delete_task
 from tracecat_registry.sdk.exceptions import (
     TracecatValidationError,
 )
@@ -876,6 +878,26 @@ class TestCoreDeleteCase:
 
         mock_cases_client.delete_case.assert_called_once_with(case_id)
         assert result is None
+
+
+@pytest.mark.anyio
+class TestCoreDeleteTask:
+    """Test cases for case task deletion UDF artifact context."""
+
+    async def test_delete_task_returns_parent_case_marker(self):
+        """Delete task returns parent case ID for artifact projection."""
+        task_id = str(uuid.uuid4())
+        case_id = str(uuid.uuid4())
+        mock_cases_client = AsyncMock()
+        mock_cases_client.get_task.return_value = {"id": task_id, "case_id": case_id}
+        fake_ctx = SimpleNamespace(cases=mock_cases_client)
+
+        with patch.object(case_tasks_core, "get_context", return_value=fake_ctx):
+            result = await delete_task(task_id=task_id)
+
+        mock_cases_client.get_task.assert_awaited_once_with(task_id)
+        mock_cases_client.delete_task.assert_awaited_once_with(task_id)
+        assert result == {"case_id": case_id}
 
 
 @pytest.mark.anyio
