@@ -1460,6 +1460,38 @@ export type BedrockCatalogCreate = {
   use_converse?: boolean
 }
 
+/**
+ * Request to verify an unsaved Bedrock catalog target.
+ */
+export type BedrockCatalogTest = {
+  model_provider: "bedrock"
+  inference_profile_id?: string | null
+  model_id?: string | null
+  use_converse?: boolean
+}
+
+/**
+ * Response for Bedrock catalog target verification.
+ */
+export type BedrockCatalogTestResponse = {
+  /**
+   * Whether the Bedrock target verification succeeded
+   */
+  success: boolean
+  /**
+   * Message describing the verification result
+   */
+  message: string
+  /**
+   * Error message if verification failed
+   */
+  error?: string | null
+  /**
+   * Non-sensitive provider details returned during verification
+   */
+  details?: BedrockVerificationDetails | null
+}
+
 export type BedrockCatalogUpdate = {
   display_name?: string | null
   model_provider: "bedrock"
@@ -1467,6 +1499,25 @@ export type BedrockCatalogUpdate = {
   model_id?: string | null
   use_converse?: boolean
 }
+
+export type BedrockInferenceProfileDetails = {
+  target_type: "inference_profile"
+  model_count: number
+  status?: string
+  inference_profile_id?: string
+  inference_profile_arn?: string
+}
+
+export type BedrockModelAvailabilityDetails = {
+  target_type: "model_id"
+  authorization_status?: string
+  entitlement_availability?: string
+  region_availability?: string
+}
+
+export type BedrockVerificationDetails =
+  | BedrockInferenceProfileDetails
+  | BedrockModelAvailabilityDetails
 
 /**
  * Binary content, e.g. an audio or image file.
@@ -10571,6 +10622,12 @@ export type CreateCatalogEntryData = {
 
 export type CreateCatalogEntryResponse = AgentCatalogRead
 
+export type TestBedrockCatalogTargetData = {
+  requestBody: BedrockCatalogTest
+}
+
+export type TestBedrockCatalogTargetResponse = BedrockCatalogTestResponse
+
 export type GetCatalogEntryData = {
   catalogId: string
 }
@@ -15211,6 +15268,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: AgentCatalogRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/agent-catalog/bedrock/test": {
+    post: {
+      req: TestBedrockCatalogTargetData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: BedrockCatalogTestResponse
         /**
          * Validation Error
          */
