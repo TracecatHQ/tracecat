@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -68,6 +69,7 @@ from tracecat.workspace_sync.serialization import (
 )
 from tracecat.workspace_sync.workflow import (
     default_workflow_source_id,
+    is_workflow_definition_path,
     parse_workflow_spec,
     serialize_workflow_spec,
     workflow_source_path,
@@ -75,6 +77,21 @@ from tracecat.workspace_sync.workflow import (
     workflow_spec_to_remote,
 )
 from tracecat.workspaces.service import WorkspaceService
+
+
+@dataclass(frozen=True)
+class PullReconciliationPlan:
+    """Per-resource change sets driving pull reconciliation and status."""
+
+    local_changed: set[str]
+    local_deleted: set[str]
+    remote_changed: set[str]
+    remote_deleted: set[str]
+    convergent: set[str]
+    resurrect: set[str]
+    conflicts: list[str]
+    to_import: set[str]
+    untrack: set[str]
 
 
 class WorkspaceGitSyncService(BaseWorkspaceService):
@@ -174,7 +191,7 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
         workflow_root = manifest.resources.workflows.strip("/")
         workflows: dict[str, WorkflowResourceSpec] = {}
         for path, content in sorted(files.items()):
-            if not path.startswith(f"{workflow_root}/"):
+            if not is_workflow_definition_path(path, workflow_root=workflow_root):
                 continue
             spec, diagnostic = parse_workflow_spec(path, content)
             if diagnostic is not None:
@@ -252,15 +269,13 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
             projection=local_projection,
             state=state,
         )
-        local_changed = {change.source_id for change in pending.changes}
-        remote_changed = await self._remote_changed_source_ids(snapshot)
-        convergent = self._convergent_source_ids(
+        plan = self._plan_pull(
+            pending=pending,
             local_spec=local_projection.spec,
             remote_spec=snapshot.spec,
-            candidates=local_changed & remote_changed,
+            remote_changed=await self._remote_changed_source_ids(snapshot),
         )
-        conflicts = sorted((local_changed & remote_changed) - convergent)
-        if conflicts:
+        if plan.conflicts:
             return PullResult(
                 success=False,
                 commit_sha=snapshot.commit_sha,
@@ -278,16 +293,16 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
                         ),
                         details={"source_id": source_id},
                     )
-                    for source_id in conflicts
+                    for source_id in plan.conflicts
                 ],
-                message=f"Pull blocked by {len(conflicts)} conflicting resource(s)",
+                message=f"Pull blocked by {len(plan.conflicts)} conflicting resource(s)",
             )
 
         spec_to_apply = WorkspaceSpec(
             workflows={
                 source_id: workflow_spec
                 for source_id, workflow_spec in snapshot.spec.workflows.items()
-                if source_id in remote_changed and source_id not in convergent
+                if source_id in plan.to_import
             }
         )
         result = await self._reconcile_workflow_specs(
@@ -298,10 +313,11 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
             return result
 
         await self._rebaseline_convergent_mappings(
-            source_ids=convergent,
+            source_ids=plan.convergent,
             local_spec=local_projection.spec,
             commit_sha=snapshot.commit_sha,
         )
+        await self._untrack_remote_deleted_mappings(source_ids=plan.untrack)
         await self._record_successful_pull(
             state=state,
             snapshot=snapshot,
@@ -348,19 +364,22 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
             projection=local_projection,
             state=state,
         )
-        local_changed = {change.source_id for change in pending.changes}
-        remote_changed = await self._remote_changed_source_ids(remote_snapshot)
-        convergent = self._convergent_source_ids(
+        plan = self._plan_pull(
+            pending=pending,
             local_spec=local_projection.spec,
-            remote_spec=remote_snapshot.spec if remote_snapshot else None,
-            candidates=local_changed & remote_changed,
+            remote_spec=remote_snapshot.spec if remote_snapshot else WorkspaceSpec(),
+            remote_changed=await self._remote_changed_source_ids(remote_snapshot),
         )
         remote_spec_hash = remote_snapshot.spec_hash if remote_snapshot else None
         status = self._classify_status(
             has_base=state.base_commit_sha is not None,
             has_remote=remote_snapshot is not None,
-            local_changed_source_ids=local_changed - convergent,
-            remote_changed_source_ids=remote_changed,
+            local_changed_source_ids=(
+                (plan.local_changed | plan.local_deleted)
+                - plan.convergent
+                - plan.resurrect
+            ),
+            remote_changed_source_ids=plan.remote_changed,
             remote_diagnostics=diagnostics,
         )
 
@@ -779,14 +798,41 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
         }
         for source_id in sorted(source_ids):
             mapping = mappings_by_source_id.get(source_id)
+            if mapping is None:
+                continue
             workflow_spec = local_spec.workflows.get(source_id)
-            if mapping is None or workflow_spec is None:
+            if workflow_spec is None:
+                # Deleted on both sides: the mapping no longer identifies anything.
+                await self.session.delete(mapping)
                 continue
             spec_hash = stable_hash(workflow_spec)
             mapping.last_synced_commit_sha = commit_sha
             mapping.last_synced_spec_hash = spec_hash
             mapping.last_projected_spec_hash = spec_hash
             mapping.sync_status = ResourceSyncStatus.SYNCED.value
+            self.session.add(mapping)
+        await self.session.flush()
+
+    async def _untrack_remote_deleted_mappings(self, *, source_ids: set[str]) -> None:
+        """Detach mappings for resources deleted remotely but kept locally.
+
+        With the ignore-missing delete policy the local resource survives the
+        pull; clearing sync metadata turns it back into a pending create so the
+        admin can re-export it or delete it explicitly.
+        """
+        if not source_ids:
+            return
+        mappings_by_source_id = {
+            mapping.source_id: mapping for mapping in await self._workflow_mappings()
+        }
+        for source_id in sorted(source_ids):
+            mapping = mappings_by_source_id.get(source_id)
+            if mapping is None:
+                continue
+            mapping.last_synced_commit_sha = None
+            mapping.last_synced_spec_hash = None
+            mapping.last_projected_spec_hash = None
+            mapping.sync_status = ResourceSyncStatus.UNTRACKED.value
             self.session.add(mapping)
         await self.session.flush()
 
@@ -915,6 +961,32 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
                 )
             )
 
+        # Previously synced resources missing from the projection were deleted
+        # locally. Deletes are not exportable in v1 but must surface so status
+        # and pending counts stay honest.
+        projected_source_ids = set(projection.spec.workflows)
+        for mapping in mappings:
+            if mapping.source_id in projected_source_ids:
+                continue
+            if mapping.last_projected_spec_hash is None:
+                continue
+            changes.append(
+                WorkspaceSyncPendingChange(
+                    resource_type=SyncResourceType.WORKFLOW.value,
+                    source_id=mapping.source_id,
+                    source_path=mapping.source_path
+                    or workflow_source_path(mapping.source_id),
+                    local_id=mapping.local_id,
+                    operation=SyncOperation.DELETE,
+                    title=None,
+                    alias=None,
+                    before_spec_hash=mapping.last_projected_spec_hash,
+                    after_spec_hash=None,
+                    exportable=False,
+                )
+            )
+        changes.sort(key=lambda change: change.source_id)
+
         return WorkspaceSyncPendingChanges(
             base_spec_hash=state.base_spec_hash,
             local_spec_hash=projection.spec_hash,
@@ -972,6 +1044,51 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
             return SyncStateStatus.CONFLICTED
         return SyncStateStatus.DIVERGED
 
+    def _plan_pull(
+        self,
+        *,
+        pending: WorkspaceSyncPendingChanges,
+        local_spec: WorkspaceSpec,
+        remote_spec: WorkspaceSpec,
+        remote_changed: set[str],
+    ) -> PullReconciliationPlan:
+        """Build the per-resource reconciliation plan shared by pull and status.
+
+        Policy (v1): convergent resources rebaseline; resources deleted locally
+        but changed remotely are re-imported (Git owns desired state); resources
+        deleted remotely but unchanged locally are untracked; everything changed
+        on both sides with differing specs is a conflict.
+        """
+        local_deleted = {
+            change.source_id
+            for change in pending.changes
+            if change.operation == SyncOperation.DELETE
+        }
+        local_changed = {change.source_id for change in pending.changes} - local_deleted
+        remote_present = set(remote_spec.workflows)
+        remote_deleted = remote_changed - remote_present
+        overlap = (local_changed | local_deleted) & remote_changed
+        convergent = self._convergent_source_ids(
+            local_spec=local_spec,
+            remote_spec=remote_spec,
+            candidates=overlap,
+        )
+        resurrect = (local_deleted & remote_changed & remote_present) - convergent
+        conflicts = sorted(overlap - convergent - resurrect)
+        to_import = (remote_changed & remote_present) - convergent
+        untrack = remote_deleted - local_deleted
+        return PullReconciliationPlan(
+            local_changed=local_changed,
+            local_deleted=local_deleted,
+            remote_changed=remote_changed,
+            remote_deleted=remote_deleted,
+            convergent=convergent,
+            resurrect=resurrect,
+            conflicts=conflicts,
+            to_import=to_import,
+            untrack=untrack,
+        )
+
     def _convergent_source_ids(
         self,
         *,
@@ -979,11 +1096,11 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
         remote_spec: WorkspaceSpec | None,
         candidates: set[str],
     ) -> set[str]:
-        """Source ids changed on both sides whose local and remote specs are identical.
+        """Source ids changed on both sides where no merge is required.
 
-        These need a rebaseline (advancing sync metadata), not a merge: the
-        typical case is a local change that was exported and merged back into
-        the base branch.
+        Covers identical local/remote specs (the typical exported-then-merged
+        change) and resources deleted on both sides. These rebaseline instead
+        of conflicting.
         """
         if remote_spec is None or not candidates:
             return set()
@@ -991,7 +1108,9 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
         for source_id in candidates:
             local = local_spec.workflows.get(source_id)
             remote = remote_spec.workflows.get(source_id)
-            if (
+            if local is None and remote is None:
+                convergent.add(source_id)
+            elif (
                 local is not None
                 and remote is not None
                 and stable_hash(local) == stable_hash(remote)

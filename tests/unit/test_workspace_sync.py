@@ -728,7 +728,10 @@ async def test_pull_handwritten_spec_without_webhook_stays_clean(
                     "definition": sample_dsl.model_dump(mode="json", exclude_none=True),
                 },
                 sort_keys=False,
-            )
+            ),
+            # Non-spec files must be ignored, not parsed as workflows.
+            "workflows/README.md": "# Workflow docs\n",
+            "workflows/examples/nested/notes.yml": "not: a workflow\n",
         }
     )
     url = parse_git_url(TEST_REPO_URL, allowed_domains={"github.com"})
@@ -776,3 +779,259 @@ async def test_readonly_projection_dedupes_duplicate_slugs(
     creating = await service.project_workspace(create_missing_mappings=True)
     assert set(creating.spec.workflows) == set(readonly.spec.workflows)
     assert creating.spec_hash == readonly.spec_hash
+
+
+async def _establish_synced_baseline(
+    *,
+    session: AsyncSession,
+    role: Role,
+    service: WorkspaceGitSyncService,
+    url,
+    source_id: str,
+) -> None:
+    """Create a changeset, export it, simulate a merge, and pull to CLEAN."""
+    changeset = await service.create_changeset(
+        params=ChangeSetCreate(
+            title="Export workflow",
+            resources=[ResourceRef(resource_type="workflow", source_id=source_id)],
+        )
+    )
+    await service.export_changeset(
+        changeset_id=changeset.id,
+        params=ChangeSetExport(
+            message="Export workflow",
+            branch=f"sync/{source_id}",
+            create_pr=False,
+        ),
+    )
+    assert FakeGitHubSyncTransport.written_files is not None
+    FakeGitHubSyncTransport.files = dict(FakeGitHubSyncTransport.written_files)
+    result = await service.pull(url=url, options=PullOptions(commit_sha="a" * 40))
+    assert result.success, result.message
+    status = await service.get_status()
+    assert status.status == "clean"
+
+
+async def _delete_local_workflow(session: AsyncSession, *, alias: str) -> None:
+    workflow = await session.scalar(select(Workflow).where(Workflow.alias == alias))
+    assert workflow is not None
+    await session.delete(workflow)
+    await session.commit()
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_local_delete_surfaces_as_non_exportable_pending_change(
+    session: AsyncSession,
+    svc_role: Role,
+    svc_workspace,
+    sample_dsl: DSLInput,
+) -> None:
+    svc_workspace.settings = {"git_repo_url": TEST_REPO_URL}
+    session.add(svc_workspace)
+    await _create_local_workflow(
+        session=session, role=svc_role, dsl=sample_dsl, alias="detect-okta-risk"
+    )
+    _reset_fake_transport()
+    url = parse_git_url(TEST_REPO_URL, allowed_domains={"github.com"})
+
+    with (
+        patch(
+            "tracecat.workspace_sync.service.WorkspaceGitHubSyncService",
+            FakeGitHubSyncTransport,
+        ),
+        _registry_lock_patch(),
+    ):
+        service = WorkspaceGitSyncService(session=session, role=svc_role)
+        await _establish_synced_baseline(
+            session=session,
+            role=svc_role,
+            service=service,
+            url=url,
+            source_id="detect-okta-risk",
+        )
+
+        await _delete_local_workflow(session, alias="detect-okta-risk")
+
+        pending = await service.list_pending_changes()
+        assert len(pending.changes) == 1
+        assert pending.changes[0].operation == "delete"
+        assert pending.changes[0].exportable is False
+        status = await service.get_status()
+        assert status.status == "local_dirty"
+        assert status.pending_change_count == 1
+
+        # Remote unchanged: pull succeeds and the delete stays pending.
+        result = await service.pull(url=url, options=PullOptions(commit_sha="b" * 40))
+        assert result.success, result.message
+        pending = await service.list_pending_changes()
+        assert len(pending.changes) == 1
+        assert pending.changes[0].operation == "delete"
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_remote_delete_untracks_mapping_into_pending_create(
+    session: AsyncSession,
+    svc_role: Role,
+    svc_workspace,
+    sample_dsl: DSLInput,
+) -> None:
+    svc_workspace.settings = {"git_repo_url": TEST_REPO_URL}
+    session.add(svc_workspace)
+    await _create_local_workflow(
+        session=session, role=svc_role, dsl=sample_dsl, alias="detect-okta-risk"
+    )
+    _reset_fake_transport()
+    url = parse_git_url(TEST_REPO_URL, allowed_domains={"github.com"})
+
+    with (
+        patch(
+            "tracecat.workspace_sync.service.WorkspaceGitHubSyncService",
+            FakeGitHubSyncTransport,
+        ),
+        _registry_lock_patch(),
+    ):
+        service = WorkspaceGitSyncService(session=session, role=svc_role)
+        await _establish_synced_baseline(
+            session=session,
+            role=svc_role,
+            service=service,
+            url=url,
+            source_id="detect-okta-risk",
+        )
+
+        # Someone deletes the workflow file in the repository.
+        FakeGitHubSyncTransport.files = {
+            path: content
+            for path, content in FakeGitHubSyncTransport.files.items()
+            if path == "tracecat.json"
+        }
+        status = await service.get_status()
+        assert status.status == "remote_ahead"
+
+        result = await service.pull(url=url, options=PullOptions(commit_sha="b" * 40))
+        assert result.success, result.message
+
+        # The local workflow survives but is untracked: a pending create.
+        mapping = await session.scalar(
+            select(WorkspaceSyncResourceMapping).where(
+                WorkspaceSyncResourceMapping.workspace_id == svc_role.workspace_id
+            )
+        )
+        assert mapping is not None
+        assert mapping.last_synced_spec_hash is None
+        assert mapping.sync_status == "untracked"
+        pending = await service.list_pending_changes()
+        assert len(pending.changes) == 1
+        assert pending.changes[0].operation == "create"
+        status = await service.get_status()
+        assert status.status == "local_dirty"
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_delete_on_both_sides_rebaselines_clean(
+    session: AsyncSession,
+    svc_role: Role,
+    svc_workspace,
+    sample_dsl: DSLInput,
+) -> None:
+    svc_workspace.settings = {"git_repo_url": TEST_REPO_URL}
+    session.add(svc_workspace)
+    await _create_local_workflow(
+        session=session, role=svc_role, dsl=sample_dsl, alias="detect-okta-risk"
+    )
+    _reset_fake_transport()
+    url = parse_git_url(TEST_REPO_URL, allowed_domains={"github.com"})
+
+    with (
+        patch(
+            "tracecat.workspace_sync.service.WorkspaceGitHubSyncService",
+            FakeGitHubSyncTransport,
+        ),
+        _registry_lock_patch(),
+    ):
+        service = WorkspaceGitSyncService(session=session, role=svc_role)
+        await _establish_synced_baseline(
+            session=session,
+            role=svc_role,
+            service=service,
+            url=url,
+            source_id="detect-okta-risk",
+        )
+
+        await _delete_local_workflow(session, alias="detect-okta-risk")
+        FakeGitHubSyncTransport.files = {
+            path: content
+            for path, content in FakeGitHubSyncTransport.files.items()
+            if path == "tracecat.json"
+        }
+
+        result = await service.pull(url=url, options=PullOptions(commit_sha="b" * 40))
+        assert result.success, result.message
+
+        mapping = await session.scalar(
+            select(WorkspaceSyncResourceMapping).where(
+                WorkspaceSyncResourceMapping.workspace_id == svc_role.workspace_id
+            )
+        )
+        assert mapping is None
+        status = await service.get_status()
+        assert status.status == "clean"
+        assert (await service.list_pending_changes()).changes == []
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_remote_change_resurrects_locally_deleted_workflow(
+    session: AsyncSession,
+    svc_role: Role,
+    svc_workspace,
+    sample_dsl: DSLInput,
+) -> None:
+    """Git owns desired state: a remote edit re-imports a locally deleted workflow."""
+    svc_workspace.settings = {"git_repo_url": TEST_REPO_URL}
+    session.add(svc_workspace)
+    await _create_local_workflow(
+        session=session, role=svc_role, dsl=sample_dsl, alias="detect-okta-risk"
+    )
+    _reset_fake_transport()
+    url = parse_git_url(TEST_REPO_URL, allowed_domains={"github.com"})
+
+    with (
+        patch(
+            "tracecat.workspace_sync.service.WorkspaceGitHubSyncService",
+            FakeGitHubSyncTransport,
+        ),
+        _registry_lock_patch(),
+    ):
+        service = WorkspaceGitSyncService(session=session, role=svc_role)
+        await _establish_synced_baseline(
+            session=session,
+            role=svc_role,
+            service=service,
+            url=url,
+            source_id="detect-okta-risk",
+        )
+
+        await _delete_local_workflow(session, alias="detect-okta-risk")
+        path = "workflows/detect-okta-risk/definition.yml"
+        remote = yaml.safe_load(FakeGitHubSyncTransport.files[path])
+        remote["definition"]["description"] = "Edited in GitHub"
+        FakeGitHubSyncTransport.files = {
+            **FakeGitHubSyncTransport.files,
+            path: yaml.safe_dump(remote, sort_keys=False),
+        }
+
+        result = await service.pull(url=url, options=PullOptions(commit_sha="b" * 40))
+        assert result.success, result.message
+        assert result.workflows_imported == 1
+
+        workflow = await session.scalar(
+            select(Workflow).where(Workflow.alias == "detect-okta-risk")
+        )
+        assert workflow is not None
+        status = await service.get_status()
+        assert status.status == "clean"
+        assert (await service.list_pending_changes()).changes == []
