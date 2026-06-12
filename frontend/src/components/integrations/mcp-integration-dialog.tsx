@@ -26,6 +26,7 @@ import type {
   MCPIntegrationRead,
   MCPIntegrationUpdate,
   MCPStdioIntegrationCreate,
+  MCPToolSummary,
   PlatformMCPCatalogRead,
 } from "@/client/types.gen"
 import { useScopeCheck } from "@/components/auth/scope-guard"
@@ -94,6 +95,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import { getMcpOAuthConnectErrorDetail } from "@/lib/errors"
@@ -106,6 +108,7 @@ import {
   useTestMcpConnectionConfig,
   useTestMcpIntegrationConnection,
   useUpdateMcpIntegration,
+  useUpdateMcpIntegrationToolPolicies,
 } from "@/lib/hooks"
 import { isMcpProvider } from "@/lib/integrations"
 import { cn } from "@/lib/utils"
@@ -270,6 +273,95 @@ function CatalogEntrySummary({
   )
 }
 
+type MCPToolPolicyPatch = {
+  enabled?: boolean
+  requires_approval?: boolean
+}
+
+function MCPToolPolicyList({
+  tools,
+  canUpdate,
+  pendingToolName,
+  onPolicyChange,
+}: {
+  tools: MCPToolSummary[]
+  canUpdate: boolean
+  pendingToolName: string | null
+  onPolicyChange: (tool: MCPToolSummary, patch: MCPToolPolicyPatch) => void
+}) {
+  return (
+    <ul className="divide-y divide-border/50">
+      {tools.map((tool) => {
+        const enabled = tool.enabled !== false
+        const requiresApproval = tool.requires_approval === true
+        const isMissing = tool.status === "missing"
+        const disabled = !canUpdate || isMissing || pendingToolName !== null
+        const rowIsPending = pendingToolName === tool.name
+
+        return (
+          <li
+            key={tool.name}
+            className="grid gap-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto]"
+          >
+            <div className="min-w-0 space-y-1">
+              <div className="flex min-w-0 items-center gap-2">
+                <p className="truncate font-mono text-xs text-foreground">
+                  {tool.name}
+                </p>
+                {rowIsPending ? (
+                  <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+                ) : null}
+                {isMissing ? (
+                  <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
+                    Missing
+                  </Badge>
+                ) : !enabled ? (
+                  <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
+                    Disabled
+                  </Badge>
+                ) : requiresApproval ? (
+                  <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
+                    Approval
+                  </Badge>
+                ) : null}
+              </div>
+              {tool.description ? (
+                <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">
+                  {tool.description}
+                </p>
+              ) : null}
+            </div>
+            <div className="grid grid-cols-2 gap-4 sm:flex sm:items-center sm:gap-5">
+              <label className="flex items-center justify-between gap-2 text-xs text-muted-foreground sm:justify-start">
+                Enabled
+                <Switch
+                  checked={enabled}
+                  disabled={disabled}
+                  onCheckedChange={(checked) =>
+                    onPolicyChange(tool, { enabled: checked })
+                  }
+                  aria-label={`Enable ${tool.name}`}
+                />
+              </label>
+              <label className="flex items-center justify-between gap-2 text-xs text-muted-foreground sm:justify-start">
+                Approval
+                <Switch
+                  checked={requiresApproval}
+                  disabled={disabled || !enabled}
+                  onCheckedChange={(checked) =>
+                    onPolicyChange(tool, { requires_approval: checked })
+                  }
+                  aria-label={`Require approval for ${tool.name}`}
+                />
+              </label>
+            </div>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
 export function MCPIntegrationDialog({
   triggerProps,
   mcpIntegrationId,
@@ -299,6 +391,8 @@ export function MCPIntegrationDialog({
     useCreateMcpIntegration(workspaceId)
   const { updateMcpIntegration, updateMcpIntegrationIsPending } =
     useUpdateMcpIntegration(workspaceId)
+  const { updateMcpIntegrationToolPolicies } =
+    useUpdateMcpIntegrationToolPolicies(workspaceId)
   const { deleteMcpIntegration, deleteMcpIntegrationIsPending } =
     useDeleteMcpIntegration(workspaceId)
   const { integrations, providers, integrationsIsLoading } =
@@ -321,6 +415,9 @@ export function MCPIntegrationDialog({
   const [isEditHydrated, setIsEditHydrated] = useState(false)
   const [catalogOAuthClientIsPending, setCatalogOAuthClientIsPending] =
     useState(false)
+  const [pendingToolPolicyName, setPendingToolPolicyName] = useState<
+    string | null
+  >(null)
   const open = controlledOpen ?? internalOpen
   const { className: triggerClassName, ...restTriggerProps } =
     triggerProps ?? {}
@@ -402,6 +499,32 @@ export function MCPIntegrationDialog({
       timeout: values.timeout ?? null,
     })
   }
+
+  async function handleToolPolicyChange(
+    tool: MCPToolSummary,
+    patch: MCPToolPolicyPatch
+  ) {
+    if (!mcpIntegrationId) {
+      return
+    }
+    setPendingToolPolicyName(tool.name)
+    try {
+      await updateMcpIntegrationToolPolicies({
+        mcpIntegrationId,
+        tools: [
+          {
+            name: tool.name,
+            ...patch,
+          },
+        ],
+      })
+    } catch {
+      // The mutation hook logs and surfaces the API error.
+    } finally {
+      setPendingToolPolicyName(null)
+    }
+  }
+
   const selectedCatalogSpec = catalogSpecForOption(
     catalogEntry,
     connectionOptionId
@@ -804,6 +927,9 @@ export function MCPIntegrationDialog({
         </DropdownMenuContent>
       </DropdownMenu>
     ) : null
+  const availableToolCount =
+    mcpIntegration?.tools?.filter((tool) => tool.status !== "missing").length ??
+    0
   const dialogTitle = catalogEntry
     ? `Configure ${catalogEntry.name}`
     : isEditMode
@@ -1316,23 +1442,28 @@ export function MCPIntegrationDialog({
                     mcpIntegration?.tools?.length ? (
                       <AccordionItem value="tools" className="border-t">
                         <AccordionTrigger className="py-3 hover:no-underline">
-                          Tools ({mcpIntegration.tools.length})
+                          <span className="flex items-center gap-2">
+                            Tools ({mcpIntegration.tools.length})
+                            {availableToolCount !==
+                            mcpIntegration.tools.length ? (
+                              <Badge
+                                variant="outline"
+                                className="h-5 px-1.5 text-[10px]"
+                              >
+                                {availableToolCount} available
+                              </Badge>
+                            ) : null}
+                          </span>
                         </AccordionTrigger>
                         <AccordionContent>
-                          <ul className="divide-y divide-border/50">
-                            {mcpIntegration.tools.map((tool) => (
-                              <li key={tool.name} className="py-2">
-                                <p className="font-mono text-xs text-foreground">
-                                  {tool.name}
-                                </p>
-                                {tool.description ? (
-                                  <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-                                    {tool.description}
-                                  </p>
-                                ) : null}
-                              </li>
-                            ))}
-                          </ul>
+                          <MCPToolPolicyList
+                            tools={mcpIntegration.tools}
+                            canUpdate={canUpdate}
+                            pendingToolName={pendingToolPolicyName}
+                            onPolicyChange={(tool, patch) =>
+                              void handleToolPolicyChange(tool, patch)
+                            }
+                          />
                         </AccordionContent>
                       </AccordionItem>
                     ) : null}

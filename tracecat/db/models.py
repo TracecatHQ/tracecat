@@ -4578,7 +4578,8 @@ class MCPIntegration(TimestampMixin, Base):
         JSONB,
         nullable=True,
         doc="Tools discovered at the last successful connection verification "
-        "([{name, description}]); null means the server is unverified",
+        "([{name, description, enabled, requires_approval, status}]); null means "
+        "the server is unverified",
     )
 
     oauth_integration: Mapped[OAuthIntegration | None] = relationship(

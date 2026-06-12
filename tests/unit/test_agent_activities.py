@@ -28,6 +28,7 @@ from tracecat_ee.agent.activities import (
 
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import HarnessType
+from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
@@ -59,6 +60,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.chat.schemas import ChatMessage
 from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
+from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
 
@@ -264,6 +266,142 @@ class TestBuildToolDefinitionsActivity:
         )
         assert exc_info.value.type == "AgentToolDefinitionError"
         assert exc_info.value.non_retryable is True
+
+    @pytest.mark.anyio
+    async def test_mcp_tool_policy_filters_and_maps_approvals(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+    ) -> None:
+        from tracecat.agent.mcp import user_client
+        from tracecat.agent.preset.service import AgentPresetService
+
+        integration_id = uuid.uuid4()
+
+        async def mock_build_agent_tools(**_kwargs: Any) -> BuildToolsResult:
+            return BuildToolsResult(tools=[], collected_secrets=set())
+
+        async def mock_discover_user_mcp_tools(
+            configs: list[dict[str, Any]],
+            *,
+            fail_on_error: bool = False,
+        ) -> dict[str, MCPToolDefinition]:
+            assert fail_on_error is False
+            assert configs[0]["headers"] == {"authorization": "Bearer test-token"}
+            return {
+                "mcp__Jira__getIssue": MCPToolDefinition(
+                    name="mcp__Jira__getIssue",
+                    description="Get issue",
+                    parameters_json_schema={"type": "object"},
+                ),
+                "mcp__Jira__deleteIssue": MCPToolDefinition(
+                    name="mcp__Jira__deleteIssue",
+                    description="Delete issue",
+                    parameters_json_schema={"type": "object"},
+                ),
+            }
+
+        class _PresetService:
+            async def resolve_mcp_integration_tool_policies(
+                self,
+                mcp_integration_ids: list[uuid.UUID],
+            ) -> dict[uuid.UUID, dict[str, MCPToolSummary]]:
+                assert mcp_integration_ids == [integration_id]
+                return {
+                    integration_id: {
+                        "getIssue": MCPToolSummary(
+                            name="getIssue",
+                            requires_approval=True,
+                        ),
+                        "deleteIssue": MCPToolSummary(
+                            name="deleteIssue",
+                            enabled=False,
+                        ),
+                    }
+                }
+
+            async def resolve_mcp_integration_secrets(
+                self,
+                mcp_integration_id: uuid.UUID,
+            ) -> dict[str, str]:
+                assert mcp_integration_id == integration_id
+                return {"authorization": "Bearer test-token"}
+
+        class _PresetContext:
+            async def __aenter__(self) -> _PresetService:
+                return _PresetService()
+
+            async def __aexit__(
+                self, exc_type: object, exc: object, tb: object
+            ) -> None:
+                return None
+
+        class _LockService:
+            async def resolve_lock_with_bindings(
+                self,
+                actions: set[str],
+            ) -> RegistryLock:
+                assert actions == set()
+                return RegistryLock(origins={}, actions={})
+
+        class _LockContext:
+            async def __aenter__(self) -> _LockService:
+                return _LockService()
+
+            async def __aexit__(
+                self, exc_type: object, exc: object, tb: object
+            ) -> None:
+                return None
+
+        entitlement_roles: list[Role] = []
+
+        async def mock_check_tool_approval_entitlement(role: Role) -> None:
+            entitlement_roles.append(role)
+
+        monkeypatch.setattr(
+            agent_activities, "build_agent_tools", mock_build_agent_tools
+        )
+        monkeypatch.setattr(
+            user_client,
+            "discover_user_mcp_tools",
+            mock_discover_user_mcp_tools,
+        )
+        monkeypatch.setattr(
+            AgentPresetService,
+            "with_session",
+            staticmethod(lambda **_kwargs: _PresetContext()),
+        )
+        monkeypatch.setattr(
+            RegistryLockService,
+            "with_session",
+            lambda: _LockContext(),
+        )
+        monkeypatch.setattr(
+            AgentActivities,
+            "_check_tool_approval_entitlement",
+            staticmethod(mock_check_tool_approval_entitlement),
+        )
+
+        result = await AgentActivities().build_tool_definitions(
+            BuildToolDefsArgs(
+                role=mock_role,
+                tool_filters=ToolFilters(actions=[]),
+                mcp_servers=[
+                    {
+                        "type": "http",
+                        "name": "Jira",
+                        "url": "https://mcp.example.com/mcp",
+                        "id": str(integration_id),
+                    }
+                ],
+            )
+        )
+
+        assert set(result.tool_definitions) == {"mcp__Jira__getIssue"}
+        assert result.tool_approvals == {"mcp.Jira.getIssue": True}
+        assert result.user_mcp_claims is not None
+        assert result.user_mcp_claims[0].id == integration_id
+        assert entitlement_roles == [mock_role]
 
     @pytest.mark.anyio
     async def test_build_agent_tool_definitions_returns_partitioned_scopes(
