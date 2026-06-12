@@ -1,17 +1,28 @@
 from __future__ import annotations
 
+import contextlib
 import uuid
+from collections.abc import AsyncIterator
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 import orjson
 import pytest
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.agent.executor.loopback import (
+    LoopbackHandler,
+    LoopbackInput,
+    _session_line_db_content,
+    _session_line_from_json,
+    _session_line_jsonb_safe_content,
+)
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.auth.types import Role
 from tracecat.chat.enums import MessageKind
-from tracecat.db.models import AgentSession
+from tracecat.db.models import AgentSession, AgentSessionHistory
 
 
 def _mock_scalar_result(items: list[Any]) -> Mock:
@@ -44,6 +55,94 @@ def _build_service() -> tuple[AgentSessionService, AgentSession]:
     )
     agent_session.id = uuid.uuid4()
     return service, agent_session
+
+
+def test_session_line_db_content_sanitizes_nul_only_for_retry() -> None:
+    session_line = (
+        r'{"type":"user","uuid":"line-uuid","bad\u0000key":"v",'
+        r'"message":{"role":"user",'
+        r'"content":"hello\u0000world"},"toolUseResult":{"stdout":"a\u0000b"}}'
+    )
+
+    line = _session_line_from_json(session_line)
+
+    content = _session_line_db_content(line)
+    assert content["bad\x00key"] == "v"
+    assert content["message"]["content"] == "hello\x00world"
+    assert content["toolUseResult"]["stdout"] == "a\x00b"
+
+    safe_content = _session_line_jsonb_safe_content(line)
+    assert safe_content[r"bad\u0000key"] == "v"
+    assert safe_content["message"]["content"] == r"hello\u0000world"
+    assert safe_content["toolUseResult"]["stdout"] == r"a\u0000b"
+    assert "\x00" not in orjson.dumps(safe_content).decode("utf-8")
+
+
+@pytest.mark.anyio
+async def test_persist_session_line_lazily_sanitizes_jsonb_nul_failure(
+    session: AsyncSession,
+    svc_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = svc_role.workspace_id
+    assert workspace_id is not None
+
+    agent_session = AgentSession(
+        id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        title="Chat",
+        created_by=None,
+        entity_type="case",
+        entity_id=uuid.uuid4(),
+    )
+    session.add(agent_session)
+    await session.commit()
+
+    @contextlib.asynccontextmanager
+    async def patched_bypass_session() -> AsyncIterator[AsyncSession]:
+        yield session
+
+    monkeypatch.setattr(
+        "tracecat.agent.executor.loopback.get_async_session_bypass_rls_context_manager",
+        lambda: patched_bypass_session(),
+    )
+
+    raw_line = (
+        r'{"type":"user","uuid":"line-uuid","message":{"role":"user",'
+        r'"content":[{"type":"text","text":"hello\u0000world"},'
+        r'{"type":"text","text":"literal\\u0000text"}]},'
+        r'"toolUseResult":{"stdout":"a\u0000b"}}'
+    )
+
+    handler = LoopbackHandler(
+        input=LoopbackInput(
+            session_id=agent_session.id,
+            workspace_id=workspace_id,
+        )
+    )
+    await handler._persist_session_line("sdk-session-123", raw_line)
+
+    result = await session.execute(
+        select(AgentSessionHistory).where(
+            AgentSessionHistory.session_id == agent_session.id
+        )
+    )
+    persisted = result.scalar_one()
+    message_content = persisted.content["message"]["content"]
+
+    assert isinstance(message_content, list)
+    assert message_content[0]["text"] == r"hello\u0000world"
+    assert message_content[1]["text"] == r"literal\u0000text"
+    assert persisted.content["toolUseResult"]["stdout"] == r"a\u0000b"
+    assert persisted.kind == MessageKind.CHAT_MESSAGE.value
+    assert handler._sdk_session_id == "sdk-session-123"
+    assert "line-uuid" in handler._persisted_line_uuids
+
+    session_result = await session.execute(
+        select(AgentSession).where(AgentSession.id == agent_session.id)
+    )
+    persisted_session = session_result.scalar_one()
+    assert persisted_session.sdk_session_id == "sdk-session-123"
 
 
 @pytest.mark.anyio
