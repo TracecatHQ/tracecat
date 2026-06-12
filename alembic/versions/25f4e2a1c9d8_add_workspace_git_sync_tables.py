@@ -28,7 +28,6 @@ depends_on: str | Sequence[str] | None = None
 WORKSPACE_SYNC_TABLES = (
     "workspace_sync_state",
     "workspace_sync_resource_mapping",
-    "workspace_sync_event",
     "workspace_sync_changeset",
     "workspace_sync_changeset_item",
     "workspace_sync_materialization",
@@ -142,6 +141,7 @@ def upgrade() -> None:
         sa.Column("local_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("last_synced_commit_sha", sa.String(), nullable=True),
         sa.Column("last_synced_spec_hash", sa.String(), nullable=True),
+        sa.Column("last_projected_spec_hash", sa.String(), nullable=True),
         sa.Column(
             "sync_status",
             sa.String(length=32),
@@ -183,53 +183,6 @@ def upgrade() -> None:
     )
 
     op.create_table(
-        "workspace_sync_event",
-        *_record_columns(),
-        *_tenant_columns(),
-        sa.Column(
-            "provider", sa.String(length=32), server_default="git", nullable=False
-        ),
-        sa.Column("resource_type", sa.String(length=64), nullable=False),
-        sa.Column("source_id", sa.String(), nullable=True),
-        sa.Column("local_id", postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column("operation", sa.String(length=32), nullable=False),
-        sa.Column("actor_id", postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column("base_commit_sha", sa.String(), nullable=True),
-        sa.Column("before_spec_hash", sa.String(), nullable=True),
-        sa.Column("after_spec_hash", sa.String(), nullable=True),
-        sa.Column(
-            "affected_paths",
-            postgresql.JSONB(astext_type=sa.Text()),
-            server_default=sa.text("'[]'::jsonb"),
-            nullable=False,
-        ),
-        sa.Column(
-            "metadata",
-            postgresql.JSONB(astext_type=sa.Text()),
-            server_default=sa.text("'{}'::jsonb"),
-            nullable=False,
-        ),
-        sa.Column("superseded_by", postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column("changeset_id", postgresql.UUID(as_uuid=True), nullable=True),
-        *_timestamps(),
-        *_tenant_fks("workspace_sync_event"),
-        sa.PrimaryKeyConstraint("surrogate_id", name=op.f("pk_workspace_sync_event")),
-        sa.UniqueConstraint("id", name=op.f("uq_workspace_sync_event_id")),
-    )
-    op.create_index(
-        op.f("ix_workspace_sync_event_id"),
-        "workspace_sync_event",
-        ["id"],
-        unique=True,
-    )
-    op.create_index(
-        op.f("ix_workspace_sync_event_workspace_id"),
-        "workspace_sync_event",
-        ["workspace_id"],
-        unique=False,
-    )
-
-    op.create_table(
         "workspace_sync_changeset",
         *_record_columns(),
         *_tenant_columns(),
@@ -250,6 +203,12 @@ def upgrade() -> None:
             "selected_paths",
             postgresql.JSONB(astext_type=sa.Text()),
             server_default=sa.text("'[]'::jsonb"),
+            nullable=False,
+        ),
+        sa.Column(
+            "rendered_files",
+            postgresql.JSONB(astext_type=sa.Text()),
+            server_default=sa.text("'{}'::jsonb"),
             nullable=False,
         ),
         sa.Column(
@@ -415,6 +374,5 @@ def downgrade() -> None:
     op.drop_table("workspace_sync_materialization")
     op.drop_table("workspace_sync_changeset_item")
     op.drop_table("workspace_sync_changeset")
-    op.drop_table("workspace_sync_event")
     op.drop_table("workspace_sync_resource_mapping")
     op.drop_table("workspace_sync_state")

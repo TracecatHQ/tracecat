@@ -600,51 +600,13 @@ class WorkspaceSyncResourceMapping(RecordModel):
     local_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
     last_synced_commit_sha: Mapped[str | None] = mapped_column(String, nullable=True)
     last_synced_spec_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    last_projected_spec_hash: Mapped[str | None] = mapped_column(String, nullable=True)
     sync_status: Mapped[str] = mapped_column(
         String(32),
         default="untracked",
         server_default=text("'untracked'"),
         nullable=False,
     )
-
-
-class WorkspaceSyncEvent(RecordModel):
-    """Append-only provenance for Git-relevant workspace mutations."""
-
-    __tablename__ = "workspace_sync_event"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
-    )
-    workspace_id: Mapped[WorkspaceID] = mapped_column(
-        UUID,
-        ForeignKey("workspace.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    provider: Mapped[str] = mapped_column(
-        String(32), default="git", server_default=text("'git'"), nullable=False
-    )
-    resource_type: Mapped[str] = mapped_column(String(64), nullable=False)
-    source_id: Mapped[str | None] = mapped_column(String, nullable=True)
-    local_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
-    operation: Mapped[str] = mapped_column(String(32), nullable=False)
-    actor_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
-    base_commit_sha: Mapped[str | None] = mapped_column(String, nullable=True)
-    before_spec_hash: Mapped[str | None] = mapped_column(String, nullable=True)
-    after_spec_hash: Mapped[str | None] = mapped_column(String, nullable=True)
-    affected_paths: Mapped[list[str]] = mapped_column(
-        JSONB, default=list, server_default=text("'[]'::jsonb"), nullable=False
-    )
-    metadata_: Mapped[dict[str, Any]] = mapped_column(
-        "metadata",
-        JSONB,
-        default=dict,
-        server_default=text("'{}'::jsonb"),
-        nullable=False,
-    )
-    superseded_by: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
-    changeset_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
 
 
 class WorkspaceSyncChangeSet(RecordModel):

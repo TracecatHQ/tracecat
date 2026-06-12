@@ -86,7 +86,6 @@ POST_RLS_WORKSPACE_SCOPED_TABLES = (
     "agent_preset_version_skill",
     "workspace_sync_state",
     "workspace_sync_resource_mapping",
-    "workspace_sync_event",
     "workspace_sync_changeset",
     "workspace_sync_changeset_item",
     "workspace_sync_materialization",

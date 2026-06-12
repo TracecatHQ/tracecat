@@ -115,7 +115,16 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
                 create=create_missing_mappings,
                 reserved_source_ids=set(specs),
             )
-            source_id = mapping.source_id if mapping else preferred_source_id
+            if mapping is not None:
+                source_id = mapping.source_id
+            else:
+                # Read-only projection: apply the same dedup as mapping creation
+                # so both paths assign identical source ids.
+                source_id = await self._unique_source_id(
+                    resource_type=SyncResourceType.WORKFLOW.value,
+                    preferred_source_id=preferred_source_id,
+                    reserved_source_ids=set(specs),
+                )
             spec = workflow_spec_from_orm(workflow, dsl=dsl, source_id=source_id)
             specs[source_id] = spec
 
@@ -239,7 +248,19 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
 
         local_projection = await self.project_workspace(create_missing_mappings=True)
         state = await self._get_or_create_state(url=url)
-        if state.base_spec_hash and local_projection.spec_hash != state.base_spec_hash:
+        pending = await self._pending_changes_from_projection(
+            projection=local_projection,
+            state=state,
+        )
+        local_changed = {change.source_id for change in pending.changes}
+        remote_changed = await self._remote_changed_source_ids(snapshot)
+        convergent = self._convergent_source_ids(
+            local_spec=local_projection.spec,
+            remote_spec=snapshot.spec,
+            candidates=local_changed & remote_changed,
+        )
+        conflicts = sorted((local_changed & remote_changed) - convergent)
+        if conflicts:
             return PullResult(
                 success=False,
                 commit_sha=snapshot.commit_sha,
@@ -247,33 +268,56 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
                 workflows_imported=0,
                 diagnostics=[
                     PullDiagnostic(
-                        workflow_path="",
+                        workflow_path=workflow_source_path(source_id),
                         workflow_title=None,
                         error_type="conflict",
                         message=(
-                            "Local syncable workspace state changed since the last "
-                            "synced base. Export or discard local changes before pulling."
+                            "Resource changed both locally and in the repository "
+                            "since the last sync. Export or discard the local "
+                            "change before pulling."
                         ),
-                        details={
-                            "base_spec_hash": state.base_spec_hash,
-                            "local_spec_hash": local_projection.spec_hash,
-                        },
+                        details={"source_id": source_id},
                     )
+                    for source_id in conflicts
                 ],
-                message="Pull blocked by local workspace drift",
+                message=f"Pull blocked by {len(conflicts)} conflicting resource(s)",
             )
 
+        spec_to_apply = WorkspaceSpec(
+            workflows={
+                source_id: workflow_spec
+                for source_id, workflow_spec in snapshot.spec.workflows.items()
+                if source_id in remote_changed and source_id not in convergent
+            }
+        )
         result = await self._reconcile_workflow_specs(
-            spec=snapshot.spec,
+            spec=spec_to_apply,
             commit_sha=snapshot.commit_sha,
         )
-        if result.success:
-            await self._record_successful_pull(
-                state=state,
-                snapshot=snapshot,
-                url=url,
-            )
-        return result
+        if not result.success:
+            return result
+
+        await self._rebaseline_convergent_mappings(
+            source_ids=convergent,
+            local_spec=local_projection.spec,
+            commit_sha=snapshot.commit_sha,
+        )
+        await self._record_successful_pull(
+            state=state,
+            snapshot=snapshot,
+            url=url,
+        )
+        return PullResult(
+            success=True,
+            commit_sha=snapshot.commit_sha,
+            workflows_found=len(snapshot.spec.workflows),
+            workflows_imported=result.workflows_imported,
+            diagnostics=[],
+            message=(
+                f"Imported {result.workflows_imported} changed workflow(s); "
+                f"{len(snapshot.spec.workflows) - result.workflows_imported} already up to date"
+            ),
+        )
 
     async def get_status(self) -> WorkspaceSyncStatus:
         """Return the workspace/repo three-way sync status for the configured repo."""
@@ -304,16 +348,19 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
             projection=local_projection,
             state=state,
         )
-        remote_changed_source_ids = await self._remote_changed_source_ids(
-            remote_snapshot
+        local_changed = {change.source_id for change in pending.changes}
+        remote_changed = await self._remote_changed_source_ids(remote_snapshot)
+        convergent = self._convergent_source_ids(
+            local_spec=local_projection.spec,
+            remote_spec=remote_snapshot.spec if remote_snapshot else None,
+            candidates=local_changed & remote_changed,
         )
         remote_spec_hash = remote_snapshot.spec_hash if remote_snapshot else None
         status = self._classify_status(
-            base_spec_hash=state.base_spec_hash,
-            local_spec_hash=local_projection.spec_hash,
-            remote_spec_hash=remote_spec_hash,
-            local_changed_source_ids={change.source_id for change in pending.changes},
-            remote_changed_source_ids=remote_changed_source_ids,
+            has_base=state.base_commit_sha is not None,
+            has_remote=remote_snapshot is not None,
+            local_changed_source_ids=local_changed - convergent,
+            remote_changed_source_ids=remote_changed,
             remote_diagnostics=diagnostics,
         )
 
@@ -488,12 +535,10 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
             ),
         )
         changeset.status = ChangeSetStatus.EXPORTED.value
-        mapping.source_path = workflow_source_path(workflow_spec.id)
-        mapping.last_synced_commit_sha = commit.sha
-        mapping.last_synced_spec_hash = stable_hash(workflow_spec)
-        mapping.sync_status = ResourceSyncStatus.SYNCED.value
+        # Mapping sync metadata only advances on pull: the export landed on a
+        # branch, not the synced base, so the resource is still pending.
         workflow.git_sync_branch = commit.ref
-        self.session.add_all([materialization, changeset, mapping, workflow])
+        self.session.add_all([materialization, changeset, workflow])
         await self.session.commit()
         return WorkspaceSyncExportResult(changeset_id=changeset.id, commit=commit)
 
@@ -677,8 +722,73 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
                 commit_sha=commit_sha,
                 spec_hash=stable_hash(workflow_spec),
             )
+        await self.session.flush()
+        await self._record_projected_hashes(workflow_ids=list(local_ids.values()))
         await self.session.commit()
         return result
+
+    async def _record_projected_hashes(
+        self,
+        *,
+        workflow_ids: list[WorkflowUUID],
+    ) -> None:
+        """Re-project imported workflows and record their local-space hashes.
+
+        ``last_synced_spec_hash`` lives in repo-spec space while pending-change
+        detection compares local projections, so the post-reconcile projection
+        is the postcondition check (``P(W_next) == S``) and the baseline for
+        future pending-change comparisons.
+        """
+        if not workflow_ids:
+            return
+        projection = await self.project_workspace(
+            workflow_ids=workflow_ids,
+            create_missing_mappings=False,
+        )
+        mappings_by_source_id = {
+            mapping.source_id: mapping for mapping in await self._workflow_mappings()
+        }
+        for source_id, spec in projection.spec.workflows.items():
+            mapping = mappings_by_source_id.get(source_id)
+            if mapping is None:
+                continue
+            projected_hash = stable_hash(spec)
+            mapping.last_projected_spec_hash = projected_hash
+            if mapping.last_synced_spec_hash != projected_hash:
+                self.logger.warning(
+                    "Workspace sync postcondition mismatch: local projection "
+                    "differs from the pulled spec",
+                    source_id=source_id,
+                    last_synced_spec_hash=mapping.last_synced_spec_hash,
+                    projected_spec_hash=projected_hash,
+                )
+            self.session.add(mapping)
+
+    async def _rebaseline_convergent_mappings(
+        self,
+        *,
+        source_ids: set[str],
+        local_spec: WorkspaceSpec,
+        commit_sha: str,
+    ) -> None:
+        """Advance sync metadata for resources whose local and remote specs already agree."""
+        if not source_ids:
+            return
+        mappings_by_source_id = {
+            mapping.source_id: mapping for mapping in await self._workflow_mappings()
+        }
+        for source_id in sorted(source_ids):
+            mapping = mappings_by_source_id.get(source_id)
+            workflow_spec = local_spec.workflows.get(source_id)
+            if mapping is None or workflow_spec is None:
+                continue
+            spec_hash = stable_hash(workflow_spec)
+            mapping.last_synced_commit_sha = commit_sha
+            mapping.last_synced_spec_hash = spec_hash
+            mapping.last_projected_spec_hash = spec_hash
+            mapping.sync_status = ResourceSyncStatus.SYNCED.value
+            self.session.add(mapping)
+        await self.session.flush()
 
     async def _resolve_local_workflow_id(self, source_id: str) -> WorkflowUUID:
         stmt = select(WorkspaceSyncResourceMapping).where(
@@ -783,7 +893,7 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
 
         for source_id, spec in sorted(projection.spec.workflows.items()):
             mapping = mappings_by_source_id.get(source_id)
-            before_hash = mapping.last_synced_spec_hash if mapping else None
+            before_hash = mapping.last_projected_spec_hash if mapping else None
             after_hash = stable_hash(spec)
             if before_hash == after_hash:
                 continue
@@ -841,29 +951,53 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
     def _classify_status(
         self,
         *,
-        base_spec_hash: str | None,
-        local_spec_hash: str,
-        remote_spec_hash: str | None,
+        has_base: bool,
+        has_remote: bool,
         local_changed_source_ids: set[str],
         remote_changed_source_ids: set[str],
         remote_diagnostics: list[PullDiagnostic],
     ) -> SyncStateStatus:
         if remote_diagnostics:
             return SyncStateStatus.ERROR
-        if base_spec_hash is None or remote_spec_hash is None:
+        if not has_base or not has_remote:
             return SyncStateStatus.NEVER_SYNCED
 
-        local_matches_base = local_spec_hash == base_spec_hash
-        remote_matches_base = remote_spec_hash == base_spec_hash
-        if local_matches_base and remote_matches_base:
+        if not local_changed_source_ids and not remote_changed_source_ids:
             return SyncStateStatus.CLEAN
-        if not local_matches_base and remote_matches_base:
+        if local_changed_source_ids and not remote_changed_source_ids:
             return SyncStateStatus.LOCAL_DIRTY
-        if local_matches_base and not remote_matches_base:
+        if not local_changed_source_ids and remote_changed_source_ids:
             return SyncStateStatus.REMOTE_AHEAD
         if local_changed_source_ids & remote_changed_source_ids:
             return SyncStateStatus.CONFLICTED
         return SyncStateStatus.DIVERGED
+
+    def _convergent_source_ids(
+        self,
+        *,
+        local_spec: WorkspaceSpec,
+        remote_spec: WorkspaceSpec | None,
+        candidates: set[str],
+    ) -> set[str]:
+        """Source ids changed on both sides whose local and remote specs are identical.
+
+        These need a rebaseline (advancing sync metadata), not a merge: the
+        typical case is a local change that was exported and merged back into
+        the base branch.
+        """
+        if remote_spec is None or not candidates:
+            return set()
+        convergent: set[str] = set()
+        for source_id in candidates:
+            local = local_spec.workflows.get(source_id)
+            remote = remote_spec.workflows.get(source_id)
+            if (
+                local is not None
+                and remote is not None
+                and stable_hash(local) == stable_hash(remote)
+            ):
+                convergent.add(source_id)
+        return convergent
 
     async def _workflow_mappings(self) -> list[WorkspaceSyncResourceMapping]:
         stmt = select(WorkspaceSyncResourceMapping).where(
@@ -950,7 +1084,7 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
                 local_id=mapping.local_id if mapping else None,
                 operation=(
                     SyncOperation.CREATE.value
-                    if mapping is None or mapping.last_synced_spec_hash is None
+                    if mapping is None or mapping.last_projected_spec_hash is None
                     else SyncOperation.UPDATE.value
                 ),
                 spec_hash=stable_hash(spec),
