@@ -67,6 +67,10 @@ from tracecat.registry.actions.bound import BoundRegistryAction
 from tracecat.registry.actions.schemas import TemplateActionDefinition
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
+from tracecat.registry.versions.schemas import (
+    RegistryVersionManifest,
+    registry_manifest_fingerprint,
+)
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.common import apply_masks_object
 from tracecat.variables.schemas import VariableSearch
@@ -89,6 +93,7 @@ class RegistryArtifactsContext:
     origin: str
     version: str
     artifact_uri: str
+    artifact_hash: str | None = None
 
 
 # Cache for individual artifacts (origin, version) -> RegistryArtifactsContext
@@ -97,14 +102,60 @@ _artifact_cache: Any = Cache(Cache.MEMORY, ttl=60)
 
 
 def _artifact_cache_key(
-    origin: str, version: str, organization_id: OrganizationID
+    origin: str,
+    version: str,
+    organization_id: OrganizationID,
+    fingerprint: str | None = None,
 ) -> str:
-    return f"artifact:{organization_id}:{origin}:{version}"
+    return f"artifact:{organization_id}:{origin}:{version}:{fingerprint or ''}"
+
+
+def _resolve_artifact_hash_for_lock(
+    *,
+    origin: str,
+    version: str,
+    manifest: Mapping[str, Any],
+    artifact_hash: str | None,
+    origin_fingerprints: dict[str, str] | None,
+) -> str | None:
+    expected_fingerprint = (
+        origin_fingerprints.get(origin) if origin_fingerprints else None
+    )
+    if expected_fingerprint is None:
+        return artifact_hash
+
+    # Workflow locks are the execution receipt. When a lock has an artifact hash,
+    # the database may tell us where that artifact lives, but it must not rewrite
+    # the locked hash from H1 to the current row's H2 after a repair or rebuild.
+    if artifact_hash is not None and expected_fingerprint == artifact_hash:
+        return expected_fingerprint
+
+    manifest_fingerprint = registry_manifest_fingerprint(
+        RegistryVersionManifest.model_validate(manifest)
+    )
+    if expected_fingerprint == manifest_fingerprint:
+        # Older locks only had manifest fingerprints. They cannot pin artifact
+        # bytes, so use the current row hash for download verification while
+        # still requiring the locked manifest identity to match.
+        return artifact_hash
+
+    raise RegistryValidationError(
+        "Locked registry artifact fingerprint mismatch for "
+        f"origin {origin!r} version {version!r}: lock fingerprint does not match "
+        "the current artifact hash or manifest fingerprint",
+        key=origin,
+        err=(
+            f"lock_fingerprint={expected_fingerprint}, "
+            f"artifact_hash={artifact_hash}, "
+            f"manifest_fingerprint={manifest_fingerprint}"
+        ),
+    )
 
 
 async def get_registry_artifacts_for_lock(
     origins: dict[str, str],
     organization_id: OrganizationID,
+    origin_fingerprints: dict[str, str] | None = None,
 ) -> list[RegistryArtifactsContext]:
     """Get registry tarball URIs for specific locked versions.
 
@@ -131,7 +182,14 @@ async def get_registry_artifacts_for_lock(
     org_misses: list[tuple[str, str]] = []
 
     for origin, version in origins.items():
-        key = _artifact_cache_key(origin, version, organization_id)
+        key = _artifact_cache_key(
+            origin,
+            version,
+            organization_id,
+            fingerprint=origin_fingerprints.get(origin)
+            if origin_fingerprints
+            else None,
+        )
         cached = await _artifact_cache.get(key=key)
         if cached is not None:
             cached_artifacts.append(cached)
@@ -163,6 +221,8 @@ async def get_registry_artifacts_for_lock(
                     PlatformRegistryRepository.origin,
                     PlatformRegistryVersion.version,
                     PlatformRegistryVersion.tarball_uri,
+                    PlatformRegistryVersion.artifact_hash,
+                    PlatformRegistryVersion.manifest,
                 )
                 .join(
                     PlatformRegistryVersion,
@@ -187,6 +247,8 @@ async def get_registry_artifacts_for_lock(
                     RegistryRepository.origin,
                     RegistryVersion.version,
                     RegistryVersion.tarball_uri,
+                    RegistryVersion.artifact_hash,
+                    RegistryVersion.manifest,
                 )
                 .join(
                     RegistryVersion,
@@ -211,17 +273,32 @@ async def get_registry_artifacts_for_lock(
         # Process results
         found_keys: set[tuple[str, str]] = set()
         for row in rows:
-            origin_val, version_val, artifact_uri = row
+            origin_val, version_val, artifact_uri, artifact_hash, manifest = row
             if artifact_uri is not None:
+                resolved_artifact_hash = _resolve_artifact_hash_for_lock(
+                    origin=origin_val,
+                    version=version_val,
+                    manifest=manifest,
+                    artifact_hash=artifact_hash,
+                    origin_fingerprints=origin_fingerprints,
+                )
                 artifact = RegistryArtifactsContext(
                     origin=origin_val,
                     version=version_val,
                     artifact_uri=artifact_uri,
+                    artifact_hash=resolved_artifact_hash,
                 )
                 fetched_artifacts.append(artifact)
                 found_keys.add((origin_val, version_val))
                 # Cache the artifact
-                key = _artifact_cache_key(origin_val, version_val, organization_id)
+                key = _artifact_cache_key(
+                    origin_val,
+                    version_val,
+                    organization_id,
+                    fingerprint=origin_fingerprints.get(origin_val)
+                    if origin_fingerprints
+                    else None,
+                )
                 await _artifact_cache.set(key=key, value=artifact)
             else:
                 logger.warning(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
@@ -30,7 +31,11 @@ from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.sync.artifact import RegistryArtifactBuildResult
 from tracecat.registry.sync.base_service import ArtifactsBuildResult
 from tracecat.registry.sync.platform_service import PlatformRegistrySyncService
-from tracecat.registry.sync.prebuilt import write_prebuilt_registry_manifest
+from tracecat.registry.sync.prebuilt import (
+    PrebuiltRegistryArtifactMetadata,
+    write_prebuilt_registry_artifact_metadata,
+    write_prebuilt_registry_manifest,
+)
 from tracecat.registry.sync.runner import RegistrySyncValidationError
 from tracecat.registry.sync.service import RegistrySyncError, RegistrySyncService
 from tracecat.registry.versions.schemas import RegistryVersionManifest
@@ -139,7 +144,8 @@ async def test_sync_creates_collision_version_for_manifest_changes(
     ) -> ArtifactsBuildResult:
         del origin, commit_sha, ssh_env
         return ArtifactsBuildResult(
-            artifact_uri=f"s3://test-bucket/{version_string}/site-packages.squashfs"
+            artifact_uri=f"s3://test-bucket/{version_string}/site-packages.squashfs",
+            artifact_hash="a" * 64,
         )
 
     mocker.patch.object(
@@ -196,6 +202,25 @@ async def test_platform_builtin_sync_reuses_existing_artifact_objects(
         "tracecat.registry.sync.base_service.upload_squashfs_venv",
         mocker.AsyncMock(),
     )
+    existing_artifact = b"existing-squashfs-artifact"
+
+    async def fake_download_file_to_path(
+        *,
+        key: str,
+        bucket: str,
+        output_path: Path,
+    ) -> int:
+        assert key == (
+            "platform/tarball-venvs/tracecat_registry/1.2.3/site-packages.squashfs"
+        )
+        assert bucket == "registry"
+        output_path.write_bytes(existing_artifact)
+        return len(existing_artifact)
+
+    download_file_to_path = mocker.patch(
+        "tracecat.registry.sync.base_service.blob.download_file_to_path",
+        mocker.AsyncMock(side_effect=fake_download_file_to_path),
+    )
 
     service = PlatformRegistrySyncService(mocker.Mock(spec=AsyncSession))
 
@@ -209,11 +234,13 @@ async def test_platform_builtin_sync_reuses_existing_artifact_objects(
         "s3://registry/platform/tarball-venvs/tracecat_registry/1.2.3/"
         "site-packages.squashfs"
     )
+    assert result.artifact_hash == hashlib.sha256(existing_artifact).hexdigest()
     ensure_bucket_exists.assert_awaited_once_with("registry")
     file_exists.assert_awaited_once_with(
         key="platform/tarball-venvs/tracecat_registry/1.2.3/site-packages.squashfs",
         bucket="registry",
     )
+    download_file_to_path.assert_awaited_once()
     build_builtin_registry_artifact.assert_not_awaited()
     upload_squashfs_venv.assert_not_awaited()
 
@@ -258,6 +285,7 @@ async def test_platform_builtin_sync_uploads_squashfs_artifact(
     )
 
     assert result.artifact_uri.endswith("/1.2.3/site-packages.squashfs")
+    assert result.artifact_hash == artifact_result.content_hash
     build_builtin_registry_artifact.assert_awaited_once()
     upload_squashfs_venv.assert_awaited_once_with(
         squashfs_path=artifact_result.squashfs_path,
@@ -293,6 +321,13 @@ async def test_platform_builtin_sync_uses_prebuilt_manifest_without_discovery(
         version="1.2.3",
     )
     write_prebuilt_registry_manifest(artifact_dir=artifact_dir, manifest=manifest)
+    write_prebuilt_registry_artifact_metadata(
+        artifact_dir=artifact_dir,
+        metadata=PrebuiltRegistryArtifactMetadata(
+            artifact_hash="b" * 64,
+            artifact_size_bytes=123,
+        ),
+    )
 
     fetch_actions_from_subprocess = mocker.patch(
         "tracecat.registry.sync.base_service.fetch_actions_from_subprocess",
@@ -316,6 +351,8 @@ async def test_platform_builtin_sync_uses_prebuilt_manifest_without_discovery(
     assert result.num_actions == 1
     assert result.actions[0].default_title == "Prebuilt title"
     assert result.artifact_uri.endswith("/1.2.3/site-packages.squashfs")
+    assert result.artifact_hash == "b" * 64
+    assert result.version.artifact_hash == "b" * 64
     assert RegistryVersionManifest.model_validate(result.version.manifest) == manifest
     fetch_actions_from_subprocess.assert_not_awaited()
 
@@ -430,6 +467,13 @@ async def test_platform_builtin_sync_can_create_pending_version(
         version="1.2.3",
     )
     write_prebuilt_registry_manifest(artifact_dir=artifact_dir, manifest=manifest)
+    write_prebuilt_registry_artifact_metadata(
+        artifact_dir=artifact_dir,
+        metadata=PrebuiltRegistryArtifactMetadata(
+            artifact_hash="c" * 64,
+            artifact_size_bytes=123,
+        ),
+    )
 
     mocker.patch(
         "tracecat.registry.sync.base_service.fetch_actions_from_subprocess",
@@ -452,6 +496,7 @@ async def test_platform_builtin_sync_can_create_pending_version(
     )
 
     assert result.version.version == "1.2.3"
+    assert result.version.artifact_hash == "c" * 64
     assert repo.current_version_id is None
 
 

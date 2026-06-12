@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -38,7 +39,10 @@ from tracecat.registry.sync.artifact import (
     build_builtin_registry_artifact,
     upload_squashfs_venv,
 )
-from tracecat.registry.sync.prebuilt import load_prebuilt_builtin_registry_manifest
+from tracecat.registry.sync.prebuilt import (
+    load_prebuilt_builtin_registry_artifact_metadata,
+    load_prebuilt_builtin_registry_manifest,
+)
 from tracecat.registry.sync.schemas import RegistrySyncRequest
 from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
 from tracecat.registry.versions.schemas import (
@@ -54,6 +58,8 @@ if TYPE_CHECKING:
 
     from tracecat.ssh import SshEnv
 
+READ_HASH_CHUNK_SIZE_BYTES = 1024 * 1024
+
 
 class RepositoryProtocol(Protocol):
     id: Mapped[uuid.UUID]
@@ -65,6 +71,7 @@ class VersionProtocol(Protocol):
     id: Mapped[uuid.UUID]
     version: Mapped[str]
     tarball_uri: Mapped[str]
+    artifact_hash: Mapped[str | None]
     manifest: Mapped[dict[str, object]]
 
 
@@ -101,6 +108,7 @@ class ArtifactsBuildResult:
     """Result of building and uploading execution artifacts."""
 
     artifact_uri: str
+    artifact_hash: str | None = None
 
 
 @dataclass
@@ -110,6 +118,7 @@ class BaseSyncResult[VersionT: VersionProtocol]:
     version: VersionT
     actions: list[RegistryActionCreate]
     artifact_uri: str
+    artifact_hash: str | None = None
     commit_sha: str | None = None
 
     @property
@@ -119,6 +128,27 @@ class BaseSyncResult[VersionT: VersionProtocol]:
     @property
     def num_actions(self) -> int:
         return len(self.actions)
+
+
+async def _compute_existing_artifact_hash(*, key: str, bucket: str) -> str:
+    async with aiofiles.tempfile.TemporaryDirectory(
+        prefix="tracecat_registry_existing_artifact_"
+    ) as temp_dir:
+        artifact_path = Path(temp_dir) / Path(key).name
+        await blob.download_file_to_path(
+            key=key,
+            bucket=bucket,
+            output_path=artifact_path,
+        )
+        return await _compute_file_sha256(artifact_path)
+
+
+async def _compute_file_sha256(path: Path) -> str:
+    hasher = hashlib.sha256()
+    async with aiofiles.open(path, "rb") as f:
+        while chunk := await f.read(READ_HASH_CHUNK_SIZE_BYTES):
+            hasher.update(chunk)
+    return hasher.hexdigest()
 
 
 class BaseRegistrySyncService[
@@ -347,10 +377,16 @@ class BaseRegistrySyncService[
             )
 
         # Prefer release-built builtin metadata; fall back to subprocess discovery.
+        storage_namespace = self._get_storage_namespace()
         prebuilt_manifest = load_prebuilt_builtin_registry_manifest(
             origin=origin,
             target_version=target_version,
-            storage_namespace=self._get_storage_namespace(),
+            storage_namespace=storage_namespace,
+        )
+        prebuilt_artifact_metadata = load_prebuilt_builtin_registry_artifact_metadata(
+            origin=origin,
+            target_version=target_version,
+            storage_namespace=storage_namespace,
         )
         actions: list[RegistryActionCreate] | None = None
         manifest: RegistryVersionManifest | None = None
@@ -436,6 +472,7 @@ class BaseRegistrySyncService[
                 version=existing_version,
                 actions=actions,
                 artifact_uri=existing_artifact_uri,
+                artifact_hash=existing_version.artifact_hash,
                 commit_sha=commit_sha,
             )
 
@@ -444,7 +481,10 @@ class BaseRegistrySyncService[
                 artifact_uri=self._artifact_uri_for_version(
                     origin=origin,
                     version_string=target_version,
-                )
+                ),
+                artifact_hash=prebuilt_artifact_metadata.artifact_hash
+                if prebuilt_artifact_metadata
+                else None,
             )
         else:
             artifacts = await self._build_and_upload_artifacts(
@@ -460,6 +500,7 @@ class BaseRegistrySyncService[
             commit_sha=commit_sha,
             manifest=manifest,
             tarball_uri=artifacts.artifact_uri,
+            artifact_hash=artifacts.artifact_hash,
         )
         version = await versions_service.create_version(version_create, commit=False)
 
@@ -496,6 +537,7 @@ class BaseRegistrySyncService[
             version=version,
             actions=actions,
             artifact_uri=artifacts.artifact_uri,
+            artifact_hash=artifacts.artifact_hash,
             commit_sha=commit_sha,
         )
 
@@ -549,7 +591,14 @@ class BaseRegistrySyncService[
                 "Using existing registry execution artifact",
                 artifact_uri=artifact_uri,
             )
-            return ArtifactsBuildResult(artifact_uri=artifact_uri)
+            artifact_hash = await _compute_existing_artifact_hash(
+                key=artifact_key,
+                bucket=bucket,
+            )
+            return ArtifactsBuildResult(
+                artifact_uri=artifact_uri,
+                artifact_hash=artifact_hash,
+            )
 
         async with aiofiles.tempfile.TemporaryDirectory(
             prefix="tracecat_registry_artifact_"
@@ -594,10 +643,14 @@ class BaseRegistrySyncService[
             self.logger.info(
                 "Registry execution artifact uploaded",
                 artifact_uri=artifact_uri,
+                artifact_hash=artifact_result.content_hash,
                 artifact_size_bytes=artifact_result.artifact_size_bytes,
             )
 
-            return ArtifactsBuildResult(artifact_uri=artifact_uri)
+            return ArtifactsBuildResult(
+                artifact_uri=artifact_uri,
+                artifact_hash=artifact_result.content_hash,
+            )
 
     def _generate_version_string(
         self,
@@ -751,6 +804,7 @@ class BaseRegistrySyncService[
         actions = workflow_result.actions
         self._raise_if_validation_errors(workflow_result.validation_errors)
         artifact_uri = workflow_result.artifact_uri
+        artifact_hash = workflow_result.artifact_hash
         commit_sha = workflow_result.commit_sha
 
         if not actions:
@@ -794,6 +848,7 @@ class BaseRegistrySyncService[
                 version=existing_version,
                 actions=actions,
                 artifact_uri=existing_artifact_uri,
+                artifact_hash=existing_version.artifact_hash,
                 commit_sha=commit_sha,
             )
 
@@ -803,6 +858,7 @@ class BaseRegistrySyncService[
             commit_sha=commit_sha,
             manifest=manifest,
             tarball_uri=artifact_uri,
+            artifact_hash=artifact_hash,
         )
         version = await versions_service.create_version(version_create, commit=False)
 
@@ -839,5 +895,6 @@ class BaseRegistrySyncService[
             version=version,
             actions=actions,
             artifact_uri=artifact_uri,
+            artifact_hash=artifact_hash,
             commit_sha=commit_sha,
         )
