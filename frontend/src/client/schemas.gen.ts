@@ -19049,6 +19049,18 @@ export const $RegistryActionReadMinimal = {
       $ref: "#/components/schemas/RegistryActionAvailability",
       description: "Availability metadata for this action",
     },
+    deprecated: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Deprecated",
+      description: "Deprecation message if this action is deprecated",
+    },
     action: {
       type: "string",
       title: "Action",
