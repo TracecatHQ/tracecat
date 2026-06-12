@@ -8001,6 +8001,8 @@ export const inboxGetPendingCount = (
  * @param data.reverse
  * @param data.orderBy Column name to order by (created_at, updated_at, status)
  * @param data.sort Sort direction (asc or desc)
+ * @param data.search Case-insensitive search on item title
+ * @param data.group Filter items to a single display group
  * @returns CursorPaginatedResponse_InboxItemRead_ Successful Response
  * @throws ApiError
  */
@@ -8019,6 +8021,8 @@ export const inboxListItems = (
       reverse: data.reverse,
       order_by: data.orderBy,
       sort: data.sort,
+      search: data.search,
+      group: data.group,
     },
     errors: {
       422: "Validation Error",

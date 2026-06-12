@@ -24,13 +24,13 @@ def get_inbox_providers(
     """
     providers: list[InboxProvider] = []
 
-    # EE: Add approvals provider if available
+    # EE: Add agent runs provider if available
     try:
-        from tracecat_ee.inbox.providers.approvals import ApprovalsInboxProvider
+        from tracecat_ee.inbox.providers.agent_runs import AgentRunsInboxProvider
 
-        providers.append(ApprovalsInboxProvider(session, role))
-        logger.debug("Loaded ApprovalsInboxProvider")
+        providers.append(AgentRunsInboxProvider(session, role))
+        logger.debug("Loaded AgentRunsInboxProvider")
     except ImportError:
-        logger.debug("ApprovalsInboxProvider not available (EE feature)")
+        logger.debug("AgentRunsInboxProvider not available (EE feature)")
 
     return providers

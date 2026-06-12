@@ -4272,6 +4272,14 @@ export type ImageUrl = {
 }
 
 /**
+ * Display groups for inbox items.
+ *
+ * Groups are derived from approval state and live workflow execution status,
+ * so membership cannot be expressed as a pure SQL filter.
+ */
+export type InboxGroup = "review_required" | "running" | "error" | "completed"
+
+/**
  * Read model for inbox items.
  */
 export type InboxItemRead = {
@@ -4312,6 +4320,10 @@ export type InboxItemRead = {
    */
   workflow?: WorkflowSummary | null
   /**
+   * User who created the source entity (None for automation-initiated items)
+   */
+  created_by?: UserSummary | null
+  /**
    * ID of the source entity
    */
   source_id: string
@@ -4335,7 +4347,7 @@ export type InboxItemStatus = "pending" | "completed" | "failed"
 /**
  * Types of inbox items.
  */
-export type InboxItemType = "approval"
+export type InboxItemType = "approval" | "agent_run"
 
 /**
  * Count of pending inbox items that require attention.
@@ -8007,6 +8019,28 @@ export type UserScopesRead = {
   scopes: Array<string>
 }
 
+/**
+ * Summary of a user for inbox item context.
+ */
+export type UserSummary = {
+  /**
+   * User ID
+   */
+  id: string
+  /**
+   * User email
+   */
+  email: string
+  /**
+   * User first name
+   */
+  first_name?: string | null
+  /**
+   * User last name
+   */
+  last_name?: string | null
+}
+
 export type UserUpdate = {
   password?: string | null
   email?: string | null
@@ -11526,12 +11560,20 @@ export type InboxGetPendingCountResponse = InboxPendingCount
 
 export type InboxListItemsData = {
   cursor?: string | null
+  /**
+   * Filter items to a single display group
+   */
+  group?: InboxGroup | null
   limit?: number
   /**
    * Column name to order by (created_at, updated_at, status)
    */
   orderBy?: string | null
   reverse?: boolean
+  /**
+   * Case-insensitive search on item title
+   */
+  search?: string | null
   /**
    * Sort direction (asc or desc)
    */

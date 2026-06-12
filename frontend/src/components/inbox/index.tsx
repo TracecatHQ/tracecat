@@ -2,21 +2,23 @@
 
 import { useEffect, useRef } from "react"
 import { useInboxChat } from "@/app/workspaces/[workspaceId]/inbox/layout"
-import type { AgentSessionEntity } from "@/client"
+import type { AgentSessionEntity, InboxGroup } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { toast } from "@/components/ui/use-toast"
 import {
   type DateFilterValue,
+  type InboxGroupState,
   type UseInboxFilters,
   useDeleteApproval,
 } from "@/hooks/use-inbox"
 import type { InboxSessionItem } from "@/lib/agents"
-import { ActivityAccordion } from "./activity-accordion"
 import { InboxHeader } from "./inbox-header"
+import { RunsTable } from "./runs-table"
 
 interface ActivityLayoutProps {
   sessions: InboxSessionItem[]
+  groups: Record<InboxGroup, InboxGroupState>
   selectedId: string | null
   onSelect: (id: string | null) => void
   isLoading: boolean
@@ -31,6 +33,7 @@ interface ActivityLayoutProps {
 
 export function ActivityLayout({
   sessions,
+  groups,
   selectedId,
   onSelect,
   isLoading,
@@ -150,8 +153,8 @@ export function ActivityLayout({
         onCreatedAfterChange={onCreatedAfterChange}
       />
       <div className="min-h-0 flex-1">
-        <ActivityAccordion
-          sessions={sessions}
+        <RunsTable
+          groups={groups}
           selectedId={selectedId}
           deletingId={deletingId ?? null}
           onSelect={handleSelectItem}
