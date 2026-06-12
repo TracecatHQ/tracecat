@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from packaging.version import Version
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import WorkflowFailureError
@@ -162,7 +163,7 @@ async def test_sync_creates_collision_version_for_manifest_changes(
 
     assert first.version.version == "1.2.3"
     assert first.version.id != second.version.id
-    assert second.version.version.startswith("1.2.3.dev")
+    assert second.version.version.startswith("1.2.3+collision.")
     # Re-syncing unchanged content should reuse the active collision version.
     assert third.version.id == second.version.id
     assert repo.current_version_id == second.version.id
@@ -170,6 +171,31 @@ async def test_sync_creates_collision_version_for_manifest_changes(
     versions_service = RegistryVersionsService(session, role)
     versions = await versions_service.list_versions(repository_id=repo.id)
     assert len(versions) == 2
+
+
+@pytest.mark.parametrize(
+    "base_version",
+    [
+        "1.2.3",
+        "1.2.3.post1",
+        "1.2.3-beta.1",
+        "1.2.3-alpha.1",
+        "1.2.3+registry.1",
+    ],
+)
+def test_generate_collision_version_preserves_release_suffixes(
+    base_version: str,
+    mocker,
+) -> None:
+    service = RegistrySyncService(mocker.Mock(spec=AsyncSession), role=mocker.Mock())
+
+    collision_version = service._generate_collision_version(base_version)
+
+    if "+" in base_version:
+        assert collision_version.startswith(f"{base_version}.collision.")
+    else:
+        assert collision_version.startswith(f"{base_version}+collision.")
+    Version(collision_version)
 
 
 @pytest.mark.anyio
