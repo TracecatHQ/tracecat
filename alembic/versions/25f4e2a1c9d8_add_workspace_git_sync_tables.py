@@ -6,7 +6,9 @@ Create Date: 2026-06-05 00:00:00.000000
 
 """
 
+import uuid
 from collections.abc import Sequence
+from datetime import datetime
 
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
@@ -33,7 +35,7 @@ WORKSPACE_SYNC_TABLES = (
 )
 
 
-def _timestamps() -> list[sa.Column[sa.DateTime]]:
+def _timestamps() -> list[sa.Column[datetime]]:
     return [
         sa.Column(
             "created_at",
@@ -50,14 +52,14 @@ def _timestamps() -> list[sa.Column[sa.DateTime]]:
     ]
 
 
-def _tenant_columns() -> list[sa.Column[sa.UUID]]:
+def _tenant_columns() -> list[sa.Column[uuid.UUID]]:
     return [
         sa.Column("organization_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("workspace_id", postgresql.UUID(as_uuid=True), nullable=False),
     ]
 
 
-def _record_columns() -> list[sa.Column[sa.UUID] | sa.Column[int]]:
+def _record_columns() -> list[sa.Column[uuid.UUID] | sa.Column[int]]:
     return [
         sa.Column("surrogate_id", sa.Integer(), sa.Identity(), nullable=False),
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
