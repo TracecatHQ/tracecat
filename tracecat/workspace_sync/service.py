@@ -278,9 +278,8 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
     async def get_status(self) -> WorkspaceSyncStatus:
         """Return the workspace/repo three-way sync status for the configured repo."""
         url = await self._workspace_git_url()
-        state = await self._get_or_create_state(url=url)
-        local_projection = await self.project_workspace(create_missing_mappings=True)
-        await self.session.commit()
+        state = await self._get_state(url=url) or self._unsaved_state(url=url)
+        local_projection = await self.project_workspace(create_missing_mappings=False)
 
         remote_snapshot: WorkspaceRemoteSnapshot | None = None
         diagnostics: list[PullDiagnostic] = []
@@ -318,18 +317,6 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
             remote_diagnostics=diagnostics,
         )
 
-        state.status = status.value
-        if remote_snapshot:
-            state.last_remote_commit_sha = remote_snapshot.commit_sha
-            state.last_remote_tree_sha = remote_snapshot.tree_sha
-        state.last_error = (
-            {"diagnostics": [diagnostic.__dict__ for diagnostic in diagnostics]}
-            if diagnostics
-            else None
-        )
-        self.session.add(state)
-        await self.session.commit()
-
         return WorkspaceSyncStatus(
             status=status,
             base_spec_hash=state.base_spec_hash,
@@ -345,9 +332,8 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
     async def list_pending_changes(self) -> WorkspaceSyncPendingChanges:
         """List local syncable changes relative to the last synced base."""
         url = await self._workspace_git_url()
-        state = await self._get_or_create_state(url=url)
-        projection = await self.project_workspace(create_missing_mappings=True)
-        await self.session.commit()
+        state = await self._get_state(url=url) or self._unsaved_state(url=url)
+        projection = await self.project_workspace(create_missing_mappings=False)
         return await self._pending_changes_from_projection(
             projection=projection,
             state=state,
@@ -398,16 +384,7 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
     ) -> WorkspaceSyncExportResult:
         """Materialize a ChangeSet into a Git branch and optional pull request."""
         changeset = await self._get_changeset(changeset_id)
-        selected_resources = [
-            ResourceRef.model_validate(resource)
-            for resource in changeset.selected_resources
-        ]
-        projection = await self.project_workspace(create_missing_mappings=True)
-        specs = self._select_workflow_specs(
-            projection=projection,
-            resources=selected_resources,
-        )
-        selected_files = self._files_for_workflow_specs(specs)
+        selected_files = self._changeset_rendered_files(changeset)
         url = await self._workspace_git_url()
 
         git_svc = WorkspaceGitHubSyncService(session=self.session, role=self.role)
@@ -959,6 +936,7 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
             base_spec_hash=state.base_spec_hash,
             selected_resources=selected_resources,
             selected_paths=sorted(selected_files),
+            rendered_files=dict(sorted(selected_files.items())),
             validation_status=ValidationStatus.VALID.value,
             validation_result={},
             status=ChangeSetStatus.VALIDATED.value,
@@ -987,6 +965,24 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
             self.session.add(item)
         await self.session.flush()
         return changeset
+
+    def _changeset_rendered_files(
+        self,
+        changeset: WorkspaceSyncChangeSet,
+    ) -> dict[str, str]:
+        rendered_files = changeset.rendered_files or {}
+        if not rendered_files:
+            raise TracecatValidationError(
+                "Workspace sync ChangeSet has no frozen files. Recreate the ChangeSet before exporting."
+            )
+        if any(
+            not isinstance(path, str) or not isinstance(content, str)
+            for path, content in rendered_files.items()
+        ):
+            raise TracecatValidationError(
+                "Workspace sync ChangeSet frozen files are invalid."
+            )
+        return dict(sorted(rendered_files.items()))
 
     async def _get_changeset(
         self,
@@ -1017,16 +1013,10 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
         )
 
     async def _get_or_create_state(self, *, url: GitUrl) -> WorkspaceSyncState:
+        if state := await self._get_state(url=url):
+            return state
         repo_url = url.to_url()
         target_ref = url.ref or "main"
-        stmt = select(WorkspaceSyncState).where(
-            WorkspaceSyncState.workspace_id == self.workspace_id,
-            WorkspaceSyncState.provider == SyncProvider.GIT.value,
-            WorkspaceSyncState.repo_url == repo_url,
-            WorkspaceSyncState.target_ref == target_ref,
-        )
-        if state := (await self.session.execute(stmt)).scalar_one_or_none():
-            return state
         insert_stmt = (
             insert(WorkspaceSyncState)
             .values(
@@ -1042,7 +1032,31 @@ class WorkspaceGitSyncService(BaseWorkspaceService):
             )
         )
         await self.session.execute(insert_stmt)
-        return (await self.session.execute(stmt)).scalar_one()
+        state = await self._get_state(url=url)
+        if state is None:
+            raise RuntimeError("Workspace sync state was not created")
+        return state
+
+    async def _get_state(self, *, url: GitUrl) -> WorkspaceSyncState | None:
+        repo_url = url.to_url()
+        target_ref = url.ref or "main"
+        stmt = select(WorkspaceSyncState).where(
+            WorkspaceSyncState.workspace_id == self.workspace_id,
+            WorkspaceSyncState.provider == SyncProvider.GIT.value,
+            WorkspaceSyncState.repo_url == repo_url,
+            WorkspaceSyncState.target_ref == target_ref,
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    def _unsaved_state(self, *, url: GitUrl) -> WorkspaceSyncState:
+        return WorkspaceSyncState(
+            organization_id=self.organization_id,
+            workspace_id=self.workspace_id,
+            provider=SyncProvider.GIT.value,
+            repo_url=url.to_url(),
+            target_ref=url.ref or "main",
+            status=SyncStateStatus.NEVER_SYNCED.value,
+        )
 
     async def _workspace_git_url(self) -> GitUrl:
         workspace = await self._workspace()

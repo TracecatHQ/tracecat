@@ -9,11 +9,24 @@ import orjson
 from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
 
+CANONICAL_HASH_VERSION = 1
+
 
 def canonical_data(value: Any) -> Any:
     """Convert a value into JSON-compatible data with omitted null model fields."""
     if isinstance(value, BaseModel):
         return value.model_dump(mode="json", exclude_none=True)
+    return to_jsonable_python(value, fallback=str)
+
+
+def canonical_hash_data(value: Any) -> Any:
+    """Convert a value into stable hash data, ignoring model defaults."""
+    if isinstance(value, BaseModel):
+        return value.model_dump(
+            mode="json",
+            exclude_none=True,
+            exclude_defaults=True,
+        )
     return to_jsonable_python(value, fallback=str)
 
 
@@ -31,5 +44,7 @@ def canonical_json_text(value: Any, *, pretty: bool = True) -> str:
 
 
 def stable_hash(value: Any) -> str:
-    """Return a stable SHA-256 hash for a JSON-compatible value."""
-    return sha256(canonical_json_bytes(value)).hexdigest()
+    """Return a versioned SHA-256 hash for canonical sync comparisons."""
+    payload = orjson.dumps(canonical_hash_data(value), option=orjson.OPT_SORT_KEYS)
+    digest = sha256(payload).hexdigest()
+    return f"v{CANONICAL_HASH_VERSION}:{digest}"

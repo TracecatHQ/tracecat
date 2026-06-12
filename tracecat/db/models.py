@@ -694,6 +694,9 @@ class WorkspaceSyncChangeSet(RecordModel):
     selected_paths: Mapped[list[str]] = mapped_column(
         JSONB, default=list, server_default=text("'[]'::jsonb"), nullable=False
     )
+    rendered_files: Mapped[dict[str, str]] = mapped_column(
+        JSONB, default=dict, server_default=text("'{}'::jsonb"), nullable=False
+    )
     validation_status: Mapped[str] = mapped_column(
         String(32),
         default="pending",

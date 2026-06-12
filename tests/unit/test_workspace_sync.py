@@ -9,12 +9,19 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 import yaml
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CaseEventType
-from tracecat.db.models import Workflow, WorkspaceSyncChangeSetItem
+from tracecat.db.models import (
+    Workflow,
+    WorkflowDefinition,
+    WorkspaceSyncChangeSet,
+    WorkspaceSyncChangeSetItem,
+    WorkspaceSyncResourceMapping,
+)
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.identifiers.workflow import WorkflowUUID
@@ -31,7 +38,7 @@ from tracecat.workspace_sync.schemas import (
     ResourceRef,
     WorkspaceManifest,
 )
-from tracecat.workspace_sync.serialization import canonical_json_text
+from tracecat.workspace_sync.serialization import canonical_json_text, stable_hash
 from tracecat.workspace_sync.service import WorkspaceGitSyncService
 from tracecat.workspace_sync.workflow import (
     parse_workflow_spec,
@@ -63,6 +70,17 @@ def test_manifest_serializes_as_canonical_json() -> None:
         text
         == '{\n  "resources": {\n    "workflows": "workflows/"\n  },\n  "version": 1\n}\n'
     )
+
+
+def test_stable_hash_ignores_model_defaults() -> None:
+    class HashModel(BaseModel):
+        name: str
+        future_default: str = "default"
+
+    model_hash = stable_hash(HashModel(name="workflow"))
+
+    assert model_hash.startswith("v1:")
+    assert model_hash == stable_hash({"name": "workflow"})
 
 
 def test_workflow_spec_does_not_serialize_local_uuid(sample_dsl: DSLInput) -> None:
@@ -287,6 +305,12 @@ async def test_status_pending_changeset_and_export_with_mocked_github(
         assert pending_change.operation == "create"
         assert pending_change.source_id == "detect-okta-risk"
         assert pending_change.title == "Detect Okta Risk"
+        mapping_before_changeset = await session.scalar(
+            select(WorkspaceSyncResourceMapping).where(
+                WorkspaceSyncResourceMapping.workspace_id == svc_role.workspace_id
+            )
+        )
+        assert mapping_before_changeset is None
 
         changeset = await service.create_changeset(
             params=ChangeSetCreate(
@@ -306,6 +330,16 @@ async def test_status_pending_changeset_and_export_with_mocked_github(
             "workflows/detect-okta-risk/definition.yml",
         ]
         assert changeset.selected_resources[0]["local_id"] is not None
+        changeset_row = await session.scalar(
+            select(WorkspaceSyncChangeSet).where(
+                WorkspaceSyncChangeSet.id == changeset.id
+            )
+        )
+        assert changeset_row is not None
+        assert set(changeset_row.rendered_files) == {
+            "tracecat.json",
+            "workflows/detect-okta-risk/definition.yml",
+        }
 
         changeset_item = await session.scalar(
             select(WorkspaceSyncChangeSetItem).where(
@@ -315,6 +349,17 @@ async def test_status_pending_changeset_and_export_with_mocked_github(
         assert changeset_item is not None
         assert changeset_item.operation == "create"
         assert changeset_item.local_id is not None
+
+        definition = await session.scalar(
+            select(WorkflowDefinition).where(
+                WorkflowDefinition.workspace_id == svc_role.workspace_id,
+                WorkflowDefinition.alias == "detect-okta-risk",
+            )
+        )
+        assert definition is not None
+        definition.content = {**definition.content, "title": "Mutated Okta Risk"}
+        session.add(definition)
+        await session.commit()
 
         result = await service.export_changeset(
             changeset_id=changeset.id,
@@ -334,3 +379,9 @@ async def test_status_pending_changeset_and_export_with_mocked_github(
         "tracecat.json",
         "workflows/detect-okta-risk/definition.yml",
     }
+    written_workflow = yaml.safe_load(
+        FakeGitHubSyncTransport.written_files[
+            "workflows/detect-okta-risk/definition.yml"
+        ]
+    )
+    assert written_workflow["definition"]["title"] == "Detect Okta Risk"
