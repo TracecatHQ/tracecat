@@ -106,7 +106,6 @@ def upgrade() -> None:
         *_timestamps(),
         *_tenant_fks("workspace_sync_state"),
         sa.PrimaryKeyConstraint("surrogate_id", name=op.f("pk_workspace_sync_state")),
-        sa.UniqueConstraint("id", name=op.f("uq_workspace_sync_state_id")),
         sa.UniqueConstraint(
             "workspace_id",
             "provider",
@@ -153,7 +152,6 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint(
             "surrogate_id", name=op.f("pk_workspace_sync_resource_mapping")
         ),
-        sa.UniqueConstraint("id", name=op.f("uq_workspace_sync_resource_mapping_id")),
         sa.UniqueConstraint(
             "workspace_id",
             "provider",
@@ -232,7 +230,6 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint(
             "surrogate_id", name=op.f("pk_workspace_sync_changeset")
         ),
-        sa.UniqueConstraint("id", name=op.f("uq_workspace_sync_changeset_id")),
     )
     op.create_index(
         op.f("ix_workspace_sync_changeset_id"),
@@ -277,7 +274,6 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint(
             "surrogate_id", name=op.f("pk_workspace_sync_changeset_item")
         ),
-        sa.UniqueConstraint("id", name=op.f("uq_workspace_sync_changeset_item_id")),
         sa.UniqueConstraint(
             "changeset_id",
             "resource_type",
@@ -342,7 +338,6 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint(
             "surrogate_id", name=op.f("pk_workspace_sync_materialization")
         ),
-        sa.UniqueConstraint("id", name=op.f("uq_workspace_sync_materialization_id")),
     )
     op.create_index(
         op.f("ix_workspace_sync_materialization_id"),
