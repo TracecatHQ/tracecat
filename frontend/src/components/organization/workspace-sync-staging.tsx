@@ -120,16 +120,22 @@ export function WorkspaceSyncStaging({
     if (!pendingQuery.data) {
       return
     }
-    const sourceIds = new Set(changes.map((change) => change.source_id))
+    const exportableSourceIds = new Set(
+      changes
+        .filter((change) => change.exportable)
+        .map((change) => change.source_id)
+    )
     setSelectedSourceIds((current) => {
-      if (sourceIds.size === 0) {
-        return sourceIds
+      if (exportableSourceIds.size === 0) {
+        return exportableSourceIds
       }
       if (!selectionInitializedRef.current) {
         selectionInitializedRef.current = true
-        return sourceIds
+        return exportableSourceIds
       }
-      return new Set([...current].filter((sourceId) => sourceIds.has(sourceId)))
+      return new Set(
+        [...current].filter((sourceId) => exportableSourceIds.has(sourceId))
+      )
     })
   }, [changes, pendingQuery.data])
 
@@ -148,8 +154,8 @@ export function WorkspaceSyncStaging({
     )
   }
 
-  const selectedChanges = changes.filter((change) =>
-    selectedSourceIds.has(change.source_id)
+  const selectedChanges = changes.filter(
+    (change) => change.exportable && selectedSourceIds.has(change.source_id)
   )
   const isBusy = createChangeset.isPending || exportChangeset.isPending
   const canExport =
