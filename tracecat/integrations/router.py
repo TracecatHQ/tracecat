@@ -215,7 +215,8 @@ async def oauth_callback(
 
     # Overwrite role with workspace context from validated state
     # This is always authorization code
-    role = role.model_copy(update={"workspace_id": oauth_state_db.workspace_id})
+    workspace_id = oauth_state_db.workspace_id
+    role = role.model_copy(update={"workspace_id": workspace_id})
     ctx_role.set(role)
     if config.TRACECAT__RLS_MODE == config.RLSMode.ENFORCE:
         await set_rls_context_from_role(session, role)
@@ -254,17 +255,12 @@ async def oauth_callback(
                 detail="Could not reach MCP OAuth server",
             ) from exc
 
-        if role.workspace_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Workspace ID is required",
-            )
         return IntegrationOAuthCallback(
             status="connected",
             provider_id=oauth_state_db.provider_id,
             redirect_url=(
                 f"{config.TRACECAT__PUBLIC_APP_URL}/workspaces/"
-                f"{role.workspace_id}/mcp-servers"
+                f"{workspace_id}/mcp-servers"
             ),
         )
 
@@ -381,15 +377,10 @@ async def oauth_callback(
             detail="Provider returned insecure OAuth endpoints",
         ) from exc
     logger.info("Returning OAuth callback", status="connected", provider=key.id)
-    if role.workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Workspace ID is required",
-        )
 
     redirect_url = _oauth_callback_redirect_url(
         provider_impl=provider_impl,
-        workspace_id=role.workspace_id,
+        workspace_id=workspace_id,
     )
     return IntegrationOAuthCallback(
         status="connected",
@@ -405,11 +396,6 @@ async def list_integrations(
     role: WorkspaceUserRouteRole, session: AsyncDBSession
 ) -> list[IntegrationReadMinimal]:
     """List all integrations for the current user."""
-    if role.workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Workspace ID is required",
-        )
 
     integration_service = IntegrationService(session, role=role)
     integrations = await integration_service.list_integrations()
@@ -435,12 +421,6 @@ async def get_integration(
 ) -> IntegrationRead:
     """Get integration for the specified provider."""
     # Verify provider exists (this will raise 400 if not)
-
-    if role.workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Workspace ID is required",
-        )
 
     svc = IntegrationService(session, role=role)
     integration = await svc.get_integration(provider_key=provider_info.key)
@@ -514,10 +494,10 @@ async def connect_provider(
     The state is validated on the callback to ensure it was issued by our server.
     """
 
-    if role.workspace_id is None or role.user_id is None:
+    if role.user_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Workspace and user ID is required",
+            detail="User ID is required",
         )
     svc = IntegrationService(session, role=role)
     provider_impl = provider_info.impl
@@ -580,11 +560,6 @@ async def disconnect_integration(
     provider_info: ProviderInfoDep,
 ) -> None:
     """Disconnect integration for the specified provider (revokes tokens but keeps configuration)."""
-    if role.workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Workspace ID is required",
-        )
 
     svc = IntegrationService(session, role=role)
     integration = await svc.get_integration(provider_key=provider_info.key)
@@ -605,11 +580,6 @@ async def delete_integration(
     provider_info: ProviderInfoDep,
 ) -> None:
     """Delete integration for the specified provider (removes the integration record completely)."""
-    if role.workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Workspace ID is required",
-        )
 
     svc = IntegrationService(session, role=role)
     integration = await svc.get_integration(provider_key=provider_info.key)
@@ -636,11 +606,6 @@ async def test_connection(
     provider_info: CCProviderInfoDep,
 ) -> IntegrationTestConnectionResponse:
     """Test client credentials connection for the specified provider."""
-    if role.workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Workspace ID is required",
-        )
 
     svc = IntegrationService(session, role=role)
     integration = await svc.get_integration(provider_key=provider_info.key)
@@ -715,11 +680,6 @@ async def update_integration(
     provider_info: ProviderInfoDep,
 ) -> None:
     """Update OAuth client credentials for the specified provider integration."""
-    if role.workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Workspace ID is required",
-        )
 
     svc = IntegrationService(session, role=role)
     # Store the provider configuration
@@ -761,11 +721,6 @@ async def create_custom_provider(
     session: AsyncDBSession,
     params: CustomOAuthProviderCreate,
 ) -> ProviderReadMinimal:
-    if role.workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Workspace ID is required",
-        )
 
     svc = IntegrationService(session, role=role)
     try:
@@ -895,11 +850,6 @@ async def create_mcp_integration(
     params: Annotated[MCPIntegrationCreate, Body(...)],
 ) -> MCPIntegrationRead:
     """Create a new MCP integration."""
-    if role.workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Workspace ID is required",
-        )
 
     svc = IntegrationService(session, role=role)
     try:
@@ -932,11 +882,6 @@ async def list_mcp_integrations(
     ] = None,
 ) -> list[MCPIntegrationRead]:
     """List MCP integrations for the workspace, optionally filtered by source."""
-    if role.workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Workspace ID is required",
-        )
 
     svc = IntegrationService(session, role=role)
     integrations = await svc.list_mcp_integrations_with_state(source=source)
@@ -967,11 +912,6 @@ async def list_platform_mcp_catalog(
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
 ) -> PlatformMCPCatalogListResponse:
     """List platform MCP catalog rows with workspace connection state."""
-    if role.workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Workspace ID is required",
-        )
     if role.organization_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1001,11 +941,6 @@ async def connect_platform_mcp_catalog(
     catalog_slug: str,
 ) -> MCPCatalogConnectResponse:
     """Create or return a workspace MCP integration from catalog defaults."""
-    if role.workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Workspace ID is required",
-        )
 
     svc = IntegrationService(session, role=role)
     try:
@@ -1026,11 +961,6 @@ async def connect_mcp_integration(
     params: Annotated[MCPIntegrationCreate, Body(...)],
 ) -> MCPCatalogConnectResponse:
     """Create an MCP integration or start generic MCP OAuth discovery."""
-    if role.workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Workspace ID is required",
-        )
 
     svc = IntegrationService(session, role=role)
     try:
@@ -1062,11 +992,6 @@ async def get_mcp_integration(
     mcp_integration_id: uuid.UUID,
 ) -> MCPIntegrationRead:
     """Get an MCP integration by ID."""
-    if role.workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Workspace ID is required",
-        )
 
     svc = IntegrationService(session, role=role)
     integration = await svc.get_mcp_integration(mcp_integration_id=mcp_integration_id)
@@ -1091,11 +1016,6 @@ async def update_mcp_integration(
     params: MCPIntegrationUpdate,
 ) -> MCPIntegrationRead:
     """Update an MCP integration."""
-    if role.workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Workspace ID is required",
-        )
 
     svc = IntegrationService(session, role=role)
     try:
@@ -1129,11 +1049,6 @@ async def disconnect_mcp_integration(
     mcp_integration_id: uuid.UUID,
 ) -> None:
     """Disconnect an MCP integration by deleting the workspace MCP row."""
-    if role.workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Workspace ID is required",
-        )
 
     svc = IntegrationService(session, role=role)
     deleted = await svc.delete_mcp_integration(mcp_integration_id=mcp_integration_id)
@@ -1152,11 +1067,6 @@ async def delete_mcp_integration(
     mcp_integration_id: uuid.UUID,
 ) -> None:
     """Delete an MCP integration."""
-    if role.workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Workspace ID is required",
-        )
 
     svc = IntegrationService(session, role=role)
     deleted = await svc.delete_mcp_integration(mcp_integration_id=mcp_integration_id)

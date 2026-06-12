@@ -140,18 +140,11 @@ async def get_aws_assume_role_access(
     role: WorkspaceActorRouteRole,
 ) -> AwsAssumeRoleAccessRead:
     """Get workspace-scoped AWS AssumeRole details for credential setup."""
-    workspace_id = role.workspace_id
-    if workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Workspace context is required",
-        )
-
     try:
         return AwsAssumeRoleAccessRead(
             tracecat_aws_account_id=get_tracecat_aws_account_id(),
             tracecat_aws_principal_arn=get_tracecat_aws_principal_arn(),
-            external_id=build_workspace_external_id(workspace_id),
+            external_id=build_workspace_external_id(role.workspace_id),
         )
     except ValueError as exc:
         raise HTTPException(

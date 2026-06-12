@@ -40,10 +40,6 @@ async def publish_workflow(
     workflow_id: AnyWorkflowIDPath,
     params: WorkflowDslPublish,
 ) -> WorkflowDslPublishResult:
-    if role.workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
-        )
     defn_svc = WorkflowDefinitionsService(session=session)
     defn = await defn_svc.get_definition_by_workflow_id(workflow_id)
     if not defn:

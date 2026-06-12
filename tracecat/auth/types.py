@@ -107,6 +107,18 @@ class Role(BaseModel):
         return headers
 
 
+class WorkspaceRole(Role):
+    """A `Role` guaranteed to be resolved against a workspace.
+
+    Produced by `RoleACL(require_workspace="yes")` dependencies after workspace
+    validation so route handlers get a non-optional `workspace_id` without
+    re-narrowing. Do not construct one directly from unvalidated input.
+    """
+
+    workspace_id: WorkspaceID = Field(frozen=True)  # pyright: ignore[reportIncompatibleVariableOverride, reportGeneralTypeIssues]
+    """The effective workspace context for this request after auth resolution."""
+
+
 class PlatformRole(BaseModel):
     """Role for platform admin (superuser) operations.
 

@@ -14,7 +14,7 @@ from tracecat.agent.folders.service import (
 )
 from tracecat.agent.preset import router as agent_preset_router
 from tracecat.agent.preset.schemas import AgentPresetMoveToFolder
-from tracecat.auth.types import Role
+from tracecat.auth.types import WorkspaceRole
 from tracecat.exceptions import EntitlementRequired, TracecatValidationError
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 
@@ -42,7 +42,7 @@ def _mock_service_with_async_method(
 @pytest.mark.anyio
 async def test_create_folder_conflict_returns_409(
     client: TestClient,
-    test_admin_role: Role,
+    test_admin_role: WorkspaceRole,
 ) -> None:
     """Duplicate folder paths should surface as conflicts."""
     with patch.object(agent_folder_router, "AgentFolderService") as mock_service_cls:
@@ -67,7 +67,7 @@ async def test_create_folder_conflict_returns_409(
 @pytest.mark.anyio
 async def test_create_folder_missing_parent_returns_404(
     client: TestClient,
-    test_admin_role: Role,
+    test_admin_role: WorkspaceRole,
 ) -> None:
     """Missing parent paths should not be misreported as conflicts."""
     with patch.object(agent_folder_router, "AgentFolderService") as mock_service_cls:
@@ -92,7 +92,7 @@ async def test_create_folder_missing_parent_returns_404(
 @pytest.mark.anyio
 async def test_list_folders_missing_parent_returns_404(
     client: TestClient,
-    test_admin_role: Role,
+    test_admin_role: WorkspaceRole,
 ) -> None:
     """Listing a missing folder path should not look like an empty folder."""
     with patch.object(agent_folder_router, "AgentFolderService") as mock_service_cls:
@@ -117,7 +117,7 @@ async def test_list_folders_missing_parent_returns_404(
 @pytest.mark.anyio
 async def test_list_folders_returns_paginated_response(
     client: TestClient,
-    test_admin_role: Role,
+    test_admin_role: WorkspaceRole,
 ) -> None:
     """Folder listing should use the cursor-paginated API shape."""
     with patch.object(agent_folder_router, "AgentFolderService") as mock_service_cls:
@@ -159,7 +159,7 @@ async def test_list_folders_returns_paginated_response(
 @pytest.mark.anyio
 async def test_get_directory_returns_directory_items(
     client: TestClient,
-    test_admin_role: Role,
+    test_admin_role: WorkspaceRole,
 ) -> None:
     """Directory listing should return the full directory array."""
     with patch.object(agent_folder_router, "AgentFolderService") as mock_service_cls:
@@ -184,7 +184,7 @@ async def test_get_directory_returns_directory_items(
 @pytest.mark.anyio
 async def test_create_folder_blank_name_returns_400(
     client: TestClient,
-    test_admin_role: Role,
+    test_admin_role: WorkspaceRole,
 ) -> None:
     """Blank folder names should be rejected before path construction."""
     with patch.object(agent_folder_router, "AgentFolderService") as mock_service_cls:
@@ -209,7 +209,7 @@ async def test_create_folder_blank_name_returns_400(
 @pytest.mark.anyio
 async def test_update_folder_validation_returns_400(
     client: TestClient,
-    test_admin_role: Role,
+    test_admin_role: WorkspaceRole,
 ) -> None:
     """Invalid rename requests should stay in the 4xx range."""
     with patch.object(agent_folder_router, "AgentFolderService") as mock_service_cls:
@@ -234,7 +234,7 @@ async def test_update_folder_validation_returns_400(
 @pytest.mark.anyio
 async def test_update_folder_blank_name_returns_400(
     client: TestClient,
-    test_admin_role: Role,
+    test_admin_role: WorkspaceRole,
 ) -> None:
     """Blank folder renames should stay in the 4xx range."""
     with patch.object(agent_folder_router, "AgentFolderService") as mock_service_cls:
@@ -259,7 +259,7 @@ async def test_update_folder_blank_name_returns_400(
 @pytest.mark.anyio
 async def test_move_folder_validation_returns_400(
     client: TestClient,
-    test_admin_role: Role,
+    test_admin_role: WorkspaceRole,
 ) -> None:
     """Cyclic folder moves should not fall through as 500s."""
     with patch.object(agent_folder_router, "AgentFolderService") as mock_service_cls:
@@ -283,7 +283,7 @@ async def test_move_folder_validation_returns_400(
 
 @pytest.mark.anyio
 async def test_move_agent_preset_to_root_skips_folder_lookup(
-    test_admin_role: Role,
+    test_admin_role: WorkspaceRole,
 ) -> None:
     """Moving to '/' should clear the folder instead of trying to resolve a root row."""
     preset_id = uuid.uuid4()
@@ -309,7 +309,7 @@ async def test_move_agent_preset_to_root_skips_folder_lookup(
 @pytest.mark.anyio
 async def test_move_agent_preset_requires_agent_addons_entitlement(
     client: TestClient,
-    test_admin_role: Role,
+    test_admin_role: WorkspaceRole,
 ) -> None:
     """Preset moves should surface AGENT_ADDONS entitlement failures as 403s."""
     preset_id = uuid.uuid4()
@@ -336,7 +336,7 @@ async def test_move_agent_preset_requires_agent_addons_entitlement(
 @pytest.mark.anyio
 async def test_get_directory_requires_agent_addons_entitlement(
     client: TestClient,
-    test_admin_role: Role,
+    test_admin_role: WorkspaceRole,
 ) -> None:
     """Folder directory reads should preserve the AGENT_ADDONS gate at HTTP level."""
     with patch.object(agent_folder_router, "AgentFolderService") as mock_service_cls:
@@ -357,7 +357,7 @@ async def test_get_directory_requires_agent_addons_entitlement(
 @pytest.mark.anyio
 async def test_delete_folder_without_body_defaults_to_non_recursive(
     client: TestClient,
-    test_admin_role: Role,
+    test_admin_role: WorkspaceRole,
 ) -> None:
     """Non-recursive folder deletes should not require a request body."""
     folder_id = uuid.uuid4()
@@ -411,7 +411,7 @@ async def test_delete_folder_without_body_defaults_to_non_recursive(
 )
 async def test_folder_management_routes_require_agent_addons_entitlement(
     client: TestClient,
-    test_admin_role: Role,
+    test_admin_role: WorkspaceRole,
     method: str,
     path: str,
     kwargs: dict[str, Any],

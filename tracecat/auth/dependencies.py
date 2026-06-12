@@ -11,12 +11,12 @@ from tracecat.auth.credentials import (
     RoleACL,
 )
 from tracecat.auth.enums import AuthType
-from tracecat.auth.types import Role
+from tracecat.auth.types import Role, WorkspaceRole
 from tracecat.settings.constants import AUTH_TYPE_TO_SETTING_KEY
 from tracecat.settings.service import get_setting
 
 WorkspaceUserRole = Annotated[
-    Role,
+    WorkspaceRole,
     RoleACL(
         allow_user=True,
         allow_service=False,
@@ -30,7 +30,7 @@ Sets the `ctx_role` context variable.
 """
 
 WorkspaceActorRole = Annotated[
-    Role,
+    WorkspaceRole,
     RoleACL(
         allow_user=True,
         allow_service=False,
@@ -41,7 +41,7 @@ WorkspaceActorRole = Annotated[
 """Dependency for a user or service-account role for a workspace."""
 
 WorkspaceActorRouteRole = Annotated[
-    Role,
+    WorkspaceRole,
     RoleACL(
         allow_user=True,
         allow_service=False,
@@ -53,7 +53,7 @@ WorkspaceActorRouteRole = Annotated[
 """Dependency for workspace routes that accept path-scoped canonical routes and legacy query-scoped routes."""
 
 WorkspaceUserRouteRole = Annotated[
-    Role,
+    WorkspaceRole,
     RoleACL(
         allow_user=True,
         allow_service=False,
@@ -71,7 +71,7 @@ async def require_workspace_id_path(workspace_id: uuid.UUID = Path(...)) -> uuid
 
 
 WorkspaceServiceAccountRole = Annotated[
-    Role,
+    WorkspaceRole,
     RoleACL(
         allow_user=False,
         allow_service=False,
@@ -82,7 +82,7 @@ WorkspaceServiceAccountRole = Annotated[
 """Dependency for a service-account role for a workspace."""
 
 WorkspaceUserPathRole = Annotated[
-    Role,
+    WorkspaceRole,
     RoleACL(
         allow_user=True,
         allow_service=False,
@@ -97,7 +97,7 @@ Sets the `ctx_role` context variable.
 
 
 ExecutorWorkspaceRole = Annotated[
-    Role,
+    WorkspaceRole,
     RoleACL(
         allow_user=False,
         allow_service=False,

@@ -157,11 +157,6 @@ async def start_slack_oauth(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
 ) -> SlackOAuthStartResponse:
-    if role.workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="workspace_id is required",
-        )
     service = AgentChannelService(session, role=role)
 
     token = None

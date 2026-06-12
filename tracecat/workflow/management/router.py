@@ -818,10 +818,6 @@ async def create_webhook(
     params: WebhookCreate,
 ) -> None:
     """Create a webhook for a workflow."""
-    if role.workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
-        )
 
     webhook = Webhook(
         workspace_id=role.workspace_id,
@@ -847,10 +843,6 @@ async def get_webhook(
     workflow_id: AnyWorkflowIDPath,
 ) -> WebhookRead:
     """Get the webhook from a workflow."""
-    if role.workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
-        )
     webhook = await webhook_service.get_webhook(
         session=session,
         workspace_id=role.workspace_id,
@@ -985,10 +977,6 @@ async def generate_webhook_api_key(
     workflow_id: AnyWorkflowIDPath,
 ) -> WebhookApiKeyGenerateResponse:
     """Create or rotate the API key for a webhook."""
-    if role.workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
-        )
     webhook = await webhook_service.get_webhook(
         session=session, workspace_id=role.workspace_id, workflow_id=workflow_id
     )
@@ -1039,10 +1027,6 @@ async def revoke_webhook_api_key(
     workflow_id: AnyWorkflowIDPath,
 ) -> None:
     """Revoke the current API key for a webhook."""
-    if role.workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
-        )
     webhook = await webhook_service.get_webhook(
         session=session, workspace_id=role.workspace_id, workflow_id=workflow_id
     )
@@ -1075,10 +1059,6 @@ async def delete_webhook_api_key(
     workflow_id: AnyWorkflowIDPath,
 ) -> None:
     """Delete the current API key for a webhook."""
-    if role.workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
-        )
     webhook = await webhook_service.get_webhook(
         session=session, workspace_id=role.workspace_id, workflow_id=workflow_id
     )

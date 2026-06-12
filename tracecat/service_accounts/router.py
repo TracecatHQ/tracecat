@@ -10,7 +10,7 @@ from sqlalchemy import select
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.dependencies import OrgUserOnlyRole
 from tracecat.auth.schemas import UserReadMinimal
-from tracecat.auth.types import Role
+from tracecat.auth.types import WorkspaceRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import User
@@ -44,7 +44,7 @@ from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
 
 WorkspaceUserOnlyInPath = Annotated[
-    Role,
+    WorkspaceRole,
     RoleACL(
         allow_user=True,
         allow_service=False,

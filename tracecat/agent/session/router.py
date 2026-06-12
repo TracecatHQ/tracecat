@@ -431,14 +431,7 @@ async def send_message(
     3. Streams the response back in Vercel's data protocol format
     """
     try:
-        workspace_id = role.workspace_id
-        if workspace_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Workspace access required",
-            )
-
-        stream = await AgentStream.new(session_id, workspace_id)
+        stream = await AgentStream.new(session_id, role.workspace_id)
         async with AgentSessionService.with_session(role=role) as svc:
             # Check if this is a legacy chat (read-only)
             if await svc.is_legacy_session(session_id):
@@ -558,15 +551,8 @@ async def stream_session_events(
     using Server-Sent Events. It supports automatic reconnection via the
     Last-Event-ID header.
     """
-    workspace_id = role.workspace_id
-    if workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Workspace access required",
-        )
-
-        # Try to get last_stream_id from session, but don't fail if session doesn't exist yet.
-        # This handles the race condition where frontend connects before session is created.
+    # Try to get last_stream_id from session, but don't fail if session doesn't exist yet.
+    # This handles the race condition where frontend connects before session is created.
     last_stream_id: str | None = None
     async with AgentSessionService.with_session(role=role) as svc:
         agent_session = await svc.get_session(session_id)
@@ -598,7 +584,7 @@ async def stream_session_events(
         session_id=session_id,
     )
 
-    stream = await AgentStream.new(session_id, workspace_id)
+    stream = await AgentStream.new(session_id, role.workspace_id)
     headers = {
         "Cache-Control": "no-cache, no-transform",
         "Connection": "keep-alive",

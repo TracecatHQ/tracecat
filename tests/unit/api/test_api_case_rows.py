@@ -7,7 +7,7 @@ from fastapi import HTTPException, status
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
-from tracecat.auth.types import Role
+from tracecat.auth.types import WorkspaceRole
 from tracecat.cases import router as cases_router
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.rows import internal_router as internal_case_rows_router
@@ -48,7 +48,7 @@ def _duplicate_case_row_link_error() -> IntegrityError:
 
 @pytest.mark.anyio
 async def test_list_cases_include_rows_hydration_error_is_sanitized(
-    client: TestClient, test_admin_role: Role
+    client: TestClient, test_admin_role: WorkspaceRole
 ) -> None:
     case_id = uuid.uuid4()
     with (
@@ -85,7 +85,7 @@ async def test_list_cases_include_rows_hydration_error_is_sanitized(
 
 @pytest.mark.anyio
 async def test_link_case_row_returns_400_for_value_error(
-    test_admin_role: Role,
+    test_admin_role: WorkspaceRole,
 ) -> None:
     case_id = uuid.uuid4()
     table_id = uuid.uuid4()
@@ -112,7 +112,7 @@ async def test_link_case_row_returns_400_for_value_error(
 
 @pytest.mark.anyio
 async def test_link_case_row_returns_409_for_duplicate_link(
-    test_admin_role: Role,
+    test_admin_role: WorkspaceRole,
 ) -> None:
     case_id = uuid.uuid4()
     table_id = uuid.uuid4()
@@ -142,7 +142,7 @@ async def test_link_case_row_returns_409_for_duplicate_link(
 
 @pytest.mark.anyio
 async def test_internal_link_case_row_returns_404_for_missing_case(
-    client: TestClient, test_admin_role: Role
+    client: TestClient, test_admin_role: WorkspaceRole
 ) -> None:
     case_id = uuid.uuid4()
     table_id = uuid.uuid4()
@@ -168,7 +168,7 @@ async def test_internal_link_case_row_returns_404_for_missing_case(
 
 @pytest.mark.anyio
 async def test_internal_link_case_row_returns_400_for_value_error(
-    client: TestClient, test_admin_role: Role
+    client: TestClient, test_admin_role: WorkspaceRole
 ) -> None:
     case_id = uuid.uuid4()
     table_id = uuid.uuid4()
@@ -195,7 +195,7 @@ async def test_internal_link_case_row_returns_400_for_value_error(
 
 @pytest.mark.anyio
 async def test_internal_link_case_row_returns_409_for_duplicate_link(
-    client: TestClient, test_admin_role: Role
+    client: TestClient, test_admin_role: WorkspaceRole
 ) -> None:
     case_id = uuid.uuid4()
     table_id = uuid.uuid4()

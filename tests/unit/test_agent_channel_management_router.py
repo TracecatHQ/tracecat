@@ -9,12 +9,12 @@ from fastapi import HTTPException
 
 from tracecat.agent.channels.management_router import start_slack_oauth
 from tracecat.agent.channels.schemas import SlackOAuthStartRequest
-from tracecat.auth.types import Role
+from tracecat.auth.types import WorkspaceRole
 
 
 @pytest.mark.anyio
 async def test_start_slack_oauth_rejects_mismatched_token_preset() -> None:
-    role = Role(
+    role = WorkspaceRole(
         type="service",
         service_id="tracecat-api",
         workspace_id=uuid.uuid4(),
@@ -56,7 +56,7 @@ async def test_start_slack_oauth_rejects_mismatched_token_preset() -> None:
 
 @pytest.mark.anyio
 async def test_start_slack_oauth_returns_404_for_missing_token() -> None:
-    role = Role(
+    role = WorkspaceRole(
         type="service",
         service_id="tracecat-api",
         workspace_id=uuid.uuid4(),
