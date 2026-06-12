@@ -39,6 +39,12 @@ describe("sanitizeReturnUrl", () => {
     )
   })
 
+  it("preserves MCP OAuth org hints on resume paths", () => {
+    expect(sanitizeReturnUrl("/oauth/mcp/continue?txn=abc123&org=acme")).toBe(
+      "/oauth/mcp/continue?txn=abc123&org=acme"
+    )
+  })
+
   it("rewrites legacy MCP OAuth return paths", () => {
     expect(sanitizeReturnUrl("/oauth/mcp/select-org?txn=abc123#resume")).toBe(
       "/oauth/mcp/continue?txn=abc123#resume"
@@ -68,6 +74,14 @@ describe("decodeAndSanitizeReturnUrl", () => {
       decodeAndSanitizeReturnUrl("%2Foauth%2Fmcp%2Fselect-org%3Ftxn%3Dabc123")
     ).toBe("/oauth/mcp/continue?txn=abc123")
   })
+
+  it("preserves encoded MCP OAuth org hints", () => {
+    expect(
+      decodeAndSanitizeReturnUrl(
+        "%2Foauth%2Fmcp%2Fselect-org%3Ftxn%3Dabc123%26org%3Dacme"
+      )
+    ).toBe("/oauth/mcp/continue?txn=abc123&org=acme")
+  })
 })
 
 describe("normalizeMcpAuthReturnUrl", () => {
@@ -81,6 +95,12 @@ describe("normalizeMcpAuthReturnUrl", () => {
     expect(normalizeMcpAuthReturnUrl("/oauth/mcp/select-org?txn=abc123")).toBe(
       "/oauth/mcp/continue?txn=abc123"
     )
+  })
+
+  it("preserves org hints while rewriting legacy MCP OAuth paths", () => {
+    expect(
+      normalizeMcpAuthReturnUrl("/oauth/mcp/select-org?txn=abc123&org=acme")
+    ).toBe("/oauth/mcp/continue?txn=abc123&org=acme")
   })
 
   it("ignores unrelated paths", () => {
