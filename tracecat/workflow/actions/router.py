@@ -80,10 +80,6 @@ async def create_action(
     session: AsyncDBSession,
 ) -> ActionReadMinimal:
     """Create a new action for a workflow."""
-    if role.workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
-        )
     svc = WorkflowActionService(session, role=role)
     try:
         action = await svc.create_action(params)

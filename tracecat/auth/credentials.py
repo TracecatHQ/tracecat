@@ -38,7 +38,7 @@ from tracecat.auth.api_keys import (
 )
 from tracecat.auth.executor_tokens import verify_executor_token
 from tracecat.auth.secrets import get_service_key
-from tracecat.auth.types import PlatformRole, Role
+from tracecat.auth.types import PlatformRole, Role, WorkspaceRole
 from tracecat.auth.users import (
     current_active_user,
     optional_current_active_user,
@@ -848,7 +848,12 @@ async def _validate_role(
         "Computed effective scopes",
         scope_count=len(scopes),
     )
-    return role.model_copy(update={"scopes": scopes})
+    role = role.model_copy(update={"scopes": scopes})
+    if require_workspace == "yes":
+        # Re-validate into the narrowed type so routes annotated with
+        # WorkspaceRole-based dependencies get a non-optional workspace_id.
+        role = WorkspaceRole.model_validate(role.model_dump())
+    return role
 
 
 # --- Main Auth Orchestrator ---

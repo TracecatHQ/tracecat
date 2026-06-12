@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.dependencies import OrgActorRole
-from tracecat.auth.types import Role
+from tracecat.auth.types import WorkspaceRole
 from tracecat.authz.controls import require_scope
 from tracecat.authz.service import MembershipService
 from tracecat.db.dependencies import AsyncDBSession
@@ -42,7 +42,7 @@ router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
 # Workspace role types for path-based workspace access
 WorkspaceUserInPath = Annotated[
-    Role,
+    WorkspaceRole,
     RoleACL(
         allow_user=True,
         allow_service=False,

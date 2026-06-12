@@ -23,7 +23,7 @@ from tracecat.auth.dependencies import (
     WorkspaceUserRole,
     WorkspaceUserRouteRole,
 )
-from tracecat.auth.types import Role
+from tracecat.auth.types import Role, WorkspaceRole
 from tracecat.authz.scopes import (
     ADMIN_SCOPES,
     ORG_ADMIN_SCOPES,
@@ -122,9 +122,9 @@ def client(request: FixtureRequest) -> Generator[TestClient, None, None]:
 @pytest.fixture
 def test_admin_role(
     test_workspace: Workspace, mock_org_id: uuid.UUID
-) -> Generator[Role, None, None]:
+) -> Generator[WorkspaceRole, None, None]:
     global _FALLBACK_ROLE
-    role = Role(
+    role = WorkspaceRole(
         type="user",
         user_id=uuid.uuid4(),
         organization_id=mock_org_id,
@@ -145,9 +145,9 @@ def test_admin_role(
 @pytest.fixture
 def test_role(
     test_workspace: Workspace, mock_org_id: uuid.UUID
-) -> Generator[Role, None, None]:
+) -> Generator[WorkspaceRole, None, None]:
     global _FALLBACK_ROLE
-    role = Role(
+    role = WorkspaceRole(
         type="service",
         user_id=mock_org_id,
         organization_id=mock_org_id,

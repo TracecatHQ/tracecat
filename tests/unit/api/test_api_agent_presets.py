@@ -9,13 +9,13 @@ from fastapi import HTTPException, status
 
 from tracecat.agent.preset import internal_router as agent_preset_internal_router
 from tracecat.agent.preset import router as agent_preset_router
-from tracecat.auth.types import Role
+from tracecat.auth.types import Role, WorkspaceRole
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 
 
 @pytest.mark.anyio
 async def test_create_preset_payload_backfills_legacy_model_fields(
-    test_admin_role: Role,
+    test_admin_role: WorkspaceRole,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     catalog_id = uuid.uuid4()
@@ -54,7 +54,7 @@ async def test_create_preset_payload_backfills_legacy_model_fields(
 
 @pytest.mark.anyio
 async def test_create_preset_payload_requires_default_model_selection(
-    test_admin_role: Role,
+    test_admin_role: WorkspaceRole,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class FakeAgentManagementService:
@@ -80,7 +80,7 @@ async def test_create_preset_payload_requires_default_model_selection(
 
 @pytest.mark.anyio
 async def test_create_preset_payload_resolves_catalog_id_without_default_model(
-    test_admin_role: Role,
+    test_admin_role: WorkspaceRole,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     expected_catalog_id = uuid.uuid4()
@@ -126,7 +126,7 @@ async def test_create_preset_payload_resolves_catalog_id_without_default_model(
 
 @pytest.mark.anyio
 async def test_create_preset_payload_preserves_default_catalog_when_null_supplied(
-    test_admin_role: Role,
+    test_admin_role: WorkspaceRole,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     catalog_id = uuid.uuid4()
@@ -167,7 +167,7 @@ async def test_create_preset_payload_preserves_default_catalog_when_null_supplie
 
 @pytest.mark.anyio
 async def test_create_preset_payload_drops_null_defaulted_fields(
-    test_admin_role: Role,
+    test_admin_role: WorkspaceRole,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     catalog_id = uuid.uuid4()
@@ -207,7 +207,7 @@ async def test_create_preset_payload_drops_null_defaulted_fields(
 
 @pytest.mark.anyio
 async def test_create_preset_payload_rejects_partial_legacy_model_fields(
-    test_admin_role: Role,
+    test_admin_role: WorkspaceRole,
 ) -> None:
     with pytest.raises(
         TracecatValidationError,
@@ -225,7 +225,7 @@ async def test_create_preset_payload_rejects_partial_legacy_model_fields(
 
 @pytest.mark.anyio
 async def test_restore_agent_preset_version_maps_validation_error(
-    test_admin_role: Role,
+    test_admin_role: WorkspaceRole,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Validation failures during restore should remain client errors."""

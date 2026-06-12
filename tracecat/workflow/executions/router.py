@@ -18,7 +18,7 @@ from tracecat.auth.dependencies import (
     WorkspaceActorRouteRole,
     WorkspaceUserRouteRole,
 )
-from tracecat.auth.types import Role
+from tracecat.auth.types import WorkspaceRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Workflow, WorkflowDefinition
@@ -303,11 +303,9 @@ def _normalize_search_term(search_term: str | None) -> str | None:
 async def _resolve_workflow_ids_by_search_term(
     *,
     session: AsyncSession,
-    role: Role,
+    role: WorkspaceRole,
     search_term: str,
 ) -> list[WorkflowUUID]:
-    if role.workspace_id is None:
-        return []
     like_term = f"%{search_term}%"
     statement = (
         select(Workflow.id)
@@ -327,10 +325,10 @@ async def _resolve_workflow_ids_by_search_term(
 async def _load_workflow_metadata_map(
     *,
     session: AsyncSession,
-    role: Role,
+    role: WorkspaceRole,
     workflow_ids: list[WorkflowUUID],
 ) -> dict[WorkflowIDShort, tuple[str, str | None]]:
-    if role.workspace_id is None or not workflow_ids:
+    if not workflow_ids:
         return {}
 
     statement = select(Workflow).where(

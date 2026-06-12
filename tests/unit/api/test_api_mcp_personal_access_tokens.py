@@ -10,7 +10,7 @@ import pytest
 from fastapi.routing import APIRoute
 
 from tracecat.auth.dependencies import WorkspaceUserPathRole
-from tracecat.auth.types import Role
+from tracecat.auth.types import WorkspaceRole
 from tracecat.mcp.personal_access_tokens import router as mcp_pat_router
 from tracecat.mcp.personal_access_tokens.schemas import MCPPersonalAccessTokenCreate
 from tracecat.pagination import CursorPaginatedResponse
@@ -41,7 +41,7 @@ def _token_read(
     )
 
 
-def _with_workspace_read(role: Role) -> Role:
+def _with_workspace_read(role: WorkspaceRole) -> WorkspaceRole:
     return role.model_copy(
         update={
             "scopes": frozenset(set(role.scopes or frozenset()) | {"workspace:read"})
@@ -51,7 +51,7 @@ def _with_workspace_read(role: Role) -> Role:
 
 @pytest.mark.anyio
 async def test_list_mcp_personal_access_tokens_success(
-    test_admin_role: Role,
+    test_admin_role: WorkspaceRole,
 ) -> None:
     role = _with_workspace_read(test_admin_role)
     organization_id = role.organization_id
@@ -94,7 +94,7 @@ async def test_list_mcp_personal_access_tokens_success(
 
 @pytest.mark.anyio
 async def test_create_mcp_personal_access_token_success(
-    test_admin_role: Role,
+    test_admin_role: WorkspaceRole,
 ) -> None:
     role = _with_workspace_read(test_admin_role)
     organization_id = role.organization_id
@@ -131,7 +131,7 @@ async def test_create_mcp_personal_access_token_success(
 
 @pytest.mark.anyio
 async def test_revoke_mcp_personal_access_token_success(
-    test_admin_role: Role,
+    test_admin_role: WorkspaceRole,
 ) -> None:
     role = _with_workspace_read(test_admin_role)
     token_id = uuid.uuid4()

@@ -93,13 +93,6 @@ async def submit_approvals(
         HTTPException 404: If the agent session/workflow is not found.
         HTTPException 500: For unexpected errors.
     """
-    workspace_id = role.workspace_id
-    if workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Workspace access required",
-        )
-
     # Verify the session belongs to the caller's workspace
     # This prevents cross-workspace access if an attacker knows another workspace's session_id
     session_service = AgentSessionService(session, role)
