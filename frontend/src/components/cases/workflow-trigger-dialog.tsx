@@ -224,7 +224,6 @@ export function WorkflowTriggerDialog({
                 <JsonViewWithControls
                   src={fallbackInputs}
                   showControls={false}
-                  defaultTab="nested"
                   defaultExpanded
                 />
               </TooltipProvider>

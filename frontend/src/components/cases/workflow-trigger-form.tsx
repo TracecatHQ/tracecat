@@ -581,7 +581,6 @@ export function WorkflowTriggerForm({
             <JsonViewWithControls
               src={previewValues}
               showControls={false}
-              defaultTab="nested"
               defaultExpanded
             />
           </TooltipProvider>
