@@ -36,6 +36,7 @@ from tracecat.agent.common.stream_types import (
     ToolCallContent,
     UnifiedStreamEvent,
 )
+from tracecat.agent.common.types import RuntimeResolution
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.stream.artifacts import artifact_stream_event
@@ -109,6 +110,7 @@ class LoopbackResult:
     output: RuntimeOutput | None = None
     result_usage: ResultUsage | None = None
     result_num_turns: int | None = None
+    runtime_resolution: RuntimeResolution | None = None
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -513,6 +515,7 @@ class LoopbackHandler:
                     num_turns=envelope.result_num_turns,
                     duration_ms=envelope.result_duration_ms,
                     output=envelope.result_output,
+                    runtime_resolution=envelope.runtime_resolution,
                 )
 
             case "error":
@@ -723,6 +726,7 @@ class LoopbackHandler:
         num_turns: int | None = None,
         duration_ms: int | None = None,
         output: RuntimeOutput | None = None,
+        runtime_resolution: RuntimeResolution | None = None,
     ) -> None:
         """Store the final Claude result payload."""
         del duration_ms
@@ -730,6 +734,7 @@ class LoopbackHandler:
         self._result.output = output
         self._result.result_usage = usage
         self._result.result_num_turns = num_turns
+        self._result.runtime_resolution = runtime_resolution
 
     async def _handle_error(self, error: str) -> bool:
         """Handle a terminal runtime error."""

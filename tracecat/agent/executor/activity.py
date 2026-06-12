@@ -31,6 +31,7 @@ from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import (
     MCPServerConfig,
     MCPToolDefinition,
+    RuntimeResolution,
     SandboxAgentConfig,
     SandboxSubagentConfig,
     is_stdio_mcp_server,
@@ -135,6 +136,7 @@ class AgentExecutorResult(BaseModel):
     )
     result_usage: dict[str, Any] | None = None
     result_num_turns: int | None = None
+    runtime_resolution: RuntimeResolution | None = None
 
 
 class ExecuteApprovedToolsInput(BaseModel):
@@ -498,6 +500,7 @@ class SandboxedAgentExecutor:
             result.output = loopback_result.output
         result.result_usage = loopback_result.result_usage
         result.result_num_turns = loopback_result.result_num_turns
+        result.runtime_resolution = loopback_result.runtime_resolution
 
     async def _run_with_broker(
         self,

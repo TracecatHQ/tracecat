@@ -980,6 +980,7 @@ class DurableAgentWorkflow:
                     output_tokens=(result.result_usage or {}).get("output_tokens", 0),
                 ),
                 session_id=self.session_id,
+                runtime_resolution=result.runtime_resolution,
             )
 
     async def _load_terminal_message_history(
