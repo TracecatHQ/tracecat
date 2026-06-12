@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 
-from tracecat.auth.dependencies import OrgUserRole
+from tracecat.auth.dependencies import OrgActorRole
 from tracecat.authz.controls import require_scope
 from tracecat.authz.enums import ScopeSource
 from tracecat.db.dependencies import AsyncDBSession
@@ -38,7 +38,7 @@ from tracecat_ee.rbac.service import RBACService
 
 
 async def _require_rbac_entitlement(
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
 ) -> None:
     """Router-level dependency that gates all EE RBAC endpoints behind the RBAC entitlement."""
@@ -60,7 +60,7 @@ scopes_router = APIRouter(
 @require_scope("org:rbac:read")
 async def list_scopes(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     include_system: bool = Query(True, description="Include system/registry scopes"),
     source: ScopeSource | None = Query(None, description="Filter by scope source"),
@@ -81,7 +81,7 @@ async def list_scopes(
 @require_scope("org:rbac:read")
 async def get_scope(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     scope_id: UUID,
 ) -> ScopeRead:
@@ -101,7 +101,7 @@ async def get_scope(
 @require_scope("org:rbac:create")
 async def create_scope(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     params: ScopeCreate,
 ) -> ScopeRead:
@@ -131,7 +131,7 @@ async def create_scope(
 @require_scope("org:rbac:delete")
 async def delete_scope(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     scope_id: UUID,
 ) -> None:
@@ -165,7 +165,7 @@ roles_router = APIRouter(
 @require_scope("org:rbac:read")
 async def get_role(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     role_id: UUID,
 ) -> RoleReadWithScopes:
@@ -197,7 +197,7 @@ async def get_role(
 @require_scope("org:rbac:create")
 async def create_role(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     params: RoleCreate,
 ) -> RoleReadWithScopes:
@@ -238,7 +238,7 @@ async def create_role(
 @require_scope("org:rbac:update")
 async def update_role(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     role_id: UUID,
     params: RoleUpdate,
@@ -281,7 +281,7 @@ async def update_role(
 @require_scope("org:rbac:delete")
 async def delete_role(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     role_id: UUID,
 ) -> None:
@@ -319,7 +319,7 @@ groups_router = APIRouter(
 @require_scope("org:rbac:read")
 async def list_groups(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
 ) -> GroupList:
     """List groups for the organization.
@@ -351,7 +351,7 @@ async def list_groups(
 @require_scope("org:rbac:read")
 async def get_group(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     group_id: UUID,
 ) -> GroupReadWithMembers:
@@ -393,7 +393,7 @@ async def get_group(
 @require_scope("org:rbac:create")
 async def create_group(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     params: GroupCreate,
 ) -> GroupReadWithMembers:
@@ -429,7 +429,7 @@ async def create_group(
 @require_scope("org:rbac:update")
 async def update_group(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     group_id: UUID,
     params: GroupUpdate,
@@ -479,7 +479,7 @@ async def update_group(
 @require_scope("org:rbac:delete")
 async def delete_group(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     group_id: UUID,
 ) -> None:
@@ -508,7 +508,7 @@ async def delete_group(
 @require_scope("org:rbac:update")
 async def add_group_member(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     group_id: UUID,
     params: GroupMemberAdd,
@@ -541,7 +541,7 @@ async def add_group_member(
 @require_scope("org:rbac:update")
 async def remove_group_member(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     group_id: UUID,
     user_id: UUID,
@@ -572,7 +572,7 @@ assignments_router = APIRouter(
 @require_scope("org:rbac:read")
 async def list_assignments(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     group_id: UUID | None = Query(None, description="Filter by group ID"),
     workspace_id: UUID | None = Query(None, description="Filter by workspace ID"),
@@ -612,7 +612,7 @@ async def list_assignments(
 @require_scope("org:rbac:read")
 async def get_assignment(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     assignment_id: UUID,
 ) -> GroupRoleAssignmentReadWithDetails:
@@ -647,7 +647,7 @@ async def get_assignment(
 @require_scope("org:rbac:create")
 async def create_assignment(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     params: GroupRoleAssignmentCreate,
 ) -> GroupRoleAssignmentReadWithDetails:
@@ -693,7 +693,7 @@ async def create_assignment(
 @require_scope("org:rbac:update")
 async def update_assignment(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     assignment_id: UUID,
     params: GroupRoleAssignmentUpdate,
@@ -727,7 +727,7 @@ async def update_assignment(
 @require_scope("org:rbac:delete")
 async def delete_assignment(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     assignment_id: UUID,
 ) -> None:
