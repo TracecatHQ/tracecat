@@ -388,7 +388,7 @@ async def export_workspace_sync_changeset(
         )
     try:
         validate_short_branch_name(params.branch, field_name="branch")
-        if params.pr_base_branch:
+        if params.pr_base_branch is not None:
             validate_short_branch_name(
                 params.pr_base_branch,
                 field_name="pr_base_branch",

@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -68,7 +69,7 @@ class WorkflowStoreService(BaseWorkspaceService):
                 workspace_id=str(self.workspace_id),
             )
             validated_branch = validate_short_branch_name(
-                f"tracecat-sync-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}",
+                f"tracecat-sync-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}",
                 field_name="branch",
             )
             create_pr = True
