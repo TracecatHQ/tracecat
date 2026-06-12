@@ -143,6 +143,7 @@ import {
   type MCPIntegrationRead,
   type MCPIntegrationTestConnectionRequest,
   type MCPIntegrationUpdate,
+  type MCPToolPolicyUpdate,
   type McpIntegrationsListMcpIntegrationsData,
   type ModelCredentialCreate,
   type ModelCredentialUpdate,
@@ -154,6 +155,7 @@ import {
   mcpIntegrationsTestMcpConnectionConfig,
   mcpIntegrationsTestMcpIntegrationConnection,
   mcpIntegrationsUpdateMcpIntegration,
+  mcpIntegrationsUpdateMcpIntegrationToolPolicies,
   type OAuthGrantType,
   type OrganizationDeleteOrgMemberData,
   type OrganizationDeleteSessionData,
@@ -4774,6 +4776,52 @@ export function useUpdateMcpIntegration(workspaceId: string) {
   }
 }
 
+export function useUpdateMcpIntegrationToolPolicies(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutateAsync: updateMcpIntegrationToolPolicies,
+    isPending: updateMcpIntegrationToolPoliciesIsPending,
+    error: updateMcpIntegrationToolPoliciesError,
+  } = useMutation({
+    mutationFn: async ({
+      mcpIntegrationId,
+      tools,
+    }: {
+      mcpIntegrationId: string
+      tools: MCPToolPolicyUpdate[]
+    }) => {
+      return await mcpIntegrationsUpdateMcpIntegrationToolPolicies({
+        workspaceId,
+        mcpIntegrationId,
+        requestBody: { tools },
+      })
+    },
+    onSuccess: (integration) => {
+      queryClient.invalidateQueries({
+        queryKey: ["mcp-integrations", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["mcp-integration", workspaceId, integration.id],
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to update MCP tool policy:", error)
+      toast({
+        title: "Failed to update tool policy",
+        description: `${error.body?.detail || error.message}`,
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    updateMcpIntegrationToolPolicies,
+    updateMcpIntegrationToolPoliciesIsPending,
+    updateMcpIntegrationToolPoliciesError,
+  }
+}
+
 /**
  * Test connectivity against an unsaved (possibly edited) HTTP MCP
  * configuration. Fully ephemeral: nothing is persisted server-side and no
@@ -4853,7 +4901,7 @@ export function useTestMcpIntegrationConnection(workspaceId: string) {
       })
     },
     onSuccess: (result, mcpIntegrationId) => {
-      // Tools are persisted on success or cleared on failure, so refresh the
+      // Tools are refreshed on success and preserved on failure, so refresh the
       // integration regardless of outcome.
       queryClient.invalidateQueries({
         queryKey: ["mcp-integration", workspaceId, mcpIntegrationId],

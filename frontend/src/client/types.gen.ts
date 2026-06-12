@@ -5014,12 +5014,33 @@ export type MCPStdioServerConfig = {
 }
 
 /**
+ * Per-tool policy update for a stored MCP integration tool.
+ */
+export type MCPToolPolicyUpdate = {
+  name: string
+  enabled?: boolean | null
+  requires_approval?: boolean | null
+}
+
+/**
+ * Request to update per-tool MCP integration policy.
+ */
+export type MCPToolPolicyUpdateRequest = {
+  tools: Array<MCPToolPolicyUpdate>
+}
+
+/**
  * Summary of a tool discovered on a remote MCP server.
  */
 export type MCPToolSummary = {
   name: string
   description?: string | null
+  enabled?: boolean
+  requires_approval?: boolean
+  status?: "available" | "missing"
 }
+
+export type status4 = "available" | "missing"
 
 /**
  * The type/kind of message stored in the chat.
@@ -5427,7 +5448,7 @@ export type PlatformMCPCatalogRead = {
   last_refreshed_at: string | null
 }
 
-export type status4 = "available" | "coming_soon" | "deprecated" | "hidden"
+export type status5 = "available" | "coming_soon" | "deprecated" | "hidden"
 
 /**
  * Platform registry settings response.
@@ -5670,7 +5691,7 @@ export type RateLimitInfo = {
   }
 }
 
-export type status5 = "allowed" | "allowed_warning" | "rejected"
+export type status6 = "allowed" | "allowed_warning" | "rejected"
 
 export type ReadinessResponse = {
   status: string
@@ -6273,7 +6294,7 @@ export type RunArtifact = {
   startedAt: string
 }
 
-export type status6 = "running" | "success" | "failed" | "cancelled"
+export type status7 = "running" | "success" | "failed" | "cancelled"
 
 /**
  * This is the runtime context model for a workflow run. Passed into activities.
@@ -8463,7 +8484,7 @@ export type WorkflowCommitResponse = {
   } | null
 }
 
-export type status7 = "success" | "failure"
+export type status8 = "success" | "failure"
 
 /**
  * API response model for persisted workflow definitions.
@@ -8522,7 +8543,7 @@ export type WorkflowDslPublishResult = {
   message: string
 }
 
-export type status8 = "committed" | "no_op"
+export type status9 = "committed" | "no_op"
 
 export type WorkflowEntrypointValidationRequest = {
   expects?: {
@@ -8840,7 +8861,7 @@ export type WorkflowExecutionRead = {
   interactions?: Array<InteractionRead>
 }
 
-export type status9 =
+export type status10 =
   | "RUNNING"
   | "COMPLETED"
   | "FAILED"
@@ -12786,6 +12807,15 @@ export type McpIntegrationsDeleteMcpIntegrationData = {
 }
 
 export type McpIntegrationsDeleteMcpIntegrationResponse = void
+
+export type McpIntegrationsUpdateMcpIntegrationToolPoliciesData = {
+  mcpIntegrationId: string
+  requestBody: MCPToolPolicyUpdateRequest
+  workspaceId: string
+}
+
+export type McpIntegrationsUpdateMcpIntegrationToolPoliciesResponse =
+  MCPIntegrationRead
 
 export type McpIntegrationsTestMcpConnectionConfigData = {
   requestBody: MCPIntegrationTestConnectionRequest
@@ -18914,6 +18944,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}/tools": {
+    patch: {
+      req: McpIntegrationsUpdateMcpIntegrationToolPoliciesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MCPIntegrationRead
         /**
          * Validation Error
          */

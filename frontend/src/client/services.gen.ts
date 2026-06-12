@@ -462,6 +462,8 @@ import type {
   McpIntegrationsTestMcpIntegrationConnectionResponse,
   McpIntegrationsUpdateMcpIntegrationData,
   McpIntegrationsUpdateMcpIntegrationResponse,
+  McpIntegrationsUpdateMcpIntegrationToolPoliciesData,
+  McpIntegrationsUpdateMcpIntegrationToolPoliciesResponse,
   McpPersonalAccessTokensCreateMcpPersonalAccessTokenData,
   McpPersonalAccessTokensCreateMcpPersonalAccessTokenResponse,
   McpPersonalAccessTokensListMcpPersonalAccessTokensData,
@@ -11642,6 +11644,34 @@ export const mcpIntegrationsDeleteMcpIntegration = (
       mcp_integration_id: data.mcpIntegrationId,
       workspace_id: data.workspaceId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Mcp Integration Tool Policies
+ * Update MCP integration tool availability and approval policy.
+ * @param data The data for the request.
+ * @param data.mcpIntegrationId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns MCPIntegrationRead Successful Response
+ * @throws ApiError
+ */
+export const mcpIntegrationsUpdateMcpIntegrationToolPolicies = (
+  data: McpIntegrationsUpdateMcpIntegrationToolPoliciesData
+): CancelablePromise<McpIntegrationsUpdateMcpIntegrationToolPoliciesResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}/tools",
+    path: {
+      mcp_integration_id: data.mcpIntegrationId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

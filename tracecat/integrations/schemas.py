@@ -567,6 +567,7 @@ PlatformMCPCatalogState = Literal[
     "connected",
     "error",
 ]
+MCPToolStatus = Literal["available", "missing"]
 
 
 class MCPConnectionCredential(BaseModel):
@@ -699,6 +700,12 @@ class MCPToolSummary(BaseModel):
 
     name: str
     description: str | None = None
+    enabled: bool = True
+    """Whether the tool is available to agents that use this MCP integration."""
+    requires_approval: bool = False
+    """Whether this tool requires HITL approval before execution."""
+    status: MCPToolStatus = "available"
+    """Whether the tool was present in the latest successful discovery."""
 
     @classmethod
     def validate_stored(
@@ -724,6 +731,20 @@ class MCPToolSummary(BaseModel):
                     else None,
                 )
         return validated
+
+
+class MCPToolPolicyUpdate(BaseModel):
+    """Per-tool policy update for a stored MCP integration tool."""
+
+    name: str = Field(..., min_length=1)
+    enabled: bool | None = None
+    requires_approval: bool | None = None
+
+
+class MCPToolPolicyUpdateRequest(BaseModel):
+    """Request to update per-tool MCP integration policy."""
+
+    tools: list[MCPToolPolicyUpdate] = Field(..., min_length=1)
 
 
 class MCPConnectionOption(BaseModel):

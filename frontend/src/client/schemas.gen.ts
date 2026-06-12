@@ -16453,6 +16453,59 @@ export const $MCPStdioServerConfig = {
   description: "Configuration for a stdio MCP server.",
 } as const
 
+export const $MCPToolPolicyUpdate = {
+  properties: {
+    name: {
+      type: "string",
+      minLength: 1,
+      title: "Name",
+    },
+    enabled: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Enabled",
+    },
+    requires_approval: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Requires Approval",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "MCPToolPolicyUpdate",
+  description: "Per-tool policy update for a stored MCP integration tool.",
+} as const
+
+export const $MCPToolPolicyUpdateRequest = {
+  properties: {
+    tools: {
+      items: {
+        $ref: "#/components/schemas/MCPToolPolicyUpdate",
+      },
+      type: "array",
+      minItems: 1,
+      title: "Tools",
+    },
+  },
+  type: "object",
+  required: ["tools"],
+  title: "MCPToolPolicyUpdateRequest",
+  description: "Request to update per-tool MCP integration policy.",
+} as const
+
 export const $MCPToolSummary = {
   properties: {
     name: {
@@ -16469,6 +16522,22 @@ export const $MCPToolSummary = {
         },
       ],
       title: "Description",
+    },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+      default: true,
+    },
+    requires_approval: {
+      type: "boolean",
+      title: "Requires Approval",
+      default: false,
+    },
+    status: {
+      type: "string",
+      enum: ["available", "missing"],
+      title: "Status",
+      default: "available",
     },
   },
   type: "object",
