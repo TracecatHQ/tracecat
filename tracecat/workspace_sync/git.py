@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import itertools
 from dataclasses import dataclass
 from typing import Any
 
@@ -17,6 +18,12 @@ from tracecat.registry.repositories.schemas import GitBranchInfo, GitCommitInfo
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import CommitInfo, PushStatus
 from tracecat.vcs.github.app import GitHubAppError, GitHubAppService
+from tracecat.workspace_sync.schemas import (
+    MANIFEST_FILENAME,
+    WORKFLOW_ROOT,
+    WorkspaceManifest,
+)
+from tracecat.workspace_sync.workflow import is_workflow_definition_path
 from tracecat.workspaces.service import WorkspaceService
 
 
@@ -48,20 +55,41 @@ class WorkspaceGitHubSyncService(BaseWorkspaceService):
                 sha=commit.sha,
                 recursive=True,
             )
+            blob_shas = {
+                item.path: item.sha
+                for item in tree.tree
+                if item.type == "blob" and item.path
+            }
+
+            async def fetch_text(path: str) -> str | None:
+                blob = await asyncio.to_thread(repo.get_git_blob, blob_shas[path])
+                try:
+                    return base64.b64decode(blob.content).decode("utf-8")
+                except UnicodeDecodeError:
+                    return None
+
             files: dict[str, str] = {}
-            for item in tree.tree:
-                if item.type != "blob" or not item.path:
+            workflow_root = WORKFLOW_ROOT
+            if MANIFEST_FILENAME in blob_shas:
+                manifest_content = await fetch_text(MANIFEST_FILENAME)
+                if manifest_content is not None:
+                    files[MANIFEST_FILENAME] = manifest_content
+                    try:
+                        manifest = WorkspaceManifest.model_validate_json(
+                            manifest_content
+                        )
+                        workflow_root = manifest.resources.workflows.strip("/")
+                    except Exception:
+                        # Invalid manifests surface as parse diagnostics later;
+                        # fall back to the default workflow root here.
+                        pass
+
+            for path in sorted(blob_shas):
+                if not is_workflow_definition_path(path, workflow_root=workflow_root):
                     continue
-                content_file = await asyncio.to_thread(
-                    repo.get_contents,
-                    item.path,
-                    ref=commit.sha,
-                )
-                if isinstance(content_file, list):
-                    continue
-                files[item.path] = base64.b64decode(content_file.content).decode(
-                    "utf-8"
-                )
+                content = await fetch_text(path)
+                if content is not None:
+                    files[path] = content
             return GitTreeSnapshot(
                 commit_sha=commit.sha,
                 tree_sha=getattr(commit.commit.tree, "sha", None),
@@ -84,6 +112,9 @@ class WorkspaceGitHubSyncService(BaseWorkspaceService):
     ) -> CommitInfo:
         if not files:
             raise ValueError("At least one file is required for workspace sync export")
+        message = message.strip()
+        if not message:
+            raise ValueError("A non-empty commit message is required")
         gh_svc = GitHubAppService(session=self.session, role=self.role)
         gh = await gh_svc.get_github_client_for_repo(url)
         try:
@@ -211,21 +242,22 @@ class WorkspaceGitHubSyncService(BaseWorkspaceService):
         try:
             repo = await asyncio.to_thread(gh.get_repo, f"{url.org}/{url.repo}")
             commits_paginated = await asyncio.to_thread(repo.get_commits, sha=branch)
-            commits: list[GitCommitInfo] = []
-            for index, commit in enumerate(commits_paginated):
-                if index >= limit:
-                    break
-                commits.append(
-                    GitCommitInfo(
-                        sha=commit.sha,
-                        message=commit.commit.message,
-                        author=commit.commit.author.name or "Unknown",
-                        author_email=commit.commit.author.email or "",
-                        date=commit.commit.author.date.isoformat(),
-                        tags=[],
-                    )
+            # Page fetches happen lazily during iteration; keep them off the
+            # event loop.
+            raw_commits = await asyncio.to_thread(
+                lambda: list(itertools.islice(commits_paginated, limit))
+            )
+            return [
+                GitCommitInfo(
+                    sha=commit.sha,
+                    message=commit.commit.message,
+                    author=commit.commit.author.name or "Unknown",
+                    author_email=commit.commit.author.email or "",
+                    date=commit.commit.author.date.isoformat(),
+                    tags=[],
                 )
-            return commits
+                for commit in raw_commits
+            ]
         except GithubException as e:
             raise GitHubAppError(f"GitHub API error: {e.status} - {e.data}") from e
         finally:
@@ -242,17 +274,16 @@ class WorkspaceGitHubSyncService(BaseWorkspaceService):
         try:
             repo = await asyncio.to_thread(gh.get_repo, f"{url.org}/{url.repo}")
             branches_paginated = await asyncio.to_thread(repo.get_branches)
-            branches: list[GitBranchInfo] = []
-            for index, branch_obj in enumerate(branches_paginated):
-                if index >= limit:
-                    break
-                branches.append(
-                    GitBranchInfo(
-                        name=branch_obj.name,
-                        is_default=branch_obj.name == repo.default_branch,
-                    )
+            raw_branches = await asyncio.to_thread(
+                lambda: list(itertools.islice(branches_paginated, limit))
+            )
+            return [
+                GitBranchInfo(
+                    name=branch_obj.name,
+                    is_default=branch_obj.name == repo.default_branch,
                 )
-            return branches
+                for branch_obj in raw_branches
+            ]
         except GithubException as e:
             raise GitHubAppError(f"GitHub API error: {e.status} - {e.data}") from e
         finally:

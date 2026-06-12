@@ -43,8 +43,25 @@ def workflow_source_id_from_path(path: str) -> str | None:
     return source_id or None
 
 
+def is_workflow_definition_path(
+    path: str, *, workflow_root: str = WORKFLOW_ROOT
+) -> bool:
+    """Return True for canonical `<root>/<source-id>/definition.yml` paths."""
+    parts = path.strip("/").split("/")
+    return (
+        len(parts) == 3
+        and parts[0] == workflow_root
+        and bool(parts[1])
+        and parts[2] == WORKFLOW_DEFINITION_FILENAME
+    )
+
+
 def default_workflow_source_id(*, alias: str | None, title: str) -> str:
-    base = slugify(alias or title, separator="-") or "workflow"
+    base = (
+        slugify((alias or "").strip(), separator="-")
+        or slugify(title.strip(), separator="-")
+        or "workflow"
+    )
     return base[:96].strip("-") or "workflow"
 
 
