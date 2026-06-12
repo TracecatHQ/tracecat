@@ -1,7 +1,7 @@
 "use client"
 
 import { useQueryClient } from "@tanstack/react-query"
-import type { ChatOnDataCallback, UIMessage } from "ai"
+import type { ChatOnDataCallback, ChatStatus, UIMessage } from "ai"
 import { ArrowRight, ChevronDown, Plus } from "lucide-react"
 import Link from "next/link"
 import { type ReactNode, useEffect, useState } from "react"
@@ -72,6 +72,8 @@ interface ChatInterfaceProps {
   onMessagesChange?: (messages: UIMessage[]) => void
   /** Called for data stream parts as soon as the chat transport receives them. */
   onData?: ChatOnDataCallback<UIMessage>
+  /** Called whenever the chat transport status changes. */
+  onStatusChange?: (status: ChatStatus) => void
   /** Called when the selected chat payload changes. */
   onChatChange?: (
     chat: AgentSessionsGetSessionVercelResponse | undefined
@@ -103,6 +105,7 @@ export function ChatInterface({
   surface = "regular",
   onMessagesChange,
   onData,
+  onStatusChange,
   onChatChange,
   headerActions,
 }: ChatInterfaceProps) {
@@ -471,6 +474,7 @@ export function ChatInterface({
           surface={surface}
           onMessagesChange={onMessagesChange}
           onData={onData}
+          onStatusChange={onStatusChange}
         />
       </div>
     </div>
@@ -514,6 +518,7 @@ interface ChatBodyProps {
   surface: ChatSurface
   onMessagesChange?: (messages: UIMessage[]) => void
   onData?: ChatOnDataCallback<UIMessage>
+  onStatusChange?: (status: ChatStatus) => void
 }
 
 function ChatBody({
@@ -539,6 +544,7 @@ function ChatBody({
   surface,
   onMessagesChange,
   onData,
+  onStatusChange,
 }: ChatBodyProps) {
   const {
     ready: chatReady,
@@ -650,6 +656,7 @@ function ChatBody({
         surface={surface}
         onMessagesChange={onMessagesChange}
         onData={onData}
+        onStatusChange={onStatusChange}
       />
     )
   }
@@ -680,6 +687,7 @@ function ChatBody({
       surface={surface}
       onMessagesChange={onMessagesChange}
       onData={onData}
+      onStatusChange={onStatusChange}
     />
   )
 }

@@ -4,11 +4,13 @@ from types import SimpleNamespace
 
 from tracecat.artifacts.bindings import (
     ARTIFACT_BINDINGS,
+    MAX_LIST_ARTIFACTS,
     ArtifactIdentityRef,
     ArtifactSideEffect,
     artifact_side_effects_for_tool_result,
 )
 from tracecat.artifacts.projection import (
+    MAX_OPEN_ARTIFACTS,
     apply_artifact_side_effects,
     remove_artifact,
     serialize_artifacts,
@@ -92,6 +94,51 @@ def test_artifact_projection_applies_upsert_and_remove_operations() -> None:
     )
 
     assert projected == [second]
+
+
+def test_artifact_projection_evicts_oldest_past_open_limit() -> None:
+    def case(i: int) -> CaseArtifact:
+        return CaseArtifact(
+            id=f"case_{i}",
+            title=f"Case {i}",
+            severity=CaseSeverity.LOW,
+            status=CaseStatus.NEW,
+        )
+
+    total = MAX_OPEN_ARTIFACTS + 2
+    projected = apply_artifact_side_effects(
+        [],
+        [ArtifactSideEffect(op="upsert", artifact=case(i)) for i in range(total)],
+    )
+
+    assert [artifact.id for artifact in projected] == [
+        f"case_{i}" for i in range(total - MAX_OPEN_ARTIFACTS, total)
+    ]
+
+
+def test_artifact_projection_upsert_refreshes_recency() -> None:
+    def case(i: int) -> CaseArtifact:
+        return CaseArtifact(
+            id=f"case_{i}",
+            title=f"Case {i}",
+            severity=CaseSeverity.LOW,
+            status=CaseStatus.NEW,
+        )
+
+    initial = [case(i) for i in range(MAX_OPEN_ARTIFACTS)]
+    projected = apply_artifact_side_effects(
+        initial,
+        [
+            # Touch the oldest artifact, then add one more: the second-oldest
+            # should be evicted instead of the refreshed one.
+            ArtifactSideEffect(op="upsert", artifact=case(0)),
+            ArtifactSideEffect(op="upsert", artifact=case(MAX_OPEN_ARTIFACTS)),
+        ],
+    )
+
+    assert [artifact.id for artifact in projected] == [
+        f"case_{i}" for i in range(2, MAX_OPEN_ARTIFACTS)
+    ] + ["case_0", f"case_{MAX_OPEN_ARTIFACTS}"]
 
 
 def test_artifact_projection_serializes_and_validates_jsonb_payload() -> None:
@@ -433,6 +480,31 @@ def test_case_list_tool_result_emits_upsert_side_effects() -> None:
     assert [effect.artifact.id for effect in effects] == ["case_123", "case_456"]
 
 
+def test_case_list_tool_result_above_limit_emits_no_side_effects() -> None:
+    effects = list(
+        artifact_side_effects_for_tool_result(
+            tool_name="core.cases.list_cases",
+            tool_input={"limit": 10},
+            tool_output={
+                "items": [
+                    {
+                        "id": f"case_{i}",
+                        "summary": f"Case {i}",
+                        "severity": "low",
+                        "status": "new",
+                    }
+                    for i in range(MAX_LIST_ARTIFACTS + 1)
+                ],
+                "has_more": False,
+            },
+            is_error=False,
+            tool_call_id="toolu_123",
+        )
+    )
+
+    assert effects == []
+
+
 def test_table_list_tool_result_emits_upsert_side_effects() -> None:
     effects = list(
         artifact_side_effects_for_tool_result(
@@ -449,6 +521,23 @@ def test_table_list_tool_result_emits_upsert_side_effects() -> None:
 
     assert [effect.op for effect in effects] == ["upsert", "upsert"]
     assert [effect.artifact.id for effect in effects] == ["table_123", "table_456"]
+
+
+def test_table_list_tool_result_above_limit_emits_no_side_effects() -> None:
+    effects = list(
+        artifact_side_effects_for_tool_result(
+            tool_name="core.table.list_tables",
+            tool_input=None,
+            tool_output=[
+                {"id": f"table_{i}", "name": f"table-{i}"}
+                for i in range(MAX_LIST_ARTIFACTS + 1)
+            ],
+            is_error=False,
+            tool_call_id="toolu_123",
+        )
+    )
+
+    assert effects == []
 
 
 def test_table_search_tool_result_emits_upsert_side_effect_from_input() -> None:
@@ -552,6 +641,23 @@ def test_agent_preset_list_tool_result_emits_upsert_side_effects() -> None:
         "preset_123",
         "preset_456",
     ]
+
+
+def test_agent_preset_list_tool_result_above_limit_emits_no_side_effects() -> None:
+    effects = list(
+        artifact_side_effects_for_tool_result(
+            tool_name="ai.agent.list_presets",
+            tool_input=None,
+            tool_output=[
+                {"id": f"preset_{i}", "name": f"Preset {i}"}
+                for i in range(MAX_LIST_ARTIFACTS + 1)
+            ],
+            is_error=False,
+            tool_call_id="toolu_123",
+        )
+    )
+
+    assert effects == []
 
 
 def test_table_tool_result_mapping_content_emits_upsert_side_effect() -> None:
