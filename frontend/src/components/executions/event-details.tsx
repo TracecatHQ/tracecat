@@ -49,7 +49,7 @@ export function WorkflowExecutionEventDetailView({
     })
   }
 
-  const initialTab = tabItems[0]?.value
+  const initialTab = hasResult ? "result" : tabItems[0]?.value
   const [activeTab, setActiveTab] = React.useState<"input" | "result" | null>(
     initialTab ?? null
   )

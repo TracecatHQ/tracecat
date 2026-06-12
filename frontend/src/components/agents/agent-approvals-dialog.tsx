@@ -349,7 +349,6 @@ export function AgentApprovalsDialog({
                       <JsonViewWithControls
                         src={parsedArgs}
                         defaultExpanded
-                        defaultTab="nested"
                         showControls={false}
                         className="text-xs"
                       />

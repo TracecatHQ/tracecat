@@ -105,7 +105,7 @@ interface JsonViewWithControlsProps {
 export function JsonViewWithControls({
   src,
   defaultExpanded = false,
-  defaultTab = "flat",
+  defaultTab = "nested",
   showControls = true,
   copyPrefix,
   copyMode = "jsonpath-only",
@@ -133,8 +133,8 @@ export function JsonViewWithControls({
   const tabItems = React.useMemo(
     () =>
       [
-        { value: "flat", label: "Flat", src: flattenedSrc },
         { value: "nested", label: "Nested", src: originalSrc },
+        { value: "flat", label: "Flat", src: flattenedSrc },
       ] as { value: JsonViewWithControlsTabs; label: string; src: unknown }[],
     [flattenedSrc, originalSrc]
   )

@@ -690,7 +690,6 @@ function AgentSessionCard({
                                   <JsonViewWithControls
                                     src={toolArgsValue}
                                     defaultExpanded={true}
-                                    defaultTab="nested"
                                     showControls={false}
                                     className="text-xs"
                                   />
@@ -708,7 +707,6 @@ function AgentSessionCard({
                                   <JsonViewWithControls
                                     src={decisionValue}
                                     defaultExpanded={true}
-                                    defaultTab="nested"
                                     showControls={false}
                                     className="text-xs"
                                   />

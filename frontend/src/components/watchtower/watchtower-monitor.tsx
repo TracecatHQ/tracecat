@@ -1122,7 +1122,6 @@ function ToolCallRow({ toolCall }: { toolCall: WatchtowerAgentToolCallRead }) {
           <JsonViewWithControls
             src={toolCall.args_redacted}
             defaultExpanded
-            defaultTab="nested"
             className="max-h-[60vh] overflow-auto"
           />
         </DialogContent>
