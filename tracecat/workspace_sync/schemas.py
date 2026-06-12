@@ -132,12 +132,28 @@ class ChangeSetCreate(BaseModel):
     description: str | None = None
     resources: list[ResourceRef]
 
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("title cannot be empty or whitespace")
+        return cleaned
+
 
 class ChangeSetExport(BaseModel):
-    message: str
+    message: str = Field(min_length=1)
     branch: str
     create_pr: bool = False
     pr_base_branch: str | None = None
+
+    @field_validator("message")
+    @classmethod
+    def validate_message(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("message cannot be empty or whitespace")
+        return cleaned
 
 
 class WorkspaceSyncPendingChange(BaseModel):
