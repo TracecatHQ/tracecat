@@ -1125,8 +1125,10 @@ class BaseTablesService(BaseWorkspaceService):
 
         table = await self.get_table_by_name(table_name)
         schema_name = self._get_schema_name()
-        table = await self.get_table_by_name(table_name)
         sanitized_table_name = self._sanitize_identifier(table.name)
+        row_limit = (
+            limit if limit is not None else config.TRACECAT__LIMIT_TABLE_LOOKUP_DEFAULT
+        )
 
         resolved_columns = [
             self._resolve_external_column_name(table, column_name)
@@ -1144,9 +1146,8 @@ class BaseTablesService(BaseWorkspaceService):
                     *[col == value for col, value in zip(cols, values, strict=True)]
                 )
             )
+            .limit(row_limit)
         )
-        if limit is not None:
-            stmt = stmt.limit(limit)
         txn_cm = (
             self.session.begin_nested()
             if self.session.in_transaction()
