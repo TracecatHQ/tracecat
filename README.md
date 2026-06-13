@@ -26,12 +26,9 @@
 - **Prompt-to-automations**: build end-to-end automations with agents, workflows, cases, and tables from your own agent harness (e.g. Claude code, Codex, OpenCode).
 - **Code-native**: sync custom Python scripts from your Git repo into Tracecat.
 - **All-in-one**: agents, workflows, lookup tables, and case management. Everything technical teams need to automate work in one place.
-- **Deployment options**: sign-up for Tracecat managed Cloud, or self-host with Docker, AWS Fargate, or Kubernetes Helm.
+- **Deployment options**: sign up for Tracecat managed Cloud, or self-host with Docker, AWS Fargate, or Kubernetes Helm.
 
 Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run on [Temporal](https://temporal.io) for security, reliability, and scale.
-
-> [!TIP]
-> Too busy to self-host? Check out Tracecat Cloud with dedicated US or EU hosting. [Book a demo today](https://www.tracecat.com/pricing).
 
 ## Features
 
@@ -56,6 +53,9 @@ Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run o
 - **Audit logs**: exportable into your SIEM
 
 ### Enterprise Edition
+
+  > [!NOTE]
+  > Tracecat Enterprise is available as managed Cloud with US or EU hosting, or as a self-hosted deployment with dedicated support.
 
 - **Fine-grained access control**: RBAC, ABAC, OAuth2.0 scopes for humans and agents
 - **Human-in-the-loop**: review and approve sensitive tools calls from a unified inbox, Slack, or email
