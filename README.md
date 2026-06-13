@@ -26,7 +26,7 @@
 - **Prompt-to-automations**: build end-to-end automations with agents, workflows, cases, and tables from your own agent harness (e.g. Claude code, Codex, OpenCode).
 - **Code-native**: sync custom Python scripts from your Git repo into Tracecat.
 - **All-in-one**: agents, workflows, lookup tables, and case management. Everything technical teams need to automate work in one place.
-- **Deploy anywhere**: Docker, Kubernetes, AWS Fargate, or sign-up for Tracecat managed Cloud.
+- **Deployment options**: sign-up for Tracecat managed Cloud, or self-host with Docker, AWS Fargate, or Kubernetes Helm.
 
 Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run on [Temporal](https://temporal.io) for security, reliability, and scale.
 
