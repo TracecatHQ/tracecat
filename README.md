@@ -26,12 +26,12 @@
 - **Prompt-to-automations**: build end-to-end automations with agents, workflows, cases, and tables from your own agent harness (e.g. Claude code, Codex, OpenCode).
 - **Code-native**: sync custom Python scripts from your Git repo into Tracecat.
 - **All-in-one**: agents, workflows, lookup tables, and case management. Everything technical teams need to automate work in one place.
-- **Self-host anywhere**: Docker, Kubernetes, AWS Fargate.
+- **Deploy anywhere**: Docker, Kubernetes, AWS Fargate, or sign-up for Tracecat managed Cloud.
 
 Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run on [Temporal](https://temporal.io) for security, reliability, and scale.
 
 > [!TIP]
-> Traceact now supports a managed Cloud option with dedicated US or EU hosting. [Book a demo today](https://www.tracecat.com/pricing) if interested.
+> Too busy to self-host? Check out Tracecat Cloud with dedicated US or EU hosting. [Book a demo today](https://www.tracecat.com/pricing).
 
 ## Features
 
