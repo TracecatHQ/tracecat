@@ -54,9 +54,6 @@ Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run o
 
 ### Enterprise Edition
 
-  > [!NOTE]
-  > Tracecat Enterprise is available as managed Cloud with US or EU hosting, or as a self-hosted deployment with dedicated support.
-
 - **Fine-grained access control**: RBAC, ABAC, OAuth2.0 scopes for humans and agents
 - **Human-in-the-loop**: review and approve sensitive tools calls from a unified inbox, Slack, or email
 - **Workflow version control**: sync to GitHub, GitLab, Bitbucket, etc.
@@ -72,6 +69,10 @@ Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run o
 - Object store: S3-compatible
 
 ## Open Source vs Enterprise
+
+> [!NOTE]
+> Tracecat Enterprise is available as managed Cloud with US or EU hosting, or as a self-hosted deployment with dedicated support.
+> [Book a demo today](https://cal.com/team/tracecat).
 
 This repo is available under the [AGPL-3.0 license](https://github.com/TracecatHQ/tracecat/blob/main/LICENSE) with the following exceptions:
 
