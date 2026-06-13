@@ -30,9 +30,8 @@
 
 Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run on [Temporal](https://temporal.io) for security, reliability, and scale.
 
-> [!NOTE]
-> Try Tracecat managed Cloud
-> Don't want to self-hosted? Sign-up to Traceact's managed Cloud with dedicated US or EU hosting options. [Book a demo today](https://www.tracecat.com/pricing).
+> [!TIP]
+> Traceact now supports a managed Cloud option with dedicated US or EU hosting. [Book a demo today](https://www.tracecat.com/pricing) if interested.
 
 ## Features
 
