@@ -1,7 +1,6 @@
 """Agent preset management package."""
 
 from .schemas import AgentPresetCreate, AgentPresetRead, AgentPresetUpdate
-from .service import AgentPresetService
 
 __all__ = [
     "AgentPresetCreate",
@@ -9,3 +8,11 @@ __all__ = [
     "AgentPresetUpdate",
     "AgentPresetService",
 ]
+
+
+def __getattr__(name: str) -> object:
+    if name == "AgentPresetService":
+        from .service import AgentPresetService
+
+        return AgentPresetService
+    raise AttributeError(name)

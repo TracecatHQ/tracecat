@@ -10102,6 +10102,68 @@ export const $CommentUpdatedEventRead = {
   description: "Event for when a top-level comment is updated.",
 } as const
 
+export const $CommitInfo = {
+  properties: {
+    status: {
+      $ref: "#/components/schemas/PushStatus",
+    },
+    sha: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Sha",
+    },
+    ref: {
+      type: "string",
+      title: "Ref",
+    },
+    base_ref: {
+      type: "string",
+      title: "Base Ref",
+    },
+    pr_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Pr Url",
+    },
+    pr_number: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Pr Number",
+    },
+    pr_reused: {
+      type: "boolean",
+      title: "Pr Reused",
+      default: false,
+    },
+    message: {
+      type: "string",
+      title: "Message",
+      default: "",
+    },
+  },
+  type: "object",
+  required: ["status", "sha", "ref", "base_ref"],
+  title: "CommitInfo",
+} as const
+
 export const $ContinueRunRequest = {
   properties: {
     kind: {
@@ -18811,6 +18873,20 @@ export const $PullResult = {
       type: "string",
       title: "Message",
     },
+    resource_counts: {
+      anyOf: [
+        {
+          additionalProperties: {
+            $ref: "#/components/schemas/ResourcePullCount",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Resource Counts",
+    },
   },
   type: "object",
   required: [
@@ -18822,6 +18898,13 @@ export const $PullResult = {
     "message",
   ],
   title: "PullResult",
+} as const
+
+export const $PushStatus = {
+  type: "string",
+  enum: ["committed", "no_op"],
+  title: "PushStatus",
+  description: "Status of a push/commit operation.",
 } as const
 
 export const $RateLimitEvent = {
@@ -20156,6 +20239,56 @@ export const $ResolvedAttachedSubagentRef = {
   title: "ResolvedAttachedSubagentRef",
   description:
     "Persisted subagent ref with immutable preset/version identifiers.",
+} as const
+
+export const $ResourcePullCount = {
+  properties: {
+    found: {
+      type: "integer",
+      title: "Found",
+    },
+    imported: {
+      type: "integer",
+      title: "Imported",
+    },
+  },
+  type: "object",
+  required: ["found", "imported"],
+  title: "ResourcePullCount",
+} as const
+
+export const $ResourceRef = {
+  properties: {
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+    },
+    source_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Source Id",
+    },
+    local_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Local Id",
+    },
+  },
+  type: "object",
+  required: ["resource_type"],
+  title: "ResourceRef",
 } as const
 
 export const $ResponseInteraction = {
@@ -23657,6 +23790,23 @@ export const $StringListFieldChange = {
   required: ["field"],
   title: "StringListFieldChange",
   description: "List diff for preset version fields.",
+} as const
+
+export const $SyncResourceType = {
+  type: "string",
+  enum: [
+    "workflow",
+    "agent_preset",
+    "skill",
+    "table",
+    "case_tag",
+    "case_field",
+    "case_dropdown",
+    "case_duration",
+    "variable",
+    "secret_metadata",
+  ],
+  title: "SyncResourceType",
 } as const
 
 export const $SyntaxToken = {
@@ -27324,6 +27474,12 @@ export const $VariableUpdate = {
   title: "VariableUpdate",
 } as const
 
+export const $VcsProvider = {
+  type: "string",
+  enum: ["github", "gitlab", "bitbucket"],
+  title: "VcsProvider",
+} as const
+
 export const $VercelChatRequest = {
   properties: {
     kind: {
@@ -30881,6 +31037,18 @@ export const $WorkflowSyncPullRequest = {
       description: "Validate only, don't perform actual import",
       default: false,
     },
+    sync_schedules: {
+      type: "boolean",
+      title: "Sync Schedules",
+      description:
+        "Apply schedule definitions from Git. Defaults off to preserve destination schedules.",
+      default: false,
+    },
+    provider: {
+      $ref: "#/components/schemas/VcsProvider",
+      description: "VCS provider for the configured repository.",
+      default: "github",
+    },
   },
   type: "object",
   required: ["commit_sha"],
@@ -31541,6 +31709,80 @@ export const $WorkspaceSettingsUpdate = {
   },
   type: "object",
   title: "WorkspaceSettingsUpdate",
+} as const
+
+export const $WorkspaceSyncExportRequest = {
+  properties: {
+    message: {
+      type: "string",
+      minLength: 1,
+      title: "Message",
+    },
+    branch: {
+      type: "string",
+      title: "Branch",
+    },
+    create_pr: {
+      type: "boolean",
+      title: "Create Pr",
+      default: false,
+    },
+    pr_base_branch: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Pr Base Branch",
+    },
+    resources: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/ResourceRef",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Resources",
+    },
+    provider: {
+      $ref: "#/components/schemas/VcsProvider",
+      default: "github",
+    },
+    include_schedules: {
+      type: "boolean",
+      title: "Include Schedules",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["message", "branch"],
+  title: "WorkspaceSyncExportRequest",
+} as const
+
+export const $WorkspaceSyncExportResult = {
+  properties: {
+    commit: {
+      $ref: "#/components/schemas/CommitInfo",
+    },
+    files: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Files",
+    },
+  },
+  type: "object",
+  required: ["commit", "files"],
+  title: "WorkspaceSyncExportResult",
 } as const
 
 export const $WorkspaceUpdate = {

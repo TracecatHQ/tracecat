@@ -150,6 +150,17 @@ class PullDiagnostic:
 
 
 @dataclass(frozen=True)
+class ResourcePullCount:
+    """Per-resource pull counts for workspace sync imports."""
+
+    found: int
+    """Number of resources found in the repository snapshot."""
+
+    imported: int
+    """Number of resources imported into the workspace."""
+
+
+@dataclass(frozen=True)
 class PullResult:
     """Result of a pull operation with atomic guarantees."""
 
@@ -170,6 +181,9 @@ class PullResult:
 
     message: str
     """Summary message about the operation"""
+
+    resource_counts: dict[str, ResourcePullCount] | None = None
+    """Optional per-resource counts for workspace-level sync operations."""
 
 
 class SyncService[T: BaseModel](Protocol):

@@ -2816,6 +2816,17 @@ export type CommentUpdatedEventRead = {
   created_at: string
 }
 
+export type CommitInfo = {
+  status: PushStatus
+  sha: string | null
+  ref: string
+  base_ref: string
+  pr_url?: string | null
+  pr_number?: number | null
+  pr_reused?: boolean
+  message?: string
+}
+
 /**
  * Payload to continue a CE run after collecting approvals.
  */
@@ -5661,7 +5672,15 @@ export type PullResult = {
   workflows_imported: number
   diagnostics: Array<PullDiagnostic>
   message: string
+  resource_counts?: {
+    [key: string]: ResourcePullCount
+  } | null
 }
+
+/**
+ * Status of a push/commit operation.
+ */
+export type PushStatus = "committed" | "no_op"
 
 export type RateLimitEvent = {
   rate_limit_info: RateLimitInfo
@@ -6103,6 +6122,17 @@ export type ResolvedAttachedSubagentRef = {
   max_turns?: number | null
   preset_id: string
   preset_version_id: string
+}
+
+export type ResourcePullCount = {
+  found: number
+  imported: number
+}
+
+export type ResourceRef = {
+  resource_type: SyncResourceType
+  source_id?: string | null
+  local_id?: string | null
 }
 
 /**
@@ -7087,6 +7117,18 @@ export type StringListFieldChange = {
   added?: Array<string>
   removed?: Array<string>
 }
+
+export type SyncResourceType =
+  | "workflow"
+  | "agent_preset"
+  | "skill"
+  | "table"
+  | "case_tag"
+  | "case_field"
+  | "case_dropdown"
+  | "case_duration"
+  | "variable"
+  | "secret_metadata"
 
 export type SyntaxToken = {
   type: string
@@ -8152,6 +8194,8 @@ export type VariableUpdate = {
   environment?: string | null
 }
 
+export type VcsProvider = "github" | "gitlab" | "bitbucket"
+
 /**
  * Vercel AI SDK format request with structured UI messages.
  */
@@ -9178,6 +9222,14 @@ export type WorkflowSyncPullRequest = {
    * Validate only, don't perform actual import
    */
   dry_run?: boolean
+  /**
+   * Apply schedule definitions from Git. Defaults off to preserve destination schedules.
+   */
+  sync_schedules?: boolean
+  /**
+   * VCS provider for the configured repository.
+   */
+  provider?: VcsProvider
 }
 
 export type WorkflowTagCreate = {
@@ -9313,6 +9365,21 @@ export type WorkspaceSettingsUpdate = {
    * Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.
    */
   validate_attachment_magic_number?: boolean | null
+}
+
+export type WorkspaceSyncExportRequest = {
+  message: string
+  branch: string
+  create_pr?: boolean
+  pr_base_branch?: string | null
+  resources?: Array<ResourceRef> | null
+  provider?: VcsProvider
+  include_schedules?: boolean
+}
+
+export type WorkspaceSyncExportResult = {
+  commit: CommitInfo
+  files: Array<string>
 }
 
 export type WorkspaceUpdate = {
@@ -10198,6 +10265,13 @@ export type WorkflowsListWorkflowBranchesData = {
 }
 
 export type WorkflowsListWorkflowBranchesResponse = Array<GitBranchInfo>
+
+export type WorkflowsExportWorkspaceSyncData = {
+  requestBody: WorkspaceSyncExportRequest
+  workspaceId: string
+}
+
+export type WorkflowsExportWorkspaceSyncResponse = WorkspaceSyncExportResult
 
 export type WorkflowsPullWorkflowsData = {
   requestBody: WorkflowSyncPullRequest
@@ -14414,6 +14488,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: Array<GitBranchInfo>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/sync/export": {
+    post: {
+      req: WorkflowsExportWorkspaceSyncData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkspaceSyncExportResult
         /**
          * Validation Error
          */

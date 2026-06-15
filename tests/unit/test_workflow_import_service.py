@@ -129,6 +129,7 @@ class TestWorkflowImportService:
         result = await import_service.import_workflows_atomic(
             remote_workflows=[remote_workflow_definition],
             commit_sha="abc123",
+            sync_schedules=True,
         )
 
         assert result.success is True
@@ -198,6 +199,27 @@ class TestWorkflowImportService:
         tags = result.scalars().all()
         tag_names = {tag.name for tag in tags}
         assert tag_names == {"test", "import"}
+
+    @pytest.mark.anyio
+    async def test_import_single_new_workflow_preserves_schedules_by_default(
+        self,
+        import_service: WorkflowImportService,
+        remote_workflow_definition: RemoteWorkflowDefinition,
+        session: AsyncSession,
+    ):
+        """Test importing a workflow does not create schedules unless opted in."""
+        result = await import_service.import_workflows_atomic(
+            remote_workflows=[remote_workflow_definition],
+            commit_sha="abc123",
+        )
+
+        assert result.success is True
+
+        wf_id = WorkflowUUID.new("wf_testworkflow001")
+        stmt = select(Schedule).where(Schedule.workflow_id == wf_id)
+        result = await session.execute(stmt)
+        schedules = result.scalars().all()
+        assert len(schedules) == 0
 
     @pytest.mark.anyio
     async def test_update_case_trigger_clears_existing_trigger_when_remote_block_missing(
@@ -585,6 +607,7 @@ class TestWorkflowImportService:
         result = await import_service.import_workflows_atomic(
             remote_workflows=[remote_workflow_definition],
             commit_sha="abc123",
+            sync_schedules=True,
         )
         assert result.success is True
 
@@ -617,6 +640,7 @@ class TestWorkflowImportService:
         result = await import_service.import_workflows_atomic(
             remote_workflows=[updated_remote],
             commit_sha="def456",
+            sync_schedules=True,
         )
         assert result.success is True
 

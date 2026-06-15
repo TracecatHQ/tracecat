@@ -1230,7 +1230,8 @@ class TestWorkflowImportServiceFolders:
             return_value=mock_defn_service,
         ):
             await workflow_import_service._create_new_workflow(
-                sample_remote_workflow_with_folder
+                sample_remote_workflow_with_folder,
+                sync_schedules=True,
             )
 
         # Verify folder was created and workflow.folder_id was set
@@ -1268,8 +1269,42 @@ class TestWorkflowImportServiceFolders:
             "tracecat.workflow.store.import_service.WorkflowDefinitionsService",
             return_value=mock_defn_service,
         ):
-            await workflow_import_service._create_new_workflow(sample_remote_workflow)
+            await workflow_import_service._create_new_workflow(
+                sample_remote_workflow,
+                sync_schedules=True,
+            )
 
         # Verify folder creation was not called and folder_id was not set
         workflow_import_service._ensure_folder_exists.assert_not_called()
         # folder_id should not be set (remains None by default)
+
+    @pytest.mark.anyio
+    async def test_create_new_workflow_can_skip_schedule_sync(
+        self, workflow_import_service, sample_remote_workflow
+    ):
+        mock_wf_mgmt = AsyncMock()
+        mock_workflow = Mock()
+        mock_workflow.id = uuid.uuid4()
+        mock_wf_mgmt.create_db_workflow_from_dsl.return_value = mock_workflow
+        workflow_import_service.wf_mgmt = mock_wf_mgmt
+
+        mock_defn_service = AsyncMock()
+        mock_defn = Mock(version=1)
+        mock_defn_service.create_workflow_definition.return_value = mock_defn
+
+        workflow_import_service.session.flush = AsyncMock()
+        workflow_import_service._create_schedules = AsyncMock()
+        workflow_import_service._update_webhook = AsyncMock()
+        workflow_import_service._update_case_trigger = AsyncMock()
+        workflow_import_service._create_tags = AsyncMock()
+
+        with patch(
+            "tracecat.workflow.store.import_service.WorkflowDefinitionsService",
+            return_value=mock_defn_service,
+        ):
+            await workflow_import_service._create_new_workflow(
+                sample_remote_workflow,
+                sync_schedules=False,
+            )
+
+        workflow_import_service._create_schedules.assert_not_called()

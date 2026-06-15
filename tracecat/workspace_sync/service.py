@@ -1,0 +1,1199 @@
+"""Simple workspace import/export service for VCS-backed specs."""
+
+from __future__ import annotations
+
+import re
+import uuid
+from collections import Counter
+from collections.abc import Sequence
+from dataclasses import replace
+from typing import Any
+
+from sqlalchemy import select
+
+from tracecat.db.models import Workflow, Workspace, WorkspaceSyncResourceMapping
+from tracecat.dsl.common import DSLInput
+from tracecat.exceptions import (
+    TracecatNotFoundError,
+    TracecatSettingsError,
+    TracecatValidationError,
+)
+from tracecat.git.types import GitUrl
+from tracecat.git.utils import parse_git_url
+from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.registry.repositories.schemas import GitBranchInfo, GitCommitInfo
+from tracecat.service import BaseWorkspaceService
+from tracecat.sync import (
+    PullDiagnostic,
+    PullOptions,
+    PullResult,
+    PushOptions,
+    ResourcePullCount,
+)
+from tracecat.workflow.management.definitions import WorkflowDefinitionsService
+from tracecat.workflow.management.management import WorkflowsManagementService
+from tracecat.workflow.store.import_service import WorkflowImportService
+from tracecat.workflow.store.schemas import (
+    WorkflowDslPublishResult,
+    validate_short_branch_name,
+)
+from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
+from tracecat.workspace_sync.importer import (
+    ImportedResource,
+    WorkspaceResourceImportService,
+)
+from tracecat.workspace_sync.projector import (
+    ProjectedResource,
+    WorkspaceResourceProjector,
+)
+from tracecat.workspace_sync.resources import (
+    parse_workspace_spec_files,
+    serialize_workspace_spec_files,
+    workflow_execute_aliases,
+    workflow_preset_slugs,
+)
+from tracecat.workspace_sync.schemas import (
+    MANIFEST_FILENAME,
+    ResourceRef,
+    WorkflowResourceSpec,
+    WorkspaceManifest,
+    WorkspaceProjection,
+    WorkspaceRemoteSnapshot,
+    WorkspaceSpec,
+    WorkspaceSyncExportRequest,
+    WorkspaceSyncExportResult,
+    workspace_manifest_from_json,
+)
+from tracecat.workspace_sync.serialization import canonical_json_text
+from tracecat.workspace_sync.transport import vcs_transport_for_provider
+from tracecat.workspace_sync.workflow import (
+    workflow_source_path,
+    workflow_spec_from_orm,
+    workflow_spec_to_remote,
+)
+from tracecat.workspaces.service import WorkspaceService
+
+
+class WorkspaceSyncService(BaseWorkspaceService):
+    """Direct workspace import/export over a VCS provider."""
+
+    service_name = "workspace_sync"
+
+    async def export_workspace(
+        self,
+        params: WorkspaceSyncExportRequest,
+    ) -> WorkspaceSyncExportResult:
+        """Export selected or all syncable resources to a branch and optional PR."""
+        self._validate_export_params(params)
+        url = await self._workspace_git_url(provider=params.provider)
+        resource_ids = await self._local_ids_from_resource_refs(params.resources)
+        projection = await self.project_workspace(
+            resource_ids=resource_ids,
+            include_schedules=params.include_schedules,
+            create_missing_mappings=True,
+        )
+        transport = vcs_transport_for_provider(
+            params.provider,
+            session=self.session,
+            role=self.role,
+        )
+        commit = await transport.write_files(
+            url=url,
+            files=projection.files,
+            message=params.message,
+            branch=params.branch,
+            create_pr=params.create_pr,
+            pr_base_branch=params.pr_base_branch,
+        )
+        return WorkspaceSyncExportResult(
+            commit=commit,
+            files=sorted(projection.files),
+        )
+
+    async def export_workflow_publish_result(
+        self,
+        *,
+        workflow: Workflow,
+        dsl: DSLInput,
+        options: PushOptions,
+    ) -> WorkflowDslPublishResult:
+        """Export one workflow through the same branch commit path as workspace export."""
+        if not options.branch:
+            raise TracecatValidationError(
+                "branch is required for workspace sync export"
+            )
+        params = WorkspaceSyncExportRequest(
+            message=options.message,
+            branch=options.branch,
+            create_pr=options.create_pr,
+            pr_base_branch=options.pr_base_branch,
+            resources=[
+                ResourceRef(
+                    resource_type=SyncResourceType.WORKFLOW,
+                    local_id=WorkflowUUID.new(workflow.id),
+                )
+            ],
+            provider=VcsProvider.GITHUB,
+            include_schedules=False,
+        )
+        result = await self.export_workflow(
+            workflow=workflow,
+            dsl=dsl,
+            params=params,
+        )
+        return result.as_workflow_publish_result()
+
+    async def export_workflow(
+        self,
+        *,
+        workflow: Workflow,
+        dsl: DSLInput,
+        params: WorkspaceSyncExportRequest,
+    ) -> WorkspaceSyncExportResult:
+        self._validate_export_params(params)
+        url = await self._workspace_git_url(provider=params.provider)
+        await self.session.refresh(
+            workflow,
+            ["tags", "folder", "schedules", "webhook", "case_trigger"],
+        )
+        source_id = await self._source_id_for_workflow(
+            workflow=workflow,
+            dsl=dsl,
+            create=True,
+            reserved_source_ids=set(),
+        )
+        spec = workflow_spec_from_orm(
+            workflow,
+            dsl=dsl,
+            source_id=source_id,
+            include_schedules=params.include_schedules,
+        )
+        files = self._files_from_spec(
+            manifest=WorkspaceManifest(),
+            spec=WorkspaceSpec(workflows={spec.id: spec}),
+        )
+        transport = vcs_transport_for_provider(
+            params.provider,
+            session=self.session,
+            role=self.role,
+        )
+        commit = await transport.write_files(
+            url=url,
+            files=files,
+            message=params.message,
+            branch=params.branch,
+            create_pr=params.create_pr,
+            pr_base_branch=params.pr_base_branch,
+        )
+        workflow.git_sync_branch = commit.ref
+        self.session.add(workflow)
+        await self.session.commit()
+        return WorkspaceSyncExportResult(commit=commit, files=sorted(files))
+
+    async def pull(
+        self,
+        *,
+        options: PullOptions,
+        provider: VcsProvider = VcsProvider.GITHUB,
+        sync_schedules: bool = False,
+    ) -> PullResult:
+        """Import a workspace spec from the configured repository.
+
+        Schedules are intentionally opt-in so imports do not mutate or activate
+        environment-specific schedule configuration unless an admin asks for it.
+        """
+        if not options.commit_sha:
+            return PullResult(
+                success=False,
+                commit_sha="",
+                workflows_found=0,
+                workflows_imported=0,
+                diagnostics=[
+                    PullDiagnostic(
+                        workflow_path="",
+                        workflow_title=None,
+                        error_type="validation",
+                        message="commit_sha is required",
+                        details={},
+                    )
+                ],
+                message="commit_sha is required",
+            )
+
+        url = await self._workspace_git_url(provider=provider)
+        transport = vcs_transport_for_provider(
+            provider,
+            session=self.session,
+            role=self.role,
+        )
+        remote_tree = await transport.read_files(url=url, ref=options.commit_sha)
+        snapshot, diagnostics = await self.parse_files(
+            remote_tree.files,
+            commit_sha=remote_tree.commit_sha,
+            tree_sha=remote_tree.tree_sha,
+        )
+        resource_counts = self._resource_counts_from_spec(snapshot.spec)
+        if diagnostics:
+            return PullResult(
+                success=False,
+                commit_sha=snapshot.commit_sha,
+                workflows_found=len(snapshot.spec.workflows),
+                workflows_imported=0,
+                diagnostics=diagnostics,
+                message=f"Failed to validate workspace spec: {len(diagnostics)} issue(s)",
+                resource_counts=resource_counts,
+            )
+        if options.dry_run:
+            return PullResult(
+                success=True,
+                commit_sha=snapshot.commit_sha,
+                workflows_found=len(snapshot.spec.workflows),
+                workflows_imported=0,
+                diagnostics=[],
+                message="Dry run completed - workspace spec validated but not imported",
+                resource_counts=resource_counts,
+            )
+        return await self._import_snapshot(
+            snapshot,
+            sync_schedules=sync_schedules,
+        )
+
+    async def project_workspace(
+        self,
+        *,
+        workflow_ids: Sequence[WorkflowUUID] | None = None,
+        resource_ids: dict[SyncResourceType, set[uuid.UUID]] | None = None,
+        include_schedules: bool = False,
+        create_missing_mappings: bool = True,
+    ) -> WorkspaceProjection:
+        selection = _selection_from_workflow_ids(
+            workflow_ids=workflow_ids,
+            resource_ids=resource_ids,
+        )
+        full_workspace_export = selection is None
+        workflows = await self._projectable_workflow_closure(selection)
+        defn_service = WorkflowDefinitionsService(session=self.session, role=self.role)
+        mgmt_service = WorkflowsManagementService(session=self.session, role=self.role)
+        specs: dict[str, WorkflowResourceSpec] = {}
+
+        for workflow in workflows:
+            await self.session.refresh(
+                workflow,
+                ["tags", "folder", "schedules", "webhook", "case_trigger"],
+            )
+            dsl = await self._get_workflow_dsl(
+                workflow,
+                defn_service=defn_service,
+                mgmt_service=mgmt_service,
+            )
+            source_id = await self._source_id_for_workflow(
+                workflow=workflow,
+                dsl=dsl,
+                create=create_missing_mappings,
+                reserved_source_ids=set(specs),
+            )
+            specs[source_id] = workflow_spec_from_orm(
+                workflow,
+                dsl=dsl,
+                source_id=source_id,
+                include_schedules=include_schedules,
+            )
+
+        non_workflow_projection = await WorkspaceResourceProjector(
+            session=self.session,
+            role=self.role,
+        ).project_non_workflow_resources()
+        non_workflow_spec, projected_resources = self._filtered_non_workflow_spec(
+            full_workspace_export=full_workspace_export,
+            workflow_specs=specs,
+            resource_ids=selection,
+            projected_resources=non_workflow_projection.resources,
+            projected_spec=non_workflow_projection.spec,
+        )
+        if create_missing_mappings:
+            for resource in projected_resources:
+                await self._upsert_mapping(
+                    resource_type=resource.resource_type.value,
+                    source_id=resource.source_id,
+                    source_path=resource.source_path,
+                    local_id=resource.local_id,
+                )
+
+        manifest = WorkspaceManifest()
+        spec = WorkspaceSpec(
+            workflows=dict(sorted(specs.items())),
+            agent_presets=non_workflow_spec.agent_presets,
+            skills=non_workflow_spec.skills,
+            tables=non_workflow_spec.tables,
+            case_tags=non_workflow_spec.case_tags,
+            case_fields=non_workflow_spec.case_fields,
+            case_dropdowns=non_workflow_spec.case_dropdowns,
+            case_durations=non_workflow_spec.case_durations,
+            variables=non_workflow_spec.variables,
+            secret_metadata=non_workflow_spec.secret_metadata,
+        )
+        return WorkspaceProjection(
+            manifest=manifest,
+            spec=spec,
+            files=self._files_from_spec(manifest=manifest, spec=spec),
+        )
+
+    async def parse_files(
+        self,
+        files: dict[str, str],
+        *,
+        commit_sha: str = "",
+        tree_sha: str | None = None,
+    ) -> tuple[WorkspaceRemoteSnapshot, list[PullDiagnostic]]:
+        diagnostics: list[PullDiagnostic] = []
+        manifest = WorkspaceManifest()
+        if manifest_content := files.get(MANIFEST_FILENAME):
+            try:
+                manifest = workspace_manifest_from_json(manifest_content)
+            except Exception as e:
+                diagnostics.append(
+                    PullDiagnostic(
+                        workflow_path=MANIFEST_FILENAME,
+                        workflow_title=None,
+                        error_type="parse",
+                        message=f"Invalid workspace manifest: {str(e)}",
+                        details={"error": str(e)},
+                    )
+                )
+                return (
+                    WorkspaceRemoteSnapshot(
+                        commit_sha=commit_sha,
+                        tree_sha=tree_sha,
+                        files=files,
+                        spec=WorkspaceSpec(),
+                    ),
+                    diagnostics,
+                )
+
+        spec, resource_diagnostics = parse_workspace_spec_files(
+            files,
+            manifest=manifest,
+        )
+        diagnostics.extend(resource_diagnostics)
+        return (
+            WorkspaceRemoteSnapshot(
+                commit_sha=commit_sha,
+                tree_sha=tree_sha,
+                files=files,
+                spec=spec,
+            ),
+            diagnostics,
+        )
+
+    async def list_commits(
+        self,
+        *,
+        branch: str = "main",
+        limit: int = 10,
+        provider: VcsProvider = VcsProvider.GITHUB,
+    ) -> list[GitCommitInfo]:
+        url = await self._workspace_git_url(provider=provider)
+        transport = vcs_transport_for_provider(
+            provider,
+            session=self.session,
+            role=self.role,
+        )
+        return await transport.list_commits(url=url, branch=branch, limit=limit)
+
+    async def list_branches(
+        self,
+        *,
+        limit: int = 100,
+        provider: VcsProvider = VcsProvider.GITHUB,
+    ) -> list[GitBranchInfo]:
+        url = await self._workspace_git_url(provider=provider)
+        transport = vcs_transport_for_provider(
+            provider,
+            session=self.session,
+            role=self.role,
+        )
+        return await transport.list_branches(url=url, limit=limit)
+
+    def _validate_export_params(self, params: WorkspaceSyncExportRequest) -> None:
+        try:
+            validate_short_branch_name(params.branch, field_name="branch")
+            if params.pr_base_branch is not None:
+                validate_short_branch_name(
+                    params.pr_base_branch,
+                    field_name="pr_base_branch",
+                )
+        except ValueError as e:
+            raise TracecatValidationError(str(e)) from e
+
+    async def _import_snapshot(
+        self,
+        snapshot: WorkspaceRemoteSnapshot,
+        *,
+        sync_schedules: bool,
+    ) -> PullResult:
+        if self._has_non_workflow_resources(snapshot.spec):
+            return await self._import_expanded_snapshot(
+                snapshot,
+                sync_schedules=sync_schedules,
+            )
+
+        local_ids: dict[str, WorkflowUUID] = {}
+        remote_workflows = []
+        for source_id, workflow_spec in sorted(snapshot.spec.workflows.items()):
+            local_id = await self._resolve_local_workflow_id(source_id)
+            local_ids[source_id] = local_id
+            remote_workflows.append(
+                workflow_spec_to_remote(workflow_spec, local_workflow_id=local_id)
+            )
+
+        result = await WorkflowImportService(
+            session=self.session,
+            role=self.role,
+        ).import_workflows_atomic(
+            remote_workflows,
+            commit_sha=snapshot.commit_sha,
+            sync_schedules=sync_schedules,
+        )
+        if not result.success:
+            return self._with_resource_counts(
+                result,
+                snapshot.spec,
+                imported_workflows=0,
+            )
+
+        for source_id in sorted(snapshot.spec.workflows):
+            await self._upsert_mapping(
+                resource_type=SyncResourceType.WORKFLOW.value,
+                source_id=source_id,
+                source_path=workflow_source_path(source_id),
+                local_id=local_ids[source_id],
+            )
+        await self.session.commit()
+        return self._with_resource_counts(
+            result,
+            snapshot.spec,
+            imported_workflows=result.workflows_imported,
+        )
+
+    async def _import_expanded_snapshot(
+        self,
+        snapshot: WorkspaceRemoteSnapshot,
+        *,
+        sync_schedules: bool,
+    ) -> PullResult:
+        local_ids: dict[str, WorkflowUUID] = {}
+        remote_workflows = []
+        for source_id, workflow_spec in sorted(snapshot.spec.workflows.items()):
+            local_id = await self._resolve_local_workflow_id(source_id)
+            local_ids[source_id] = local_id
+            remote_workflows.append(
+                workflow_spec_to_remote(workflow_spec, local_workflow_id=local_id)
+            )
+
+        workflow_importer = WorkflowImportService(
+            session=self.session,
+            role=self.role,
+        )
+        workflow_diagnostics = await workflow_importer._validate_all_workflows(
+            remote_workflows
+        )
+        if workflow_diagnostics:
+            return PullResult(
+                success=False,
+                commit_sha=snapshot.commit_sha,
+                workflows_found=len(remote_workflows),
+                workflows_imported=0,
+                diagnostics=workflow_diagnostics,
+                message=(
+                    f"Import failed: {len(workflow_diagnostics)} validation "
+                    "error(s) found"
+                ),
+                resource_counts=self._resource_counts_from_spec(snapshot.spec),
+            )
+
+        imported_resources: list[ImportedResource] = []
+        try:
+            async with self.session.begin_nested():
+                imported_resources = await WorkspaceResourceImportService(
+                    session=self.session,
+                    role=self.role,
+                ).import_non_workflow_resources(snapshot.spec)
+                for remote_workflow in remote_workflows:
+                    await workflow_importer._import_single_workflow(
+                        remote_workflow,
+                        sync_schedules=sync_schedules,
+                    )
+                for source_id in sorted(snapshot.spec.workflows):
+                    await self._upsert_mapping(
+                        resource_type=SyncResourceType.WORKFLOW.value,
+                        source_id=source_id,
+                        source_path=workflow_source_path(source_id),
+                        local_id=local_ids[source_id],
+                    )
+                for imported in imported_resources:
+                    await self._upsert_mapping(
+                        resource_type=imported.resource_type.value,
+                        source_id=imported.source_id,
+                        source_path=imported.source_path,
+                        local_id=imported.local_id,
+                    )
+            await self.session.commit()
+        except Exception as e:
+            await self.session.rollback()
+            return PullResult(
+                success=False,
+                commit_sha=snapshot.commit_sha,
+                workflows_found=len(remote_workflows),
+                workflows_imported=0,
+                diagnostics=[
+                    PullDiagnostic(
+                        workflow_path="",
+                        workflow_title=None,
+                        error_type="transaction",
+                        message=f"Workspace import transaction failed: {str(e)}",
+                        details={"exception": str(e)},
+                    )
+                ],
+                message="Workspace import transaction failed",
+                resource_counts=self._resource_counts_from_spec(snapshot.spec),
+            )
+
+        return PullResult(
+            success=True,
+            commit_sha=snapshot.commit_sha,
+            workflows_found=len(remote_workflows),
+            workflows_imported=len(remote_workflows),
+            diagnostics=[],
+            message="Successfully imported workspace resources",
+            resource_counts=self._resource_counts_from_imported(
+                snapshot.spec,
+                imported_resources,
+                imported_workflows=len(remote_workflows),
+            ),
+        )
+
+    async def _list_projectable_workflows(
+        self,
+        *,
+        workflow_ids: Sequence[WorkflowUUID] | None,
+    ) -> list[Workflow]:
+        stmt = (
+            select(Workflow)
+            .where(Workflow.workspace_id == self.workspace_id)
+            .order_by(Workflow.created_at, Workflow.id)
+        )
+        if workflow_ids:
+            stmt = stmt.where(Workflow.id.in_(list(workflow_ids)))
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def _projectable_workflow_closure(
+        self,
+        selection: dict[SyncResourceType, set[uuid.UUID]] | None,
+    ) -> list[Workflow]:
+        if selection is None:
+            return await self._list_projectable_workflows(workflow_ids=None)
+
+        if SyncResourceType.WORKFLOW not in selection:
+            return []
+
+        selected_workflow_ids = selection.get(SyncResourceType.WORKFLOW, set())
+        if not selected_workflow_ids:
+            return await self._list_projectable_workflows(workflow_ids=None)
+
+        all_workflows = await self._list_projectable_workflows(workflow_ids=None)
+        workflows_by_id = {workflow.id: workflow for workflow in all_workflows}
+        aliases = {
+            workflow.alias: workflow.id
+            for workflow in all_workflows
+            if workflow.alias is not None
+        }
+        defn_service = WorkflowDefinitionsService(session=self.session, role=self.role)
+        mgmt_service = WorkflowsManagementService(session=self.session, role=self.role)
+        dsl_by_id: dict[uuid.UUID, DSLInput] = {}
+
+        async def dsl_for(workflow: Workflow) -> DSLInput:
+            if workflow.id not in dsl_by_id:
+                dsl_by_id[workflow.id] = await self._get_workflow_dsl(
+                    workflow,
+                    defn_service=defn_service,
+                    mgmt_service=mgmt_service,
+                )
+            return dsl_by_id[workflow.id]
+
+        included = set(selected_workflow_ids)
+        queue = list(selected_workflow_ids)
+        while queue:
+            workflow_id = queue.pop(0)
+            workflow = workflows_by_id.get(workflow_id)
+            if workflow is None:
+                continue
+            dsl = await dsl_for(workflow)
+            for alias in sorted(workflow_execute_aliases(dsl)):
+                child_id = aliases.get(alias)
+                if child_id is None or child_id in included:
+                    continue
+                included.add(child_id)
+                queue.append(child_id)
+
+        return [workflow for workflow in all_workflows if workflow.id in included]
+
+    async def _get_workflow_dsl(
+        self,
+        workflow: Workflow,
+        *,
+        defn_service: WorkflowDefinitionsService,
+        mgmt_service: WorkflowsManagementService,
+    ) -> DSLInput:
+        definition = await defn_service.get_definition_by_workflow_id(
+            WorkflowUUID.new(workflow.id)
+        )
+        if definition and definition.content:
+            return DSLInput.model_validate(definition.content)
+        return await mgmt_service.build_dsl_from_workflow(workflow)
+
+    async def _local_ids_from_resource_refs(
+        self,
+        resources: list[ResourceRef] | None,
+    ) -> dict[SyncResourceType, set[uuid.UUID]] | None:
+        if not resources:
+            return None
+        resource_ids: dict[SyncResourceType, set[uuid.UUID]] = {}
+        for resource in resources:
+            if resource.local_id is not None:
+                resource_ids.setdefault(resource.resource_type, set()).add(
+                    resource.local_id
+                )
+                continue
+            if resource.source_id is None:
+                resource_ids.setdefault(resource.resource_type, set())
+                continue
+            mapping = await self._mapping_by_source_id(
+                resource_type=resource.resource_type.value,
+                source_id=resource.source_id,
+            )
+            if mapping is None:
+                raise TracecatValidationError(
+                    "No sync resource mapping found for "
+                    f"{resource.resource_type.value} source id "
+                    f"{resource.source_id!r}"
+                )
+            resource_ids.setdefault(resource.resource_type, set()).add(mapping.local_id)
+        return resource_ids
+
+    def _filtered_non_workflow_spec(
+        self,
+        *,
+        full_workspace_export: bool,
+        workflow_specs: dict[str, WorkflowResourceSpec],
+        resource_ids: dict[SyncResourceType, set[uuid.UUID]] | None,
+        projected_resources: list[ProjectedResource],
+        projected_spec: WorkspaceSpec,
+    ) -> tuple[WorkspaceSpec, list[ProjectedResource]]:
+        if full_workspace_export:
+            return projected_spec, projected_resources
+
+        direct_source_ids = _direct_source_ids_by_type(
+            resource_ids=resource_ids or {},
+            projected_resources=projected_resources,
+        )
+        desired = {
+            resource_type: set(source_ids)
+            for resource_type, source_ids in direct_source_ids.items()
+        }
+        known_table_names = {
+            table.name: source_id for source_id, table in projected_spec.tables.items()
+        }
+
+        payloads: list[Any] = list(workflow_specs.values())
+        desired.setdefault(SyncResourceType.AGENT_PRESET, set()).update(
+            _preset_source_ids_for_slugs(
+                projected_spec,
+                {
+                    slug
+                    for workflow in workflow_specs.values()
+                    for slug in workflow_preset_slugs(workflow.definition)
+                },
+            )
+        )
+        desired.setdefault(SyncResourceType.CASE_TAG, set()).update(
+            source_id
+            for workflow in workflow_specs.values()
+            if workflow.case_trigger is not None
+            for source_id in workflow.case_trigger.tag_filters
+            if source_id in projected_spec.case_tags
+        )
+
+        while True:
+            added = False
+            included_presets = [
+                projected_spec.agent_presets[source_id]
+                for source_id in sorted(
+                    desired.get(SyncResourceType.AGENT_PRESET, set())
+                )
+                if source_id in projected_spec.agent_presets
+            ]
+            payloads = [*list(workflow_specs.values()), *included_presets]
+            for preset in included_presets:
+                for subagent in preset.subagents:
+                    for source_id in _preset_source_ids_for_slugs(
+                        projected_spec,
+                        {subagent.slug},
+                    ):
+                        preset_sources = desired.setdefault(
+                            SyncResourceType.AGENT_PRESET,
+                            set(),
+                        )
+                        if source_id not in preset_sources:
+                            preset_sources.add(source_id)
+                            added = True
+                skill_sources = desired.setdefault(SyncResourceType.SKILL, set())
+                for binding in preset.skills:
+                    for source_id in _skill_source_ids_for_slugs(
+                        projected_spec,
+                        {binding.slug},
+                    ):
+                        if source_id not in skill_sources:
+                            skill_sources.add(source_id)
+                            added = True
+            if not added:
+                break
+
+        desired.setdefault(SyncResourceType.VARIABLE, set()).update(
+            source_id
+            for name in _variable_names(payloads)
+            if (source_id := f"default/{name}") in projected_spec.variables
+        )
+        desired.setdefault(SyncResourceType.SECRET_METADATA, set()).update(
+            source_id
+            for name in _secret_names(payloads)
+            if (source_id := f"default/{name}") in projected_spec.secret_metadata
+        )
+        desired.setdefault(SyncResourceType.TABLE, set()).update(
+            source_id
+            for name, source_id in known_table_names.items()
+            if _payloads_reference_table(payloads, name)
+        )
+
+        filtered = WorkspaceSpec(
+            agent_presets=_filter_specs(
+                projected_spec.agent_presets,
+                desired.get(SyncResourceType.AGENT_PRESET, set()),
+            ),
+            skills=_filter_specs(
+                projected_spec.skills,
+                desired.get(SyncResourceType.SKILL, set()),
+            ),
+            tables=_filter_specs(
+                projected_spec.tables,
+                desired.get(SyncResourceType.TABLE, set()),
+            ),
+            case_tags=_filter_specs(
+                projected_spec.case_tags,
+                desired.get(SyncResourceType.CASE_TAG, set()),
+            ),
+            case_fields=_filter_specs(
+                projected_spec.case_fields,
+                desired.get(SyncResourceType.CASE_FIELD, set()),
+            ),
+            case_dropdowns=_filter_specs(
+                projected_spec.case_dropdowns,
+                desired.get(SyncResourceType.CASE_DROPDOWN, set()),
+            ),
+            case_durations=_filter_specs(
+                projected_spec.case_durations,
+                desired.get(SyncResourceType.CASE_DURATION, set()),
+            ),
+            variables=_filter_specs(
+                projected_spec.variables,
+                desired.get(SyncResourceType.VARIABLE, set()),
+            ),
+            secret_metadata=_filter_specs(
+                projected_spec.secret_metadata,
+                desired.get(SyncResourceType.SECRET_METADATA, set()),
+            ),
+        )
+        included_paths = set(filtered.resource_count_map())
+        filtered_resources = [
+            resource
+            for resource in projected_resources
+            if resource.source_id in desired.get(resource.resource_type, set())
+            and resource.resource_type.value in included_paths
+        ]
+        return filtered, filtered_resources
+
+    async def _source_id_for_workflow(
+        self,
+        *,
+        workflow: Workflow,
+        dsl: DSLInput,
+        create: bool,
+        reserved_source_ids: set[str],
+    ) -> str:
+        mapping = await self._mapping_by_local_id(
+            resource_type=SyncResourceType.WORKFLOW.value,
+            local_id=WorkflowUUID.new(workflow.id),
+        )
+        if mapping is not None:
+            return mapping.source_id
+        preferred_source_id = WorkflowUUID.new(workflow.id).short()
+        source_id = await self._unique_source_id(
+            resource_type=SyncResourceType.WORKFLOW.value,
+            preferred_source_id=preferred_source_id,
+            reserved_source_ids=reserved_source_ids,
+        )
+        if create:
+            await self._upsert_mapping(
+                resource_type=SyncResourceType.WORKFLOW.value,
+                source_id=source_id,
+                source_path=workflow_source_path(source_id),
+                local_id=WorkflowUUID.new(workflow.id),
+            )
+        return source_id
+
+    async def _unique_source_id(
+        self,
+        *,
+        resource_type: str,
+        preferred_source_id: str,
+        reserved_source_ids: set[str],
+    ) -> str:
+        base = preferred_source_id
+        counter = 2
+        candidate = base
+        while candidate in reserved_source_ids or await self._source_id_exists(
+            resource_type=resource_type,
+            source_id=candidate,
+        ):
+            candidate = f"{base}-{counter}"
+            counter += 1
+        return candidate
+
+    async def _source_id_exists(self, *, resource_type: str, source_id: str) -> bool:
+        return (
+            await self._mapping_by_source_id(
+                resource_type=resource_type,
+                source_id=source_id,
+            )
+            is not None
+        )
+
+    async def _resolve_local_workflow_id(self, source_id: str) -> WorkflowUUID:
+        mapping = await self._mapping_by_source_id(
+            resource_type=SyncResourceType.WORKFLOW.value,
+            source_id=source_id,
+        )
+        if mapping is not None:
+            return WorkflowUUID.new(mapping.local_id)
+
+        try:
+            legacy_id = WorkflowUUID.new(source_id)
+        except ValueError:
+            return WorkflowUUID.new_uuid4()
+
+        workflow = await self.session.scalar(
+            select(Workflow).where(
+                Workflow.workspace_id == self.workspace_id,
+                Workflow.id == legacy_id,
+            )
+        )
+        return WorkflowUUID.new(workflow.id) if workflow else WorkflowUUID.new_uuid4()
+
+    async def _mapping_by_source_id(
+        self,
+        *,
+        resource_type: str,
+        source_id: str,
+    ) -> WorkspaceSyncResourceMapping | None:
+        stmt = select(WorkspaceSyncResourceMapping).where(
+            WorkspaceSyncResourceMapping.workspace_id == self.workspace_id,
+            WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
+            WorkspaceSyncResourceMapping.resource_type == resource_type,
+            WorkspaceSyncResourceMapping.source_id == source_id,
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def _mapping_by_local_id(
+        self,
+        *,
+        resource_type: str,
+        local_id: uuid.UUID,
+    ) -> WorkspaceSyncResourceMapping | None:
+        stmt = select(WorkspaceSyncResourceMapping).where(
+            WorkspaceSyncResourceMapping.workspace_id == self.workspace_id,
+            WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
+            WorkspaceSyncResourceMapping.resource_type == resource_type,
+            WorkspaceSyncResourceMapping.local_id == local_id,
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def _upsert_mapping(
+        self,
+        *,
+        resource_type: str,
+        source_id: str,
+        source_path: str,
+        local_id: uuid.UUID,
+    ) -> WorkspaceSyncResourceMapping:
+        mapping = await self._mapping_by_source_id(
+            resource_type=resource_type,
+            source_id=source_id,
+        )
+        if mapping is None:
+            mapping = WorkspaceSyncResourceMapping(
+                workspace_id=self.workspace_id,
+                provider=VcsProvider.GITHUB.value,
+                resource_type=resource_type,
+                source_id=source_id,
+                local_id=local_id,
+            )
+        mapping.source_path = source_path
+        mapping.local_id = local_id
+        self.session.add(mapping)
+        await self.session.flush()
+        return mapping
+
+    def _files_from_spec(
+        self,
+        *,
+        manifest: WorkspaceManifest,
+        spec: WorkspaceSpec,
+    ) -> dict[str, str]:
+        return serialize_workspace_spec_files(
+            manifest=manifest,
+            spec=spec,
+            manifest_filename=MANIFEST_FILENAME,
+            manifest_serializer=canonical_json_text,
+        )
+
+    def _resource_counts_from_spec(
+        self,
+        spec: WorkspaceSpec,
+        *,
+        imported_workflows: int = 0,
+    ) -> dict[str, ResourcePullCount]:
+        return {
+            resource_type: ResourcePullCount(
+                found=found,
+                imported=imported_workflows
+                if resource_type == SyncResourceType.WORKFLOW.value
+                else 0,
+            )
+            for resource_type, found in spec.resource_count_map().items()
+        }
+
+    def _resource_counts_from_imported(
+        self,
+        spec: WorkspaceSpec,
+        imported_resources: list[ImportedResource],
+        *,
+        imported_workflows: int,
+    ) -> dict[str, ResourcePullCount]:
+        counts = self._resource_counts_from_spec(
+            spec,
+            imported_workflows=imported_workflows,
+        )
+        imported_by_type = Counter(
+            imported.resource_type.value for imported in imported_resources
+        )
+        for resource_type, imported_count in imported_by_type.items():
+            if resource_type in counts:
+                counts[resource_type] = replace(
+                    counts[resource_type],
+                    imported=imported_count,
+                )
+        return counts
+
+    def _has_non_workflow_resources(self, spec: WorkspaceSpec) -> bool:
+        return any(
+            found
+            for resource_type, found in spec.resource_count_map().items()
+            if resource_type != SyncResourceType.WORKFLOW.value
+        )
+
+    def _with_resource_counts(
+        self,
+        result: PullResult,
+        spec: WorkspaceSpec,
+        *,
+        imported_workflows: int,
+    ) -> PullResult:
+        return PullResult(
+            success=result.success,
+            commit_sha=result.commit_sha,
+            workflows_found=result.workflows_found,
+            workflows_imported=result.workflows_imported,
+            diagnostics=result.diagnostics,
+            message=result.message,
+            resource_counts=self._resource_counts_from_spec(
+                spec,
+                imported_workflows=imported_workflows,
+            ),
+        )
+
+    async def _workspace_git_url(self, *, provider: VcsProvider) -> GitUrl:
+        workspace = await self._workspace()
+        repo_url = (
+            workspace.settings.get("git_repo_url") if workspace.settings else None
+        )
+        if not repo_url:
+            raise TracecatSettingsError(
+                "Git repository URL not configured for this workspace."
+            )
+        if provider != VcsProvider.GITHUB:
+            raise TracecatValidationError(
+                f"{provider.value} workspace sync is not implemented yet."
+            )
+        try:
+            return parse_git_url(repo_url, allowed_domains={"github.com"})
+        except ValueError as e:
+            raise TracecatSettingsError(
+                f"Invalid Git repository URL configured for this workspace: {e}"
+            ) from e
+
+    async def _workspace(self) -> Workspace:
+        workspace = await WorkspaceService(
+            session=self.session,
+            role=self.role,
+        ).get_workspace(self.workspace_id)
+        if workspace is None:
+            raise TracecatNotFoundError("Workspace not found")
+        return workspace
+
+
+_VAR_REF_RE = re.compile(r"\bVARS\.([A-Za-z_][A-Za-z0-9_-]*)")
+_SECRET_REF_RE = re.compile(r"\bSECRETS\.([A-Za-z_][A-Za-z0-9_-]*)")
+
+
+def _selection_from_workflow_ids(
+    *,
+    workflow_ids: Sequence[WorkflowUUID] | None,
+    resource_ids: dict[SyncResourceType, set[uuid.UUID]] | None,
+) -> dict[SyncResourceType, set[uuid.UUID]] | None:
+    if workflow_ids is None:
+        if resource_ids is None:
+            return None
+        return {
+            resource_type: set(local_ids)
+            for resource_type, local_ids in resource_ids.items()
+        }
+
+    selection = (
+        {
+            resource_type: set(local_ids)
+            for resource_type, local_ids in resource_ids.items()
+        }
+        if resource_ids is not None
+        else {}
+    )
+    selection[SyncResourceType.WORKFLOW] = {
+        uuid.UUID(str(workflow_id)) for workflow_id in workflow_ids
+    }
+    return selection
+
+
+def _direct_source_ids_by_type(
+    *,
+    resource_ids: dict[SyncResourceType, set[uuid.UUID]],
+    projected_resources: list[ProjectedResource],
+) -> dict[SyncResourceType, set[str]]:
+    direct: dict[SyncResourceType, set[str]] = {}
+    for resource in projected_resources:
+        selected_local_ids = resource_ids.get(resource.resource_type)
+        if selected_local_ids is None:
+            continue
+        if not selected_local_ids or resource.local_id in selected_local_ids:
+            direct.setdefault(resource.resource_type, set()).add(resource.source_id)
+    return direct
+
+
+def _preset_source_ids_for_slugs(
+    spec: WorkspaceSpec,
+    slugs: set[str],
+) -> set[str]:
+    return {
+        source_id
+        for source_id, preset in spec.agent_presets.items()
+        if preset.slug in slugs
+    }
+
+
+def _skill_source_ids_for_slugs(
+    spec: WorkspaceSpec,
+    slugs: set[str],
+) -> set[str]:
+    return {
+        source_id for source_id, skill in spec.skills.items() if skill.slug in slugs
+    }
+
+
+def _filter_specs[T](specs: dict[str, T], source_ids: set[str] | None) -> dict[str, T]:
+    if not source_ids:
+        return {}
+    return {
+        source_id: specs[source_id]
+        for source_id in sorted(source_ids)
+        if source_id in specs
+    }
+
+
+def _variable_names(payloads: list[Any]) -> set[str]:
+    return {
+        match
+        for text in _payload_strings(payloads)
+        for match in _VAR_REF_RE.findall(text)
+    }
+
+
+def _secret_names(payloads: list[Any]) -> set[str]:
+    return {
+        match
+        for text in _payload_strings(payloads)
+        for match in _SECRET_REF_RE.findall(text)
+    }
+
+
+def _payloads_reference_table(payloads: list[Any], table_name: str) -> bool:
+    table_pattern = re.compile(
+        rf"(?<![A-Za-z0-9_.-]){re.escape(table_name)}(?![A-Za-z0-9_.-])"
+    )
+    for key, value in _payload_key_values(payloads):
+        if (
+            key in {"table", "table_name", "table_slug"}
+            and isinstance(value, str)
+            and value == table_name
+        ):
+            return True
+        if isinstance(value, str) and table_pattern.search(value):
+            return True
+    return False
+
+
+def _payload_strings(payloads: list[Any]) -> list[str]:
+    return [
+        value for _key, value in _payload_key_values(payloads) if isinstance(value, str)
+    ]
+
+
+def _payload_key_values(payloads: list[Any]) -> list[tuple[str | None, Any]]:
+    values: list[tuple[str | None, Any]] = []
+    for payload in payloads:
+        values.extend(_walk_payload(_json_payload(payload), key=None))
+    return values
+
+
+def _walk_payload(value: Any, *, key: str | None) -> list[tuple[str | None, Any]]:
+    values = [(key, value)]
+    if isinstance(value, dict):
+        for child_key, child_value in value.items():
+            values.extend(_walk_payload(child_value, key=str(child_key)))
+    elif isinstance(value, list):
+        for child_value in value:
+            values.extend(_walk_payload(child_value, key=key))
+    return values
+
+
+def _json_payload(payload: Any) -> Any:
+    if hasattr(payload, "model_dump"):
+        return payload.model_dump(mode="json", exclude_none=True)
+    return payload

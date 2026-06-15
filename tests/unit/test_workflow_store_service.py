@@ -14,9 +14,9 @@ from tracecat.db.models import Workflow
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.sync import PushStatus
-from tracecat.workflow.store.schemas import WorkflowDslPublish
+from tracecat.workflow.store.schemas import WorkflowDslPublish, WorkflowDslPublishResult
 from tracecat.workflow.store.service import WorkflowStoreService
+from tracecat.workspace_sync.workflow import workflow_spec_from_orm
 
 
 @pytest.fixture
@@ -69,7 +69,7 @@ def _workflow_fixture(
 
 
 @pytest.mark.anyio
-async def test_publish_workflow_omits_inert_case_trigger(
+async def test_publish_workflow_uses_workspace_sync_service(
     workflow_store_service: WorkflowStoreService,
     sample_dsl: DSLInput,
 ) -> None:
@@ -83,40 +83,159 @@ async def test_publish_workflow_omits_inert_case_trigger(
         ),
     )
 
-    with (
-        patch("tracecat.workflow.store.service.WorkspaceService") as workspace_cls,
-        patch("tracecat.workflow.store.service.WorkflowSyncService") as sync_cls,
-    ):
-        workspace_service = AsyncMock()
-        workspace_service.get_workspace.return_value = SimpleNamespace(
-            settings={"git_repo_url": "git+ssh://git@github.com/test-org/test-repo.git"}
-        )
-        workspace_cls.return_value = workspace_service
-
+    with patch("tracecat.workflow.store.service.WorkspaceSyncService") as sync_cls:
         sync_service = AsyncMock()
-        sync_service.push.return_value = SimpleNamespace(
-            status=PushStatus.NO_OP,
-            sha="abc123",
-            ref="feature/test",
-            base_ref="main",
-            pr_url=None,
-            pr_number=None,
-            pr_reused=False,
-            message="No changes",
+        sync_service.export_workflow_publish_result.return_value = (
+            WorkflowDslPublishResult(
+                status="no_op",
+                commit_sha=None,
+                branch="feature/test",
+                base_branch="main",
+                pr_url=None,
+                pr_number=None,
+                pr_reused=False,
+                message="No changes",
+            )
         )
         sync_cls.return_value = sync_service
 
-        await workflow_store_service.publish_workflow_dsl(
+        result = await workflow_store_service.publish_workflow_dsl(
             workflow_id=workflow_id,
             dsl=sample_dsl,
             params=WorkflowDslPublish(branch="feature/test", create_pr=False),
             workflow=cast(Workflow, workflow),
         )
 
-    push_obj = sync_service.push.call_args.kwargs["objects"][0]
-    assert push_obj.data.case_trigger is None
-    # include_headers must be exported so it survives a store round-trip
-    assert push_obj.data.webhook.include_headers is True
+    assert result.branch == "feature/test"
+    call_kwargs = sync_service.export_workflow_publish_result.call_args.kwargs
+    assert call_kwargs["workflow"] is workflow
+    assert call_kwargs["dsl"] is sample_dsl
+    assert call_kwargs["options"].branch == "feature/test"
+    assert call_kwargs["options"].create_pr is False
+
+
+def test_workflow_spec_omits_inert_case_trigger_and_schedules_by_default(
+    sample_dsl: DSLInput,
+) -> None:
+    workflow = _workflow_fixture(
+        WorkflowUUID.new_uuid4(),
+        case_trigger=SimpleNamespace(
+            status="offline",
+            event_types=[],
+            tag_filters=[],
+        ),
+    )
+    workflow.schedules = [
+        SimpleNamespace(
+            status="online",
+            cron="* * * * *",
+            every=None,
+            offset=None,
+            start_at=None,
+            end_at=None,
+            timeout=10.0,
+        )
+    ]
+
+    spec = workflow_spec_from_orm(
+        cast(Workflow, workflow),
+        dsl=sample_dsl,
+        source_id="test-workflow",
+    )
+
+    assert spec.case_trigger is None
+    assert spec.schedules is None
+    assert spec.webhook is not None
+    assert spec.webhook.include_headers is True
+
+
+def test_workflow_spec_can_include_schedules(sample_dsl: DSLInput) -> None:
+    workflow = _workflow_fixture(
+        WorkflowUUID.new_uuid4(),
+        case_trigger=None,
+    )
+    workflow.schedules = [
+        SimpleNamespace(
+            status="online",
+            cron="* * * * *",
+            every=None,
+            offset=None,
+            start_at=None,
+            end_at=None,
+            timeout=10.0,
+        )
+    ]
+
+    spec = workflow_spec_from_orm(
+        cast(Workflow, workflow),
+        dsl=sample_dsl,
+        source_id="test-workflow",
+        include_schedules=True,
+    )
+
+    assert spec.schedules is not None
+    assert len(spec.schedules) == 1
+    assert spec.schedules[0].cron == "* * * * *"
+
+
+def test_workflow_spec_includes_configured_case_trigger(
+    sample_dsl: DSLInput,
+) -> None:
+    workflow = _workflow_fixture(
+        WorkflowUUID.new_uuid4(),
+        case_trigger=SimpleNamespace(
+            status="online",
+            event_types=[CaseEventType.CASE_CREATED.value],
+            tag_filters=["phishing"],
+        ),
+    )
+
+    spec = workflow_spec_from_orm(
+        cast(Workflow, workflow),
+        dsl=sample_dsl,
+        source_id="test-workflow",
+    )
+
+    assert spec.case_trigger is not None
+    assert spec.case_trigger.status == "online"
+    assert spec.case_trigger.event_types == [CaseEventType.CASE_CREATED]
+    assert spec.case_trigger.tag_filters == ["phishing"]
+
+
+@pytest.mark.anyio
+async def test_publish_workflow_legacy_branch_still_creates_pr(
+    workflow_store_service: WorkflowStoreService,
+    sample_dsl: DSLInput,
+) -> None:
+    workflow_id = WorkflowUUID.new_uuid4()
+    workflow = _workflow_fixture(workflow_id, case_trigger=None)
+
+    with patch("tracecat.workflow.store.service.WorkspaceSyncService") as sync_cls:
+        sync_service = AsyncMock()
+        sync_service.export_workflow_publish_result.return_value = (
+            WorkflowDslPublishResult(
+                status="committed",
+                commit_sha="abc123",
+                branch="tracecat-sync-test",
+                base_branch="main",
+                pr_url="https://github.com/test-org/test-repo/pull/1",
+                pr_number=1,
+                pr_reused=False,
+                message="Committed workspace sync changes.",
+            )
+        )
+        sync_cls.return_value = sync_service
+
+        await workflow_store_service.publish_workflow_dsl(
+            workflow_id=workflow_id,
+            dsl=sample_dsl,
+            params=WorkflowDslPublish(),
+            workflow=cast(Workflow, workflow),
+        )
+
+    options = sync_service.export_workflow_publish_result.call_args.kwargs["options"]
+    assert options.branch.startswith("tracecat-sync-")
+    assert options.create_pr is True
 
 
 @pytest.mark.anyio
@@ -134,26 +253,19 @@ async def test_publish_workflow_includes_configured_case_trigger(
         ),
     )
 
-    with (
-        patch("tracecat.workflow.store.service.WorkspaceService") as workspace_cls,
-        patch("tracecat.workflow.store.service.WorkflowSyncService") as sync_cls,
-    ):
-        workspace_service = AsyncMock()
-        workspace_service.get_workspace.return_value = SimpleNamespace(
-            settings={"git_repo_url": "git+ssh://git@github.com/test-org/test-repo.git"}
-        )
-        workspace_cls.return_value = workspace_service
-
+    with patch("tracecat.workflow.store.service.WorkspaceSyncService") as sync_cls:
         sync_service = AsyncMock()
-        sync_service.push.return_value = SimpleNamespace(
-            status=PushStatus.NO_OP,
-            sha="abc123",
-            ref="feature/test",
-            base_ref="main",
-            pr_url=None,
-            pr_number=None,
-            pr_reused=False,
-            message="No changes",
+        sync_service.export_workflow_publish_result.return_value = (
+            WorkflowDslPublishResult(
+                status="no_op",
+                commit_sha=None,
+                branch="feature/test",
+                base_branch="main",
+                pr_url=None,
+                pr_number=None,
+                pr_reused=False,
+                message="No changes",
+            )
         )
         sync_cls.return_value = sync_service
 
@@ -164,8 +276,4 @@ async def test_publish_workflow_includes_configured_case_trigger(
             workflow=cast(Workflow, workflow),
         )
 
-    push_obj = sync_service.push.call_args.kwargs["objects"][0]
-    assert push_obj.data.case_trigger is not None
-    assert push_obj.data.case_trigger.status == "online"
-    assert push_obj.data.case_trigger.event_types == [CaseEventType.CASE_CREATED]
-    assert push_obj.data.case_trigger.tag_filters == ["phishing"]
+    sync_service.export_workflow_publish_result.assert_awaited_once()

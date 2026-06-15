@@ -12,6 +12,7 @@ import { CommitSelector } from "@/components/registry/commit-selector"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -37,6 +38,25 @@ interface WorkflowPullDialogProps {
   onPullSuccess?: () => void
 }
 
+const RESOURCE_LABELS: Record<string, string> = {
+  workflow: "Workflows",
+  agent_preset: "Agent presets",
+  skill: "Skills",
+  table: "Tables",
+  case_tag: "Case tags",
+  case_field: "Case fields",
+  case_dropdown: "Case dropdowns",
+  case_duration: "Case durations",
+  variable: "Variables",
+  secret_metadata: "Secret metadata",
+}
+
+function resourceCountEntries(result: PullResult) {
+  return Object.entries(result.resource_counts ?? {})
+    .filter(([, count]) => count.found > 0 || count.imported > 0)
+    .sort(([left], [right]) => left.localeCompare(right))
+}
+
 export function WorkflowPullDialog({
   open,
   onOpenChange,
@@ -48,8 +68,18 @@ export function WorkflowPullDialog({
     null
   )
   const [pullResult, setPullResult] = useState<PullResult | null>(null)
+  const [syncSchedules, setSyncSchedules] = useState(false)
+  const resourceCounts = pullResult ? resourceCountEntries(pullResult) : []
+  const totalFound =
+    resourceCounts.length > 0
+      ? resourceCounts.reduce((total, [, count]) => total + count.found, 0)
+      : (pullResult?.workflows_found ?? 0)
+  const totalImported =
+    resourceCounts.length > 0
+      ? resourceCounts.reduce((total, [, count]) => total + count.imported, 0)
+      : (pullResult?.workflows_imported ?? 0)
 
-  // Use hooks for workflow sync operations
+  // Use hooks for workspace sync operations
   const { pullWorkflows, pullWorkflowsIsPending } = useWorkflowSync(workspaceId)
   const gitRepoBranch = getGitSshUrlRef(gitRepoUrl)
 
@@ -84,6 +114,7 @@ export function WorkflowPullDialog({
     try {
       const pullOptions = {
         commit_sha: selectedCommitSha,
+        sync_schedules: syncSchedules,
       }
 
       const result = await pullWorkflows(pullOptions)
@@ -91,23 +122,23 @@ export function WorkflowPullDialog({
 
       if (result.success) {
         toast({
-          title: "Workflow pull completed",
+          title: "Workspace pull completed",
           description: result.message,
         })
         onPullSuccess?.()
       } else {
         toast({
-          title: "Workflow pull failed",
+          title: "Workspace pull failed",
           description: result.message,
           variant: "destructive",
         })
       }
     } catch (error) {
-      console.error("Error pulling workflows:", error)
+      console.error("Error pulling workspace config:", error)
       toast({
         title: "Pull operation failed",
         description:
-          "An error occurred while pulling workflows from the repository.",
+          "An error occurred while pulling workspace config from the repository.",
         variant: "destructive",
       })
     }
@@ -118,10 +149,10 @@ export function WorkflowPullDialog({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Pull workflows from Git</DialogTitle>
+            <DialogTitle>Pull workspace config from Git</DialogTitle>
             <DialogDescription>
               Configure a Git repository URL in workspace settings to enable
-              workflow sync.
+              workspace sync.
             </DialogDescription>
           </DialogHeader>
         </DialogContent>
@@ -133,9 +164,9 @@ export function WorkflowPullDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Pull workflows from Git</DialogTitle>
+          <DialogTitle>Pull workspace config from Git</DialogTitle>
           <DialogDescription>
-            Select a commit to pull workflow definitions from:{" "}
+            Select a commit to pull from:{" "}
             <span className="font-mono text-xs">{gitRepoUrl}</span>
           </DialogDescription>
         </DialogHeader>
@@ -146,7 +177,7 @@ export function WorkflowPullDialog({
             <div>
               <Label className="text-sm font-medium">Select commit</Label>
               <p className="text-xs text-muted-foreground mb-3">
-                Choose which commit to pull workflow definitions from
+                Choose which commit to pull workspace config from
               </p>
             </div>
 
@@ -158,6 +189,17 @@ export function WorkflowPullDialog({
               onSelectCommit={setSelectedCommitSha}
               disabled={pullWorkflowsIsPending}
             />
+
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={syncSchedules}
+                onCheckedChange={(checked) =>
+                  setSyncSchedules(checked === true)
+                }
+                disabled={pullWorkflowsIsPending}
+              />
+              Update schedules
+            </label>
 
             {/* Selected Commit Details */}
             {commitsLoading ? (
@@ -249,14 +291,12 @@ export function WorkflowPullDialog({
                 <div className="grid grid-cols-3 gap-4 text-sm">
                   <div>
                     <span className="text-muted-foreground">Found:</span>
-                    <span className="ml-2 font-medium">
-                      {pullResult.workflows_found}
-                    </span>
+                    <span className="ml-2 font-medium">{totalFound}</span>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Imported:</span>
                     <span className="ml-2 font-medium text-green-600">
-                      {pullResult.workflows_imported}
+                      {totalImported}
                     </span>
                   </div>
                   <div>
@@ -266,6 +306,24 @@ export function WorkflowPullDialog({
                     </span>
                   </div>
                 </div>
+
+                {resourceCounts.length > 0 && (
+                  <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
+                    {resourceCounts.map(([resourceType, count]) => (
+                      <div
+                        key={resourceType}
+                        className="rounded-md border bg-muted/30 px-2 py-1.5"
+                      >
+                        <div className="font-medium">
+                          {RESOURCE_LABELS[resourceType] ?? resourceType}
+                        </div>
+                        <div className="text-muted-foreground">
+                          {count.imported}/{count.found}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 <p className="text-sm">{pullResult.message}</p>
 
@@ -307,8 +365,8 @@ export function WorkflowPullDialog({
             <div className="flex items-center space-x-2">
               <AlertTriangleIcon className="size-3 text-amber-500 mt-0.5 flex-shrink-0" />
               <AlertDescription>
-                This will overwrite any existing workflows, schedules, and
-                configurations with the same ID.
+                This will update existing workflows and configurations with the
+                same ID. Schedules are preserved unless selected above.
               </AlertDescription>
             </div>
           </Alert>
@@ -333,7 +391,7 @@ export function WorkflowPullDialog({
                     className={`size-4 ${pullWorkflowsIsPending ? "animate-spin" : ""}`}
                   />
                   <span>
-                    {pullWorkflowsIsPending ? "Pulling..." : "Pull workflows"}
+                    {pullWorkflowsIsPending ? "Pulling..." : "Pull workspace"}
                   </span>
                 </div>
               </Button>

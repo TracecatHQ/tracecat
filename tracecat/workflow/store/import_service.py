@@ -50,6 +50,7 @@ class WorkflowImportService(BaseWorkspaceService):
         self,
         remote_workflows: list[RemoteWorkflowDefinition],
         commit_sha: str,
+        sync_schedules: bool = False,
     ) -> PullResult:
         """Import workflows atomically - either all succeed or all fail.
 
@@ -58,6 +59,8 @@ class WorkflowImportService(BaseWorkspaceService):
         Args:
             remote_workflows: List of remote workflow definitions to import
             commit_sha: The commit SHA these workflows came from
+            sync_schedules: Whether to apply remote schedules. Defaults off to
+                preserve destination schedule configuration.
 
         Returns:
             PullResult with success status and diagnostics
@@ -89,7 +92,10 @@ class WorkflowImportService(BaseWorkspaceService):
         try:
             async with self.session.begin_nested():
                 for remote_workflow in remote_workflows:
-                    await self._import_single_workflow(remote_workflow)
+                    await self._import_single_workflow(
+                        remote_workflow,
+                        sync_schedules=sync_schedules,
+                    )
                 # XXX: We need to commit here to ensure that the transaction is committed
                 await self.session.commit()
 
@@ -277,6 +283,8 @@ class WorkflowImportService(BaseWorkspaceService):
     async def _import_single_workflow(
         self,
         remote_workflow: RemoteWorkflowDefinition,
+        *,
+        sync_schedules: bool,
     ) -> None:
         """Import a single workflow. Must be called within a transaction.
 
@@ -293,12 +301,23 @@ class WorkflowImportService(BaseWorkspaceService):
 
         wf_id = WorkflowUUID.new(remote_workflow.id)
         if existing_workflow := await self.wf_mgmt.get_workflow(wf_id):
-            await self._update_existing_workflow(existing_workflow, remote_workflow)
+            await self._update_existing_workflow(
+                existing_workflow,
+                remote_workflow,
+                sync_schedules=sync_schedules,
+            )
         else:
-            await self._create_new_workflow(remote_workflow)
+            await self._create_new_workflow(
+                remote_workflow,
+                sync_schedules=sync_schedules,
+            )
 
     async def _update_existing_workflow(
-        self, existing_workflow: Workflow, remote_workflow: RemoteWorkflowDefinition
+        self,
+        existing_workflow: Workflow,
+        remote_workflow: RemoteWorkflowDefinition,
+        *,
+        sync_schedules: bool,
     ) -> None:
         """Update existing workflow with new definition and related entities."""
         dsl = remote_workflow.definition
@@ -336,12 +355,18 @@ class WorkflowImportService(BaseWorkspaceService):
             existing_workflow.folder_id = None
 
         # 6. Update related entities
-        await self._update_schedules(existing_workflow, remote_workflow.schedules)
+        if sync_schedules:
+            await self._update_schedules(existing_workflow, remote_workflow.schedules)
         await self._update_webhook(existing_workflow.webhook, remote_workflow.webhook)
         await self._update_case_trigger(existing_workflow, remote_workflow.case_trigger)
         await self._update_tags(existing_workflow, remote_workflow.tags)
 
-    async def _create_new_workflow(self, remote_defn: RemoteWorkflowDefinition) -> None:
+    async def _create_new_workflow(
+        self,
+        remote_defn: RemoteWorkflowDefinition,
+        *,
+        sync_schedules: bool,
+    ) -> None:
         """Create a new workflow entity with all related entities."""
         wf_id = WorkflowUUID.new(remote_defn.id)
         dsl = remote_defn.definition
@@ -373,7 +398,8 @@ class WorkflowImportService(BaseWorkspaceService):
         workflow.version = defn.version
 
         # Handle additional remote-specific entities
-        await self._create_schedules(workflow, remote_defn.schedules)
+        if sync_schedules:
+            await self._create_schedules(workflow, remote_defn.schedules)
         await self._update_webhook(workflow.webhook, remote_defn.webhook)
         await self._update_case_trigger(workflow, remote_defn.case_trigger)
         await self._create_tags(workflow, remote_defn.tags)
@@ -549,19 +575,12 @@ class WorkflowImportService(BaseWorkspaceService):
             raise ValueError("Invalid folder path")
 
         # Remove leading/trailing slashes and split into segments
-        path_segments = folder_path.strip("/").split("/")
+        path_segments = [segment for segment in folder_path.strip("/").split("/") if segment]
         current_path = "/"
 
         for segment in path_segments:
-            if not segment:  # Skip empty segments
-                continue
-
             parent_path = current_path
-            current_path = (
-                f"{current_path}{segment}/"
-                if current_path == "/"
-                else f"{current_path}{segment}/"
-            )
+            current_path = f"{current_path}{segment}/"
 
             # Check if folder exists at current path
             existing_folder = await self.folder_service.get_folder_by_path(current_path)
@@ -573,7 +592,7 @@ class WorkflowImportService(BaseWorkspaceService):
                 )
 
         # Return the final folder's ID
-        final_folder = await self.folder_service.get_folder_by_path(folder_path)
+        final_folder = await self.folder_service.get_folder_by_path(current_path)
         if not final_folder:
             raise ValueError(f"Failed to create or find folder at path: {folder_path}")
 
