@@ -1,0 +1,19 @@
+AGENTS.md
+  s_663b332901808f::t_74143778d50d56 172-179
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "6667ef20bd0aebfbcfb44699efd9f7c0d24b1baa",
+  "prompts": {},
+  "sessions": {
+    "s_663b332901808f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ed148-32a3-7280-82ac-0c7819374278",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
