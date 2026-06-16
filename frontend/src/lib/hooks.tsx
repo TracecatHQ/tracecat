@@ -4784,6 +4784,7 @@ export function useUpdateMcpIntegrationToolPolicies(workspaceId: string) {
     isPending: updateMcpIntegrationToolPoliciesIsPending,
     error: updateMcpIntegrationToolPoliciesError,
   } = useMutation({
+    mutationKey: ["update-mcp-integration-tool-policies", workspaceId],
     mutationFn: async ({
       mcpIntegrationId,
       tools,
@@ -4797,13 +4798,30 @@ export function useUpdateMcpIntegrationToolPolicies(workspaceId: string) {
         requestBody: { tools },
       })
     },
-    onSuccess: (integration) => {
-      queryClient.invalidateQueries({
-        queryKey: ["mcp-integrations", workspaceId],
-      })
-      queryClient.invalidateQueries({
-        queryKey: ["mcp-integration", workspaceId, integration.id],
-      })
+    // Optimistically patch the cached integration so policy switches flip
+    // immediately instead of waiting for the round-trip and refetch.
+    onMutate: async ({ mcpIntegrationId, tools }) => {
+      const queryKey = ["mcp-integration", workspaceId, mcpIntegrationId]
+      await queryClient.cancelQueries({ queryKey })
+      const previous = queryClient.getQueryData<MCPIntegrationRead>(queryKey)
+      if (previous?.tools) {
+        const patches = new Map(tools.map((tool) => [tool.name, tool]))
+        queryClient.setQueryData<MCPIntegrationRead>(queryKey, {
+          ...previous,
+          tools: previous.tools.map((tool) => {
+            const patch = patches.get(tool.name)
+            if (!patch) {
+              return tool
+            }
+            return {
+              ...tool,
+              enabled: patch.enabled ?? tool.enabled,
+              requires_approval:
+                patch.requires_approval ?? tool.requires_approval,
+            }
+          }),
+        })
+      }
     },
     onError: (error: TracecatApiError) => {
       console.error("Failed to update MCP tool policy:", error)
@@ -4811,6 +4829,27 @@ export function useUpdateMcpIntegrationToolPolicies(workspaceId: string) {
         title: "Failed to update tool policy",
         description: `${error.body?.detail || error.message}`,
         variant: "destructive",
+      })
+    },
+    // Reconcile against the server once toggles settle instead of restoring a
+    // per-mutation snapshot. Toggles run concurrently (no disable-all gating),
+    // so restoring a stale snapshot on error would clobber a sibling toggle
+    // that already succeeded. Refetching re-syncs to server truth — a failed
+    // tool reverts, succeeded siblings stay. Only invalidate once this is the
+    // last in-flight toggle (isMutating counts the current one as 1), so a
+    // refetch can't overwrite siblings' still-pending optimistic patches.
+    onSettled: (_data, _error, { mcpIntegrationId }) => {
+      const stillInFlight = queryClient.isMutating({
+        mutationKey: ["update-mcp-integration-tool-policies", workspaceId],
+      })
+      if (stillInFlight > 1) {
+        return
+      }
+      queryClient.invalidateQueries({
+        queryKey: ["mcp-integration", workspaceId, mcpIntegrationId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["mcp-integrations", workspaceId],
       })
     },
   })

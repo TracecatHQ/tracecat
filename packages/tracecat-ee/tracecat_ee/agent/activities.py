@@ -228,7 +228,10 @@ class AgentActivities:
         # Discover user MCP tools if configured
         user_mcp_claims: list[UserMCPServerClaim] | None = None
         if args.mcp_servers:
-            from tracecat.agent.mcp.user_client import discover_user_mcp_tools
+            from tracecat.agent.mcp.user_client import (
+                UserMCPClient,
+                discover_user_mcp_tools,
+            )
             from tracecat.agent.preset.service import AgentPresetService
 
             http_servers = [cfg for cfg in args.mcp_servers if is_http_mcp_server(cfg)]
@@ -294,6 +297,8 @@ class AgentActivities:
                 # disabled or missing tools are dropped, approval-gated tools
                 # are recorded in the effective approval map.
                 for tool_name, tool_def in user_mcp_tools.items():
+                    parsed = UserMCPClient.parse_user_mcp_tool_name(tool_name)
+                    has_dotted_remote_name = parsed is not None and "." in parsed[1]
                     policy = _stored_user_mcp_tool_policy(
                         tool_name,
                         integration_id_by_server_name=integration_id_by_server_name,
@@ -306,6 +311,21 @@ class AgentActivities:
                             )
                             continue
                         if policy.requires_approval:
+                            # Approval keys are stored as ``mcp.{server}.{tool}``
+                            # and converted back by replacing every dot, so a
+                            # dotted remote name (e.g. ``issue.get``) can't
+                            # round-trip to its router name and would resolve to
+                            # an unexecutable tool after approval. Non-approval
+                            # calls are unaffected: they route through the proxy
+                            # with the original name, so only drop on approval.
+                            if has_dotted_remote_name:
+                                logger.warning(
+                                    "Skipping approval-gated user MCP tool with "
+                                    "unsupported dotted name",
+                                    tool_name=tool_name,
+                                    remote_tool_name=parsed[1] if parsed else None,
+                                )
+                                continue
                             approval_key = normalize_mcp_tool_name(
                                 f"mcp__{REGISTRY_MCP_SERVER_NAME}__{tool_name}"
                             )

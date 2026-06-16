@@ -281,12 +281,10 @@ type MCPToolPolicyPatch = {
 function MCPToolPolicyList({
   tools,
   canUpdate,
-  pendingToolName,
   onPolicyChange,
 }: {
   tools: MCPToolSummary[]
   canUpdate: boolean
-  pendingToolName: string | null
   onPolicyChange: (tool: MCPToolSummary, patch: MCPToolPolicyPatch) => void
 }) {
   return (
@@ -295,8 +293,7 @@ function MCPToolPolicyList({
         const enabled = tool.enabled !== false
         const requiresApproval = tool.requires_approval === true
         const isMissing = tool.status === "missing"
-        const disabled = !canUpdate || isMissing || pendingToolName !== null
-        const rowIsPending = pendingToolName === tool.name
+        const disabled = !canUpdate || isMissing
 
         return (
           <li
@@ -308,9 +305,6 @@ function MCPToolPolicyList({
                 <p className="truncate font-mono text-xs text-foreground">
                   {tool.name}
                 </p>
-                {rowIsPending ? (
-                  <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
-                ) : null}
                 {isMissing ? (
                   <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
                     Missing
@@ -415,9 +409,6 @@ export function MCPIntegrationDialog({
   const [isEditHydrated, setIsEditHydrated] = useState(false)
   const [catalogOAuthClientIsPending, setCatalogOAuthClientIsPending] =
     useState(false)
-  const [pendingToolPolicyName, setPendingToolPolicyName] = useState<
-    string | null
-  >(null)
   const open = controlledOpen ?? internalOpen
   const { className: triggerClassName, ...restTriggerProps } =
     triggerProps ?? {}
@@ -507,7 +498,8 @@ export function MCPIntegrationDialog({
     if (!mcpIntegrationId) {
       return
     }
-    setPendingToolPolicyName(tool.name)
+    // The switch flips optimistically; the mutation hook rolls back the
+    // cached integration and surfaces the API error on failure.
     try {
       await updateMcpIntegrationToolPolicies({
         mcpIntegrationId,
@@ -519,9 +511,7 @@ export function MCPIntegrationDialog({
         ],
       })
     } catch {
-      // The mutation hook logs and surfaces the API error.
-    } finally {
-      setPendingToolPolicyName(null)
+      // Handled by the mutation hook.
     }
   }
 
@@ -1459,7 +1449,6 @@ export function MCPIntegrationDialog({
                           <MCPToolPolicyList
                             tools={mcpIntegration.tools}
                             canUpdate={canUpdate}
-                            pendingToolName={pendingToolPolicyName}
                             onPolicyChange={(tool, patch) =>
                               void handleToolPolicyChange(tool, patch)
                             }

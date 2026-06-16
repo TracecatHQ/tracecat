@@ -3068,13 +3068,22 @@ class IntegrationService(BaseWorkspaceService):
         return items
 
     async def get_mcp_integration(
-        self, *, mcp_integration_id: uuid.UUID
+        self, *, mcp_integration_id: uuid.UUID, for_update: bool = False
     ) -> MCPIntegration | None:
-        """Get an MCP integration by ID."""
+        """Get an MCP integration by ID.
+
+        Pass ``for_update=True`` to lock the row (``SELECT ... FOR UPDATE``)
+        before a read-modify-write of the ``tools`` JSON blob. The blob is
+        rewritten wholesale, so concurrent writers (e.g. a policy toggle racing
+        connection verification) must serialize or one commit silently drops the
+        other's changes to unrelated tools.
+        """
         statement = select(MCPIntegration).where(
             MCPIntegration.id == mcp_integration_id,
             MCPIntegration.workspace_id == self.workspace_id,
         )
+        if for_update:
+            statement = statement.with_for_update()
         result = await self.session.execute(statement)
         return result.scalars().first()
 
@@ -3215,6 +3224,13 @@ class IntegrationService(BaseWorkspaceService):
                 message=e.message,
                 error=e.error or e.message,
             )
+
+        # Lock and reload the row before merging: the probe runs unlocked (it's a
+        # network call), and merging rewrites the full tools blob, which races
+        # read-modify-write policy toggles. refresh(with_for_update) takes the
+        # row lock AND reloads tools to the latest committed value, so the merge
+        # serializes against and sees concurrent mutations.
+        await self.session.refresh(mcp_integration, with_for_update=True)
 
         merged_tools = self._merge_mcp_tool_summaries(
             tools,
@@ -3595,9 +3611,23 @@ class IntegrationService(BaseWorkspaceService):
                 mcp_integration.encrypted_headers = None
 
         if verified_tools is not None:
+            # Lock the row and read its latest committed tools before merging: the
+            # verify probe ran unlocked (network call), so merging against the
+            # in-memory snapshot would clobber policy toggles committed since.
+            # Fetch just the tools column FOR UPDATE — a full refresh() would
+            # discard this method's pending field mutations on mcp_integration.
+            current_tools_result = await self.session.execute(
+                select(MCPIntegration.tools)
+                .where(
+                    MCPIntegration.id == mcp_integration.id,
+                    MCPIntegration.workspace_id == self.workspace_id,
+                )
+                .with_for_update()
+            )
+            current_tools = current_tools_result.scalar_one_or_none()
             merged_tools = self._merge_mcp_tool_summaries(
                 verified_tools,
-                mcp_integration.tools,
+                current_tools,
                 mcp_integration_id=mcp_integration.id,
             )
             mcp_integration.tools = [tool.model_dump() for tool in merged_tools]
@@ -3621,8 +3651,10 @@ class IntegrationService(BaseWorkspaceService):
         tools: Sequence[MCPToolPolicyUpdate],
     ) -> MCPIntegration | None:
         """Update per-tool availability and approval policy for an MCP integration."""
+        # Lock the row: this is a read-modify-write of the full tools blob, so a
+        # concurrent toggle or verification commit would otherwise clobber it.
         mcp_integration = await self.get_mcp_integration(
-            mcp_integration_id=mcp_integration_id
+            mcp_integration_id=mcp_integration_id, for_update=True
         )
         if not mcp_integration:
             return None
@@ -3644,6 +3676,18 @@ class IntegrationService(BaseWorkspaceService):
             if tool.name not in stored_by_name:
                 raise ValueError(f"MCP tool not found on integration: {tool.name}")
             updates_by_name[tool.name] = tool
+
+        # Turning on approval for a tool only takes effect at agent compile time,
+        # which gates on AGENT_ADDONS. Without the entitlement the stored policy
+        # would silently brick the MCP-backed agent, so reject approval-enabling
+        # updates here. Disabling approval and availability changes stay allowed.
+        enables_approval = any(
+            update.requires_approval is True
+            and not stored_by_name[name].requires_approval
+            for name, update in updates_by_name.items()
+        )
+        if enables_approval:
+            await self.require_entitlement(Entitlement.AGENT_ADDONS)
 
         updated_tools: list[MCPToolSummary] = []
         for stored_tool in stored_tools:

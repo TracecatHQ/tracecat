@@ -404,6 +404,127 @@ class TestBuildToolDefinitionsActivity:
         assert entitlement_roles == [mock_role]
 
     @pytest.mark.anyio
+    async def test_mcp_tool_with_dotted_remote_name_kept_unless_approval_gated(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+    ) -> None:
+        """Dotted remote names execute fine via the proxy, so they're kept; only
+        an approval-gated dotted tool is dropped since its approval key can't
+        round-trip back to the router name."""
+        from tracecat.agent.mcp import user_client
+        from tracecat.agent.preset.service import AgentPresetService
+
+        integration_id = uuid.uuid4()
+
+        async def mock_build_agent_tools(**_kwargs: Any) -> BuildToolsResult:
+            return BuildToolsResult(tools=[], collected_secrets=set())
+
+        async def mock_discover_user_mcp_tools(
+            configs: list[dict[str, Any]],
+            *,
+            fail_on_error: bool = False,
+        ) -> dict[str, MCPToolDefinition]:
+            return {
+                # Dotted, no approval -> kept (routes via proxy verbatim).
+                "mcp__Jira__issue.get": MCPToolDefinition(
+                    name="mcp__Jira__issue.get",
+                    description="Dotted, no approval",
+                    parameters_json_schema={"type": "object"},
+                ),
+                # Dotted, approval-gated -> dropped (lossy approval round-trip).
+                "mcp__Jira__issue.delete": MCPToolDefinition(
+                    name="mcp__Jira__issue.delete",
+                    description="Dotted, approval-gated",
+                    parameters_json_schema={"type": "object"},
+                ),
+            }
+
+        class _PresetService:
+            async def resolve_mcp_integration_tool_policies(
+                self,
+                mcp_integration_ids: list[uuid.UUID],
+            ) -> dict[uuid.UUID, dict[str, MCPToolSummary]]:
+                return {
+                    integration_id: {
+                        "issue.delete": MCPToolSummary(
+                            name="issue.delete",
+                            requires_approval=True,
+                        ),
+                    }
+                }
+
+            async def resolve_mcp_integration_secrets(
+                self,
+                mcp_integration_id: uuid.UUID,
+            ) -> dict[str, str]:
+                return {}
+
+        class _PresetContext:
+            async def __aenter__(self) -> _PresetService:
+                return _PresetService()
+
+            async def __aexit__(
+                self, exc_type: object, exc: object, tb: object
+            ) -> None:
+                return None
+
+        class _LockService:
+            async def resolve_lock_with_bindings(
+                self, actions: set[str]
+            ) -> RegistryLock:
+                return RegistryLock(origins={}, actions={})
+
+        class _LockContext:
+            async def __aenter__(self) -> _LockService:
+                return _LockService()
+
+            async def __aexit__(
+                self, exc_type: object, exc: object, tb: object
+            ) -> None:
+                return None
+
+        async def mock_check_tool_approval_entitlement(role: Role) -> None:
+            return None
+
+        monkeypatch.setattr(
+            agent_activities, "build_agent_tools", mock_build_agent_tools
+        )
+        monkeypatch.setattr(
+            user_client, "discover_user_mcp_tools", mock_discover_user_mcp_tools
+        )
+        monkeypatch.setattr(
+            AgentPresetService,
+            "with_session",
+            staticmethod(lambda **_kwargs: _PresetContext()),
+        )
+        monkeypatch.setattr(RegistryLockService, "with_session", lambda: _LockContext())
+        monkeypatch.setattr(
+            AgentActivities,
+            "_check_tool_approval_entitlement",
+            staticmethod(mock_check_tool_approval_entitlement),
+        )
+
+        result = await AgentActivities().build_tool_definitions(
+            BuildToolDefsArgs(
+                role=mock_role,
+                tool_filters=ToolFilters(actions=[]),
+                mcp_servers=[
+                    {
+                        "type": "http",
+                        "name": "Jira",
+                        "url": "https://mcp.example.com/mcp",
+                        "id": str(integration_id),
+                    }
+                ],
+            )
+        )
+
+        assert set(result.tool_definitions) == {"mcp__Jira__issue.get"}
+        # The kept dotted tool has no approval requirement.
+        assert not (result.tool_approvals or {})
+
+    @pytest.mark.anyio
     async def test_build_agent_tool_definitions_returns_partitioned_scopes(
         self,
         monkeypatch: pytest.MonkeyPatch,
