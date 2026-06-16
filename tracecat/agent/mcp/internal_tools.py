@@ -58,7 +58,6 @@ BUILDER_BUNDLED_ACTIONS = [
     "core.table.get_table_metadata",
     "core.table.list_tables",
     "core.table.search_rows",
-    "tools.exa.get_contents",
 ]
 
 
