@@ -24,7 +24,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Switch } from "@/components/ui/switch"
 import { toast } from "@/components/ui/use-toast"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import {
@@ -52,7 +51,6 @@ export function WorkspaceResourceSyncActions({
   const [open, setOpen] = useState(false)
   const [exportMessage, setExportMessage] = useState(`Push ${label}`)
   const [exportBranch, setExportBranch] = useState("")
-  const [createPr, setCreatePr] = useState(false)
   const [isCreatingBranch, setIsCreatingBranch] = useState(false)
   const { exportWorkspace, exportWorkspaceIsPending } =
     useWorkspaceSyncExport(workspaceId)
@@ -67,10 +65,6 @@ export function WorkspaceResourceSyncActions({
 
   const gitRepoUrl = workspace?.settings?.git_repo_url || undefined
   const hasBranches = (repoBranches?.length ?? 0) > 0
-  const selectedBranchInfo = repoBranches?.find(
-    (branch) => branch.name === exportBranch
-  )
-  const isDefaultBranchSelected = selectedBranchInfo?.is_default ?? false
   const exportDisabled =
     !gitRepoUrl ||
     exportWorkspaceIsPending ||
@@ -85,7 +79,6 @@ export function WorkspaceResourceSyncActions({
     }
     setIsCreatingBranch(false)
     setExportMessage(`Push ${label}`)
-    setCreatePr(false)
   }, [label, open])
 
   useEffect(() => {
@@ -125,7 +118,7 @@ export function WorkspaceResourceSyncActions({
       const result = await exportWorkspace({
         message: exportMessage,
         branch: exportBranch,
-        create_pr: createPr,
+        create_pr: true,
         include_schedules: false,
         provider: "github",
         resources: resourceRefs,
@@ -270,26 +263,6 @@ export function WorkspaceResourceSyncActions({
                 )}
               </div>
             </div>
-
-            <div className="flex items-center justify-between rounded-md border px-3 py-2">
-              <div className="space-y-0.5">
-                <p className="text-sm font-medium">Create pull request</p>
-                <p className="text-[11px] text-muted-foreground">
-                  Reuse an open PR for this branch when available.
-                </p>
-              </div>
-              <Switch
-                checked={createPr}
-                onCheckedChange={setCreatePr}
-                size="sm"
-              />
-            </div>
-
-            {isDefaultBranchSelected && !createPr && (
-              <p className="text-[11px] text-amber-700">
-                Pushing to the default branch will create a direct commit.
-              </p>
-            )}
           </div>
 
           <DialogFooter className="items-center gap-3 sm:justify-between">

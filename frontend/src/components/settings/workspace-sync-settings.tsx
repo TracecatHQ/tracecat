@@ -6,21 +6,31 @@ import {
   ArrowDownIcon,
   ArrowUpIcon,
   CheckCircle2Icon,
+  ChevronRightIcon,
   GitBranchIcon,
-  GitCommitHorizontalIcon,
-  GitPullRequestIcon,
   Loader2Icon,
   PencilIcon,
+  SearchIcon,
   XCircleIcon,
 } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useForm, useWatch } from "react-hook-form"
 import { z } from "zod"
-import type { GitHubAppRepository, PullResult, WorkspaceRead } from "@/client"
+import type {
+  GitHubAppRepository,
+  PullResourceDiff,
+  PullResult,
+  WorkspaceRead,
+} from "@/client"
 import { CommitSelector } from "@/components/registry/commit-selector"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import {
   Form,
   FormControl,
@@ -37,7 +47,6 @@ import {
   SelectContent,
   SelectGroup,
   SelectItem,
-  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
@@ -45,6 +54,11 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ToggleTabs } from "@/components/ui/toggle-tabs"
 import { toast } from "@/components/ui/use-toast"
+import {
+  useWorkspaceSyncBranchTarget,
+  WorkspaceSyncBranchSelector,
+} from "@/components/workspace-sync/branch-target-selector"
+import { UnifiedDiff } from "@/components/workspace-sync/unified-diff"
 import {
   useRepositoryBranches,
   useRepositoryCommits,
@@ -57,10 +71,7 @@ import { getRepoDisplayName, validateGitSshUrl } from "@/lib/git"
 import { useGitHubAppRepositories, useWorkspaceSettings } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 
-const CREATE_NEW_BRANCH_VALUE = "__create_new_branch__"
-
 type SyncMode = "push" | "pull"
-type DeliveryMode = "direct" | "pr"
 type RepositoryInputMode = "select" | "manual"
 
 const RESOURCE_LABELS: Record<string, string> = {
@@ -100,9 +111,8 @@ function resourceCountEntries(result: PullResult) {
  * Git sync settings panel for a workspace.
  *
  * Presents a single connection row plus a Push / Pull switch so both sync
- * directions live in one place. Push composes a commit (message, branch, and an
- * explicit "commit directly" vs "open a pull request" choice); pull imports a
- * selected commit back into the workspace.
+ * directions live in one place. Push opens or reuses a pull request for the
+ * selected branch; pull imports a selected commit back into the workspace.
  */
 export function WorkspaceSyncSettings({
   workspace,
@@ -125,17 +135,20 @@ export function WorkspaceSyncSettings({
   const [mode, setMode] = useState<SyncMode>("push")
 
   // Push composer state
-  const [exportBranch, setExportBranch] = useState("")
   const [exportMessage, setExportMessage] = useState("Export workspace config")
-  const [delivery, setDelivery] = useState<DeliveryMode>("direct")
-  const [isCreatingBranch, setIsCreatingBranch] = useState(false)
 
   // Pull composer state
   const [selectedCommitSha, setSelectedCommitSha] = useState<string | null>(
     null
   )
   const [syncSchedules, setSyncSchedules] = useState(false)
+  const [pullPreview, setPullPreview] = useState<PullResult | null>(null)
+  const [pullPreviewOptions, setPullPreviewOptions] = useState<{
+    commitSha: string
+    syncSchedules: boolean
+  } | null>(null)
   const [pullResult, setPullResult] = useState<PullResult | null>(null)
+  const [pullAction, setPullAction] = useState<"preview" | "apply" | null>(null)
 
   const {
     branches: repoBranches,
@@ -146,9 +159,18 @@ export function WorkspaceSyncSettings({
     limit: 200,
   })
 
-  const defaultBranch =
-    repoBranches?.find((branch) => branch.is_default)?.name ??
-    repoBranches?.[0]?.name
+  const {
+    branch: exportBranch,
+    setBranch: setExportBranch,
+    isCreatingBranch,
+    selectBranch: selectExportBranch,
+    defaultBranch,
+    hasBranches,
+  } = useWorkspaceSyncBranchTarget({
+    branches: repoBranches,
+    enabled: Boolean(persistedGitUrl),
+    newBranchName: "sync/workspace",
+  })
 
   const { commits, commitsIsLoading, commitsError } = useRepositoryCommits(
     workspace.id,
@@ -161,19 +183,25 @@ export function WorkspaceSyncSettings({
 
   const repoDisplayName = getRepoDisplayName(persistedGitUrl)
   const latestCommit = commits?.[0]
-  const hasBranches = (repoBranches?.length ?? 0) > 0
-  const selectedBranchInfo = repoBranches?.find(
-    (branch) => branch.name === exportBranch
-  )
-  const isDefaultBranchSelected = selectedBranchInfo?.is_default ?? false
-  const createPr = delivery === "pr"
+  const targetBranch = exportBranch.trim()
+  const targetIsDefault =
+    !isCreatingBranch &&
+    Boolean(defaultBranch) &&
+    targetBranch === defaultBranch
   const exportDisabled =
     exportWorkspaceIsPending ||
     branchesIsLoading ||
     (!hasBranches && !isCreatingBranch) ||
-    exportBranch.trim() === "" ||
+    targetBranch === "" ||
     exportMessage.trim() === ""
   const effectivePullSha = selectedCommitSha ?? commits?.[0]?.sha
+  const pullPreviewMatchesSelection =
+    Boolean(effectivePullSha) &&
+    pullPreviewOptions !== null &&
+    pullPreviewOptions?.commitSha === effectivePullSha &&
+    pullPreviewOptions.syncSchedules === syncSchedules
+  const canApplyPull =
+    pullPreviewMatchesSelection && pullPreview?.success === true
 
   const showConnectionForm = !persistedGitUrl || isEditingConnection
 
@@ -236,39 +264,18 @@ export function WorkspaceSyncSettings({
       "Could not load GitHub App repositories. Enter a git+ssh URL manually."
   }
 
-  // Default the push target to the repository default branch.
-  useEffect(() => {
-    if (
-      !persistedGitUrl ||
-      !repoBranches ||
-      repoBranches.length === 0 ||
-      isCreatingBranch
-    ) {
-      return
-    }
-
-    const branchNames = new Set(repoBranches.map((branch) => branch.name))
-    if (exportBranch && branchNames.has(exportBranch)) {
-      return
-    }
-
-    if (defaultBranch) {
-      setExportBranch(defaultBranch)
-    }
-  }, [
-    exportBranch,
-    isCreatingBranch,
-    persistedGitUrl,
-    repoBranches,
-    defaultBranch,
-  ])
-
   // Default the pull source to HEAD once commits load.
   useEffect(() => {
     if (commits?.length && !selectedCommitSha) {
       setSelectedCommitSha(commits[0].sha)
     }
   }, [commits, selectedCommitSha])
+
+  useEffect(() => {
+    setPullPreview(null)
+    setPullPreviewOptions(null)
+    setPullResult(null)
+  }, [effectivePullSha, syncSchedules])
 
   async function onSubmit(values: SyncSettingsForm) {
     const selectedRepository =
@@ -300,8 +307,8 @@ export function WorkspaceSyncSettings({
     try {
       const result = await exportWorkspace({
         message: exportMessage,
-        branch: exportBranch,
-        create_pr: createPr,
+        branch: targetBranch,
+        create_pr: !targetIsDefault,
         include_schedules: false,
         provider: "github",
       })
@@ -321,11 +328,47 @@ export function WorkspaceSyncSettings({
     }
   }
 
-  async function handlePull() {
+  async function handlePreviewPull() {
     if (!effectivePullSha) {
       return
     }
 
+    setPullAction("preview")
+    setPullPreview(null)
+    setPullResult(null)
+    try {
+      const result = await pullWorkflows({
+        commit_sha: effectivePullSha,
+        dry_run: true,
+        sync_schedules: syncSchedules,
+      })
+      setPullPreview(result)
+      setPullPreviewOptions({
+        commitSha: effectivePullSha,
+        syncSchedules,
+      })
+      toast({
+        title: result.success ? "Pull preview ready" : "Pull preview failed",
+        description: result.message,
+        variant: result.success ? undefined : "destructive",
+      })
+    } catch (error) {
+      toast({
+        title: "Pull preview failed",
+        description: getApiErrorDetail(error) ?? "Request failed",
+        variant: "destructive",
+      })
+    } finally {
+      setPullAction(null)
+    }
+  }
+
+  async function handleApplyPull() {
+    if (!effectivePullSha || !canApplyPull) {
+      return
+    }
+
+    setPullAction("apply")
     setPullResult(null)
     try {
       const result = await pullWorkflows({
@@ -333,6 +376,10 @@ export function WorkspaceSyncSettings({
         sync_schedules: syncSchedules,
       })
       setPullResult(result)
+      if (result.success) {
+        setPullPreview(null)
+        setPullPreviewOptions(null)
+      }
       toast({
         title: result.success
           ? "Workspace pull completed"
@@ -346,6 +393,8 @@ export function WorkspaceSyncSettings({
         description: getApiErrorDetail(error) ?? "Request failed",
         variant: "destructive",
       })
+    } finally {
+      setPullAction(null)
     }
   }
 
@@ -385,10 +434,7 @@ export function WorkspaceSyncSettings({
                           repository ? getRepositoryGitUrl(repository) : value
                         )
                       }}
-                      value={getRepositorySelectValue(
-                        field.value,
-                        repositories
-                      )}
+                      value={getRepositorySelectValue(field.value, repositories)}
                     >
                       <FormControl>
                         <SelectTrigger aria-invalid={fieldState.invalid}>
@@ -492,21 +538,16 @@ export function WorkspaceSyncSettings({
           onValueChange={(value) => setMode(value as SyncMode)}
           className="space-y-5"
         >
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <TabsList>
-              <TabsTrigger value="push" disableUnderline className="gap-1.5">
-                <ArrowUpIcon className="size-3.5" />
-                Push to Git
-              </TabsTrigger>
-              <TabsTrigger value="pull" disableUnderline className="gap-1.5">
-                <ArrowDownIcon className="size-3.5" />
-                Pull from Git
-              </TabsTrigger>
-            </TabsList>
-            <Badge variant="secondary" className="font-normal">
-              Workspace config
-            </Badge>
-          </div>
+          <TabsList>
+            <TabsTrigger value="push" disableUnderline className="gap-1.5">
+              <ArrowUpIcon className="size-3.5" />
+              Push
+            </TabsTrigger>
+            <TabsTrigger value="pull" disableUnderline className="gap-1.5">
+              <ArrowDownIcon className="size-3.5" />
+              Pull
+            </TabsTrigger>
+          </TabsList>
 
           <TabsContent value="push" className="space-y-4">
             <div className="space-y-2">
@@ -520,112 +561,19 @@ export function WorkspaceSyncSettings({
 
             <div className="space-y-2">
               <Label htmlFor="workspace-sync-branch">Branch</Label>
-              <Select
-                value={
-                  isCreatingBranch ||
-                  !repoBranches?.some((branch) => branch.name === exportBranch)
-                    ? CREATE_NEW_BRANCH_VALUE
-                    : exportBranch
-                }
-                onValueChange={(value) => {
-                  if (value === CREATE_NEW_BRANCH_VALUE) {
-                    setIsCreatingBranch(true)
-                    setExportBranch("sync/workspace")
-                    return
-                  }
-                  setIsCreatingBranch(false)
-                  setExportBranch(value)
-                }}
-                disabled={branchesIsLoading || !hasBranches}
-              >
-                <SelectTrigger id="workspace-sync-branch" className="min-w-0">
-                  {branchesIsLoading ? (
-                    <Skeleton className="h-4 w-full rounded-sm" />
-                  ) : (
-                    <SelectValue placeholder="Select branch" />
-                  )}
-                </SelectTrigger>
-                <SelectContent>
-                  {hasBranches ? (
-                    <>
-                      <SelectItem value={CREATE_NEW_BRANCH_VALUE}>
-                        Create new branch...
-                      </SelectItem>
-                      <SelectSeparator />
-                      {(repoBranches ?? []).map((branch) => (
-                        <SelectItem key={branch.name} value={branch.name}>
-                          <div className="flex items-center gap-2">
-                            <span>{branch.name}</span>
-                            {branch.is_default && (
-                              <Badge
-                                variant="secondary"
-                                className="h-4 rounded-sm px-1 text-[10px] font-normal"
-                              >
-                                default
-                              </Badge>
-                            )}
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </>
-                  ) : (
-                    <SelectItem value="__no_branches" disabled>
-                      No branches found
-                    </SelectItem>
-                  )}
-                </SelectContent>
-              </Select>
-              {isCreatingBranch && (
-                <div className="space-y-1">
-                  <Input
-                    value={exportBranch}
-                    onChange={(event) => setExportBranch(event.target.value)}
-                    placeholder="sync/workspace"
-                  />
-                  <p className="text-[11px] text-muted-foreground">
-                    The branch will be created from the repository default
-                    branch.
-                  </p>
-                </div>
-              )}
-              {!branchesIsLoading && !hasBranches && (
-                <p className="text-[11px] text-muted-foreground">
-                  No branches available from the configured repository.
-                </p>
-              )}
-              {branchesError && (
-                <p className="text-[11px] text-destructive">
-                  Failed to load repository branches.
-                </p>
-              )}
+              <WorkspaceSyncBranchSelector
+                id="workspace-sync-branch"
+                branches={repoBranches}
+                branch={exportBranch}
+                isCreatingBranch={isCreatingBranch}
+                branchesIsLoading={branchesIsLoading}
+                hasBranches={hasBranches}
+                branchesError={branchesError}
+                newBranchPlaceholder="sync/workspace"
+                onSelectBranch={selectExportBranch}
+                onBranchChange={setExportBranch}
+              />
             </div>
-
-            <div className="space-y-2">
-              <Label>How to deliver</Label>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <DeliveryOption
-                  selected={delivery === "direct"}
-                  onClick={() => setDelivery("direct")}
-                  icon={<GitCommitHorizontalIcon className="size-4" />}
-                  title="Commit directly"
-                  description={`Writes straight onto ${exportBranch || "the branch"}. No review step.`}
-                />
-                <DeliveryOption
-                  selected={delivery === "pr"}
-                  onClick={() => setDelivery("pr")}
-                  icon={<GitPullRequestIcon className="size-4" />}
-                  title="Open a pull request"
-                  description="Pushes to a branch and reuses an open PR if one exists."
-                />
-              </div>
-            </div>
-
-            {delivery === "direct" && isDefaultBranchSelected && (
-              <SyncWarning>
-                This commits directly to the default branch — changes go live
-                immediately.
-              </SyncWarning>
-            )}
 
             <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex flex-wrap items-center gap-1.5 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
@@ -636,7 +584,7 @@ export function WorkspaceSyncSettings({
                 </span>
                 <span>@</span>
                 <span className="font-mono text-foreground">
-                  {exportBranch || "—"}
+                  {targetBranch || "—"}
                 </span>
               </div>
               <Button
@@ -683,14 +631,18 @@ export function WorkspaceSyncSettings({
                 }
                 disabled={pullWorkflowsIsPending}
               />
-              Also update schedules
+              Overwrite schedules
             </label>
 
             <SyncWarning>
-              Existing resources with the same ID will be overwritten. Schedules
-              are preserved unless checked above.
+              Preview the incoming resource diff before applying. Existing
+              resources with the same ID will be overwritten. Schedules are
+              preserved unless checked above.
             </SyncWarning>
 
+            {pullPreview && pullPreviewMatchesSelection && (
+              <PullPreviewSummary result={pullPreview} />
+            )}
             {pullResult && <PullResultSummary result={pullResult} />}
 
             <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
@@ -704,7 +656,8 @@ export function WorkspaceSyncSettings({
               <Button
                 type="button"
                 size="sm"
-                onClick={handlePull}
+                variant="outline"
+                onClick={handlePreviewPull}
                 disabled={
                   pullWorkflowsIsPending ||
                   commitsIsLoading ||
@@ -712,12 +665,30 @@ export function WorkspaceSyncSettings({
                 }
                 className="shrink-0 gap-1.5"
               >
-                {pullWorkflowsIsPending ? (
+                {pullWorkflowsIsPending && pullAction === "preview" ? (
+                  <Loader2Icon className="size-4 animate-spin" />
+                ) : (
+                  <SearchIcon className="size-4" />
+                )}
+                {pullWorkflowsIsPending && pullAction === "preview"
+                  ? "Previewing..."
+                  : "Preview changes"}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleApplyPull}
+                disabled={pullWorkflowsIsPending || !canApplyPull}
+                className="shrink-0 gap-1.5"
+              >
+                {pullWorkflowsIsPending && pullAction === "apply" ? (
                   <Loader2Icon className="size-4 animate-spin" />
                 ) : (
                   <ArrowDownIcon className="size-4" />
                 )}
-                {pullWorkflowsIsPending ? "Pulling..." : "Pull workspace"}
+                {pullWorkflowsIsPending && pullAction === "apply"
+                  ? "Applying..."
+                  : "Apply pull"}
               </Button>
             </div>
           </TabsContent>
@@ -796,65 +767,308 @@ function ConnectionStatus({
   )
 }
 
-interface DeliveryOptionProps {
-  selected: boolean
-  onClick: () => void
-  icon: React.ReactNode
-  title: string
-  description: string
-}
-
 /**
- * A selectable card used to choose how a push is delivered (direct commit vs
- * pull request). Spells out the consequence of each choice inline.
- */
-function DeliveryOption({
-  selected,
-  onClick,
-  icon,
-  title,
-  description,
-}: DeliveryOptionProps) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={selected}
-      className={cn(
-        "flex items-start justify-between gap-2 rounded-lg border p-3 text-left transition-colors",
-        selected
-          ? "border-primary bg-primary/5"
-          : "border-border hover:border-muted-foreground/40"
-      )}
-    >
-      <div className="space-y-1">
-        <div className="flex items-center gap-2 text-sm font-medium">
-          {icon}
-          {title}
-        </div>
-        <p className="text-[11px] text-muted-foreground">{description}</p>
-      </div>
-      <span
-        className={cn(
-          "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border",
-          selected ? "border-primary" : "border-muted-foreground/40"
-        )}
-      >
-        {selected && <span className="size-2 rounded-full bg-primary" />}
-      </span>
-    </button>
-  )
-}
-
-/**
- * Inline amber advisory used for both push (direct-commit) and pull (overwrite)
- * consequences.
+ * Inline amber advisory used for pull overwrite consequences.
  */
 function SyncWarning({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
       <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" />
       <span>{children}</span>
+    </div>
+  )
+}
+
+/**
+ * Dry-run pull preview: a compact summary line plus a reviewable list of
+ * per-resource file diffs.
+ */
+function PullPreviewSummary({ result }: { result: PullResult }) {
+  const resourceCounts = resourceCountEntries(result)
+  const totalFound =
+    resourceCounts.length > 0
+      ? resourceCounts.reduce((total, [, count]) => total + count.found, 0)
+      : (result.workflows_found ?? 0)
+  const resourceDiffs = result.resource_diffs ?? []
+  const addedCount = resourceDiffs.filter(
+    (diff) => diff.change_type === "added"
+  ).length
+  const modifiedCount = resourceDiffs.filter(
+    (diff) => diff.change_type === "modified"
+  ).length
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span className="flex items-center gap-1.5 text-sm font-medium">
+          {result.success ? (
+            <CheckCircle2Icon className="size-4 text-green-600" />
+          ) : (
+            <XCircleIcon className="size-4 text-destructive" />
+          )}
+          {result.success ? "Pull preview" : "Preview failed"}
+        </span>
+        <span className="h-4 w-px bg-border" />
+        <SummaryMetric label="found" value={totalFound} />
+        <SummaryMetric
+          label="changes"
+          value={resourceDiffs.length}
+          emphasize={resourceDiffs.length > 0}
+        />
+        <SummaryMetric
+          label="issues"
+          value={result.diagnostics.length}
+          emphasize={result.diagnostics.length > 0}
+        />
+        <div className="ml-auto flex flex-wrap gap-1.5">
+          <Badge variant="secondary" className="font-normal">
+            {addedCount} added
+          </Badge>
+          <Badge variant="secondary" className="font-normal">
+            {modifiedCount} modified
+          </Badge>
+        </div>
+      </div>
+
+      {!result.success && (
+        <p className="text-sm text-muted-foreground">{result.message}</p>
+      )}
+
+      {resourceDiffs.length > 0 ? (
+        <PullDiffReviewList diffs={resourceDiffs} />
+      ) : (
+        <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+          No resource changes detected.
+        </p>
+      )}
+
+      {result.diagnostics.length > 0 && (
+        <PullDiagnostics diagnostics={result.diagnostics} />
+      )}
+    </div>
+  )
+}
+
+/**
+ * Single inline metric ("13 found") for the pull preview summary line.
+ */
+function SummaryMetric({
+  label,
+  value,
+  emphasize = false,
+}: {
+  label: string
+  value: number
+  emphasize?: boolean
+}) {
+  return (
+    <span className="text-sm tabular-nums">
+      <span className={cn("font-medium", emphasize && "text-amber-600")}>
+        {value}
+      </span>{" "}
+      <span className="text-muted-foreground">{label}</span>
+    </span>
+  )
+}
+
+/** Return a new Set with `key` added (when `present`) or removed. */
+function withMember(
+  set: Set<string>,
+  key: string,
+  present: boolean
+): Set<string> {
+  const next = new Set(set)
+  if (present) {
+    next.add(key)
+  } else {
+    next.delete(key)
+  }
+  return next
+}
+
+/**
+ * Reviewable list of resource diffs. Each item collapses and can be marked as
+ * viewed independently; the header tracks overall progress and can mark every
+ * change as viewed at once.
+ */
+function PullDiffReviewList({ diffs }: { diffs: PullResourceDiff[] }) {
+  const [viewed, setViewed] = useState<Set<string>>(() => new Set())
+  // Collapse state lives here so "Viewed all" can tidy every item closed, while
+  // a single item's chevron can still expand/collapse without changing its
+  // viewed flag.
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
+
+  const viewedCount = diffs.reduce(
+    (total, diff) => (viewed.has(diff.source_path) ? total + 1 : total),
+    0
+  )
+  const allViewed = viewedCount === diffs.length
+
+  function setItemViewed(sourcePath: string, value: boolean) {
+    // Marking viewed collapses the item; unmarking re-expands it.
+    setViewed((previous) => withMember(previous, sourcePath, value))
+    setCollapsed((previous) => withMember(previous, sourcePath, value))
+  }
+
+  function setItemOpen(sourcePath: string, open: boolean) {
+    setCollapsed((previous) => withMember(previous, sourcePath, !open))
+  }
+
+  function markAllViewed() {
+    const paths = diffs.map((diff) => diff.source_path)
+    setViewed(new Set(paths))
+    setCollapsed(new Set(paths))
+  }
+
+  return (
+    <div className="overflow-hidden rounded-md border">
+      <div className="flex flex-wrap items-center gap-3 border-b bg-muted/50 px-3 py-2">
+        <span className="text-xs font-medium tabular-nums">
+          {viewedCount} of {diffs.length}{" "}
+          <span className="font-normal text-muted-foreground">viewed</span>
+        </span>
+        <div className="h-1.5 min-w-[80px] flex-1 overflow-hidden rounded-full bg-border">
+          <div
+            className="h-full rounded-full bg-secondary-foreground/40 transition-all"
+            style={{ width: `${(viewedCount / diffs.length) * 100}%` }}
+          />
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs"
+          disabled={allViewed}
+          onClick={markAllViewed}
+        >
+          Viewed all
+        </Button>
+      </div>
+
+      <div className="divide-y">
+        {diffs.map((diff) => (
+          <PullResourceDiffItem
+            key={diff.source_path}
+            diff={diff}
+            viewed={viewed.has(diff.source_path)}
+            open={!collapsed.has(diff.source_path)}
+            onViewedChange={(value) => setItemViewed(diff.source_path, value)}
+            onOpenChange={(open) => setItemOpen(diff.source_path, open)}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Single changed resource file in a pull preview. Expanded by default. Marking
+ * it viewed collapses the item (and unmarking re-expands it); the chevron
+ * toggles collapse independently without changing the viewed state.
+ */
+function PullResourceDiffItem({
+  diff,
+  viewed,
+  open,
+  onViewedChange,
+  onOpenChange,
+}: {
+  diff: PullResourceDiff
+  viewed: boolean
+  open: boolean
+  onViewedChange: (value: boolean) => void
+  onOpenChange: (open: boolean) => void
+}) {
+  return (
+    <Collapsible open={open} onOpenChange={onOpenChange}>
+      <div className="flex items-center gap-2 px-3 py-2.5">
+        <CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-2 text-left">
+          <ChevronRightIcon
+            className={cn(
+              "size-3.5 shrink-0 text-muted-foreground transition-transform",
+              open && "rotate-90"
+            )}
+          />
+          <Badge variant="outline" className="shrink-0 capitalize">
+            {diff.change_type}
+          </Badge>
+          <span
+            className={cn(
+              "min-w-0 truncate text-sm font-medium",
+              viewed && "text-muted-foreground"
+            )}
+          >
+            {diff.title ?? diff.source_id}
+          </span>
+          <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+            {RESOURCE_LABELS[diff.resource_type] ?? diff.resource_type}
+          </span>
+        </CollapsibleTrigger>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Checkbox
+            checked={viewed}
+            onCheckedChange={(value) => onViewedChange(value === true)}
+            aria-label="Mark as viewed"
+            className="border-input shadow-none data-[state=checked]:border-muted-foreground data-[state=checked]:bg-secondary data-[state=checked]:text-secondary-foreground"
+          />
+          <button
+            type="button"
+            onClick={() => onViewedChange(!viewed)}
+            className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Viewed
+          </button>
+        </div>
+      </div>
+      <CollapsibleContent>
+        <div className="space-y-2 px-3 pb-3">
+          <div className="font-mono text-[11px] text-muted-foreground">
+            {diff.source_path}
+          </div>
+          <div className="max-h-96 min-w-0 overflow-auto rounded-md border bg-background">
+            <UnifiedDiff diff={diff.diff} />
+          </div>
+          {diff.truncated && (
+            <p className="text-[11px] text-muted-foreground">
+              Diff truncated for preview.
+            </p>
+          )}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}
+
+/**
+ * Shared diagnostic list for pull previews and completed pulls.
+ */
+function PullDiagnostics({
+  diagnostics,
+}: {
+  diagnostics: PullResult["diagnostics"]
+}) {
+  return (
+    <div className="space-y-2">
+      <h6 className="text-sm font-medium">Issues found:</h6>
+      <div className="max-h-32 space-y-2 overflow-y-auto">
+        {diagnostics.map((diagnostic) => (
+          <div
+            key={diagnostic.workflow_title || diagnostic.workflow_path}
+            className="flex items-start gap-2 rounded bg-muted p-2 text-xs"
+          >
+            <AlertTriangleIcon className="mt-0.5 size-3 shrink-0 text-amber-500" />
+            <div className="min-w-0 space-y-1">
+              <div className="font-medium">
+                {diagnostic.workflow_title || diagnostic.workflow_path}
+              </div>
+              <div className="text-muted-foreground">{diagnostic.message}</div>
+              <Badge variant="outline" className="text-xs">
+                {diagnostic.error_type}
+              </Badge>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -927,30 +1141,7 @@ function PullResultSummary({ result }: { result: PullResult }) {
       <p className="text-sm">{result.message}</p>
 
       {result.diagnostics.length > 0 && (
-        <div className="space-y-2">
-          <h6 className="text-sm font-medium">Issues found:</h6>
-          <div className="max-h-32 space-y-2 overflow-y-auto">
-            {result.diagnostics.map((diagnostic) => (
-              <div
-                key={diagnostic.workflow_title || diagnostic.workflow_path}
-                className="flex items-start gap-2 rounded bg-muted p-2 text-xs"
-              >
-                <AlertTriangleIcon className="mt-0.5 size-3 shrink-0 text-amber-500" />
-                <div className="min-w-0 space-y-1">
-                  <div className="font-medium">
-                    {diagnostic.workflow_title || diagnostic.workflow_path}
-                  </div>
-                  <div className="text-muted-foreground">
-                    {diagnostic.message}
-                  </div>
-                  <Badge variant="outline" className="text-xs">
-                    {diagnostic.error_type}
-                  </Badge>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        <PullDiagnostics diagnostics={result.diagnostics} />
       )}
     </div>
   )
