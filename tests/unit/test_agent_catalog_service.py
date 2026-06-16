@@ -15,11 +15,30 @@ from tracecat.agent.catalog.schemas import (
 from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
-from tracecat.db.models import AgentCatalog, AgentCustomProvider, Organization
+from tracecat.db.models import (
+    AgentCatalog,
+    AgentCustomProvider,
+    AgentModelAccess,
+    Organization,
+)
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import CursorPaginationParams
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+def _enable(
+    *,
+    org_id: uuid.UUID,
+    catalog_id: uuid.UUID,
+    workspace_id: uuid.UUID | None = None,
+) -> AgentModelAccess:
+    """Build an AgentModelAccess row (org-level when workspace_id is None)."""
+    return AgentModelAccess(
+        organization_id=org_id,
+        workspace_id=workspace_id,
+        catalog_id=catalog_id,
+    )
 
 
 def _user_role(organization_id: uuid.UUID) -> Role:
@@ -656,6 +675,8 @@ async def test_resolve_catalog_id_by_model_returns_org_row(
         model_metadata={},
     )
     session.add(row)
+    await session.flush()
+    session.add(_enable(org_id=svc_organization.id, catalog_id=row.id))
     await session.commit()
 
     resolved = await service.resolve_catalog_id_by_model(
@@ -688,6 +709,14 @@ async def test_resolve_catalog_id_by_model_prefers_org_over_platform(
         model_metadata={},
     )
     session.add_all([platform_row, org_row])
+    await session.flush()
+    # Both enabled at org level; the org-owned row wins.
+    session.add_all(
+        [
+            _enable(org_id=svc_organization.id, catalog_id=platform_row.id),
+            _enable(org_id=svc_organization.id, catalog_id=org_row.id),
+        ]
+    )
     await session.commit()
 
     resolved = await service.resolve_catalog_id_by_model(
@@ -713,6 +742,8 @@ async def test_resolve_catalog_id_by_model_falls_back_to_platform(
         model_metadata={},
     )
     session.add(platform_row)
+    await session.flush()
+    session.add(_enable(org_id=svc_organization.id, catalog_id=platform_row.id))
     await session.commit()
 
     resolved = await service.resolve_catalog_id_by_model(
@@ -738,3 +769,181 @@ async def test_resolve_catalog_id_by_model_no_match(
     )
 
     assert resolved is None
+
+
+@pytest.mark.anyio
+async def test_resolve_catalog_id_by_model_skips_disabled_row(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    """An org row that exists but is not enabled is not selected."""
+    service = AgentCatalogService(session=session)
+    row = AgentCatalog(
+        organization_id=svc_organization.id,
+        custom_provider_id=None,
+        model_provider="anthropic",
+        model_name="claude-opus-4-8",
+        model_metadata={},
+    )
+    session.add(row)
+    await session.commit()  # no AgentModelAccess row -> not enabled
+
+    resolved = await service.resolve_catalog_id_by_model(
+        org_id=svc_organization.id,
+        model_provider="anthropic",
+        model_name="claude-opus-4-8",
+    )
+
+    assert resolved is None
+
+
+@pytest.mark.anyio
+async def test_resolve_catalog_id_by_model_prefers_enabled_platform_over_disabled_org(
+    session: AsyncSession,
+    svc_organization: Organization,
+    svc_workspace,
+) -> None:
+    """When the org row is disabled but a platform row is enabled, pick platform.
+
+    This is the runtime-rejection case: rewriting to the disabled org row would
+    make get_catalog_credentials raise even though an enabled model exists.
+    """
+    service = AgentCatalogService(session=session)
+    org_row = AgentCatalog(
+        organization_id=svc_organization.id,
+        custom_provider_id=None,
+        model_provider="anthropic",
+        model_name="claude-opus-4-8",
+        model_metadata={},
+    )
+    platform_row = AgentCatalog(
+        organization_id=None,
+        custom_provider_id=None,
+        model_provider="anthropic",
+        model_name="claude-opus-4-8",
+        model_metadata={},
+    )
+    session.add_all([org_row, platform_row])
+    await session.flush()
+    # Only the platform row is enabled (org level); org row is NOT enabled.
+    session.add(_enable(org_id=svc_organization.id, catalog_id=platform_row.id))
+    await session.commit()
+
+    resolved = await service.resolve_catalog_id_by_model(
+        org_id=svc_organization.id,
+        model_provider="anthropic",
+        model_name="claude-opus-4-8",
+        workspace_id=svc_workspace.id,
+    )
+
+    assert resolved == platform_row.id
+
+
+@pytest.mark.anyio
+async def test_resolve_catalog_id_by_model_workspace_override_replaces_org(
+    session: AsyncSession,
+    svc_organization: Organization,
+    svc_workspace,
+) -> None:
+    """A workspace override fully replaces the org-level enabled set."""
+    service = AgentCatalogService(session=session)
+    row_a = AgentCatalog(
+        organization_id=svc_organization.id,
+        custom_provider_id=None,
+        model_provider="anthropic",
+        model_name="claude-opus-4-8",
+        model_metadata={},
+    )
+    row_b = AgentCatalog(
+        organization_id=svc_organization.id,
+        custom_provider_id=None,
+        model_provider="openai",
+        model_name="gpt-4.1",
+        model_metadata={},
+    )
+    session.add_all([row_a, row_b])
+    await session.flush()
+    # Org level enables A; the workspace override enables only B.
+    session.add(_enable(org_id=svc_organization.id, catalog_id=row_a.id))
+    session.add(
+        _enable(
+            org_id=svc_organization.id,
+            catalog_id=row_b.id,
+            workspace_id=svc_workspace.id,
+        )
+    )
+    await session.commit()
+
+    # A is org-enabled but the workspace override hides it.
+    assert (
+        await service.resolve_catalog_id_by_model(
+            org_id=svc_organization.id,
+            model_provider="anthropic",
+            model_name="claude-opus-4-8",
+            workspace_id=svc_workspace.id,
+        )
+        is None
+    )
+    # B is enabled via the override.
+    assert (
+        await service.resolve_catalog_id_by_model(
+            org_id=svc_organization.id,
+            model_provider="openai",
+            model_name="gpt-4.1",
+            workspace_id=svc_workspace.id,
+        )
+        == row_b.id
+    )
+
+
+@pytest.mark.anyio
+async def test_resolve_catalog_id_by_model_multiple_rows_best_effort(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    """Same (provider, name) on multiple custom providers: best-effort pick.
+
+    The information needed to pick the exact row (custom_provider_id) is
+    environment-specific and unrecoverable, so we deterministically pick one
+    matching row rather than skip the remap.
+    """
+    service = AgentCatalogService(session=session)
+    rows = []
+    for name in ("Provider A", "Provider B"):
+        p = AgentCustomProvider(
+            organization_id=svc_organization.id,
+            display_name=name,
+            base_url="https://api.example.com",
+        )
+        session.add(p)
+        await session.flush()
+        row = AgentCatalog(
+            organization_id=svc_organization.id,
+            custom_provider_id=p.id,
+            model_provider="custom-model-provider",
+            model_name="shared-model",
+            model_metadata={},
+        )
+        session.add(row)
+        rows.append(row)
+    await session.flush()
+    for row in rows:
+        session.add(_enable(org_id=svc_organization.id, catalog_id=row.id))
+    await session.commit()
+    candidate_ids = {row.id for row in rows}
+
+    resolved = await service.resolve_catalog_id_by_model(
+        org_id=svc_organization.id,
+        model_provider="custom-model-provider",
+        model_name="shared-model",
+    )
+
+    # Picks one of the matching org rows (deterministically), never None.
+    assert resolved in candidate_ids
+    # Stable across calls.
+    again = await service.resolve_catalog_id_by_model(
+        org_id=svc_organization.id,
+        model_provider="custom-model-provider",
+        model_name="shared-model",
+    )
+    assert again == resolved

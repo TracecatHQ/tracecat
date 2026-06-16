@@ -1026,6 +1026,10 @@ class WorkflowsManagementService(BaseWorkspaceService):
             return dsl
 
         catalog_svc = AgentCatalogService(session=self.session)
+        # Cache resolutions by (provider, name) — a synced workflow may have
+        # many agent actions on the same model; this avoids repeat DB queries.
+        # ``None`` results (no match / ambiguous) are cached too.
+        resolved: dict[tuple[str, str], uuid.UUID | None] = {}
         rewritten = False
         new_actions = list(dsl.actions)
         for idx, act_stmt in enumerate(dsl.actions):
@@ -1033,23 +1037,34 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 continue
 
             args = act_stmt.args
-            # Model selection arrives either nested under ``model`` or as flat
-            # ``model_name`` / ``model_provider`` / ``catalog_id`` fields, the
-            # same dual shape ``AgentActionArgs`` accepts.
+            # Model selection arrives nested under ``model`` and/or as flat
+            # ``model_name`` / ``model_provider`` / ``catalog_id`` fields.
+            # ``AgentActionArgs`` merges nested over flat per-key, so a mixed
+            # shape (e.g. nested provider/name but a top-level ``catalog_id``)
+            # keeps the flat ``catalog_id``. Mirror that merge here: read each
+            # field from nested when present, else fall back to flat.
             nested = args.get("model")
-            source = nested if isinstance(nested, dict) else args
+            nested = nested if isinstance(nested, dict) else None
+            # Per-key merge of nested over flat, matching AgentActionArgs.
+            merged = {**args, **nested} if nested is not None else args
 
-            catalog_id = source.get("catalog_id")
-            model_provider = source.get("model_provider")
-            model_name = source.get("model_name")
+            catalog_id = merged.get("catalog_id")
+            model_provider = merged.get("model_provider")
+            model_name = merged.get("model_name")
             if not catalog_id or not model_provider or not model_name:
                 continue
 
-            local_id = await catalog_svc.resolve_catalog_id_by_model(
-                org_id=org_id,
-                model_provider=str(model_provider),
-                model_name=str(model_name),
-            )
+            key = (str(model_provider), str(model_name))
+            if key in resolved:
+                local_id = resolved[key]
+            else:
+                local_id = await catalog_svc.resolve_catalog_id_by_model(
+                    org_id=org_id,
+                    model_provider=key[0],
+                    model_name=key[1],
+                    workspace_id=self.workspace_id,
+                )
+                resolved[key] = local_id
             if local_id is None or str(local_id) == str(catalog_id):
                 continue
 
@@ -1058,12 +1073,15 @@ class WorkflowsManagementService(BaseWorkspaceService):
             # object tag that ``yaml.safe_load`` rejects on export).
             new_catalog_id = str(local_id)
             new_args = dict(args)
-            if isinstance(nested, dict):
+            # Always set the flat ``catalog_id`` and, when the nested block
+            # carries one, update it too. The runtime merges nested over flat
+            # per-key, so keeping both copies in sync means the effective id is
+            # correct whichever one wins.
+            new_args["catalog_id"] = new_catalog_id
+            if nested is not None and "catalog_id" in nested:
                 new_model = dict(nested)
                 new_model["catalog_id"] = new_catalog_id
                 new_args["model"] = new_model
-            else:
-                new_args["catalog_id"] = new_catalog_id
             new_actions[idx] = act_stmt.model_copy(update={"args": new_args})
             rewritten = True
             self.logger.info(
