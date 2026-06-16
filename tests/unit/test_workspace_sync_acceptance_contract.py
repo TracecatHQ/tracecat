@@ -1,8 +1,7 @@
 """Acceptance contract for expanded workspace sync resources.
 
-These tests encode the all-config-resource QA plan while the implementation is
-still workflow-only. The static contract tests should pass today; adapter and
-reconciler tests are xfailed until those resource handlers exist.
+These tests encode the all-config-resource QA plan for the workspace sync
+resource adapter and reconciler implementations.
 """
 
 from __future__ import annotations
@@ -33,6 +32,7 @@ from tracecat.db.models import (
 )
 from tracecat.git.types import GitUrl
 from tracecat.sync import PullOptions
+from tracecat.workspace_sync.adapters import WORKSPACE_RESOURCE_ADAPTERS
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.importer import WorkspaceResourceImportService
 from tracecat.workspace_sync.schemas import (
@@ -98,6 +98,15 @@ def test_sync_resource_type_declares_expanded_resource_contract() -> None:
     assert {resource_type.value for resource_type in SyncResourceType} >= (
         EXPANDED_RESOURCE_TYPES
     )
+
+
+def test_resource_adapters_cover_expanded_resource_contract() -> None:
+    adapter_types = {
+        adapter.resource_type.value for adapter in WORKSPACE_RESOURCE_ADAPTERS
+    }
+
+    assert adapter_types >= EXPANDED_RESOURCE_TYPES
+    assert len(adapter_types) == len(WORKSPACE_RESOURCE_ADAPTERS)
 
 
 def test_manifest_declares_expanded_resource_roots() -> None:

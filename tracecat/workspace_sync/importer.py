@@ -47,18 +47,20 @@ from tracecat.service import BaseWorkspaceService
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import TableColumnCreate, TableCreate, TableRowInsert
 from tracecat.tables.service import BaseTablesService
-from tracecat.workspace_sync.enums import SyncResourceType
-from tracecat.workspace_sync.resources import (
-    agent_preset_source_path,
-    case_dropdown_source_path,
-    case_duration_source_path,
-    case_field_source_path,
-    case_tag_source_path,
-    secret_metadata_source_path,
-    skill_source_path,
-    table_source_path,
-    variable_source_path,
+from tracecat.workspace_sync.adapters import (
+    AGENT_PRESET_RESOURCE_ADAPTER,
+    CASE_DROPDOWN_RESOURCE_ADAPTER,
+    CASE_DURATION_RESOURCE_ADAPTER,
+    CASE_FIELD_RESOURCE_ADAPTER,
+    CASE_TAG_RESOURCE_ADAPTER,
+    NON_WORKFLOW_IMPORT_ADAPTERS,
+    SECRET_METADATA_RESOURCE_ADAPTER,
+    SKILL_RESOURCE_ADAPTER,
+    TABLE_RESOURCE_ADAPTER,
+    VARIABLE_RESOURCE_ADAPTER,
+    WorkspaceSyncResourceAdapter,
 )
+from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
     AgentPresetResourceSpec,
     AgentPresetSkillBinding,
@@ -85,6 +87,19 @@ class ImportedResource:
     local_id: uuid.UUID
 
 
+def _imported_resource(
+    adapter: WorkspaceSyncResourceAdapter,
+    source_id: str,
+    local_id: uuid.UUID,
+) -> ImportedResource:
+    return ImportedResource(
+        resource_type=adapter.resource_type,
+        source_id=source_id,
+        source_path=adapter.source_path(source_id),
+        local_id=local_id,
+    )
+
+
 class WorkspaceResourceImportService(BaseWorkspaceService):
     """Reconcile non-workflow workspace sync resource specs into the DB."""
 
@@ -95,15 +110,12 @@ class WorkspaceResourceImportService(BaseWorkspaceService):
         spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         imported: list[ImportedResource] = []
-        imported.extend(await self._import_variables(spec.variables))
-        imported.extend(await self._import_secret_metadata(spec.secret_metadata))
-        imported.extend(await self._import_case_tags(spec.case_tags))
-        imported.extend(await self._import_case_dropdowns(spec.case_dropdowns))
-        imported.extend(await self._import_case_durations(spec.case_durations))
-        imported.extend(await self._import_case_fields(spec.case_fields))
-        imported.extend(await self._import_tables(spec.tables))
-        imported.extend(await self._import_skills(spec.skills))
-        imported.extend(await self._import_agent_presets(spec.agent_presets))
+        for adapter in NON_WORKFLOW_IMPORT_ADAPTERS:
+            if adapter.import_method is None:
+                continue
+            imported.extend(
+                await getattr(self, adapter.import_method)(adapter.specs(spec))
+            )
         return imported
 
     async def _import_variables(
@@ -137,12 +149,7 @@ class WorkspaceResourceImportService(BaseWorkspaceService):
             self.session.add(variable)
             await self.session.flush()
             imported.append(
-                ImportedResource(
-                    resource_type=SyncResourceType.VARIABLE,
-                    source_id=source_id,
-                    source_path=variable_source_path(source_id),
-                    local_id=variable.id,
-                )
+                _imported_resource(VARIABLE_RESOURCE_ADAPTER, source_id, variable.id)
             )
         return imported
 
@@ -198,11 +205,10 @@ class WorkspaceResourceImportService(BaseWorkspaceService):
             self.session.add(secret)
             await self.session.flush()
             imported.append(
-                ImportedResource(
-                    resource_type=SyncResourceType.SECRET_METADATA,
-                    source_id=source_id,
-                    source_path=secret_metadata_source_path(source_id),
-                    local_id=secret.id,
+                _imported_resource(
+                    SECRET_METADATA_RESOURCE_ADAPTER,
+                    source_id,
+                    secret.id,
                 )
             )
         return imported
@@ -232,12 +238,7 @@ class WorkspaceResourceImportService(BaseWorkspaceService):
             self.session.add(tag)
             await self.session.flush()
             imported.append(
-                ImportedResource(
-                    resource_type=SyncResourceType.CASE_TAG,
-                    source_id=source_id,
-                    source_path=case_tag_source_path(source_id),
-                    local_id=tag.id,
-                )
+                _imported_resource(CASE_TAG_RESOURCE_ADAPTER, source_id, tag.id)
             )
         return imported
 
@@ -295,11 +296,10 @@ class WorkspaceResourceImportService(BaseWorkspaceService):
             self.session.add(dropdown)
             await self.session.flush()
             imported.append(
-                ImportedResource(
-                    resource_type=SyncResourceType.CASE_DROPDOWN,
-                    source_id=source_id,
-                    source_path=case_dropdown_source_path(source_id),
-                    local_id=dropdown.id,
+                _imported_resource(
+                    CASE_DROPDOWN_RESOURCE_ADAPTER,
+                    source_id,
+                    dropdown.id,
                 )
             )
         return imported
@@ -341,11 +341,10 @@ class WorkspaceResourceImportService(BaseWorkspaceService):
             self.session.add(duration)
             await self.session.flush()
             imported.append(
-                ImportedResource(
-                    resource_type=SyncResourceType.CASE_DURATION,
-                    source_id=source_id,
-                    source_path=case_duration_source_path(source_id),
-                    local_id=duration.id,
+                _imported_resource(
+                    CASE_DURATION_RESOURCE_ADAPTER,
+                    source_id,
+                    duration.id,
                 )
             )
         return imported
@@ -395,11 +394,10 @@ class WorkspaceResourceImportService(BaseWorkspaceService):
             )
             if definition is not None:
                 imported.append(
-                    ImportedResource(
-                        resource_type=SyncResourceType.CASE_FIELD,
-                        source_id=source_id,
-                        source_path=case_field_source_path(source_id),
-                        local_id=definition.id,
+                    _imported_resource(
+                        CASE_FIELD_RESOURCE_ADAPTER,
+                        source_id,
+                        definition.id,
                     )
                 )
         return imported
@@ -466,12 +464,7 @@ class WorkspaceResourceImportService(BaseWorkspaceService):
                 )
             await self.session.flush()
             imported.append(
-                ImportedResource(
-                    resource_type=SyncResourceType.TABLE,
-                    source_id=source_id,
-                    source_path=table_source_path(source_id),
-                    local_id=table.id,
-                )
+                _imported_resource(TABLE_RESOURCE_ADAPTER, source_id, table.id)
             )
         return imported
 
@@ -578,12 +571,7 @@ class WorkspaceResourceImportService(BaseWorkspaceService):
             self.session.add(skill)
             await self.session.flush()
             imported.append(
-                ImportedResource(
-                    resource_type=SyncResourceType.SKILL,
-                    source_id=source_id,
-                    source_path=skill_source_path(source_id),
-                    local_id=skill.id,
-                )
+                _imported_resource(SKILL_RESOURCE_ADAPTER, source_id, skill.id)
             )
         return imported
 
@@ -639,11 +627,10 @@ class WorkspaceResourceImportService(BaseWorkspaceService):
             self.session.add(preset)
             await self.session.flush()
             imported.append(
-                ImportedResource(
-                    resource_type=SyncResourceType.AGENT_PRESET,
-                    source_id=source_id,
-                    source_path=agent_preset_source_path(source_id),
-                    local_id=preset.id,
+                _imported_resource(
+                    AGENT_PRESET_RESOURCE_ADAPTER,
+                    source_id,
+                    preset.id,
                 )
             )
         return imported

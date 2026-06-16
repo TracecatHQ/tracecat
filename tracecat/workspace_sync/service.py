@@ -35,6 +35,11 @@ from tracecat.workflow.store.import_service import WorkflowImportService
 from tracecat.workflow.store.schemas import (
     validate_short_branch_name,
 )
+from tracecat.workspace_sync.adapters import (
+    NON_WORKFLOW_RESOURCE_ADAPTERS,
+    WORKFLOW_RESOURCE_ADAPTER,
+    workspace_spec_from_maps,
+)
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.importer import (
     ImportedResource,
@@ -285,17 +290,14 @@ class WorkspaceSyncService(BaseWorkspaceService):
                 )
 
         manifest = WorkspaceManifest()
-        spec = WorkspaceSpec(
-            workflows=dict(sorted(specs.items())),
-            agent_presets=non_workflow_spec.agent_presets,
-            skills=non_workflow_spec.skills,
-            tables=non_workflow_spec.tables,
-            case_tags=non_workflow_spec.case_tags,
-            case_fields=non_workflow_spec.case_fields,
-            case_dropdowns=non_workflow_spec.case_dropdowns,
-            case_durations=non_workflow_spec.case_durations,
-            variables=non_workflow_spec.variables,
-            secret_metadata=non_workflow_spec.secret_metadata,
+        spec = workspace_spec_from_maps(
+            {
+                WORKFLOW_RESOURCE_ADAPTER.spec_attr: specs,
+                **{
+                    adapter.spec_attr: adapter.specs(non_workflow_spec)
+                    for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS
+                },
+            }
         )
         return WorkspaceProjection(
             manifest=manifest,
@@ -706,50 +708,25 @@ class WorkspaceSyncService(BaseWorkspaceService):
             if _payloads_reference_table(payloads, name)
         )
 
-        filtered = WorkspaceSpec(
-            agent_presets=_filter_specs(
-                projected_spec.agent_presets,
-                desired.get(SyncResourceType.AGENT_PRESET, set()),
-            ),
-            skills=_filter_specs(
-                projected_spec.skills,
-                desired.get(SyncResourceType.SKILL, set()),
-            ),
-            tables=_filter_specs(
-                projected_spec.tables,
-                desired.get(SyncResourceType.TABLE, set()),
-            ),
-            case_tags=_filter_specs(
-                projected_spec.case_tags,
-                desired.get(SyncResourceType.CASE_TAG, set()),
-            ),
-            case_fields=_filter_specs(
-                projected_spec.case_fields,
-                desired.get(SyncResourceType.CASE_FIELD, set()),
-            ),
-            case_dropdowns=_filter_specs(
-                projected_spec.case_dropdowns,
-                desired.get(SyncResourceType.CASE_DROPDOWN, set()),
-            ),
-            case_durations=_filter_specs(
-                projected_spec.case_durations,
-                desired.get(SyncResourceType.CASE_DURATION, set()),
-            ),
-            variables=_filter_specs(
-                projected_spec.variables,
-                desired.get(SyncResourceType.VARIABLE, set()),
-            ),
-            secret_metadata=_filter_specs(
-                projected_spec.secret_metadata,
-                desired.get(SyncResourceType.SECRET_METADATA, set()),
-            ),
+        filtered = workspace_spec_from_maps(
+            {
+                adapter.spec_attr: _filter_specs(
+                    adapter.specs(projected_spec),
+                    desired.get(adapter.resource_type, set()),
+                )
+                for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS
+            }
         )
-        included_paths = set(filtered.resource_count_map())
+        included_resource_types = {
+            adapter.resource_type.value
+            for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS
+            if adapter.specs(filtered)
+        }
         filtered_resources = [
             resource
             for resource in projected_resources
             if resource.source_id in desired.get(resource.resource_type, set())
-            and resource.resource_type.value in included_paths
+            and resource.resource_type.value in included_resource_types
         ]
         return filtered, filtered_resources
 
@@ -936,11 +913,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         return counts
 
     def _has_non_workflow_resources(self, spec: WorkspaceSpec) -> bool:
-        return any(
-            found
-            for resource_type, found in spec.resource_count_map().items()
-            if resource_type != SyncResourceType.WORKFLOW.value
-        )
+        return any(adapter.specs(spec) for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS)
 
     async def _workspace_git_url(self, *, provider: VcsProvider) -> GitUrl:
         workspace = await self._workspace()

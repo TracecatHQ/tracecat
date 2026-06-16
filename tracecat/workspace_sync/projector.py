@@ -32,18 +32,21 @@ from tracecat.secrets.service import SecretsService
 from tracecat.service import BaseWorkspaceService
 from tracecat.storage import blob
 from tracecat.tables.service import BaseTablesService
-from tracecat.workspace_sync.enums import SyncResourceType
-from tracecat.workspace_sync.resources import (
-    agent_preset_source_path,
-    case_dropdown_source_path,
-    case_duration_source_path,
-    case_field_source_path,
-    case_tag_source_path,
-    secret_metadata_source_path,
-    skill_source_path,
-    table_source_path,
-    variable_source_path,
+from tracecat.workspace_sync.adapters import (
+    AGENT_PRESET_RESOURCE_ADAPTER,
+    CASE_DROPDOWN_RESOURCE_ADAPTER,
+    CASE_DURATION_RESOURCE_ADAPTER,
+    CASE_FIELD_RESOURCE_ADAPTER,
+    CASE_TAG_RESOURCE_ADAPTER,
+    NON_WORKFLOW_RESOURCE_ADAPTERS,
+    SECRET_METADATA_RESOURCE_ADAPTER,
+    SKILL_RESOURCE_ADAPTER,
+    TABLE_RESOURCE_ADAPTER,
+    VARIABLE_RESOURCE_ADAPTER,
+    WorkspaceSyncResourceAdapter,
+    workspace_spec_from_maps,
 )
+from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
     AgentPresetResourceSpec,
     AgentPresetSkillBinding,
@@ -75,45 +78,39 @@ class WorkspaceResourceProjection:
     resources: list[ProjectedResource]
 
 
+def _projected_resource(
+    adapter: WorkspaceSyncResourceAdapter,
+    source_id: str,
+    local_id: uuid.UUID,
+) -> ProjectedResource:
+    return ProjectedResource(
+        resource_type=adapter.resource_type,
+        source_id=source_id,
+        source_path=adapter.source_path(source_id),
+        local_id=local_id,
+    )
+
+
 class WorkspaceResourceProjector(BaseWorkspaceService):
     """Project non-workflow workspace config resources into sync specs."""
 
     service_name = "workspace_resource_projector"
 
     async def project_non_workflow_resources(self) -> WorkspaceResourceProjection:
+        specs_by_attr: dict[str, dict[str, Any]] = {}
         resources: list[ProjectedResource] = []
-        agent_presets, preset_resources = await self._project_agent_presets()
-        skills, skill_resources = await self._project_skills()
-        tables, table_resources = await self._project_tables()
-        case_tags, tag_resources = await self._project_case_tags()
-        case_dropdowns, dropdown_resources = await self._project_case_dropdowns()
-        case_durations, duration_resources = await self._project_case_durations()
-        case_fields, field_resources = await self._project_case_fields()
-        variables, variable_resources = await self._project_variables()
-        secret_metadata, secret_resources = await self._project_secret_metadata()
-
-        resources.extend(preset_resources)
-        resources.extend(skill_resources)
-        resources.extend(table_resources)
-        resources.extend(tag_resources)
-        resources.extend(dropdown_resources)
-        resources.extend(duration_resources)
-        resources.extend(field_resources)
-        resources.extend(variable_resources)
-        resources.extend(secret_resources)
+        for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
+            if adapter.project_method is None:
+                continue
+            resource_specs, projected_resources = await getattr(
+                self,
+                adapter.project_method,
+            )()
+            specs_by_attr[adapter.spec_attr] = resource_specs
+            resources.extend(projected_resources)
 
         return WorkspaceResourceProjection(
-            spec=WorkspaceSpec(
-                agent_presets=dict(sorted(agent_presets.items())),
-                skills=dict(sorted(skills.items())),
-                tables=dict(sorted(tables.items())),
-                case_tags=dict(sorted(case_tags.items())),
-                case_dropdowns=dict(sorted(case_dropdowns.items())),
-                case_durations=dict(sorted(case_durations.items())),
-                case_fields=dict(sorted(case_fields.items())),
-                variables=dict(sorted(variables.items())),
-                secret_metadata=dict(sorted(secret_metadata.items())),
-            ),
+            spec=workspace_spec_from_maps(specs_by_attr),
             resources=resources,
         )
 
@@ -178,11 +175,10 @@ class WorkspaceResourceProjector(BaseWorkspaceService):
             )
             specs[source_id] = spec
             resources.append(
-                ProjectedResource(
-                    resource_type=SyncResourceType.AGENT_PRESET,
-                    source_id=source_id,
-                    source_path=agent_preset_source_path(source_id),
-                    local_id=preset.id,
+                _projected_resource(
+                    AGENT_PRESET_RESOURCE_ADAPTER,
+                    source_id,
+                    preset.id,
                 )
             )
         return specs, resources
@@ -239,12 +235,7 @@ class WorkspaceResourceProjector(BaseWorkspaceService):
             )
             specs[source_id] = spec
             resources.append(
-                ProjectedResource(
-                    resource_type=SyncResourceType.SKILL,
-                    source_id=source_id,
-                    source_path=skill_source_path(source_id),
-                    local_id=skill.id,
-                )
+                _projected_resource(SKILL_RESOURCE_ADAPTER, source_id, skill.id)
             )
         return specs, resources
 
@@ -308,12 +299,7 @@ class WorkspaceResourceProjector(BaseWorkspaceService):
                 rows=rows,
             )
             resources.append(
-                ProjectedResource(
-                    resource_type=SyncResourceType.TABLE,
-                    source_id=source_id,
-                    source_path=table_source_path(source_id),
-                    local_id=table.id,
-                )
+                _projected_resource(TABLE_RESOURCE_ADAPTER, source_id, table.id)
             )
         return specs, resources
 
@@ -366,12 +352,7 @@ class WorkspaceResourceProjector(BaseWorkspaceService):
                 color=tag.color,
             )
             resources.append(
-                ProjectedResource(
-                    resource_type=SyncResourceType.CASE_TAG,
-                    source_id=source_id,
-                    source_path=case_tag_source_path(source_id),
-                    local_id=tag.id,
-                )
+                _projected_resource(CASE_TAG_RESOURCE_ADAPTER, source_id, tag.id)
             )
         return specs, resources
 
@@ -419,11 +400,10 @@ class WorkspaceResourceProjector(BaseWorkspaceService):
                 }
             )
             resources.append(
-                ProjectedResource(
-                    resource_type=SyncResourceType.CASE_DROPDOWN,
-                    source_id=source_id,
-                    source_path=case_dropdown_source_path(source_id),
-                    local_id=dropdown.id,
+                _projected_resource(
+                    CASE_DROPDOWN_RESOURCE_ADAPTER,
+                    source_id,
+                    dropdown.id,
                 )
             )
         return specs, resources
@@ -465,11 +445,10 @@ class WorkspaceResourceProjector(BaseWorkspaceService):
                 }
             )
             resources.append(
-                ProjectedResource(
-                    resource_type=SyncResourceType.CASE_DURATION,
-                    source_id=source_id,
-                    source_path=case_duration_source_path(source_id),
-                    local_id=duration.id,
+                _projected_resource(
+                    CASE_DURATION_RESOURCE_ADAPTER,
+                    source_id,
+                    duration.id,
                 )
             )
         return specs, resources
@@ -498,11 +477,10 @@ class WorkspaceResourceProjector(BaseWorkspaceService):
                 kind=field_def.get("kind"),
             )
             resources.append(
-                ProjectedResource(
-                    resource_type=SyncResourceType.CASE_FIELD,
-                    source_id=source_id,
-                    source_path=case_field_source_path(source_id),
-                    local_id=definition.id,
+                _projected_resource(
+                    CASE_FIELD_RESOURCE_ADAPTER,
+                    source_id,
+                    definition.id,
                 )
             )
         return specs, resources
@@ -536,11 +514,10 @@ class WorkspaceResourceProjector(BaseWorkspaceService):
             )
             specs[source_id] = spec
             resources.append(
-                ProjectedResource(
-                    resource_type=SyncResourceType.VARIABLE,
-                    source_id=source_id,
-                    source_path=variable_source_path(source_id),
-                    local_id=variable.id,
+                _projected_resource(
+                    VARIABLE_RESOURCE_ADAPTER,
+                    source_id,
+                    variable.id,
                 )
             )
         return specs, resources
@@ -575,11 +552,10 @@ class WorkspaceResourceProjector(BaseWorkspaceService):
                 }
             )
             resources.append(
-                ProjectedResource(
-                    resource_type=SyncResourceType.SECRET_METADATA,
-                    source_id=source_id,
-                    source_path=secret_metadata_source_path(source_id),
-                    local_id=secret.id,
+                _projected_resource(
+                    SECRET_METADATA_RESOURCE_ADAPTER,
+                    source_id,
+                    secret.id,
                 )
             )
         return specs, resources

@@ -6,89 +6,33 @@ import hashlib
 import json
 from collections import defaultdict
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 import yaml
 from pydantic import BaseModel, ValidationError
 
 from tracecat.sync import PullDiagnostic
+from tracecat.workspace_sync.adapters import (
+    NON_WORKFLOW_RESOURCE_ADAPTERS,
+    SKILL_RESOURCE_ADAPTER,
+    TABLE_RESOURCE_ADAPTER,
+    WORKFLOW_RESOURCE_ADAPTER,
+    agent_preset_source_path,
+    skill_file_source_path,
+    skill_source_path,
+    table_rows_source_path,
+    workspace_spec_from_maps,
+)
 from tracecat.workspace_sync.schemas import (
-    AGENT_PRESET_ROOT,
-    CASE_DROPDOWN_ROOT,
-    CASE_DURATION_ROOT,
-    CASE_FIELD_ROOT,
-    CASE_TAG_ROOT,
-    SECRET_METADATA_ROOT,
-    SKILL_ROOT,
-    TABLE_ROOT,
-    VARIABLE_ROOT,
-    AgentPresetResourceSpec,
-    CaseDropdownResourceSpec,
-    CaseDurationResourceSpec,
-    CaseFieldResourceSpec,
-    CaseTagResourceSpec,
-    SecretMetadataResourceSpec,
     SkillResourceSpec,
     TableResourceSpec,
-    VariableResourceSpec,
     WorkspaceManifest,
     WorkspaceSpec,
 )
 from tracecat.workspace_sync.workflow import (
-    is_workflow_definition_path,
     parse_workflow_spec,
     serialize_workflow_spec,
-    workflow_source_path,
 )
-
-AGENT_PRESET_FILENAME = "preset.yml"
-SKILL_FILENAME = "skill.yml"
-SKILL_FILES_DIR = "files"
-TABLE_FILENAME = "table.yml"
-
-
-def agent_preset_source_path(source_id: str) -> str:
-    return f"{AGENT_PRESET_ROOT}/{source_id}/{AGENT_PRESET_FILENAME}"
-
-
-def skill_source_path(source_id: str) -> str:
-    return f"{SKILL_ROOT}/{source_id}/{SKILL_FILENAME}"
-
-
-def skill_file_source_path(source_id: str, file_path: str) -> str:
-    return f"{SKILL_ROOT}/{source_id}/{SKILL_FILES_DIR}/{file_path}"
-
-
-def table_source_path(source_id: str) -> str:
-    return f"{TABLE_ROOT}/{source_id}/{TABLE_FILENAME}"
-
-
-def table_rows_source_path(source_id: str, rows_path: str) -> str:
-    return f"{TABLE_ROOT}/{source_id}/{rows_path}"
-
-
-def case_tag_source_path(source_id: str) -> str:
-    return f"{CASE_TAG_ROOT}/{source_id}.yml"
-
-
-def case_field_source_path(source_id: str) -> str:
-    return f"{CASE_FIELD_ROOT}/{source_id}.yml"
-
-
-def case_dropdown_source_path(source_id: str) -> str:
-    return f"{CASE_DROPDOWN_ROOT}/{source_id}.yml"
-
-
-def case_duration_source_path(source_id: str) -> str:
-    return f"{CASE_DURATION_ROOT}/{source_id}.yml"
-
-
-def variable_source_path(source_id: str) -> str:
-    return f"{VARIABLE_ROOT}/{source_id}.yml"
-
-
-def secret_metadata_source_path(source_id: str) -> str:
-    return f"{SECRET_METADATA_ROOT}/{source_id}.yml"
 
 
 def parse_workspace_spec_files(
@@ -100,22 +44,16 @@ def parse_workspace_spec_files(
     diagnostics: list[PullDiagnostic] = []
     roots = manifest.resources
 
-    workflows = {}
-    agent_presets: dict[str, AgentPresetResourceSpec] = {}
-    skills: dict[str, SkillResourceSpec] = {}
-    tables: dict[str, TableResourceSpec] = {}
-    case_tags: dict[str, CaseTagResourceSpec] = {}
-    case_fields: dict[str, CaseFieldResourceSpec] = {}
-    case_dropdowns: dict[str, CaseDropdownResourceSpec] = {}
-    case_durations: dict[str, CaseDurationResourceSpec] = {}
-    variables: dict[str, VariableResourceSpec] = {}
-    secret_metadata: dict[str, SecretMetadataResourceSpec] = {}
+    specs_by_attr: dict[str, dict[str, BaseModel]] = {
+        WORKFLOW_RESOURCE_ADAPTER.spec_attr: {},
+        **{adapter.spec_attr: {} for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS},
+    }
     skill_file_contents: dict[str, dict[str, str]] = defaultdict(dict)
     table_row_files: dict[tuple[str, str], str] = {}
 
     workflow_root = roots.workflows.strip("/")
     for path, content in sorted(files.items()):
-        if is_workflow_definition_path(path, workflow_root=workflow_root):
+        if WORKFLOW_RESOURCE_ADAPTER.source_id_from_path(path, roots) is not None:
             workflow, diagnostic = parse_workflow_spec(
                 path,
                 content,
@@ -124,155 +62,54 @@ def parse_workspace_spec_files(
             if diagnostic is not None:
                 diagnostics.append(diagnostic)
             elif workflow is not None:
-                workflows[workflow.id] = workflow
+                specs_by_attr[WORKFLOW_RESOURCE_ADAPTER.spec_attr][workflow.id] = (
+                    workflow
+                )
             continue
 
-        if source_id := _compound_yaml_source_id(
-            path,
-            root=roots.agent_presets,
-            filename=AGENT_PRESET_FILENAME,
-        ):
-            _parse_yaml_resource(
-                path,
-                content,
-                expected_source_id=source_id,
-                model=AgentPresetResourceSpec,
-                destination=agent_presets,
-                diagnostics=diagnostics,
-            )
-            continue
+        for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
+            if source_id := adapter.source_id_from_path(path, roots):
+                _parse_yaml_resource(
+                    path,
+                    content,
+                    expected_source_id=source_id,
+                    model=adapter.model,
+                    destination=specs_by_attr[adapter.spec_attr],
+                    diagnostics=diagnostics,
+                )
+                break
 
-        if source_id := _compound_yaml_source_id(
-            path,
-            root=roots.skills,
-            filename=SKILL_FILENAME,
-        ):
-            _parse_yaml_resource(
-                path,
-                content,
-                expected_source_id=source_id,
-                model=SkillResourceSpec,
-                destination=skills,
-                diagnostics=diagnostics,
-            )
-            continue
+            if adapter.extra_path_from_path is None:
+                continue
+            extra_path = adapter.extra_path_from_path(path, roots)
+            if extra_path is None:
+                continue
+            source_id, relpath = extra_path
+            if adapter is SKILL_RESOURCE_ADAPTER:
+                skill_file_contents[source_id][relpath] = content
+            elif adapter is TABLE_RESOURCE_ADAPTER:
+                table_row_files[(source_id, relpath)] = content
+            break
 
-        if skill_file := _skill_file_path(
-            path,
-            root=roots.skills,
-        ):
-            source_id, file_path = skill_file
-            skill_file_contents[source_id][file_path] = content
-            continue
-
-        if source_id := _compound_yaml_source_id(
-            path,
-            root=roots.tables,
-            filename=TABLE_FILENAME,
-        ):
-            _parse_yaml_resource(
-                path,
-                content,
-                expected_source_id=source_id,
-                model=TableResourceSpec,
-                destination=tables,
-                diagnostics=diagnostics,
-            )
-            continue
-
-        if table_rows := _compound_extra_path(path, root=roots.tables):
-            source_id, rows_path = table_rows
-            table_row_files[(source_id, rows_path)] = content
-            continue
-
-        if source_id := _single_yaml_source_id(path, root=roots.case_tags):
-            _parse_yaml_resource(
-                path,
-                content,
-                expected_source_id=source_id,
-                model=CaseTagResourceSpec,
-                destination=case_tags,
-                diagnostics=diagnostics,
-            )
-            continue
-
-        if source_id := _single_yaml_source_id(path, root=roots.case_fields):
-            _parse_yaml_resource(
-                path,
-                content,
-                expected_source_id=source_id,
-                model=CaseFieldResourceSpec,
-                destination=case_fields,
-                diagnostics=diagnostics,
-            )
-            continue
-
-        if source_id := _single_yaml_source_id(path, root=roots.case_dropdowns):
-            _parse_yaml_resource(
-                path,
-                content,
-                expected_source_id=source_id,
-                model=CaseDropdownResourceSpec,
-                destination=case_dropdowns,
-                diagnostics=diagnostics,
-            )
-            continue
-
-        if source_id := _single_yaml_source_id(path, root=roots.case_durations):
-            _parse_yaml_resource(
-                path,
-                content,
-                expected_source_id=source_id,
-                model=CaseDurationResourceSpec,
-                destination=case_durations,
-                diagnostics=diagnostics,
-            )
-            continue
-
-        if source_id := _environment_yaml_source_id(path, root=roots.variables):
-            _parse_yaml_resource(
-                path,
-                content,
-                expected_source_id=source_id,
-                model=VariableResourceSpec,
-                destination=variables,
-                diagnostics=diagnostics,
-            )
-            continue
-
-        if source_id := _environment_yaml_source_id(path, root=roots.secret_metadata):
-            _parse_yaml_resource(
-                path,
-                content,
-                expected_source_id=source_id,
-                model=SecretMetadataResourceSpec,
-                destination=secret_metadata,
-                diagnostics=diagnostics,
-            )
-            continue
-
-    skills = _attach_skill_files(
-        skills,
-        skill_file_contents=skill_file_contents,
-        diagnostics=diagnostics,
+    skills = cast(dict[str, SkillResourceSpec], specs_by_attr["skills"])
+    tables = cast(dict[str, TableResourceSpec], specs_by_attr["tables"])
+    specs_by_attr[SKILL_RESOURCE_ADAPTER.spec_attr] = cast(
+        dict[str, BaseModel],
+        _attach_skill_files(
+            skills,
+            skill_file_contents=skill_file_contents,
+            diagnostics=diagnostics,
+        ),
     )
-    tables = _attach_table_rows(
-        tables,
-        table_row_files=table_row_files,
-        diagnostics=diagnostics,
+    specs_by_attr[TABLE_RESOURCE_ADAPTER.spec_attr] = cast(
+        dict[str, BaseModel],
+        _attach_table_rows(
+            tables,
+            table_row_files=table_row_files,
+            diagnostics=diagnostics,
+        ),
     )
-    spec = WorkspaceSpec(
-        workflows=dict(sorted(workflows.items())),
-        agent_presets=dict(sorted(agent_presets.items())),
-        skills=dict(sorted(skills.items())),
-        tables=dict(sorted(tables.items())),
-        case_tags=dict(sorted(case_tags.items())),
-        case_fields=dict(sorted(case_fields.items())),
-        case_dropdowns=dict(sorted(case_dropdowns.items())),
-        case_durations=dict(sorted(case_durations.items())),
-        variables=dict(sorted(variables.items())),
-        secret_metadata=dict(sorted(secret_metadata.items())),
-    )
+    spec = workspace_spec_from_maps(specs_by_attr)
     diagnostics.extend(validate_workspace_dependencies(spec))
     return spec, diagnostics
 
@@ -286,37 +123,13 @@ def serialize_workspace_spec_files(
 ) -> dict[str, str]:
     files = {manifest_filename: manifest_serializer(manifest)}
     for source_id, workflow_spec in sorted(spec.workflows.items()):
-        files[workflow_source_path(source_id)] = serialize_workflow_spec(workflow_spec)
-    for source_id, preset_spec in sorted(spec.agent_presets.items()):
-        files[agent_preset_source_path(source_id)] = _serialize_yaml_model(preset_spec)
-    for source_id, skill_spec in sorted(spec.skills.items()):
-        files[skill_source_path(source_id)] = _serialize_yaml_model(skill_spec)
-        for file_path, content in sorted(skill_spec.file_contents.items()):
-            files[skill_file_source_path(source_id, file_path)] = content
-    for source_id, table_spec in sorted(spec.tables.items()):
-        files[table_source_path(source_id)] = _serialize_yaml_model(table_spec)
-        if table_spec.rows and table_spec.rows_path:
-            files[table_rows_source_path(source_id, table_spec.rows_path)] = "".join(
-                json.dumps(row, sort_keys=True) + "\n" for row in table_spec.rows
-            )
-    for source_id, tag_spec in sorted(spec.case_tags.items()):
-        files[case_tag_source_path(source_id)] = _serialize_yaml_model(tag_spec)
-    for source_id, field_spec in sorted(spec.case_fields.items()):
-        files[case_field_source_path(source_id)] = _serialize_yaml_model(field_spec)
-    for source_id, dropdown_spec in sorted(spec.case_dropdowns.items()):
-        files[case_dropdown_source_path(source_id)] = _serialize_yaml_model(
-            dropdown_spec
+        files[WORKFLOW_RESOURCE_ADAPTER.source_path(source_id)] = (
+            serialize_workflow_spec(workflow_spec)
         )
-    for source_id, duration_spec in sorted(spec.case_durations.items()):
-        files[case_duration_source_path(source_id)] = _serialize_yaml_model(
-            duration_spec
-        )
-    for source_id, variable_spec in sorted(spec.variables.items()):
-        files[variable_source_path(source_id)] = _serialize_yaml_model(variable_spec)
-    for source_id, secret_spec in sorted(spec.secret_metadata.items()):
-        files[secret_metadata_source_path(source_id)] = _serialize_yaml_model(
-            secret_spec
-        )
+    for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
+        for source_id, resource_spec in sorted(adapter.specs(spec).items()):
+            files[adapter.source_path(source_id)] = _serialize_yaml_model(resource_spec)
+            files.update(adapter.serialize_extra_files(source_id, resource_spec))
     return dict(sorted(files.items()))
 
 
@@ -333,7 +146,7 @@ def validate_workspace_dependencies(spec: WorkspaceSpec) -> list[PullDiagnostic]
             if alias not in workflow_aliases:
                 diagnostics.append(
                     PullDiagnostic(
-                        workflow_path=workflow_source_path(source_id),
+                        workflow_path=WORKFLOW_RESOURCE_ADAPTER.source_path(source_id),
                         workflow_title=workflow.definition.title,
                         error_type="dependency",
                         message=f"Workflow references missing child workflow alias {alias!r}",
@@ -344,7 +157,7 @@ def validate_workspace_dependencies(spec: WorkspaceSpec) -> list[PullDiagnostic]
             if preset_slug not in preset_slugs:
                 diagnostics.append(
                     PullDiagnostic(
-                        workflow_path=workflow_source_path(source_id),
+                        workflow_path=WORKFLOW_RESOURCE_ADAPTER.source_path(source_id),
                         workflow_title=workflow.definition.title,
                         error_type="dependency",
                         message=f"Workflow references missing agent preset slug {preset_slug!r}",
@@ -581,80 +394,6 @@ def _attach_table_rows(
                 rows.append(row)
         updated[source_id] = spec.model_copy(update={"rows": rows})
     return updated
-
-
-def _compound_yaml_source_id(path: str, *, root: str, filename: str) -> str | None:
-    parts = _path_parts(path)
-    root_parts = _path_parts(root)
-    if len(parts) != len(root_parts) + 2:
-        return None
-    if parts[: len(root_parts)] != root_parts or parts[-1] != filename:
-        return None
-    source_id = parts[-2]
-    return source_id or None
-
-
-def _compound_extra_path(path: str, *, root: str) -> tuple[str, str] | None:
-    parts = _path_parts(path)
-    root_parts = _path_parts(root)
-    if len(parts) < len(root_parts) + 2:
-        return None
-    if parts[: len(root_parts)] != root_parts:
-        return None
-    source_id = parts[len(root_parts)]
-    relpath = "/".join(parts[len(root_parts) + 1 :])
-    if not source_id or not relpath:
-        return None
-    return source_id, relpath
-
-
-def _single_yaml_source_id(path: str, *, root: str) -> str | None:
-    parts = _path_parts(path)
-    root_parts = _path_parts(root)
-    if len(parts) != len(root_parts) + 1:
-        return None
-    if parts[: len(root_parts)] != root_parts:
-        return None
-    filename = parts[-1]
-    if not filename.endswith(".yml"):
-        return None
-    return filename.removesuffix(".yml") or None
-
-
-def _environment_yaml_source_id(path: str, *, root: str) -> str | None:
-    parts = _path_parts(path)
-    root_parts = _path_parts(root)
-    if len(parts) != len(root_parts) + 2:
-        return None
-    if parts[: len(root_parts)] != root_parts:
-        return None
-    environment = parts[-2]
-    filename = parts[-1]
-    if not environment or not filename.endswith(".yml"):
-        return None
-    name = filename.removesuffix(".yml")
-    if not name:
-        return None
-    return f"{environment}/{name}"
-
-
-def _skill_file_path(path: str, *, root: str) -> tuple[str, str] | None:
-    parts = _path_parts(path)
-    root_parts = _path_parts(root)
-    if len(parts) < len(root_parts) + 3:
-        return None
-    if parts[: len(root_parts)] != root_parts:
-        return None
-    source_id = parts[len(root_parts)]
-    files_dir = parts[len(root_parts) + 1]
-    if not source_id or files_dir != SKILL_FILES_DIR:
-        return None
-    file_path = "/".join(parts[len(root_parts) + 2 :])
-    return (source_id, file_path) if file_path else None
-
-
-def _path_parts(path: str) -> list[str]:
-    return [part for part in path.strip("/").split("/") if part]
 
 
 def _resource_title(data: dict[str, Any] | None) -> str | None:
