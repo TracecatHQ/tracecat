@@ -86,6 +86,12 @@ _LEGACY_CUSTOM_PROVIDER_CONFIG_KEYS = frozenset(
         "CUSTOM_MODEL_PROVIDER_PASSTHROUGH",
     }
 )
+# Placeholder ``model_name`` the v2 backfill writes on the single legacy
+# custom-provider catalog row (see
+# ``96470fdcc686_v2_backfill_catalog_and_access`` / ``CUSTOM_PROVIDER_MODEL_NAME``).
+# The row is a stand-in for the migrated provider, so its real upstream model
+# name lives in the provider blob, not on the row.
+_LEGACY_CUSTOM_PROVIDER_PLACEHOLDER_MODEL_NAME = "custom"
 
 
 def _is_cloud_provider(slug: str) -> TypeGuard[CloudProviderSlug]:
@@ -584,10 +590,17 @@ class AgentManagementService(BaseOrgService):
         - **Custom-model-provider rows** (``custom_provider_id`` set): read
           from the linked ``AgentCustomProvider`` row. Plaintext columns
           (``base_url``, ``passthrough``) are the source of truth; the
-          row's ``encrypted_config`` carries the API key. The v2 backfill
-          migration also writes a legacy-format copy of the blob onto the
-          catalog row itself, but we intentionally ignore that here so
-          post-CRUD rotations aren't shadowed by stale migration state.
+          row's ``encrypted_config`` carries the API key. A real per-model
+          catalog row's ``model_name`` is authoritative and overrides any
+          model name the provider blob carries (legacy backfill blobs share
+          one model name across every row pointing at the provider, which
+          would otherwise collapse all selections to a single model). The one
+          exception is the legacy backfill row, whose ``model_name`` is the
+          ``"custom"`` placeholder — for it the blob's model name stays
+          authoritative. The v2 backfill also writes a legacy-format copy of
+          the blob onto the catalog row itself, but we intentionally ignore
+          that here so post-CRUD rotations aren't shadowed by stale migration
+          state.
 
         - **Cloud rows** (Bedrock / Azure / Vertex): use the live
           ``agent-{provider}-credentials`` secret as the credential source of
@@ -636,6 +649,12 @@ class AgentManagementService(BaseOrgService):
             credentials["CUSTOM_MODEL_PROVIDER_PASSTHROUGH"] = (
                 "true" if provider_row.passthrough else "false"
             )
+            # Pin the selected row's model_name so the shared provider blob
+            # can't override it. The legacy backfill row is the exception: its
+            # "custom" placeholder isn't a real model, so leave the blob's
+            # model name in place for that row.
+            if row.model_name != _LEGACY_CUSTOM_PROVIDER_PLACEHOLDER_MODEL_NAME:
+                credentials["CUSTOM_MODEL_PROVIDER_MODEL_NAME"] = row.model_name
             return credentials or None
 
         if _is_cloud_provider(row.model_provider):
