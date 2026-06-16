@@ -27,14 +27,12 @@ from tracecat.sync import (
     PullDiagnostic,
     PullOptions,
     PullResult,
-    PushOptions,
     ResourcePullCount,
 )
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.store.import_service import WorkflowImportService
 from tracecat.workflow.store.schemas import (
-    WorkflowDslPublishResult,
     validate_short_branch_name,
 )
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
@@ -109,39 +107,6 @@ class WorkspaceSyncService(BaseWorkspaceService):
             commit=commit,
             files=sorted(projection.files),
         )
-
-    async def export_workflow_publish_result(
-        self,
-        *,
-        workflow: Workflow,
-        dsl: DSLInput,
-        options: PushOptions,
-    ) -> WorkflowDslPublishResult:
-        """Export one workflow through the same branch commit path as workspace export."""
-        if not options.branch:
-            raise TracecatValidationError(
-                "branch is required for workspace sync export"
-            )
-        params = WorkspaceSyncExportRequest(
-            message=options.message,
-            branch=options.branch,
-            create_pr=options.create_pr,
-            pr_base_branch=options.pr_base_branch,
-            resources=[
-                ResourceRef(
-                    resource_type=SyncResourceType.WORKFLOW,
-                    local_id=WorkflowUUID.new(workflow.id),
-                )
-            ],
-            provider=VcsProvider.GITHUB,
-            include_schedules=False,
-        )
-        result = await self.export_workflow(
-            workflow=workflow,
-            dsl=dsl,
-            params=params,
-        )
-        return result.as_workflow_publish_result()
 
     async def export_workflow(
         self,
@@ -431,56 +396,6 @@ class WorkspaceSyncService(BaseWorkspaceService):
         *,
         sync_schedules: bool,
     ) -> PullResult:
-        if self._has_non_workflow_resources(snapshot.spec):
-            return await self._import_expanded_snapshot(
-                snapshot,
-                sync_schedules=sync_schedules,
-            )
-
-        local_ids: dict[str, WorkflowUUID] = {}
-        remote_workflows = []
-        for source_id, workflow_spec in sorted(snapshot.spec.workflows.items()):
-            local_id = await self._resolve_local_workflow_id(source_id)
-            local_ids[source_id] = local_id
-            remote_workflows.append(
-                workflow_spec_to_remote(workflow_spec, local_workflow_id=local_id)
-            )
-
-        result = await WorkflowImportService(
-            session=self.session,
-            role=self.role,
-        ).import_workflows_atomic(
-            remote_workflows,
-            commit_sha=snapshot.commit_sha,
-            sync_schedules=sync_schedules,
-        )
-        if not result.success:
-            return self._with_resource_counts(
-                result,
-                snapshot.spec,
-                imported_workflows=0,
-            )
-
-        for source_id in sorted(snapshot.spec.workflows):
-            await self._upsert_mapping(
-                resource_type=SyncResourceType.WORKFLOW.value,
-                source_id=source_id,
-                source_path=workflow_source_path(source_id),
-                local_id=local_ids[source_id],
-            )
-        await self.session.commit()
-        return self._with_resource_counts(
-            result,
-            snapshot.spec,
-            imported_workflows=result.workflows_imported,
-        )
-
-    async def _import_expanded_snapshot(
-        self,
-        snapshot: WorkspaceRemoteSnapshot,
-        *,
-        sync_schedules: bool,
-    ) -> PullResult:
         local_ids: dict[str, WorkflowUUID] = {}
         remote_workflows = []
         for source_id, workflow_spec in sorted(snapshot.spec.workflows.items()):
@@ -494,7 +409,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
             session=self.session,
             role=self.role,
         )
-        workflow_diagnostics = await workflow_importer._validate_all_workflows(
+        workflow_diagnostics = await workflow_importer.validate_workflows(
             remote_workflows
         )
         if workflow_diagnostics:
@@ -511,18 +426,30 @@ class WorkspaceSyncService(BaseWorkspaceService):
                 resource_counts=self._resource_counts_from_spec(snapshot.spec),
             )
 
+        has_non_workflow_resources = self._has_non_workflow_resources(snapshot.spec)
+        if not remote_workflows and not has_non_workflow_resources:
+            return PullResult(
+                success=True,
+                commit_sha=snapshot.commit_sha,
+                workflows_found=0,
+                workflows_imported=0,
+                diagnostics=[],
+                message="No workflows found to import",
+                resource_counts=self._resource_counts_from_spec(snapshot.spec),
+            )
+
         imported_resources: list[ImportedResource] = []
         try:
             async with self.session.begin_nested():
-                imported_resources = await WorkspaceResourceImportService(
-                    session=self.session,
-                    role=self.role,
-                ).import_non_workflow_resources(snapshot.spec)
-                for remote_workflow in remote_workflows:
-                    await workflow_importer._import_single_workflow(
-                        remote_workflow,
-                        sync_schedules=sync_schedules,
-                    )
+                if has_non_workflow_resources:
+                    imported_resources = await WorkspaceResourceImportService(
+                        session=self.session,
+                        role=self.role,
+                    ).import_non_workflow_resources(snapshot.spec)
+                await workflow_importer.import_workflows(
+                    remote_workflows,
+                    sync_schedules=sync_schedules,
+                )
                 for source_id in sorted(snapshot.spec.workflows):
                     await self._upsert_mapping(
                         resource_type=SyncResourceType.WORKFLOW.value,
@@ -564,7 +491,11 @@ class WorkspaceSyncService(BaseWorkspaceService):
             workflows_found=len(remote_workflows),
             workflows_imported=len(remote_workflows),
             diagnostics=[],
-            message="Successfully imported workspace resources",
+            message=(
+                "Successfully imported workspace resources"
+                if imported_resources
+                else f"Successfully imported {len(remote_workflows)} workflows"
+            ),
             resource_counts=self._resource_counts_from_imported(
                 snapshot.spec,
                 imported_resources,
@@ -1009,26 +940,6 @@ class WorkspaceSyncService(BaseWorkspaceService):
             found
             for resource_type, found in spec.resource_count_map().items()
             if resource_type != SyncResourceType.WORKFLOW.value
-        )
-
-    def _with_resource_counts(
-        self,
-        result: PullResult,
-        spec: WorkspaceSpec,
-        *,
-        imported_workflows: int,
-    ) -> PullResult:
-        return PullResult(
-            success=result.success,
-            commit_sha=result.commit_sha,
-            workflows_found=result.workflows_found,
-            workflows_imported=result.workflows_imported,
-            diagnostics=result.diagnostics,
-            message=result.message,
-            resource_counts=self._resource_counts_from_spec(
-                spec,
-                imported_workflows=imported_workflows,
-            ),
         )
 
     async def _workspace_git_url(self, *, provider: VcsProvider) -> GitUrl:

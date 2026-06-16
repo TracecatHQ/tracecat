@@ -76,7 +76,7 @@ class WorkflowImportService(BaseWorkspaceService):
             )
 
         # Phase 1: Validation - check everything before touching database
-        diagnostics = await self._validate_all_workflows(remote_workflows)
+        diagnostics = await self.validate_workflows(remote_workflows)
 
         if diagnostics:
             return PullResult(
@@ -91,11 +91,10 @@ class WorkflowImportService(BaseWorkspaceService):
         # Phase 2: Atomic import - all operations in single transaction
         try:
             async with self.session.begin_nested():
-                for remote_workflow in remote_workflows:
-                    await self._import_single_workflow(
-                        remote_workflow,
-                        sync_schedules=sync_schedules,
-                    )
+                await self.import_workflows(
+                    remote_workflows,
+                    sync_schedules=sync_schedules,
+                )
                 # XXX: We need to commit here to ensure that the transaction is committed
                 await self.session.commit()
 
@@ -127,7 +126,7 @@ class WorkflowImportService(BaseWorkspaceService):
                 message="Import transaction failed",
             )
 
-    async def _validate_all_workflows(
+    async def validate_workflows(
         self,
         remote_workflows: list[RemoteWorkflowDefinition],
     ) -> list[PullDiagnostic]:
@@ -145,6 +144,19 @@ class WorkflowImportService(BaseWorkspaceService):
         diagnostics.extend(cross_diagnostics)
 
         return diagnostics
+
+    async def import_workflows(
+        self,
+        remote_workflows: list[RemoteWorkflowDefinition],
+        *,
+        sync_schedules: bool,
+    ) -> None:
+        """Import workflows without committing the active transaction."""
+        for remote_workflow in remote_workflows:
+            await self._import_single_workflow(
+                remote_workflow,
+                sync_schedules=sync_schedules,
+            )
 
     async def _validate_single_workflow(
         self,
@@ -575,7 +587,9 @@ class WorkflowImportService(BaseWorkspaceService):
             raise ValueError("Invalid folder path")
 
         # Remove leading/trailing slashes and split into segments
-        path_segments = [segment for segment in folder_path.strip("/").split("/") if segment]
+        path_segments = [
+            segment for segment in folder_path.strip("/").split("/") if segment
+        ]
         current_path = "/"
 
         for segment in path_segments:

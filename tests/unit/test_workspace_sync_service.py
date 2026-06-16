@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -14,7 +14,7 @@ from tracecat.dsl.schemas import ActionStatement
 from tracecat.exceptions import TracecatValidationError
 from tracecat.git.types import GitUrl
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.sync import PullOptions, PullResult
+from tracecat.sync import PullOptions
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.schemas import (
     MANIFEST_FILENAME,
@@ -53,6 +53,10 @@ def sample_dsl() -> DSLInput:
 @pytest.fixture
 def workspace_sync_service() -> WorkspaceSyncService:
     session = AsyncMock()
+    transaction = AsyncMock()
+    transaction.__aenter__.return_value = None
+    transaction.__aexit__.return_value = None
+    session.begin_nested = Mock(return_value=transaction)
     role = Role(
         type="service",
         service_id="tracecat-api",
@@ -84,14 +88,7 @@ async def test_pull_does_not_sync_schedules_by_default(
         files=files,
     )
     import_service = AsyncMock()
-    import_service.import_workflows_atomic.return_value = PullResult(
-        success=True,
-        commit_sha="a" * 40,
-        workflows_found=1,
-        workflows_imported=1,
-        diagnostics=[],
-        message="Imported",
-    )
+    import_service.validate_workflows.return_value = []
     workspace_sync_service._workspace_git_url = AsyncMock(
         return_value=GitUrl(host="github.com", org="tracecat", repo="sync")
     )
@@ -115,11 +112,9 @@ async def test_pull_does_not_sync_schedules_by_default(
         )
 
     assert result.success is True
-    import_service.import_workflows_atomic.assert_awaited_once()
-    assert (
-        import_service.import_workflows_atomic.call_args.kwargs["sync_schedules"]
-        is False
-    )
+    import_service.validate_workflows.assert_awaited_once()
+    import_service.import_workflows.assert_awaited_once()
+    assert import_service.import_workflows.call_args.kwargs["sync_schedules"] is False
 
 
 @pytest.mark.anyio

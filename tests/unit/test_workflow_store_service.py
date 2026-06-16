@@ -14,8 +14,10 @@ from tracecat.db.models import Workflow
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.workflow.store.schemas import WorkflowDslPublish, WorkflowDslPublishResult
+from tracecat.sync import CommitInfo, PushStatus
+from tracecat.workflow.store.schemas import WorkflowDslPublish
 from tracecat.workflow.store.service import WorkflowStoreService
+from tracecat.workspace_sync.schemas import WorkspaceSyncExportResult
 from tracecat.workspace_sync.workflow import workflow_spec_from_orm
 
 
@@ -85,17 +87,15 @@ async def test_publish_workflow_uses_workspace_sync_service(
 
     with patch("tracecat.workflow.store.service.WorkspaceSyncService") as sync_cls:
         sync_service = AsyncMock()
-        sync_service.export_workflow_publish_result.return_value = (
-            WorkflowDslPublishResult(
-                status="no_op",
-                commit_sha=None,
-                branch="feature/test",
-                base_branch="main",
-                pr_url=None,
-                pr_number=None,
-                pr_reused=False,
+        sync_service.export_workflow.return_value = WorkspaceSyncExportResult(
+            commit=CommitInfo(
+                status=PushStatus.NO_OP,
+                sha=None,
+                ref="feature/test",
+                base_ref="main",
                 message="No changes",
-            )
+            ),
+            files=[],
         )
         sync_cls.return_value = sync_service
 
@@ -107,11 +107,11 @@ async def test_publish_workflow_uses_workspace_sync_service(
         )
 
     assert result.branch == "feature/test"
-    call_kwargs = sync_service.export_workflow_publish_result.call_args.kwargs
+    call_kwargs = sync_service.export_workflow.call_args.kwargs
     assert call_kwargs["workflow"] is workflow
     assert call_kwargs["dsl"] is sample_dsl
-    assert call_kwargs["options"].branch == "feature/test"
-    assert call_kwargs["options"].create_pr is False
+    assert call_kwargs["params"].branch == "feature/test"
+    assert call_kwargs["params"].create_pr is False
 
 
 def test_workflow_spec_omits_inert_case_trigger_and_schedules_by_default(
@@ -212,17 +212,17 @@ async def test_publish_workflow_legacy_branch_still_creates_pr(
 
     with patch("tracecat.workflow.store.service.WorkspaceSyncService") as sync_cls:
         sync_service = AsyncMock()
-        sync_service.export_workflow_publish_result.return_value = (
-            WorkflowDslPublishResult(
-                status="committed",
-                commit_sha="abc123",
-                branch="tracecat-sync-test",
-                base_branch="main",
+        sync_service.export_workflow.return_value = WorkspaceSyncExportResult(
+            commit=CommitInfo(
+                status=PushStatus.COMMITTED,
+                sha="abc123",
+                ref="tracecat-sync-test",
+                base_ref="main",
                 pr_url="https://github.com/test-org/test-repo/pull/1",
                 pr_number=1,
-                pr_reused=False,
                 message="Committed workspace sync changes.",
-            )
+            ),
+            files=[],
         )
         sync_cls.return_value = sync_service
 
@@ -233,9 +233,9 @@ async def test_publish_workflow_legacy_branch_still_creates_pr(
             workflow=cast(Workflow, workflow),
         )
 
-    options = sync_service.export_workflow_publish_result.call_args.kwargs["options"]
-    assert options.branch.startswith("tracecat-sync-")
-    assert options.create_pr is True
+    params = sync_service.export_workflow.call_args.kwargs["params"]
+    assert params.branch.startswith("tracecat-sync-")
+    assert params.create_pr is True
 
 
 @pytest.mark.anyio
@@ -255,17 +255,15 @@ async def test_publish_workflow_includes_configured_case_trigger(
 
     with patch("tracecat.workflow.store.service.WorkspaceSyncService") as sync_cls:
         sync_service = AsyncMock()
-        sync_service.export_workflow_publish_result.return_value = (
-            WorkflowDslPublishResult(
-                status="no_op",
-                commit_sha=None,
-                branch="feature/test",
-                base_branch="main",
-                pr_url=None,
-                pr_number=None,
-                pr_reused=False,
+        sync_service.export_workflow.return_value = WorkspaceSyncExportResult(
+            commit=CommitInfo(
+                status=PushStatus.NO_OP,
+                sha=None,
+                ref="feature/test",
+                base_ref="main",
                 message="No changes",
-            )
+            ),
+            files=[],
         )
         sync_cls.return_value = sync_service
 
@@ -276,4 +274,4 @@ async def test_publish_workflow_includes_configured_case_trigger(
             workflow=cast(Workflow, workflow),
         )
 
-    sync_service.export_workflow_publish_result.assert_awaited_once()
+    sync_service.export_workflow.assert_awaited_once()

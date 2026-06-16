@@ -3,7 +3,6 @@
 import { GitBranchIcon } from "lucide-react"
 import { useEffect, useState } from "react"
 import type { ResourceRef, SyncResourceType } from "@/client"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -15,16 +14,11 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectSeparator,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "@/components/ui/use-toast"
+import {
+  useWorkspaceSyncBranchTarget,
+  WorkspaceSyncBranchSelector,
+} from "@/components/workspace-sync/branch-target-selector"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import {
   useRepositoryBranches,
@@ -32,8 +26,6 @@ import {
 } from "@/hooks/use-workspace-sync"
 import { getApiErrorDetail } from "@/lib/errors"
 import { useWorkspaceId } from "@/providers/workspace-id"
-
-const CREATE_NEW_BRANCH_VALUE = "__create_new_branch__"
 
 interface WorkspaceResourceSyncActionsProps {
   label: string
@@ -50,8 +42,6 @@ export function WorkspaceResourceSyncActions({
   const { workspace } = useWorkspaceDetails()
   const [open, setOpen] = useState(false)
   const [exportMessage, setExportMessage] = useState(`Push ${label}`)
-  const [exportBranch, setExportBranch] = useState("")
-  const [isCreatingBranch, setIsCreatingBranch] = useState(false)
   const { exportWorkspace, exportWorkspaceIsPending } =
     useWorkspaceSyncExport(workspaceId)
   const {
@@ -64,7 +54,18 @@ export function WorkspaceResourceSyncActions({
   })
 
   const gitRepoUrl = workspace?.settings?.git_repo_url || undefined
-  const hasBranches = (repoBranches?.length ?? 0) > 0
+  const {
+    branch: exportBranch,
+    setBranch: setExportBranch,
+    isCreatingBranch,
+    selectBranch: selectExportBranch,
+    resetBranchCreation,
+    hasBranches,
+  } = useWorkspaceSyncBranchTarget({
+    branches: repoBranches,
+    enabled: open,
+    newBranchName: `sync/${branchSlug}`,
+  })
   const exportDisabled =
     !gitRepoUrl ||
     exportWorkspaceIsPending ||
@@ -77,33 +78,9 @@ export function WorkspaceResourceSyncActions({
     if (!open) {
       return
     }
-    setIsCreatingBranch(false)
+    resetBranchCreation()
     setExportMessage(`Push ${label}`)
-  }, [label, open])
-
-  useEffect(() => {
-    if (
-      !open ||
-      !repoBranches ||
-      repoBranches.length === 0 ||
-      isCreatingBranch
-    ) {
-      return
-    }
-
-    const branchNames = new Set(repoBranches.map((branch) => branch.name))
-    if (exportBranch && branchNames.has(exportBranch)) {
-      return
-    }
-
-    const defaultBranch =
-      repoBranches.find((branch) => branch.is_default)?.name ??
-      repoBranches[0]?.name
-
-    if (defaultBranch) {
-      setExportBranch(defaultBranch)
-    }
-  }, [exportBranch, isCreatingBranch, open, repoBranches])
+  }, [label, open, resetBranchCreation])
 
   async function handleExport() {
     if (!gitRepoUrl) {
@@ -178,89 +155,19 @@ export function WorkspaceResourceSyncActions({
                 >
                   Target branch
                 </label>
-                <Select
-                  value={
-                    isCreatingBranch ||
-                    !repoBranches?.some(
-                      (branch) => branch.name === exportBranch
-                    )
-                      ? CREATE_NEW_BRANCH_VALUE
-                      : exportBranch
-                  }
-                  onValueChange={(value) => {
-                    if (value === CREATE_NEW_BRANCH_VALUE) {
-                      setIsCreatingBranch(true)
-                      setExportBranch(`sync/${branchSlug}`)
-                      return
-                    }
-                    setIsCreatingBranch(false)
-                    setExportBranch(value)
-                  }}
-                  disabled={branchesIsLoading || !hasBranches}
-                >
-                  <SelectTrigger
-                    id={`sync-branch-${branchSlug}`}
-                    className="min-w-0"
-                  >
-                    {branchesIsLoading ? (
-                      <Skeleton className="h-4 w-full rounded-sm" />
-                    ) : (
-                      <SelectValue placeholder="Select branch" />
-                    )}
-                  </SelectTrigger>
-                  <SelectContent>
-                    {hasBranches ? (
-                      <>
-                        <SelectItem value={CREATE_NEW_BRANCH_VALUE}>
-                          Create new branch...
-                        </SelectItem>
-                        <SelectSeparator />
-                        {(repoBranches ?? []).map((branch) => (
-                          <SelectItem key={branch.name} value={branch.name}>
-                            <div className="flex items-center gap-2">
-                              <span>{branch.name}</span>
-                              {branch.is_default && (
-                                <Badge
-                                  variant="secondary"
-                                  className="h-4 rounded-sm px-1 text-[10px] font-normal"
-                                >
-                                  default
-                                </Badge>
-                              )}
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </>
-                    ) : (
-                      <SelectItem value="__no_branches" disabled>
-                        No branches found
-                      </SelectItem>
-                    )}
-                  </SelectContent>
-                </Select>
-                {isCreatingBranch && (
-                  <div className="space-y-1">
-                    <Input
-                      value={exportBranch}
-                      onChange={(event) => setExportBranch(event.target.value)}
-                      placeholder={`sync/${branchSlug}`}
-                    />
-                    <p className="text-[11px] text-muted-foreground">
-                      The branch will be created from the repository default
-                      branch.
-                    </p>
-                  </div>
-                )}
-                {!branchesIsLoading && !hasBranches && gitRepoUrl && (
-                  <p className="text-[11px] text-muted-foreground">
-                    No branches available from the configured repository.
-                  </p>
-                )}
-                {branchesError && (
-                  <p className="text-[11px] text-destructive">
-                    Failed to load repository branches.
-                  </p>
-                )}
+                <WorkspaceSyncBranchSelector
+                  id={`sync-branch-${branchSlug}`}
+                  branches={repoBranches}
+                  branch={exportBranch}
+                  isCreatingBranch={isCreatingBranch}
+                  branchesIsLoading={branchesIsLoading}
+                  hasBranches={hasBranches}
+                  branchesError={branchesError}
+                  newBranchPlaceholder={`sync/${branchSlug}`}
+                  onSelectBranch={selectExportBranch}
+                  onBranchChange={setExportBranch}
+                  showNoBranchesMessage={Boolean(gitRepoUrl)}
+                />
               </div>
             </div>
           </div>

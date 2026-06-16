@@ -9,12 +9,12 @@ from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
-from tracecat.sync import Author, PushOptions
 from tracecat.workflow.store.schemas import (
     WorkflowDslPublish,
     WorkflowDslPublishResult,
     validate_short_branch_name,
 )
+from tracecat.workspace_sync.schemas import WorkspaceSyncExportRequest
 from tracecat.workspace_sync.service import WorkspaceSyncService
 
 
@@ -43,7 +43,6 @@ class WorkflowStoreService(BaseWorkspaceService):
             workspace_id=self.workspace_id,
         )
 
-        author = Author(name="Tracecat", email="noreply@tracecat.com")
         publish_message = params.message or f"Publish workflow: {dsl.title}"
         validated_branch: str
         validated_pr_base_branch: str | None = None
@@ -74,20 +73,21 @@ class WorkflowStoreService(BaseWorkspaceService):
             )
             create_pr = True
 
-        push_options = PushOptions(
+        export_params = WorkspaceSyncExportRequest(
             message=publish_message,
-            author=author,
             create_pr=create_pr,
             branch=validated_branch,
             pr_base_branch=validated_pr_base_branch,
+            include_schedules=False,
         )
 
         sync_service = WorkspaceSyncService(session=self.session, role=self.role)
-        result = await sync_service.export_workflow_publish_result(
+        export_result = await sync_service.export_workflow(
             workflow=workflow,
             dsl=dsl,
-            options=push_options,
+            params=export_params,
         )
+        result = export_result.as_workflow_publish_result()
 
         logger.info(
             "Successfully published workflow",
