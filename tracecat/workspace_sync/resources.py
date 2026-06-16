@@ -6,7 +6,7 @@ import hashlib
 import json
 from collections import defaultdict
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, ValidationError
@@ -40,8 +40,6 @@ from tracecat.workspace_sync.workflow import (
     serialize_workflow_spec,
     workflow_source_path,
 )
-
-ModelT = TypeVar("ModelT", bound=BaseModel)
 
 AGENT_PRESET_FILENAME = "preset.yml"
 SKILL_FILENAME = "skill.yml"
@@ -408,7 +406,7 @@ def workflow_preset_slugs(definition: BaseModel) -> set[str]:
     return _workflow_preset_slugs(definition)
 
 
-def _parse_yaml_resource(
+def _parse_yaml_resource[ModelT: BaseModel](
     path: str,
     content: str,
     *,

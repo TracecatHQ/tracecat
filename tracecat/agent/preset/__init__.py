@@ -6,7 +6,6 @@ __all__ = [
     "AgentPresetCreate",
     "AgentPresetRead",
     "AgentPresetUpdate",
-    "AgentPresetService",
 ]
 
 
