@@ -80,6 +80,7 @@ EXPECTED_RESOURCE_ROOTS = {
     "secret_metadata": f"{SECRET_METADATA_ROOT}/",
 }
 
+
 @pytest.fixture
 def workspace_sync_service() -> WorkspaceSyncService:
     session = AsyncMock()

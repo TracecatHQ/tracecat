@@ -434,7 +434,9 @@ class WorkspaceResourceProjector(BaseWorkspaceService):
         stmt = (
             select(CaseDurationDefinition)
             .where(CaseDurationDefinition.workspace_id == self.workspace_id)
-            .order_by(CaseDurationDefinition.name.asc(), CaseDurationDefinition.id.asc())
+            .order_by(
+                CaseDurationDefinition.name.asc(), CaseDurationDefinition.id.asc()
+            )
         )
         durations = list((await self.session.execute(stmt)).scalars().all())
         specs: dict[str, CaseDurationResourceSpec] = {}

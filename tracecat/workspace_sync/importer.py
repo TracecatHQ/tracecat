@@ -124,11 +124,15 @@ class WorkspaceResourceImportService(BaseWorkspaceService):
                     workspace_id=self.workspace_id,
                     name=spec.name,
                     environment=spec.environment,
-                    values=spec.value if isinstance(spec.value, dict) else {"value": spec.value},
+                    values=spec.value
+                    if isinstance(spec.value, dict)
+                    else {"value": spec.value},
                 )
             else:
                 variable.values = (
-                    spec.value if isinstance(spec.value, dict) else {"value": spec.value}
+                    spec.value
+                    if isinstance(spec.value, dict)
+                    else {"value": spec.value}
                 )
             self.session.add(variable)
             await self.session.flush()
@@ -269,7 +273,9 @@ class WorkspaceResourceImportService(BaseWorkspaceService):
 
             desired_refs = set()
             for position, option_spec in enumerate(spec.options):
-                ref = str(option_spec.get("ref") or option_spec.get("label") or position)
+                ref = str(
+                    option_spec.get("ref") or option_spec.get("label") or position
+                )
                 desired_refs.add(ref)
                 option = existing_options.get(ref)
                 if option is None:
@@ -448,12 +454,16 @@ class WorkspaceResourceImportService(BaseWorkspaceService):
                     continue
                 try:
                     if not await table_service.get_index(table):
-                        await table_service.create_unique_index(table, str(column["name"]))
+                        await table_service.create_unique_index(
+                            table, str(column["name"])
+                        )
                 except ValueError:
                     pass
 
             for row in spec.rows:
-                await table_service.insert_row(table, TableRowInsert(data=row, upsert=True))
+                await table_service.insert_row(
+                    table, TableRowInsert(data=row, upsert=True)
+                )
             await self.session.flush()
             imported.append(
                 ImportedResource(
@@ -523,7 +533,9 @@ class WorkspaceResourceImportService(BaseWorkspaceService):
                 }
                 for path, file_ref in sorted(file_refs, key=lambda item: item[0])
             ]
-            manifest_sha256 = skill_service._compute_sha256(orjson.dumps(manifest_payload))
+            manifest_sha256 = skill_service._compute_sha256(
+                orjson.dumps(manifest_payload)
+            )
             attrs = {
                 "manifest_sha256": manifest_sha256,
                 "file_count": len(file_refs),
