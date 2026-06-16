@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import pathlib
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
+import yaml
 from tracecat_registry import RegistryOAuthSecret
 
 from tracecat.agent.mcp import internal_tools
@@ -44,6 +46,31 @@ def _build_preset_read(preset: dict[str, object]) -> AgentPresetRead:
     data = dict(preset)
     data.setdefault("skills", [])
     return AgentPresetRead.model_validate(data)
+
+
+def test_builder_bundled_exa_actions_exist_in_registry_templates():
+    exa_root = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "packages"
+        / "tracecat-registry"
+        / "tracecat_registry"
+        / "templates"
+        / "tools"
+        / "exa"
+    )
+    registry_exa_actions = set()
+    for path in exa_root.glob("*.yml"):
+        template = yaml.safe_load(path.read_text())
+        definition = template["definition"]
+        registry_exa_actions.add(f"{definition['namespace']}.{definition['name']}")
+
+    bundled_exa_actions = {
+        action
+        for action in internal_tools.BUILDER_BUNDLED_ACTIONS
+        if action.startswith("tools.exa.")
+    }
+
+    assert bundled_exa_actions <= registry_exa_actions
 
 
 def test_evaluate_configuration_prefers_workspace_secret_even_when_empty():
