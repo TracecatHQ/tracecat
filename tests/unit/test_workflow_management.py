@@ -189,3 +189,175 @@ async def test_restore_workflow_definition_serializes_expected_fields(
         },
     }
     json.dumps(restored.expects)
+
+
+class _FakeCatalogService:
+    """Stub catalog service returning a fixed (provider, name) -> id map."""
+
+    def __init__(
+        self,
+        *,
+        session: Any = None,
+        mapping: dict[tuple[str, str], uuid.UUID] | None = None,
+    ):
+        self._mapping = mapping or {}
+
+    async def resolve_catalog_id_by_model(
+        self, *, org_id: uuid.UUID, model_provider: str, model_name: str
+    ) -> uuid.UUID | None:
+        return self._mapping.get((model_provider, model_name))
+
+
+def _agent_dsl(args: dict[str, Any], *, action: str = "ai.agent") -> DSLInput:
+    return DSLInput(
+        **{
+            "title": "agent wf",
+            "description": "",
+            "entrypoint": {"ref": "agent", "expects": {}},
+            "actions": [
+                {
+                    "ref": "agent",
+                    "action": action,
+                    "args": args,
+                }
+            ],
+        }
+    )
+
+
+def _service(role: Role) -> WorkflowsManagementService:
+    return WorkflowsManagementService(cast(Any, object()), role=role)
+
+
+def _role() -> Role:
+    return Role(
+        type="service",
+        service_id="tracecat-api",
+        organization_id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        scopes=frozenset({"*"}),
+    )
+
+
+@pytest.mark.anyio
+async def test_correlate_agent_catalog_ids_rewrites_nested_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    old_id = uuid.uuid4()
+    local_id = uuid.uuid4()
+    mapping = {("anthropic", "claude-opus-4-8"): local_id}
+    monkeypatch.setattr(
+        management,
+        "AgentCatalogService",
+        lambda session: _FakeCatalogService(session=session, mapping=mapping),
+    )
+    dsl = _agent_dsl(
+        {
+            "user_prompt": "hi",
+            "model": {
+                "model_name": "claude-opus-4-8",
+                "model_provider": "anthropic",
+                "catalog_id": str(old_id),
+            },
+        }
+    )
+
+    out = await _service(_role()).correlate_agent_catalog_ids(dsl)
+
+    assert out.actions[0].args["model"]["catalog_id"] == str(local_id)
+
+
+@pytest.mark.anyio
+async def test_correlate_agent_catalog_ids_rewrites_flat_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    old_id = uuid.uuid4()
+    local_id = uuid.uuid4()
+    mapping = {("openai", "gpt-4.1"): local_id}
+    monkeypatch.setattr(
+        management,
+        "AgentCatalogService",
+        lambda session: _FakeCatalogService(session=session, mapping=mapping),
+    )
+    dsl = _agent_dsl(
+        {
+            "user_prompt": "hi",
+            "model_name": "gpt-4.1",
+            "model_provider": "openai",
+            "catalog_id": str(old_id),
+        }
+    )
+
+    out = await _service(_role()).correlate_agent_catalog_ids(dsl)
+
+    assert out.actions[0].args["catalog_id"] == str(local_id)
+
+
+@pytest.mark.anyio
+async def test_correlate_agent_catalog_ids_keeps_id_on_no_match(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    old_id = uuid.uuid4()
+    monkeypatch.setattr(
+        management,
+        "AgentCatalogService",
+        lambda session: _FakeCatalogService(session=session, mapping={}),
+    )
+    dsl = _agent_dsl(
+        {
+            "user_prompt": "hi",
+            "model": {
+                "model_name": "claude-opus-4-8",
+                "model_provider": "anthropic",
+                "catalog_id": str(old_id),
+            },
+        }
+    )
+
+    out = await _service(_role()).correlate_agent_catalog_ids(dsl)
+
+    assert out.actions[0].args["model"]["catalog_id"] == str(old_id)
+
+
+@pytest.mark.anyio
+async def test_correlate_agent_catalog_ids_ignores_non_agent_actions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        management,
+        "AgentCatalogService",
+        lambda session: _FakeCatalogService(
+            session=session, mapping={("anthropic", "claude-opus-4-8"): uuid.uuid4()}
+        ),
+    )
+    dsl = _agent_dsl({"value": "ok"}, action="core.transform.reshape")
+
+    out = await _service(_role()).correlate_agent_catalog_ids(dsl)
+
+    assert out is dsl
+
+
+@pytest.mark.anyio
+async def test_correlate_agent_catalog_ids_skips_when_no_catalog_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        management,
+        "AgentCatalogService",
+        lambda session: _FakeCatalogService(
+            session=session, mapping={("anthropic", "claude-opus-4-8"): uuid.uuid4()}
+        ),
+    )
+    dsl = _agent_dsl(
+        {
+            "user_prompt": "hi",
+            "model": {
+                "model_name": "claude-opus-4-8",
+                "model_provider": "anthropic",
+            },
+        }
+    )
+
+    out = await _service(_role()).correlate_agent_catalog_ids(dsl)
+
+    assert "catalog_id" not in out.actions[0].args["model"]

@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
 from tracecat.contexts import ctx_logical_time
@@ -34,6 +35,7 @@ from tracecat.dsl.common import (
     build_action_statements_from_actions,
     edge_components_from_dep,
 )
+from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import DSLConfig, ExecutionContext, RunContext
 from tracecat.dsl.view import RFGraph
 from tracecat.exceptions import TracecatValidationError
@@ -996,6 +998,87 @@ class WorkflowsManagementService(BaseWorkspaceService):
         await self.session.refresh(workflow, ["actions", "webhook", "schedules"])
         return workflow
 
+    async def correlate_agent_catalog_ids(self, dsl: DSLInput) -> DSLInput:
+        """Re-map ``ai.agent`` model ``catalog_id``s to local catalog rows.
+
+        A model selection's ``catalog_id`` is a per-environment UUID, but the
+        ``(model_provider, model_name)`` tuple is stable across environments.
+        On import we look up the local catalog row for that tuple and rewrite
+        the ``catalog_id`` so the agent resolves credentials here.
+
+        This is purely additive: when no local row matches, the stored
+        ``catalog_id`` is left untouched (the workflow still imports). Non-
+        ``ai.agent`` actions and selections without a ``catalog_id`` are
+        skipped.
+
+        Runs only on the import/sync boundaries (manual import and git-sync
+        pull) where a ``catalog_id`` may have come from another environment —
+        not on ordinary workflow saves, where the id is already local.
+        """
+        org_id = self.role.organization_id
+        if org_id is None:
+            return dsl
+
+        # Cheap early-out: no DB work unless an ``ai.agent`` action exists.
+        if not any(
+            act_stmt.action == PlatformAction.AI_AGENT for act_stmt in dsl.actions
+        ):
+            return dsl
+
+        catalog_svc = AgentCatalogService(session=self.session)
+        rewritten = False
+        new_actions = list(dsl.actions)
+        for idx, act_stmt in enumerate(dsl.actions):
+            if act_stmt.action != PlatformAction.AI_AGENT:
+                continue
+
+            args = act_stmt.args
+            # Model selection arrives either nested under ``model`` or as flat
+            # ``model_name`` / ``model_provider`` / ``catalog_id`` fields, the
+            # same dual shape ``AgentActionArgs`` accepts.
+            nested = args.get("model")
+            source = nested if isinstance(nested, dict) else args
+
+            catalog_id = source.get("catalog_id")
+            model_provider = source.get("model_provider")
+            model_name = source.get("model_name")
+            if not catalog_id or not model_provider or not model_name:
+                continue
+
+            local_id = await catalog_svc.resolve_catalog_id_by_model(
+                org_id=org_id,
+                model_provider=str(model_provider),
+                model_name=str(model_name),
+            )
+            if local_id is None or str(local_id) == str(catalog_id):
+                continue
+
+            # Store the id as a string so it survives ``yaml.dump`` of the
+            # action inputs (a ``uuid.UUID`` object serializes to a Python
+            # object tag that ``yaml.safe_load`` rejects on export).
+            new_catalog_id = str(local_id)
+            new_args = dict(args)
+            if isinstance(nested, dict):
+                new_model = dict(nested)
+                new_model["catalog_id"] = new_catalog_id
+                new_args["model"] = new_model
+            else:
+                new_args["catalog_id"] = new_catalog_id
+            new_actions[idx] = act_stmt.model_copy(update={"args": new_args})
+            rewritten = True
+            self.logger.info(
+                "Re-mapped agent catalog_id on import",
+                action_ref=act_stmt.ref,
+                model_provider=model_provider,
+                model_name=model_name,
+                old_catalog_id=str(catalog_id),
+                new_catalog_id=str(local_id),
+            )
+
+        if not rewritten:
+            return dsl
+        return dsl.model_copy(update={"actions": new_actions})
+
     @require_scope("workflow:create")
     async def create_workflow_from_external_definition(
         self,
@@ -1015,6 +1098,10 @@ class WorkflowsManagementService(BaseWorkspaceService):
         # NOTE: We do not support adding invalid workflows
 
         dsl = external_defn.definition
+        # `ai.agent` model selections carry a per-environment ``catalog_id``.
+        # Best-effort re-map it to the equivalent local model so imported
+        # workflows resolve credentials in this environment.
+        dsl = await self.correlate_agent_catalog_ids(dsl)
         imported_trigger_position, imported_viewport, imported_action_positions = (
             external_defn.extract_layout_positions()
         )

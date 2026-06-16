@@ -640,3 +640,101 @@ def test_bedrock_update_rejects_both_refs_explicitly_null() -> None:
             inference_profile_id=None,
             model_id=None,
         )
+
+
+@pytest.mark.anyio
+async def test_resolve_catalog_id_by_model_returns_org_row(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    service = AgentCatalogService(session=session)
+    row = AgentCatalog(
+        organization_id=svc_organization.id,
+        custom_provider_id=None,
+        model_provider="anthropic",
+        model_name="claude-opus-4-8",
+        model_metadata={},
+    )
+    session.add(row)
+    await session.commit()
+
+    resolved = await service.resolve_catalog_id_by_model(
+        org_id=svc_organization.id,
+        model_provider="anthropic",
+        model_name="claude-opus-4-8",
+    )
+
+    assert resolved == row.id
+
+
+@pytest.mark.anyio
+async def test_resolve_catalog_id_by_model_prefers_org_over_platform(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    service = AgentCatalogService(session=session)
+    platform_row = AgentCatalog(
+        organization_id=None,
+        custom_provider_id=None,
+        model_provider="anthropic",
+        model_name="claude-opus-4-8",
+        model_metadata={},
+    )
+    org_row = AgentCatalog(
+        organization_id=svc_organization.id,
+        custom_provider_id=None,
+        model_provider="anthropic",
+        model_name="claude-opus-4-8",
+        model_metadata={},
+    )
+    session.add_all([platform_row, org_row])
+    await session.commit()
+
+    resolved = await service.resolve_catalog_id_by_model(
+        org_id=svc_organization.id,
+        model_provider="anthropic",
+        model_name="claude-opus-4-8",
+    )
+
+    assert resolved == org_row.id
+
+
+@pytest.mark.anyio
+async def test_resolve_catalog_id_by_model_falls_back_to_platform(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    service = AgentCatalogService(session=session)
+    platform_row = AgentCatalog(
+        organization_id=None,
+        custom_provider_id=None,
+        model_provider="openai",
+        model_name="gpt-4.1",
+        model_metadata={},
+    )
+    session.add(platform_row)
+    await session.commit()
+
+    resolved = await service.resolve_catalog_id_by_model(
+        org_id=svc_organization.id,
+        model_provider="openai",
+        model_name="gpt-4.1",
+    )
+
+    assert resolved == platform_row.id
+
+
+@pytest.mark.anyio
+async def test_resolve_catalog_id_by_model_no_match(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    service = AgentCatalogService(session=session)
+
+    resolved = await service.resolve_catalog_id_by_model(
+        org_id=svc_organization.id,
+        model_provider="anthropic",
+        model_name="does-not-exist",
+    )
+
+    assert resolved is None

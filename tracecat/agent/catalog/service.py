@@ -115,6 +115,46 @@ class AgentCatalogService(BaseService):
             raise TracecatNotFoundError(f"Catalog entry {catalog_id} not found")
         return row
 
+    async def resolve_catalog_id_by_model(
+        self,
+        *,
+        org_id: UUID,
+        model_provider: str,
+        model_name: str,
+    ) -> UUID | None:
+        """Best-effort: find the catalog row id for a (provider, name) visible to org.
+
+        The stable identifier for a model across environments is the
+        ``(model_provider, model_name)`` tuple — ``catalog_id`` is a random
+        per-environment UUID. This resolves that tuple to the local catalog row
+        so an imported workflow can be re-pointed at the equivalent model.
+
+        Prefers an org-owned row over a platform row when both exist. Returns
+        ``None`` when no row matches.
+        """
+        stmt = (
+            select(AgentCatalog.id)
+            .where(
+                AgentCatalog.model_provider == model_provider,
+                AgentCatalog.model_name == model_name,
+                sa.or_(
+                    AgentCatalog.organization_id == org_id,
+                    AgentCatalog.organization_id.is_(None),
+                ),
+            )
+            # Org-owned rows win over platform rows (NULL org).
+            .order_by(AgentCatalog.organization_id.desc().nulls_last())
+            .limit(1)
+        )
+        row_id = (await self.session.execute(stmt)).scalar_one_or_none()
+        if row_id is None:
+            return None
+        # Coerce to a stdlib UUID: the driver may hand back a non-stdlib UUID
+        # (e.g. asyncpg's ``pgproto.UUID``) which ``yaml.dump`` later serializes
+        # with a Python object tag that ``yaml.safe_load`` can't read back when
+        # the workflow is exported.
+        return UUID(str(row_id))
+
     async def list_catalog(
         self,
         org_id: UUID | None = None,

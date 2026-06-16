@@ -538,6 +538,42 @@ class TestWorkflowImportService:
         assert inputs2 == {"url": "https://example.com", "method": "GET"}
 
     @pytest.mark.anyio
+    async def test_import_runs_agent_catalog_correlation(
+        self,
+        import_service: WorkflowImportService,
+        remote_workflow_definition: RemoteWorkflowDefinition,
+    ):
+        """Git-sync import routes the definition through catalog correlation.
+
+        The remap logic itself is covered in test_workflow_management; here we
+        verify _import_single_workflow (the create/update chokepoint) invokes
+        it on the remote definition so synced workflows self-heal on pull. The
+        downstream create/update is stubbed to isolate the wiring.
+        """
+        seen: dict[str, object] = {}
+
+        async def fake_correlate(dsl):
+            seen["dsl"] = dsl
+            return dsl
+
+        with (
+            patch.object(
+                import_service.wf_mgmt,
+                "correlate_agent_catalog_ids",
+                side_effect=fake_correlate,
+            ) as correlate_mock,
+            patch.object(import_service.wf_mgmt, "get_workflow", return_value=None),
+            patch.object(
+                import_service, "_create_new_workflow", new=AsyncMock()
+            ) as create_mock,
+        ):
+            await import_service._import_single_workflow(remote_workflow_definition)
+
+        correlate_mock.assert_awaited_once()
+        assert seen["dsl"] is remote_workflow_definition.definition
+        create_mock.assert_awaited_once()
+
+    @pytest.mark.anyio
     async def test_schedule_handling_improvements(
         self,
         import_service: WorkflowImportService,
