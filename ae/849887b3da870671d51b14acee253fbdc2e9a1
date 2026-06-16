@@ -1,0 +1,20 @@
+deployments/fargate/modules/ecs/locals.tf
+  s_663b332901808f::t_1b72e297b2623c 27-30,83,111,131,154,178,216
+  s_663b332901808f::t_f991f3b14139d2 299-313
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "ae849887b3da870671d51b14acee253fbdc2e9a1",
+  "prompts": {},
+  "sessions": {
+    "s_663b332901808f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ed148-32a3-7280-82ac-0c7819374278",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
