@@ -210,7 +210,9 @@ class TestBuildToolDefinitionsActivity:
             fail_on_error: bool = False,
         ) -> dict[str, Any]:
             discover_fail_flags.append(fail_on_error)
-            raise RuntimeError("server unavailable")
+            raise user_client.MCPToolDiscoveryError(
+                "broken", RuntimeError("server unavailable")
+            )
 
         class _LockService:
             async def resolve_lock_with_bindings(
@@ -260,10 +262,26 @@ class TestBuildToolDefinitionsActivity:
 
         assert discover_fail_flags == [True]
         assert exc_info.value.message == (
-            "Failed to discover configured MCP tools for agent scope"
+            "Failed to discover configured MCP tools for agent scope 'root' "
+            "from MCP server 'broken'"
         )
         assert exc_info.value.type == "AgentToolDefinitionError"
         assert exc_info.value.non_retryable is True
+
+    def test_mcp_discovery_error_message_includes_scope_server_and_status(
+        self,
+    ) -> None:
+        error = RuntimeError("server unavailable")
+        error.server_name = "broken"  # type: ignore[attr-defined]
+        error.status_code = 503  # type: ignore[attr-defined]
+
+        assert agent_activities._mcp_discovery_error_message(
+            scope="analyst",
+            error=error,
+        ) == (
+            "Failed to discover configured MCP tools for agent scope 'analyst' "
+            "from MCP server 'broken' (HTTP 503)"
+        )
 
     @pytest.mark.anyio
     async def test_build_agent_tool_definitions_returns_partitioned_scopes(

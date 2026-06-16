@@ -1,8 +1,14 @@
+from types import SimpleNamespace
+
 import pytest
 from fastmcp.client.transports import StreamableHttpTransport
 
 from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
-from tracecat.agent.mcp.user_client import UserMCPClient, _create_transport
+from tracecat.agent.mcp.user_client import (
+    MCPToolDiscoveryError,
+    UserMCPClient,
+    _create_transport,
+)
 
 
 def _mcp_server(name: str) -> MCPHttpServerConfig:
@@ -66,10 +72,46 @@ async def test_discover_tools_fails_closed_in_strict_mode(
     client = UserMCPClient([_mcp_server("working"), _mcp_server("broken")])
 
     with pytest.raises(
-        RuntimeError,
+        MCPToolDiscoveryError,
         match="Failed to discover tools from user MCP server 'broken'",
-    ):
+    ) as exc_info:
         await client.discover_tools(fail_on_error=True)
+
+    assert exc_info.value.server_name == "broken"
+
+
+@pytest.mark.anyio
+async def test_discover_tools_strict_error_includes_http_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeHTTPStatusError(Exception):
+        def __init__(self) -> None:
+            super().__init__("Service Unavailable")
+            self.response = SimpleNamespace(status_code=503)
+
+    async def fake_discover_server_tools(
+        self: UserMCPClient,
+        server_name: str,
+        config: MCPHttpServerConfig,
+    ) -> dict[str, MCPToolDefinition]:
+        del self, server_name, config
+        raise FakeHTTPStatusError()
+
+    monkeypatch.setattr(
+        UserMCPClient,
+        "_discover_server_tools",
+        fake_discover_server_tools,
+    )
+    client = UserMCPClient([_mcp_server("broken")])
+
+    with pytest.raises(
+        MCPToolDiscoveryError,
+        match=r"Failed to discover tools from user MCP server 'broken' \(HTTP 503\)",
+    ) as exc_info:
+        await client.discover_tools(fail_on_error=True)
+
+    assert exc_info.value.server_name == "broken"
+    assert exc_info.value.status_code == 503
 
 
 # Regression: fastmcp's StreamableHttpTransport.connect_session merges any
