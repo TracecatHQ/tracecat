@@ -213,6 +213,12 @@ class ArtifactBinding:
     op: ArtifactOp
     build: ArtifactBuilder
     identity: ArtifactIdentityBuilder | None = None
+    max_artifacts: int | None = None
+
+
+# List-style tools (list/search) skip artifact emission past this count so a
+# broad listing answers in chat text instead of opening one tab per item.
+MAX_LIST_ARTIFACTS = 3
 
 
 def _build_case_artifact(ctx: ArtifactProjectionContext) -> Artifact | None:
@@ -289,6 +295,7 @@ ARTIFACT_BINDINGS: tuple[ArtifactBinding, ...] = (
         tool_names=("core.cases.list_cases", "core.cases.search_cases"),
         op="upsert",
         build=_build_case_artifacts,
+        max_artifacts=MAX_LIST_ARTIFACTS,
     ),
     ArtifactBinding(
         tool_names=("core.cases.delete_case",),
@@ -312,6 +319,7 @@ ARTIFACT_BINDINGS: tuple[ArtifactBinding, ...] = (
         tool_names=("core.table.list_tables",),
         op="upsert",
         build=_build_table_artifacts,
+        max_artifacts=MAX_LIST_ARTIFACTS,
     ),
     ArtifactBinding(
         tool_names=(
@@ -342,6 +350,7 @@ ARTIFACT_BINDINGS: tuple[ArtifactBinding, ...] = (
         tool_names=("ai.agent.list_presets",),
         op="upsert",
         build=_build_agent_artifacts,
+        max_artifacts=MAX_LIST_ARTIFACTS,
     ),
     ArtifactBinding(
         tool_names=("core.workflow.execute", "core.workflow.get_status"),
@@ -418,6 +427,8 @@ def artifact_side_effects_for_tool_result(
 
     artifacts = _artifact_tuple(binding.build(ctx))
     if not artifacts:
+        return
+    if binding.max_artifacts is not None and len(artifacts) > binding.max_artifacts:
         return
 
     identity_ref = binding.identity(ctx) if binding.identity else None

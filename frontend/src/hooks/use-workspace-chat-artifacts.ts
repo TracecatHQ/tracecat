@@ -26,6 +26,11 @@ export type UseWorkspaceChatArtifactsOptions = {
   enabled?: boolean
   initialActiveArtifactKey?: string | null
   persistedArtifacts?: WorkspaceChatArtifact[]
+  /**
+   * While true, new artifacts open in the background instead of stealing
+   * focus; the last streamed artifact is focused once streaming ends.
+   */
+  isStreaming?: boolean
   onArtifactStreamPart?: (part: WorkspaceChatArtifactStreamPart) => void
   onCloseArtifact?: (type: ArtifactType, id: string) => void | Promise<void>
 }
@@ -37,6 +42,23 @@ type WorkspaceChatArtifactMessageStreamPart = {
 
 const EMPTY_ARTIFACTS: WorkspaceChatArtifact[] = []
 
+/**
+ * Maximum artifact tabs kept open; the oldest tabs are evicted first.
+ * Must match MAX_OPEN_ARTIFACTS in tracecat/artifacts/projection.py so the
+ * live panel and the persisted session projection agree after a reload.
+ */
+export const MAX_OPEN_ARTIFACT_TABS = 5
+
+function evictOldestArtifacts(next: Map<string, WorkspaceChatArtifact>): void {
+  while (next.size > MAX_OPEN_ARTIFACT_TABS) {
+    const oldestKey = next.keys().next().value
+    if (oldestKey === undefined) {
+      return
+    }
+    next.delete(oldestKey)
+  }
+}
+
 function reduceArtifactPayload(
   next: Map<string, WorkspaceChatArtifact>,
   payload: ArtifactDataPayload
@@ -44,7 +66,11 @@ function reduceArtifactPayload(
   const key = artifactKey(payload.artifact)
   switch (payload.op) {
     case "upsert":
+      // Delete first so re-upserting an open artifact refreshes its recency
+      // instead of keeping its original tab position.
+      next.delete(key)
       next.set(key, payload.artifact)
+      evictOldestArtifacts(next)
       return
     case "remove":
       next.delete(key)
@@ -118,6 +144,7 @@ function artifactMapFromArtifacts(
   for (const artifact of artifacts) {
     next.set(artifactKey(artifact), artifact)
   }
+  evictOldestArtifacts(next)
   return next
 }
 
@@ -193,6 +220,7 @@ export function useWorkspaceChatArtifacts(
   const enabled = options.enabled ?? true
   const initialActiveArtifactKey = options.initialActiveArtifactKey ?? null
   const persistedArtifacts = options.persistedArtifacts ?? EMPTY_ARTIFACTS
+  const isStreaming = options.isStreaming ?? false
   const onArtifactStreamPart = options.onArtifactStreamPart
   const onCloseArtifact = options.onCloseArtifact
   const persistedArtifactSignature = useMemo(
@@ -208,6 +236,7 @@ export function useWorkspaceChatArtifacts(
     persistedArtifactSignature
   )
   const initialActiveArtifactKeyRef = useRef(initialActiveArtifactKey)
+  const deferredActiveArtifactKeyRef = useRef<string | null>(null)
   const [activeArtifactKey, setActiveArtifactKey] = useState<string | null>(
     () => {
       if (!enabled) {
@@ -264,6 +293,7 @@ export function useWorkspaceChatArtifacts(
 
     if (!enabled) {
       processedMessagePartKeysRef.current.clear()
+      deferredActiveArtifactKeyRef.current = null
       setStreamArtifacts((current) =>
         current.size === 0 ? current : new Map()
       )
@@ -314,6 +344,12 @@ export function useWorkspaceChatArtifacts(
       setStreamArtifacts(nextArtifacts)
       const nextActiveArtifactKey =
         lastUpsertKey(pendingParts) ?? lastArtifactKey(persistedArtifacts)
+      if (isStreaming) {
+        if (nextActiveArtifactKey) {
+          deferredActiveArtifactKeyRef.current = nextActiveArtifactKey
+        }
+        return
+      }
       setActiveArtifactKey(
         selectActiveArtifactKey(
           Array.from(nextArtifacts.values()),
@@ -342,11 +378,16 @@ export function useWorkspaceChatArtifacts(
 
     const nextActiveArtifactKey = lastUpsertKey(pendingParts)
     if (nextActiveArtifactKey) {
-      initialActiveArtifactKeyRef.current = null
-      setActiveArtifactKey(nextActiveArtifactKey)
+      if (isStreaming) {
+        deferredActiveArtifactKeyRef.current = nextActiveArtifactKey
+      } else {
+        initialActiveArtifactKeyRef.current = null
+        setActiveArtifactKey(nextActiveArtifactKey)
+      }
     }
   }, [
     enabled,
+    isStreaming,
     messages,
     onArtifactStreamPart,
     persistedArtifactSignature,
@@ -376,14 +417,37 @@ export function useWorkspaceChatArtifacts(
       switch (part.type) {
         case ARTIFACT_DATA_PART_TYPE:
           if (part.data.op === "upsert") {
-            initialActiveArtifactKeyRef.current = null
-            setActiveArtifactKey(artifactKey(part.data.artifact))
+            if (isStreaming) {
+              deferredActiveArtifactKeyRef.current = artifactKey(
+                part.data.artifact
+              )
+            } else {
+              initialActiveArtifactKeyRef.current = null
+              setActiveArtifactKey(artifactKey(part.data.artifact))
+            }
           }
           return
       }
     },
-    [enabled, onArtifactStreamPart]
+    [enabled, isStreaming, onArtifactStreamPart]
   )
+
+  // Focus deferred artifacts once the stream settles so a multi-artifact run
+  // switches the panel content once instead of chasing every upsert.
+  useEffect(() => {
+    if (isStreaming) {
+      return
+    }
+    const deferredKey = deferredActiveArtifactKeyRef.current
+    if (!deferredKey) {
+      return
+    }
+    deferredActiveArtifactKeyRef.current = null
+    if (artifacts.some((artifact) => artifactKey(artifact) === deferredKey)) {
+      initialActiveArtifactKeyRef.current = null
+      setActiveArtifactKey(deferredKey)
+    }
+  }, [isStreaming, artifacts])
 
   const lanes = useMemo(() => {
     const next = new Map<string, ArtifactLane>()
