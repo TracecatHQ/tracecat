@@ -1,0 +1,19 @@
+deployments/fargate/modules/ecs/locals.tf
+  s_663b332901808f::t_1b72e297b2623c 27-30,83,175,213
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "21369acd40b7c5a1083bd34da06c958da3fcf24a",
+  "prompts": {},
+  "sessions": {
+    "s_663b332901808f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ed148-32a3-7280-82ac-0c7819374278",
+        "model": "gpt-5.5"
+      },
+      "human_author": null
+    }
+  }
+}
