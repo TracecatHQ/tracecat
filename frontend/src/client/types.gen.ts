@@ -11627,9 +11627,9 @@ export type InboxListItemsData = {
   group?: InboxGroup | null
   limit?: number
   /**
-   * Column name to order by (created_at, updated_at, status)
+   * Column name to order by (created_at, updated_at)
    */
-  orderBy?: string | null
+  orderBy?: "created_at" | "updated_at" | null
   reverse?: boolean
   /**
    * Case-insensitive search on item title

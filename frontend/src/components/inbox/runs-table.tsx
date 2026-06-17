@@ -39,12 +39,20 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import UserAvatar from "@/components/user-avatar"
-import { INBOX_GROUP_ORDER, type InboxGroupState } from "@/hooks/use-inbox"
+import {
+  INBOX_GROUP_ORDER,
+  type InboxGroupState,
+  type InboxOrderBy,
+} from "@/hooks/use-inbox"
 import type { InboxSessionItem } from "@/lib/agents"
 import { getDisplayName as getUserDisplayName } from "@/lib/auth"
 import { cn } from "@/lib/utils"
 
-type SortKey = "title" | "source" | "created_by" | "created_at" | "updated_at"
+// Only columns the API can order globally across pages are sortable. Title,
+// source, and created_by have no server-side keyset equivalent, so sorting them
+// would only reorder the rows already loaded in the browser — misleading once a
+// group spans multiple pages — and they are rendered as plain labels instead.
+type SortKey = Extract<InboxOrderBy, "created_at" | "updated_at">
 type SortDirection = "asc" | "desc"
 
 type SourceType = "workflow" | "case" | "chat" | "test" | "assistant"
@@ -137,46 +145,10 @@ function getDisplayName(session: InboxSessionItem): string {
   )
 }
 
-function getCreatorName(session: InboxSessionItem): string {
-  if (!session.created_by) {
-    return ""
-  }
-  return getUserDisplayName(session.created_by)
-}
-
-const DEFAULT_SORT_DIRECTIONS: Record<SortKey, SortDirection> = {
-  title: "asc",
-  source: "asc",
-  created_by: "asc",
-  created_at: "desc",
-  updated_at: "desc",
-}
-
-function compareSessions(
-  a: InboxSessionItem,
-  b: InboxSessionItem,
-  sortKey: SortKey
-): number {
-  switch (sortKey) {
-    case "title":
-      return getDisplayName(a).localeCompare(getDisplayName(b))
-    case "source":
-      return getSourceType(a.entity_type).localeCompare(
-        getSourceType(b.entity_type)
-      )
-    case "created_by":
-      return getCreatorName(a).localeCompare(getCreatorName(b))
-    case "created_at":
-      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-    case "updated_at":
-      return new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime()
-  }
-}
-
 interface SortableHeadProps {
   label: string
   sortKey: SortKey
-  activeKey: SortKey
+  activeKey: SortKey | null
   direction: SortDirection
   onSort: (key: SortKey) => void
   className?: string
@@ -209,6 +181,23 @@ function SortableHead({
       {label}
       <SortIcon className="size-3" />
     </button>
+  )
+}
+
+/** Non-sortable column header. Used for columns with no server-side order. */
+function PlainHead({
+  label,
+  className,
+}: {
+  label: string
+  className?: string
+}) {
+  return (
+    <span
+      className={cn("text-xs font-medium text-muted-foreground", className)}
+    >
+      {label}
+    </span>
   )
 }
 
@@ -341,14 +330,18 @@ interface RunsTableProps {
   deletingId: string | null
   onSelect: (id: string) => void
   onDelete?: (id: string) => void
+  orderBy: InboxOrderBy
+  sort: SortDirection
+  onSort: (key: SortKey) => void
 }
 
 /**
  * Agent runs grouped by status into accordion sections, with sortable
- * columns shared across groups. Each group is paginated independently on
- * the server and exposes a "Show more" row when more items exist. Rows are
- * clickable and open the run's session detail; runs with pending approvals
- * can be dismissed inline.
+ * timestamp columns shared across groups. Sorting is applied server-side
+ * (driven by `orderBy`/`sort`) so it orders every page of a group, not just the
+ * rows already loaded. Each group is paginated independently and exposes a
+ * "Show more" row when more items exist. Rows are clickable and open the run's
+ * session detail; runs with pending approvals can be dismissed inline.
  */
 export function RunsTable({
   groups,
@@ -356,49 +349,28 @@ export function RunsTable({
   deletingId,
   onSelect,
   onDelete,
+  orderBy,
+  sort,
+  onSort,
 }: RunsTableProps) {
-  const [sortKey, setSortKey] = useState<SortKey>("updated_at")
-  const [sortDirection, setSortDirection] = useState<SortDirection>("desc")
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   // Track user-collapsed groups so newly appearing groups start expanded
   const [collapsedGroups, setCollapsedGroups] = useState<StatusGroup[]>([])
 
   const showActions = Boolean(onDelete)
 
-  const handleSort = (key: SortKey) => {
-    if (key === sortKey) {
-      setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"))
-    } else {
-      setSortKey(key)
-      setSortDirection(DEFAULT_SORT_DIRECTIONS[key])
-    }
-  }
-
-  // Sort each server-provided group's loaded sessions by the active column
-  const groupedSessions = useMemo(() => {
-    const factor = sortDirection === "asc" ? 1 : -1
-    const sorted = {} as Record<StatusGroup, InboxSessionItem[]>
-    for (const groupKey of INBOX_GROUP_ORDER) {
-      sorted[groupKey] = [...groups[groupKey].sessions].sort((a, b) => {
-        const primary = compareSessions(a, b, sortKey) * factor
-        if (primary !== 0) {
-          return primary
-        }
-        // Tiebreak on most recently updated first
-        return (
-          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-        )
-      })
-    }
-    return sorted
-  }, [groups, sortKey, sortDirection])
+  // The active sort column, narrowed to the columns this table renders as
+  // sortable headers. When the inbox is ordered by `status`, no timestamp
+  // header is highlighted.
+  const activeKey: SortKey | null =
+    orderBy === "created_at" || orderBy === "updated_at" ? orderBy : null
 
   // Only render groups that have items (loaded or unloaded); empty groups are hidden
   const visibleGroups = useMemo(() => {
     return INBOX_GROUP_ORDER.filter(
-      (group) => groupedSessions[group].length > 0 || groups[group].hasMore
+      (group) => groups[group].sessions.length > 0 || groups[group].hasMore
     )
-  }, [groupedSessions, groups])
+  }, [groups])
 
   const expandedGroups = visibleGroups.filter(
     (group) => !collapsedGroups.includes(group)
@@ -417,41 +389,22 @@ export function RunsTable({
           showActions ? GRID_COLS_WITH_ACTIONS : GRID_COLS
         )}
       >
-        <SortableHead
-          label="Title"
-          sortKey="title"
-          activeKey={sortKey}
-          direction={sortDirection}
-          onSort={handleSort}
-          className="pl-10"
-        />
-        <SortableHead
-          label="Source"
-          sortKey="source"
-          activeKey={sortKey}
-          direction={sortDirection}
-          onSort={handleSort}
-        />
-        <SortableHead
-          label="Created by"
-          sortKey="created_by"
-          activeKey={sortKey}
-          direction={sortDirection}
-          onSort={handleSort}
-        />
+        <PlainHead label="Title" className="pl-10" />
+        <PlainHead label="Source" />
+        <PlainHead label="Created by" />
         <SortableHead
           label="Created"
           sortKey="created_at"
-          activeKey={sortKey}
-          direction={sortDirection}
-          onSort={handleSort}
+          activeKey={activeKey}
+          direction={sort}
+          onSort={onSort}
         />
         <SortableHead
           label="Updated"
           sortKey="updated_at"
-          activeKey={sortKey}
-          direction={sortDirection}
-          onSort={handleSort}
+          activeKey={activeKey}
+          direction={sort}
+          onSort={onSort}
         />
         {showActions && <span />}
       </div>
@@ -470,8 +423,8 @@ export function RunsTable({
         >
           {visibleGroups.map((groupKey) => {
             const config = STATUS_GROUPS[groupKey]
-            const groupSessions = groupedSessions[groupKey]
             const groupState = groups[groupKey]
+            const groupSessions = groupState.sessions
             const StatusIcon = config.icon
 
             return (

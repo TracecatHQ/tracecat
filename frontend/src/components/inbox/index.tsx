@@ -11,6 +11,7 @@ import { toast } from "@/components/ui/use-toast"
 import {
   type DateFilterValue,
   type InboxGroupState,
+  type InboxOrderBy,
   type UseInboxFilters,
   useDeleteApproval,
 } from "@/hooks/use-inbox"
@@ -29,6 +30,9 @@ interface ActivityLayoutProps {
   onLimitChange: (limit: number) => void
   onUpdatedAfterChange: (value: DateFilterValue) => void
   onCreatedAfterChange: (value: DateFilterValue) => void
+  orderBy: InboxOrderBy
+  sort: "asc" | "desc"
+  onSort: (key: InboxOrderBy) => void
 }
 
 export function ActivityLayout({
@@ -44,6 +48,9 @@ export function ActivityLayout({
   onLimitChange,
   onUpdatedAfterChange,
   onCreatedAfterChange,
+  orderBy,
+  sort,
+  onSort,
 }: ActivityLayoutProps) {
   const { setSelectedSession, setChatOpen, registerOnClose } = useInboxChat()
   const canDeleteApproval = useScopeCheck("agent:delete")
@@ -159,6 +166,9 @@ export function ActivityLayout({
           deletingId={deletingId ?? null}
           onSelect={handleSelectItem}
           onDelete={canDeleteApproval ? handleDeleteItem : undefined}
+          orderBy={orderBy}
+          sort={sort}
+          onSort={onSort}
         />
       </div>
     </div>

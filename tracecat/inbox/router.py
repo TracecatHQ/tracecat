@@ -8,7 +8,7 @@ from tracecat import config
 from tracecat.auth.dependencies import WorkspaceUserRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.inbox.dependencies import get_inbox_providers
+from tracecat.inbox.dependencies import get_inbox_provider
 from tracecat.inbox.schemas import InboxItemRead, InboxPendingCount
 from tracecat.inbox.service import InboxService
 from tracecat.inbox.types import InboxGroup
@@ -25,9 +25,11 @@ async def get_pending_count(
     session: AsyncDBSession,
 ) -> InboxPendingCount:
     """Get the number of pending inbox items that require attention."""
-    providers = get_inbox_providers(session, role)
-    service = InboxService(session, role, providers)
+    provider = get_inbox_provider(session, role)
+    if provider is None:
+        return InboxPendingCount(count=0)
 
+    service = InboxService(session, role, provider)
     return InboxPendingCount(count=await service.count_pending_items())
 
 
@@ -43,9 +45,9 @@ async def list_items(
     ),
     cursor: str | None = Query(default=None),
     reverse: bool = Query(default=False),
-    order_by: str | None = Query(
+    order_by: Literal["created_at", "updated_at"] | None = Query(
         default=None,
-        description="Column name to order by (created_at, updated_at, status)",
+        description="Column name to order by (created_at, updated_at)",
     ),
     sort: Literal["asc", "desc"] | None = Query(
         default=None, description="Sort direction (asc or desc)"
@@ -62,11 +64,21 @@ async def list_items(
 ) -> CursorPaginatedResponse[InboxItemRead]:
     """List inbox items with cursor-based pagination.
 
-    Supports sorting by created_at, updated_at, or status.
+    Supports sorting by created_at or updated_at.
     Default sort is by created_at descending.
     """
-    providers = get_inbox_providers(session, role)
-    service = InboxService(session, role, providers)
+    provider = get_inbox_provider(session, role)
+    if provider is None:
+        return CursorPaginatedResponse(
+            items=[],
+            next_cursor=None,
+            prev_cursor=None,
+            has_more=False,
+            has_previous=False,
+            total_estimate=0,
+        )
+
+    service = InboxService(session, role, provider)
 
     search = search.strip() or None if search else None
 

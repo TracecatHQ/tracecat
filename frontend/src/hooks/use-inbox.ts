@@ -27,9 +27,14 @@ import {
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
+/** Columns the inbox API can sort on globally (server-side keyset order). */
+export type InboxOrderBy = "created_at" | "updated_at"
+
 export interface UseInboxOptions {
   enabled?: boolean
   autoRefresh?: boolean
+  orderBy?: InboxOrderBy
+  sort?: "asc" | "desc"
 }
 
 export type DateFilterValue = "1d" | "3d" | "1w" | "1m" | null
@@ -204,6 +209,8 @@ interface InboxGroupQueryOptions {
   group: InboxGroup
   limit: number
   search: string
+  orderBy: InboxOrderBy
+  sort: "asc" | "desc"
   enabled: boolean
   autoRefresh: boolean
   pollMs: number
@@ -220,6 +227,8 @@ function useInboxGroupQuery({
   group,
   limit,
   search,
+  orderBy,
+  sort,
   enabled,
   autoRefresh,
   pollMs,
@@ -231,7 +240,7 @@ function useInboxGroupQuery({
     readonly unknown[],
     string | null
   >({
-    queryKey: ["inbox-items", workspaceId, group, limit, search],
+    queryKey: ["inbox-items", workspaceId, group, limit, search, orderBy, sort],
     queryFn: ({ pageParam }) =>
       inboxListItems({
         workspaceId,
@@ -239,6 +248,8 @@ function useInboxGroupQuery({
         cursor: pageParam,
         search: search || null,
         group,
+        orderBy,
+        sort,
       }),
     initialPageParam: null,
     getNextPageParam: (lastPage) =>
@@ -268,7 +279,12 @@ function useInboxGroupQuery({
 }
 
 export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
-  const { enabled = true, autoRefresh = true } = options
+  const {
+    enabled = true,
+    autoRefresh = true,
+    orderBy = "updated_at",
+    sort = "desc",
+  } = options
   const workspaceId = useWorkspaceId()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
@@ -290,6 +306,8 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     group: "review_required",
     limit,
     search: normalizedSearchQuery,
+    orderBy,
+    sort,
     enabled: baseEnabled,
     autoRefresh,
     pollMs: 3000,
@@ -299,6 +317,8 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     group: "running",
     limit,
     search: normalizedSearchQuery,
+    orderBy,
+    sort,
     enabled: baseEnabled,
     autoRefresh,
     pollMs: 3000,
@@ -308,6 +328,8 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     group: "error",
     limit,
     search: normalizedSearchQuery,
+    orderBy,
+    sort,
     enabled: baseEnabled,
     autoRefresh,
     pollMs: 10000,
@@ -317,6 +339,8 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     group: "completed",
     limit,
     search: normalizedSearchQuery,
+    orderBy,
+    sort,
     enabled: baseEnabled,
     autoRefresh,
     pollMs: 10000,
@@ -384,10 +408,7 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
   const allErrors = INBOX_GROUP_ORDER.map(
     (group) => groupQueries[group].error
   ).filter(Boolean)
-  const error =
-    allErrors.length === INBOX_GROUP_ORDER.length
-      ? (allErrors[0] ?? null)
-      : null
+  const error = allErrors[0] ?? null
   const refetch = () => {
     for (const group of INBOX_GROUP_ORDER) {
       void groupQueries[group].refetch()

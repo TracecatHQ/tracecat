@@ -200,6 +200,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             return await self._list_items_grouped(
                 limit=limit,
                 cursor=cursor,
+                reverse=reverse,
                 order_by=order_by,
                 sort=sort,
                 search=search,
@@ -211,22 +212,19 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         # Determine sort column and direction
         sort_col = order_by or "created_at"
         sort_desc = sort != "asc"
+        # Scan in the direction that walks toward the rows adjacent to the
+        # cursor. Reverse pagination flips the scan so the LIMIT keeps the rows
+        # closest to the cursor; the page is reversed back into display order
+        # below. Without this flip a reverse page orders descending before
+        # truncating and skips the rows immediately before the cursor.
+        scan_desc = sort_desc if not reverse else not sort_desc
 
-        # Apply ordering
-        if sort_col == "created_at":
-            order_clause = (
-                AgentSession.created_at.desc()
-                if sort_desc
-                else AgentSession.created_at.asc()
-            )
-        elif sort_col == "updated_at":
-            order_clause = (
-                AgentSession.updated_at.desc()
-                if sort_desc
-                else AgentSession.updated_at.asc()
-            )
-        else:
-            order_clause = AgentSession.created_at.desc()
+        sort_column = (
+            AgentSession.updated_at
+            if sort_col == "updated_at"
+            else AgentSession.created_at
+        )
+        order_clause = sort_column.desc() if scan_desc else sort_column.asc()
 
         # Apply cursor filtering with composite (sort_value, id) for stable pagination
         if cursor:
@@ -290,8 +288,10 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             except (ValueError, KeyError) as e:
                 logger.warning(f"Invalid cursor: {e}")
 
-        # Apply ordering with id as secondary sort for stable pagination
-        id_order = AgentSession.id.desc() if sort_desc else AgentSession.id.asc()
+        # Apply ordering with id as secondary sort for stable pagination. The id
+        # tiebreaker must match the scan direction so the composite keyset stays
+        # consistent with the cursor predicates above.
+        id_order = AgentSession.id.desc() if scan_desc else AgentSession.id.asc()
         stmt = base_stmt.order_by(order_clause, id_order).limit(limit + 1)
 
         result = await self.session.execute(stmt)
@@ -302,7 +302,9 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         if has_more:
             sessions = sessions[:limit]
 
-        # Reverse if needed
+        # The scan ran in scan_desc order; reverse back into display order so
+        # the page reads in the requested sort regardless of pagination
+        # direction.
         if reverse:
             sessions.reverse()
 
@@ -359,13 +361,14 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             total_estimate=None,
         )
 
-    async def _fetch_pending_approval_counts(
+    async def _fetch_approval_counts(
         self,
         session_ids: Sequence[uuid.UUID],
+        status: ApprovalStatus,
     ) -> dict[uuid.UUID, int]:
-        """Return the pending approval count per session id.
+        """Return the count of approvals with ``status`` per session id.
 
-        Sessions with no pending approvals are absent from the mapping.
+        Sessions with no matching approvals are absent from the mapping.
         """
         if not session_ids:
             return {}
@@ -375,7 +378,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             .where(
                 Approval.workspace_id == self.workspace_id,
                 Approval.session_id.in_(list(session_ids)),
-                Approval.status == ApprovalStatus.PENDING,
+                Approval.status == status,
             )
             .group_by(Approval.session_id)
         )
@@ -403,7 +406,19 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         inbox UI.
         """
         session_ids = [s.id for s in sessions]
-        pending_counts = await self._fetch_pending_approval_counts(session_ids)
+        pending_counts = await self._fetch_approval_counts(
+            session_ids, ApprovalStatus.PENDING
+        )
+        # Mirror `_enrich_sessions`: a session whose only signal is rejected
+        # approvals is rendered FAILED, so it must land in ERROR (not COMPLETED).
+        # Restrict to approval-entity sessions, matching the approvals enrichment
+        # query, so stray rows on other session types don't change grouping.
+        approval_session_ids = [
+            s.id for s in sessions if s.entity_type in APPROVAL_ENTITY_TYPES
+        ]
+        rejected_counts = await self._fetch_approval_counts(
+            approval_session_ids, ApprovalStatus.REJECTED
+        )
 
         if group is InboxGroup.REVIEW_REQUIRED:
             return {
@@ -427,6 +442,8 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                 classifications[s.id] = InboxGroup.RUNNING
             elif temporal_status in FAILED_STATUSES:
                 classifications[s.id] = InboxGroup.ERROR
+            elif rejected_counts.get(s.id, 0) > 0:
+                classifications[s.id] = InboxGroup.ERROR
             else:
                 classifications[s.id] = InboxGroup.COMPLETED
         return classifications
@@ -436,6 +453,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         *,
         limit: int,
         cursor: str | None,
+        reverse: bool,
         order_by: str | None,
         sort: Literal["asc", "desc"] | None,
         search: str | None,
@@ -456,6 +474,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         """
         sort_col = "updated_at" if order_by == "updated_at" else "created_at"
         sort_desc = sort != "asc"
+        scan_desc = sort_desc if not reverse else not sort_desc
         column = (
             AgentSession.updated_at
             if sort_col == "updated_at"
@@ -500,7 +519,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             stmt = base_stmt
             if last_key is not None:
                 last_value, last_id = last_key
-                if sort_desc:
+                if scan_desc:
                     stmt = stmt.where(
                         or_(
                             column < last_value,
@@ -514,8 +533,8 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                             and_(column == last_value, AgentSession.id > last_id),
                         )
                     )
-            order_clause = column.desc() if sort_desc else column.asc()
-            id_order = AgentSession.id.desc() if sort_desc else AgentSession.id.asc()
+            order_clause = column.desc() if scan_desc else column.asc()
+            id_order = AgentSession.id.desc() if scan_desc else AgentSession.id.asc()
             stmt = stmt.order_by(order_clause, id_order).limit(GROUP_SCAN_BATCH_SIZE)
 
             result = await self.session.execute(stmt)
@@ -543,49 +562,59 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
 
         # Full enrichment runs only for the sessions that make the page.
         page_sessions = matches[:limit]
-        page_items = await self._enrich_sessions(page_sessions)
-        has_more = len(matches) > limit or not exhausted
-
-        # Two cases where we can paginate forward:
-        # 1. We collected more matches than the page size — encode a cursor from
-        #    the last returned item so the next request skips past it.
-        # 2. We hit the scan cap before exhausting the base query — encode the
-        #    scan position (last_key) so the next request resumes scanning there.
+        raw_has_more = len(matches) > limit or not exhausted
         next_cursor: str | None = None
-        if has_more and last_key is not None:
-            if len(matches) > limit:
-                # Item-based cursor: skip past the last item on this page.
-                last_item = page_items[-1]
-                next_cursor = self.encode_cursor(
-                    id=last_item.id,
-                    sort_column=sort_col,
-                    sort_value=getattr(last_item, sort_col),
-                )
-            else:
-                # Scan-position cursor: resume scanning from where we stopped.
-                scan_value, scan_id = last_key
-                next_cursor = self.encode_cursor(
-                    id=scan_id,
-                    sort_column=sort_col,
-                    sort_value=scan_value,
-                )
+        if raw_has_more:
+            if last_key is not None:
+                if len(matches) > limit:
+                    # Item-based cursor: skip past the last item on this page.
+                    last_session = page_sessions[-1]
+                    next_cursor = self.encode_cursor(
+                        id=last_session.id,
+                        sort_column=sort_col,
+                        sort_value=getattr(last_session, sort_col),
+                    )
+                else:
+                    # Scan-position cursor: resume scanning from where we stopped.
+                    scan_value, scan_id = last_key
+                    next_cursor = self.encode_cursor(
+                        id=scan_id,
+                        sort_column=sort_col,
+                        sort_value=scan_value,
+                    )
 
         prev_cursor: str | None = None
-        if cursor and page_items:
-            # For backwards compat: encode position of first returned item
-            first = page_items[0]
+        if cursor and page_sessions:
+            first_session = page_sessions[0]
             prev_cursor = self.encode_cursor(
-                id=first.id,
+                id=first_session.id,
                 sort_column=sort_col,
-                sort_value=getattr(first, sort_col),
+                sort_value=getattr(first_session, sort_col),
             )
+
+        if reverse:
+            page_sessions.reverse()
+
+        page_items = await self._enrich_sessions(page_sessions)
+        if reverse:
+            next_cursor, prev_cursor = prev_cursor, next_cursor
+            # In reverse mode "next" walks back toward newer items, which only
+            # exists when this page produced an anchor cursor. Tying it to a bare
+            # `cursor is not None` would advertise has_more=true with
+            # next_cursor=None on an empty page, enabling a dead pagination
+            # control.
+            has_more = next_cursor is not None
+            has_previous = raw_has_more
+        else:
+            has_more = raw_has_more
+            has_previous = cursor is not None
 
         return CursorPaginatedResponse(
             items=page_items,
             next_cursor=next_cursor,
             prev_cursor=prev_cursor,
             has_more=has_more,
-            has_previous=cursor is not None,
+            has_previous=has_previous,
             total_estimate=None,
         )
 

@@ -7998,14 +7998,14 @@ export const inboxGetPendingCount = (
  * List Items
  * List inbox items with cursor-based pagination.
  *
- * Supports sorting by created_at, updated_at, or status.
+ * Supports sorting by created_at or updated_at.
  * Default sort is by created_at descending.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.limit
  * @param data.cursor
  * @param data.reverse
- * @param data.orderBy Column name to order by (created_at, updated_at, status)
+ * @param data.orderBy Column name to order by (created_at, updated_at)
  * @param data.sort Sort direction (asc or desc)
  * @param data.search Case-insensitive search on item title
  * @param data.group Filter items to a single display group

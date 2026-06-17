@@ -9,7 +9,7 @@ import { NoMessages } from "@/components/chat/messages"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { toast } from "@/components/ui/use-toast"
 import { useGetChatVercel } from "@/hooks/use-chat"
-import type { InboxSessionItem } from "@/lib/agents"
+import { type InboxSessionItem, isLiveAgentStatus } from "@/lib/agents"
 import { useChatReadiness } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -58,11 +58,18 @@ export function InboxDetail({
   const hasPendingApprovals = session.pendingApprovalCount > 0
   const inputDisabled = !isForkedSession && hasPendingApprovals
 
-  // Only reconnect to the live stream when the session is actually streaming:
-  // an active forked conversation, or a parent run still RUNNING. Resuming a
+  // Only reconnect to the live stream when the session is actually streaming.
+  // A fork is live only when it was just created in this view, which is exactly
+  // when a pendingMessage is queued for it; a fork discovered on mount has no
+  // pendingMessage and may have completed earlier. For the parent run, "live"
+  // means a streaming Temporal status (RUNNING or CONTINUED_AS_NEW). Resuming a
   // terminal session replays its last persisted turn on top of the DB-seeded
-  // history, duplicating the chat.
-  const shouldResume = isForkedSession || session.derivedStatus === "RUNNING"
+  // history, duplicating the chat. `resume` is read once on ChatSessionPane
+  // mount (the pane is keyed by sessionId), so the later pendingMessage clear
+  // does not flip it.
+  const shouldResume = isForkedSession
+    ? pendingMessage !== undefined
+    : isLiveAgentStatus(session.derivedStatus)
 
   /**
    * Fork the session and notify parent with the message to send.

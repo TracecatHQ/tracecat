@@ -13,24 +13,20 @@ if TYPE_CHECKING:
     from tracecat.inbox.types import InboxProvider
 
 
-def get_inbox_providers(
+def get_inbox_provider(
     session: AsyncSession,
     role: Role,
-) -> list[InboxProvider]:
-    """Get list of inbox providers.
+) -> InboxProvider | None:
+    """Get the inbox provider, if available.
 
-    Providers are registered dynamically based on available features.
-    EE features (like approvals) are loaded if the tracecat_ee package is available.
+    The inbox is sourced from agent runs, which is an EE feature loaded only if
+    the tracecat_ee package is available.
     """
-    providers: list[InboxProvider] = []
-
-    # EE: Add agent runs provider if available
     try:
         from tracecat_ee.inbox.providers.agent_runs import AgentRunsInboxProvider
 
-        providers.append(AgentRunsInboxProvider(session, role))
         logger.debug("Loaded AgentRunsInboxProvider")
+        return AgentRunsInboxProvider(session, role)
     except ImportError:
         logger.debug("AgentRunsInboxProvider not available (EE feature)")
-
-    return providers
+        return None
