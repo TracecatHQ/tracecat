@@ -58,6 +58,12 @@ export function InboxDetail({
   const hasPendingApprovals = session.pendingApprovalCount > 0
   const inputDisabled = !isForkedSession && hasPendingApprovals
 
+  // Only reconnect to the live stream when the session is actually streaming:
+  // an active forked conversation, or a parent run still RUNNING. Resuming a
+  // terminal session replays its last persisted turn on top of the DB-seeded
+  // history, duplicating the chat.
+  const shouldResume = isForkedSession || session.derivedStatus === "RUNNING"
+
   /**
    * Fork the session and notify parent with the message to send.
    * Parent will switch to the forked session and pass pendingMessage,
@@ -170,6 +176,7 @@ export function InboxDetail({
       onPendingMessageSent={onPendingMessageSent}
       inputDisabled={inputDisabled}
       inputDisabledPlaceholder="Make an approval decision to continue..."
+      resume={shouldResume}
     />
   )
 }

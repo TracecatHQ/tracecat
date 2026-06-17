@@ -8,6 +8,8 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
 from sqlalchemy import String, and_, cast, distinct, func, or_, select
+from sqlalchemy.orm import load_only
+from sqlalchemy.sql import Select
 from temporalio.client import WorkflowExecutionStatus
 
 from tracecat.agent.approvals.enums import ApprovalStatus
@@ -35,6 +37,11 @@ FAILED_STATUSES = {
 # them in the inbox. Chat-surface approvals are handled inline in the chat UI.
 APPROVAL_ENTITY_TYPES = ("workflow", "external_channel")
 
+# Harnesses whose root sessions surface in the inbox. These are the durable
+# agent harnesses; chat-only harnesses are handled inline in the chat UI and do
+# not appear here. Add a harness to this set to make its runs inbox-eligible.
+INBOX_HARNESS_TYPES = (HarnessType.CLAUDE_CODE,)
+
 # Group membership depends on live Temporal status, so grouped listing scans
 # sessions in batches and classifies after enrichment. Each scanned session may
 # cost a Temporal describe call, so the scan is hard-capped per request.
@@ -51,8 +58,9 @@ if TYPE_CHECKING:
 class AgentRunsInboxProvider(BaseCursorPaginator):
     """Provides agent run items for the inbox.
 
-    Lists root Claude Code agent sessions (plus any legacy sessions with
-    approvals) and enriches them with approval and workflow metadata.
+    Lists root sessions for inbox-eligible harnesses (see
+    ``INBOX_HARNESS_TYPES``), plus any legacy sessions with approvals, and
+    enriches them with approval and workflow metadata.
     """
 
     def __init__(self, session: AsyncDBSession, role: Role):
@@ -111,10 +119,11 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                 statuses[session_id] = status
         return statuses
 
-    def _base_query(self, search: str | None):
+    def _base_query(self, search: str | None) -> Select[tuple[AgentSession]]:
         """Base statement selecting inbox-eligible root sessions."""
-        # Root sessions only: all Claude Code runs, plus legacy sessions that
-        # already have approvals so existing inbox items don't disappear.
+        # Root sessions only: runs of any inbox-eligible harness, plus legacy
+        # sessions that already have approvals so existing inbox items don't
+        # disappear.
         has_approvals = (
             select(Approval.id).where(Approval.session_id == AgentSession.id).exists()
         )
@@ -123,12 +132,32 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             AgentSession.parent_session_id.is_(None),
             AgentSession.entity_type != "approval",
             or_(
-                AgentSession.harness_type == HarnessType.CLAUDE_CODE,
+                AgentSession.harness_type.in_(INBOX_HARNESS_TYPES),
                 and_(
                     has_approvals,
                     AgentSession.entity_type.in_(APPROVAL_ENTITY_TYPES),
                 ),
             ),
+        )
+
+        # The inbox polls multiple groups and the grouped scan can hydrate up to
+        # GROUP_SCAN_MAX_SESSIONS sessions per request. Load only the columns the
+        # provider actually reads so we don't repeatedly pull heavy JSONB fields
+        # (tools, mcp_integrations, agents_binding, work_dir_snapshot, artifacts)
+        # that enrichment never touches. `id` is loaded explicitly because the
+        # PK is `surrogate_id`, so SQLAlchemy would otherwise skip the UUID `id`.
+        base_stmt = base_stmt.options(
+            load_only(
+                AgentSession.id,
+                AgentSession.title,
+                AgentSession.created_by,
+                AgentSession.entity_type,
+                AgentSession.entity_id,
+                AgentSession.curr_run_id,
+                AgentSession.created_at,
+                AgentSession.updated_at,
+                raiseload=True,
+            )
         )
 
         if search:
@@ -330,23 +359,77 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             total_estimate=None,
         )
 
-    @staticmethod
-    def _classify_item(item: InboxItemRead) -> InboxGroup:
-        """Classify an enriched inbox item into its display group.
+    async def _fetch_pending_approval_counts(
+        self,
+        session_ids: Sequence[uuid.UUID],
+    ) -> dict[uuid.UUID, int]:
+        """Return the pending approval count per session id.
 
-        Must stay in sync with the status grouping in the inbox UI.
+        Sessions with no pending approvals are absent from the mapping.
         """
-        metadata = item.metadata or {}
-        if metadata.get("pending_count"):
-            return InboxGroup.REVIEW_REQUIRED
-        temporal_status = metadata.get("temporal_status")
-        if temporal_status in RUNNING_STATUS_NAMES:
-            return InboxGroup.RUNNING
-        if temporal_status in FAILED_STATUS_NAMES:
-            return InboxGroup.ERROR
-        if item.status == InboxItemStatus.FAILED:
-            return InboxGroup.ERROR
-        return InboxGroup.COMPLETED
+        if not session_ids:
+            return {}
+
+        stmt = (
+            select(Approval.session_id, func.count(Approval.id))
+            .where(
+                Approval.workspace_id == self.workspace_id,
+                Approval.session_id.in_(list(session_ids)),
+                Approval.status == ApprovalStatus.PENDING,
+            )
+            .group_by(Approval.session_id)
+        )
+        result = await self.session.execute(stmt)
+        return {
+            session_id: int(count or 0)
+            for session_id, count in result.all()
+            if session_id is not None
+        }
+
+    async def _classify_sessions_for_group(
+        self,
+        sessions: Sequence[AgentSession],
+        *,
+        group: InboxGroup,
+    ) -> dict[uuid.UUID, InboxGroup]:
+        """Classify sessions into display groups without full enrichment.
+
+        Pulls only the signals group membership needs so scanned-but-discarded
+        sessions skip workflow/user lookups, metadata construction, and
+        serialization. The REVIEW_REQUIRED path additionally skips the Temporal
+        status fan-out, which it does not depend on.
+
+        The group rules below must stay in sync with the status grouping in the
+        inbox UI.
+        """
+        session_ids = [s.id for s in sessions]
+        pending_counts = await self._fetch_pending_approval_counts(session_ids)
+
+        if group is InboxGroup.REVIEW_REQUIRED:
+            return {
+                s.id: (
+                    InboxGroup.REVIEW_REQUIRED
+                    if pending_counts.get(s.id, 0) > 0
+                    else InboxGroup.COMPLETED
+                )
+                for s in sessions
+            }
+
+        temporal_statuses = await self._resolve_temporal_statuses(sessions)
+
+        classifications: dict[uuid.UUID, InboxGroup] = {}
+        for s in sessions:
+            if pending_counts.get(s.id, 0) > 0:
+                classifications[s.id] = InboxGroup.REVIEW_REQUIRED
+                continue
+            temporal_status = temporal_statuses.get(s.id)
+            if temporal_status in RUNNING_STATUSES:
+                classifications[s.id] = InboxGroup.RUNNING
+            elif temporal_status in FAILED_STATUSES:
+                classifications[s.id] = InboxGroup.ERROR
+            else:
+                classifications[s.id] = InboxGroup.COMPLETED
+        return classifications
 
     async def _list_items_grouped(
         self,
@@ -409,7 +492,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             except (ValueError, KeyError) as e:
                 logger.warning("Invalid grouped inbox cursor", error=str(e))
 
-        matches: list[InboxItemRead] = []
+        matches: list[AgentSession] = []
         scanned = 0
         exhausted = False
 
@@ -445,14 +528,22 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             last_session = sessions[-1]
             last_key = (getattr(last_session, sort_col), last_session.id)
 
-            items = await self._enrich_sessions(sessions)
-            matches.extend(item for item in items if self._classify_item(item) == group)
+            # Lightweight pass: classify the batch from raw signals only, so
+            # discarded sessions never pay for full enrichment.
+            classifications = await self._classify_sessions_for_group(
+                sessions, group=group
+            )
+            matches.extend(
+                session for session in sessions if classifications[session.id] == group
+            )
 
             if len(sessions) < GROUP_SCAN_BATCH_SIZE:
                 exhausted = True
                 break
 
-        page_items = matches[:limit]
+        # Full enrichment runs only for the sessions that make the page.
+        page_sessions = matches[:limit]
+        page_items = await self._enrich_sessions(page_sessions)
         has_more = len(matches) > limit or not exhausted
 
         # Two cases where we can paginate forward:

@@ -435,12 +435,20 @@ export function useVercelChat({
   messages,
   modelInfo,
   onData,
+  resume = true,
 }: {
   chatId?: string
   workspaceId: string
   messages: UIMessage[]
   modelInfo: ModelInfo
   onData?: ChatOnDataCallback<UIMessage>
+  /**
+   * Reconnect to the live event stream on mount. Defaults to true. Set to
+   * false for terminal sessions whose history is already seeded from the DB:
+   * resuming there replays the last persisted turn on top of the seeded
+   * messages, duplicating the chat.
+   */
+  resume?: boolean
 }) {
   const queryClient = useQueryClient()
   const [lastError, setLastError] = useState<string | null>(null)
@@ -456,7 +464,7 @@ export function useVercelChat({
   // Use Vercel's useChat hook for streaming
   const chat = aiSdk.useChat({
     id: chatId,
-    resume: !!chatId,
+    resume: !!chatId && resume,
     messages,
     transport: new DefaultChatTransport({
       api: apiEndpoint,

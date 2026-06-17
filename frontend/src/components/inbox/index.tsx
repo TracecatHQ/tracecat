@@ -4,6 +4,8 @@ import { useEffect, useRef } from "react"
 import { useInboxChat } from "@/app/workspaces/[workspaceId]/inbox/layout"
 import type { AgentSessionEntity, InboxGroup } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
+import { InboxHeader } from "@/components/inbox/inbox-header"
+import { RunsTable } from "@/components/inbox/runs-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { toast } from "@/components/ui/use-toast"
 import {
@@ -13,8 +15,6 @@ import {
   useDeleteApproval,
 } from "@/hooks/use-inbox"
 import type { InboxSessionItem } from "@/lib/agents"
-import { InboxHeader } from "./inbox-header"
-import { RunsTable } from "./runs-table"
 
 interface ActivityLayoutProps {
   sessions: InboxSessionItem[]
