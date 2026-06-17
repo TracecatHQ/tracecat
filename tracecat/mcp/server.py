@@ -1,6 +1,6 @@
 """Standalone MCP server for Tracecat workflow management.
 
-Exposes workflow operations to external MCP clients (Claude Desktop, Cursor, etc.).
+Exposes workflow operations to external MCP clients.
 Users authenticate via their existing Tracecat OIDC login.
 """
 

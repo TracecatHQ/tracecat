@@ -393,8 +393,8 @@ async def test_create_mcp_auth_authorize_includes_platform_oidc_scopes(
     with patch.object(mcp_auth.OIDCProxy, "authorize", _capture_authorize):
         auth = _build_test_auth(monkeypatch)
         client = OAuthClientInformationFull(
-            client_id="cursor-client",
-            redirect_uris=[AnyUrl("cursor://anysphere.cursor-mcp/oauth/callback")],
+            client_id="custom-scheme-client",
+            redirect_uris=[AnyUrl("agent-harness://mcp/oauth/callback")],
             grant_types=["authorization_code", "refresh_token"],
             response_types=["code"],
             token_endpoint_auth_method="none",
@@ -403,7 +403,7 @@ async def test_create_mcp_auth_authorize_includes_platform_oidc_scopes(
             state="txn",
             scopes=["custom:scope"],
             code_challenge="challenge",
-            redirect_uri=AnyUrl("cursor://anysphere.cursor-mcp/oauth/callback"),
+            redirect_uri=AnyUrl("agent-harness://mcp/oauth/callback"),
             redirect_uri_provided_explicitly=True,
             resource="https://mcp.example.com/mcp",
         )
