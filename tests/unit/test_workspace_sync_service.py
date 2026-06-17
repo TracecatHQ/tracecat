@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import base64
 import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from github.GithubException import GithubException
 
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -14,7 +17,7 @@ from tracecat.dsl.schemas import ActionStatement
 from tracecat.exceptions import TracecatValidationError
 from tracecat.git.types import GitUrl
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.sync import PullOptions
+from tracecat.sync import PullOptions, PushStatus
 from tracecat.workflow.store.schemas import RemoteWorkflowSchedule
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.schemas import (
@@ -24,10 +27,12 @@ from tracecat.workspace_sync.schemas import (
     WorkspaceManifest,
     WorkspaceProjection,
     WorkspaceSpec,
+    WorkspaceSyncExportPreviewRequest,
 )
 from tracecat.workspace_sync.serialization import canonical_json_text
 from tracecat.workspace_sync.service import WorkspaceSyncService
 from tracecat.workspace_sync.transport import (
+    GitHubWorkspaceSyncTransport,
     VcsTreeSnapshot,
     unsupported_transport,
 )
@@ -305,6 +310,98 @@ async def test_resource_ref_without_ids_selects_resource_type(
     }
 
 
+@pytest.mark.anyio
+async def test_preview_export_counts_resources_without_mutating_mappings(
+    workspace_sync_service: WorkspaceSyncService,
+    sample_dsl: DSLInput,
+) -> None:
+    spec = WorkspaceSpec(
+        workflows={
+            "wf-1": WorkflowResourceSpec(
+                id="wf-1", alias="wf-1", definition=sample_dsl
+            ),
+            "wf-2": WorkflowResourceSpec(
+                id="wf-2", alias="wf-2", definition=sample_dsl
+            ),
+        }
+    )
+    workspace_sync_service.project_workspace = AsyncMock(
+        return_value=WorkspaceProjection(
+            manifest=WorkspaceManifest(),
+            spec=spec,
+            files={"b.json": "{}", "a.json": "{}"},
+        )
+    )
+
+    preview = await workspace_sync_service.preview_export_workspace(
+        WorkspaceSyncExportPreviewRequest(
+            resources=[ResourceRef(resource_type=SyncResourceType.WORKFLOW)],
+        )
+    )
+
+    assert preview.resource_counts[SyncResourceType.WORKFLOW.value] == 2
+    assert preview.resource_counts[SyncResourceType.AGENT_PRESET.value] == 0
+    # Files come back sorted for a stable preview payload.
+    assert preview.files == ["a.json", "b.json"]
+    # Preview must never create sync mappings as a side effect.
+    workspace_sync_service.project_workspace.assert_awaited_once()
+    _, kwargs = workspace_sync_service.project_workspace.await_args
+    assert kwargs["create_missing_mappings"] is False
+    assert kwargs["resource_ids"] == {SyncResourceType.WORKFLOW: set()}
+
+
+@pytest.mark.anyio
+async def test_github_write_files_noop_skips_pr_for_branch_without_commits(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    files = {MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())}
+    repo = _FakeGitHubRepo(
+        files=files,
+        branch_exists=False,
+        ahead_by=0,
+    )
+
+    result = await _write_files_with_fake_repo(
+        repo,
+        service=workspace_sync_service,
+        files=files,
+    )
+
+    assert result.status is PushStatus.NO_OP
+    assert result.pr_url is None
+    assert repo.created_refs == [("refs/heads/sync/agents-1", "a" * 40)]
+    assert repo.compare_calls == [("main", "sync/agents-1")]
+    repo.create_pull.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_github_write_files_noop_reuses_existing_pr_for_branch_with_commits(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    files = {MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())}
+    repo = _FakeGitHubRepo(
+        files=files,
+        branch_exists=True,
+        ahead_by=1,
+        existing_pr=SimpleNamespace(
+            html_url="https://github.com/TracecatHQ/sync/pull/7",
+            number=7,
+        ),
+    )
+
+    result = await _write_files_with_fake_repo(
+        repo,
+        service=workspace_sync_service,
+        files=files,
+    )
+
+    assert result.status is PushStatus.NO_OP
+    assert result.pr_url == "https://github.com/TracecatHQ/sync/pull/7"
+    assert result.pr_number == 7
+    assert result.pr_reused is True
+    assert repo.compare_calls == [("main", "sync/agents-1")]
+
+
 def test_gitlab_and_bitbucket_transports_are_explicitly_unsupported() -> None:
     for provider in (VcsProvider.GITLAB, VcsProvider.BITBUCKET):
         error = unsupported_transport(provider)
@@ -335,3 +432,81 @@ def _workspace_files(spec: WorkflowResourceSpec) -> dict[str, str]:
         MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
         workflow_source_path(spec.id): serialize_workflow_spec(spec),
     }
+
+
+async def _write_files_with_fake_repo(
+    repo: _FakeGitHubRepo,
+    *,
+    service: WorkspaceSyncService,
+    files: dict[str, str],
+):
+    gh = Mock()
+    gh.get_repo.return_value = repo
+
+    gh_service = AsyncMock()
+    gh_service.get_github_client_for_repo.return_value = gh
+
+    transport = GitHubWorkspaceSyncTransport(
+        session=service.session,
+        role=service.role,
+    )
+    with patch(
+        "tracecat.workspace_sync.transport.GitHubAppService",
+        return_value=gh_service,
+    ):
+        return await transport.write_files(
+            url=GitUrl(host="github.com", org="TracecatHQ", repo="sync"),
+            files=files,
+            message="Push limerick agent",
+            branch="sync/agents-1",
+            create_pr=True,
+        )
+
+
+class _FakeGitHubRepo:
+    default_branch = "main"
+
+    def __init__(
+        self,
+        *,
+        files: dict[str, str],
+        branch_exists: bool,
+        ahead_by: int,
+        existing_pr: object | None = None,
+    ) -> None:
+        self._files = files
+        self._branch_exists = branch_exists
+        self._ahead_by = ahead_by
+        self._existing_pr = existing_pr
+        self.created_refs: list[tuple[str, str]] = []
+        self.compare_calls: list[tuple[str, str]] = []
+        self.create_pull = Mock(
+            return_value=SimpleNamespace(
+                html_url="https://github.com/TracecatHQ/sync/pull/8",
+                number=8,
+            )
+        )
+
+    def get_branch(self, name: str):
+        if name == "main" or self._branch_exists:
+            return SimpleNamespace(commit=SimpleNamespace(sha="a" * 40))
+        raise GithubException(status=404, data={"message": "Not Found"})
+
+    def create_git_ref(self, *, ref: str, sha: str) -> None:
+        self.created_refs.append((ref, sha))
+        self._branch_exists = True
+
+    def get_contents(self, path: str, *, ref: str):
+        if path not in self._files:
+            raise GithubException(status=404, data={"message": "Not Found"})
+        encoded = base64.b64encode(self._files[path].encode()).decode()
+        return SimpleNamespace(content=encoded)
+
+    def compare(self, base: str, head: str):
+        self.compare_calls.append((base, head))
+        return SimpleNamespace(ahead_by=self._ahead_by)
+
+    def get_pulls(self, *, state: str, head: str, base: str):
+        if self._existing_pr is None:
+            return iter(())
+        return iter((self._existing_pr,))

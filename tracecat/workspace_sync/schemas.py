@@ -341,6 +341,24 @@ class WorkspaceSyncExportRequest(BaseModel):
         return cleaned
 
 
+class WorkspaceSyncExportPreviewRequest(BaseModel):
+    """Request a dry-run projection of what an export would push to Git."""
+
+    resources: list[ResourceRef] | None = None
+    include_schedules: bool = False
+
+
+class WorkspaceSyncExportPreview(BaseModel):
+    """Projection summary of the resources an export would commit.
+
+    Mirrors the pull dry-run preview: it projects the selected resources
+    locally without writing to Git or mutating sync mappings.
+    """
+
+    resource_counts: dict[str, int]
+    files: list[str]
+
+
 class WorkspaceSyncExportResult(BaseModel):
     commit: CommitInfo
     files: list[str]

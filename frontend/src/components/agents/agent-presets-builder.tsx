@@ -1527,11 +1527,14 @@ function AgentPresetForm({
   )
 
   useEffect(() => {
+    if (mode === "edit") {
+      return
+    }
     const nextSlug = slugify(watchedName ?? "", "-")
     if (form.getValues("slug") !== nextSlug) {
       form.setValue("slug", nextSlug, { shouldDirty: false })
     }
-  }, [form, watchedName])
+  }, [form, mode, watchedName])
 
   useEffect(() => {
     if (!enabledModelsLoaded) {

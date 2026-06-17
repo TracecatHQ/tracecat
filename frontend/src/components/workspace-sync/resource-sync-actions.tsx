@@ -1,11 +1,18 @@
 "use client"
 
-import { GitBranchIcon } from "lucide-react"
-import { useEffect, useState } from "react"
+import {
+  ArrowRightIcon,
+  GitBranchIcon,
+  GitPullRequestIcon,
+  LayersIcon,
+} from "lucide-react"
+import { type ReactNode, useEffect, useMemo, useState } from "react"
 import type { ResourceRef, SyncResourceType } from "@/client"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -13,7 +20,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Textarea } from "@/components/ui/textarea"
+import { ToastAction } from "@/components/ui/toast"
 import { toast } from "@/components/ui/use-toast"
 import {
   useWorkspaceSyncBranchTarget,
@@ -23,8 +32,10 @@ import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import {
   useRepositoryBranches,
   useWorkspaceSyncExport,
+  useWorkspaceSyncExportPreview,
 } from "@/hooks/use-workspace-sync"
 import { getApiErrorDetail } from "@/lib/errors"
+import { getRepoDisplayName } from "@/lib/git"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface WorkspaceResourceSyncActionsProps {
@@ -54,12 +65,24 @@ export function WorkspaceResourceSyncActions({
   })
 
   const gitRepoUrl = workspace?.settings?.git_repo_url || undefined
+  const resourceRefs = useMemo<ResourceRef[]>(
+    () => resources.map((resourceType) => ({ resource_type: resourceType })),
+    [resources]
+  )
+  const { resourceCount, previewIsLoading } = useWorkspaceSyncExportPreview(
+    workspaceId,
+    {
+      resources: resourceRefs,
+      enabled: open && Boolean(gitRepoUrl),
+    }
+  )
   const {
     branch: exportBranch,
     setBranch: setExportBranch,
     isCreatingBranch,
     selectBranch: selectExportBranch,
     resetBranchCreation,
+    defaultBranch,
     hasBranches,
   } = useWorkspaceSyncBranchTarget({
     branches: repoBranches,
@@ -74,6 +97,13 @@ export function WorkspaceResourceSyncActions({
     exportBranch.trim() === "" ||
     exportMessage.trim() === ""
 
+  const repoName = getRepoDisplayName(gitRepoUrl)
+  const targetBranch = exportBranch.trim()
+  const targetIsDefault =
+    !isCreatingBranch &&
+    Boolean(defaultBranch) &&
+    targetBranch === defaultBranch
+
   useEffect(() => {
     if (!open) {
       return
@@ -87,10 +117,6 @@ export function WorkspaceResourceSyncActions({
       return
     }
 
-    const resourceRefs: ResourceRef[] = resources.map((resourceType) => ({
-      resource_type: resourceType,
-    }))
-
     try {
       const result = await exportWorkspace({
         message: exportMessage,
@@ -100,11 +126,20 @@ export function WorkspaceResourceSyncActions({
         provider: "github",
         resources: resourceRefs,
       })
+      const prUrl = result.commit.pr_url
       toast({
-        title: result.commit.pr_url ? "Pull request ready" : "Push complete",
-        description:
-          result.commit.pr_url ?? result.commit.sha ?? result.commit.message,
+        title: prUrl ? "Pull request ready" : "Push complete",
+        description: result.commit.message ?? result.commit.sha ?? undefined,
+        action: prUrl ? (
+          <ToastAction
+            altText="Open pull request"
+            onClick={() => window.open(prUrl, "_blank", "noopener,noreferrer")}
+          >
+            View PR
+          </ToastAction>
+        ) : undefined,
       })
+      setOpen(false)
     } catch (error) {
       toast({
         title: "Push failed",
@@ -115,64 +150,91 @@ export function WorkspaceResourceSyncActions({
   }
 
   return (
-    <>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogTrigger asChild>
-          <Button variant="outline" size="sm" className="h-7 gap-1.5 bg-white">
-            <GitBranchIcon className="size-3.5" />
-            Push
-          </Button>
-        </DialogTrigger>
-        <DialogContent className="max-w-xl">
-          <DialogHeader>
-            <DialogTitle>Push {label} to Git</DialogTitle>
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" className="h-7 gap-1.5 bg-white">
+          <GitBranchIcon className="size-3.5" />
+          Push
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-xl gap-0 overflow-hidden p-0">
+        <DialogHeader className="flex-row items-start gap-3 space-y-0 border-b p-6">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary">
+            <GitBranchIcon className="size-[18px]" />
+          </div>
+          <div className="min-w-0 space-y-1">
+            <DialogTitle className="text-base">Push {label}</DialogTitle>
             <DialogDescription>
-              {gitRepoUrl
-                ? "Push this resource type to a repository branch."
-                : "Configure a Git repository in workspace settings first."}
+              {describePush({ gitRepoUrl, label, targetIsDefault })}
             </DialogDescription>
-          </DialogHeader>
+          </div>
+        </DialogHeader>
 
-          <div className="space-y-4">
-            <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="min-w-0 space-y-2">
-                <label
-                  className="text-sm font-medium"
-                  htmlFor={`sync-message-${branchSlug}`}
-                >
-                  Message
-                </label>
-                <Input
-                  id={`sync-message-${branchSlug}`}
-                  value={exportMessage}
-                  onChange={(event) => setExportMessage(event.target.value)}
-                />
-              </div>
-              <div className="min-w-0 space-y-2">
-                <label
-                  className="text-sm font-medium"
-                  htmlFor={`sync-branch-${branchSlug}`}
-                >
-                  Target branch
-                </label>
-                <WorkspaceSyncBranchSelector
-                  id={`sync-branch-${branchSlug}`}
-                  branches={repoBranches}
-                  branch={exportBranch}
-                  isCreatingBranch={isCreatingBranch}
-                  branchesIsLoading={branchesIsLoading}
-                  hasBranches={hasBranches}
-                  branchesError={branchesError}
-                  newBranchPlaceholder={`sync/${branchSlug}`}
-                  onSelectBranch={selectExportBranch}
-                  onBranchChange={setExportBranch}
-                  showNoBranchesMessage={Boolean(gitRepoUrl)}
-                />
-              </div>
+        {gitRepoUrl ? (
+          <div className="space-y-5 p-6">
+            <PushFlow
+              label={label}
+              resourceCount={resourceCount}
+              resourceCountIsLoading={previewIsLoading}
+              targetBranch={targetBranch}
+              targetIsDefault={targetIsDefault}
+              defaultBranch={defaultBranch}
+            />
+
+            <div className="space-y-2">
+              <label
+                className="text-sm font-medium"
+                htmlFor={`sync-message-${branchSlug}`}
+              >
+                Commit message
+              </label>
+              <Textarea
+                id={`sync-message-${branchSlug}`}
+                className="min-h-[64px] resize-none text-sm"
+                value={exportMessage}
+                onChange={(event) => setExportMessage(event.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label
+                className="text-sm font-medium"
+                htmlFor={`sync-branch-${branchSlug}`}
+              >
+                Target branch
+              </label>
+              <WorkspaceSyncBranchSelector
+                id={`sync-branch-${branchSlug}`}
+                branches={repoBranches}
+                branch={exportBranch}
+                isCreatingBranch={isCreatingBranch}
+                branchesIsLoading={branchesIsLoading}
+                hasBranches={hasBranches}
+                branchesError={branchesError}
+                newBranchPlaceholder={`sync/${branchSlug}`}
+                onSelectBranch={selectExportBranch}
+                onBranchChange={setExportBranch}
+                showNoBranchesMessage={Boolean(gitRepoUrl)}
+              />
             </div>
           </div>
+        ) : null}
 
-          <DialogFooter className="items-center gap-3 sm:justify-between">
+        <DialogFooter className="items-center gap-3 border-t bg-muted/30 px-6 py-4 sm:justify-between">
+          <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+            {repoName ? (
+              <>
+                <GitBranchIcon className="size-3.5 shrink-0" />
+                <span className="truncate">{repoName}</span>
+              </>
+            ) : null}
+          </span>
+          <div className="flex items-center gap-2">
+            <DialogClose asChild>
+              <Button type="button" size="sm" variant="outline">
+                Cancel
+              </Button>
+            </DialogClose>
             <Button
               type="button"
               size="sm"
@@ -180,12 +242,173 @@ export function WorkspaceResourceSyncActions({
               disabled={exportDisabled}
               className="gap-1.5"
             >
-              <GitBranchIcon className="size-4" />
-              {exportWorkspaceIsPending ? "Pushing..." : "Push changes"}
+              {targetIsDefault ? (
+                <GitBranchIcon className="size-4" />
+              ) : (
+                <GitPullRequestIcon className="size-4" />
+              )}
+              {buildPushButtonLabel({
+                isPending: exportWorkspaceIsPending,
+                targetIsDefault,
+                targetBranch,
+              })}
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
+}
+
+interface PushFlowProps {
+  label: string
+  resourceCount: number | undefined
+  resourceCountIsLoading: boolean
+  targetBranch: string
+  targetIsDefault: boolean
+  defaultBranch: string | undefined
+}
+
+/**
+ * Visual source -> branch -> pull request strip describing exactly where the
+ * selected resources land when pushed.
+ */
+function PushFlow({
+  label,
+  resourceCount,
+  resourceCountIsLoading,
+  targetBranch,
+  targetIsDefault,
+  defaultBranch,
+}: PushFlowProps) {
+  return (
+    <div className="flex items-stretch gap-2 rounded-lg border bg-muted/30 p-3">
+      <FlowNode
+        icon={<LayersIcon className="size-3.5" />}
+        title="Source"
+        value={
+          resourceCountIsLoading && resourceCount === undefined ? (
+            <Skeleton className="h-4 w-16 rounded-sm" />
+          ) : (
+            formatResourceCount(resourceCount, label)
+          )
+        }
+      />
+      <FlowArrow />
+      {targetIsDefault ? (
+        <FlowNode
+          icon={<GitBranchIcon className="size-3.5" />}
+          title="Commit to"
+          value={
+            <span className="flex items-center gap-1.5">
+              <span className="truncate">{targetBranch}</span>
+              <Badge
+                variant="secondary"
+                className="h-4 shrink-0 rounded-sm px-1 text-[10px] font-normal"
+              >
+                default
+              </Badge>
+            </span>
+          }
+        />
+      ) : (
+        <>
+          <FlowNode
+            icon={<GitBranchIcon className="size-3.5" />}
+            title="Branch"
+            value={targetBranch || "—"}
+          />
+          <FlowArrow />
+          <FlowNode
+            icon={<GitPullRequestIcon className="size-3.5" />}
+            title="Pull request"
+            value={defaultBranch ?? "default branch"}
+          />
+        </>
+      )}
+    </div>
+  )
+}
+
+interface FlowNodeProps {
+  icon: ReactNode
+  title: string
+  value: ReactNode
+}
+
+function FlowNode({ icon, title, value }: FlowNodeProps) {
+  return (
+    <div className="flex min-w-0 flex-1 flex-col gap-1">
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {title}
+      </span>
+      <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
+        <span className="shrink-0 text-muted-foreground">{icon}</span>
+        <span className="truncate">{value}</span>
+      </span>
+    </div>
+  )
+}
+
+function FlowArrow() {
+  return (
+    <div className="flex shrink-0 items-center self-center text-muted-foreground/60">
+      <ArrowRightIcon className="size-4" />
+    </div>
+  )
+}
+
+interface DescribePushOptions {
+  gitRepoUrl: string | undefined
+  label: string
+  targetIsDefault: boolean
+}
+
+/**
+ * Short header sentence; the flow strip carries the branch and PR specifics.
+ */
+function describePush({
+  gitRepoUrl,
+  label,
+  targetIsDefault,
+}: DescribePushOptions): string {
+  if (!gitRepoUrl) {
+    return "Configure a Git repository in workspace settings first."
+  }
+  if (targetIsDefault) {
+    return `Commit all ${label} in this workspace directly to the default branch.`
+  }
+  return `Commit all ${label} in this workspace, then open a pull request for review.`
+}
+
+interface BuildPushButtonLabelOptions {
+  isPending: boolean
+  targetIsDefault: boolean
+  targetBranch: string
+}
+
+function buildPushButtonLabel({
+  isPending,
+  targetIsDefault,
+  targetBranch,
+}: BuildPushButtonLabelOptions): string {
+  if (isPending) {
+    return "Pushing..."
+  }
+  if (targetIsDefault && targetBranch) {
+    return `Commit to ${targetBranch}`
+  }
+  return "Push & open PR"
+}
+
+/**
+ * Renders the resource count with a singular/plural-aware label, e.g.
+ * "12 agents" or "1 agent". Falls back to the label when no count is known.
+ */
+function formatResourceCount(count: number | undefined, label: string): string {
+  if (count === undefined) {
+    return label
+  }
+  const singular = count === 1 ? label.replace(/s$/, "") : label
+  return `${count} ${singular}`
 }

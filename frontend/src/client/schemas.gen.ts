@@ -31777,6 +31777,60 @@ export const $WorkspaceSettingsUpdate = {
   title: "WorkspaceSettingsUpdate",
 } as const
 
+export const $WorkspaceSyncExportPreview = {
+  properties: {
+    resource_counts: {
+      additionalProperties: {
+        type: "integer",
+      },
+      type: "object",
+      title: "Resource Counts",
+    },
+    files: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Files",
+    },
+  },
+  type: "object",
+  required: ["resource_counts", "files"],
+  title: "WorkspaceSyncExportPreview",
+  description: `Projection summary of the resources an export would commit.
+
+Mirrors the pull dry-run preview: it projects the selected resources
+locally without writing to Git or mutating sync mappings.`,
+} as const
+
+export const $WorkspaceSyncExportPreviewRequest = {
+  properties: {
+    resources: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/ResourceRef",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Resources",
+    },
+    include_schedules: {
+      type: "boolean",
+      title: "Include Schedules",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "WorkspaceSyncExportPreviewRequest",
+  description:
+    "Request a dry-run projection of what an export would push to Git.",
+} as const
+
 export const $WorkspaceSyncExportRequest = {
   properties: {
     message: {

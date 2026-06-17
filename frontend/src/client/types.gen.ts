@@ -9380,6 +9380,27 @@ export type WorkspaceSettingsUpdate = {
   validate_attachment_magic_number?: boolean | null
 }
 
+/**
+ * Projection summary of the resources an export would commit.
+ *
+ * Mirrors the pull dry-run preview: it projects the selected resources
+ * locally without writing to Git or mutating sync mappings.
+ */
+export type WorkspaceSyncExportPreview = {
+  resource_counts: {
+    [key: string]: number
+  }
+  files: Array<string>
+}
+
+/**
+ * Request a dry-run projection of what an export would push to Git.
+ */
+export type WorkspaceSyncExportPreviewRequest = {
+  resources?: Array<ResourceRef> | null
+  include_schedules?: boolean
+}
+
 export type WorkspaceSyncExportRequest = {
   message: string
   branch: string
@@ -10285,6 +10306,14 @@ export type WorkflowsExportWorkspaceSyncData = {
 }
 
 export type WorkflowsExportWorkspaceSyncResponse = WorkspaceSyncExportResult
+
+export type WorkflowsPreviewExportWorkspaceSyncData = {
+  requestBody: WorkspaceSyncExportPreviewRequest
+  workspaceId: string
+}
+
+export type WorkflowsPreviewExportWorkspaceSyncResponse =
+  WorkspaceSyncExportPreview
 
 export type WorkflowsPullWorkflowsData = {
   requestBody: WorkflowSyncPullRequest
@@ -14516,6 +14545,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: WorkspaceSyncExportResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/sync/export/preview": {
+    post: {
+      req: WorkflowsPreviewExportWorkspaceSyncData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkspaceSyncExportPreview
         /**
          * Validation Error
          */

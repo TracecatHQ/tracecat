@@ -25,6 +25,8 @@ from tracecat.workflow.store.schemas import (
 )
 from tracecat.workflow.store.service import WorkflowStoreService
 from tracecat.workspace_sync.schemas import (
+    WorkspaceSyncExportPreview,
+    WorkspaceSyncExportPreviewRequest,
     WorkspaceSyncExportRequest,
     WorkspaceSyncExportResult,
 )
@@ -226,6 +228,34 @@ async def export_workspace_sync(
     sync_service = WorkspaceSyncService(session=session, role=role)
     try:
         return await sync_service.export_workspace(params)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except (TracecatSettingsError, TracecatValidationError, GitHubAppError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+
+
+@router.post("/sync/export/preview", response_model=WorkspaceSyncExportPreview)
+@require_scope("workflow:update", "workflow:sync")
+async def preview_export_workspace_sync(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    params: WorkspaceSyncExportPreviewRequest,
+) -> WorkspaceSyncExportPreview:
+    """Project which resources an export would commit, without writing to Git."""
+    if not role.workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+    sync_service = WorkspaceSyncService(session=session, role=role)
+    try:
+        return await sync_service.preview_export_workspace(params)
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

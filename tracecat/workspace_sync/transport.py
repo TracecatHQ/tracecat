@@ -217,7 +217,12 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
             pr_number: int | None = None
             pr_reused = False
             if not changed_files:
-                if create_pr:
+                branch_has_commits = await self._branch_has_commits_between(
+                    repo=repo,
+                    base_branch_name=base_branch_name,
+                    branch_name=branch,
+                )
+                if create_pr and branch_has_commits:
                     pr_url, pr_number, pr_reused = await self._upsert_pull_request(
                         repo=repo,
                         url=url,
@@ -395,3 +400,17 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
             base=base_branch_name,
         )
         return pr.html_url, pr.number, False
+
+    async def _branch_has_commits_between(
+        self,
+        *,
+        repo: Any,
+        base_branch_name: str,
+        branch_name: str,
+    ) -> bool:
+        comparison = await asyncio.to_thread(
+            repo.compare,
+            base_branch_name,
+            branch_name,
+        )
+        return (getattr(comparison, "ahead_by", None) or 0) > 0

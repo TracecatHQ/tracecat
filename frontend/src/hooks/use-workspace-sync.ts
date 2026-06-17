@@ -4,13 +4,16 @@ import {
   type GitBranchInfo,
   type GitCommitInfo,
   type PullResult,
+  type ResourceRef,
   type VcsProvider,
   type WorkflowSyncPullRequest,
+  type WorkspaceSyncExportPreview,
   type WorkspaceSyncExportRequest,
   type WorkspaceSyncExportResult,
   workflowsExportWorkspaceSync,
   workflowsListWorkflowBranches,
   workflowsListWorkflowCommits,
+  workflowsPreviewExportWorkspaceSync,
   workflowsPullWorkflows,
 } from "@/client"
 
@@ -123,6 +126,63 @@ export function useWorkspaceSyncExport(workspaceId: string) {
     exportWorkspace,
     exportWorkspaceIsPending,
     exportWorkspaceError,
+  }
+}
+
+interface ExportPreviewOptions {
+  resources: ResourceRef[]
+  includeSchedules?: boolean
+  enabled?: boolean
+}
+
+/**
+ * Hook for previewing which resources an export would commit.
+ *
+ * Runs a read-only projection so the push dialog can show an accurate count of
+ * the resources that will be committed before the user confirms.
+ */
+export function useWorkspaceSyncExportPreview(
+  workspaceId: string,
+  { resources, includeSchedules = false, enabled = true }: ExportPreviewOptions
+) {
+  const resourceTypes = resources.map((resource) => resource.resource_type)
+  const {
+    data: preview,
+    isLoading: previewIsLoading,
+    error: previewError,
+  } = useQuery<WorkspaceSyncExportPreview, ApiError>({
+    queryKey: [
+      "workspace-sync-export-preview",
+      workspaceId,
+      [...resourceTypes].sort(),
+      includeSchedules,
+    ],
+    queryFn: async (): Promise<WorkspaceSyncExportPreview> => {
+      return await workflowsPreviewExportWorkspaceSync({
+        workspaceId,
+        requestBody: {
+          resources,
+          include_schedules: includeSchedules,
+        },
+      })
+    },
+    enabled: Boolean(workspaceId) && enabled && resources.length > 0,
+    staleTime: 30 * 1000,
+  })
+
+  const resourceCount = preview
+    ? resourceTypes.reduce(
+        (total, resourceType) =>
+          total + (preview.resource_counts[resourceType] ?? 0),
+        0
+      )
+    : undefined
+
+  return {
+    preview,
+    resourceCount,
+    previewIsLoading,
+    previewError,
   }
 }
 

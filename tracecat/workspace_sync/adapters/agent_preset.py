@@ -23,7 +23,9 @@ from tracecat.db.models import (
     AgentTagLink,
     Skill,
     SkillVersion,
+    WorkspaceSyncResourceMapping,
 )
+from tracecat.exceptions import TracecatValidationError
 from tracecat.service import BaseWorkspaceService
 from tracecat.workspace_sync.adapters.base import (
     CompoundYamlAdapter,
@@ -32,7 +34,7 @@ from tracecat.workspace_sync.adapters.base import (
     ResourceProjection,
     unique_source_id,
 )
-from tracecat.workspace_sync.enums import SyncResourceType
+from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.schemas import (
     AGENT_PRESET_ROOT,
     AgentPresetResourceSpec,
@@ -69,11 +71,14 @@ class AgentPresetAdapter(CompoundYamlAdapter):
             .order_by(AgentPreset.slug.asc(), AgentPreset.id.asc())
         )
         presets = list((await ctx.session.execute(stmt)).scalars().all())
+        source_ids_by_local_id = await self._source_ids_by_local_id(ctx)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
-        reserved: set[str] = set()
+        reserved: set[str] = set(source_ids_by_local_id.values())
         for preset in presets:
-            source_id = unique_source_id(preset.slug, reserved=reserved)
+            source_id = source_ids_by_local_id.get(preset.id)
+            if source_id is None:
+                source_id = unique_source_id(preset.slug, reserved=reserved)
             reserved.add(source_id)
             skill_bindings = [
                 AgentPresetSkillBinding(
@@ -112,6 +117,20 @@ class AgentPresetAdapter(CompoundYamlAdapter):
             resources.append(self.projected_resource(source_id, preset.id))
         return ResourceProjection(specs=specs, resources=resources)
 
+    async def _source_ids_by_local_id(
+        self,
+        ctx: BaseWorkspaceService,
+    ) -> dict[uuid.UUID, str]:
+        stmt = select(
+            WorkspaceSyncResourceMapping.local_id,
+            WorkspaceSyncResourceMapping.source_id,
+        ).where(
+            WorkspaceSyncResourceMapping.workspace_id == ctx.workspace_id,
+            WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
+            WorkspaceSyncResourceMapping.resource_type == self.resource_type.value,
+        )
+        return dict((await ctx.session.execute(stmt)).tuples().all())
+
     async def import_specs(
         self,
         ctx: BaseWorkspaceService,
@@ -119,15 +138,12 @@ class AgentPresetAdapter(CompoundYamlAdapter):
     ) -> list[ImportedResource]:
         presets = cast(Mapping[str, AgentPresetResourceSpec], specs)
         imported: list[ImportedResource] = []
-        preset_by_slug: dict[str, AgentPreset] = {}
-        for _source_id, spec in sorted(presets.items()):
-            preset = await ctx.session.scalar(
-                select(AgentPreset)
-                .where(
-                    AgentPreset.workspace_id == ctx.workspace_id,
-                    AgentPreset.slug == spec.slug,
-                )
-                .options(selectinload(AgentPreset.tags))
+        preset_by_source_id: dict[str, AgentPreset] = {}
+        for source_id, spec in sorted(presets.items()):
+            preset = await self._preset_for_import(
+                ctx,
+                source_id=source_id,
+                spec=spec,
             )
             if preset is None:
                 preset = AgentPreset(
@@ -140,6 +156,8 @@ class AgentPresetAdapter(CompoundYamlAdapter):
                     or DEFAULT_AGENT_MODEL_PROVIDER,
                     agents=AgentSubagentsConfig().model_dump(mode="json"),
                 )
+            else:
+                preset.slug = spec.slug
             preset.name = spec.name
             preset.instructions = spec.instructions
             preset.actions = spec.actions or None
@@ -153,10 +171,10 @@ class AgentPresetAdapter(CompoundYamlAdapter):
             ctx.session.add(preset)
             await ctx.session.flush()
             await self._replace_agent_tags(ctx, preset, spec.tags)
-            preset_by_slug[spec.slug] = preset
+            preset_by_source_id[source_id] = preset
 
         for source_id, spec in sorted(presets.items()):
-            preset = preset_by_slug[spec.slug]
+            preset = preset_by_source_id[source_id]
             preset.agents = await self._resolved_subagents_config(ctx, spec)
             ctx.session.add(preset)
             await ctx.session.flush()
@@ -167,6 +185,81 @@ class AgentPresetAdapter(CompoundYamlAdapter):
             await ctx.session.flush()
             imported.append(self.imported_resource(source_id, preset.id))
         return imported
+
+    async def _preset_for_import(
+        self,
+        ctx: BaseWorkspaceService,
+        *,
+        source_id: str,
+        spec: AgentPresetResourceSpec,
+    ) -> AgentPreset | None:
+        preset = await self._preset_by_source_id(ctx, source_id=source_id)
+        if preset is not None:
+            await self._ensure_slug_available(
+                ctx,
+                source_id=source_id,
+                slug=spec.slug,
+                preset_id=preset.id,
+            )
+            return preset
+
+        return await ctx.session.scalar(
+            select(AgentPreset)
+            .where(
+                AgentPreset.workspace_id == ctx.workspace_id,
+                AgentPreset.slug == spec.slug,
+            )
+            .options(selectinload(AgentPreset.tags))
+        )
+
+    async def _preset_by_source_id(
+        self,
+        ctx: BaseWorkspaceService,
+        *,
+        source_id: str,
+    ) -> AgentPreset | None:
+        mapping = await ctx.session.scalar(
+            select(WorkspaceSyncResourceMapping).where(
+                WorkspaceSyncResourceMapping.workspace_id == ctx.workspace_id,
+                WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
+                WorkspaceSyncResourceMapping.resource_type == self.resource_type.value,
+                WorkspaceSyncResourceMapping.source_id == source_id,
+            )
+        )
+        if mapping is None:
+            return None
+
+        return await ctx.session.scalar(
+            select(AgentPreset)
+            .where(
+                AgentPreset.workspace_id == ctx.workspace_id,
+                AgentPreset.id == mapping.local_id,
+            )
+            .options(selectinload(AgentPreset.tags))
+        )
+
+    async def _ensure_slug_available(
+        self,
+        ctx: BaseWorkspaceService,
+        *,
+        source_id: str,
+        slug: str,
+        preset_id: uuid.UUID,
+    ) -> None:
+        conflict_id = await ctx.session.scalar(
+            select(AgentPreset.id).where(
+                AgentPreset.workspace_id == ctx.workspace_id,
+                AgentPreset.slug == slug,
+                AgentPreset.id != preset_id,
+            )
+        )
+        if conflict_id is None:
+            return
+
+        raise TracecatValidationError(
+            f"Agent preset sync source id {source_id!r} cannot use slug {slug!r} "
+            "because another preset already uses that slug."
+        )
 
     async def _ensure_agent_folder(
         self,

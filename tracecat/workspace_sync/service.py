@@ -67,6 +67,8 @@ from tracecat.workspace_sync.schemas import (
     WorkspaceProjection,
     WorkspaceRemoteSnapshot,
     WorkspaceSpec,
+    WorkspaceSyncExportPreview,
+    WorkspaceSyncExportPreviewRequest,
     WorkspaceSyncExportRequest,
     WorkspaceSyncExportResult,
     workspace_manifest_from_json,
@@ -116,6 +118,28 @@ class WorkspaceSyncService(BaseWorkspaceService):
         )
         return WorkspaceSyncExportResult(
             commit=commit,
+            files=sorted(projection.files),
+        )
+
+    async def preview_export_workspace(
+        self,
+        params: WorkspaceSyncExportPreviewRequest,
+    ) -> WorkspaceSyncExportPreview:
+        """Project what an export would push without writing to Git.
+
+        Resolves the same resource selection as ``export_workspace`` and runs
+        the projection read-only (``create_missing_mappings=False``) so the
+        preview never mutates sync mappings. The returned counts include any
+        resources pulled in transitively by the dependency closure.
+        """
+        resource_ids = await self._local_ids_from_resource_refs(params.resources)
+        projection = await self.project_workspace(
+            resource_ids=resource_ids,
+            include_schedules=params.include_schedules,
+            create_missing_mappings=False,
+        )
+        return WorkspaceSyncExportPreview(
+            resource_counts=projection.spec.resource_count_map(),
             files=sorted(projection.files),
         )
 
