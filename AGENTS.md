@@ -21,6 +21,17 @@ Use this file for repo-wide guidance. Prefer the more specific notes in nested
 - `alembic/`: Database migrations.
 - `deployments/`: Docker, Fargate, EKS, and Helm deployment targets.
 
+## Fargate Deployment Notes
+
+- ECS Service Connect clients should explicitly depend on the ECS services that
+  publish the Service Connect aliases they resolve. This avoids startup and
+  rollout races where a client task starts before the provider alias is
+  registered or stable. Follow the existing UI-to-API ordering pattern; for
+  example, an agent-executor service that calls the managed LiteLLM alias should
+  depend on the LiteLLM ECS service unless that would create a dependency cycle.
+- When a cycle appears, prefer breaking the unnecessary provider dependency
+  rather than leaving the Service Connect client unordered.
+
 ## Setup and verification
 
 Use `uv` for Python commands and `pnpm` for frontend commands.
