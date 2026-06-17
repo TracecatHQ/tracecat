@@ -404,14 +404,15 @@ class TestBuildToolDefinitionsActivity:
         assert entitlement_roles == [mock_role]
 
     @pytest.mark.anyio
-    async def test_mcp_tool_with_dotted_remote_name_kept_unless_approval_gated(
+    async def test_mcp_tool_with_dotted_remote_name_always_dropped(
         self,
         monkeypatch: pytest.MonkeyPatch,
         mock_role: Role,
     ) -> None:
-        """Dotted remote names execute fine via the proxy, so they're kept; only
-        an approval-gated dotted tool is dropped since its approval key can't
-        round-trip back to the router name."""
+        """User MCP tool names reach the provider verbatim (registered on the
+        trusted server without dot-to-underscore conversion). Provider tool-name
+        constraints reject dots, so a dotted remote name is dropped regardless of
+        approval status - otherwise the agent would fail to start."""
         from tracecat.agent.mcp import user_client
         from tracecat.agent.preset.service import AgentPresetService
 
@@ -426,16 +427,23 @@ class TestBuildToolDefinitionsActivity:
             fail_on_error: bool = False,
         ) -> dict[str, MCPToolDefinition]:
             return {
-                # Dotted, no approval -> kept (routes via proxy verbatim).
+                # Dotted, no approval -> dropped (dot reaches provider verbatim).
                 "mcp__Jira__issue.get": MCPToolDefinition(
                     name="mcp__Jira__issue.get",
                     description="Dotted, no approval",
                     parameters_json_schema={"type": "object"},
                 ),
-                # Dotted, approval-gated -> dropped (lossy approval round-trip).
+                # Dotted, approval-gated -> dropped (dot reaches provider verbatim
+                # and approval key can't round-trip back to the router name).
                 "mcp__Jira__issue.delete": MCPToolDefinition(
                     name="mcp__Jira__issue.delete",
                     description="Dotted, approval-gated",
+                    parameters_json_schema={"type": "object"},
+                ),
+                # Non-dotted -> kept.
+                "mcp__Jira__list_issues": MCPToolDefinition(
+                    name="mcp__Jira__list_issues",
+                    description="Non-dotted, no approval",
                     parameters_json_schema={"type": "object"},
                 ),
             }
@@ -520,8 +528,9 @@ class TestBuildToolDefinitionsActivity:
             )
         )
 
-        assert set(result.tool_definitions) == {"mcp__Jira__issue.get"}
-        # The kept dotted tool has no approval requirement.
+        # Both dotted tools are dropped; only the non-dotted tool survives.
+        assert set(result.tool_definitions) == {"mcp__Jira__list_issues"}
+        # No approval entry is recorded for the dropped approval-gated dotted tool.
         assert not (result.tool_approvals or {})
 
     @pytest.mark.anyio

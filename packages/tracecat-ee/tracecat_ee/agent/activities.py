@@ -299,6 +299,23 @@ class AgentActivities:
                 for tool_name, tool_def in user_mcp_tools.items():
                     parsed = UserMCPClient.parse_user_mcp_tool_name(tool_name)
                     has_dotted_remote_name = parsed is not None and "." in parsed[1]
+                    # Unlike registry/internal tools, user MCP tool names are
+                    # registered with the trusted MCP server verbatim (see
+                    # ``build_token_scoped_tools``), so a dotted remote name
+                    # (e.g. ``issue.get``) reaches the model provider as
+                    # ``mcp__{server}__issue.get``. Provider tool-name
+                    # constraints reject dots, so an otherwise-valid tool would
+                    # make the agent fail to start. Drop these regardless of
+                    # approval status; approval-gated ones also can't round-trip
+                    # their ``mcp.{server}.{tool}`` approval key back to a
+                    # router name.
+                    if has_dotted_remote_name:
+                        logger.warning(
+                            "Skipping user MCP tool with unsupported dotted name",
+                            tool_name=tool_name,
+                            remote_tool_name=parsed[1] if parsed else None,
+                        )
+                        continue
                     policy = _stored_user_mcp_tool_policy(
                         tool_name,
                         integration_id_by_server_name=integration_id_by_server_name,
@@ -311,21 +328,6 @@ class AgentActivities:
                             )
                             continue
                         if policy.requires_approval:
-                            # Approval keys are stored as ``mcp.{server}.{tool}``
-                            # and converted back by replacing every dot, so a
-                            # dotted remote name (e.g. ``issue.get``) can't
-                            # round-trip to its router name and would resolve to
-                            # an unexecutable tool after approval. Non-approval
-                            # calls are unaffected: they route through the proxy
-                            # with the original name, so only drop on approval.
-                            if has_dotted_remote_name:
-                                logger.warning(
-                                    "Skipping approval-gated user MCP tool with "
-                                    "unsupported dotted name",
-                                    tool_name=tool_name,
-                                    remote_tool_name=parsed[1] if parsed else None,
-                                )
-                                continue
                             approval_key = normalize_mcp_tool_name(
                                 f"mcp__{REGISTRY_MCP_SERVER_NAME}__{tool_name}"
                             )
