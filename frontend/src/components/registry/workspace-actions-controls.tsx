@@ -31,10 +31,12 @@ type ActiveDialog = "sync" | "force-sync" | "commit" | "versions" | null
 
 function RegistryActionsControlsMenu() {
   const canUpdateRegistry = useScopeCheck("org:registry:update") === true
+  const canDeleteRegistry = useScopeCheck("org:registry:delete") === true
   const { repos, syncRepo, syncRepoIsPending } = useRegistryRepositories()
   const customRepo = getCustomRegistryRepository(repos)
   const showAddRegistry = canUpdateRegistry
   const showRegistryActions = canUpdateRegistry && !!customRepo
+  const showForceSync = showRegistryActions && canDeleteRegistry
   const showCopyOrigin = !!customRepo
   const hasVisibleActions =
     showAddRegistry || showRegistryActions || showCopyOrigin
@@ -134,7 +136,7 @@ function RegistryActionsControlsMenu() {
                 </DropdownMenuItem>
               ) : null}
 
-              {showRegistryActions ? (
+              {showForceSync ? (
                 <DropdownMenuItem
                   onSelect={() => handleOpenDialog("force-sync")}
                 >
