@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.dialects.postgresql import insert
 
-from tracecat.db.models import CaseTag, CaseTrigger, Workflow
+from tracecat.db.models import CaseTag, CaseTrigger, Workflow, WorkflowDefinition
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowID, WorkflowUUID
 from tracecat.service import BaseWorkspaceService, requires_entitlement
@@ -30,6 +30,31 @@ class CaseTriggersService(BaseWorkspaceService):
         )
         if await self.session.scalar(stmt) is None:
             raise TracecatNotFoundError(f"Workflow {workflow_id} not found")
+
+    async def _ensure_workflow_has_runnable_definition(
+        self, workflow_id: WorkflowID
+    ) -> None:
+        workflow_uuid = WorkflowUUID.new(workflow_id)
+        current_definition = (
+            select(WorkflowDefinition.id, WorkflowDefinition.content)
+            .join(Workflow, Workflow.id == WorkflowDefinition.workflow_id)
+            .where(
+                Workflow.workspace_id == self.workspace_id,
+                Workflow.id == workflow_uuid,
+                WorkflowDefinition.workspace_id == self.workspace_id,
+            )
+            .order_by(
+                case((WorkflowDefinition.version == Workflow.version, 0), else_=1),
+                WorkflowDefinition.version.desc(),
+            )
+            .limit(1)
+        )
+        result = await self.session.execute(current_definition)
+        row = result.first()
+        if row is None or not row.content:
+            raise TracecatValidationError(
+                "Publish the workflow before enabling case triggers"
+            )
 
     async def _ensure_case_trigger_exists(
         self, workflow_id: WorkflowID, *, commit: bool = True
@@ -139,10 +164,12 @@ class CaseTriggersService(BaseWorkspaceService):
             event_types = [
                 evt.value if hasattr(evt, "value") else evt for evt in event_types
             ]
-        if status == "online" and not event_types:
-            raise TracecatValidationError(
-                "event_types must be non-empty when status is online"
-            )
+        if status == "online":
+            if not event_types:
+                raise TracecatValidationError(
+                    "event_types must be non-empty when status is online"
+                )
+            await self._ensure_workflow_has_runnable_definition(workflow_id)
 
         tag_filters = updates.get("tag_filters", case_trigger.tag_filters)
         if tag_filters is None:

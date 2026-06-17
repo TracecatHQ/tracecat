@@ -2,7 +2,7 @@ import asyncio
 import uuid
 from types import SimpleNamespace
 from typing import cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from redis.exceptions import ResponseError
@@ -19,6 +19,8 @@ from tracecat.cases.schemas import CaseCommentWorkflowStatus, CaseCreate
 from tracecat.cases.service import CasesService
 from tracecat.cases.triggers.consumer import CaseTriggerConsumer
 from tracecat.db.models import Case, CaseComment, CaseEvent, CaseTrigger, Workflow
+from tracecat.exceptions import TracecatValidationError
+from tracecat.workflow.case_triggers.service import CaseTriggersService
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -258,7 +260,7 @@ async def test_case_trigger_consumer_done_allows_ack():
 
 
 @pytest.mark.anyio
-async def test_case_trigger_consumer_missing_definition_no_ack():
+async def test_case_trigger_consumer_missing_definition_allows_ack():
     event_id = uuid.uuid4()
     case_id = uuid.uuid4()
     workspace_id = uuid.uuid4()
@@ -293,6 +295,7 @@ async def test_case_trigger_consumer_missing_definition_no_ack():
         triggers=[trigger],
         role=_build_role(workspace_id),
     )
+    consumer._disable_invalid_case_trigger = AsyncMock()
 
     fields = {
         "event_id": str(event_id),
@@ -301,7 +304,57 @@ async def test_case_trigger_consumer_missing_definition_no_ack():
         "event_type": "case_created",
     }
     should_ack = await consumer._process_message(fields)
-    assert should_ack is False
+    assert should_ack is True
+    client.set.assert_awaited_once_with(
+        f"case-trigger:done:{event_id}:{workflow_id}",
+        value="1",
+        expire_seconds=consumer.dedup_ttl,
+    )
+    consumer._disable_invalid_case_trigger.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_disable_invalid_case_trigger_marks_trigger_offline():
+    event = SimpleNamespace(id=uuid.uuid4())
+    trigger = SimpleNamespace(workflow_id=uuid.uuid4(), status="online")
+    session = AsyncMock()
+
+    await CaseTriggerConsumer(client=AsyncMock())._disable_invalid_case_trigger(
+        session=session,
+        trigger=cast(CaseTrigger, trigger),
+        event=cast(CaseEvent, event),
+        reason="missing workflow definition",
+    )
+
+    assert trigger.status == "offline"
+    session.add.assert_called_once_with(trigger)
+    session.flush.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_case_trigger_service_rejects_online_without_definition():
+    workspace_id = uuid.uuid4()
+    session = AsyncMock()
+    result = MagicMock()
+    result.first.return_value = None
+    session.execute.return_value = result
+    service = CaseTriggersService(session=session, role=_build_role(workspace_id))
+
+    with pytest.raises(TracecatValidationError, match="Publish the workflow"):
+        await service._ensure_workflow_has_runnable_definition(uuid.uuid4())
+
+
+@pytest.mark.anyio
+async def test_case_trigger_service_allows_online_with_definition_content():
+    workspace_id = uuid.uuid4()
+    session = AsyncMock()
+    result = MagicMock()
+    result.first.return_value = SimpleNamespace(content={"title": "Published"})
+    session.execute.return_value = result
+    service = CaseTriggersService(session=session, role=_build_role(workspace_id))
+
+    await service._ensure_workflow_has_runnable_definition(uuid.uuid4())
+
 
 
 def _nogroup_retry_error() -> RetryError:

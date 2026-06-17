@@ -552,19 +552,21 @@ class CaseTriggerConsumer:
         wf_id = WorkflowUUID.new(trigger.workflow_id)
         defn = await defn_service.get_definition_by_workflow_id(wf_id)
         if not defn:
-            logger.warning(
-                "No workflow definition found for workflow",
-                workflow_id=str(trigger.workflow_id),
-                event_id=str(event.id),
+            await self._disable_invalid_case_trigger(
+                session=session,
+                trigger=trigger,
+                event=event,
+                reason="missing workflow definition",
             )
-            return False
+            return True
         if not defn.content:
-            logger.warning(
-                "Workflow definition content missing",
-                workflow_id=str(trigger.workflow_id),
-                event_id=str(event.id),
+            await self._disable_invalid_case_trigger(
+                session=session,
+                trigger=trigger,
+                event=event,
+                reason="missing workflow definition content",
             )
-            return False
+            return True
 
         dsl = DSLInput.model_validate(defn.content)
         workflow_service = await WorkflowExecutionsService.connect(role=role)
@@ -579,6 +581,24 @@ class CaseTriggerConsumer:
             else None,
         )
         return True
+
+    async def _disable_invalid_case_trigger(
+        self,
+        *,
+        session,
+        trigger: CaseTrigger,
+        event: CaseEvent,
+        reason: str,
+    ) -> None:
+        logger.warning(
+            "Disabling invalid case trigger",
+            workflow_id=str(trigger.workflow_id),
+            event_id=str(event.id),
+            reason=reason,
+        )
+        trigger.status = "offline"
+        session.add(trigger)
+        await session.flush()
 
     async def _dispatch_selected_workflow(
         self,
