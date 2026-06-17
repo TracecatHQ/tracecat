@@ -27,7 +27,7 @@ import { toast } from "@/components/ui/use-toast"
 import { useRegistryRepositories } from "@/lib/hooks"
 import { copyToClipboard } from "@/lib/utils"
 
-type ActiveDialog = "sync" | "commit" | "versions" | null
+type ActiveDialog = "sync" | "force-sync" | "commit" | "versions" | null
 
 function RegistryActionsControlsMenu() {
   const canUpdateRegistry = useScopeCheck("org:registry:update") === true
@@ -135,6 +135,15 @@ function RegistryActionsControlsMenu() {
               ) : null}
 
               {showRegistryActions ? (
+                <DropdownMenuItem
+                  onSelect={() => handleOpenDialog("force-sync")}
+                >
+                  <RefreshCcw className="mr-2 size-4" />
+                  <span>Force sync from remote</span>
+                </DropdownMenuItem>
+              ) : null}
+
+              {showRegistryActions ? (
                 <DropdownMenuItem onSelect={() => handleOpenDialog("commit")}>
                   <GitBranchIcon className="mr-2 size-4" />
                   <span>Change commit</span>
@@ -160,7 +169,7 @@ function RegistryActionsControlsMenu() {
       </DropdownMenu>
 
       <SyncRepositoryDialog
-        open={activeDialog === "sync"}
+        open={activeDialog === "sync" || activeDialog === "force-sync"}
         onOpenChange={(open) => {
           if (!open) {
             setActiveDialog(null)
@@ -170,6 +179,7 @@ function RegistryActionsControlsMenu() {
         setSelectedRepo={setSelectedRepo}
         syncRepo={syncRepo}
         syncRepoIsPending={syncRepoIsPending}
+        force={activeDialog === "force-sync"}
       />
 
       <CommitSelectorDialog
