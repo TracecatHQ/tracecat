@@ -48,6 +48,8 @@ from tracecat.workspace_sync.schemas import (
     VARIABLE_ROOT,
     WORKFLOW_ROOT,
     WorkspaceManifest,
+    WorkspaceProjection,
+    WorkspaceSpec,
     manifest_resource_roots,
 )
 from tracecat.workspace_sync.serialization import canonical_json_text
@@ -244,6 +246,14 @@ async def test_pull_dry_run_reports_per_resource_counts(
     workspace_sync_service._workspace_git_url = AsyncMock(
         return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
     )
+    workspace_sync_service.project_workspace = AsyncMock(
+        return_value=WorkspaceProjection(
+            manifest=WorkspaceManifest(),
+            spec=WorkspaceSpec(),
+            files={MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())},
+        )
+    )
+    workspace_sync_service._validate_workflow_import = AsyncMock(return_value=[])
 
     with patch(
         "tracecat.workspace_sync.service.vcs_transport_for_provider",

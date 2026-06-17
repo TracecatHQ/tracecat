@@ -345,7 +345,9 @@ async def test_preview_export_counts_resources_without_mutating_mappings(
     assert preview.files == ["a.json", "b.json"]
     # Preview must never create sync mappings as a side effect.
     workspace_sync_service.project_workspace.assert_awaited_once()
-    _, kwargs = workspace_sync_service.project_workspace.await_args
+    await_args = workspace_sync_service.project_workspace.await_args
+    assert await_args is not None
+    _, kwargs = await_args
     assert kwargs["create_missing_mappings"] is False
     assert kwargs["resource_ids"] == {SyncResourceType.WORKFLOW: set()}
 
