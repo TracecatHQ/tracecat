@@ -329,11 +329,7 @@ function IssuedTokenDialog({
   onClose: () => void
 }) {
   const rawToken = issuedCredential?.issued_token.raw_token ?? ""
-  const tokenPreview = issuedCredential?.issued_token.token.preview ?? ""
   const rawExportCommand = rawToken ? buildExportCommand(rawToken) : ""
-  const previewExportCommand = tokenPreview
-    ? buildExportCommand(tokenPreview)
-    : ""
   const command = rawToken ? buildClaudeCommand(mcpUrl) : ""
 
   return (
@@ -370,7 +366,9 @@ function IssuedTokenDialog({
                 />
               </div>
               <pre className="max-w-full overflow-x-auto p-3 text-xs leading-5">
-                <code className="block min-w-0">{previewExportCommand}</code>
+                <code className="block min-w-0 select-all">
+                  {rawExportCommand}
+                </code>
               </pre>
             </div>
           </div>
@@ -391,7 +389,7 @@ function IssuedTokenDialog({
                 />
               </div>
               <pre className="max-w-full overflow-x-auto p-3 text-xs leading-5">
-                <code className="block min-w-0">{command}</code>
+                <code className="block min-w-0 select-all">{command}</code>
               </pre>
             </div>
           </div>
