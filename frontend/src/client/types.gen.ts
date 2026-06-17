@@ -1190,17 +1190,6 @@ export type ArtifactScope = {
   parentToolCallId?: string | null
 }
 
-export type ArtifactType =
-  | "case"
-  | "workflow"
-  | "run"
-  | "table"
-  | "agent"
-  | "alert"
-  | "integration"
-  | "secret"
-  | "generic"
-
 /**
  * Event for when a case assignee is changed.
  */
@@ -1514,15 +1503,6 @@ export type BinaryContent = {
   readonly identifier: string
 }
 
-export type Body_auth_auth_database_login = {
-  grant_type?: string | null
-  username: string
-  password: string
-  scope?: string
-  client_id?: string | null
-  client_secret?: string | null
-}
-
 export type Body_auth_reset_forgot_password = {
   email: string
 }
@@ -1533,8 +1513,8 @@ export type Body_auth_reset_reset_password = {
 }
 
 export type Body_auth_sso_acs = {
-  saml_response: string
-  relay_state: string
+  SAMLResponse: string
+  RelayState: string
 }
 
 export type Body_auth_verify_request_token = {
@@ -5311,7 +5291,7 @@ export type OrganizationSecretRead = {
   type: SecretType
   name: string
   description?: string | null
-  encrypted_keys: Blob | File
+  encrypted_keys: string
   environment: string
   tags?: {
     [key: string]: string
@@ -6513,7 +6493,7 @@ export type SecretRead = {
   type: SecretType
   name: string
   description?: string | null
-  encrypted_keys: Blob | File
+  encrypted_keys: string
   environment: string
   tags?: {
     [key: string]: string
@@ -8071,6 +8051,10 @@ export type ValidationError = {
   loc: Array<string | number>
   msg: string
   type: string
+  input?: unknown
+  ctx?: {
+    [key: string]: unknown
+  }
 }
 
 export type ValidationResult =
@@ -8687,7 +8671,7 @@ export type WorkflowExecutionEvent = {
   workflow_timeout?: number | null
 }
 
-export type WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_ = {
+export type WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_ = {
   source_event_id: number
   schedule_time: string
   start_time?: string | null
@@ -8849,7 +8833,7 @@ export type status9 =
   | "CONTINUED_AS_NEW"
   | "TIMED_OUT"
 
-export type WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_ = {
+export type WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_ = {
   /**
    * The ID of the workflow execution
    */
@@ -8893,7 +8877,7 @@ export type WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_ = {
   /**
    * Compact events in the workflow execution
    */
-  events: Array<WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_>
+  events: Array<WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_>
   /**
    * The interactions in the workflow execution
    */
@@ -9300,6 +9284,15 @@ export type WorkspaceUpdate = {
 
 export type Yaml = {
   component_id?: "yaml"
+}
+
+export type login = {
+  grant_type?: string | null
+  username: string
+  password: string
+  scope?: string
+  client_id?: string | null
+  client_secret?: string | null
 }
 
 /**
@@ -10007,7 +10000,7 @@ export type WorkflowExecutionsGetWorkflowExecutionCompactData = {
 }
 
 export type WorkflowExecutionsGetWorkflowExecutionCompactResponse =
-  WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_
+  WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_
 
 export type WorkflowExecutionsGetWorkflowExecutionObjectDownloadData = {
   executionId: string
@@ -11167,7 +11160,16 @@ export type AgentSessionsGetSessionVercelResponse =
 
 export type AgentSessionsRemoveSessionArtifactData = {
   artifactId: string
-  artifactType: ArtifactType
+  artifactType:
+    | "case"
+    | "workflow"
+    | "run"
+    | "table"
+    | "agent"
+    | "alert"
+    | "integration"
+    | "secret"
+    | "generic"
   sessionId: string
   workspaceId: string
 }
@@ -13057,7 +13059,7 @@ export type UsersUsersDeleteUserData = {
 export type UsersUsersDeleteUserResponse = void
 
 export type AuthAuthDatabaseLoginData = {
-  formData: Body_auth_auth_database_login
+  formData: login
 }
 
 export type AuthAuthDatabaseLoginResponse = unknown | void
@@ -14080,7 +14082,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_
+        200: WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_
         /**
          * Validation Error
          */
