@@ -1,11 +1,13 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { GitPullRequestIcon } from "lucide-react"
+import { AlertTriangleIcon, GitPullRequestIcon } from "lucide-react"
+import Link from "next/link"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type { WorkspaceRead } from "@/client"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   Form,
@@ -18,7 +20,10 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { validateGitSshUrl } from "@/lib/git"
-import { useWorkspaceSettings } from "@/lib/hooks"
+import {
+  useGitHubAppCredentialsStatus,
+  useWorkspaceSettings,
+} from "@/lib/hooks"
 import { WorkflowPullDialog } from "../organization/workflow-pull-dialog"
 
 export const syncSettingsSchema = z.object({
@@ -40,6 +45,10 @@ export function WorkspaceSyncSettings({
 }: WorkspaceSyncSettingsProps) {
   const [pullDialogOpen, setPullDialogOpen] = useState(false)
   const { updateWorkspace, isUpdating } = useWorkspaceSettings(workspace.id)
+  const { credentialsStatus } = useGitHubAppCredentialsStatus()
+
+  const isGitHubAppConfigured =
+    credentialsStatus?.exists && !credentialsStatus?.is_corrupted
 
   const form = useForm<SyncSettingsForm>({
     resolver: zodResolver(syncSettingsSchema),
@@ -102,17 +111,41 @@ export function WorkspaceSyncSettings({
                 workspace
               </p>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setPullDialogOpen(true)}
-              className="flex items-center space-x-2"
-            >
-              <GitPullRequestIcon className="size-4" />
-              <span>Pull workflows</span>
-            </Button>
+            {isGitHubAppConfigured && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setPullDialogOpen(true)}
+                className="flex items-center space-x-2"
+              >
+                <GitPullRequestIcon className="size-4" />
+                <span>Pull workflows</span>
+              </Button>
+            )}
           </div>
+
+          {!isGitHubAppConfigured && credentialsStatus && (
+            <Alert variant="warning" className="mb-4">
+              <AlertTriangleIcon className="size-4" />
+              <AlertTitle>
+                {credentialsStatus.is_corrupted
+                  ? "GitHub App credentials are invalid"
+                  : "GitHub App not configured"}
+              </AlertTitle>
+              <AlertDescription>
+                {credentialsStatus.is_corrupted
+                  ? "The stored credentials could not be validated."
+                  : "A GitHub App is required to pull workflows from your repository."}{" "}
+                <Link
+                  href="/organization/vcs"
+                  className="font-medium underline underline-offset-4"
+                >
+                  Configure in organization settings
+                </Link>
+              </AlertDescription>
+            </Alert>
+          )}
 
           <div className="text-xs text-muted-foreground">
             <p>• Select a commit SHA to pull specific workflow versions</p>
