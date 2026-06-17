@@ -773,15 +773,15 @@ async def check_health() -> HealthResponse:
     responses={
         status.HTTP_503_SERVICE_UNAVAILABLE: {
             "model": ReadinessResponse,
-            "description": "API startup or platform registry sync is incomplete.",
+            "description": "Platform registry sync is incomplete.",
         },
     },
 )
 async def check_ready(response: Response, session: AsyncDBSession) -> ReadinessResponse:
-    """Readiness check - returns 200 only after startup and registry sync complete.
+    """Deep readiness check for platform registry sync state.
 
-    Use this endpoint for Docker healthchecks to ensure the API has finished
-    initializing and the platform registry is synced before accepting traffic.
+    Container health checks should use /health so transient registry sync delays
+    do not cause orchestrators to replace otherwise healthy API tasks.
 
     Returns a detailed response including registry sync status.
     """

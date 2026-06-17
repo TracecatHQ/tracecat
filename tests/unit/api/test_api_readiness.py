@@ -53,9 +53,7 @@ def test_check_ready_documents_not_ready_response():
 
     responses = app.openapi()["paths"]["/ready"]["get"]["responses"]
 
-    assert responses["503"]["description"] == (
-        "API startup or platform registry sync is incomplete."
-    )
+    assert responses["503"]["description"] == "Platform registry sync is incomplete."
     assert responses["503"]["content"]["application/json"]["schema"] == {
         "$ref": "#/components/schemas/ReadinessResponse"
     }
