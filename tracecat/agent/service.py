@@ -42,7 +42,10 @@ from tracecat.db.models import (
     Secret,
 )
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
-from tracecat.integrations.aws_assume_role import build_workspace_external_id
+from tracecat.integrations.aws_assume_role import (
+    build_organization_external_id,
+    build_workspace_external_id,
+)
 from tracecat.logger import logger
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
@@ -61,6 +64,7 @@ _AZURE_COGNITIVE_SCOPE = "https://cognitiveservices.azure.com/.default"
 _DEFAULT_MODEL_SETTING_KEY = "agent_default_model"
 _DEFAULT_MODEL_CATALOG_ID_SETTING_KEY = "agent_default_model_catalog_id"
 CloudProviderSlug = Literal["bedrock", "azure_openai", "azure_ai", "vertex_ai"]
+RuntimeCredentialScope = Literal["organization", "workspace"]
 
 
 class CloudTargetKey(NamedTuple):
@@ -479,20 +483,34 @@ class AgentManagementService(BaseOrgService):
             return None
 
     async def _augment_runtime_provider_credentials(
-        self, provider: str, credentials: dict[str, str]
+        self,
+        provider: str,
+        credentials: dict[str, str],
+        *,
+        external_id_scope: RuntimeCredentialScope = "organization",
     ) -> dict[str, str]:
         """Augment provider credentials with runtime-only values when required."""
         match provider:
-            case "bedrock" if (
-                "AWS_ROLE_ARN" in credentials
-                and self.role.workspace_id is not None
-                and _AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY not in credentials
-            ):
-                runtime_credentials = credentials.copy()
-                runtime_credentials[_AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY] = (
-                    build_workspace_external_id(self.role.workspace_id)
-                )
-                return runtime_credentials
+            case "bedrock":
+                if (
+                    "AWS_ROLE_ARN" not in credentials
+                    or _AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY in credentials
+                ):
+                    return credentials
+                match external_id_scope:
+                    case "workspace" if self.role.workspace_id is not None:
+                        external_id = build_workspace_external_id(
+                            self.role.workspace_id
+                        )
+                    case "workspace":
+                        return credentials
+                    case "organization":
+                        external_id = build_organization_external_id(
+                            self.organization_id
+                        )
+                return credentials | {
+                    _AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY: external_id
+                }
             case "vertex_ai" if "GOOGLE_API_CREDENTIALS" in credentials:
                 return await _resolve_vertex_bearer_token(credentials)
             case "azure_openai" | "azure_ai" if not credentials.get(
@@ -518,7 +536,11 @@ class AgentManagementService(BaseOrgService):
         credentials = await self.get_workspace_provider_credentials(provider)
         if credentials is None:
             return None
-        return await self._augment_runtime_provider_credentials(provider, credentials)
+        return await self._augment_runtime_provider_credentials(
+            provider,
+            credentials,
+            external_id_scope="workspace",
+        )
 
     def _catalog_target_credentials(self, row: AgentCatalog) -> dict[str, str]:
         """Project cloud catalog target metadata into runtime credential keys."""

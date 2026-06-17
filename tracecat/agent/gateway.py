@@ -185,7 +185,7 @@ async def _resolve_bedrock_runtime_credentials(
             external_id := credentials.get(_AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY)
         ):
             raise ProxyException(
-                message="Bedrock role credentials require a Tracecat-provided workspace External ID.",
+                message="Bedrock role credentials require a Tracecat-provided AWS External ID.",
                 type="config_error",
                 param=None,
                 code=400,
@@ -271,12 +271,9 @@ async def get_provider_credentials(
             if catalog_id is not None:
                 creds = await service.get_catalog_credentials(catalog_id)
             else:
-                creds = await service.get_workspace_provider_credentials(provider)
-                if creds is not None:
-                    creds = await service._augment_runtime_provider_credentials(
-                        provider,
-                        creds,
-                    )
+                creds = await service.get_workspace_runtime_provider_credentials(
+                    provider
+                )
         except ValueError as exc:
             raise ProxyException(
                 message=str(exc),

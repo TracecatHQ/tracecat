@@ -28,7 +28,10 @@ from tracecat.db.models import (
     OrganizationSecret,
     Workspace,
 )
-from tracecat.integrations.aws_assume_role import build_workspace_external_id
+from tracecat.integrations.aws_assume_role import (
+    build_organization_external_id,
+    build_workspace_external_id,
+)
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.encryption import encrypt_keyvalues
 from tracecat.secrets.enums import SecretType
@@ -249,6 +252,57 @@ async def test_get_catalog_credentials_uses_live_cloud_secret_with_catalog_metad
     assert credentials["AWS_ACCESS_KEY_ID"] == "live-key"
     assert credentials["AWS_SECRET_ACCESS_KEY"] == "live-secret"
     assert credentials["AWS_INFERENCE_PROFILE_ID"] == "metadata-target"
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_get_catalog_credentials_injects_bedrock_org_external_id(
+    session: AsyncSession,
+    svc_organization: Organization,
+    svc_workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    encryption_key = Fernet.generate_key().decode()
+    monkeypatch.setattr(
+        tracecat_config,
+        "TRACECAT__DB_ENCRYPTION_KEY",
+        encryption_key,
+    )
+    catalog = await _seed_catalog(
+        session,
+        org_id=svc_organization.id,
+        provider="bedrock",
+        model_name="Claude Sonnet",
+        metadata={"inference_profile_id": "metadata-target"},
+    )
+    await _grant_access(
+        session,
+        org_id=svc_organization.id,
+        catalog_id=catalog.id,
+    )
+    await _seed_org_secret(
+        session,
+        org_id=svc_organization.id,
+        name="agent-bedrock-credentials",
+        values={
+            "AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/customer-role",
+            "AWS_REGION": "us-east-1",
+        },
+        encryption_key=encryption_key,
+    )
+    await session.commit()
+
+    service = AgentManagementService(
+        session=session,
+        role=_db_role(svc_organization, svc_workspace),
+    )
+
+    credentials = await service.get_catalog_credentials(catalog.id)
+
+    assert credentials is not None
+    assert credentials["TRACECAT_AWS_EXTERNAL_ID"] == build_organization_external_id(
+        svc_organization.id
+    )
 
 
 @pytest.mark.anyio
@@ -891,7 +945,7 @@ async def test_list_providers_excludes_removed_litellm_provider(role: Role) -> N
 
 
 @pytest.mark.anyio
-async def test_get_runtime_provider_credentials_injects_bedrock_external_id(
+async def test_get_runtime_provider_credentials_injects_bedrock_org_external_id(
     role: Role,
 ) -> None:
     service = AgentManagementService(AsyncMock(), role=role)
@@ -902,9 +956,31 @@ async def test_get_runtime_provider_credentials_injects_bedrock_external_id(
             "AWS_INFERENCE_PROFILE_ID": "us.anthropic.claude-sonnet-4-20250514-v1:0",
         }
     )
-    assert role.workspace_id is not None
+    assert role.organization_id is not None
 
     credentials = await service.get_runtime_provider_credentials("bedrock")
+
+    assert credentials is not None
+    assert credentials["TRACECAT_AWS_EXTERNAL_ID"] == build_organization_external_id(
+        role.organization_id
+    )
+
+
+@pytest.mark.anyio
+async def test_get_workspace_runtime_provider_credentials_injects_bedrock_workspace_external_id(
+    role: Role,
+) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+    service.get_workspace_provider_credentials = AsyncMock(
+        return_value={
+            "AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/customer-role",
+            "AWS_REGION": "us-east-1",
+            "AWS_INFERENCE_PROFILE_ID": "us.anthropic.claude-sonnet-4-20250514-v1:0",
+        }
+    )
+    assert role.workspace_id is not None
+
+    credentials = await service.get_workspace_runtime_provider_credentials("bedrock")
 
     assert credentials is not None
     assert credentials["TRACECAT_AWS_EXTERNAL_ID"] == build_workspace_external_id(
@@ -915,8 +991,8 @@ async def test_get_runtime_provider_credentials_injects_bedrock_external_id(
 @pytest.mark.anyio
 async def test_with_model_config_injects_bedrock_external_id(role: Role) -> None:
     service = AgentManagementService(AsyncMock(), role=role)
-    assert role.workspace_id is not None
-    external_id = build_workspace_external_id(role.workspace_id)
+    assert role.organization_id is not None
+    external_id = build_organization_external_id(role.organization_id)
     catalog_id = uuid.uuid4()
     service._get_default_model_catalog_id_setting = AsyncMock(return_value=catalog_id)
     service._get_default_model_name_setting = AsyncMock(

@@ -166,7 +166,7 @@ async def test_bedrock_role_credentials_require_external_id() -> None:
         )
 
     assert exc_info.value.code == "400"
-    assert "workspace External ID" in exc_info.value.message
+    assert "AWS External ID" in exc_info.value.message
 
 
 def test_bedrock_rejects_ambient_credential_fallback() -> None:

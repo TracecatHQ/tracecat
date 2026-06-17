@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.catalog.schemas import (
     AzureOpenAICatalogUpdate,
+    BedrockCatalogCreate,
+    BedrockCatalogTest,
     BedrockCatalogUpdate,
 )
 from tracecat.agent.catalog.service import AgentCatalogService
@@ -640,3 +642,22 @@ def test_bedrock_update_rejects_both_refs_explicitly_null() -> None:
             inference_profile_id=None,
             model_id=None,
         )
+
+
+def test_bedrock_create_defaults_to_non_converse() -> None:
+    create = BedrockCatalogCreate(
+        model_provider="bedrock",
+        model_name="claude-sonnet",
+        inference_profile_id="us.anthropic.claude-sonnet-4",
+    )
+
+    assert create.use_converse is False
+
+
+def test_bedrock_test_defaults_to_non_converse() -> None:
+    request = BedrockCatalogTest(
+        model_provider="bedrock",
+        inference_profile_id="us.anthropic.claude-sonnet-4",
+    )
+
+    assert request.use_converse is False

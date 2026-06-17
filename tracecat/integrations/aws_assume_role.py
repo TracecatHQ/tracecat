@@ -22,3 +22,8 @@ def get_tracecat_aws_principal_arn() -> str:
 def build_workspace_external_id(workspace_id: UUID | str) -> str:
     """Build a workspace-scoped External ID for AWS AssumeRole."""
     return str(workspace_id).replace("-", "")
+
+
+def build_organization_external_id(organization_id: UUID | str) -> str:
+    """Build an organization-scoped External ID for AWS AssumeRole."""
+    return str(organization_id).replace("-", "")
