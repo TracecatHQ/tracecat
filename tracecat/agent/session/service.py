@@ -1533,6 +1533,10 @@ class AgentSessionService(BaseWorkspaceService):
                     model_provider=model_config.provider,
                     catalog_id=model_config.catalog_id,
                     actions=agent_session.tools,
+                    # Raw default-model sessions (no preset) keep thinking off:
+                    # opus-4-8 rejects the legacy enabled block. Preset-backed
+                    # configs carry their own enable_thinking and are untouched.
+                    enable_thinking=False,
                 )
             return
 
@@ -1561,6 +1565,7 @@ class AgentSessionService(BaseWorkspaceService):
                         model_provider=model_config.provider,
                         catalog_id=model_config.catalog_id,
                         actions=agent_session.tools,
+                        enable_thinking=False,
                     )
         elif session_entity is AgentSessionEntity.AGENT_PRESET:
             async with agent_svc.with_preset_config(
@@ -1590,6 +1595,7 @@ class AgentSessionService(BaseWorkspaceService):
                         model_provider=model_config.provider,
                         catalog_id=model_config.catalog_id,
                         actions=None,
+                        enable_thinking=False,
                     )
             except TracecatNotFoundError as exc:
                 raise ValueError(
@@ -1627,6 +1633,7 @@ class AgentSessionService(BaseWorkspaceService):
                         catalog_id=model_config.catalog_id,
                         actions=actions,
                         mcp_servers=mcp_servers,
+                        enable_thinking=False,
                     )
         elif session_entity in (
             AgentSessionEntity.WORKFLOW,
@@ -1671,6 +1678,7 @@ class AgentSessionService(BaseWorkspaceService):
                             model_provider=model_config.provider,
                             catalog_id=model_config.catalog_id,
                             actions=[],  # No tools for forked sessions
+                            enable_thinking=False,
                         )
             elif agent_session.agent_preset_id:
                 # Workflow sessions with preset use the preset config
@@ -1688,6 +1696,7 @@ class AgentSessionService(BaseWorkspaceService):
                         model_provider=model_config.provider,
                         catalog_id=model_config.catalog_id,
                         actions=agent_session.tools,
+                        enable_thinking=False,
                     )
         else:
             raise ValueError(
