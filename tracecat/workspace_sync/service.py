@@ -7,6 +7,7 @@ import uuid
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import replace
+from difflib import unified_diff
 from typing import Any
 
 from sqlalchemy import select
@@ -26,6 +27,7 @@ from tracecat.service import BaseWorkspaceService
 from tracecat.sync import (
     PullDiagnostic,
     PullOptions,
+    PullResourceDiff,
     PullResult,
     ResourcePullCount,
 )
@@ -38,6 +40,7 @@ from tracecat.workflow.store.schemas import (
 from tracecat.workspace_sync.adapters import (
     NON_WORKFLOW_RESOURCE_ADAPTERS,
     WORKFLOW_RESOURCE_ADAPTER,
+    ResourceAdapter,
     workspace_spec_from_maps,
 )
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
@@ -60,6 +63,7 @@ from tracecat.workspace_sync.schemas import (
     ResourceRef,
     WorkflowResourceSpec,
     WorkspaceManifest,
+    WorkspaceManifestResources,
     WorkspaceProjection,
     WorkspaceRemoteSnapshot,
     WorkspaceSpec,
@@ -75,6 +79,8 @@ from tracecat.workspace_sync.workflow import (
     workflow_spec_to_remote,
 )
 from tracecat.workspaces.service import WorkspaceService
+
+MAX_PULL_RESOURCE_DIFF_LINES = 240
 
 
 class WorkspaceSyncService(BaseWorkspaceService):
@@ -214,14 +220,37 @@ class WorkspaceSyncService(BaseWorkspaceService):
                 resource_counts=resource_counts,
             )
         if options.dry_run:
+            resource_diffs = await self._resource_diffs_for_pull(
+                snapshot,
+                sync_schedules=sync_schedules,
+            )
+            workflow_diagnostics = await self._validate_workflow_import(snapshot)
+            if workflow_diagnostics:
+                return PullResult(
+                    success=False,
+                    commit_sha=snapshot.commit_sha,
+                    workflows_found=len(snapshot.spec.workflows),
+                    workflows_imported=0,
+                    diagnostics=workflow_diagnostics,
+                    message=(
+                        f"Import failed: {len(workflow_diagnostics)} validation "
+                        "error(s) found"
+                    ),
+                    resource_counts=resource_counts,
+                    resource_diffs=resource_diffs,
+                )
             return PullResult(
                 success=True,
                 commit_sha=snapshot.commit_sha,
                 workflows_found=len(snapshot.spec.workflows),
                 workflows_imported=0,
                 diagnostics=[],
-                message="Dry run completed - workspace spec validated but not imported",
+                message=(
+                    "Dry run completed - "
+                    f"{len(resource_diffs)} resource change(s) detected"
+                ),
                 resource_counts=resource_counts,
+                resource_diffs=resource_diffs,
             )
         return await self._import_snapshot(
             snapshot,
@@ -504,6 +533,78 @@ class WorkspaceSyncService(BaseWorkspaceService):
                 imported_workflows=len(remote_workflows),
             ),
         )
+
+    async def _resource_diffs_for_pull(
+        self,
+        snapshot: WorkspaceRemoteSnapshot,
+        *,
+        sync_schedules: bool,
+    ) -> list[PullResourceDiff]:
+        current_projection = await self.project_workspace(
+            include_schedules=sync_schedules,
+            create_missing_mappings=False,
+        )
+        target_spec = _spec_for_pull_options(
+            snapshot.spec,
+            sync_schedules=sync_schedules,
+        )
+        target_files = self._files_from_spec(
+            manifest=WorkspaceManifest(),
+            spec=target_spec,
+        )
+        roots = WorkspaceManifest().resources
+        diffs: list[PullResourceDiff] = []
+        # The preview is a canonical file diff. Adapters own path mapping,
+        # serialization, and labels; the service owns comparing the full
+        # current projection against the incoming repository snapshot.
+        for path, target_content in sorted(target_files.items()):
+            identity = _resource_identity_from_path(path, roots=roots)
+            if identity is None:
+                continue
+
+            current_content = current_projection.files.get(path)
+            if current_content == target_content:
+                continue
+
+            adapter, source_id = identity
+            diff, truncated = _unified_resource_diff(
+                path=path,
+                before=current_content,
+                after=target_content,
+            )
+            diffs.append(
+                PullResourceDiff(
+                    resource_type=adapter.resource_type.value,
+                    source_id=source_id,
+                    source_path=path,
+                    change_type="added" if current_content is None else "modified",
+                    title=_resource_title(
+                        target_spec,
+                        adapter=adapter,
+                        source_id=source_id,
+                    ),
+                    diff=diff,
+                    truncated=truncated,
+                )
+            )
+        return diffs
+
+    async def _validate_workflow_import(
+        self,
+        snapshot: WorkspaceRemoteSnapshot,
+    ) -> list[PullDiagnostic]:
+        remote_workflows = []
+        for source_id, workflow_spec in sorted(snapshot.spec.workflows.items()):
+            local_id = await self._resolve_local_workflow_id(source_id)
+            remote_workflows.append(
+                workflow_spec_to_remote(workflow_spec, local_workflow_id=local_id)
+            )
+
+        workflow_importer = WorkflowImportService(
+            session=self.session,
+            role=self.role,
+        )
+        return await workflow_importer.validate_workflows(remote_workflows)
 
     async def _list_projectable_workflows(
         self,
@@ -1081,3 +1182,70 @@ def _json_payload(payload: Any) -> Any:
     if hasattr(payload, "model_dump"):
         return payload.model_dump(mode="json", exclude_none=True)
     return payload
+
+
+def _spec_for_pull_options(
+    spec: WorkspaceSpec,
+    *,
+    sync_schedules: bool,
+) -> WorkspaceSpec:
+    if sync_schedules:
+        return spec
+    return spec.model_copy(
+        update={
+            "workflows": {
+                source_id: workflow.model_copy(update={"schedules": None})
+                for source_id, workflow in spec.workflows.items()
+            }
+        }
+    )
+
+
+def _resource_identity_from_path(
+    path: str,
+    *,
+    roots: WorkspaceManifestResources,
+) -> tuple[ResourceAdapter, str] | None:
+    for adapter in (WORKFLOW_RESOURCE_ADAPTER, *NON_WORKFLOW_RESOURCE_ADAPTERS):
+        if source_id := adapter.source_id_from_path(path, roots):
+            return adapter, source_id
+        if extra := adapter.extra_path_from_path(path, roots):
+            source_id, _relative_path = extra
+            return adapter, source_id
+    return None
+
+
+def _unified_resource_diff(
+    *,
+    path: str,
+    before: str | None,
+    after: str,
+) -> tuple[str, bool]:
+    lines = list(
+        unified_diff(
+            (before or "").splitlines(),
+            after.splitlines(),
+            fromfile=f"current/{path}",
+            tofile=f"incoming/{path}",
+            lineterm="",
+        )
+    )
+    truncated = len(lines) > MAX_PULL_RESOURCE_DIFF_LINES
+    if truncated:
+        lines = [
+            *lines[:MAX_PULL_RESOURCE_DIFF_LINES],
+            "... diff truncated ...",
+        ]
+    return "\n".join(lines), truncated
+
+
+def _resource_title(
+    spec: WorkspaceSpec,
+    *,
+    adapter: ResourceAdapter,
+    source_id: str,
+) -> str | None:
+    resource = adapter.specs(spec).get(source_id)
+    if resource is None:
+        return source_id
+    return adapter.display_name(resource) or source_id

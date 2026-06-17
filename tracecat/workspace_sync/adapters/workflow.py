@@ -7,6 +7,8 @@ and parsing metadata and inherits the no-op project/import-specs defaults.
 
 from __future__ import annotations
 
+from pydantic import BaseModel
+
 from tracecat.workspace_sync.adapters.base import ResourceAdapter
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
@@ -36,3 +38,8 @@ class WorkflowAdapter(ResourceAdapter):
             path,
             workflow_root=roots.workflows.strip("/"),
         )
+
+    def display_name(self, spec: BaseModel) -> str | None:
+        if isinstance(spec, WorkflowResourceSpec):
+            return spec.definition.title
+        return super().display_name(spec)

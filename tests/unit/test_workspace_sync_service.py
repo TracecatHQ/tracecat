@@ -15,12 +15,15 @@ from tracecat.exceptions import TracecatValidationError
 from tracecat.git.types import GitUrl
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.sync import PullOptions
+from tracecat.workflow.store.schemas import RemoteWorkflowSchedule
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.schemas import (
     MANIFEST_FILENAME,
     ResourceRef,
     WorkflowResourceSpec,
     WorkspaceManifest,
+    WorkspaceProjection,
+    WorkspaceSpec,
 )
 from tracecat.workspace_sync.serialization import canonical_json_text
 from tracecat.workspace_sync.service import WorkspaceSyncService
@@ -118,6 +121,134 @@ async def test_pull_does_not_sync_schedules_by_default(
 
 
 @pytest.mark.anyio
+async def test_pull_dry_run_returns_resource_diffs_without_import(
+    workspace_sync_service: WorkspaceSyncService,
+    sample_dsl: DSLInput,
+) -> None:
+    source_id = "sync-me"
+    current_dsl = sample_dsl.model_copy(update={"title": "Current title"})
+    incoming_dsl = sample_dsl.model_copy(update={"title": "Incoming title"})
+    current_spec = WorkflowResourceSpec(
+        id=source_id,
+        alias="sync-me",
+        definition=current_dsl,
+    )
+    incoming_spec = WorkflowResourceSpec(
+        id=source_id,
+        alias="sync-me",
+        definition=incoming_dsl,
+    )
+    current_files = _workspace_files(current_spec)
+    incoming_files = _workspace_files(incoming_spec)
+    transport = AsyncMock()
+    transport.read_files.return_value = VcsTreeSnapshot(
+        commit_sha="a" * 40,
+        tree_sha="tree-sha",
+        files=incoming_files,
+    )
+    import_service = AsyncMock()
+    import_service.validate_workflows.return_value = []
+    workspace_sync_service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="tracecat", repo="sync")
+    )
+    workspace_sync_service._resolve_local_workflow_id = AsyncMock(
+        return_value=WorkflowUUID.new_uuid4()
+    )
+    workspace_sync_service.project_workspace = AsyncMock(
+        return_value=WorkspaceProjection(
+            manifest=WorkspaceManifest(),
+            spec=WorkspaceSpec(workflows={source_id: current_spec}),
+            files=current_files,
+        )
+    )
+
+    with (
+        patch(
+            "tracecat.workspace_sync.service.vcs_transport_for_provider",
+            return_value=transport,
+        ),
+        patch(
+            "tracecat.workspace_sync.service.WorkflowImportService",
+            return_value=import_service,
+        ),
+    ):
+        result = await workspace_sync_service.pull(
+            options=PullOptions(commit_sha="a" * 40, dry_run=True),
+        )
+
+    assert result.success is True
+    assert result.workflows_imported == 0
+    assert result.resource_diffs is not None
+    assert len(result.resource_diffs) == 1
+    diff = result.resource_diffs[0]
+    assert diff.change_type == "modified"
+    assert diff.resource_type == SyncResourceType.WORKFLOW.value
+    assert diff.source_id == source_id
+    assert diff.title == "Incoming title"
+    assert "Current title" in diff.diff
+    assert "Incoming title" in diff.diff
+    import_service.validate_workflows.assert_awaited_once()
+    import_service.import_workflows.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_pull_dry_run_ignores_schedule_diff_when_schedule_sync_is_disabled(
+    workspace_sync_service: WorkspaceSyncService,
+    sample_dsl: DSLInput,
+) -> None:
+    source_id = "sync-me"
+    current_spec = WorkflowResourceSpec(
+        id=source_id,
+        alias="sync-me",
+        definition=sample_dsl,
+    )
+    incoming_spec = current_spec.model_copy(
+        update={"schedules": [RemoteWorkflowSchedule(cron="0 8 * * *")]}
+    )
+    current_files = _workspace_files(current_spec)
+    incoming_files = _workspace_files(incoming_spec)
+    transport = AsyncMock()
+    transport.read_files.return_value = VcsTreeSnapshot(
+        commit_sha="a" * 40,
+        tree_sha="tree-sha",
+        files=incoming_files,
+    )
+    import_service = AsyncMock()
+    import_service.validate_workflows.return_value = []
+    workspace_sync_service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="tracecat", repo="sync")
+    )
+    workspace_sync_service._resolve_local_workflow_id = AsyncMock(
+        return_value=WorkflowUUID.new_uuid4()
+    )
+    workspace_sync_service.project_workspace = AsyncMock(
+        return_value=WorkspaceProjection(
+            manifest=WorkspaceManifest(),
+            spec=WorkspaceSpec(workflows={source_id: current_spec}),
+            files=current_files,
+        )
+    )
+
+    with (
+        patch(
+            "tracecat.workspace_sync.service.vcs_transport_for_provider",
+            return_value=transport,
+        ),
+        patch(
+            "tracecat.workspace_sync.service.WorkflowImportService",
+            return_value=import_service,
+        ),
+    ):
+        result = await workspace_sync_service.pull(
+            options=PullOptions(commit_sha="a" * 40, dry_run=True),
+            sync_schedules=False,
+        )
+
+    assert result.success is True
+    assert result.resource_diffs == []
+
+
+@pytest.mark.anyio
 async def test_parse_files_accepts_legacy_workflow_tree_without_manifest(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:
@@ -197,3 +328,10 @@ definition:
       args:
         value: legacy
 """
+
+
+def _workspace_files(spec: WorkflowResourceSpec) -> dict[str, str]:
+    return {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        workflow_source_path(spec.id): serialize_workflow_spec(spec),
+    }

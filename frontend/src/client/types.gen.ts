@@ -5665,6 +5665,18 @@ export type error_type =
   | "system"
   | "transaction"
 
+export type PullResourceDiff = {
+  resource_type: string
+  source_id: string
+  source_path: string
+  change_type: "added" | "modified"
+  title: string | null
+  diff: string
+  truncated?: boolean
+}
+
+export type change_type2 = "added" | "modified"
+
 export type PullResult = {
   success: boolean
   commit_sha: string
@@ -5675,6 +5687,7 @@ export type PullResult = {
   resource_counts?: {
     [key: string]: ResourcePullCount
   } | null
+  resource_diffs?: Array<PullResourceDiff> | null
 }
 
 /**

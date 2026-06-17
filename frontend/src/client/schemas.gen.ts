@@ -18844,6 +18844,58 @@ export const $PullDiagnostic = {
   title: "PullDiagnostic",
 } as const
 
+export const $PullResourceDiff = {
+  properties: {
+    resource_type: {
+      type: "string",
+      title: "Resource Type",
+    },
+    source_id: {
+      type: "string",
+      title: "Source Id",
+    },
+    source_path: {
+      type: "string",
+      title: "Source Path",
+    },
+    change_type: {
+      type: "string",
+      enum: ["added", "modified"],
+      title: "Change Type",
+    },
+    title: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Title",
+    },
+    diff: {
+      type: "string",
+      title: "Diff",
+    },
+    truncated: {
+      type: "boolean",
+      title: "Truncated",
+      default: false,
+    },
+  },
+  type: "object",
+  required: [
+    "resource_type",
+    "source_id",
+    "source_path",
+    "change_type",
+    "title",
+    "diff",
+  ],
+  title: "PullResourceDiff",
+} as const
+
 export const $PullResult = {
   properties: {
     success: {
@@ -18886,6 +18938,20 @@ export const $PullResult = {
         },
       ],
       title: "Resource Counts",
+    },
+    resource_diffs: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/PullResourceDiff",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Resource Diffs",
     },
   },
   type: "object",

@@ -128,6 +128,14 @@ class ResourceAdapter(ABC):
     def specs(self, spec: WorkspaceSpec) -> dict[str, BaseModel]:
         return cast(dict[str, BaseModel], getattr(spec, self.spec_attr))
 
+    def display_name(self, spec: BaseModel) -> str | None:
+        """Human-readable resource label for sync preview surfaces."""
+        for attr in ("name", "slug", "alias", "id"):
+            value = getattr(spec, attr, None)
+            if isinstance(value, str) and value:
+                return value
+        return None
+
     def projected_resource(
         self,
         source_id: str,

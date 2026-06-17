@@ -103,6 +103,36 @@ class ResourcePullCount:
 
 
 @dataclass(frozen=True)
+class PullResourceDiff:
+    """Text diff for one incoming resource file during a pull preview."""
+
+    resource_type: str
+    """Workspace sync resource type."""
+
+    source_id: str
+    """Stable source identifier from the repository."""
+
+    source_path: str
+    """Repository path for the changed resource file."""
+
+    change_type: Literal["added", "modified"]
+    """Whether pull would create or update a resource.
+
+    Pull is currently upsert-only: local resources absent from the incoming Git
+    snapshot are left untouched, so dry-run diffs do not report deletions.
+    """
+
+    title: str | None
+    """Human-readable resource label when available."""
+
+    diff: str
+    """Unified text diff from current workspace state to incoming Git state."""
+
+    truncated: bool = False
+    """Whether the diff was shortened for response size."""
+
+
+@dataclass(frozen=True)
 class PullResult:
     """Result of a pull operation with atomic guarantees."""
 
@@ -126,3 +156,6 @@ class PullResult:
 
     resource_counts: dict[str, ResourcePullCount] | None = None
     """Optional per-resource counts for workspace-level sync operations."""
+
+    resource_diffs: list[PullResourceDiff] | None = None
+    """Optional changed resource file diffs for dry-run pull previews."""
