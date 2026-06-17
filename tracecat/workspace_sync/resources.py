@@ -2,30 +2,22 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from collections import defaultdict
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, ValidationError
 
 from tracecat.sync import PullDiagnostic
 from tracecat.workspace_sync.adapters import (
+    AGENT_PRESET_RESOURCE_ADAPTER,
     NON_WORKFLOW_RESOURCE_ADAPTERS,
-    SKILL_RESOURCE_ADAPTER,
-    TABLE_RESOURCE_ADAPTER,
     WORKFLOW_RESOURCE_ADAPTER,
-    agent_preset_source_path,
-    skill_file_source_path,
-    skill_source_path,
-    table_rows_source_path,
     workspace_spec_from_maps,
 )
+from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
-    SkillResourceSpec,
-    TableResourceSpec,
     WorkspaceManifest,
     WorkspaceSpec,
 )
@@ -48,8 +40,7 @@ def parse_workspace_spec_files(
         WORKFLOW_RESOURCE_ADAPTER.spec_attr: {},
         **{adapter.spec_attr: {} for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS},
     }
-    skill_file_contents: dict[str, dict[str, str]] = defaultdict(dict)
-    table_row_files: dict[tuple[str, str], str] = {}
+    extra_files: dict[SyncResourceType, dict[tuple[str, str], str]] = defaultdict(dict)
 
     workflow_root = roots.workflows.strip("/")
     for path, content in sorted(files.items()):
@@ -79,36 +70,20 @@ def parse_workspace_spec_files(
                 )
                 break
 
-            if adapter.extra_path_from_path is None:
-                continue
             extra_path = adapter.extra_path_from_path(path, roots)
             if extra_path is None:
                 continue
             source_id, relpath = extra_path
-            if adapter is SKILL_RESOURCE_ADAPTER:
-                skill_file_contents[source_id][relpath] = content
-            elif adapter is TABLE_RESOURCE_ADAPTER:
-                table_row_files[(source_id, relpath)] = content
+            extra_files[adapter.resource_type][(source_id, relpath)] = content
             break
 
-    skills = cast(dict[str, SkillResourceSpec], specs_by_attr["skills"])
-    tables = cast(dict[str, TableResourceSpec], specs_by_attr["tables"])
-    specs_by_attr[SKILL_RESOURCE_ADAPTER.spec_attr] = cast(
-        dict[str, BaseModel],
-        _attach_skill_files(
-            skills,
-            skill_file_contents=skill_file_contents,
-            diagnostics=diagnostics,
-        ),
-    )
-    specs_by_attr[TABLE_RESOURCE_ADAPTER.spec_attr] = cast(
-        dict[str, BaseModel],
-        _attach_table_rows(
-            tables,
-            table_row_files=table_row_files,
-            diagnostics=diagnostics,
-        ),
-    )
+    for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
+        specs_by_attr[adapter.spec_attr] = adapter.attach_extra_files(
+            specs_by_attr[adapter.spec_attr],
+            extra_files.get(adapter.resource_type, {}),
+            diagnostics,
+        )
+
     spec = workspace_spec_from_maps(specs_by_attr)
     diagnostics.extend(validate_workspace_dependencies(spec))
     return spec, diagnostics
@@ -175,7 +150,9 @@ def validate_workspace_dependencies(spec: WorkspaceSpec) -> list[PullDiagnostic]
             if skill.slug not in skill_slugs:
                 diagnostics.append(
                     PullDiagnostic(
-                        workflow_path=agent_preset_source_path(source_id),
+                        workflow_path=AGENT_PRESET_RESOURCE_ADAPTER.source_path(
+                            source_id
+                        ),
                         workflow_title=preset.name,
                         error_type="dependency",
                         message=f"Agent preset references missing skill slug {skill.slug!r}",
@@ -186,7 +163,9 @@ def validate_workspace_dependencies(spec: WorkspaceSpec) -> list[PullDiagnostic]
             if subagent.slug not in preset_slugs:
                 diagnostics.append(
                     PullDiagnostic(
-                        workflow_path=agent_preset_source_path(source_id),
+                        workflow_path=AGENT_PRESET_RESOURCE_ADAPTER.source_path(
+                            source_id
+                        ),
                         workflow_title=preset.name,
                         error_type="dependency",
                         message=f"Agent preset references missing subagent slug {subagent.slug!r}",
@@ -292,108 +271,6 @@ def _parse_yaml_resource[ModelT: BaseModel](
                 details={"error": str(e)},
             )
         )
-
-
-def _attach_skill_files(
-    skills: dict[str, SkillResourceSpec],
-    *,
-    skill_file_contents: dict[str, dict[str, str]],
-    diagnostics: list[PullDiagnostic],
-) -> dict[str, SkillResourceSpec]:
-    updated: dict[str, SkillResourceSpec] = {}
-    for source_id, spec in skills.items():
-        contents = skill_file_contents.get(source_id, {})
-        for file_spec in spec.files:
-            content = contents.get(file_spec.path)
-            if content is None:
-                diagnostics.append(
-                    PullDiagnostic(
-                        workflow_path=skill_source_path(source_id),
-                        workflow_title=spec.name,
-                        error_type="dependency",
-                        message=f"Skill file {file_spec.path!r} is missing",
-                        details={"skill_slug": spec.slug, "file_path": file_spec.path},
-                    )
-                )
-                continue
-            actual_hash = hashlib.sha256(content.encode()).hexdigest()
-            if actual_hash != file_spec.sha256:
-                diagnostics.append(
-                    PullDiagnostic(
-                        workflow_path=skill_file_source_path(
-                            source_id,
-                            file_spec.path,
-                        ),
-                        workflow_title=spec.name,
-                        error_type="validation",
-                        message=f"Skill file {file_spec.path!r} SHA256 does not match",
-                        details={
-                            "skill_slug": spec.slug,
-                            "file_path": file_spec.path,
-                            "expected_sha256": file_spec.sha256,
-                            "actual_sha256": actual_hash,
-                        },
-                    )
-                )
-        updated[source_id] = spec.model_copy(update={"file_contents": contents})
-    return updated
-
-
-def _attach_table_rows(
-    tables: dict[str, TableResourceSpec],
-    *,
-    table_row_files: dict[tuple[str, str], str],
-    diagnostics: list[PullDiagnostic],
-) -> dict[str, TableResourceSpec]:
-    updated: dict[str, TableResourceSpec] = {}
-    for source_id, spec in tables.items():
-        rows: list[dict[str, Any]] = []
-        if spec.rows_path and (
-            content := table_row_files.get((source_id, spec.rows_path))
-        ):
-            for line_number, line in enumerate(content.splitlines(), start=1):
-                if not line.strip():
-                    continue
-                try:
-                    row = json.loads(line)
-                except json.JSONDecodeError as e:
-                    diagnostics.append(
-                        PullDiagnostic(
-                            workflow_path=table_rows_source_path(
-                                source_id,
-                                spec.rows_path,
-                            ),
-                            workflow_title=spec.name,
-                            error_type="parse",
-                            message=f"Invalid table JSONL row at line {line_number}: {e}",
-                            details={
-                                "table": spec.name,
-                                "line_number": line_number,
-                                "error": str(e),
-                            },
-                        )
-                    )
-                    continue
-                if not isinstance(row, dict):
-                    diagnostics.append(
-                        PullDiagnostic(
-                            workflow_path=table_rows_source_path(
-                                source_id,
-                                spec.rows_path,
-                            ),
-                            workflow_title=spec.name,
-                            error_type="validation",
-                            message=f"Table row at line {line_number} is not an object",
-                            details={
-                                "table": spec.name,
-                                "line_number": line_number,
-                            },
-                        )
-                    )
-                    continue
-                rows.append(row)
-        updated[source_id] = spec.model_copy(update={"rows": rows})
-    return updated
 
 
 def _resource_title(data: dict[str, Any] | None) -> str | None:
