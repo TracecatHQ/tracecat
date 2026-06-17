@@ -782,7 +782,11 @@ function McpCatalogCard({
     canConfigure = canCreate
   }
   const configureLabel = "Configure"
-  const verifiedToolCount = entry.tools?.length ?? null
+  const totalToolCount = entry.tools?.length ?? null
+  const activeToolCount =
+    entry.tools?.filter(
+      (tool) => tool.status !== "missing" && tool.enabled !== false
+    ).length ?? null
   const unverifiedBadge = UNVERIFIED_BADGE
   let statusLabel = "Not connected"
   let statusClassName = "border-muted bg-muted/30 text-muted-foreground"
@@ -793,10 +797,15 @@ function McpCatalogCard({
     statusLabel = "Locked"
     statusClassName = "border-muted bg-muted/30 text-muted-foreground"
   } else if (connected) {
-    statusLabel =
-      isHttpServer && verifiedToolCount !== null
-        ? `Connected · ${verifiedToolCount} ${verifiedToolCount === 1 ? "tool" : "tools"}`
-        : "Connected"
+    if (isHttpServer && activeToolCount !== null && totalToolCount !== null) {
+      const toolCountLabel =
+        activeToolCount === totalToolCount
+          ? `${activeToolCount}`
+          : `${activeToolCount}/${totalToolCount}`
+      statusLabel = `Connected · ${toolCountLabel} ${activeToolCount === 1 ? "tool" : "tools"}`
+    } else {
+      statusLabel = "Connected"
+    }
     statusClassName = "border-emerald-200 bg-emerald-50 text-emerald-700"
   } else if (configured) {
     // An HTTP row with config but no verified tool listing is not known to

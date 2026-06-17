@@ -50,6 +50,7 @@ from tracecat.integrations.schemas import (
     MCPIntegrationTestConnectionRequest,
     MCPIntegrationTestConnectionResponse,
     MCPIntegrationUpdate,
+    MCPToolPolicyUpdateRequest,
     MCPToolSummary,
     PlatformMCPCatalogListResponse,
     PlatformMCPCatalogState,
@@ -123,9 +124,9 @@ async def _gate_mcp_connect_verification(
     When the row was created by this request, a failed verification deletes it
     so that retries don't accumulate orphaned rows. Pre-existing rows returned
     by idempotent connects are kept (``delete_on_failure=False``) so a
-    transient outage doesn't destroy a saved integration; the failed
-    verification has already cleared its stored tools. Either way the failure
-    surfaces as an HTTP error so the connect/save does not report success.
+    transient outage doesn't destroy a saved integration. Either way the
+    failure surfaces as an HTTP error so the connect/save does not report
+    success.
     """
     if mcp_integration.server_type != "http":
         return
@@ -1189,6 +1190,44 @@ async def update_mcp_integration(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
+
+    return _mcp_integration_read(
+        integration,
+        state=await svc.mcp_integration_state(mcp_integration=integration),
+    )
+
+
+@mcp_router.patch("/{mcp_integration_id}/tools")
+@require_scope("integration:update")
+async def update_mcp_integration_tool_policies(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    mcp_integration_id: uuid.UUID,
+    params: Annotated[MCPToolPolicyUpdateRequest, Body(...)],
+) -> MCPIntegrationRead:
+    """Update MCP integration tool availability and approval policy."""
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+
+    svc = IntegrationService(session, role=role)
+    try:
+        integration = await svc.update_mcp_tool_policies(
+            mcp_integration_id=mcp_integration_id,
+            tools=params.tools,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    if integration is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="MCP integration not found",
+        )
 
     return _mcp_integration_read(
         integration,

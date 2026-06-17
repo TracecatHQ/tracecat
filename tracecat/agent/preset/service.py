@@ -60,6 +60,7 @@ from tracecat.integrations.mcp_validation import (
     MCPValidationError,
     validate_mcp_command_config,
 )
+from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.pagination import (
@@ -912,6 +913,31 @@ class AgentPresetService(BaseWorkspaceService):
             )
 
         return refs
+
+    async def resolve_mcp_integration_tool_policies(
+        self, mcp_integration_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, dict[str, MCPToolSummary]]:
+        """Resolve stored MCP tool policy by integration id and tool name."""
+        if not mcp_integration_ids:
+            return {}
+
+        requested_ids = set(mcp_integration_ids)
+        integrations_service = IntegrationService(self.session, role=self.role)
+        available = await integrations_service.list_mcp_integrations()
+
+        policies: dict[uuid.UUID, dict[str, MCPToolSummary]] = {}
+        for mcp_integration in available:
+            if mcp_integration.id not in requested_ids:
+                continue
+            tools = MCPToolSummary.validate_stored(
+                mcp_integration.tools,
+                mcp_integration_id=mcp_integration.id,
+            )
+            if tools is None:
+                continue
+            policies[mcp_integration.id] = {tool.name: tool for tool in tools}
+
+        return policies
 
     async def resolve_mcp_integration_secrets(
         self, mcp_integration_id: uuid.UUID

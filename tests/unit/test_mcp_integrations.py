@@ -60,6 +60,8 @@ from tracecat.integrations.schemas import (
     MCPIntegrationTestConnectionRequest,
     MCPIntegrationUpdate,
     MCPStdioIntegrationCreate,
+    MCPToolPolicyUpdate,
+    MCPToolSummary,
     ProviderConfig,
     ProviderKey,
     ProviderMetadata,
@@ -4264,6 +4266,129 @@ class TestMCPConnectionVerification:
         assert result.success is False
         assert result.message == "MCP integration is not configured correctly"
         assert stdio_integration.tools is None
+
+    def test_merge_mcp_tool_summaries_preserves_policy_and_marks_missing(self) -> None:
+        stored = [
+            {
+                "name": "search",
+                "description": "Old search",
+                "enabled": False,
+                "requires_approval": True,
+                "status": "available",
+            },
+            {
+                "name": "delete",
+                "description": "Delete issue",
+                "enabled": True,
+                "requires_approval": True,
+                "status": "available",
+            },
+        ]
+
+        merged = IntegrationService._merge_mcp_tool_summaries(
+            [
+                MCPToolSummary(name="search", description="New search"),
+                MCPToolSummary(name="create", description="Create issue"),
+            ],
+            stored,
+        )
+
+        assert [tool.name for tool in merged] == ["search", "create", "delete"]
+        assert merged[0].description == "New search"
+        assert merged[0].enabled is False
+        assert merged[0].requires_approval is True
+        assert merged[0].status == "available"
+        assert merged[1].enabled is True
+        assert merged[1].requires_approval is False
+        assert merged[1].status == "available"
+        assert merged[2].status == "missing"
+        assert merged[2].enabled is True
+        assert merged[2].requires_approval is True
+
+    async def test_update_mcp_tool_policies(
+        self, integration_service: IntegrationService
+    ) -> None:
+        integration = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Tool Policy MCP",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.NONE,
+            )
+        )
+        integration.tools = [
+            MCPToolSummary(name="search", description="Search").model_dump(),
+            MCPToolSummary(name="delete", description="Delete").model_dump(),
+        ]
+        integration_service.session.add(integration)
+        await integration_service.session.commit()
+
+        updated = await integration_service.update_mcp_tool_policies(
+            mcp_integration_id=integration.id,
+            tools=[
+                MCPToolPolicyUpdate(
+                    name="delete",
+                    enabled=False,
+                    requires_approval=True,
+                )
+            ],
+        )
+
+        assert updated is not None
+        tools = MCPToolSummary.validate_stored(updated.tools)
+        assert tools is not None
+        by_name = {tool.name: tool for tool in tools}
+        assert by_name["search"].enabled is True
+        assert by_name["search"].requires_approval is False
+        assert by_name["delete"].enabled is False
+        assert by_name["delete"].requires_approval is True
+
+    async def test_update_mcp_tool_policies_rejects_approval_without_entitlement(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Enabling approval needs AGENT_ADDONS; disabling/availability do not."""
+        monkeypatch.setattr(
+            tier_defaults,
+            "DEFAULT_ENTITLEMENTS",
+            tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(
+                update={"agent_addons": False}
+            ),
+        )
+        integration = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Unentitled Tool Policy MCP",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.NONE,
+            )
+        )
+        integration.tools = [
+            MCPToolSummary(name="search", description="Search").model_dump(),
+            MCPToolSummary(name="delete", description="Delete").model_dump(),
+        ]
+        integration_service.session.add(integration)
+        await integration_service.session.commit()
+
+        with pytest.raises(EntitlementRequired, match="agent_addons"):
+            await integration_service.update_mcp_tool_policies(
+                mcp_integration_id=integration.id,
+                tools=[MCPToolPolicyUpdate(name="delete", requires_approval=True)],
+            )
+
+        # Disabling availability and turning approval back off stay allowed.
+        updated = await integration_service.update_mcp_tool_policies(
+            mcp_integration_id=integration.id,
+            tools=[
+                MCPToolPolicyUpdate(name="search", enabled=False),
+                MCPToolPolicyUpdate(name="delete", requires_approval=False),
+            ],
+        )
+        assert updated is not None
+        tools = MCPToolSummary.validate_stored(updated.tools)
+        assert tools is not None
+        by_name = {tool.name: tool for tool in tools}
+        assert by_name["search"].enabled is False
+        assert by_name["delete"].requires_approval is False
 
 
 class TestMCPTestConnectionRequestSchema:

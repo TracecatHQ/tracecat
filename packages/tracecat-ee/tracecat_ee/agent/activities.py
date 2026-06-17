@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import (
     UUID4,
     BaseModel,
+    Field,
 )
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -22,6 +23,10 @@ from tracecat.agent.mcp.internal_tools import (
     BUILDER_INTERNAL_TOOL_NAMES,
     get_builder_internal_tool_definitions,
 )
+from tracecat.agent.mcp.utils import (
+    REGISTRY_MCP_SERVER_NAME,
+    normalize_mcp_tool_name,
+)
 from tracecat.agent.schemas import ToolFilters
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.tokens import InternalToolContext, UserMCPServerClaim
@@ -35,6 +40,9 @@ from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.tiers.entitlements import Entitlement, EntitlementService
 from tracecat.tiers.service import TierService
+
+if TYPE_CHECKING:
+    from tracecat.integrations.schemas import MCPToolSummary
 
 
 class BuildToolDefsArgs(BaseModel):
@@ -68,6 +76,8 @@ class BuildToolDefsResult(BaseModel):
     """Resolved user MCP server configs for JWT claims."""
     allowed_internal_tools: list[str] | None = None
     """List of allowed internal tool names for JWT claims."""
+    tool_approvals: dict[str, bool] | None = None
+    """Effective tool approval policy for the compiled scope."""
 
 
 class BuildAgentToolDefsArgs(BaseModel):
@@ -84,6 +94,12 @@ class ToolApprovalPayload(BaseModel):
     tool_name: str
     args: dict[str, Any] | str | None = None
     metadata: dict[str, Any] | None = None
+
+
+class ExecuteRemoteMCPToolArgs(BaseModel):
+    mcp_auth_token: str
+    tool_name: str
+    args: dict[str, Any] = Field(default_factory=dict)
 
 
 class PersistApprovalsActivityInputs(BaseModel):
@@ -113,6 +129,29 @@ class EmitSessionErrorInputs(BaseModel):
     message: str
 
 
+def _stored_user_mcp_tool_policy(
+    tool_name: str,
+    *,
+    integration_id_by_server_name: dict[str, uuid.UUID],
+    policies_by_integration_id: dict[uuid.UUID, dict[str, MCPToolSummary]],
+) -> MCPToolSummary | None:
+    """Look up the stored per-tool policy for a discovered user MCP tool.
+
+    Returns None when the tool name is not a user MCP tool, its server has no
+    backing integration, or the integration has no stored policy for the tool.
+    """
+    from tracecat.agent.mcp.user_client import UserMCPClient
+
+    parsed = UserMCPClient.parse_user_mcp_tool_name(tool_name)
+    if parsed is None:
+        return None
+    server_name, remote_tool_name = parsed
+    integration_id = integration_id_by_server_name.get(server_name)
+    if integration_id is None:
+        return None
+    return policies_by_integration_id.get(integration_id, {}).get(remote_tool_name)
+
+
 class AgentActivities:
     """Activities for agent execution."""
 
@@ -135,6 +174,8 @@ class AgentActivities:
         *,
         role: Role,
     ) -> BuildToolDefsResult:
+        effective_tool_approvals = dict(args.tool_approvals or {})
+
         # Check if this is a builder assistant session
         is_builder = (
             args.internal_tool_context is not None
@@ -187,7 +228,10 @@ class AgentActivities:
         # Discover user MCP tools if configured
         user_mcp_claims: list[UserMCPServerClaim] | None = None
         if args.mcp_servers:
-            from tracecat.agent.mcp.user_client import discover_user_mcp_tools
+            from tracecat.agent.mcp.user_client import (
+                UserMCPClient,
+                discover_user_mcp_tools,
+            )
             from tracecat.agent.preset.service import AgentPresetService
 
             http_servers = [cfg for cfg in args.mcp_servers if is_http_mcp_server(cfg)]
@@ -204,16 +248,40 @@ class AgentActivities:
             hydrated_servers: list[MCPHttpServerConfig] = [
                 {**cfg} for cfg in http_servers
             ]
-            configs_with_integration_id: list[tuple[MCPHttpServerConfig, str]] = []
+            configs_with_integration_id: list[
+                tuple[MCPHttpServerConfig, uuid.UUID]
+            ] = []
+            integration_id_by_server_name: dict[str, uuid.UUID] = {}
             for hydrated in hydrated_servers:
                 if integration_id_str := hydrated.get("id"):
-                    configs_with_integration_id.append((hydrated, integration_id_str))
+                    try:
+                        integration_id = uuid.UUID(integration_id_str)
+                    except ValueError:
+                        logger.warning(
+                            "Invalid MCP integration id on server config",
+                            server_name=hydrated["name"],
+                            integration_id=integration_id_str,
+                        )
+                        continue
+                    configs_with_integration_id.append((hydrated, integration_id))
+                    integration_id_by_server_name[hydrated["name"]] = integration_id
+            tool_policies_by_integration_id: dict[
+                uuid.UUID, dict[str, MCPToolSummary]
+            ] = {}
             if configs_with_integration_id:
                 async with AgentPresetService.with_session(role=role) as svc:
-                    for hydrated, integration_id_str in configs_with_integration_id:
+                    tool_policies_by_integration_id = (
+                        await svc.resolve_mcp_integration_tool_policies(
+                            [
+                                integration_id
+                                for _, integration_id in configs_with_integration_id
+                            ]
+                        )
+                    )
+                    for hydrated, integration_id in configs_with_integration_id:
                         try:
                             secrets = await svc.resolve_mcp_integration_secrets(
-                                uuid.UUID(integration_id_str)
+                                integration_id
                             )
                         except ValueError:
                             secrets = None
@@ -225,8 +293,45 @@ class AgentActivities:
                     hydrated_servers,
                     fail_on_error=args.fail_on_mcp_discovery_error,
                 )
-                # Add user MCP tools to definitions
+                # Add user MCP tools to definitions, honoring stored policy:
+                # disabled or missing tools are dropped, approval-gated tools
+                # are recorded in the effective approval map.
                 for tool_name, tool_def in user_mcp_tools.items():
+                    parsed = UserMCPClient.parse_user_mcp_tool_name(tool_name)
+                    has_dotted_remote_name = parsed is not None and "." in parsed[1]
+                    # Unlike registry/internal tools, user MCP tool names are
+                    # registered with the trusted MCP server verbatim (see
+                    # ``build_token_scoped_tools``), so a dotted remote name
+                    # (e.g. ``issue.get``) reaches the model provider as
+                    # ``mcp__{server}__issue.get``. Provider tool-name
+                    # constraints reject dots, so an otherwise-valid tool would
+                    # make the agent fail to start. Drop these regardless of
+                    # approval status; approval-gated ones also can't round-trip
+                    # their ``mcp.{server}.{tool}`` approval key back to a
+                    # router name.
+                    if has_dotted_remote_name:
+                        logger.warning(
+                            "Skipping user MCP tool with unsupported dotted name",
+                            tool_name=tool_name,
+                            remote_tool_name=parsed[1] if parsed else None,
+                        )
+                        continue
+                    policy = _stored_user_mcp_tool_policy(
+                        tool_name,
+                        integration_id_by_server_name=integration_id_by_server_name,
+                        policies_by_integration_id=tool_policies_by_integration_id,
+                    )
+                    if policy is not None:
+                        if not policy.enabled or policy.status != "available":
+                            logger.info(
+                                "Skipping disabled MCP tool", tool_name=tool_name
+                            )
+                            continue
+                        if policy.requires_approval:
+                            approval_key = normalize_mcp_tool_name(
+                                f"mcp__{REGISTRY_MCP_SERVER_NAME}__{tool_name}"
+                            )
+                            effective_tool_approvals[approval_key] = True
                     defs[tool_name] = tool_def
 
                 # JWT claims carry the source integration id when available so
@@ -284,6 +389,9 @@ class AgentActivities:
                 # is documentation more than enforcement.
                 hydrated_servers = []
 
+        if any(effective_tool_approvals.values()):
+            await self._check_tool_approval_entitlement(role)
+
         # Resolve registry lock for these actions
         # This provides origin→version mappings needed for action execution
         # Note: User MCP tools and internal tools don't need registry lock resolution
@@ -309,6 +417,7 @@ class AgentActivities:
             registry_lock=registry_lock,
             user_mcp_claims=user_mcp_claims,
             allowed_internal_tools=allowed_internal_tools,
+            tool_approvals=effective_tool_approvals or None,
         )
 
     @activity.defn
@@ -373,3 +482,29 @@ class AgentActivities:
         )
         await stream.error(args.message)
         await stream.done()
+
+    @activity.defn
+    async def execute_remote_mcp_tool(self, args: ExecuteRemoteMCPToolArgs) -> str:
+        """Execute an approved remote MCP tool through the trusted MCP router."""
+        from fastmcp.exceptions import ToolError
+
+        from tracecat.agent.mcp.trusted_server import call_token_scoped_tool
+        from tracecat.agent.tokens import verify_mcp_token
+
+        try:
+            claims = verify_mcp_token(args.mcp_auth_token)
+        except ValueError as e:
+            raise ApplicationError(
+                "MCP token verification failed",
+                type="AgentToolExecutionError",
+                non_retryable=True,
+            ) from e
+
+        try:
+            return await call_token_scoped_tool(args.tool_name, args.args, claims)
+        except ToolError as e:
+            raise ApplicationError(
+                str(e),
+                type="AgentToolExecutionError",
+                non_retryable=True,
+            ) from e

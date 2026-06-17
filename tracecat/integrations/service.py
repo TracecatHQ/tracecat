@@ -73,6 +73,7 @@ from tracecat.integrations.schemas import (
     MCPIntegrationTestConnectionResponse,
     MCPIntegrationUpdate,
     MCPStdioIntegrationCreate,
+    MCPToolPolicyUpdate,
     MCPToolSummary,
     PlatformMCPCatalogState,
     ProviderConfig,
@@ -215,6 +216,51 @@ class IntegrationService(BaseWorkspaceService):
             )
         except MCPValidationError as exc:
             raise ValueError(str(exc)) from exc
+
+    @staticmethod
+    def _merge_mcp_tool_summaries(
+        discovered_tools: Sequence[MCPToolSummary],
+        stored_tools: list[dict[str, Any]] | None,
+        *,
+        mcp_integration_id: object | None = None,
+    ) -> list[MCPToolSummary]:
+        """Merge fresh discovery into stored tool policy.
+
+        Discovery owns the tool name, description, and availability status.
+        Stored rows own user policy fields (enabled and requires_approval).
+        Tools that disappeared remain in the snapshot as disabled-by-status
+        entries so the UI can show what changed without silently losing policy.
+        """
+        stored = (
+            MCPToolSummary.validate_stored(
+                stored_tools, mcp_integration_id=mcp_integration_id
+            )
+            or []
+        )
+        stored_by_name = {tool.name: tool for tool in stored}
+        merged: list[MCPToolSummary] = []
+        discovered_names: set[str] = set()
+
+        for discovered in discovered_tools:
+            previous = stored_by_name.get(discovered.name)
+            merged.append(
+                MCPToolSummary(
+                    name=discovered.name,
+                    description=discovered.description,
+                    enabled=previous.enabled if previous is not None else True,
+                    requires_approval=previous.requires_approval
+                    if previous is not None
+                    else False,
+                    status="available",
+                )
+            )
+            discovered_names.add(discovered.name)
+
+        for previous in stored:
+            if previous.name not in discovered_names:
+                merged.append(previous.model_copy(update={"status": "missing"}))
+
+        return merged
 
     async def _provider_identifier_taken(
         self, provider_id: str, grant_type: OAuthGrantType
@@ -3022,13 +3068,22 @@ class IntegrationService(BaseWorkspaceService):
         return items
 
     async def get_mcp_integration(
-        self, *, mcp_integration_id: uuid.UUID
+        self, *, mcp_integration_id: uuid.UUID, for_update: bool = False
     ) -> MCPIntegration | None:
-        """Get an MCP integration by ID."""
+        """Get an MCP integration by ID.
+
+        Pass ``for_update=True`` to lock the row (``SELECT ... FOR UPDATE``)
+        before a read-modify-write of the ``tools`` JSON blob. The blob is
+        rewritten wholesale, so concurrent writers (e.g. a policy toggle racing
+        connection verification) must serialize or one commit silently drops the
+        other's changes to unrelated tools.
+        """
         statement = select(MCPIntegration).where(
             MCPIntegration.id == mcp_integration_id,
             MCPIntegration.workspace_id == self.workspace_id,
         )
+        if for_update:
+            statement = statement.with_for_update()
         result = await self.session.execute(statement)
         return result.scalars().first()
 
@@ -3157,9 +3212,9 @@ class IntegrationService(BaseWorkspaceService):
     ) -> MCPIntegrationTestConnectionResponse:
         """Verify connectivity to an HTTP MCP server and persist its tools.
 
-        Last attempt wins: a successful verification stores the discovered
-        tools on the integration; any failure clears previously stored tools
-        so the integration no longer reports as verified.
+        A successful verification refreshes the discovered tool set while
+        preserving stored per-tool policy. A failed verification is reported to
+        the caller without mutating the last known tool snapshot.
         """
         try:
             tools = await self._probe_mcp_http_server(mcp_integration)
@@ -3170,7 +3225,19 @@ class IntegrationService(BaseWorkspaceService):
                 error=e.error or e.message,
             )
 
-        mcp_integration.tools = [tool.model_dump() for tool in tools]
+        # Lock and reload the row before merging: the probe runs unlocked (it's a
+        # network call), and merging rewrites the full tools blob, which races
+        # read-modify-write policy toggles. refresh(with_for_update) takes the
+        # row lock AND reloads tools to the latest committed value, so the merge
+        # serializes against and sees concurrent mutations.
+        await self.session.refresh(mcp_integration, with_for_update=True)
+
+        merged_tools = self._merge_mcp_tool_summaries(
+            tools,
+            mcp_integration.tools,
+            mcp_integration_id=mcp_integration.id,
+        )
+        mcp_integration.tools = [tool.model_dump() for tool in merged_tools]
         self.session.add(mcp_integration)
         await self.session.commit()
         await self.session.refresh(mcp_integration)
@@ -3182,7 +3249,7 @@ class IntegrationService(BaseWorkspaceService):
         return MCPIntegrationTestConnectionResponse(
             success=True,
             mcp_integration_id=mcp_integration.id,
-            tools=tools,
+            tools=merged_tools,
             message=f"Connected successfully — {len(tools)} tools available",
         )
 
@@ -3193,18 +3260,13 @@ class IntegrationService(BaseWorkspaceService):
         message: str,
         error: str,
     ) -> MCPIntegrationTestConnectionResponse:
-        """Clear stored tools after a failed verification and build the response."""
+        """Record a failed verification response without mutating stored policy."""
         self.logger.warning(
             "MCP integration verification failed",
             mcp_integration_id=str(mcp_integration.id),
             message=message,
             error=error,
         )
-        if mcp_integration.tools is not None:
-            mcp_integration.tools = None
-            self.session.add(mcp_integration)
-            await self.session.commit()
-            await self.session.refresh(mcp_integration)
         return MCPIntegrationTestConnectionResponse(
             success=False,
             mcp_integration_id=mcp_integration.id,
@@ -3549,7 +3611,26 @@ class IntegrationService(BaseWorkspaceService):
                 mcp_integration.encrypted_headers = None
 
         if verified_tools is not None:
-            mcp_integration.tools = [tool.model_dump() for tool in verified_tools]
+            # Lock the row and read its latest committed tools before merging: the
+            # verify probe ran unlocked (network call), so merging against the
+            # in-memory snapshot would clobber policy toggles committed since.
+            # Fetch just the tools column FOR UPDATE — a full refresh() would
+            # discard this method's pending field mutations on mcp_integration.
+            current_tools_result = await self.session.execute(
+                select(MCPIntegration.tools)
+                .where(
+                    MCPIntegration.id == mcp_integration.id,
+                    MCPIntegration.workspace_id == self.workspace_id,
+                )
+                .with_for_update()
+            )
+            current_tools = current_tools_result.scalar_one_or_none()
+            merged_tools = self._merge_mcp_tool_summaries(
+                verified_tools,
+                current_tools,
+                mcp_integration_id=mcp_integration.id,
+            )
+            mcp_integration.tools = [tool.model_dump() for tool in merged_tools]
 
         self.session.add(mcp_integration)
         await self.session.commit()
@@ -3558,6 +3639,79 @@ class IntegrationService(BaseWorkspaceService):
         self.logger.info(
             "Updated MCP integration",
             mcp_integration_id=mcp_integration.id,
+        )
+
+        return mcp_integration
+
+    @require_scope("integration:update")
+    async def update_mcp_tool_policies(
+        self,
+        *,
+        mcp_integration_id: uuid.UUID,
+        tools: Sequence[MCPToolPolicyUpdate],
+    ) -> MCPIntegration | None:
+        """Update per-tool availability and approval policy for an MCP integration."""
+        # Lock the row: this is a read-modify-write of the full tools blob, so a
+        # concurrent toggle or verification commit would otherwise clobber it.
+        mcp_integration = await self.get_mcp_integration(
+            mcp_integration_id=mcp_integration_id, for_update=True
+        )
+        if not mcp_integration:
+            return None
+        if mcp_integration.tools is None:
+            raise ValueError("MCP integration has no discovered tools to update")
+
+        stored_tools = (
+            MCPToolSummary.validate_stored(
+                mcp_integration.tools, mcp_integration_id=mcp_integration.id
+            )
+            or []
+        )
+        stored_by_name = {tool.name: tool for tool in stored_tools}
+
+        updates_by_name: dict[str, MCPToolPolicyUpdate] = {}
+        for tool in tools:
+            if tool.name in updates_by_name:
+                raise ValueError(f"Duplicate MCP tool policy update: {tool.name}")
+            if tool.name not in stored_by_name:
+                raise ValueError(f"MCP tool not found on integration: {tool.name}")
+            updates_by_name[tool.name] = tool
+
+        # Turning on approval for a tool only takes effect at agent compile time,
+        # which gates on AGENT_ADDONS. Without the entitlement the stored policy
+        # would silently brick the MCP-backed agent, so reject approval-enabling
+        # updates here. Disabling approval and availability changes stay allowed.
+        enables_approval = any(
+            update.requires_approval is True
+            and not stored_by_name[name].requires_approval
+            for name, update in updates_by_name.items()
+        )
+        if enables_approval:
+            await self.require_entitlement(Entitlement.AGENT_ADDONS)
+
+        updated_tools: list[MCPToolSummary] = []
+        for stored_tool in stored_tools:
+            policy_update = updates_by_name.get(stored_tool.name)
+            if policy_update is None:
+                updated_tools.append(stored_tool)
+                continue
+
+            update_fields: dict[str, bool] = {}
+            if policy_update.enabled is not None:
+                update_fields["enabled"] = policy_update.enabled
+            if policy_update.requires_approval is not None:
+                update_fields["requires_approval"] = policy_update.requires_approval
+            updated_tools.append(stored_tool.model_copy(update=update_fields))
+
+        mcp_integration.tools = [tool.model_dump() for tool in updated_tools]
+        self.session.add(mcp_integration)
+        await self.session.commit()
+        await self.session.refresh(mcp_integration)
+
+        self.logger.info(
+            "Updated MCP integration tool policies",
+            mcp_integration_id=mcp_integration.id,
+            tool_count=len(updates_by_name),
         )
 
         return mcp_integration
