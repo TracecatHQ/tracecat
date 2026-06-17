@@ -1,18 +1,47 @@
+If you are **self-hosted**, replace `https://platform.tracecat.com` with your
+`PUBLIC_APP_URL` (e.g. `http://localhost` or `https://tracecat.example.com`).
+
+Authentication uses a built-in OIDC provider—your agent is redirected to sign in
+through the browser on first connection. For clients or environments that cannot
+complete a browser sign-in, authenticate with a
+[personal access token (PAT)](/automations/tracecat-mcp#personal-access-tokens) instead.
+
 <Tabs sync={false}>
   <Tab title="Claude Code" icon="https://cdn.simpleicons.org/anthropic">
+
+    Sign in with OAuth:
 
     ```bash
     claude mcp add -t http tracecat https://platform.tracecat.com/mcp
     claude
     /mcp
     ```
+
+    Or authenticate with a [personal access token (PAT)](/automations/tracecat-mcp#personal-access-tokens).
+    Set `TRACECAT_MCP_PAT` in your environment and reference it with **single
+    quotes** so the variable (not the token) is written to the saved config:
+
+    ```bash
+    claude mcp add --transport http tracecat https://platform.tracecat.com/mcp \
+      --header 'Authorization: Bearer ${TRACECAT_MCP_PAT}'
+    ```
   </Tab>
 
   <Tab title="OpenAI Codex" icon="https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/openai.svg">
 
+    Sign in with OAuth:
+
     ```bash
     codex mcp add tracecat --url https://platform.tracecat.com/mcp
     codex mcp login tracecat
+    ```
+
+    Or authenticate with a [personal access token (PAT)](/automations/tracecat-mcp#personal-access-tokens).
+    Set `TRACECAT_MCP_PAT` in your environment, then reference it by name:
+
+    ```bash
+    codex mcp add tracecat --url https://platform.tracecat.com/mcp \
+      --bearer-token-env-var TRACECAT_MCP_PAT
     ```
   </Tab>
 
@@ -42,12 +71,22 @@
       }
     }
     ```
+
+    To use a [personal access token (PAT)](/automations/tracecat-mcp#personal-access-tokens) instead of
+    OAuth, add an `Authorization` header (`${TRACECAT_MCP_PAT}` is read from your
+    environment):
+
+    ```json
+    "headers": {
+      "Authorization": "Bearer ${TRACECAT_MCP_PAT}"
+    }
+    ```
   </Tab>
 
   <Tab title="Cursor" icon="https://cdn.simpleicons.org/cursor">
 
-    Click this link [Add Tracecat to Cursor](https://cursor.com/en-US/install-mcp?name=tracecat&config=eyJ1cmwiOiJodHRwczovL3BsYXRmb3JtLnRyYWNlY2F0LmNvbS9tY3AifQ)
-    Or manually configure in `.cursor/mcp.json`:
+    On Tracecat Cloud, click [Add Tracecat to Cursor](https://cursor.com/en-US/install-mcp?name=tracecat&config=eyJ1cmwiOiJodHRwczovL3BsYXRmb3JtLnRyYWNlY2F0LmNvbS9tY3AifQ)
+    to add it in one click. Otherwise configure `.cursor/mcp.json` manually:
 
     ```json
     {
@@ -56,6 +95,16 @@
           "url": "https://platform.tracecat.com/mcp"
         }
       }
+    }
+    ```
+
+    To use a [personal access token (PAT)](/automations/tracecat-mcp#personal-access-tokens) instead of
+    OAuth, add an `Authorization` header (Cursor resolves `${env:TRACECAT_MCP_PAT}`
+    from your environment):
+
+    ```json
+    "headers": {
+      "Authorization": "Bearer ${env:TRACECAT_MCP_PAT}"
     }
     ```
   </Tab>

@@ -55,7 +55,6 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { useWorkspaceMcpPersonalAccessTokens } from "@/hooks/use-mcp-personal-access-tokens"
 import { getApiErrorDetail } from "@/lib/errors"
-import { useAppInfo } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -170,27 +169,6 @@ function tokenMatchesSearch(
   return [token.name, token.preview, token.key_id]
     .filter(Boolean)
     .some((value) => value.toLowerCase().includes(normalizedQuery))
-}
-
-function buildMcpUrl(publicAppUrl?: string): string {
-  if (publicAppUrl) {
-    return `${publicAppUrl.replace(/\/$/, "")}/mcp`
-  }
-  if (typeof window !== "undefined") {
-    return `${window.location.origin}/mcp`
-  }
-  return "https://<tracecat-app-url>/mcp"
-}
-
-function buildClaudeCommand(mcpUrl: string): string {
-  return [
-    `claude mcp add --transport http tracecat ${mcpUrl} \\`,
-    "  --header 'Authorization: Bearer ${TRACECAT_MCP_PAT}'",
-  ].join("\n")
-}
-
-function buildExportCommand(tokenValue: string): string {
-  return `export TRACECAT_MCP_PAT="${tokenValue}"`
 }
 
 function CreateTokenDialog({
@@ -321,16 +299,12 @@ function CreateTokenDialog({
 
 function IssuedTokenDialog({
   issuedCredential,
-  mcpUrl,
   onClose,
 }: {
   issuedCredential: MCPPersonalAccessTokenIssueResponse | null
-  mcpUrl: string
   onClose: () => void
 }) {
   const rawToken = issuedCredential?.issued_token.raw_token ?? ""
-  const rawExportCommand = rawToken ? buildExportCommand(rawToken) : ""
-  const command = rawToken ? buildClaudeCommand(mcpUrl) : ""
 
   return (
     <Dialog
@@ -339,60 +313,32 @@ function IssuedTokenDialog({
     >
       <DialogContent className="w-[calc(100vw-2rem)] max-w-2xl overflow-hidden">
         <DialogHeader>
-          <DialogTitle>Set up an MCP PAT</DialogTitle>
+          <DialogTitle>MCP personal access token</DialogTitle>
           <DialogDescription>
-            The full token can only be copied now. Save it as a long-lived
-            secret for MCP clients that cannot use OAuth.
+            Copy your token now, it will not be shown again. See the{" "}
+            <a
+              href="https://docs.tracecat.com/automations/tracecat-mcp"
+              target="_blank"
+              rel="noreferrer"
+              className="underline underline-offset-2"
+            >
+              MCP docs
+            </a>{" "}
+            on connecting your client.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="min-w-0 space-y-4">
-          <div className="min-w-0 space-y-2">
-            <Label>1. Export the token</Label>
-            <p className="text-xs text-muted-foreground">
-              Run this in the shell that launches your MCP client, or add it to
-              your shell profile, project env file, or env manager. The full
-              token can only be copied now and will not be shown again.
-            </p>
-            <div className="min-w-0 max-w-full rounded-md border bg-muted/30">
-              <div className="flex min-w-0 items-center justify-between gap-2 border-b px-3 py-2">
-                <div className="min-w-0 text-xs font-medium">
-                  Export command
-                </div>
-                <CopyButton
-                  value={rawExportCommand}
-                  toastMessage="MCP token export command copied."
-                  tooltipMessage="Copy export command"
-                />
-              </div>
-              <pre className="max-w-full overflow-x-auto p-3 text-xs leading-5">
-                <code className="block min-w-0 select-all">
-                  {rawExportCommand}
-                </code>
-              </pre>
-            </div>
-          </div>
-
-          <div className="min-w-0 space-y-2">
-            <Label>2. Add Tracecat MCP</Label>
-            <p className="text-xs text-muted-foreground">
-              Run this after TRACECAT_MCP_PAT is available in the environment
-              used to start Claude Code.
-            </p>
-            <div className="min-w-0 max-w-full rounded-md border bg-muted/30">
-              <div className="flex min-w-0 items-center justify-between gap-2 border-b px-3 py-2">
-                <div className="min-w-0 text-xs font-medium">Setup command</div>
-                <CopyButton
-                  value={command}
-                  toastMessage="MCP setup command copied."
-                  tooltipMessage="Copy command"
-                />
-              </div>
-              <pre className="max-w-full overflow-x-auto p-3 text-xs leading-5">
-                <code className="block min-w-0 select-all">{command}</code>
-              </pre>
-            </div>
-          </div>
+        <div className="flex min-w-0 max-w-full items-center gap-3 rounded-lg bg-muted/60 px-4 py-3.5">
+          <code className="min-w-0 flex-1 truncate font-mono text-sm text-foreground/90 select-all">
+            {rawToken}
+          </code>
+          <CopyButton
+            value={rawToken}
+            toastMessage="MCP token copied."
+            tooltipMessage="Copy token"
+            className="size-6 shrink-0"
+            iconClassName="size-4 text-foreground/70"
+          />
         </div>
 
         <DialogFooter>
@@ -492,8 +438,6 @@ export function WorkspaceMcpAccess() {
   const pathname = usePathname()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { appInfo } = useAppInfo()
-  const mcpUrl = buildMcpUrl(appInfo?.public_app_url)
   const [createOpen, setCreateOpen] = useState(false)
   const [issuedCredential, setIssuedCredential] =
     useState<MCPPersonalAccessTokenIssueResponse | null>(null)
@@ -711,7 +655,6 @@ export function WorkspaceMcpAccess() {
       />
       <IssuedTokenDialog
         issuedCredential={issuedCredential}
-        mcpUrl={mcpUrl}
         onClose={() => setIssuedCredential(null)}
       />
       <AlertDialog
