@@ -2902,3 +2902,24 @@ def test_build_reset_lineage_returns_empty_without_reset_runs() -> None:
     )
 
     assert lineage == {}
+
+
+def test_build_reset_lineage_counts_unseen_reset_successors() -> None:
+    original = create_reset_lineage_execution("run-original", start_offset_seconds=0)
+
+    lineage = WorkflowExecutionsService._build_reset_lineage_from_descriptions(
+        [
+            _WorkflowRunResetDescription(
+                execution=original,
+                first_run_id="run-original",
+                reset_run_id="run-reset-1",
+            )
+        ]
+    )
+
+    original_lineage = lineage["run-original"]
+    assert original_lineage.has_been_reset is True
+    assert original_lineage.is_reset_run is False
+    assert original_lineage.original_run_id == "run-original"
+    assert original_lineage.reset_run_count == 1
+    assert original_lineage.reset_run_index is None

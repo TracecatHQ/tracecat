@@ -527,17 +527,18 @@ class WorkflowExecutionsService:
         described_run_ids = {
             description.execution.run_id for description in sorted_descriptions
         }
-        reset_run_ids = {
+        reset_successor_run_ids = {
             description.reset_run_id
             for description in sorted_descriptions
-            if description.reset_run_id in described_run_ids
+            if description.reset_run_id is not None
         }
+        described_reset_run_ids = reset_successor_run_ids & described_run_ids
         reset_descriptions = [
             description
             for description in sorted_descriptions
-            if description.execution.run_id in reset_run_ids
+            if description.execution.run_id in described_reset_run_ids
         ]
-        reset_run_count = len(reset_descriptions)
+        reset_run_count = len(reset_successor_run_ids)
         if reset_run_count == 0:
             return {}
 
@@ -556,7 +557,7 @@ class WorkflowExecutionsService:
         return {
             description.execution.run_id: WorkflowExecutionResetLineage(
                 has_been_reset=True,
-                is_reset_run=description.execution.run_id in reset_run_ids,
+                is_reset_run=description.execution.run_id in described_reset_run_ids,
                 original_run_id=original_run_id,
                 reset_run_count=reset_run_count,
                 reset_run_index=reset_index_by_run_id.get(description.execution.run_id),
