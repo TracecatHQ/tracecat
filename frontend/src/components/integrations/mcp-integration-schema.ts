@@ -51,6 +51,9 @@ export const ALLOWED_COMMANDS = [
   "node",
 ] as const
 
+const SENTINELONE_MCP_CATALOG_SLUG = "sentinelone-mcp"
+const SENTINELONE_CONSOLE_BASE_URL_KEY = "PURPLEMCP_CONSOLE_BASE_URL"
+
 export function isAllowedCommand(
   command: string
 ): command is (typeof ALLOWED_COMMANDS)[number] {
@@ -66,6 +69,17 @@ export function isValidStringMap(
   value: string,
   { allowEmpty = false }: { allowEmpty?: boolean } = {}
 ): boolean {
+  const parsed = readStringMap(value)
+  if (!parsed) {
+    return false
+  }
+  if (allowEmpty) {
+    return true
+  }
+  return Object.values(parsed).every((entryValue) => entryValue.trim() !== "")
+}
+
+function readStringMap(value: string): Record<string, string> | null {
   try {
     const parsed = JSON.parse(value) as unknown
     if (
@@ -73,22 +87,64 @@ export function isValidStringMap(
       parsed === null ||
       Array.isArray(parsed)
     ) {
-      return false
+      return null
     }
-    for (const headerValue of Object.values(
-      parsed as Record<string, unknown>
-    )) {
-      if (typeof headerValue !== "string") {
-        return false
+    const obj: Record<string, string> = {}
+    for (const [key, entryValue] of Object.entries(parsed)) {
+      if (typeof entryValue !== "string") {
+        return null
       }
-      if (!allowEmpty && headerValue.trim() === "") {
-        return false
-      }
+      obj[key] = entryValue
     }
-    return true
+    return obj
+  } catch {
+    return null
+  }
+}
+
+function isHttpsOrigin(value: string): boolean {
+  try {
+    const url = new URL(value.trim())
+    return (
+      url.protocol === "https:" &&
+      url.hostname !== "" &&
+      url.username === "" &&
+      url.password === "" &&
+      (url.pathname === "" || url.pathname === "/") &&
+      url.search === "" &&
+      url.hash === ""
+    )
   } catch {
     return false
   }
+}
+
+function stdioEnvHasRequiredKeys(
+  value: string | undefined,
+  requiredKeys: string[] | undefined
+): boolean {
+  if (!requiredKeys?.length) {
+    return true
+  }
+  const env = value?.trim() ? readStringMap(value) : null
+  if (!env) {
+    return false
+  }
+  return requiredKeys.every((key) => Boolean(env[key]?.trim()))
+}
+
+export function sentinelOneConsoleBaseUrlIsValid(
+  value: string | undefined
+): boolean {
+  return Boolean(value?.trim() && isHttpsOrigin(value))
+}
+
+function sentinelOneStdioEnvBaseUrlIsValid(value: string | undefined): boolean {
+  const env = value?.trim() ? readStringMap(value) : null
+  if (!env) {
+    return false
+  }
+  return sentinelOneConsoleBaseUrlIsValid(env[SENTINELONE_CONSOLE_BASE_URL_KEY])
 }
 
 /**
@@ -170,6 +226,7 @@ export const mcpIntegrationFormSchema = z
       })
     ),
     stdio_env: z.string().trim().optional().or(z.literal("")),
+    required_stdio_env_keys: z.array(z.string()).optional(),
     // General fields
     timeout: z.coerce.number().int().min(1).max(300).optional(),
     catalog_slug: z.string().optional().or(z.literal("")),
@@ -299,6 +356,38 @@ export const mcpIntegrationFormSchema = z
       path: ["stdio_env"],
     }
   )
+  .refine(
+    (data) => {
+      if (data.server_type !== "stdio") {
+        return true
+      }
+      return stdioEnvHasRequiredKeys(
+        data.stdio_env,
+        data.required_stdio_env_keys
+      )
+    },
+    {
+      message:
+        "Required environment variables must be present with non-empty values",
+      path: ["stdio_env"],
+    }
+  )
+  .refine(
+    (data) => {
+      if (
+        data.server_type === "stdio" &&
+        data.catalog_slug === SENTINELONE_MCP_CATALOG_SLUG
+      ) {
+        return sentinelOneStdioEnvBaseUrlIsValid(data.stdio_env)
+      }
+      return true
+    },
+    {
+      message:
+        "SentinelOne console base URL must be an HTTPS origin like https://your-console.sentinelone.net",
+      path: ["stdio_env"],
+    }
+  )
 
 export type MCPIntegrationFormValues = z.infer<typeof mcpIntegrationFormSchema>
 
@@ -315,6 +404,7 @@ export const MCP_INTEGRATION_FORM_DEFAULTS: MCPIntegrationFormValues = {
   stdio_command: "",
   stdio_args: [],
   stdio_env: "",
+  required_stdio_env_keys: [],
   timeout: 30,
   catalog_slug: "",
   connection_option_id: "",
@@ -371,6 +461,23 @@ function stdioEnvTemplate(spec: MCPConnectionSpec | null | undefined): string {
     }
   }
   return Object.keys(obj).length > 0 ? JSON.stringify(obj, null, 2) : ""
+}
+
+function requiredStdioEnvKeys(
+  spec: MCPConnectionSpec | null | undefined
+): string[] {
+  const keys = new Set<string>()
+  for (const cred of spec?.credentials ?? []) {
+    if (cred.target === "stdio_env" && cred.required) {
+      keys.add(cred.key)
+    }
+  }
+  for (const field of spec?.config_fields ?? []) {
+    if (field.target === "stdio_env" && field.required) {
+      keys.add(field.key)
+    }
+  }
+  return Array.from(keys)
 }
 
 /**
@@ -449,6 +556,8 @@ export function catalogEntryToFormValues(
     stdio_command: stdio?.command ?? "",
     stdio_args: (stdio?.args ?? []).map((value) => ({ value })),
     stdio_env: serverType === "stdio" ? stdioEnvJson : "",
+    required_stdio_env_keys:
+      serverType === "stdio" ? requiredStdioEnvKeys(spec) : [],
     catalog_slug: entry.slug,
     connection_option_id: option?.id ?? "",
   }

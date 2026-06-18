@@ -1,5 +1,8 @@
 import type { MCPConnectionSpec } from "@/client"
-import { missingRequiredOAuthClientCredentials } from "@/components/integrations/mcp-integration-schema"
+import {
+  mcpIntegrationFormSchema,
+  missingRequiredOAuthClientCredentials,
+} from "@/components/integrations/mcp-integration-schema"
 
 function oauthSpec(
   credentials: NonNullable<MCPConnectionSpec["credentials"]>
@@ -97,5 +100,107 @@ describe("missingRequiredOAuthClientCredentials", () => {
 
   it("treats unparseable JSON as having no missing credentials", () => {
     expect(missingRequiredOAuthClientCredentials(spec, "not json")).toEqual([])
+  })
+})
+
+describe("SentinelOne Purple MCP validation", () => {
+  function sentinelOneValues(stdioEnv: string) {
+    return {
+      name: "SentinelOne Purple",
+      description: "",
+      server_type: "stdio" as const,
+      server_uri: "",
+      auth_type: "CUSTOM" as const,
+      oauth_setup: "mcp_discovery" as const,
+      oauth_integration_id: "",
+      oauth_client_credentials: "",
+      custom_credentials: "",
+      stdio_command: "uvx",
+      stdio_args: [
+        { value: "--from" },
+        { value: "git+https://github.com/Sentinel-One/purple-mcp.git" },
+        { value: "purple-mcp" },
+        { value: "--mode" },
+        { value: "stdio" },
+      ],
+      stdio_env: stdioEnv,
+      required_stdio_env_keys: [
+        "PURPLEMCP_CONSOLE_TOKEN",
+        "PURPLEMCP_CONSOLE_BASE_URL",
+      ],
+      timeout: 30,
+      catalog_slug: "sentinelone-mcp",
+      connection_option_id: "",
+    }
+  }
+
+  it("rejects an empty SentinelOne token", () => {
+    const result = mcpIntegrationFormSchema.safeParse(
+      sentinelOneValues(
+        JSON.stringify({
+          PURPLEMCP_CONSOLE_TOKEN: "",
+          PURPLEMCP_CONSOLE_BASE_URL: "https://acme.sentinelone.net",
+        })
+      )
+    )
+
+    expect(result.success).toBe(false)
+    if (result.success) {
+      throw new Error("Expected SentinelOne validation to fail")
+    }
+    expect(result.error.issues.map((issue) => issue.message)).toContain(
+      "Required environment variables must be present with non-empty values"
+    )
+  })
+
+  it("rejects missing required SentinelOne env keys", () => {
+    const result = mcpIntegrationFormSchema.safeParse(
+      sentinelOneValues(
+        JSON.stringify({
+          PURPLEMCP_CONSOLE_BASE_URL: "https://acme.sentinelone.net",
+        })
+      )
+    )
+
+    expect(result.success).toBe(false)
+    if (result.success) {
+      throw new Error("Expected SentinelOne validation to fail")
+    }
+    expect(result.error.issues.map((issue) => issue.message)).toContain(
+      "Required environment variables must be present with non-empty values"
+    )
+  })
+
+  it("rejects SentinelOne console base URLs with paths", () => {
+    const result = mcpIntegrationFormSchema.safeParse(
+      sentinelOneValues(
+        JSON.stringify({
+          PURPLEMCP_CONSOLE_TOKEN: "token123",
+          PURPLEMCP_CONSOLE_BASE_URL:
+            "https://acme.sentinelone.net/web/api/v2.1",
+        })
+      )
+    )
+
+    expect(result.success).toBe(false)
+    if (result.success) {
+      throw new Error("Expected SentinelOne validation to fail")
+    }
+    expect(result.error.issues.map((issue) => issue.message)).toContain(
+      "SentinelOne console base URL must be an HTTPS origin like https://your-console.sentinelone.net"
+    )
+  })
+
+  it("accepts an HTTPS SentinelOne console origin", () => {
+    const result = mcpIntegrationFormSchema.safeParse(
+      sentinelOneValues(
+        JSON.stringify({
+          PURPLEMCP_CONSOLE_TOKEN: "token123",
+          PURPLEMCP_CONSOLE_BASE_URL: "https://acme.sentinelone.net",
+        })
+      )
+    )
+
+    expect(result.success).toBe(true)
   })
 })
