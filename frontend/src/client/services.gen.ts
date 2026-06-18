@@ -12962,10 +12962,10 @@ export const publicCheckHealth =
 
 /**
  * Check Ready
- * Readiness check - returns 200 only after startup and registry sync complete.
+ * Deep readiness check for platform registry sync state.
  *
- * Use this endpoint for Docker healthchecks to ensure the API has finished
- * initializing and the platform registry is synced before accepting traffic.
+ * Container health checks should use /health so transient registry sync delays
+ * do not cause orchestrators to replace otherwise healthy API tasks.
  *
  * Returns a detailed response including registry sync status.
  * @returns ReadinessResponse Successful Response
@@ -12977,7 +12977,7 @@ export const publicCheckReady =
       method: "GET",
       url: "/ready",
       errors: {
-        503: "API startup or platform registry sync is incomplete.",
+        503: "Platform registry sync is incomplete.",
       },
     })
   }
