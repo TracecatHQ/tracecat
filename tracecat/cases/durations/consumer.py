@@ -143,6 +143,7 @@ class CaseDurationSyncConsumer:
     async def _handle_entries(self, entries: list[tuple[str, dict[str, str]]]) -> None:
         case_jobs: dict[tuple[uuid.UUID, uuid.UUID], list[str]] = {}
         case_event_types: dict[tuple[uuid.UUID, uuid.UUID], set[str]] = {}
+        force_sync_keys: set[tuple[uuid.UUID, uuid.UUID]] = set()
         for message_id, fields in entries:
             job = self._parse_job(fields)
             if job is None:
@@ -167,13 +168,21 @@ class CaseDurationSyncConsumer:
             case_jobs.setdefault(key, []).append(message_id)
             if job.event_type:
                 case_event_types.setdefault(key, set()).add(job.event_type)
+            else:
+                # A case-scoped job without an event type (e.g. a backfill job)
+                # means "sync unconditionally". Record the key so a coalesced,
+                # non-matching event type cannot make the event-type filter skip
+                # and ack it.
+                force_sync_keys.add(key)
 
         for (workspace_id, case_id), message_ids in case_jobs.items():
+            key = (workspace_id, case_id)
+            event_types = None if key in force_sync_keys else case_event_types.get(key)
             try:
                 synced = await self._sync_case_duration(
                     workspace_id,
                     case_id,
-                    event_types=case_event_types.get((workspace_id, case_id)),
+                    event_types=event_types,
                 )
             except Exception:
                 logger.exception(

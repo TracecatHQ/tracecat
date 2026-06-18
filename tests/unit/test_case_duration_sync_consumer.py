@@ -89,6 +89,49 @@ async def test_consumer_coalesces_case_jobs_by_case(
 
 
 @pytest.mark.anyio
+async def test_consumer_forces_sync_when_backfill_coalesces_with_case_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = FakeRedisClient()
+    consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
+    workspace_id = uuid.uuid4()
+    case_id = uuid.uuid4()
+    sync_mock = AsyncMock(return_value=True)
+    monkeypatch.setattr(consumer, "_sync_case_duration", sync_mock)
+
+    # A per-case backfill job (no event_type) coalesced with a non-matching
+    # case_event must still force an unconditional sync, not be filtered out.
+    await consumer._handle_entries(
+        [
+            (
+                "1-0",
+                {
+                    "workspace_id": str(workspace_id),
+                    "case_id": str(case_id),
+                    "reason": "duration_definition_backfill",
+                },
+            ),
+            (
+                "2-0",
+                {
+                    "workspace_id": str(workspace_id),
+                    "case_id": str(case_id),
+                    "reason": "case_event",
+                    "event_type": "case_updated",
+                },
+            ),
+        ]
+    )
+
+    sync_mock.assert_awaited_once_with(
+        workspace_id,
+        case_id,
+        event_types=None,
+    )
+    assert client.acked == [["1-0", "2-0"]]
+
+
+@pytest.mark.anyio
 async def test_consumer_leaves_locked_case_jobs_pending(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
