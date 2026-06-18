@@ -31,22 +31,6 @@ import { cn } from "@/lib/utils"
 
 const pemFileExtensionRegex = /\.pem$/i
 
-function getPrivateKeyDropzoneClass({
-  hasError,
-  isDragOver,
-}: {
-  hasError: boolean
-  isDragOver: boolean
-}) {
-  if (hasError) {
-    return "border-destructive/80 bg-destructive/5"
-  }
-  if (isDragOver) {
-    return "border-primary/60 bg-primary/5"
-  }
-  return "border-muted-foreground/30 bg-muted/40 hover:border-muted-foreground/50"
-}
-
 const gitHubAppCredentialsSchema = z.object({
   app_id: z
     .string()
@@ -312,11 +296,6 @@ export function GitHubAppManualForm({
                 control={form.control}
                 name="private_key"
                 render={({ field, fieldState }) => {
-                  const dropzoneStateClass = getPrivateKeyDropzoneClass({
-                    hasError: fieldState.invalid,
-                    isDragOver: isPrivateKeyDragOver,
-                  })
-
                   return (
                     <FormItem className="space-y-2">
                       <FormLabel>Private Key *</FormLabel>
@@ -340,7 +319,14 @@ export function GitHubAppManualForm({
                         onDragLeave={handlePrivateKeyDragLeave}
                         className={cn(
                           "flex cursor-pointer flex-col items-center justify-center gap-3 rounded-md border border-dashed px-4 py-8 text-center transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
-                          dropzoneStateClass
+                          fieldState.invalid &&
+                            "border-destructive/80 bg-destructive/5",
+                          !fieldState.invalid &&
+                            isPrivateKeyDragOver &&
+                            "border-primary/60 bg-primary/5",
+                          !fieldState.invalid &&
+                            !isPrivateKeyDragOver &&
+                            "border-muted-foreground/30 bg-muted/40 hover:border-muted-foreground/50"
                         )}
                       >
                         <span
