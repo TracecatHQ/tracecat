@@ -7,14 +7,14 @@ from typing import Any, TypedDict
 from uuid import UUID
 
 import sqlalchemy as sa
-from sqlalchemy import and_, select
+from sqlalchemy import and_, exists, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 
 from tracecat.agent.catalog.schemas import AgentCatalogRead
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
-from tracecat.db.models import AgentCatalog
+from tracecat.db.models import AgentCatalog, AgentModelAccess
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import BaseCursorPaginator, CursorPaginationParams
 from tracecat.service import BaseService
@@ -114,6 +114,135 @@ class AgentCatalogService(BaseService):
         if row is None:
             raise TracecatNotFoundError(f"Catalog entry {catalog_id} not found")
         return row
+
+    async def _enabled_catalog_ids_subquery(
+        self,
+        *,
+        org_id: UUID,
+        workspace_id: UUID | None,
+    ) -> Any:
+        """Subquery of catalog ids enabled for the importing workspace.
+
+        Mirrors ``is_catalog_enabled``: a workspace's explicit access rows fully
+        override the org-level set; otherwise the org-level (``workspace_id IS
+        NULL``) set applies.
+        """
+        effective_workspace_id: UUID | None = None
+        if workspace_id is not None:
+            override_exists = await self.session.scalar(
+                select(
+                    exists().where(
+                        AgentModelAccess.organization_id == org_id,
+                        AgentModelAccess.workspace_id == workspace_id,
+                    )
+                )
+            )
+            if override_exists:
+                effective_workspace_id = workspace_id
+        access_workspace_condition = (
+            AgentModelAccess.workspace_id == effective_workspace_id
+            if effective_workspace_id is not None
+            else AgentModelAccess.workspace_id.is_(None)
+        )
+        return select(AgentModelAccess.catalog_id).where(
+            AgentModelAccess.organization_id == org_id,
+            access_workspace_condition,
+        )
+
+    async def is_catalog_id_enabled(
+        self,
+        *,
+        org_id: UUID,
+        catalog_id: UUID,
+        workspace_id: UUID | None = None,
+    ) -> bool:
+        """Return whether ``catalog_id`` is visible to the org and enabled here.
+
+        Used on import to short-circuit re-mapping when the incoming
+        ``catalog_id`` already points at a row that is both visible to the org
+        and enabled for the importing workspace — a same-environment pull must
+        not rewrite the user's selected row to another enabled row that happens
+        to win the ``(provider, name)`` tuple resolver's ordering.
+        """
+        enabled_catalog_ids = await self._enabled_catalog_ids_subquery(
+            org_id=org_id, workspace_id=workspace_id
+        )
+        stmt = select(
+            exists().where(
+                AgentCatalog.id == catalog_id,
+                AgentCatalog.id.in_(enabled_catalog_ids),
+                sa.or_(
+                    AgentCatalog.organization_id == org_id,
+                    AgentCatalog.organization_id.is_(None),
+                ),
+            )
+        )
+        return bool(await self.session.scalar(stmt))
+
+    async def resolve_catalog_id_by_model(
+        self,
+        *,
+        org_id: UUID,
+        model_provider: str,
+        model_name: str,
+        workspace_id: UUID | None = None,
+    ) -> UUID | None:
+        """Best-effort: find the local catalog row id for a (provider, name).
+
+        The stable identifier for a model across environments is the
+        ``(model_provider, model_name)`` tuple — ``catalog_id`` is a random
+        per-environment UUID. This resolves that tuple to the local catalog row
+        so an imported workflow can be re-pointed at the equivalent model.
+
+        Candidates are restricted to the rows **enabled for the importing
+        workspace** under the same effective-access rules the runtime enforces
+        (``AgentManagementService.get_catalog_credentials`` →
+        ``is_catalog_enabled``): a workspace's explicit access rows fully
+        override the org-level set, otherwise the org-level set applies. This
+        prevents rewriting to an org-owned row that isn't enabled here when an
+        enabled platform row with the same model exists — which would otherwise
+        make the agent fail immediately at execution.
+
+        Among enabled candidates, prefers an org-owned row over a platform row.
+        Returns ``None`` when no enabled row matches.
+
+        Best-effort by design: the unique key includes ``custom_provider_id``,
+        so one org can hold several enabled rows for the same
+        ``(model_provider, model_name)`` backed by different custom providers.
+        ``(model_provider, model_name)`` alone can't disambiguate, and the
+        source ``custom_provider_id`` is itself environment-specific so it
+        can't be matched either — the information needed to pick the exact row
+        is genuinely unrecoverable. In that (rare) case we pick one
+        deterministically rather than skip; an imported agent resolving to a
+        plausible enabled model beats leaving it dangling.
+        """
+        enabled_catalog_ids = await self._enabled_catalog_ids_subquery(
+            org_id=org_id, workspace_id=workspace_id
+        )
+
+        stmt = (
+            select(AgentCatalog.id)
+            .where(
+                AgentCatalog.model_provider == model_provider,
+                AgentCatalog.model_name == model_name,
+                AgentCatalog.id.in_(enabled_catalog_ids),
+                sa.or_(
+                    AgentCatalog.organization_id == org_id,
+                    AgentCatalog.organization_id.is_(None),
+                ),
+            )
+            # Org-owned rows win over platform rows (NULL org). ``id`` is the
+            # tiebreaker so the choice is stable across calls/replays.
+            .order_by(
+                AgentCatalog.organization_id.desc().nulls_last(),
+                AgentCatalog.id.asc(),
+            )
+            .limit(1)
+        )
+        row_id = (await self.session.execute(stmt)).scalar_one_or_none()
+        if row_id is None:
+            return None
+        return row_id
 
     async def list_catalog(
         self,
