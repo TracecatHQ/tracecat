@@ -1,5 +1,8 @@
 import type { MCPConnectionSpec } from "@/client"
-import { missingRequiredOAuthClientCredentials } from "@/components/integrations/mcp-integration-schema"
+import {
+  catalogEntryToFormValues,
+  missingRequiredOAuthClientCredentials,
+} from "@/components/integrations/mcp-integration-schema"
 
 function oauthSpec(
   credentials: NonNullable<MCPConnectionSpec["credentials"]>
@@ -97,5 +100,45 @@ describe("missingRequiredOAuthClientCredentials", () => {
 
   it("treats unparseable JSON as having no missing credentials", () => {
     expect(missingRequiredOAuthClientCredentials(spec, "not json")).toEqual([])
+  })
+})
+
+describe("catalogEntryToFormValues", () => {
+  it("prefills default header credential values", () => {
+    const values = catalogEntryToFormValues({
+      slug: "wiz-mcp",
+      name: "Wiz",
+      description: "Investigate cloud security findings on Wiz",
+      connection_spec: {
+        server_type: "http",
+        auth_type: "CUSTOM",
+        server_uri: "https://mcp.app.wiz.io",
+        config_fields: [],
+        credentials: [
+          {
+            key: "Wiz-Client-Id",
+            label: "Wiz Client ID",
+            description: "Client ID",
+            required: true,
+            secret: false,
+            target: "http_header",
+          },
+          {
+            key: "X-Wiz-MCP-Mode",
+            label: "Wiz MCP Mode",
+            description: "Gateway mode reduces token usage",
+            required: true,
+            secret: false,
+            default_value: "gateway",
+            target: "http_header",
+          },
+        ],
+      },
+    } as unknown as Parameters<typeof catalogEntryToFormValues>[0])
+
+    expect(JSON.parse(values.custom_credentials ?? "{}")).toEqual({
+      "Wiz-Client-Id": "",
+      "X-Wiz-MCP-Mode": "gateway",
+    })
   })
 })

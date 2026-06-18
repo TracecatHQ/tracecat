@@ -80,6 +80,7 @@ def _normalize_credentials(
             description=raw_credential.description or "",
             required=raw_credential.required,
             secret=raw_credential.secret,
+            default_value=raw_credential.default_value,
             target=raw_credential.target,
         )
         for raw_credential in raw_spec.credentials or []

@@ -31,7 +31,7 @@ import type {
 } from "@/client/types.gen"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
-import { ProviderIcon } from "@/components/icons"
+import { getMcpProviderIconId, ProviderIcon } from "@/components/icons"
 import {
   ALLOWED_COMMANDS,
   AUTH_TYPES,
@@ -138,9 +138,10 @@ function catalogOptionIdForIntegration(
     }
     if (spec.server_type === "http") {
       return (
-        !integration.server_uri ||
-        !("server_uri" in spec) ||
-        spec.server_uri === integration.server_uri
+        spec.auth_type === integration.auth_type &&
+        (!integration.server_uri ||
+          !("server_uri" in spec) ||
+          spec.server_uri === integration.server_uri)
       )
     }
     return true
@@ -223,7 +224,7 @@ function CatalogEntrySummary({
   entry: PlatformMCPCatalogRead
   actions?: React.ReactNode
 }) {
-  const providerId = entry.slug.replace(/-/g, "_")
+  const providerId = getMcpProviderIconId(entry.provider_id ?? entry.slug)
   const transports = Array.from(
     new Set(
       (entry.connection_options?.length

@@ -4644,6 +4644,7 @@ export type MCPConnectionCredential = {
   description: string
   required?: boolean
   secret?: boolean
+  default_value?: string | null
   target: "server_uri" | "oauth_client" | "http_header" | "stdio_env"
 }
 

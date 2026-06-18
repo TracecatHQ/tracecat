@@ -55,6 +55,7 @@ class RawCredential(BaseModel):
     description: str | None = None
     required: bool = True
     secret: bool = True
+    default_value: str | None = None
     target: MCPConnectionTarget
 
 

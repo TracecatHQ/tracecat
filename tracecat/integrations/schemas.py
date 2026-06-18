@@ -578,6 +578,7 @@ class MCPConnectionCredential(BaseModel):
     description: str
     required: bool = True
     secret: bool = True
+    default_value: str | None = None
     target: MCPConnectionTarget
 
 

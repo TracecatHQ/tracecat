@@ -15053,6 +15053,17 @@ export const $MCPConnectionCredential = {
       title: "Secret",
       default: true,
     },
+    default_value: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Default Value",
+    },
     target: {
       type: "string",
       enum: ["server_uri", "oauth_client", "http_header", "stdio_env"],

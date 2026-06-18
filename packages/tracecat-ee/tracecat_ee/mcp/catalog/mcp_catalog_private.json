@@ -894,15 +894,70 @@
       "slug": "wiz-mcp",
       "docs": "https://docs.wiz.io/docs/set-up-wiz-mcp-server",
       "provider_id": "wiz_mcp",
-      "connection_spec": {
-        "server_type": "http",
-        "auth_type": "OAUTH2",
-        "server_uri": "https://mcp.app.wiz.io/",
-        "scopes": [],
-        "oauth_authorization_endpoint": null,
-        "oauth_token_endpoint": null,
-        "credentials": []
-      }
+      "default_connection_option": "remote-oauth",
+      "connection_options": [
+        {
+          "id": "remote-oauth",
+          "label": "Remote OAuth",
+          "description": "Connect to Wiz Remote MCP over HTTPS with passthrough OAuth.",
+          "docs": "https://docs.wiz.io/docs/set-up-wiz-mcp-server",
+          "connection_spec": {
+            "server_type": "http",
+            "auth_type": "OAUTH2",
+            "server_uri": "https://mcp.app.wiz.io/",
+            "scopes": [],
+            "oauth_authorization_endpoint": null,
+            "oauth_token_endpoint": null,
+            "credentials": []
+          }
+        },
+        {
+          "id": "client-credentials",
+          "label": "Client credentials",
+          "description": "Connect to Wiz Remote MCP with Wiz service-account client credentials and tenant data center headers for automation use.",
+          "docs": "https://docs.wiz.io/docs/connect-remote-wiz-mcp-server#agentic-workflows",
+          "connection_spec": {
+            "server_type": "http",
+            "auth_type": "CUSTOM",
+            "server_uri": "https://mcp.app.wiz.io/",
+            "credentials": [
+              {
+                "key": "Wiz-Client-Id",
+                "label": "Wiz Client ID",
+                "description": "Client ID for a Wiz service account or automation client.",
+                "required": true,
+                "secret": false,
+                "target": "http_header"
+              },
+              {
+                "key": "Wiz-Client-Secret",
+                "label": "Wiz Client Secret",
+                "description": "Client secret for the Wiz service account or automation client.",
+                "required": true,
+                "secret": true,
+                "target": "http_header"
+              },
+              {
+                "key": "Wiz-DataCenter",
+                "label": "Wiz Data Center",
+                "description": "Tenant data center value required by Wiz MCP for service-account authentication.",
+                "required": true,
+                "secret": false,
+                "target": "http_header"
+              },
+              {
+                "key": "X-Wiz-MCP-Mode",
+                "label": "Wiz MCP Mode",
+                "description": "Gateway mode reduces token usage for Wiz MCP responses.",
+                "required": true,
+                "secret": false,
+                "default_value": "gateway",
+                "target": "http_header"
+              }
+            ]
+          }
+        }
+      ]
     },
     {
       "slug": "greynoise-mcp",
