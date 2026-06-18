@@ -196,8 +196,6 @@ function getServiceAccountGroup(
   return "active"
 }
 
-const API_KEY_PREVIEW_LENGTH = 4
-
 const SERVICE_ACCOUNT_STATUS_FILTERS: Array<{
   value: ServiceAccountStatusFilter
   label: string
@@ -217,15 +215,6 @@ const SERVICE_ACCOUNT_CREATOR_COLUMN_CLASS =
   "w-[180px] shrink-0 truncate text-xs text-muted-foreground"
 const INLINE_NAME_HIGHLIGHT_CLASS =
   "mx-1 inline-flex rounded bg-secondary px-1.5 py-0.5 align-middle font-mono text-xs font-normal text-foreground"
-
-function deriveApiKeyPreview(rawKey: string): string {
-  const prefixMatch = rawKey.match(/^(tc_(?:org_|ws_)?sk_)/)
-  const prefix = prefixMatch?.[1]
-  if (!prefix || rawKey.length < prefix.length + API_KEY_PREVIEW_LENGTH) {
-    return rawKey
-  }
-  return `${prefix}...${rawKey.slice(-API_KEY_PREVIEW_LENGTH)}`
-}
 
 function formatUserIdLabel(userId: string): string {
   if (userId.length <= 12) {
@@ -1328,30 +1317,17 @@ export function ServiceAccountsManager({
             </DialogDescription>
           </DialogHeader>
           {issuedCredential ? (
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="service-account-key-preview">Key preview</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="service-account-key-preview"
-                    name="service-account-key-preview"
-                    value={
-                      issuedCredential.issued_api_key.api_key.preview ??
-                      deriveApiKeyPreview(
-                        issuedCredential.issued_api_key.raw_key
-                      )
-                    }
-                    readOnly={true}
-                    disabled={true}
-                    className="select-none font-mono text-xs"
-                  />
-                  <CopyButton
-                    value={issuedCredential.issued_api_key.raw_key}
-                    toastMessage="API key copied"
-                    tooltipMessage="Copy raw key"
-                  />
-                </div>
-              </div>
+            <div className="flex min-w-0 max-w-full items-center gap-3 rounded-lg bg-muted/60 px-4 py-3.5">
+              <code className="min-w-0 flex-1 truncate font-mono text-sm text-foreground/90 select-all">
+                {issuedCredential.issued_api_key.raw_key}
+              </code>
+              <CopyButton
+                value={issuedCredential.issued_api_key.raw_key}
+                toastMessage="API key copied"
+                tooltipMessage="Copy raw key"
+                className="size-6 shrink-0"
+                iconClassName="size-4 text-foreground/70"
+              />
             </div>
           ) : null}
           <DialogFooter>
