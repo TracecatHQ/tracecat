@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat import config
 from tracecat.cases.durations import (
     CaseDurationAnchorSelection,
     CaseDurationComputation,
@@ -123,6 +124,53 @@ async def test_create_definition_enqueues_backfill_after_commit(
 
 
 @pytest.mark.anyio
+async def test_create_definition_syncs_inline_when_async_duration_sync_disabled(
+    session: AsyncSession,
+    svc_role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    enqueue_calls: list[dict[str, object]] = []
+    inline_sync_calls = 0
+
+    def fake_enqueue(*args, **kwargs) -> None:
+        enqueue_calls.append(kwargs)
+
+    async def fake_inline_sync(self) -> None:
+        nonlocal inline_sync_calls
+        inline_sync_calls += 1
+
+    monkeypatch.setattr(config, "TRACECAT__CASE_DURATION_SYNC_ENABLED", False)
+    monkeypatch.setattr(
+        "tracecat.cases.durations.service.enqueue_case_duration_sync_after_commit",
+        fake_enqueue,
+    )
+    monkeypatch.setattr(
+        CaseDurationDefinitionService,
+        "_sync_existing_case_durations_inline",
+        fake_inline_sync,
+    )
+
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    await definition_service.create_definition(
+        CaseDurationDefinitionCreate(
+            name="Inline Backfilled Duration",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CREATED,
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.STATUS_CHANGED,
+                filters=CaseDurationEventFilters(
+                    new_values=[CaseStatus.RESOLVED.value]
+                ),
+            ),
+        )
+    )
+
+    assert enqueue_calls == []
+    assert inline_sync_calls == 1
+
+
+@pytest.mark.anyio
 async def test_update_definition_enqueues_backfill_after_commit(
     session: AsyncSession,
     svc_role,
@@ -162,6 +210,57 @@ async def test_update_definition_enqueues_backfill_after_commit(
     assert len(calls) == 1
     assert calls[0]["workspace_id"] == svc_role.workspace_id
     assert calls[0]["reason"] == "duration_definition_updated"
+
+
+@pytest.mark.anyio
+async def test_update_definition_syncs_inline_when_async_duration_sync_disabled(
+    session: AsyncSession,
+    svc_role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    enqueue_calls: list[dict[str, object]] = []
+    inline_sync_calls = 0
+
+    def fake_enqueue(*args, **kwargs) -> None:
+        enqueue_calls.append(kwargs)
+
+    async def fake_inline_sync(self) -> None:
+        nonlocal inline_sync_calls
+        inline_sync_calls += 1
+
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    definition = await definition_service.create_definition(
+        CaseDurationDefinitionCreate(
+            name="Inline Updated Duration",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CREATED,
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.STATUS_CHANGED,
+                filters=CaseDurationEventFilters(
+                    new_values=[CaseStatus.RESOLVED.value]
+                ),
+            ),
+        )
+    )
+    monkeypatch.setattr(config, "TRACECAT__CASE_DURATION_SYNC_ENABLED", False)
+    monkeypatch.setattr(
+        "tracecat.cases.durations.service.enqueue_case_duration_sync_after_commit",
+        fake_enqueue,
+    )
+    monkeypatch.setattr(
+        CaseDurationDefinitionService,
+        "_sync_existing_case_durations_inline",
+        fake_inline_sync,
+    )
+
+    await definition_service.update_definition(
+        definition.id,
+        CaseDurationDefinitionUpdate(description="Updated inline description"),
+    )
+
+    assert enqueue_calls == []
+    assert inline_sync_calls == 1
 
 
 @pytest.mark.anyio
