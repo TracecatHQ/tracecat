@@ -1195,6 +1195,19 @@ class WorkflowsManagementService(BaseWorkspaceService):
         if external_defn.case_trigger is not None and (
             external_defn.case_trigger.is_configured()
         ):
+            if external_defn.case_trigger.status == "online":
+                defn_service = WorkflowDefinitionsService(
+                    session=self.session, role=self.role
+                )
+                defn = await defn_service.create_workflow_definition(
+                    WorkflowUUID.new(workflow.id),
+                    dsl,
+                    commit=False,
+                )
+                workflow.version = defn.version
+                self.session.add(workflow)
+                await self.session.flush()
+
             case_trigger_service = CaseTriggersService(self.session, role=self.role)
             await case_trigger_service.upsert_case_trigger(
                 WorkflowUUID.new(workflow.id),
