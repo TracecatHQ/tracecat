@@ -10,6 +10,7 @@ from tracecat.auth.types import Role
 from tracecat.db.models import Action, Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput
 from tracecat.expressions.expectations import ExpectedField
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.workflow.management import management
 from tracecat.workflow.management.management import WorkflowsManagementService
 
@@ -321,7 +322,17 @@ async def test_external_import_publishes_before_online_case_trigger(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     role = _role()
-    workflow = SimpleNamespace(id=uuid.uuid4(), version=None)
+    registry_lock = {
+        "origins": {"tracecat_registry": "test-version"},
+        "actions": {"core.transform.reshape": "tracecat_registry"},
+        "origin_fingerprints": {},
+    }
+    workflow = SimpleNamespace(
+        id=uuid.uuid4(),
+        version=None,
+        alias="imported-case-trigger",
+        registry_lock=registry_lock,
+    )
     session = SimpleNamespace(add=MagicMock(), flush=AsyncMock(), commit=AsyncMock())
     service = WorkflowsManagementService(cast(Any, session), role=role)
     dsl = DSLInput(
@@ -351,10 +362,18 @@ async def test_external_import_publishes_before_online_case_trigger(
             workflow_id: uuid.UUID,
             dsl: DSLInput,
             *,
+            alias: str | None = None,
+            registry_lock: RegistryLock | None = None,
             commit: bool = True,
         ) -> SimpleNamespace:
             definition_calls.append(
-                {"workflow_id": workflow_id, "dsl": dsl, "commit": commit}
+                {
+                    "workflow_id": workflow_id,
+                    "dsl": dsl,
+                    "alias": alias,
+                    "registry_lock": registry_lock,
+                    "commit": commit,
+                }
             )
             return SimpleNamespace(version=1)
 
@@ -414,6 +433,8 @@ async def test_external_import_publishes_before_online_case_trigger(
         {
             "workflow_id": workflow.id,
             "dsl": dsl,
+            "alias": "imported-case-trigger",
+            "registry_lock": RegistryLock.model_validate(registry_lock),
             "commit": False,
         }
     ]

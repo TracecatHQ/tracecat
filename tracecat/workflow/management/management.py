@@ -52,6 +52,7 @@ from tracecat.pagination import (
     CursorPaginationParams,
 )
 from tracecat.registry.lock.service import RegistryLockService
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.service import BaseWorkspaceService
 from tracecat.validation.schemas import (
     DSLValidationResult,
@@ -1202,6 +1203,12 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 defn = await defn_service.create_initial_workflow_definition(
                     WorkflowUUID.new(workflow.id),
                     dsl,
+                    alias=workflow.alias,
+                    registry_lock=(
+                        RegistryLock.model_validate(workflow.registry_lock)
+                        if workflow.registry_lock
+                        else None
+                    ),
                     commit=False,
                 )
                 workflow.version = defn.version
