@@ -416,6 +416,31 @@ def main():
         }
 
     @pytest.mark.anyio
+    async def test_recursive_dataclass_uses_serialization_error_fallback(
+        self, sandbox_service: SandboxService
+    ) -> None:
+        """Test recursive dataclasses use the result fallback instead of crashing."""
+        script_content = """
+from dataclasses import dataclass
+
+@dataclass
+class Node:
+    name: str
+    child: object = None
+
+def main():
+    root = Node("root")
+    root.child = root
+    return root
+"""
+        with pytest.raises(SandboxExecutionError) as exc_info:
+            await sandbox_service.run_python(script=script_content)
+
+        error_msg = str(exc_info.value)
+        assert "Output not JSON-serializable" in error_msg
+        assert "Recursive dataclass values are not JSON-serializable" in error_msg
+
+    @pytest.mark.anyio
     async def test_clean_error_messages(self, sandbox_service: SandboxService) -> None:
         """Test that error messages are clean and user-friendly without tracebacks."""
         script_with_value_error = """

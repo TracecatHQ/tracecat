@@ -136,7 +136,10 @@ def to_json_safe(value):
         except TypeError:
             return sorted(value, key=repr)
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
-        return dataclasses.asdict(value)
+        try:
+            return dataclasses.asdict(value)
+        except RecursionError as e:
+            raise TypeError("Recursive dataclass values are not JSON-serializable") from e
     if isinstance(value, datetime.datetime | datetime.date | datetime.time):
         return value.isoformat()
     if isinstance(value, datetime.timedelta):
@@ -221,7 +224,7 @@ def main():
     result_path = Path(work_dir) / "result.json"
     try:
         result_path.write_text(json.dumps(result, default=to_json_safe))
-    except (TypeError, ValueError) as e:
+    except (TypeError, ValueError, RecursionError) as e:
         result["output"] = repr(result["output"])
         result["error"] = f"Output not JSON-serializable: {{type(e).__name__}}: {{e}}"
         result["success"] = False

@@ -170,6 +170,30 @@ def main():
         }
 
     @pytest.mark.anyio
+    async def test_execute_reports_recursive_dataclass_as_serialization_error(
+        self, executor: UnsafePidExecutor
+    ) -> None:
+        script = """
+from dataclasses import dataclass
+
+@dataclass
+class Node:
+    name: str
+    child: object = None
+
+def main():
+    root = Node("root")
+    root.child = root
+    return root
+"""
+        result = await executor.execute(script=script)
+        assert not result.success
+        assert result.output == "Node(name='root', child=...)"
+        assert result.error is not None
+        assert "Output not JSON-serializable" in result.error
+        assert "Recursive dataclass values are not JSON-serializable" in result.error
+
+    @pytest.mark.anyio
     @pytest.mark.integration
     async def test_execute_does_not_inherit_process_env(
         self, executor: UnsafePidExecutor, monkeypatch: pytest.MonkeyPatch
