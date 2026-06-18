@@ -383,6 +383,72 @@ async def test_dispatch_workflow_skips_non_current_definition(
     workflow_service_connect.assert_not_called()
 
 
+@pytest.mark.anyio
+async def test_dispatch_workflow_disables_structurally_invalid_definition(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    workflow_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    consumer = CaseTriggerConsumer(client=AsyncMock())
+    consumer._disable_invalid_case_trigger = AsyncMock()
+    workflow_service_connect = AsyncMock()
+
+    monkeypatch.setattr(
+        "tracecat.cases.triggers.consumer.WorkflowDefinitionsService.get_definition_by_workflow_id",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                workflow=SimpleNamespace(version=1),
+                version=1,
+                content={
+                    "title": "invalid",
+                    "description": "",
+                    "entrypoint": {"ref": "start"},
+                    "actions": [],
+                },
+                registry_lock=None,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "tracecat.cases.triggers.consumer.WorkflowExecutionsService.connect",
+        workflow_service_connect,
+    )
+
+    trigger = cast(
+        CaseTrigger,
+        SimpleNamespace(workflow_id=workflow_id, status="online"),
+    )
+    event = cast(
+        CaseEvent,
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            created_at=None,
+            type="case_closed",
+            user_id=None,
+        ),
+    )
+    dispatched = await consumer._dispatch_workflow(
+        session=AsyncMock(),
+        role=_build_role(workspace_id),
+        trigger=trigger,
+        case=cast(
+            Case,
+            SimpleNamespace(id=uuid.uuid4(), workspace_id=workspace_id, tags=[]),
+        ),
+        event=event,
+    )
+
+    assert dispatched is True
+    consumer._disable_invalid_case_trigger.assert_awaited_once()
+    disable_call = consumer._disable_invalid_case_trigger.await_args
+    assert disable_call is not None
+    disable_kwargs = disable_call.kwargs
+    assert disable_kwargs["trigger"] is trigger
+    assert disable_kwargs["event"] is event
+    assert disable_kwargs["reason"] == "invalid workflow definition content"
+    workflow_service_connect.assert_not_called()
+
+
 def _nogroup_retry_error() -> RetryError:
     future = Future(1)
     future.set_exception(

@@ -25,6 +25,7 @@ from tracecat.cases.schemas import CaseCommentWorkflowStatus
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import Case, CaseComment, CaseEvent, CaseTrigger, Workspace
 from tracecat.dsl.common import DSLInput
+from tracecat.exceptions import TracecatDSLError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
@@ -596,7 +597,7 @@ class CaseTriggerConsumer:
 
         try:
             dsl = DSLInput.model_validate(defn.content)
-        except ValidationError:
+        except (ValidationError, TracecatDSLError):
             logger.warning(
                 "Workflow definition content invalid",
                 workflow_id=str(trigger.workflow_id),
