@@ -4,7 +4,7 @@ import asyncio
 import re
 import secrets
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
@@ -80,6 +80,7 @@ from tracecat.integrations.schemas import (
     ProviderKey,
     ProviderMetadata,
     ProviderScopes,
+    validate_url_credential_values,
 )
 from tracecat.integrations.types import (
     DCRResponse,
@@ -2402,24 +2403,26 @@ class IntegrationService(BaseWorkspaceService):
             raise ValueError("Platform MCP catalog row not found")
         if catalog_entry.status != "available":
             raise ValueError(f"{catalog_entry.name} is not available to connect")
-        if not self._params_match_catalog_connection_specs(
+        matched_spec = self._match_catalog_connection_spec(
             params=params, catalog_entry=catalog_entry
-        ):
+        )
+        if matched_spec is None:
             raise ValueError(
                 f"Requested server and auth configuration does not match any "
                 f"connection option for {catalog_entry.name}"
             )
+        self._validate_catalog_url_credentials(params=params, spec=matched_spec)
 
         await self.require_entitlement(Entitlement.AGENT_ADDONS)
         return catalog_entry
 
     @staticmethod
-    def _params_match_catalog_connection_specs(
+    def _match_catalog_connection_spec(
         *,
         params: MCPIntegrationCreate,
         catalog_entry: PlatformMCPCatalogEntry,
-    ) -> bool:
-        """Whether create params match one of a catalog row's connect recipes.
+    ) -> MCPConnectionSpec | None:
+        """Return the catalog connect recipe the create params bind to, if any.
 
         Guards against binding an arbitrary payload to a platform catalog row
         (e.g. an auth-less row spoofing an OAuth-only connector as connected).
@@ -2437,8 +2440,71 @@ class IntegrationService(BaseWorkspaceService):
             if spec.server_type != params.server_type:
                 continue
             if params.server_type == "stdio" or spec.auth_type == params.auth_type:
-                return True
-        return False
+                return spec
+        return None
+
+    @staticmethod
+    def _validate_catalog_url_credentials(
+        *, params: MCPIntegrationCreate, spec: MCPConnectionSpec
+    ) -> None:
+        """Enforce http(s):// on stdio_env values the catalog marks ``type: url``.
+
+        The catalog row is the single source of truth for which values are
+        URLs; only credentials it declares ``type: "url"`` are checked.
+        """
+        if not isinstance(params, MCPStdioIntegrationCreate) or not params.stdio_env:
+            return
+        IntegrationService._validate_stdio_env_url_keys(
+            spec=spec, stdio_env=params.stdio_env
+        )
+
+    @staticmethod
+    def _stdio_env_url_keys(specs: Iterable[MCPConnectionSpec]) -> set[str]:
+        """Collect stdio_env keys any of ``specs`` declares ``type: url``."""
+        return {
+            cred.key
+            for spec in specs
+            for cred in spec.credentials
+            if cred.type == "url" and cred.target == "stdio_env"
+        }
+
+    @staticmethod
+    def _validate_stdio_env_url_keys(
+        *, spec: MCPConnectionSpec, stdio_env: dict[str, str]
+    ) -> None:
+        """Validate stdio_env values for keys the catalog marks ``type: url``."""
+        url_keys = IntegrationService._stdio_env_url_keys([spec])
+        if url_keys:
+            validate_url_credential_values(stdio_env, url_keys)
+
+    def _validate_stdio_env_against_catalog(
+        self, *, catalog_slug: str | None, stdio_env: dict[str, str]
+    ) -> None:
+        """Validate stdio_env URLs against the bound catalog row, if any.
+
+        BYO rows (no ``catalog_slug``) declare no credential types, so there is
+        nothing to validate. URL-typed keys are unioned across every spec the
+        row offers (``connection_spec`` plus each ``connection_options`` spec):
+        the update payload carries no server/auth discriminator to pin a single
+        option, and a key the row marks ``type: url`` in any option must stay a
+        URL on update.
+        """
+        if not catalog_slug:
+            return
+        catalog_entry = get_platform_mcp_catalog_entry_by_slug(
+            catalog_slug, include_private=True
+        )
+        if catalog_entry is None:
+            return
+        specs: list[MCPConnectionSpec] = []
+        if catalog_entry.connection_spec is not None:
+            specs.append(catalog_entry.connection_spec)
+        specs.extend(
+            option.connection_spec for option in catalog_entry.connection_options or []
+        )
+        url_keys = self._stdio_env_url_keys(specs)
+        if url_keys:
+            validate_url_credential_values(stdio_env, url_keys)
 
     @require_scope("integration:create")
     async def create_mcp_integration(
@@ -3537,6 +3603,11 @@ class IntegrationService(BaseWorkspaceService):
                 ),
                 env=params.stdio_env,
             )
+            if params.stdio_env is not None:
+                self._validate_stdio_env_against_catalog(
+                    catalog_slug=mcp_integration.catalog_slug,
+                    stdio_env=params.stdio_env,
+                )
 
         # Update fields
         if params.name is not None:

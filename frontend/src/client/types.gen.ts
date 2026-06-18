@@ -4611,9 +4611,13 @@ export type MCPConfigField = {
   target: "server_uri" | "oauth_client" | "http_header" | "stdio_env"
   required?: boolean
   secret?: boolean
+  placeholder?: string | null
+  type?: "string" | "url"
 }
 
 export type target = "server_uri" | "oauth_client" | "http_header" | "stdio_env"
+
+export type type = "string" | "url"
 
 /**
  * User-supplied value needed to materialize a catalog connection.
@@ -4625,6 +4629,14 @@ export type MCPConnectionCredential = {
   required?: boolean
   secret?: boolean
   default_value?: string | null
+  /**
+   * Optional placeholder shown in the configure dialog to hint the expected value format (e.g. 'https://your-console.example.net').
+   */
+  placeholder?: string | null
+  /**
+   * Value type used for light client/server validation. 'url' requires an http(s):// scheme.
+   */
+  type?: "string" | "url"
   target: "server_uri" | "oauth_client" | "http_header" | "stdio_env"
 }
 
@@ -5522,7 +5534,7 @@ export type ProviderCredentialField = {
 /**
  * Input type: 'text' or 'password'
  */
-export type type = "text" | "password"
+export type type2 = "text" | "password"
 
 /**
  * Metadata for a provider.
@@ -5801,7 +5813,7 @@ export type RegistryActionRead = {
 /**
  * The type of the action
  */
-export type type2 = "udf" | "template"
+export type type3 = "udf" | "template"
 
 /**
  * API minimal read model for a registered action.
@@ -6170,7 +6182,7 @@ export type Role = {
   [key: string]: unknown | string | boolean
 }
 
-export type type3 = "user" | "service" | "service_account"
+export type type4 = "user" | "service" | "service_account"
 
 export type service_id =
   | "tracecat-api"
@@ -7873,7 +7885,7 @@ export type Trigger = {
   }
 }
 
-export type type4 = "schedule" | "webhook"
+export type type5 = "schedule" | "webhook"
 
 /**
  * Trigger type for a workflow execution.

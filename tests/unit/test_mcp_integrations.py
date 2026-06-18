@@ -1319,6 +1319,177 @@ class TestMCPIntegrationCRUD:
         assert updated is not None
         assert updated.encrypted_stdio_env is not None
 
+    async def test_catalog_url_typed_stdio_env_requires_scheme(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """stdio_env values for ``type: "url"`` catalog creds need http(s)://."""
+        catalog = _catalog_entry(
+            slug="url-env-mcp",
+            name="URL Env MCP",
+            description="Stdio catalog row with a URL-typed env credential",
+            connection_spec={
+                "kind": "stdio_custom",
+                "server_type": "stdio",
+                "auth_type": "CUSTOM",
+                "requires_config": True,
+                "credentials": [
+                    {
+                        "key": "CONSOLE_BASE_URL",
+                        "label": "Console base URL",
+                        "description": "Management console endpoint",
+                        "target": "stdio_env",
+                        "required": True,
+                        "secret": False,
+                        "type": "url",
+                    }
+                ],
+                "stdio_command": None,
+                "stdio_args": [],
+                "stdio_env": [],
+                "packages": [
+                    {
+                        "manager": "uvx",
+                        "command": "uvx",
+                        "args": ["url-mcp"],
+                        "package": "url-mcp",
+                    }
+                ],
+            },
+            sort_key="0004:url-env-mcp",
+        )
+        _install_catalog_entry(monkeypatch, catalog)
+
+        # Create with a scheme-less URL is rejected.
+        with pytest.raises(ValueError, match="http://"):
+            await integration_service.create_mcp_integration(
+                params=MCPStdioIntegrationCreate(
+                    name=catalog.name,
+                    description=catalog.description,
+                    catalog_slug=catalog.slug,
+                    stdio_command="uvx",
+                    stdio_args=["url-mcp"],
+                    stdio_env={"CONSOLE_BASE_URL": "console.example.net"},
+                )
+            )
+
+        # Create with a valid https URL succeeds.
+        created = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name=catalog.name,
+                description=catalog.description,
+                catalog_slug=catalog.slug,
+                stdio_command="uvx",
+                stdio_args=["url-mcp"],
+                stdio_env={"CONSOLE_BASE_URL": "https://console.example.net"},
+            )
+        )
+        assert created.encrypted_stdio_env is not None
+
+        # Update to a scheme-less URL is rejected against the bound catalog row.
+        with pytest.raises(ValueError, match="http://"):
+            await integration_service.update_mcp_integration(
+                mcp_integration_id=created.id,
+                params=MCPIntegrationUpdate(
+                    stdio_env={"CONSOLE_BASE_URL": "console.example.net"}
+                ),
+            )
+
+    async def test_catalog_url_typed_stdio_env_from_connection_option_on_update(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Update validates URL keys declared by a non-default connection option.
+
+        Mirrors rows whose default option is remote HTTP while a local-stdio
+        option carries a ``type: "url"`` env var (e.g. Panther/Jamf). The
+        URL-typed key lives only in ``connection_options``, not the top-level
+        ``connection_spec``, so update-time validation must union both.
+        """
+        catalog = _catalog_entry(
+            slug="multi-option-url-env-mcp",
+            name="Multi Option URL Env MCP",
+            description="Remote HTTP default with a local-stdio URL env option",
+            connection_spec={
+                "kind": "http_custom",
+                "server_type": "http",
+                "auth_type": "CUSTOM",
+                "requires_config": False,
+                "config_fields": [],
+                "credentials": [],
+                "server_uri": "https://mcp.example.com/mcp",
+            },
+            connection_options=[
+                {
+                    "id": "local-stdio",
+                    "label": "Local (stdio)",
+                    "connection_spec": {
+                        "kind": "stdio_custom",
+                        "server_type": "stdio",
+                        "auth_type": "CUSTOM",
+                        "requires_config": True,
+                        "credentials": [
+                            {
+                                "key": "CONSOLE_BASE_URL",
+                                "label": "Console base URL",
+                                "description": "Management console endpoint",
+                                "target": "stdio_env",
+                                "required": True,
+                                "secret": False,
+                                "type": "url",
+                            }
+                        ],
+                        "stdio_command": None,
+                        "stdio_args": [],
+                        "stdio_env": [],
+                        "packages": [
+                            {
+                                "manager": "uvx",
+                                "command": "uvx",
+                                "args": ["url-mcp"],
+                                "package": "url-mcp",
+                            }
+                        ],
+                    },
+                }
+            ],
+            sort_key="0005:multi-option-url-env-mcp",
+        )
+        _install_catalog_entry(monkeypatch, catalog)
+
+        created = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name=catalog.name,
+                description=catalog.description,
+                catalog_slug=catalog.slug,
+                stdio_command="uvx",
+                stdio_args=["url-mcp"],
+                stdio_env={"CONSOLE_BASE_URL": "https://console.example.net"},
+            )
+        )
+
+        # Update to a scheme-less URL is rejected even though the URL-typed key
+        # is declared only by the connection option, not connection_spec.
+        with pytest.raises(ValueError, match="http://"):
+            await integration_service.update_mcp_integration(
+                mcp_integration_id=created.id,
+                params=MCPIntegrationUpdate(
+                    stdio_env={"CONSOLE_BASE_URL": "console.example.net"}
+                ),
+            )
+
+        # A valid https URL still updates cleanly.
+        updated = await integration_service.update_mcp_integration(
+            mcp_integration_id=created.id,
+            params=MCPIntegrationUpdate(
+                stdio_env={"CONSOLE_BASE_URL": "https://console.example.org"}
+            ),
+        )
+        assert updated is not None
+        assert updated.encrypted_stdio_env is not None
+
     async def test_connect_platform_mcp_catalog_allows_missing_http_headers(
         self,
         integration_service: IntegrationService,
