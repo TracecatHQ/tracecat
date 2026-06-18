@@ -178,6 +178,7 @@ async def test_sync_creates_collision_version_for_manifest_changes(
     [
         "1.2.3",
         "1.2.3.post1",
+        "1.2.3-post.1",
         "1.2.3-beta.1",
         "1.2.3-alpha.1",
         "1.2.3+registry.1",
