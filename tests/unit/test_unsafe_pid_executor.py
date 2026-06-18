@@ -126,6 +126,25 @@ def main():
         }
 
     @pytest.mark.anyio
+    async def test_execute_normalizes_mixed_sets_deterministically(
+        self, executor: UnsafePidExecutor
+    ) -> None:
+        script = """
+def main():
+    return {
+        "mixed": {1, "a"},
+        "nested": [{"values": {2, None}}],
+    }
+"""
+        result = await executor.execute(script=script)
+        assert result.success
+        assert result.error is None
+        assert result.output == {
+            "mixed": ["a", 1],
+            "nested": [{"values": [2, None]}],
+        }
+
+    @pytest.mark.anyio
     async def test_execute_normalizes_dataclass_instances_and_classes(
         self, executor: UnsafePidExecutor
     ) -> None:

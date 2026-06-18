@@ -374,6 +374,24 @@ def main():
         }
 
     @pytest.mark.anyio
+    async def test_mixed_sets_are_normalized_deterministically(
+        self, sandbox_service: SandboxService
+    ) -> None:
+        """Test mixed-type sets normalize in a deterministic order."""
+        script_content = """
+def main():
+    return {
+        "mixed": {1, "a"},
+        "nested": [{"values": {2, None}}],
+    }
+"""
+        result = await sandbox_service.run_python(script=script_content)
+        assert result == {
+            "mixed": ["a", 1],
+            "nested": [{"values": [2, None]}],
+        }
+
+    @pytest.mark.anyio
     async def test_dataclass_instances_and_classes_are_normalized(
         self, sandbox_service: SandboxService
     ) -> None:
