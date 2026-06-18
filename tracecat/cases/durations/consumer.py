@@ -129,10 +129,14 @@ class CaseDurationSyncConsumer:
 
     async def _ensure_group(self) -> None:
         try:
+            # Read from the start of the stream ("0") rather than only new
+            # messages ("$"). The consumer is started as an unawaited background
+            # task, so jobs can be published before the group exists; "0" also
+            # lets the group reclaim retained jobs after a NOGROUP recovery.
             await self.client.xgroup_create(
                 self.stream_key,
                 self.group,
-                id="$",
+                id="0",
                 ignore_busygroup=True,
             )
         except ResponseError as e:

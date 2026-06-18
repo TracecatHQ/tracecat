@@ -230,6 +230,23 @@ async def test_consumer_acks_successful_backfill_jobs(
 
 
 @pytest.mark.anyio
+async def test_ensure_group_reads_backlog_from_start() -> None:
+    client = AsyncMock()
+    consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
+
+    await consumer._ensure_group()
+
+    # "0" ensures jobs published during the startup gap (before the group
+    # exists) are still delivered, rather than being skipped by "$".
+    client.xgroup_create.assert_awaited_once_with(
+        consumer.stream_key,
+        consumer.group,
+        id="0",
+        ignore_busygroup=True,
+    )
+
+
+@pytest.mark.anyio
 async def test_event_types_require_sync_matches_status_changed_aliases() -> None:
     session = FakeDefinitionMatchSession()
     consumer = CaseDurationSyncConsumer(cast(RedisClient, FakeRedisClient()))
