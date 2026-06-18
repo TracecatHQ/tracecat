@@ -160,7 +160,7 @@ class WorkflowExecutionResetLineage:
 class _WorkflowRunResetDescription:
     execution: WorkflowExecution
     first_run_id: str | None
-    is_reset_run: bool
+    reset_run_id: str | None
 
 
 def _unwrap_loop_control_result(value: Any) -> Any:
@@ -483,7 +483,7 @@ class WorkflowExecutionsService:
         return _WorkflowRunResetDescription(
             execution=execution,
             first_run_id=first_run_id,
-            is_reset_run=extended_info.HasField("last_reset_time"),
+            reset_run_id=extended_info.reset_run_id or None,
         )
 
     async def _describe_reset_lineage_runs(
@@ -524,10 +524,18 @@ class WorkflowExecutionsService:
         sorted_descriptions = sorted(
             descriptions, key=lambda item: item.execution.start_time
         )
+        described_run_ids = {
+            description.execution.run_id for description in sorted_descriptions
+        }
+        reset_run_ids = {
+            description.reset_run_id
+            for description in sorted_descriptions
+            if description.reset_run_id in described_run_ids
+        }
         reset_descriptions = [
             description
             for description in sorted_descriptions
-            if description.is_reset_run
+            if description.execution.run_id in reset_run_ids
         ]
         reset_run_count = len(reset_descriptions)
         if reset_run_count == 0:
@@ -548,7 +556,7 @@ class WorkflowExecutionsService:
         return {
             description.execution.run_id: WorkflowExecutionResetLineage(
                 has_been_reset=True,
-                is_reset_run=description.is_reset_run,
+                is_reset_run=description.execution.run_id in reset_run_ids,
                 original_run_id=original_run_id,
                 reset_run_count=reset_run_count,
                 reset_run_index=reset_index_by_run_id.get(description.execution.run_id),

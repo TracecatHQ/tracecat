@@ -2851,17 +2851,17 @@ def test_build_reset_lineage_marks_original_and_reset_runs() -> None:
             _WorkflowRunResetDescription(
                 execution=reset_2,
                 first_run_id="run-original",
-                is_reset_run=True,
+                reset_run_id=None,
             ),
             _WorkflowRunResetDescription(
                 execution=original,
                 first_run_id="run-original",
-                is_reset_run=False,
+                reset_run_id="run-reset-1",
             ),
             _WorkflowRunResetDescription(
                 execution=reset_1,
                 first_run_id="run-original",
-                is_reset_run=True,
+                reset_run_id="run-reset-2",
             ),
         ]
     )
@@ -2896,7 +2896,7 @@ def test_build_reset_lineage_returns_empty_without_reset_runs() -> None:
             _WorkflowRunResetDescription(
                 execution=original,
                 first_run_id="run-original",
-                is_reset_run=False,
+                reset_run_id=None,
             )
         ]
     )
