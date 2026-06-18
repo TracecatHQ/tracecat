@@ -70,17 +70,29 @@ describe("GitHubAppManualForm", () => {
     expect(screen.getByText("github-app.private-key.pem")).toBeInTheDocument()
   })
 
-  it("rejects non-PEM files", () => {
+  it("clears existing private key when rejecting non-PEM files", () => {
+    const existingPem = [
+      "-----BEGIN PRIVATE KEY-----",
+      "MIIEpAIBAAKCAQEA",
+      "-----END PRIVATE KEY-----",
+    ].join("\n")
     const file = new File(["not a pem"], "private-key.txt", {
       type: "text/plain",
     })
 
     render(<GitHubAppManualForm />)
 
+    const privateKeyInput = screen.getByLabelText("Private Key *")
+    fireEvent.change(privateKeyInput, {
+      target: { value: existingPem },
+    })
+    expect(privateKeyInput).toHaveValue(existingPem)
+
     fireEvent.drop(screen.getByTestId("github-app-private-key-dropzone"), {
       dataTransfer: createDataTransfer(file),
     })
 
+    expect(privateKeyInput).toHaveValue("")
     expect(screen.getByText("Upload a .pem file.")).toBeInTheDocument()
   })
 })

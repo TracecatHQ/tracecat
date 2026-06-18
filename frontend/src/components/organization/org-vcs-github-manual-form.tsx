@@ -113,6 +113,11 @@ export function GitHubAppManualForm({
 
       if (!pemFileExtensionRegex.test(file.name)) {
         setPrivateKeyFileName(null)
+        form.setValue("private_key", "", {
+          shouldDirty: true,
+          shouldTouch: true,
+          shouldValidate: false,
+        })
         form.setError("private_key", {
           type: "manual",
           message: "Upload a .pem file.",
@@ -137,6 +142,11 @@ export function GitHubAppManualForm({
       }
       reader.onerror = () => {
         setPrivateKeyFileName(null)
+        form.setValue("private_key", "", {
+          shouldDirty: true,
+          shouldTouch: true,
+          shouldValidate: false,
+        })
         form.setError("private_key", {
           type: "manual",
           message: "Failed to read the uploaded PEM file.",
