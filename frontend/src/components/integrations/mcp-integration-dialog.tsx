@@ -711,11 +711,16 @@ export function MCPIntegrationDialog({
                 custom_credentials: customCredentialsForUpdate,
               }
         hookHandledError = true
-        await updateMcpIntegration({
+        const result = await updateMcpIntegration({
           mcpIntegrationId,
           params,
         })
         hookHandledError = false
+        // An OAuth-discovery edit returns a connect response with a redirect.
+        if ("auth_url" in result && result.auth_url) {
+          window.location.href = result.auth_url
+          return
+        }
       } else {
         if (values.server_type === "stdio") {
           const params: MCPStdioIntegrationCreate = {
@@ -880,6 +885,21 @@ export function MCPIntegrationDialog({
     createMcpIntegrationIsPending ||
     updateMcpIntegrationIsPending
 
+  // An OAuth2 server can only be probed once authorization has produced an
+  // access token. Until the integration is connected (discovery row awaiting
+  // its OAuth redirect, or a lost token), a probe has no bearer token and is a
+  // guaranteed 401 — so disable Test and point the user at OAuth instead.
+  const oauthAuthorizationPending =
+    serverType === "http" &&
+    authType === "OAUTH2" &&
+    mcpIntegration?.state !== "connected"
+  const testDisabledReason =
+    serverType === "stdio"
+      ? "Stdio servers can't be tested"
+      : oauthAuthorizationPending
+        ? "Connect via OAuth to test"
+        : undefined
+
   // Connection actions menu mirroring the OAuth integration details dialog.
   // Tests the form's current values; with unsaved connection edits the probe
   // is ephemeral, otherwise it persists the discovered tools.
@@ -904,12 +924,12 @@ export function MCPIntegrationDialog({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-44">
           <DropdownMenuItem
-            disabled={serverType === "stdio" || testConnectionIsPending}
-            title={
-              serverType === "stdio"
-                ? "Stdio servers can't be tested"
-                : undefined
+            disabled={
+              serverType === "stdio" ||
+              oauthAuthorizationPending ||
+              testConnectionIsPending
             }
+            title={testDisabledReason}
             onClick={() => void handleTestConnection()}
           >
             <PlayCircle className="mr-2 size-4 text-muted-foreground" />

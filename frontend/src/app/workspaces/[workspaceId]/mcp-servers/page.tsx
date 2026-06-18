@@ -20,7 +20,6 @@ import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CatalogHeader } from "@/components/catalog/catalog-header"
 import { getMcpProviderIconId, ProviderIcon } from "@/components/icons"
 import { MCPIntegrationDialog } from "@/components/integrations/mcp-integration-dialog"
-import { OAuthIntegrationDialog } from "@/components/integrations/oauth-integration-dialog"
 import { LockedFeatureModal } from "@/components/locked-feature-modal"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -191,13 +190,6 @@ function catalogTransports(entry: PlatformMCPCatalogRead) {
   )
 }
 
-function isProviderBackedOAuth(entry: PlatformMCPCatalogRead) {
-  return Boolean(
-    entry.provider_id &&
-      catalogConnectionSpecs(entry).some((spec) => spec.auth_type === "OAUTH2")
-  )
-}
-
 function requiresCatalogConfig(entry: PlatformMCPCatalogRead) {
   return catalogConnectionSpecs(entry).some((spec) => spec.requires_config)
 }
@@ -205,8 +197,7 @@ function requiresCatalogConfig(entry: PlatformMCPCatalogRead) {
 function isCatalogEntryConnectable(entry: PlatformMCPCatalogRead) {
   return Boolean(
     entry.connection_spec ||
-      (entry.connection_options && entry.connection_options.length > 0) ||
-      isProviderBackedOAuth(entry)
+      (entry.connection_options && entry.connection_options.length > 0)
   )
 }
 
@@ -229,8 +220,6 @@ export default function McpServersPage() {
     null
   )
   const [lockedCatalogEntry, setLockedCatalogEntry] =
-    useState<PlatformMCPCatalogRead | null>(null)
-  const [providerConfigEntry, setProviderConfigEntry] =
     useState<PlatformMCPCatalogRead | null>(null)
   const [editingItem, setEditingItem] = useState<CatalogItem | null>(null)
 
@@ -525,10 +514,9 @@ export default function McpServersPage() {
       setConfigEntry(entry)
       return
     }
-    if (isProviderBackedOAuth(entry) && entry.provider_id && canCreateMcp) {
-      setProviderConfigEntry(entry)
-      return
-    }
+    // Provider-backed entries (e.g. GitHub, Atlassian) carry a connection_spec
+    // and are configured through the MCP dialog — its discovery / OAuth-client
+    // flow — not the standalone OAuth provider form.
     if (entry.connection_spec && canCreateMcp) {
       setConfigEntry(entry)
       return
@@ -670,21 +658,6 @@ export default function McpServersPage() {
           }}
           catalogEntry={configEntry}
           hideTrigger
-        />
-      ) : null}
-
-      {providerConfigEntry?.provider_id ? (
-        <OAuthIntegrationDialog
-          open
-          onOpenChange={(next) => {
-            if (!next) {
-              setProviderConfigEntry(null)
-              queryClient.invalidateQueries({ queryKey: catalogQueryKey })
-              queryClient.invalidateQueries({ queryKey: workspaceMcpQueryKey })
-            }
-          }}
-          providerId={providerConfigEntry.provider_id}
-          grantType="authorization_code"
         />
       ) : null}
 
