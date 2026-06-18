@@ -88,6 +88,7 @@ export function GitHubAppManualForm({
   )
   const [isPrivateKeyDragOver, setIsPrivateKeyDragOver] = useState(false)
   const privateKeyFileInputRef = useRef<HTMLInputElement | null>(null)
+  const privateKeyReadIdRef = useRef(0)
 
   const form = useForm<GitHubAppCredentialsFormData>({
     resolver: zodResolver(gitHubAppCredentialsSchema),
@@ -111,6 +112,9 @@ export function GitHubAppManualForm({
         return
       }
 
+      const readId = privateKeyReadIdRef.current + 1
+      privateKeyReadIdRef.current = readId
+
       if (!pemFileExtensionRegex.test(file.name)) {
         setPrivateKeyFileName(null)
         form.setValue("private_key", "", {
@@ -128,6 +132,10 @@ export function GitHubAppManualForm({
 
       const reader = new FileReader()
       reader.onload = () => {
+        if (readId !== privateKeyReadIdRef.current) {
+          return
+        }
+
         const privateKey =
           typeof reader.result === "string" ? reader.result : ""
 
@@ -141,6 +149,10 @@ export function GitHubAppManualForm({
         resetPrivateKeyFileInput()
       }
       reader.onerror = () => {
+        if (readId !== privateKeyReadIdRef.current) {
+          return
+        }
+
         setPrivateKeyFileName(null)
         form.setValue("private_key", "", {
           shouldDirty: true,
@@ -233,6 +245,7 @@ export function GitHubAppManualForm({
       })
 
       // Clear sensitive data from form
+      privateKeyReadIdRef.current += 1
       form.setValue("private_key", "")
       setPrivateKeyFileName(null)
       resetPrivateKeyFileInput()
@@ -365,6 +378,7 @@ export function GitHubAppManualForm({
                         <Textarea
                           {...field}
                           onChange={(event) => {
+                            privateKeyReadIdRef.current += 1
                             setPrivateKeyFileName(null)
                             form.clearErrors("private_key")
                             field.onChange(event)

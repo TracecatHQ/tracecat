@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { GitHubAppManualForm } from "@/components/organization/org-vcs-github-manual-form"
 
 const mockMutateAsync = jest.fn()
@@ -29,6 +29,10 @@ function createDataTransfer(file: File) {
     clearData: jest.fn(),
   }
 }
+
+type FileReaderEventHandler =
+  | ((this: FileReader, event: ProgressEvent<FileReader>) => unknown)
+  | null
 
 describe("GitHubAppManualForm", () => {
   beforeEach(() => {
@@ -94,5 +98,69 @@ describe("GitHubAppManualForm", () => {
 
     expect(privateKeyInput).toHaveValue("")
     expect(screen.getByText("Upload a .pem file.")).toBeInTheDocument()
+  })
+
+  it("ignores stale PEM reads after a rejected replacement", () => {
+    const stalePem = [
+      "-----BEGIN PRIVATE KEY-----",
+      "MIIEpAIBAAKCAQEA",
+      "-----END PRIVATE KEY-----",
+    ].join("\n")
+    const pemFile = new File([stalePem], "github-app.private-key.pem", {
+      type: "application/x-pem-file",
+    })
+    const invalidFile = new File(["not a pem"], "private-key.txt", {
+      type: "text/plain",
+    })
+    const originalFileReader = window.FileReader
+    const deferredReader = {
+      result: null as string | ArrayBuffer | null,
+      onload: null as FileReaderEventHandler,
+      onerror: null as FileReaderEventHandler,
+      readAsText: jest.fn(),
+    }
+
+    Object.defineProperty(window, "FileReader", {
+      configurable: true,
+      writable: true,
+      value: jest.fn(() => deferredReader as unknown as FileReader),
+    })
+
+    try {
+      render(<GitHubAppManualForm />)
+
+      const dropzone = screen.getByTestId("github-app-private-key-dropzone")
+      const privateKeyInput = screen.getByLabelText("Private Key *")
+
+      fireEvent.drop(dropzone, {
+        dataTransfer: createDataTransfer(pemFile),
+      })
+      expect(deferredReader.readAsText).toHaveBeenCalledWith(pemFile)
+
+      fireEvent.drop(dropzone, {
+        dataTransfer: createDataTransfer(invalidFile),
+      })
+      expect(privateKeyInput).toHaveValue("")
+      expect(screen.getByText("Upload a .pem file.")).toBeInTheDocument()
+
+      deferredReader.result = stalePem
+      act(() => {
+        deferredReader.onload?.call(
+          deferredReader as unknown as FileReader,
+          new ProgressEvent("load") as ProgressEvent<FileReader>
+        )
+      })
+
+      expect(privateKeyInput).toHaveValue("")
+      expect(
+        screen.queryByText("github-app.private-key.pem")
+      ).not.toBeInTheDocument()
+    } finally {
+      Object.defineProperty(window, "FileReader", {
+        configurable: true,
+        writable: true,
+        value: originalFileReader,
+      })
+    }
   })
 })
