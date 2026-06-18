@@ -11600,11 +11600,15 @@ export const mcpIntegrationsGetMcpIntegration = (
 /**
  * Update Mcp Integration
  * Update an MCP integration.
+ *
+ * Returns an ``MCPCatalogConnectResponse`` when the edit triggers MCP OAuth
+ * discovery (an OAuth2 target with ``oauth_integration_id`` explicitly
+ * cleared): the caller must follow ``auth_url`` to finish authorization.
  * @param data The data for the request.
  * @param data.mcpIntegrationId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns MCPIntegrationRead Successful Response
+ * @returns unknown Successful Response
  * @throws ApiError
  */
 export const mcpIntegrationsUpdateMcpIntegration = (

@@ -586,7 +586,13 @@ class IntegrationService(BaseWorkspaceService):
     # ------------------------------------------------------------------------
 
     @staticmethod
-    def _is_custom_mcp_oauth_provider(provider_id: str) -> bool:
+    def is_custom_mcp_oauth_provider(provider_id: str) -> bool:
+        """Whether a provider id is owned by the MCP OAuth discovery pipeline.
+
+        These ``custom_mcp_*`` providers are created to back an MCP integration's
+        OAuth flow and are managed from the MCP servers page; they are not
+        user-authored custom OAuth integrations.
+        """
         return provider_id.startswith(_CUSTOM_MCP_OAUTH_PROVIDER_PREFIX)
 
     @staticmethod
@@ -1118,8 +1124,29 @@ class IntegrationService(BaseWorkspaceService):
             scopes=scopes,
         )
         if existing_mcp_integration is not None:
-            existing_mcp_integration.oauth_integration_id = oauth_integration.id
+            # Apply the merged HTTP OAuth2 target to the existing row. Edit-mode
+            # discovery carries the user's URI/name/timeout edits in ``params``;
+            # the connected client comes from discovery/DCR above.
+            name = params.name.strip()
+            if name != existing_mcp_integration.name:
+                existing_mcp_integration.name = name
+                existing_mcp_integration.slug = (
+                    await self._generate_mcp_integration_slug(name=name)
+                )
+            existing_mcp_integration.description = (
+                params.description.strip() if params.description else None
+            )
+            existing_mcp_integration.server_type = "http"
+            existing_mcp_integration.server_uri = params.server_uri.strip()
             existing_mcp_integration.auth_type = MCPAuthType.OAUTH2
+            existing_mcp_integration.oauth_integration_id = oauth_integration.id
+            existing_mcp_integration.timeout = params.timeout
+            existing_mcp_integration.stdio_command = None
+            existing_mcp_integration.stdio_args = None
+            existing_mcp_integration.encrypted_stdio_env = None
+            if used_byo_credentials:
+                # Credentials were consumed into the generated OAuth client.
+                existing_mcp_integration.encrypted_headers = None
             self.session.add(existing_mcp_integration)
             await self.session.commit()
             await self.session.refresh(existing_mcp_integration)
@@ -1732,7 +1759,7 @@ class IntegrationService(BaseWorkspaceService):
             )
             return integration
 
-        if self._is_custom_mcp_oauth_provider(integration.provider_id):
+        if self.is_custom_mcp_oauth_provider(integration.provider_id):
             try:
                 return await self._refresh_custom_mcp_integration(
                     integration=integration,
@@ -2244,7 +2271,7 @@ class IntegrationService(BaseWorkspaceService):
         self, *, integration: OAuthIntegration
     ) -> bool:
         """Return whether OAuth integration is owned by MCP provider lifecycle."""
-        if self._is_custom_mcp_oauth_provider(integration.provider_id):
+        if self.is_custom_mcp_oauth_provider(integration.provider_id):
             return True
         provider_impl = await self.resolve_provider_impl(
             provider_key=ProviderKey(
@@ -2266,7 +2293,7 @@ class IntegrationService(BaseWorkspaceService):
         ]
         # Custom MCP providers own every row linked to them; provider-backed rows
         # must additionally match the provider's server URI and generated slug.
-        if not self._is_custom_mcp_oauth_provider(integration.provider_id):
+        if not self.is_custom_mcp_oauth_provider(integration.provider_id):
             provider_impl = await self.resolve_provider_impl(
                 provider_key=ProviderKey(
                     id=integration.provider_id,
@@ -2563,7 +2590,7 @@ class IntegrationService(BaseWorkspaceService):
         if (
             oauth_integration is None
             or oauth_integration.workspace_id != self.workspace_id
-            or not self._is_custom_mcp_oauth_provider(oauth_integration.provider_id)
+            or not self.is_custom_mcp_oauth_provider(oauth_integration.provider_id)
         ):
             return None
         provider_config = self.get_provider_config(integration=oauth_integration)
@@ -3436,7 +3463,7 @@ class IntegrationService(BaseWorkspaceService):
         mcp_integration_id: uuid.UUID,
         params: MCPIntegrationUpdate,
         verify_connection: bool = False,
-    ) -> MCPIntegration | None:
+    ) -> MCPIntegration | PlatformMCPCatalogConnectResult | None:
         """Update an MCP integration.
 
         With ``verify_connection``, HTTP targets are probed with the merged
@@ -3444,6 +3471,13 @@ class IntegrationService(BaseWorkspaceService):
         probe raises ``MCPConnectionVerificationError`` and leaves the stored
         configuration and verification state untouched; a successful probe
         stores the fresh tool listing alongside the update.
+
+        When the merged target is an OAuth2 HTTP server whose
+        ``oauth_integration_id`` was explicitly cleared (the discovery flow),
+        this starts MCP OAuth discovery — the same path create-mode uses — and
+        returns a ``PlatformMCPCatalogConnectResult`` carrying the authorization
+        redirect instead of persisting an OAuth2 row that has no client and can
+        never connect.
         """
         mcp_integration = await self.get_mcp_integration(
             mcp_integration_id=mcp_integration_id
@@ -3496,6 +3530,33 @@ class IntegrationService(BaseWorkspaceService):
                         "OAuth integration not found or does not belong to workspace"
                     )
             elif target_auth_type == MCPAuthType.OAUTH2:
+                # The merged target is OAuth2 with no client. When the caller
+                # explicitly cleared oauth_integration_id (the edit dialog's
+                # "MCP OAuth discovery" flow), start discovery/DCR against the
+                # server and update this row in place — mirroring create mode,
+                # which accepts OAuth2 without a client for discovery servers.
+                # Without an explicit null (a raw partial update that omits the
+                # field) the original validation error stands, so an accidental
+                # OAuth2 config without a client is still rejected.
+                if oauth_integration_id_was_provided:
+                    return await self.connect_mcp_oauth_discovery(
+                        params=MCPHttpIntegrationCreate(
+                            name=params.name or mcp_integration.name,
+                            description=(
+                                params.description
+                                if params.description is not None
+                                else mcp_integration.description
+                            ),
+                            timeout=params.timeout or mcp_integration.timeout or 30,
+                            catalog_slug=mcp_integration.catalog_slug,
+                            server_type="http",
+                            server_uri=target_server_uri,
+                            auth_type=MCPAuthType.OAUTH2,
+                            oauth_integration_id=None,
+                            custom_credentials=params.custom_credentials,
+                        ),
+                        existing_mcp_integration=mcp_integration,
+                    )
                 raise ValueError(
                     "oauth_integration_id is required for OAuth 2.0 authentication"
                 )

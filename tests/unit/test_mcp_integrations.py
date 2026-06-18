@@ -52,6 +52,7 @@ from tracecat.integrations.providers.sentry.mcp import SentryMCPProvider
 from tracecat.integrations.providers.wiz.mcp import WizMCPProvider
 from tracecat.integrations.schemas import (
     CustomOAuthProviderCreate,
+    IntegrationOAuthConnect,
     MCPConnectionOption,
     MCPConnectionSpec,
     MCPHttpIntegrationCreate,
@@ -67,7 +68,10 @@ from tracecat.integrations.schemas import (
     ProviderMetadata,
     ProviderScopes,
 )
-from tracecat.integrations.service import IntegrationService
+from tracecat.integrations.service import (
+    IntegrationService,
+    PlatformMCPCatalogConnectResult,
+)
 from tracecat.integrations.types import OAuthServerMetadata
 from tracecat.tiers import defaults as tier_defaults
 
@@ -76,6 +80,19 @@ pytestmark = pytest.mark.usefixtures("db")
 _MCP_CONNECTION_SPEC_ADAPTER: TypeAdapter[MCPConnectionSpec] = TypeAdapter(
     MCPConnectionSpec
 )
+
+
+def _as_mcp_integration(
+    result: MCPIntegration | PlatformMCPCatalogConnectResult | None,
+) -> MCPIntegration:
+    """Narrow a plain (non-discovery) update result to the persisted row.
+
+    ``update_mcp_integration`` returns a ``PlatformMCPCatalogConnectResult`` only
+    when an edit starts OAuth discovery; the non-discovery cases asserted here
+    always return the row.
+    """
+    assert isinstance(result, MCPIntegration)
+    return result
 
 
 class _TestCatalogEntry(dict):
@@ -399,6 +416,60 @@ class TestMCPIntegrationCRUD:
         assert unlocked.mcp_server_type == "http"
         assert unlocked.mcp_auth_type == MCPAuthType.NONE
         assert unlocked.state == "connected"
+
+    async def test_platform_mcp_catalog_uses_workspace_row_name_and_description(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A renamed workspace row's name/description win over catalog defaults.
+
+        The catalog_slug binds the row to the entry, so the user's rename must
+        persist in the catalog listing rather than being overridden by the
+        repo-owned catalog name/description.
+        """
+        catalog = _catalog_entry(
+            slug="renamable-mcp",
+            name="Catalog Default Name",
+            description="Catalog default description",
+            connection_spec={
+                "kind": "http_none",
+                "server_type": "http",
+                "auth_type": "NONE",
+                "requires_config": False,
+                "config_fields": [],
+                "credentials": [],
+                "server_uri": "https://mcp.example.com/mcp",
+            },
+            sort_key="0000:renamable-mcp",
+        )
+        _install_catalog_entry(monkeypatch, catalog)
+
+        session.add(
+            MCPIntegration(
+                workspace_id=integration_service.workspace_id,
+                name="My Renamed Server",
+                description="My own notes",
+                slug=catalog.slug,
+                catalog_slug=catalog.slug,
+                server_type="http",
+                server_uri="https://mcp.example.com/mcp",
+                auth_type=MCPAuthType.NONE,
+            )
+        )
+        await session.flush()
+
+        catalog_service = PlatformMCPCatalogService(session=session)
+        items, _ = await catalog_service.list_catalog(
+            workspace_id=integration_service.workspace_id,
+            agent_addons_entitled=True,
+            q=catalog.slug,
+        )
+
+        item = next(entry for entry in items if entry.slug == catalog.slug)
+        assert item.name == "My Renamed Server"
+        assert item.description == "My own notes"
 
     async def test_platform_mcp_catalog_reports_deleted_oauth_row_as_not_connected(
         self,
@@ -1087,7 +1158,7 @@ class TestMCPIntegrationCRUD:
             )
         )
 
-        assert not integration_service._is_custom_mcp_oauth_provider(
+        assert not integration_service.is_custom_mcp_oauth_provider(
             provider.provider_id
         )
 
@@ -1103,6 +1174,84 @@ class TestMCPIntegrationCRUD:
                     client_secret=SecretStr("test-client-secret"),
                 )
             )
+
+    async def test_list_providers_excludes_discovery_owned_mcp_providers(
+        self,
+        integration_service: IntegrationService,
+        svc_role: Role,
+        session: AsyncSession,
+    ) -> None:
+        """The /providers list hides custom_mcp_* OAuth providers.
+
+        Connecting a discovery MCP catalog entry creates a custom_mcp_* OAuth
+        provider to back its flow. That provider is managed from the MCP servers
+        page and must not appear as a standalone custom OAuth integration.
+        """
+        from tracecat.integrations.router import list_providers
+
+        await integration_service.create_custom_provider(
+            params=CustomOAuthProviderCreate(
+                provider_id="custom_mcp_atlassian",
+                name="Jira / Atlassian",
+                grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+                authorization_endpoint="https://auth.example.com/authorize",
+                token_endpoint="https://auth.example.com/token",
+                client_id="mcp-client-id",
+                client_secret=SecretStr("mcp-client-secret"),
+            ),
+            allow_reserved_id=True,
+        )
+        genuine = await integration_service.create_custom_provider(
+            params=CustomOAuthProviderCreate(
+                name="My Custom OAuth",
+                grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+                authorization_endpoint="https://auth.example.com/authorize",
+                token_endpoint="https://auth.example.com/token",
+                client_id="genuine-client-id",
+                client_secret=SecretStr("genuine-client-secret"),
+            )
+        )
+
+        items = await list_providers(role=svc_role, session=session)
+        provider_ids = {item.id for item in items}
+
+        assert genuine.provider_id in provider_ids
+        assert "custom_mcp_atlassian" not in provider_ids
+        assert not any(
+            integration_service.is_custom_mcp_oauth_provider(item.id) for item in items
+        )
+
+    async def test_list_providers_keeps_user_custom_oauth_for_mcp(
+        self,
+        integration_service: IntegrationService,
+        svc_role: Role,
+        session: AsyncSession,
+    ) -> None:
+        """A user's own custom OAuth provider stays listed even when MCP-bound.
+
+        Only the discovery-minted ``custom_mcp_*`` ids are hidden. A provider the
+        user created themselves (which can never take that reserved prefix) and
+        then attached to an MCP server must remain on the integrations page.
+        """
+        from tracecat.integrations.router import list_providers
+
+        user_provider = await integration_service.create_custom_provider(
+            params=CustomOAuthProviderCreate(
+                name="My MCP OAuth App",
+                grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+                authorization_endpoint="https://auth.example.com/authorize",
+                token_endpoint="https://auth.example.com/token",
+                client_id="user-client-id",
+                client_secret=SecretStr("user-client-secret"),
+            )
+        )
+        # The user-chosen id never lands in the reserved discovery namespace.
+        assert not integration_service.is_custom_mcp_oauth_provider(
+            user_provider.provider_id
+        )
+
+        items = await list_providers(role=svc_role, session=session)
+        assert user_provider.provider_id in {item.id for item in items}
 
     async def test_mcp_provider_oauth_does_not_auto_create_without_entitlement(
         self,
@@ -1316,6 +1465,7 @@ class TestMCPIntegrationCRUD:
             mcp_integration_id=created.id,
             params=MCPIntegrationUpdate(stdio_env={"EXAMPLE_TOKEN": ""}),
         )
+        updated = _as_mcp_integration(updated)
         assert updated is not None
         assert updated.encrypted_stdio_env is not None
 
@@ -1812,6 +1962,7 @@ class TestMCPIntegrationCRUD:
         updated = await integration_service.update_mcp_integration(
             mcp_integration_id=created.id, params=update_params
         )
+        updated = _as_mcp_integration(updated)
 
         assert updated is not None
         assert updated.name == "Updated MCP"
@@ -1839,6 +1990,7 @@ class TestMCPIntegrationCRUD:
         updated = await integration_service.update_mcp_integration(
             mcp_integration_id=created.id, params=update_params
         )
+        updated = _as_mcp_integration(updated)
 
         assert updated is not None
         assert updated.name == created.name  # Unchanged
@@ -1868,6 +2020,7 @@ class TestMCPIntegrationCRUD:
                 auth_type=MCPAuthType.NONE,
             ),
         )
+        updated = _as_mcp_integration(updated)
 
         assert updated is not None
         assert updated.id == created.id
@@ -1902,6 +2055,7 @@ class TestMCPIntegrationCRUD:
                 stdio_env={"EXAMPLE_TOKEN": "secret"},
             ),
         )
+        updated = _as_mcp_integration(updated)
 
         assert updated is not None
         assert updated.id == created.id
@@ -1913,6 +2067,117 @@ class TestMCPIntegrationCRUD:
         assert updated.stdio_command == "npx"
         assert updated.stdio_args == ["@example/server"]
         assert updated.encrypted_stdio_env is not None
+
+    async def test_update_oauth2_clearing_integration_id_starts_discovery(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Editing an OAuth2 row with oauth_integration_id=null re-runs discovery.
+
+        A discovery MCP integration has no OAuth client, so it has no
+        oauth_integration_id. Re-saving it (or editing the URI) from the dialog
+        must route into discovery and surface the authorization redirect instead
+        of failing the OAuth-client validation.
+        """
+        created = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name="Discovery MCP",
+            slug=f"discovery-mcp-{uuid.uuid4().hex[:8]}",
+            server_type="http",
+            server_uri="https://mcp.example.com/mcp",
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_integration_id=None,
+        )
+        session.add(created)
+        await session.commit()
+        assert created.oauth_integration_id is None
+
+        captured: dict[str, object] = {}
+
+        async def fake_discovery(
+            *,
+            params: MCPHttpIntegrationCreate,
+            existing_mcp_integration: MCPIntegration | None = None,
+            **_: object,
+        ) -> PlatformMCPCatalogConnectResult:
+            captured["params"] = params
+            captured["existing"] = existing_mcp_integration
+            return PlatformMCPCatalogConnectResult(
+                mcp_integration=existing_mcp_integration,
+                oauth_connect=IntegrationOAuthConnect(
+                    auth_url="https://auth.example.com/authorize?state=abc",
+                    provider_id="custom_mcp_discovery",
+                ),
+            )
+
+        monkeypatch.setattr(
+            integration_service, "connect_mcp_oauth_discovery", fake_discovery
+        )
+
+        result = await integration_service.update_mcp_integration(
+            mcp_integration_id=created.id,
+            params=MCPIntegrationUpdate(
+                server_type="http",
+                server_uri="https://mcp.example.com/v2/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=None,
+            ),
+            verify_connection=True,
+        )
+
+        assert isinstance(result, PlatformMCPCatalogConnectResult)
+        assert result.oauth_connect is not None
+        # Discovery received the merged target, including the edited server URI.
+        discovery_params = captured["params"]
+        assert isinstance(discovery_params, MCPHttpIntegrationCreate)
+        assert discovery_params.server_uri == "https://mcp.example.com/v2/mcp"
+        assert discovery_params.auth_type == MCPAuthType.OAUTH2
+        assert discovery_params.oauth_integration_id is None
+        assert captured["existing"] is not None
+
+    async def test_update_oauth2_without_clearing_id_still_requires_client(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A partial update that omits oauth_integration_id keeps the old 400.
+
+        Only an explicit null routes into discovery; a bare edit that leaves the
+        field unset must not silently start an OAuth redirect, so the original
+        validation error stands for an OAuth2 row with no client.
+        """
+        created = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name="No Client MCP",
+            slug=f"no-client-mcp-{uuid.uuid4().hex[:8]}",
+            server_type="http",
+            server_uri="https://mcp.example.com/mcp",
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_integration_id=None,
+        )
+        session.add(created)
+        await session.commit()
+        assert created.oauth_integration_id is None
+
+        async def fail_discovery(**_: object) -> PlatformMCPCatalogConnectResult:
+            raise AssertionError("discovery must not run without an explicit null")
+
+        monkeypatch.setattr(
+            integration_service, "connect_mcp_oauth_discovery", fail_discovery
+        )
+
+        with pytest.raises(
+            ValueError,
+            match="oauth_integration_id is required for OAuth 2.0 authentication",
+        ):
+            await integration_service.update_mcp_integration(
+                mcp_integration_id=created.id,
+                params=MCPIntegrationUpdate(description="just a description edit"),
+                verify_connection=True,
+            )
 
     async def test_delete_mcp_integration(
         self,
@@ -2453,6 +2718,7 @@ class TestMCPIntegrationAuthTypeSwapping:
         updated = await integration_service.update_mcp_integration(
             mcp_integration_id=created.id, params=update_params
         )
+        updated = _as_mcp_integration(updated)
 
         assert updated is not None
         assert updated.auth_type == MCPAuthType.OAUTH2
@@ -2481,6 +2747,7 @@ class TestMCPIntegrationAuthTypeSwapping:
         updated = await integration_service.update_mcp_integration(
             mcp_integration_id=created.id, params=update_params
         )
+        updated = _as_mcp_integration(updated)
 
         assert updated is not None
         assert updated.auth_type == MCPAuthType.CUSTOM
@@ -2506,6 +2773,7 @@ class TestMCPIntegrationAuthTypeSwapping:
         updated = await integration_service.update_mcp_integration(
             mcp_integration_id=created.id, params=update_params
         )
+        updated = _as_mcp_integration(updated)
 
         assert updated is not None
         assert updated.auth_type == MCPAuthType.NONE
@@ -2532,6 +2800,7 @@ class TestMCPIntegrationAuthTypeSwapping:
         updated = await integration_service.update_mcp_integration(
             mcp_integration_id=created.id, params=update_params
         )
+        updated = _as_mcp_integration(updated)
 
         assert updated is not None
         assert updated.auth_type == MCPAuthType.CUSTOM
@@ -2569,6 +2838,7 @@ class TestMCPIntegrationAuthTypeSwapping:
         updated = await integration_service.update_mcp_integration(
             mcp_integration_id=created.id, params=update_params
         )
+        updated = _as_mcp_integration(updated)
 
         assert updated is not None
         assert updated.oauth_integration_id == oauth_integration2.id
@@ -2596,6 +2866,7 @@ class TestMCPIntegrationAuthTypeSwapping:
         updated = await integration_service.update_mcp_integration(
             mcp_integration_id=created.id, params=update_params
         )
+        updated = _as_mcp_integration(updated)
 
         assert updated is not None
         assert updated.auth_type == MCPAuthType.OAUTH2
@@ -2621,6 +2892,7 @@ class TestMCPIntegrationAuthTypeSwapping:
         updated = await integration_service.update_mcp_integration(
             mcp_integration_id=created.id, params=update_params
         )
+        updated = _as_mcp_integration(updated)
 
         assert updated is not None
         assert updated.auth_type == MCPAuthType.OAUTH2
@@ -4574,6 +4846,7 @@ class TestMCPOAuthAuthorizationPending:
             params=MCPIntegrationUpdate(name="Pending OAuth MCP renamed"),
             verify_connection=True,
         )
+        updated = _as_mcp_integration(updated)
 
         assert updated is not None
         assert updated.name == "Pending OAuth MCP renamed"

@@ -288,11 +288,20 @@ class PlatformMCPCatalogService(BaseService):
         connection_options = (
             (entry.connection_options or []) if agent_addons_entitled else []
         )
+        # A connected workspace row owns its name/description: the user may have
+        # renamed it after connecting, and the catalog_slug binding keeps it tied
+        # to this entry. Fall back to the catalog defaults only when no row exists.
+        name = mcp_integration.name if mcp_integration else entry.name
+        description = (
+            (mcp_integration.description or "")
+            if mcp_integration
+            else entry.description
+        )
         return PlatformMCPCatalogRead(
             id=entry.id,
             slug=entry.slug,
-            name=entry.name,
-            description=entry.description,
+            name=name,
+            description=description,
             category=entry.category,
             status=cls._catalog_status(entry.status),
             icon_url=entry.icon_url,

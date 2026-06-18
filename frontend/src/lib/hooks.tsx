@@ -139,6 +139,7 @@ import {
   listCatalog,
   listCustomProviders,
   listEnabledModels,
+  type MCPCatalogConnectResponse,
   type MCPIntegrationCreate,
   type MCPIntegrationRead,
   type MCPIntegrationTestConnectionRequest,
@@ -4726,6 +4727,19 @@ export function useGetMcpIntegration(
   }
 }
 
+/**
+ * Narrow an MCP update response to the OAuth-discovery connect result.
+ *
+ * A plain update returns {@link MCPIntegrationRead}; an edit that triggers MCP
+ * OAuth discovery returns {@link MCPCatalogConnectResponse}, identified by its
+ * `status` field, and may carry an `auth_url` redirect.
+ */
+function isMcpCatalogConnectResponse(
+  result: MCPIntegrationRead | MCPCatalogConnectResponse
+): result is MCPCatalogConnectResponse {
+  return "status" in result
+}
+
 export function useUpdateMcpIntegration(workspaceId: string) {
   const queryClient = useQueryClient()
 
@@ -4747,16 +4761,27 @@ export function useUpdateMcpIntegration(workspaceId: string) {
         requestBody: params,
       })
     },
-    onSuccess: (integration) => {
+    onSuccess: (result) => {
+      const integration = isMcpCatalogConnectResponse(result)
+        ? result.mcp_integration
+        : result
+      const awaitingOAuth =
+        isMcpCatalogConnectResponse(result) && Boolean(result.auth_url)
       queryClient.invalidateQueries({
         queryKey: ["mcp-integrations", workspaceId],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["mcp-integration", workspaceId, integration.id],
-      })
+      if (integration) {
+        queryClient.invalidateQueries({
+          queryKey: ["mcp-integration", workspaceId, integration.id],
+        })
+      }
       toast({
-        title: "MCP integration updated",
-        description: `Updated ${integration.name}`,
+        title: awaitingOAuth
+          ? "Continue OAuth authorization"
+          : "MCP integration updated",
+        description: integration
+          ? `Updated ${integration.name}`
+          : "Redirecting to finish OAuth authorization.",
       })
     },
     onError: (error: TracecatApiError) => {
