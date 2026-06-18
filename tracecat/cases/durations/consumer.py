@@ -26,8 +26,7 @@ from tracecat.cases.enums import CaseEventType
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.locks import (
     derive_lock_key_from_parts,
-    pg_advisory_unlock,
-    try_pg_advisory_lock,
+    try_pg_advisory_xact_lock,
 )
 from tracecat.db.models import Case, Workspace
 from tracecat.db.models import CaseDurationDefinition as CaseDurationDefinitionDB
@@ -252,7 +251,7 @@ class CaseDurationSyncConsumer:
                 )
                 return True
 
-            locked = await try_pg_advisory_lock(session, lock_key)
+            locked = await try_pg_advisory_xact_lock(session, lock_key)
             if not locked:
                 await session.rollback()
                 logger.debug(
@@ -284,17 +283,6 @@ class CaseDurationSyncConsumer:
                     case_id=str(case_id),
                 )
                 return False
-            finally:
-                try:
-                    await pg_advisory_unlock(session, lock_key)
-                    await session.commit()
-                except Exception:
-                    await session.rollback()
-                    logger.warning(
-                        "Failed to release case duration sync advisory lock",
-                        workspace_id=str(workspace_id),
-                        case_id=str(case_id),
-                    )
 
     async def _event_types_require_sync(
         self,

@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import uuid
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
@@ -155,6 +156,59 @@ async def test_consumer_leaves_locked_case_jobs_pending(
 
     sync_mock.assert_awaited_once()
     assert client.acked == []
+
+
+@pytest.mark.anyio
+async def test_sync_case_duration_uses_transaction_scoped_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = FakeRedisClient()
+    consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
+    workspace_id = uuid.uuid4()
+    case_id = uuid.uuid4()
+    fake_session = MagicMock()
+    fake_session.commit = AsyncMock()
+    fake_session.rollback = AsyncMock()
+    role = MagicMock()
+    duration_service = MagicMock()
+    duration_service.sync_case_durations = AsyncMock(return_value=[])
+    duration_service_cls = MagicMock(return_value=duration_service)
+    lock_mock = AsyncMock(return_value=True)
+
+    @contextlib.asynccontextmanager
+    async def fake_session_context():
+        yield fake_session
+
+    monkeypatch.setattr(
+        "tracecat.cases.durations.consumer.get_async_session_bypass_rls_context_manager",
+        fake_session_context,
+    )
+    monkeypatch.setattr(
+        "tracecat.cases.durations.consumer.try_pg_advisory_xact_lock",
+        lock_mock,
+    )
+    monkeypatch.setattr(
+        "tracecat.cases.durations.consumer.CaseDurationService",
+        duration_service_cls,
+    )
+    monkeypatch.setattr(
+        consumer,
+        "_get_service_role",
+        AsyncMock(return_value=role),
+    )
+    monkeypatch.setattr(
+        consumer,
+        "_event_types_require_sync",
+        AsyncMock(return_value=True),
+    )
+
+    assert await consumer._sync_case_duration(workspace_id, case_id)
+
+    lock_mock.assert_awaited_once()
+    duration_service_cls.assert_called_once_with(session=fake_session, role=role)
+    duration_service.sync_case_durations.assert_awaited_once_with(case_id)
+    fake_session.commit.assert_awaited_once()
+    fake_session.rollback.assert_not_awaited()
 
 
 @pytest.mark.anyio
