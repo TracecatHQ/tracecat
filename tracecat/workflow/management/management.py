@@ -1199,7 +1199,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 defn_service = WorkflowDefinitionsService(
                     session=self.session, role=self.role
                 )
-                defn = await defn_service.create_workflow_definition(
+                defn = await defn_service.create_initial_workflow_definition(
                     WorkflowUUID.new(workflow.id),
                     dsl,
                     commit=False,

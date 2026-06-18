@@ -346,7 +346,7 @@ async def test_external_import_publishes_before_online_case_trigger(
             self.session = session
             self.role = role
 
-        async def create_workflow_definition(
+        async def create_initial_workflow_definition(
             self,
             workflow_id: uuid.UUID,
             dsl: DSLInput,

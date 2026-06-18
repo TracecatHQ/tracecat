@@ -8,7 +8,11 @@ from temporalio.exceptions import ApplicationError
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput
-from tracecat.exceptions import BuiltinRegistryHasNoSelectionError, EntitlementRequired
+from tracecat.exceptions import (
+    BuiltinRegistryHasNoSelectionError,
+    EntitlementRequired,
+    TracecatValidationError,
+)
 from tracecat.identifiers.workflow import WorkflowID
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
@@ -70,6 +74,46 @@ class WorkflowDefinitionsService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return list(result.scalars().all())
 
+    async def _create_workflow_definition(
+        self,
+        workflow_id: WorkflowID,
+        dsl: DSLInput,
+        *,
+        alias: str | None = None,
+        registry_lock: RegistryLock | None = None,
+        commit: bool = True,
+        require_initial: bool = False,
+    ) -> WorkflowDefinition:
+        statement = (
+            select(WorkflowDefinition)
+            .where(
+                WorkflowDefinition.workspace_id == self.workspace_id,
+                WorkflowDefinition.workflow_id == workflow_id,
+            )
+            .order_by(WorkflowDefinition.version.desc())
+        )
+        result = await self.session.execute(statement)
+        latest_defn = result.scalars().first()
+        if require_initial and latest_defn is not None:
+            raise TracecatValidationError("Initial workflow definition already exists")
+
+        version = latest_defn.version + 1 if latest_defn else 1
+        defn = WorkflowDefinition(
+            workspace_id=self.workspace_id,
+            workflow_id=workflow_id,
+            content=dsl.model_dump(exclude_unset=True),
+            version=version,
+            alias=alias,
+            registry_lock=registry_lock.model_dump() if registry_lock else None,
+        )
+        self.session.add(defn)
+        if commit:
+            await self.session.commit()
+        else:
+            await self.session.flush()
+        await self.session.refresh(defn)
+        return defn
+
     @require_scope("workflow:update")
     async def create_workflow_definition(
         self,
@@ -92,33 +136,33 @@ class WorkflowDefinitionsService(BaseWorkspaceService):
         Returns:
             The created WorkflowDefinition.
         """
-        statement = (
-            select(WorkflowDefinition)
-            .where(
-                WorkflowDefinition.workspace_id == self.workspace_id,
-                WorkflowDefinition.workflow_id == workflow_id,
-            )
-            .order_by(WorkflowDefinition.version.desc())
-        )
-        result = await self.session.execute(statement)
-        latest_defn = result.scalars().first()
-
-        version = latest_defn.version + 1 if latest_defn else 1
-        defn = WorkflowDefinition(
-            workspace_id=self.workspace_id,
-            workflow_id=workflow_id,
-            content=dsl.model_dump(exclude_unset=True),
-            version=version,
+        return await self._create_workflow_definition(
+            workflow_id,
+            dsl,
             alias=alias,
-            registry_lock=registry_lock.model_dump() if registry_lock else None,
+            registry_lock=registry_lock,
+            commit=commit,
         )
-        self.session.add(defn)
-        if commit:
-            await self.session.commit()
-        else:
-            await self.session.flush()
-        await self.session.refresh(defn)
-        return defn
+
+    @require_scope("workflow:create")
+    async def create_initial_workflow_definition(
+        self,
+        workflow_id: WorkflowID,
+        dsl: DSLInput,
+        *,
+        alias: str | None = None,
+        registry_lock: RegistryLock | None = None,
+        commit: bool = True,
+    ) -> WorkflowDefinition:
+        """Create the first committed definition for a newly created workflow."""
+        return await self._create_workflow_definition(
+            workflow_id,
+            dsl,
+            alias=alias,
+            registry_lock=registry_lock,
+            commit=commit,
+            require_initial=True,
+        )
 
 
 @activity.defn
