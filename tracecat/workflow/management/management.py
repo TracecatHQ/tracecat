@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import uuid
 from datetime import datetime
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 import sqlalchemy as sa
 import yaml
@@ -85,6 +85,18 @@ from tracecat.workflow.management.types import (
 )
 from tracecat.workflow.schedules import bridge
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
+
+
+class _ModelKey(NamedTuple):
+    """Stable cross-environment identity of a model selection.
+
+    ``catalog_id`` is a per-environment UUID; this ``(provider, name)`` pair is
+    what correlates the same model across environments. Used as the cache key
+    when re-mapping catalog ids on import.
+    """
+
+    provider: str
+    name: str
 
 
 class WorkflowsManagementService(BaseWorkspaceService):
@@ -999,17 +1011,23 @@ class WorkflowsManagementService(BaseWorkspaceService):
         return workflow
 
     async def correlate_agent_catalog_ids(self, dsl: DSLInput) -> DSLInput:
-        """Re-map ``ai.agent`` model ``catalog_id``s to local catalog rows.
+        """Re-map agent action model ``catalog_id``s to local catalog rows.
 
         A model selection's ``catalog_id`` is a per-environment UUID, but the
         ``(model_provider, model_name)`` tuple is stable across environments.
         On import we look up the local catalog row for that tuple and rewrite
-        the ``catalog_id`` so the agent resolves credentials here.
+        the ``catalog_id`` so the action resolves credentials here.
+
+        Covers both ``ai.agent`` and ``ai.action`` — both carry the same
+        ``AgentActionArgs`` model selection and pass ``catalog_id`` into
+        execution.
 
         This is purely additive: when no local row matches, the stored
-        ``catalog_id`` is left untouched (the workflow still imports). Non-
-        ``ai.agent`` actions and selections without a ``catalog_id`` are
-        skipped.
+        ``catalog_id`` is left untouched (the workflow still imports). Other
+        actions and selections without a ``catalog_id`` are skipped. When the
+        incoming ``catalog_id`` is already visible and enabled locally it is
+        kept as-is — a same-environment pull must not rewrite the user's
+        selected row to another enabled row that wins the tuple resolver.
 
         Runs only on the import/sync boundaries (manual import and git-sync
         pull) where a ``catalog_id`` may have come from another environment —
@@ -1019,21 +1037,24 @@ class WorkflowsManagementService(BaseWorkspaceService):
         if org_id is None:
             return dsl
 
-        # Cheap early-out: no DB work unless an ``ai.agent`` action exists.
-        if not any(
-            act_stmt.action == PlatformAction.AI_AGENT for act_stmt in dsl.actions
-        ):
+        # Both action types carry the same ``AgentActionArgs`` model selection.
+        correlated_actions = (PlatformAction.AI_AGENT, PlatformAction.AI_ACTION)
+
+        # Cheap early-out: no DB work unless a correlated action exists.
+        if not any(act_stmt.action in correlated_actions for act_stmt in dsl.actions):
             return dsl
 
         catalog_svc = AgentCatalogService(session=self.session)
         # Cache resolutions by (provider, name) — a synced workflow may have
         # many agent actions on the same model; this avoids repeat DB queries.
         # ``None`` results (no match / ambiguous) are cached too.
-        resolved: dict[tuple[str, str], uuid.UUID | None] = {}
+        resolved: dict[_ModelKey, uuid.UUID | None] = {}
+        # Cache whether an incoming catalog_id is already enabled locally.
+        already_local: dict[str, bool] = {}
         rewritten = False
         new_actions = list(dsl.actions)
         for idx, act_stmt in enumerate(dsl.actions):
-            if act_stmt.action != PlatformAction.AI_AGENT:
+            if act_stmt.action not in correlated_actions:
                 continue
 
             args = act_stmt.args
@@ -1054,14 +1075,36 @@ class WorkflowsManagementService(BaseWorkspaceService):
             if not catalog_id or not model_provider or not model_name:
                 continue
 
-            key = (str(model_provider), str(model_name))
+            # Preserve an already-local selection: if the incoming catalog_id is
+            # itself visible and enabled here, keep it. Otherwise a
+            # same-environment pull could rewrite the user's chosen row to a
+            # different enabled row (e.g. an org vs platform duplicate) that
+            # merely wins the (provider, name) tuple resolver's ordering.
+            catalog_id_str = str(catalog_id)
+            if catalog_id_str not in already_local:
+                try:
+                    parsed_id = uuid.UUID(catalog_id_str)
+                except (ValueError, TypeError):
+                    already_local[catalog_id_str] = False
+                else:
+                    already_local[
+                        catalog_id_str
+                    ] = await catalog_svc.is_catalog_id_enabled(
+                        org_id=org_id,
+                        catalog_id=parsed_id,
+                        workspace_id=self.workspace_id,
+                    )
+            if already_local[catalog_id_str]:
+                continue
+
+            key = _ModelKey(provider=str(model_provider), name=str(model_name))
             if key in resolved:
                 local_id = resolved[key]
             else:
                 local_id = await catalog_svc.resolve_catalog_id_by_model(
                     org_id=org_id,
-                    model_provider=key[0],
-                    model_name=key[1],
+                    model_provider=key.provider,
+                    model_name=key.name,
                     workspace_id=self.workspace_id,
                 )
                 resolved[key] = local_id

@@ -947,3 +947,149 @@ async def test_resolve_catalog_id_by_model_multiple_rows_best_effort(
         model_name="shared-model",
     )
     assert again == resolved
+
+
+@pytest.mark.anyio
+async def test_is_catalog_id_enabled_true_for_enabled_row(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    """An org row that is enabled at org level reports as enabled."""
+    service = AgentCatalogService(session=session)
+    row = AgentCatalog(
+        organization_id=svc_organization.id,
+        custom_provider_id=None,
+        model_provider="anthropic",
+        model_name="claude-opus-4-8",
+        model_metadata={},
+    )
+    session.add(row)
+    await session.flush()
+    session.add(_enable(org_id=svc_organization.id, catalog_id=row.id))
+    await session.commit()
+
+    assert (
+        await service.is_catalog_id_enabled(
+            org_id=svc_organization.id,
+            catalog_id=row.id,
+        )
+        is True
+    )
+
+
+@pytest.mark.anyio
+async def test_is_catalog_id_enabled_false_for_disabled_row(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    """A visible row with no access row reports as not enabled."""
+    service = AgentCatalogService(session=session)
+    row = AgentCatalog(
+        organization_id=svc_organization.id,
+        custom_provider_id=None,
+        model_provider="anthropic",
+        model_name="claude-opus-4-8",
+        model_metadata={},
+    )
+    session.add(row)
+    await session.commit()
+
+    assert (
+        await service.is_catalog_id_enabled(
+            org_id=svc_organization.id,
+            catalog_id=row.id,
+        )
+        is False
+    )
+
+
+@pytest.mark.anyio
+async def test_is_catalog_id_enabled_false_for_foreign_org_row(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    """A row owned by another org is not visible, even if enabled there."""
+    service = AgentCatalogService(session=session)
+    other_org_id = uuid.uuid4()
+    other_org = Organization(
+        id=other_org_id,
+        name="Other Org",
+        slug=f"other-org-{other_org_id.hex[:8]}",
+        is_active=True,
+    )
+    session.add(other_org)
+    await session.flush()
+    row = AgentCatalog(
+        organization_id=other_org.id,
+        custom_provider_id=None,
+        model_provider="anthropic",
+        model_name="claude-opus-4-8",
+        model_metadata={},
+    )
+    session.add(row)
+    await session.flush()
+    session.add(_enable(org_id=other_org.id, catalog_id=row.id))
+    await session.commit()
+
+    assert (
+        await service.is_catalog_id_enabled(
+            org_id=svc_organization.id,
+            catalog_id=row.id,
+        )
+        is False
+    )
+
+
+@pytest.mark.anyio
+async def test_is_catalog_id_enabled_respects_workspace_override(
+    session: AsyncSession,
+    svc_organization: Organization,
+    svc_workspace,
+) -> None:
+    """A workspace override replaces the org-level set for the enabled check."""
+    service = AgentCatalogService(session=session)
+    org_row = AgentCatalog(
+        organization_id=svc_organization.id,
+        custom_provider_id=None,
+        model_provider="anthropic",
+        model_name="claude-opus-4-8",
+        model_metadata={},
+    )
+    ws_row = AgentCatalog(
+        organization_id=svc_organization.id,
+        custom_provider_id=None,
+        model_provider="openai",
+        model_name="gpt-4.1",
+        model_metadata={},
+    )
+    session.add_all([org_row, ws_row])
+    await session.flush()
+    # Org level enables org_row; the workspace override enables only ws_row.
+    session.add(_enable(org_id=svc_organization.id, catalog_id=org_row.id))
+    session.add(
+        _enable(
+            org_id=svc_organization.id,
+            catalog_id=ws_row.id,
+            workspace_id=svc_workspace.id,
+        )
+    )
+    await session.commit()
+
+    # org_row is org-enabled but the workspace override hides it.
+    assert (
+        await service.is_catalog_id_enabled(
+            org_id=svc_organization.id,
+            catalog_id=org_row.id,
+            workspace_id=svc_workspace.id,
+        )
+        is False
+    )
+    # ws_row is enabled via the override.
+    assert (
+        await service.is_catalog_id_enabled(
+            org_id=svc_organization.id,
+            catalog_id=ws_row.id,
+            workspace_id=svc_workspace.id,
+        )
+        is True
+    )

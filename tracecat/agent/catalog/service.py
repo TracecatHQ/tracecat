@@ -115,6 +115,70 @@ class AgentCatalogService(BaseService):
             raise TracecatNotFoundError(f"Catalog entry {catalog_id} not found")
         return row
 
+    async def _enabled_catalog_ids_subquery(
+        self,
+        *,
+        org_id: UUID,
+        workspace_id: UUID | None,
+    ) -> Any:
+        """Subquery of catalog ids enabled for the importing workspace.
+
+        Mirrors ``is_catalog_enabled``: a workspace's explicit access rows fully
+        override the org-level set; otherwise the org-level (``workspace_id IS
+        NULL``) set applies.
+        """
+        effective_workspace_id: UUID | None = None
+        if workspace_id is not None:
+            override_exists = await self.session.scalar(
+                select(
+                    exists().where(
+                        AgentModelAccess.organization_id == org_id,
+                        AgentModelAccess.workspace_id == workspace_id,
+                    )
+                )
+            )
+            if override_exists:
+                effective_workspace_id = workspace_id
+        access_workspace_condition = (
+            AgentModelAccess.workspace_id == effective_workspace_id
+            if effective_workspace_id is not None
+            else AgentModelAccess.workspace_id.is_(None)
+        )
+        return select(AgentModelAccess.catalog_id).where(
+            AgentModelAccess.organization_id == org_id,
+            access_workspace_condition,
+        )
+
+    async def is_catalog_id_enabled(
+        self,
+        *,
+        org_id: UUID,
+        catalog_id: UUID,
+        workspace_id: UUID | None = None,
+    ) -> bool:
+        """Return whether ``catalog_id`` is visible to the org and enabled here.
+
+        Used on import to short-circuit re-mapping when the incoming
+        ``catalog_id`` already points at a row that is both visible to the org
+        and enabled for the importing workspace — a same-environment pull must
+        not rewrite the user's selected row to another enabled row that happens
+        to win the ``(provider, name)`` tuple resolver's ordering.
+        """
+        enabled_catalog_ids = await self._enabled_catalog_ids_subquery(
+            org_id=org_id, workspace_id=workspace_id
+        )
+        stmt = select(
+            exists().where(
+                AgentCatalog.id == catalog_id,
+                AgentCatalog.id.in_(enabled_catalog_ids),
+                sa.or_(
+                    AgentCatalog.organization_id == org_id,
+                    AgentCatalog.organization_id.is_(None),
+                ),
+            )
+        )
+        return bool(await self.session.scalar(stmt))
+
     async def resolve_catalog_id_by_model(
         self,
         *,
@@ -152,29 +216,8 @@ class AgentCatalogService(BaseService):
         deterministically rather than skip; an imported agent resolving to a
         plausible enabled model beats leaving it dangling.
         """
-        # Mirror is_catalog_enabled: a workspace override fully replaces the
-        # org-level access set; otherwise the org-level (workspace_id IS NULL)
-        # set applies.
-        effective_workspace_id: UUID | None = None
-        if workspace_id is not None:
-            override_exists = await self.session.scalar(
-                select(
-                    exists().where(
-                        AgentModelAccess.organization_id == org_id,
-                        AgentModelAccess.workspace_id == workspace_id,
-                    )
-                )
-            )
-            if override_exists:
-                effective_workspace_id = workspace_id
-        access_workspace_condition = (
-            AgentModelAccess.workspace_id == effective_workspace_id
-            if effective_workspace_id is not None
-            else AgentModelAccess.workspace_id.is_(None)
-        )
-        enabled_catalog_ids = select(AgentModelAccess.catalog_id).where(
-            AgentModelAccess.organization_id == org_id,
-            access_workspace_condition,
+        enabled_catalog_ids = await self._enabled_catalog_ids_subquery(
+            org_id=org_id, workspace_id=workspace_id
         )
 
         stmt = (

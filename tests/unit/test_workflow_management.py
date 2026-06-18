@@ -199,9 +199,13 @@ class _FakeCatalogService:
         *,
         session: Any = None,
         mapping: dict[tuple[str, str], uuid.UUID] | None = None,
+        enabled_ids: set[uuid.UUID] | None = None,
     ):
         self._mapping = mapping or {}
+        # Incoming catalog_ids treated as already visible+enabled locally.
+        self._enabled_ids = enabled_ids or set()
         self.calls: list[tuple[str, str]] = []
+        self.enabled_calls: list[uuid.UUID] = []
 
     async def resolve_catalog_id_by_model(
         self,
@@ -213,6 +217,16 @@ class _FakeCatalogService:
     ) -> uuid.UUID | None:
         self.calls.append((model_provider, model_name))
         return self._mapping.get((model_provider, model_name))
+
+    async def is_catalog_id_enabled(
+        self,
+        *,
+        org_id: uuid.UUID,
+        catalog_id: uuid.UUID,
+        workspace_id: uuid.UUID | None = None,
+    ) -> bool:
+        self.enabled_calls.append(catalog_id)
+        return catalog_id in self._enabled_ids
 
 
 def _agent_dsl(args: dict[str, Any], *, action: str = "ai.agent") -> DSLInput:
@@ -449,3 +463,65 @@ async def test_correlate_agent_catalog_ids_mixed_nested_and_flat_catalog_id(
     assert out.actions[0].args["catalog_id"] == str(local_id)
     # Nested block had no catalog_id; it is left without one.
     assert "catalog_id" not in out.actions[0].args["model"]
+
+
+@pytest.mark.anyio
+async def test_correlate_agent_catalog_ids_rewrites_ai_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``ai.action`` uses the same model selection and must be correlated too."""
+    old_id = uuid.uuid4()
+    local_id = uuid.uuid4()
+    mapping = {("anthropic", "claude-opus-4-8"): local_id}
+    fake = _FakeCatalogService(mapping=mapping)
+    monkeypatch.setattr(management, "AgentCatalogService", lambda session: fake)
+    dsl = _agent_dsl(
+        {
+            "user_prompt": "hi",
+            "model": {
+                "model_name": "claude-opus-4-8",
+                "model_provider": "anthropic",
+                "catalog_id": str(old_id),
+            },
+        },
+        action="ai.action",
+    )
+
+    out = await _service(_role()).correlate_agent_catalog_ids(dsl)
+
+    assert fake.calls == [("anthropic", "claude-opus-4-8")]
+    assert out.actions[0].args["model"]["catalog_id"] == str(local_id)
+
+
+@pytest.mark.anyio
+async def test_correlate_agent_catalog_ids_preserves_already_local_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An incoming catalog_id already enabled here is kept, not re-resolved.
+
+    A same-environment pull must not rewrite the user's selected row to another
+    enabled duplicate that merely wins the (provider, name) tuple resolver.
+    """
+    selected_id = uuid.uuid4()
+    other_enabled_id = uuid.uuid4()
+    # Tuple resolver would prefer a *different* enabled row.
+    mapping = {("anthropic", "claude-opus-4-8"): other_enabled_id}
+    fake = _FakeCatalogService(mapping=mapping, enabled_ids={selected_id})
+    monkeypatch.setattr(management, "AgentCatalogService", lambda session: fake)
+    dsl = _agent_dsl(
+        {
+            "user_prompt": "hi",
+            "model": {
+                "model_name": "claude-opus-4-8",
+                "model_provider": "anthropic",
+                "catalog_id": str(selected_id),
+            },
+        }
+    )
+
+    out = await _service(_role()).correlate_agent_catalog_ids(dsl)
+
+    # The selected id is preserved and the tuple resolver was never queried.
+    assert out.actions[0].args["model"]["catalog_id"] == str(selected_id)
+    assert fake.enabled_calls == [selected_id]
+    assert fake.calls == []
