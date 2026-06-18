@@ -224,6 +224,7 @@ def test_get_platform_mcp_catalog_entries_normalizes_specs_and_drops_malformed_r
                 "description": "",
                 "required": True,
                 "secret": False,
+                "default_value": None,
                 "target": "server_uri",
             },
             {
@@ -232,6 +233,7 @@ def test_get_platform_mcp_catalog_entries_normalizes_specs_and_drops_malformed_r
                 "description": "",
                 "required": True,
                 "secret": True,
+                "default_value": None,
                 "target": "http_header",
             },
         ],
@@ -536,6 +538,34 @@ def test_private_catalog_overlay_does_not_drop_public_rows() -> None:
         )
         assert stdio_option.connection_spec.server_type == "stdio"
         assert stdio_option.connection_spec.requires_config is True
+
+    wiz = private_by_slug["wiz-mcp"]
+    assert wiz.connection_spec is not None
+    assert wiz.connection_spec.kind == "http_oauth2"
+    assert wiz.connection_options is not None
+    assert [option.id for option in wiz.connection_options] == [
+        "remote-oauth",
+        "client-credentials",
+    ]
+    client_credentials = next(
+        option for option in wiz.connection_options if option.id == "client-credentials"
+    )
+    client_credentials_spec = client_credentials.connection_spec
+    assert client_credentials_spec.kind == "http_custom"
+    assert client_credentials_spec.server_uri == "https://mcp.app.wiz.io/"
+    assert client_credentials_spec.requires_config is True
+    headers = {
+        credential.key: credential
+        for credential in client_credentials_spec.credentials
+        if credential.target == "http_header"
+    }
+    assert set(headers) == {
+        "Wiz-Client-Id",
+        "Wiz-Client-Secret",
+        "Wiz-DataCenter",
+        "X-Wiz-MCP-Mode",
+    }
+    assert headers["X-Wiz-MCP-Mode"].default_value == "gateway"
 
 
 def test_catalog_state_marks_non_oauth_mcp_rows_connected() -> None:

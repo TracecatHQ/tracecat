@@ -338,7 +338,7 @@ function credentialsTemplate(
   }
   const obj: Record<string, string> = {}
   for (const cred of creds) {
-    obj[cred.key] = ""
+    obj[cred.key] = cred.default_value ?? ""
   }
   return JSON.stringify(obj, null, 2)
 }
