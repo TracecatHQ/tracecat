@@ -27,6 +27,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.cases.durations.schemas import (
     CaseDurationAnchorSelection,
@@ -42,6 +43,7 @@ from tracecat.cases.durations.schemas import (
     CaseDurationUpdate,
 )
 from tracecat.cases.durations.sync_queue import (
+    CaseDurationSyncReason,
     enqueue_case_duration_sync_after_commit,
 )
 from tracecat.cases.enums import CaseEventType
@@ -104,10 +106,8 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
             **self._anchor_attributes(params.end_anchor, "end"),
         )
         self.session.add(entity)
-        enqueue_case_duration_sync_after_commit(
-            self.session,
-            workspace_id=self.workspace_id,
-            reason="duration_definition_created",
+        await self._backfill_after_definition_change(
+            reason="duration_definition_created"
         )
         await self.session.commit()
         await self.session.refresh(entity)
@@ -150,10 +150,8 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
             self._apply_anchor(entity, end_anchor, "end")
 
         self.session.add(entity)
-        enqueue_case_duration_sync_after_commit(
-            self.session,
-            workspace_id=self.workspace_id,
-            reason="duration_definition_updated",
+        await self._backfill_after_definition_change(
+            reason="duration_definition_updated"
         )
         await self.session.commit()
         await self.session.refresh(entity)
@@ -166,6 +164,31 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
         entity = await self._get_definition_entity(duration_id)
         await self.session.delete(entity)
         await self.session.commit()
+
+    async def _backfill_after_definition_change(
+        self, *, reason: CaseDurationSyncReason
+    ) -> None:
+        if config.TRACECAT__CASE_DURATION_SYNC_ENABLED:
+            enqueue_case_duration_sync_after_commit(
+                self.session,
+                workspace_id=self.workspace_id,
+                reason=reason,
+            )
+            return
+
+        await self._sync_existing_case_durations_inline()
+
+    async def _sync_existing_case_durations_inline(self) -> None:
+        await self.session.flush()
+        stmt = (
+            select(Case.id)
+            .where(Case.workspace_id == self.workspace_id)
+            .order_by(Case.surrogate_id.asc())
+        )
+        result = await self.session.execute(stmt)
+        duration_service = CaseDurationService(session=self.session, role=self.role)
+        async for case_id in cooperative_every(result.scalars().all(), every=8):
+            await duration_service.sync_case_durations(case_id)
 
     async def _get_definition_entity(
         self, duration_id: uuid.UUID
