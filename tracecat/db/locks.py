@@ -61,6 +61,17 @@ async def try_pg_advisory_lock(session: AsyncSession, key: int) -> bool:
     return result.scalar() is True
 
 
+async def try_pg_advisory_xact_lock(session: AsyncSession, key: int) -> bool:
+    """Try to acquire a transaction-scoped PostgreSQL advisory lock."""
+    if not (-(2**63) <= key < 2**63):
+        raise ValueError(f"Lock key {key} out of range for PostgreSQL advisory locks")
+
+    result = await session.execute(
+        text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": key}
+    )
+    return result.scalar() is True
+
+
 async def pg_advisory_unlock(session: AsyncSession, key: int) -> bool:
     """Release a PostgreSQL advisory lock.
 
