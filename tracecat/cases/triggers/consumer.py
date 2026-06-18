@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from time import monotonic
 from typing import Any
 
+from pydantic import ValidationError
 from redis.exceptions import ResponseError
 from sqlalchemy import or_, select, update
 from sqlalchemy.orm import selectinload
@@ -557,16 +558,57 @@ class CaseTriggerConsumer:
                 workflow_id=str(trigger.workflow_id),
                 event_id=str(event.id),
             )
-            return False
+            await self._disable_invalid_case_trigger(
+                session=session,
+                trigger=trigger,
+                event=event,
+                reason="missing workflow definition",
+            )
+            return True
+        if defn.workflow is None or defn.workflow.version != defn.version:
+            logger.warning(
+                "Current workflow definition missing for case trigger",
+                workflow_id=str(trigger.workflow_id),
+                event_id=str(event.id),
+                definition_version=defn.version,
+                workflow_version=defn.workflow.version if defn.workflow else None,
+            )
+            await self._disable_invalid_case_trigger(
+                session=session,
+                trigger=trigger,
+                event=event,
+                reason="current workflow definition missing",
+            )
+            return True
         if not defn.content:
             logger.warning(
                 "Workflow definition content missing",
                 workflow_id=str(trigger.workflow_id),
                 event_id=str(event.id),
             )
-            return False
+            await self._disable_invalid_case_trigger(
+                session=session,
+                trigger=trigger,
+                event=event,
+                reason="missing workflow definition content",
+            )
+            return True
 
-        dsl = DSLInput.model_validate(defn.content)
+        try:
+            dsl = DSLInput.model_validate(defn.content)
+        except ValidationError:
+            logger.warning(
+                "Workflow definition content invalid",
+                workflow_id=str(trigger.workflow_id),
+                event_id=str(event.id),
+            )
+            await self._disable_invalid_case_trigger(
+                session=session,
+                trigger=trigger,
+                event=event,
+                reason="invalid workflow definition content",
+            )
+            return True
         workflow_service = await WorkflowExecutionsService.connect(role=role)
 
         workflow_service.create_workflow_execution_nowait(
@@ -579,6 +621,24 @@ class CaseTriggerConsumer:
             else None,
         )
         return True
+
+    async def _disable_invalid_case_trigger(
+        self,
+        *,
+        session,
+        trigger: CaseTrigger,
+        event: CaseEvent,
+        reason: str,
+    ) -> None:
+        logger.warning(
+            "Disabling invalid case trigger",
+            workflow_id=str(trigger.workflow_id),
+            event_id=str(event.id),
+            reason=reason,
+        )
+        trigger.status = "offline"
+        session.add(trigger)
+        await session.flush()
 
     async def _dispatch_selected_workflow(
         self,

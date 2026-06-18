@@ -99,6 +99,22 @@ def test_remote_webhook_defaults_include_headers_false():
     assert rw.include_headers is False
 
 
+async def _publish_workflow(
+    session: AsyncSession, workflow: Workflow, dsl: DSLInput
+) -> None:
+    definition = WorkflowDefinition(
+        workspace_id=workflow.workspace_id,
+        workflow_id=workflow.id,
+        version=1,
+        content=dsl.model_dump(exclude_unset=True),
+    )
+    session.add(definition)
+    workflow.version = definition.version
+    session.add(workflow)
+    await session.commit()
+    await session.refresh(workflow)
+
+
 class TestWorkflowImportService:
     """Test WorkflowImportService functionality."""
 
@@ -208,6 +224,7 @@ class TestWorkflowImportService:
         workflow = await import_service.wf_mgmt.create_db_workflow_from_dsl(
             sample_dsl, workflow_id=WorkflowUUID.new_uuid4()
         )
+        await _publish_workflow(import_service.session, workflow, sample_dsl)
         case_trigger_service = CaseTriggersService(
             import_service.session, role=import_service.role
         )
@@ -237,6 +254,7 @@ class TestWorkflowImportService:
         workflow = await import_service.wf_mgmt.create_db_workflow_from_dsl(
             sample_dsl, workflow_id=WorkflowUUID.new_uuid4()
         )
+        await _publish_workflow(import_service.session, workflow, sample_dsl)
         case_trigger_service = CaseTriggersService(
             import_service.session, role=import_service.role
         )
