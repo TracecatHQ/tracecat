@@ -1134,73 +1134,14 @@
     {
       "slug": "okta-mcp",
       "docs": "https://github.com/okta/okta-mcp-server",
-      "connection_spec": {
-        "server_type": "stdio",
-        "auth_type": "CUSTOM",
-        "stdio_command": null,
-        "stdio_args": [],
-        "stdio_env": [
-          "OKTA_ORG_URL",
-          "OKTA_CLIENT_ID",
-          "OKTA_SCOPES",
-          "OKTA_PRIVATE_KEY",
-          "OKTA_KEY_ID",
-          "PYTHON_KEYRING_BACKEND"
-        ],
-        "packages": [],
-        "credentials": [
-          {
-            "key": "OKTA_ORG_URL",
-            "label": "Okta Org URL",
-            "description": "Your Okta tenant org URL, e.g. https://your-org.okta.com or https://integrator-1234567.okta.com.",
-            "required": true,
-            "secret": false,
-            "target": "stdio_env"
-          },
-          {
-            "key": "OKTA_CLIENT_ID",
-            "label": "Okta Client ID",
-            "description": "Client ID of the Okta OAuth app (API Services / native app) used by the MCP server.",
-            "required": true,
-            "secret": false,
-            "target": "stdio_env"
-          },
-          {
-            "key": "OKTA_SCOPES",
-            "label": "Okta Scopes",
-            "description": "Space-separated list of Okta API scopes granted to the app, e.g. 'okta.users.read okta.groups.read'. Determines which tools are enabled at startup.",
-            "required": true,
-            "secret": false,
-            "target": "stdio_env"
-          },
-          {
-            "key": "OKTA_PRIVATE_KEY",
-            "label": "Okta Private Key (PEM)",
-            "description": "RSA private key in PEM format (starts with -----BEGIN PRIVATE KEY-----). Required only for browserless Private Key JWT auth; omit for interactive Device Authorization Grant.",
-            "required": false,
-            "secret": true,
-            "target": "stdio_env"
-          },
-          {
-            "key": "OKTA_KEY_ID",
-            "label": "Okta Key ID (KID)",
-            "description": "Key ID (KID) associated with the private key. Required only for Private Key JWT auth.",
-            "required": false,
-            "secret": false,
-            "target": "stdio_env"
-          }
-        ],
-        "confidence": "high",
-        "docker_only": false,
-        "research_notes": "Official server is okta/okta-mcp-server (Python, built on Okta Python SDK), STDIO transport. There is NO match against our package allowlist: the only documented installs are (1) Docker (`docker run ... okta-mcp-server` built locally / via docker-compose) and (2) git clone + `uv sync` + run via `uv run --directory /path/to/okta-mcp-server okta-mcp-server`. No published PyPI/npm package and no `uvx`/`pip install <name>`/`npx` invocation is documented, so packages[] is empty and stdio_command/args/package are null. docker_only=false because a non-Docker uv path exists, but it is NOT a `uvx` one-shot — it requires a local checkout, which our installer cannot do automatically.\n\nAuth: classified CUSTOM because the user must supply Okta OAuth app config + credentials (OKTA_CLIENT_ID, OKTA_ORG_URL, OKTA_SCOPES, and for browserless use OKTA_PRIVATE_KEY + OKTA_KEY_ID). Underlying mechanism is OAuth2 against Okta itself: either Device Authorization Grant (interactive browser code flow; only needs org url/client id/scopes; tokens cached in keyring, requires PYTHON_KEYRING_BACKEND=keyrings.alt.file.PlaintextKeyring in Docker) or Private Key JWT (client-credentials-style, browserless, server-to-server; needs private key + key id). This is not a remote-MCP DCR sign-in, so OAUTH2 fields (grant_type/endpoints/hosts) are left null/empty. The OAuth endpoints would be the user's own Okta org domain (OKTA_ORG_URL), not a fixed vendor host.\n\nNote there are popular third-party servers (fctr-id/okta-mcp-server, kapilduraphe/okta-mcp-server) but okta/okta-mcp-server is the first-party official one.",
-        "sources": [
-          "https://github.com/okta/okta-mcp-server",
-          "https://raw.githubusercontent.com/okta/okta-mcp-server/main/README.md",
-          "https://developer.okta.com/docs/guides/start-mcp-server/main/",
-          "https://developer.okta.com/blog/2025/09/22/okta-mcp-server",
-          "https://developer.okta.com/docs/concepts/mcp-server/"
-        ]
-      }
+      "research_notes": "Official server is okta/okta-mcp-server (Python, built on Okta Python SDK), STDIO transport. The documented installation paths are Docker/docker-compose or a local checkout launched with `uv run --directory /path/to/okta-mcp-server okta-mcp-server`; Okta's docs do not document a hosted remote MCP endpoint, nor a one-shot `uvx`/`pip install <name>`/`npx` package launch. The previous catalog row had a loose STDIO recipe with no allowlisted launch command/package, so it has been removed until there is a supported connect path.\n\nOkta also documents an MCP Server Registration API for Okta for AI Agents, but that is for registering/trusting MCP servers as resource servers; it is not a hosted remote Okta Admin MCP endpoint for this catalog entry.\n\nAuth details for a future connection recipe: users supply Okta OAuth app config + credentials (OKTA_CLIENT_ID, OKTA_ORG_URL, OKTA_SCOPES, and for browserless use OKTA_PRIVATE_KEY + OKTA_KEY_ID). Underlying mechanism is OAuth2 against the user's own Okta org domain, via Device Authorization Grant or Private Key JWT. This is not a remote-MCP DCR sign-in.\n\nNote there are popular third-party servers (fctr-id/okta-mcp-server, kapilduraphe/okta-mcp-server), but okta/okta-mcp-server is the first-party official one.",
+      "sources": [
+        "https://github.com/okta/okta-mcp-server",
+        "https://raw.githubusercontent.com/okta/okta-mcp-server/main/README.md",
+        "https://developer.okta.com/docs/guides/start-mcp-server/main/",
+        "https://developer.okta.com/blog/2025/09/22/okta-mcp-server",
+        "https://developer.okta.com/docs/concepts/mcp-server/"
+      ]
     },
     {
       "slug": "hashicorp-vault-mcp",

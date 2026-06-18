@@ -159,6 +159,7 @@
       "name": "Okta",
       "description": "Manage users, groups, apps, policies, and logs on Okta",
       "category": "Identity",
+      "status": "coming_soon",
       "icon": "https://cdn.simpleicons.org/okta"
     },
     {
