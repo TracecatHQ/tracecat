@@ -34,6 +34,33 @@ type FileReaderEventHandler =
   | ((this: FileReader, event: ProgressEvent<FileReader>) => unknown)
   | null
 
+function installDeferredFileReader() {
+  const originalFileReader = window.FileReader
+  const deferredReader = {
+    result: null as string | ArrayBuffer | null,
+    onload: null as FileReaderEventHandler,
+    onerror: null as FileReaderEventHandler,
+    readAsText: jest.fn(),
+  }
+
+  Object.defineProperty(window, "FileReader", {
+    configurable: true,
+    writable: true,
+    value: jest.fn(() => deferredReader as unknown as FileReader),
+  })
+
+  return {
+    deferredReader,
+    restoreFileReader: () => {
+      Object.defineProperty(window, "FileReader", {
+        configurable: true,
+        writable: true,
+        value: originalFileReader,
+      })
+    },
+  }
+}
+
 describe("GitHubAppManualForm", () => {
   beforeEach(() => {
     jest.clearAllMocks()
@@ -112,19 +139,7 @@ describe("GitHubAppManualForm", () => {
     const invalidFile = new File(["not a pem"], "private-key.txt", {
       type: "text/plain",
     })
-    const originalFileReader = window.FileReader
-    const deferredReader = {
-      result: null as string | ArrayBuffer | null,
-      onload: null as FileReaderEventHandler,
-      onerror: null as FileReaderEventHandler,
-      readAsText: jest.fn(),
-    }
-
-    Object.defineProperty(window, "FileReader", {
-      configurable: true,
-      writable: true,
-      value: jest.fn(() => deferredReader as unknown as FileReader),
-    })
+    const { deferredReader, restoreFileReader } = installDeferredFileReader()
 
     try {
       render(<GitHubAppManualForm />)
@@ -156,11 +171,53 @@ describe("GitHubAppManualForm", () => {
         screen.queryByText("github-app.private-key.pem")
       ).not.toBeInTheDocument()
     } finally {
-      Object.defineProperty(window, "FileReader", {
-        configurable: true,
-        writable: true,
-        value: originalFileReader,
+      restoreFileReader()
+    }
+  })
+
+  it("prevents saving an old private key while a PEM is loading", async () => {
+    const existingPem = [
+      "-----BEGIN PRIVATE KEY-----",
+      "MIIEpAIBAAKCAQEA",
+      "-----END PRIVATE KEY-----",
+    ].join("\n")
+    const replacementPem = [
+      "-----BEGIN PRIVATE KEY-----",
+      "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC",
+      "-----END PRIVATE KEY-----",
+    ].join("\n")
+    const file = new File([replacementPem], "replacement.private-key.pem", {
+      type: "application/x-pem-file",
+    })
+    const { deferredReader, restoreFileReader } = installDeferredFileReader()
+
+    try {
+      render(<GitHubAppManualForm />)
+
+      fireEvent.change(screen.getByLabelText("GitHub App ID *"), {
+        target: { value: "123456" },
       })
+      const privateKeyInput = screen.getByLabelText("Private Key *")
+      fireEvent.change(privateKeyInput, {
+        target: { value: existingPem },
+      })
+      expect(privateKeyInput).toHaveValue(existingPem)
+
+      fireEvent.drop(screen.getByTestId("github-app-private-key-dropzone"), {
+        dataTransfer: createDataTransfer(file),
+      })
+
+      expect(deferredReader.readAsText).toHaveBeenCalledWith(file)
+      expect(privateKeyInput).toHaveValue("")
+
+      fireEvent.click(screen.getByRole("button", { name: "Save credentials" }))
+
+      await waitFor(() => {
+        expect(screen.getByText("Private key is required")).toBeInTheDocument()
+      })
+      expect(mockMutateAsync).not.toHaveBeenCalled()
+    } finally {
+      restoreFileReader()
     }
   })
 })

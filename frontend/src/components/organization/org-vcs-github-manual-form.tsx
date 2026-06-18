@@ -130,6 +130,13 @@ export function GitHubAppManualForm({
         return
       }
 
+      setPrivateKeyFileName(null)
+      form.setValue("private_key", "", {
+        shouldDirty: true,
+        shouldTouch: true,
+        shouldValidate: false,
+      })
+
       const reader = new FileReader()
       reader.onload = () => {
         if (readId !== privateKeyReadIdRef.current) {
@@ -167,6 +174,7 @@ export function GitHubAppManualForm({
       }
 
       reader.readAsText(file)
+      resetPrivateKeyFileInput()
     },
     [form, resetPrivateKeyFileInput]
   )
