@@ -126,6 +126,31 @@ def main():
         }
 
     @pytest.mark.anyio
+    async def test_execute_normalizes_dataclass_instances_and_classes(
+        self, executor: UnsafePidExecutor
+    ) -> None:
+        script = """
+from dataclasses import dataclass
+
+@dataclass
+class Finding:
+    name: str
+
+def main():
+    return {
+        "instance": Finding("alert"),
+        "class": Finding,
+    }
+"""
+        result = await executor.execute(script=script)
+        assert result.success
+        assert result.error is None
+        assert result.output == {
+            "instance": {"name": "alert"},
+            "class": "<class '__main__.Finding'>",
+        }
+
+    @pytest.mark.anyio
     @pytest.mark.integration
     async def test_execute_does_not_inherit_process_env(
         self, executor: UnsafePidExecutor, monkeypatch: pytest.MonkeyPatch

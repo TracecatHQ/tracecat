@@ -374,6 +374,30 @@ def main():
         }
 
     @pytest.mark.anyio
+    async def test_dataclass_instances_and_classes_are_normalized(
+        self, sandbox_service: SandboxService
+    ) -> None:
+        """Test dataclass instances and classes normalize without failure."""
+        script_content = """
+from dataclasses import dataclass
+
+@dataclass
+class Finding:
+    name: str
+
+def main():
+    return {
+        "instance": Finding("alert"),
+        "class": Finding,
+    }
+"""
+        result = await sandbox_service.run_python(script=script_content)
+        assert result == {
+            "instance": {"name": "alert"},
+            "class": "<class '__main__.Finding'>",
+        }
+
+    @pytest.mark.anyio
     async def test_clean_error_messages(self, sandbox_service: SandboxService) -> None:
         """Test that error messages are clean and user-friendly without tracebacks."""
         script_with_value_error = """

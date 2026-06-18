@@ -110,7 +110,7 @@ def to_json_safe(value):
             return sorted(value)
         except TypeError:
             return list(value)
-    if dataclasses.is_dataclass(value):
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
         return dataclasses.asdict(value)
     if isinstance(value, datetime.datetime | datetime.date | datetime.time):
         return value.isoformat()
