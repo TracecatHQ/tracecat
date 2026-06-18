@@ -579,6 +579,54 @@ class TestGitHubAppService:
             with pytest.raises(GitHubAppError, match="credentials not found"):
                 await github_service.list_accessible_repositories()
 
+    @pytest.mark.anyio
+    async def test_list_accessible_repositories_invalid_app_id(
+        self, github_service, mock_credentials
+    ):
+        """Invalid stored app IDs should raise a GitHub App error."""
+        bad_credentials = mock_credentials.model_copy(update={"app_id": "invalid"})
+
+        with (
+            patch.object(
+                github_service,
+                "_get_github_app_secret_state",
+                return_value=(GitHubAppSecretState.VALID, Mock(), bad_credentials),
+            ),
+            patch("tracecat.vcs.github.app.GithubIntegration") as mock_gh_integration,
+        ):
+            with pytest.raises(GitHubAppError, match="invalid credential data"):
+                await github_service.list_accessible_repositories()
+
+            mock_gh_integration.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_list_accessible_repositories_sanitizes_github_error(
+        self, github_service, mock_credentials
+    ):
+        """GitHub API errors should not expose raw upstream response data."""
+        with (
+            patch.object(
+                github_service,
+                "_get_github_app_secret_state",
+                return_value=(GitHubAppSecretState.VALID, Mock(), mock_credentials),
+            ),
+            patch("tracecat.vcs.github.app.GithubIntegration") as mock_gh_integration,
+        ):
+            mock_integration = Mock()
+            mock_integration.get_installations.side_effect = GithubException(
+                500,
+                {"message": "Server Error", "private": "upstream-details"},
+                {},
+            )
+            mock_gh_integration.return_value = mock_integration
+
+            with pytest.raises(GitHubAppError) as exc_info:
+                await github_service.list_accessible_repositories()
+
+            assert str(exc_info.value) == "GitHub API error: 500"
+            assert "upstream-details" not in str(exc_info.value)
+            mock_integration.close.assert_called_once()
+
     # ============================================================================
     # Permission Error Tests
     # ============================================================================

@@ -585,8 +585,15 @@ class GitHubAppService(BaseOrgService):
         raw_private_key = credentials.private_key.get_secret_value()
         normalized_private_key = self._normalize_private_key(raw_private_key)
 
+        try:
+            app_id = int(credentials.app_id)
+        except ValueError as e:
+            raise GitHubAppError(
+                "Failed to retrieve GitHub App credentials: invalid credential data"
+            ) from e
+
         auth = Auth.AppAuth(
-            app_id=int(credentials.app_id),
+            app_id=app_id,
             private_key=normalized_private_key,
         )
         gh_integration = GithubIntegration(auth=auth)
@@ -625,7 +632,7 @@ class GitHubAppService(BaseOrgService):
                 status=e.status,
                 data=e.data,
             )
-            raise GitHubAppError(f"GitHub API error: {e.status} - {e.data}") from e
+            raise GitHubAppError(f"GitHub API error: {e.status}") from e
         finally:
             gh_integration.close()
 
