@@ -5,7 +5,7 @@ import { GitPullRequestIcon } from "lucide-react"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import type { WorkspaceRead } from "@/client"
+import type { GitHubAppRepository, WorkspaceRead } from "@/client"
 import { Button } from "@/components/ui/button"
 import {
   Form,
@@ -17,8 +17,16 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { validateGitSshUrl } from "@/lib/git"
-import { useWorkspaceSettings } from "@/lib/hooks"
+import { useGitHubAppRepositories, useWorkspaceSettings } from "@/lib/hooks"
 import { WorkflowPullDialog } from "../organization/workflow-pull-dialog"
 
 export const syncSettingsSchema = z.object({
@@ -40,6 +48,11 @@ export function WorkspaceSyncSettings({
 }: WorkspaceSyncSettingsProps) {
   const [pullDialogOpen, setPullDialogOpen] = useState(false)
   const { updateWorkspace, isUpdating } = useWorkspaceSettings(workspace.id)
+  const {
+    repositories = [],
+    repositoriesIsLoading,
+    repositoriesError,
+  } = useGitHubAppRepositories(workspace.id)
 
   const form = useForm<SyncSettingsForm>({
     resolver: zodResolver(syncSettingsSchema),
@@ -58,29 +71,79 @@ export function WorkspaceSyncSettings({
   }
 
   const persistedGitUrl = workspace.settings?.git_repo_url || undefined
+  const hasRepositoryOptions = repositories.length > 0
+  const shouldShowRepositorySelect =
+    repositoriesIsLoading || hasRepositoryOptions
+  let repositoryDescription =
+    "Git URL of the remote repository. Must use git+ssh scheme."
+  if (hasRepositoryOptions) {
+    repositoryDescription =
+      "Select a repository granted to the connected GitHub App installation."
+  } else if (repositoriesError) {
+    repositoryDescription =
+      "Could not load GitHub App repositories. Enter a git+ssh URL manually."
+  }
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6">
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+        <form
+          onSubmit={form.handleSubmit(onSubmit)}
+          className="flex flex-col gap-6"
+        >
           <FormField
             control={form.control}
             name="git_repo_url"
-            render={({ field }) => (
+            render={({ field, fieldState }) => (
               <FormItem className="flex flex-col">
                 <FormLabel>Remote repository URL</FormLabel>
-                <FormControl>
-                  <Input
-                    placeholder="git+ssh://someuser@git.example.com/my-org/my-repo.git"
-                    {...field}
+                {shouldShowRepositorySelect ? (
+                  <Select
+                    disabled={repositoriesIsLoading}
+                    onValueChange={field.onChange}
                     value={field.value ?? ""}
-                  />
-                </FormControl>
-                <FormDescription>
-                  Git URL of the remote repository. Must use{" "}
-                  <span className="font-mono tracking-tighter">git+ssh</span>{" "}
-                  scheme.
-                </FormDescription>
+                  >
+                    <FormControl>
+                      <SelectTrigger aria-invalid={fieldState.invalid}>
+                        <SelectValue
+                          placeholder={
+                            repositoriesIsLoading
+                              ? "Loading repositories..."
+                              : "Select a repository"
+                          }
+                        />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectGroup>
+                        {field.value &&
+                          !repositories.some(
+                            (repository) => repository.git_url === field.value
+                          ) && (
+                            <SelectItem value={field.value}>
+                              {field.value}
+                            </SelectItem>
+                          )}
+                        {repositories.map((repository) => (
+                          <RepositorySelectItem
+                            key={`${repository.installation_id}:${repository.id}`}
+                            repository={repository}
+                          />
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <FormControl>
+                    <Input
+                      aria-invalid={fieldState.invalid}
+                      placeholder="git+ssh://git@github.com/my-org/my-repo.git"
+                      {...field}
+                      value={field.value ?? ""}
+                    />
+                  </FormControl>
+                )}
+                <FormDescription>{repositoryDescription}</FormDescription>
                 <FormMessage />
               </FormItem>
             )}
@@ -107,7 +170,7 @@ export function WorkspaceSyncSettings({
               variant="outline"
               size="sm"
               onClick={() => setPullDialogOpen(true)}
-              className="flex items-center space-x-2"
+              className="flex items-center gap-2"
             >
               <GitPullRequestIcon className="size-4" />
               <span>Pull workflows</span>
@@ -133,5 +196,15 @@ export function WorkspaceSyncSettings({
         }}
       />
     </div>
+  )
+}
+
+function RepositorySelectItem({
+  repository,
+}: {
+  repository: GitHubAppRepository
+}) {
+  return (
+    <SelectItem value={repository.git_url}>{repository.full_name}</SelectItem>
   )
 }

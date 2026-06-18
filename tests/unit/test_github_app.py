@@ -510,6 +510,75 @@ class TestGitHubAppService:
             with pytest.raises(GitHubAppError, match="GitHub API error"):
                 await github_service.get_github_client_for_repo(mock_repo_url)
 
+    @pytest.mark.anyio
+    async def test_list_accessible_repositories_success(
+        self, github_service, mock_credentials
+    ):
+        """Test listing repositories granted to the GitHub App installation."""
+        account = Mock()
+        account.login = "test-org"
+        account.type = "Organization"
+
+        repo_b = Mock()
+        repo_b.id = 2
+        repo_b.name = "repo-b"
+        repo_b.full_name = "test-org/repo-b"
+        repo_b.private = True
+        repo_b.default_branch = "trunk"
+        repo_b.html_url = "https://github.com/test-org/repo-b"
+
+        repo_a = Mock()
+        repo_a.id = 1
+        repo_a.name = "repo-a"
+        repo_a.full_name = "test-org/repo-a"
+        repo_a.private = False
+        repo_a.default_branch = "main"
+        repo_a.html_url = "https://github.com/test-org/repo-a"
+
+        installation = Mock()
+        installation.id = 12345678
+        installation.account = account
+        installation.get_repos.return_value = [repo_b, repo_a]
+
+        with (
+            patch.object(
+                github_service,
+                "_get_github_app_secret_state",
+                return_value=(GitHubAppSecretState.VALID, Mock(), mock_credentials),
+            ),
+            patch("tracecat.vcs.github.app.GithubIntegration") as mock_gh_integration,
+        ):
+            mock_integration = Mock()
+            mock_integration.get_installations.return_value = [installation]
+            mock_gh_integration.return_value = mock_integration
+
+            repositories = await github_service.list_accessible_repositories()
+
+            assert [repo.full_name for repo in repositories] == [
+                "test-org/repo-a",
+                "test-org/repo-b",
+            ]
+            assert repositories[0].git_url == (
+                "git+ssh://git@github.com/test-org/repo-a.git"
+            )
+            assert repositories[0].installation_id == 12345678
+            assert repositories[0].installation_account == "test-org"
+            assert repositories[0].installation_account_type == "Organization"
+            mock_integration.close.assert_called_once()
+
+    @pytest.mark.anyio
+    async def test_list_accessible_repositories_missing_credentials(
+        self, github_service
+    ):
+        """Missing credentials should raise a GitHub App error."""
+        with patch.object(
+            github_service,
+            "_get_github_app_secret_state",
+            return_value=(GitHubAppSecretState.MISSING, None, None),
+        ):
+            with pytest.raises(GitHubAppError, match="credentials not found"):
+                await github_service.list_accessible_repositories()
+
     # ============================================================================
     # Permission Error Tests
     # ============================================================================

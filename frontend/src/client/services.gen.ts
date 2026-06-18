@@ -860,6 +860,8 @@ import type {
   WorkflowsListWorkflowCommitsResponse,
   WorkflowsListWorkflowDefinitionsData,
   WorkflowsListWorkflowDefinitionsResponse,
+  WorkflowsListWorkflowRepositoriesData,
+  WorkflowsListWorkflowRepositoriesResponse,
   WorkflowsListWorkflowsData,
   WorkflowsListWorkflowsResponse,
   WorkflowsMoveWorkflowToFolderData,
@@ -3222,6 +3224,29 @@ export const workflowsPublishWorkflow = (
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Workflow Repositories
+ * List repositories granted to the configured GitHub App installation.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns GitHubAppRepository Successful Response
+ * @throws ApiError
+ */
+export const workflowsListWorkflowRepositories = (
+  data: WorkflowsListWorkflowRepositoriesData
+): CancelablePromise<WorkflowsListWorkflowRepositoriesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/workflows/sync/repositories",
+    path: {
+      workspace_id: data.workspaceId,
+    },
     errors: {
       422: "Validation Error",
     },

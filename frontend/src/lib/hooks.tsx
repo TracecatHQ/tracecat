@@ -338,6 +338,7 @@ import {
   type WorkflowReadMinimal,
   type WorkflowsAddTagData,
   type WorkflowsCreateWorkflowData,
+  type WorkflowsListWorkflowRepositoriesResponse,
   type WorkflowsMoveWorkflowToFolderData,
   type WorkflowsRemoveTagData,
   type WorkspaceCreate,
@@ -351,6 +352,7 @@ import {
   workflowsAddTag,
   workflowsCreateWorkflow,
   workflowsDeleteWorkflow,
+  workflowsListWorkflowRepositories,
   workflowsListWorkflows,
   workflowsMoveWorkflowToFolder,
   workflowsRemoveTag,
@@ -2645,6 +2647,31 @@ export function useGitHubAppCredentialsStatus() {
   }
 }
 
+/**
+ * Fetch repositories granted to the configured GitHub App installation.
+ */
+export function useGitHubAppRepositories(workspaceId: string) {
+  const {
+    data: repositories,
+    isLoading: repositoriesIsLoading,
+    error: repositoriesError,
+    refetch: refetchRepositories,
+  } = useQuery<WorkflowsListWorkflowRepositoriesResponse>({
+    queryKey: ["github-app-repositories", workspaceId],
+    queryFn: async () =>
+      await workflowsListWorkflowRepositories({ workspaceId }),
+    enabled: Boolean(workspaceId),
+    retry: false,
+  })
+
+  return {
+    repositories,
+    repositoriesIsLoading,
+    repositoriesError,
+    refetchRepositories,
+  }
+}
+
 export function useGitHubAppCredentials() {
   const queryClient = useQueryClient()
 
@@ -2661,6 +2688,9 @@ export function useGitHubAppCredentials() {
       // Invalidate and refetch credentials status
       queryClient.invalidateQueries({
         queryKey: ["github-app-credentials-status"],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["github-app-repositories"],
       })
     },
   })
@@ -2680,6 +2710,9 @@ export function useDeleteGitHubAppCredentials() {
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["github-app-credentials-status"],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["github-app-repositories"],
       })
     },
   })

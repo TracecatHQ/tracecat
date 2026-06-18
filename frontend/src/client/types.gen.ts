@@ -3993,6 +3993,22 @@ export type GitHubAppPermissions = {
 }
 
 /**
+ * Repository granted to the configured GitHub App installation.
+ */
+export type GitHubAppRepository = {
+  id: number
+  name: string
+  full_name: string
+  private: boolean
+  default_branch: string
+  git_url: string
+  html_url?: string | null
+  installation_id: number
+  installation_account: string
+  installation_account_type?: string | null
+}
+
+/**
  * Type definition for GitHub webhook attributes.
  */
 export type GitHubWebhookAttributes = {
@@ -10152,6 +10168,13 @@ export type WorkflowsPublishWorkflowData = {
 
 export type WorkflowsPublishWorkflowResponse = WorkflowDslPublishResult
 
+export type WorkflowsListWorkflowRepositoriesData = {
+  workspaceId: string
+}
+
+export type WorkflowsListWorkflowRepositoriesResponse =
+  Array<GitHubAppRepository>
+
 export type WorkflowsListWorkflowCommitsData = {
   /**
    * Branch name to fetch commits from
@@ -14346,6 +14369,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: WorkflowDslPublishResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/sync/repositories": {
+    get: {
+      req: WorkflowsListWorkflowRepositoriesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<GitHubAppRepository>
         /**
          * Validation Error
          */
