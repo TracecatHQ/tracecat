@@ -277,7 +277,7 @@ async def oauth_callback(
     await session.delete(oauth_state_db)
     await session.commit()
 
-    if svc._is_custom_mcp_oauth_provider(oauth_state_db.provider_id):
+    if svc.is_custom_mcp_oauth_provider(oauth_state_db.provider_id):
         try:
             oauth_integration = await svc.complete_mcp_oauth_discovery_callback(
                 provider_id=oauth_state_db.provider_id,
@@ -897,6 +897,11 @@ async def list_providers(
         items.append(item)
 
     for custom_provider in await svc.list_custom_providers():
+        # custom_mcp_* providers back an MCP integration's OAuth discovery flow
+        # and are managed from the MCP servers page, not as standalone OAuth
+        # integrations — keep them out of the integrations list.
+        if svc.is_custom_mcp_oauth_provider(custom_provider.provider_id):
+            continue
         integration = existing.get(
             (custom_provider.provider_id, custom_provider.grant_type)
         )
@@ -1157,8 +1162,13 @@ async def update_mcp_integration(
     session: AsyncDBSession,
     mcp_integration_id: uuid.UUID,
     params: MCPIntegrationUpdate,
-) -> MCPIntegrationRead:
-    """Update an MCP integration."""
+) -> MCPIntegrationRead | MCPCatalogConnectResponse:
+    """Update an MCP integration.
+
+    Returns an ``MCPCatalogConnectResponse`` when the edit triggers MCP OAuth
+    discovery (an OAuth2 target with ``oauth_integration_id`` explicitly
+    cleared): the caller must follow ``auth_url`` to finish authorization.
+    """
     if role.workspace_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1179,17 +1189,23 @@ async def update_mcp_integration(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="MCP integration not found",
             )
+        if isinstance(integration, PlatformMCPCatalogConnectResult):
+            return await _mcp_catalog_connect_response(svc, integration)
     except MCPConnectionVerificationError as exc:
         detail = f"{exc.message}: {exc.error}" if exc.error else exc.message
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=detail,
         ) from exc
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
+    except (
+        ProviderConfigurationRequiredError,
+        InsecureOAuthEndpointError,
+        ValueError,
+        httpx.HTTPError,
+    ) as exc:
+        # Plain updates surface ValueError as 400; the discovery branch can also
+        # raise provider/endpoint/HTTP errors, mapped the same way as connect.
+        _raise_mcp_connect_http_error(exc)
 
     return _mcp_integration_read(
         integration,

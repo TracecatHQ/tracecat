@@ -12802,7 +12802,9 @@ export type McpIntegrationsUpdateMcpIntegrationData = {
   workspaceId: string
 }
 
-export type McpIntegrationsUpdateMcpIntegrationResponse = MCPIntegrationRead
+export type McpIntegrationsUpdateMcpIntegrationResponse =
+  | MCPIntegrationRead
+  | MCPCatalogConnectResponse
 
 export type McpIntegrationsDeleteMcpIntegrationData = {
   mcpIntegrationId: string
@@ -18933,7 +18935,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: MCPIntegrationRead
+        200: MCPIntegrationRead | MCPCatalogConnectResponse
         /**
          * Validation Error
          */
