@@ -417,20 +417,19 @@ class TestMCPIntegrationCRUD:
         assert unlocked.mcp_auth_type == MCPAuthType.NONE
         assert unlocked.state == "connected"
 
-    async def test_platform_mcp_catalog_uses_workspace_row_name_and_description(
+    async def test_platform_mcp_catalog_always_shows_catalog_name_and_description(
         self,
         integration_service: IntegrationService,
         session: AsyncSession,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """A renamed workspace row's name/description win over catalog defaults.
+        """Catalog-bound rows display the repo-owned catalog name/description.
 
-        The catalog_slug binds the row to the entry, so the user's rename must
-        persist in the catalog listing rather than being overridden by the
-        repo-owned catalog name/description.
+        Platform catalog entries are not renameable, so the listing always shows
+        the catalog values regardless of what is stored on the workspace row.
         """
         catalog = _catalog_entry(
-            slug="renamable-mcp",
+            slug="fixed-name-mcp",
             name="Catalog Default Name",
             description="Catalog default description",
             connection_spec={
@@ -442,15 +441,17 @@ class TestMCPIntegrationCRUD:
                 "credentials": [],
                 "server_uri": "https://mcp.example.com/mcp",
             },
-            sort_key="0000:renamable-mcp",
+            sort_key="0000:fixed-name-mcp",
         )
         _install_catalog_entry(monkeypatch, catalog)
 
+        # Even if a row somehow carries a different stored name/description, the
+        # listing must not surface it for a catalog-bound entry.
         session.add(
             MCPIntegration(
                 workspace_id=integration_service.workspace_id,
-                name="My Renamed Server",
-                description="My own notes",
+                name="Stale Stored Name",
+                description="Stale stored notes",
                 slug=catalog.slug,
                 catalog_slug=catalog.slug,
                 server_type="http",
@@ -468,8 +469,56 @@ class TestMCPIntegrationCRUD:
         )
 
         item = next(entry for entry in items if entry.slug == catalog.slug)
-        assert item.name == "My Renamed Server"
-        assert item.description == "My own notes"
+        assert item.name == "Catalog Default Name"
+        assert item.description == "Catalog default description"
+
+    async def test_update_mcp_integration_ignores_rename_for_catalog_row(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Name/description edits are ignored for catalog-bound rows."""
+        catalog = _catalog_entry(
+            slug="locked-name-mcp",
+            name="Catalog Default Name",
+            description="Catalog default description",
+            connection_spec={
+                "kind": "http_none",
+                "server_type": "http",
+                "auth_type": "NONE",
+                "requires_config": False,
+                "config_fields": [],
+                "credentials": [],
+                "server_uri": "https://mcp.example.com/mcp",
+            },
+            sort_key="0000:locked-name-mcp",
+        )
+        _install_catalog_entry(monkeypatch, catalog)
+
+        mcp_integration = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name=catalog.name,
+                description=catalog.description,
+                catalog_slug=catalog.slug,
+                server_uri="https://mcp.example.com/mcp",
+                auth_type=MCPAuthType.NONE,
+            )
+        )
+        original_name = mcp_integration.name
+        original_slug = mcp_integration.slug
+
+        updated = await integration_service.update_mcp_integration(
+            mcp_integration_id=mcp_integration.id,
+            params=MCPIntegrationUpdate(
+                name="Attempted Rename",
+                description="Attempted new description",
+            ),
+        )
+        assert isinstance(updated, MCPIntegration)
+        assert updated.name == original_name
+        assert updated.slug == original_slug
+        assert updated.description == catalog.description
 
     async def test_platform_mcp_catalog_reports_deleted_oauth_row_as_not_connected(
         self,
@@ -2112,8 +2161,11 @@ class TestMCPIntegrationCRUD:
                 ),
             )
 
+        # The update path calls the undecorated impl so editors with only
+        # ``integration:update`` scope are not blocked by the create guard on
+        # the public method; patch the impl the update path actually invokes.
         monkeypatch.setattr(
-            integration_service, "connect_mcp_oauth_discovery", fake_discovery
+            integration_service, "_connect_mcp_oauth_discovery_impl", fake_discovery
         )
 
         result = await integration_service.update_mcp_integration(
@@ -2166,7 +2218,7 @@ class TestMCPIntegrationCRUD:
             raise AssertionError("discovery must not run without an explicit null")
 
         monkeypatch.setattr(
-            integration_service, "connect_mcp_oauth_discovery", fail_discovery
+            integration_service, "_connect_mcp_oauth_discovery_impl", fail_discovery
         )
 
         with pytest.raises(
@@ -2178,6 +2230,131 @@ class TestMCPIntegrationCRUD:
                 params=MCPIntegrationUpdate(description="just a description edit"),
                 verify_connection=True,
             )
+
+    @pytest.mark.parametrize(
+        ("previous_auth_type", "custom_credentials", "expect_headers_kept"),
+        [
+            # OAuth2 -> OAuth2 reconnect without editing headers: omission means
+            # "leave unchanged", so existing additional headers are preserved.
+            pytest.param(MCPAuthType.OAUTH2, None, True, id="oauth_reconnect_keeps"),
+            # CUSTOM -> OAuth2 reconnect without credentials: stale CUSTOM headers
+            # are dropped, mirroring the normal update merge.
+            pytest.param(MCPAuthType.CUSTOM, None, False, id="custom_switch_clears"),
+            # Explicitly cleared additional headers ("") always clear.
+            pytest.param(MCPAuthType.OAUTH2, "", False, id="explicit_empty_clears"),
+        ],
+    )
+    async def test_oauth_discovery_reconnect_header_merge(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+        previous_auth_type: MCPAuthType,
+        custom_credentials: str | None,
+        expect_headers_kept: bool,
+    ) -> None:
+        """Discovery reconnect mirrors the normal update header-merge semantics.
+
+        Secrets are not round-tripped to the form, so an omitted
+        ``custom_credentials`` on an OAuth2 -> OAuth2 reconnect must leave the
+        stored ``encrypted_headers`` untouched, while a CUSTOM -> OAuth2 switch
+        or an explicit empty value clears them.
+        """
+        existing_headers = b"existing-encrypted-headers"
+        created = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name="Reconnect Headers MCP",
+            slug=f"reconnect-headers-mcp-{uuid.uuid4().hex[:8]}",
+            server_type="http",
+            server_uri="https://mcp.example.com/mcp",
+            auth_type=previous_auth_type,
+            oauth_integration_id=None,
+            encrypted_headers=existing_headers,
+        )
+        session.add(created)
+        await session.commit()
+
+        async def fake_discover(
+            *,
+            server_uri: str,
+            allowed_endpoint_hosts: frozenset[str] = frozenset(),
+        ) -> integration_service_module.MCPOAuthDiscoveryEndpoints:
+            _ = server_uri, allowed_endpoint_hosts
+            return integration_service_module.MCPOAuthDiscoveryEndpoints(
+                authorization_endpoint="https://auth.example.com/oauth/authorize",
+                token_endpoint="https://auth.example.com/oauth/token",
+                token_methods=["none"],
+                registration_endpoint="https://mcp.example.com/oauth/register",
+                resource="https://mcp.example.com/mcp",
+            )
+
+        async def fake_register(
+            **_: object,
+        ) -> integration_service_module.MCPOAuthRegistrationResult:
+            return integration_service_module.MCPOAuthRegistrationResult(
+                client_id="dcr-client",
+                client_secret=None,
+                auth_method="none",
+            )
+
+        # Not persisted: ``_create_custom_mcp_oauth_provider`` is mocked, so an
+        # in-memory provider row is enough for the reconnect path.
+        provider_integration = OAuthIntegration(
+            workspace_id=integration_service.workspace_id,
+            provider_id="custom_mcp_reconnect",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+
+        async def fake_create_provider(
+            **_: object,
+        ) -> OAuthIntegration:
+            return provider_integration
+
+        async def fake_start_authorization(
+            **_: object,
+        ) -> IntegrationOAuthConnect:
+            return IntegrationOAuthConnect(
+                auth_url="https://auth.example.com/authorize?state=abc",
+                provider_id="custom_mcp_reconnect",
+            )
+
+        monkeypatch.setattr(
+            integration_service, "_discover_mcp_oauth_endpoints", fake_discover
+        )
+        monkeypatch.setattr(
+            integration_service, "_perform_mcp_dynamic_registration", fake_register
+        )
+        monkeypatch.setattr(
+            integration_service,
+            "_create_custom_mcp_oauth_provider",
+            fake_create_provider,
+        )
+        monkeypatch.setattr(
+            integration_service,
+            "_start_custom_mcp_oauth_authorization",
+            fake_start_authorization,
+        )
+
+        await integration_service._connect_mcp_oauth_discovery_impl(
+            params=MCPHttpIntegrationCreate(
+                name="Reconnect Headers MCP",
+                server_uri="https://mcp.example.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=None,
+                custom_credentials=(
+                    SecretStr(custom_credentials)
+                    if custom_credentials is not None
+                    else None
+                ),
+            ),
+            existing_mcp_integration=created,
+        )
+
+        await session.refresh(created)
+        if expect_headers_kept:
+            assert created.encrypted_headers == existing_headers
+        else:
+            assert created.encrypted_headers is None
 
     async def test_delete_mcp_integration(
         self,

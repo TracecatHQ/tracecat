@@ -14,13 +14,7 @@ import {
 } from "lucide-react"
 import React, { useState } from "react"
 import { useFieldArray, useForm } from "react-hook-form"
-import {
-  integrationsGetIntegration,
-  mcpIntegrationsConnectPlatformMcpCatalog,
-  providersCreateCustomProvider,
-} from "@/client/services.gen"
 import type {
-  MCPCatalogConnectResponse,
   MCPConnectionSpec,
   MCPHttpIntegrationCreate,
   MCPIntegrationRead,
@@ -41,7 +35,6 @@ import {
   type MCPIntegrationFormValues,
   mcpIntegrationFormSchema,
   missingRequiredOAuthClientCredentials,
-  normalizeOAuthClientKey,
   SERVER_TYPES,
 } from "@/components/integrations/mcp-integration-schema"
 import {
@@ -174,47 +167,6 @@ function hasOAuthClientConfig(spec: MCPConnectionSpec | null | undefined) {
       (credential) => credential.target === "oauth_client"
     )
   )
-}
-
-function isClientSecretKey(key: string) {
-  const normalized = normalizeOAuthClientKey(key)
-  return (
-    normalized === "client_secret" ||
-    normalized === "oauth_client_secret" ||
-    normalized.endsWith("_client_secret")
-  )
-}
-
-function isClientIdKey(key: string) {
-  const normalized = normalizeOAuthClientKey(key)
-  return (
-    normalized === "client_id" ||
-    normalized === "oauth_client_id" ||
-    normalized.endsWith("_client_id")
-  )
-}
-
-function readOAuthClientCredentials(value: string) {
-  const parsed = JSON.parse(value) as Record<string, string>
-  const entries = Object.entries(parsed)
-  const clientIdEntry =
-    entries.find(([key]) => isClientIdKey(key)) ??
-    entries.find(([key]) => !isClientSecretKey(key))
-  const clientSecretEntry = entries.find(([key]) => isClientSecretKey(key))
-  const clientId = clientIdEntry?.[1]?.trim() ?? ""
-  const clientSecret = clientSecretEntry?.[1]?.trim() ?? ""
-  if (!clientId) {
-    throw new Error("OAuth client ID is required")
-  }
-  return { clientId, clientSecret: clientSecret || undefined }
-}
-
-function catalogMcpProviderId(
-  entry: PlatformMCPCatalogRead,
-  optionId: string | null | undefined
-) {
-  const suffix = optionId ? `-${optionId}` : ""
-  return `custom_mcp_${entry.slug}${suffix}`.replace(/[^a-zA-Z0-9_]+/g, "_")
 }
 
 function CatalogEntrySummary({
@@ -438,6 +390,7 @@ export function MCPIntegrationDialog({
   const serverType = form.watch("server_type")
   const authType = form.watch("auth_type")
   const oauthSetup = form.watch("oauth_setup")
+  const oauthIntegrationId = form.watch("oauth_integration_id")
   const connectionOptionId = form.watch("connection_option_id")
 
   /**
@@ -783,59 +736,19 @@ export function MCPIntegrationDialog({
               return
             }
             setCatalogOAuthClientIsPending(true)
-            // Without advertised endpoints, the backend does dynamic registration
-            // from the pasted credentials; otherwise create the OAuth client here.
-            let result: MCPCatalogConnectResponse
-            if (
-              !spec.oauth_authorization_endpoint ||
-              !spec.oauth_token_endpoint
-            ) {
-              hookHandledError = true
-              result = await connectMcpIntegration({
-                ...params,
-                custom_credentials: oauthClientCredentials,
-              })
-              hookHandledError = false
-            } else {
-              const { clientId, clientSecret } = readOAuthClientCredentials(
-                oauthClientCredentials
-              )
-              const provider = await providersCreateCustomProvider({
-                workspaceId,
-                requestBody: {
-                  provider_id: catalogMcpProviderId(
-                    catalogEntry,
-                    values.connection_option_id
-                  ),
-                  name: `${values.name} OAuth`,
-                  description:
-                    values.description?.trim() ||
-                    `OAuth client for ${values.name}`,
-                  grant_type: "authorization_code",
-                  authorization_endpoint: spec.oauth_authorization_endpoint,
-                  token_endpoint: spec.oauth_token_endpoint,
-                  scopes: spec.scopes ?? [],
-                  client_id: clientId,
-                  client_secret: clientSecret,
-                },
-              })
-              const oauthIntegration = await integrationsGetIntegration({
-                workspaceId,
-                providerId: provider.id,
-                grantType: "authorization_code",
-              })
-              params = {
-                ...params,
-                oauth_integration_id: oauthIntegration.id,
-              }
-              hookHandledError = true
-              await createMcpIntegration(params)
-              hookHandledError = false
-              result = await mcpIntegrationsConnectPlatformMcpCatalog({
-                workspaceId,
-                catalogSlug: catalogEntry.slug,
-              })
-            }
+            // The backend MCP OAuth discovery flow owns OAuth client setup for
+            // both cases: when the spec advertises endpoints it pins them as
+            // trusted discovery hosts, and either way it builds the OAuth client
+            // from the pasted credentials (or DCR when none are supplied). The
+            // generated `custom_mcp_*` provider id is reserved and rejected by
+            // the public providers endpoint, so route credentials through the
+            // discovery connect path rather than creating a provider here.
+            hookHandledError = true
+            const result = await connectMcpIntegration({
+              ...params,
+              custom_credentials: oauthClientCredentials,
+            })
+            hookHandledError = false
             if (result.auth_url) {
               window.location.href = result.auth_url
               return
@@ -886,13 +799,26 @@ export function MCPIntegrationDialog({
     updateMcpIntegrationIsPending
 
   // An OAuth2 server can only be probed once authorization has produced an
-  // access token. Until the integration is connected (discovery row awaiting
-  // its OAuth redirect, or a lost token), a probe has no bearer token and is a
-  // guaranteed 401 — so disable Test and point the user at OAuth instead.
+  // access token. A probe has a usable bearer token only when the form's active
+  // OAuth selection resolves to a connected existing integration:
+  //   - "existing_integration": resolve the in-form selection (or the saved
+  //     client when untouched) and require it to be connected. A discovery row
+  //     awaiting its redirect or a lost/stale token is not connected -> pending.
+  //   - "mcp_discovery"/"oauth_client": no client exists yet (the OAuth client
+  //     is created on save), so a probe is a guaranteed 401 -> always pending.
+  // Driven by the active form state, not the saved row, so an unsaved switch to
+  // discovery correctly disables Test instead of probing the old token.
+  const resolvedOAuthIntegrationId =
+    oauthSetup === "existing_integration"
+      ? oauthIntegrationId || mcpIntegration?.oauth_integration_id || null
+      : null
+  const resolvedOAuthIsConnected =
+    resolvedOAuthIntegrationId != null &&
+    connectedOAuthIntegrations.some(
+      (int) => int.id === resolvedOAuthIntegrationId
+    )
   const oauthAuthorizationPending =
-    serverType === "http" &&
-    authType === "OAUTH2" &&
-    mcpIntegration?.state !== "connected"
+    serverType === "http" && authType === "OAUTH2" && !resolvedOAuthIsConnected
   const testDisabledReason =
     serverType === "stdio"
       ? "Stdio servers can't be tested"
@@ -1115,38 +1041,42 @@ export function MCPIntegrationDialog({
                     />
                   ) : null}
 
-                  <FormField
-                    control={form.control}
-                    name="name"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Integration name</FormLabel>
-                        <FormControl>
-                          <Input placeholder="My MCP Server" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="description"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Description</FormLabel>
-                        <FormControl>
-                          <Textarea
-                            placeholder="Optional description for this MCP integration"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormDescription className="text-xs">
-                          Appears in the integrations list for this workspace.
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                  {/* Catalog entries are not renameable, so the name and
+                      description come from the repo-owned catalog and these
+                      fields are hidden. */}
+                  {!catalogEntry ? (
+                    <>
+                      <FormField
+                        control={form.control}
+                        name="name"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Integration name</FormLabel>
+                            <FormControl>
+                              <Input placeholder="My MCP Server" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="description"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Description</FormLabel>
+                            <FormControl>
+                              <Textarea
+                                placeholder="Optional description for this MCP integration"
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </>
+                  ) : null}
 
                   {!catalogEntry ? (
                     <FormField
