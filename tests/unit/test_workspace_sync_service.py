@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import uuid
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -17,7 +18,7 @@ from tracecat.dsl.schemas import ActionStatement
 from tracecat.exceptions import TracecatValidationError
 from tracecat.git.types import GitUrl
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.sync import PullOptions, PushStatus
+from tracecat.sync import CommitInfo, PullOptions, PushStatus
 from tracecat.workflow.store.schemas import RemoteWorkflowSchedule
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.schemas import (
@@ -28,6 +29,7 @@ from tracecat.workspace_sync.schemas import (
     WorkspaceProjection,
     WorkspaceSpec,
     WorkspaceSyncExportPreviewRequest,
+    WorkspaceSyncExportRequest,
 )
 from tracecat.workspace_sync.serialization import canonical_json_text
 from tracecat.workspace_sync.service import WorkspaceSyncService
@@ -353,6 +355,47 @@ async def test_preview_export_counts_resources_without_mutating_mappings(
 
 
 @pytest.mark.anyio
+async def test_export_workspace_commits_mapping_changes(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    projection = WorkspaceProjection(
+        manifest=WorkspaceManifest(),
+        spec=WorkspaceSpec(),
+        files={MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())},
+    )
+    transport = AsyncMock()
+    transport.write_files.return_value = CommitInfo(
+        status=PushStatus.COMMITTED,
+        sha="b" * 40,
+        ref="sync/workspace",
+        base_ref="main",
+        pr_url=None,
+        pr_number=None,
+        pr_reused=False,
+        message="Committed workspace sync changes.",
+    )
+    workspace_sync_service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="sync")
+    )
+    workspace_sync_service.project_workspace = AsyncMock(return_value=projection)
+
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        result = await workspace_sync_service.export_workspace(
+            WorkspaceSyncExportRequest(
+                message="Push workspace",
+                branch="sync/workspace",
+                create_pr=True,
+            )
+        )
+
+    assert result.files == [MANIFEST_FILENAME]
+    cast(AsyncMock, workspace_sync_service.session.commit).assert_awaited_once()
+
+
+@pytest.mark.anyio
 async def test_github_write_files_noop_skips_pr_for_branch_without_commits(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:
@@ -404,6 +447,29 @@ async def test_github_write_files_noop_reuses_existing_pr_for_branch_with_commit
     assert repo.compare_calls == [("main", "sync/agents-1")]
 
 
+@pytest.mark.anyio
+async def test_github_write_files_skips_pr_for_base_branch(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    files = {MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())}
+    repo = _FakeGitHubRepo(
+        files={},
+        branch_exists=True,
+        ahead_by=0,
+    )
+
+    result = await _write_files_with_fake_repo(
+        repo,
+        service=workspace_sync_service,
+        files=files,
+        branch="main",
+    )
+
+    assert result.status is PushStatus.COMMITTED
+    assert result.pr_url is None
+    repo.create_pull.assert_not_called()
+
+
 def test_gitlab_and_bitbucket_transports_are_explicitly_unsupported() -> None:
     for provider in (VcsProvider.GITLAB, VcsProvider.BITBUCKET):
         error = unsupported_transport(provider)
@@ -441,6 +507,7 @@ async def _write_files_with_fake_repo(
     *,
     service: WorkspaceSyncService,
     files: dict[str, str],
+    branch: str = "sync/agents-1",
 ):
     gh = Mock()
     gh.get_repo.return_value = repo
@@ -460,7 +527,7 @@ async def _write_files_with_fake_repo(
             url=GitUrl(host="github.com", org="TracecatHQ", repo="sync"),
             files=files,
             message="Push limerick agent",
-            branch="sync/agents-1",
+            branch=branch,
             create_pr=True,
         )
 
@@ -488,6 +555,9 @@ class _FakeGitHubRepo:
                 number=8,
             )
         )
+        self.blobs: list[tuple[str, str]] = []
+        self.trees: list[object] = []
+        self.commits: list[object] = []
 
     def get_branch(self, name: str):
         if name == "main" or self._branch_exists:
@@ -508,7 +578,41 @@ class _FakeGitHubRepo:
         self.compare_calls.append((base, head))
         return SimpleNamespace(ahead_by=self._ahead_by)
 
+    def get_git_commit(self, sha: str):
+        return SimpleNamespace(tree=SimpleNamespace(sha=f"tree-{sha}"))
+
+    def create_git_blob(self, content: str, encoding: str):
+        self.blobs.append((content, encoding))
+        return SimpleNamespace(sha=f"blob-{len(self.blobs)}")
+
+    def create_git_tree(self, elements: list[object], *, base_tree: object):
+        tree = SimpleNamespace(elements=elements, base_tree=base_tree)
+        self.trees.append(tree)
+        return tree
+
+    def create_git_commit(self, message: str, tree: object, parents: list[object]):
+        commit = SimpleNamespace(
+            sha=f"commit-{len(self.commits) + 1}",
+            message=message,
+            tree=tree,
+            parents=parents,
+        )
+        self.commits.append(commit)
+        return commit
+
+    def get_git_ref(self, ref: str):
+        return _FakeGitRef(ref)
+
     def get_pulls(self, *, state: str, head: str, base: str):
         if self._existing_pr is None:
             return iter(())
         return iter((self._existing_pr,))
+
+
+class _FakeGitRef:
+    def __init__(self, ref: str) -> None:
+        self.ref = ref
+        self.edits: list[str] = []
+
+    def edit(self, *, sha: str) -> None:
+        self.edits.append(sha)

@@ -216,13 +216,14 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
             pr_url: str | None = None
             pr_number: int | None = None
             pr_reused = False
+            should_create_pr = create_pr and branch != base_branch_name
             if not changed_files:
                 branch_has_commits = await self._branch_has_commits_between(
                     repo=repo,
                     base_branch_name=base_branch_name,
                     branch_name=branch,
                 )
-                if create_pr and branch_has_commits:
+                if should_create_pr and branch_has_commits:
                     pr_url, pr_number, pr_reused = await self._upsert_pull_request(
                         repo=repo,
                         url=url,
@@ -271,7 +272,7 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
             ref = await asyncio.to_thread(repo.get_git_ref, f"heads/{branch}")
             await asyncio.to_thread(ref.edit, sha=commit.sha)
 
-            if create_pr:
+            if should_create_pr:
                 pr_url, pr_number, pr_reused = await self._upsert_pull_request(
                     repo=repo,
                     url=url,

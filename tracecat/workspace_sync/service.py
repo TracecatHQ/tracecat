@@ -116,6 +116,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
             create_pr=params.create_pr,
             pr_base_branch=params.pr_base_branch,
         )
+        await self.session.commit()
         return WorkspaceSyncExportResult(
             commit=commit,
             files=sorted(projection.files),
