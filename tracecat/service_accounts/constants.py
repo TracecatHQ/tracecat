@@ -64,6 +64,12 @@ ORG_SERVICE_ACCOUNT_ASSIGNABLE_SCOPES: frozenset[str] = (
             "org:secret:delete",
             "org:workspace:read",
             "workspace:create",
+            # RBAC management — lets a service account mirror user/role
+            # assignments across workspaces (e.g. membership-sync principals).
+            "org:rbac:read",
+            "org:rbac:create",
+            "org:rbac:update",
+            "org:rbac:delete",
         }
     )
 )

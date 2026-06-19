@@ -101,6 +101,10 @@ def test_workspace_service_account_assignable_scope_rejects_user_only_scopes(
         "workspace:create",
         "workflow:update",
         "table:read",
+        "org:rbac:read",
+        "org:rbac:create",
+        "org:rbac:update",
+        "org:rbac:delete",
         "action:tools.slack.post_message:execute",
     ],
 )
@@ -119,7 +123,6 @@ def test_org_service_account_assignable_scope_allows_supported_api_key_scopes(
     [
         "org:settings:read",
         "org:settings:update",
-        "org:rbac:read",
         "org:registry:read",
         "org:member:invite",
         "variable:read",
