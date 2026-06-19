@@ -251,7 +251,7 @@ describe("WorkspaceSyncSettings", () => {
     ).toBeInTheDocument()
   })
 
-  it("ignores cached app repositories when the repository query errors", () => {
+  it("keeps cached app repositories when a repository refetch errors", () => {
     render(
       <WorkspaceSyncSettings
         workspace={setupHooks({
@@ -263,16 +263,11 @@ describe("WorkspaceSyncSettings", () => {
       />
     )
 
-    expect(screen.getByLabelText("Remote repository URL")).toBeInTheDocument()
-    expect(screen.queryByRole("combobox")).not.toBeInTheDocument()
-    expect(
-      screen.queryByRole("button", { name: "Select" })
-    ).not.toBeInTheDocument()
-    expect(
-      screen.getByText(
-        "Could not load GitHub App repositories. Enter a git+ssh URL manually."
-      )
-    ).toBeInTheDocument()
+    expect(screen.getByRole("combobox")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Select" })).toHaveAttribute(
+      "aria-current",
+      "true"
+    )
   })
 
   it("disables the repository selector while repositories are loading", () => {
