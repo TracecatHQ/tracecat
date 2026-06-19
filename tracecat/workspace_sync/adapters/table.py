@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from tracecat.db.models import Table
+from tracecat.db.models import Table, WorkspaceSyncResourceMapping
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import CursorPaginationParams
 from tracecat.service import BaseWorkspaceService
@@ -28,7 +28,7 @@ from tracecat.workspace_sync.adapters.base import (
     sql_type,
     unique_source_id,
 )
-from tracecat.workspace_sync.enums import SyncResourceType
+from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.schemas import (
     TABLE_ROOT,
     TableResourceSpec,
@@ -154,11 +154,14 @@ class TableAdapter(CompoundYamlAdapter):
         )
         tables = list((await ctx.session.execute(stmt)).scalars().all())
         table_service = BaseTablesService(session=ctx.session, role=ctx.role)
+        source_ids_by_local_id = await self._source_ids_by_local_id(ctx)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
-        reserved: set[str] = set()
+        reserved: set[str] = set(source_ids_by_local_id.values())
         for table in tables:
-            source_id = unique_source_id(table.name, reserved=reserved)
+            source_id = source_ids_by_local_id.get(table.id)
+            if source_id is None:
+                source_id = unique_source_id(table.name, reserved=reserved)
             reserved.add(source_id)
             unique_columns = set(await table_service.get_index(table))
             columns: list[dict[str, Any]] = []
@@ -186,6 +189,20 @@ class TableAdapter(CompoundYamlAdapter):
             )
             resources.append(self.projected_resource(source_id, table.id))
         return ResourceProjection(specs=specs, resources=resources)
+
+    async def _source_ids_by_local_id(
+        self,
+        ctx: BaseWorkspaceService,
+    ) -> dict[uuid.UUID, str]:
+        stmt = select(
+            WorkspaceSyncResourceMapping.local_id,
+            WorkspaceSyncResourceMapping.source_id,
+        ).where(
+            WorkspaceSyncResourceMapping.workspace_id == ctx.workspace_id,
+            WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
+            WorkspaceSyncResourceMapping.resource_type == self.resource_type.value,
+        )
+        return dict((await ctx.session.execute(stmt)).tuples().all())
 
     async def _project_rows(
         self,

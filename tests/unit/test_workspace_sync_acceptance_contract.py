@@ -38,6 +38,8 @@ from tracecat.db.models import (
 )
 from tracecat.git.types import GitUrl
 from tracecat.sync import PullOptions
+from tracecat.tables.schemas import TableUpdate
+from tracecat.tables.service import BaseTablesService
 from tracecat.workspace_sync.adapters import WORKSPACE_RESOURCE_ADAPTERS
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.importer import WorkspaceResourceImportService
@@ -598,6 +600,48 @@ async def test_project_workspace_preserves_agent_preset_source_id_after_rename(
     assert parent_spec["id"] == "qa-triage-parent"
     assert parent_spec["slug"] == "qa-triage-parent-9000"
     assert parent_spec["name"] == "QA triage parent 9000"
+
+
+@pytest.mark.anyio
+async def test_project_workspace_preserves_table_source_id_after_rename(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(
+        _expanded_full_git_tree(include_schedules=False),
+        commit_sha="f" * 40,
+    )
+
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+
+    await service.project_workspace()
+    table = await session.scalar(
+        select(Table).where(
+            Table.workspace_id == svc_role.workspace_id,
+            Table.name == "qa_indicators",
+        )
+    )
+    assert table is not None
+
+    await BaseTablesService(session=session, role=svc_role).update_table(
+        table,
+        TableUpdate(name="qa_indicators_renamed"),
+    )
+
+    projection = await service.project_workspace(create_missing_mappings=False)
+    old_path = f"{TABLE_ROOT}/qa_indicators/table.yml"
+    new_path = f"{TABLE_ROOT}/qa_indicators_renamed/table.yml"
+
+    assert old_path in projection.files
+    assert new_path not in projection.files
+    table_spec = yaml.safe_load(projection.files[old_path])
+    assert table_spec["id"] == "qa_indicators"
+    assert table_spec["name"] == "qa_indicators_renamed"
 
 
 @pytest.mark.anyio

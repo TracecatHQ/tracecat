@@ -434,7 +434,10 @@ export function WorkspaceSyncSettings({
                           repository ? getRepositoryGitUrl(repository) : value
                         )
                       }}
-                      value={getRepositorySelectValue(field.value, repositories)}
+                      value={getRepositorySelectValue(
+                        field.value,
+                        repositories
+                      )}
                     >
                       <FormControl>
                         <SelectTrigger aria-invalid={fieldState.invalid}>
