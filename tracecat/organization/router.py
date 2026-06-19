@@ -93,7 +93,11 @@ async def get_organization(
             detail="Organization not found",
         )
 
-    return OrgRead(id=org.id, name=org.name)
+    return OrgRead(
+        id=org.id,
+        name=org.name,
+        disable_github_workflow_pulls=org.disable_github_workflow_pulls,
+    )
 
 
 @router.get("/domains", response_model=list[OrgDomainRead])

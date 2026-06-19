@@ -32,6 +32,7 @@ class OrgUpdate(Schema):
     name: str | None = Field(None, min_length=1, max_length=255)
     slug: str | None = Field(None, min_length=1, max_length=63, pattern=r"^[a-z0-9-]+$")
     is_active: bool | None = None
+    disable_github_workflow_pulls: bool | None = None
 
 
 class OrgRead(Schema):
@@ -41,6 +42,7 @@ class OrgRead(Schema):
     name: str
     slug: str
     is_active: bool
+    disable_github_workflow_pulls: bool
     created_at: datetime
     updated_at: datetime | None = None
 
