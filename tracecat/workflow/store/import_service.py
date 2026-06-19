@@ -296,7 +296,7 @@ class WorkflowImportService(BaseWorkspaceService):
         self,
         remote_workflow: RemoteWorkflowDefinition,
         *,
-        sync_schedules: bool,
+        sync_schedules: bool = False,
     ) -> None:
         """Import a single workflow. Must be called within a transaction.
 
