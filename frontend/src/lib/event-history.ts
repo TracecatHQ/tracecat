@@ -50,25 +50,15 @@ export function parseEventType(eventType: WorkflowEventType) {
     .join(" ")
 }
 
-export function getRelativeTime(date: Date) {
-  const now = new Date().getTime()
-  const timestamp = date.getTime()
-  const difference = now - timestamp
-
-  const seconds = Math.floor(difference / 1000)
-  const minutes = Math.floor(seconds / 60)
-  const hours = Math.floor(minutes / 60)
-  const days = Math.floor(hours / 24)
-  const months = Math.floor(days / 30)
-  const years = Math.floor(months / 12)
-
-  if (years > 0) return `about ${years} year${years > 1 ? "s" : ""} ago`
-  if (months > 0) return `about ${months} month${months > 1 ? "s" : ""} ago`
-  if (days > 0) return `about ${days} day${days > 1 ? "s" : ""} ago`
-  if (hours > 0) return `about ${hours} hour${hours > 1 ? "s" : ""} ago`
-  if (minutes > 0) return `about ${minutes} minute${minutes > 1 ? "s" : ""} ago`
-  if (seconds > 0) return `${seconds} second${seconds > 1 ? "s" : ""} ago`
-  return "just now"
+/**
+ * Format a timestamp exactly for debugging.
+ *
+ * Keep this in UTC so the rendered value matches API payloads and logs without
+ * requiring the viewer to infer their local timezone.
+ */
+export function formatExactTimestamp(date: Date) {
+  if (Number.isNaN(date.getTime())) return "Invalid date"
+  return date.toISOString().replace("T", " ").replace("Z", " UTC")
 }
 
 /**

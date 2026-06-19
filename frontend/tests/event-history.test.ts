@@ -1,4 +1,5 @@
 import {
+  formatExactTimestamp,
   groupEventsByActionRef,
   refToLabel,
   WF_COMPLETED_EVENT_REF,
@@ -29,6 +30,20 @@ describe("event-history", () => {
   describe("refToLabel", () => {
     it("should label the trigger sentinel as Trigger", () => {
       expect(refToLabel(WF_TRIGGER_EVENT_REF)).toBe("Trigger")
+    })
+  })
+
+  describe("formatExactTimestamp", () => {
+    it("formats timestamps as exact UTC values", () => {
+      expect(formatExactTimestamp(new Date("2026-06-01T17:17:07.123Z"))).toBe(
+        "2026-06-01 17:17:07.123 UTC"
+      )
+    })
+
+    it("handles invalid dates", () => {
+      expect(formatExactTimestamp(new Date("not a timestamp"))).toBe(
+        "Invalid date"
+      )
     })
   })
 

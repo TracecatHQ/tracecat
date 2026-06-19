@@ -65,7 +65,7 @@ import {
   useWatchtowerAgents,
   useWatchtowerSessionToolCalls,
 } from "@/hooks/use-watchtower"
-import { getRelativeTime } from "@/lib/event-history"
+import { formatExactTimestamp } from "@/lib/event-history"
 import { useWorkspaceManager } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 
@@ -1270,7 +1270,7 @@ function shortId(value: string) {
 }
 
 function formatRelative(value: string) {
-  return getRelativeTime(new Date(value))
+  return formatExactTimestamp(new Date(value))
 }
 
 function normalizeReason(value: string | undefined): string | undefined {

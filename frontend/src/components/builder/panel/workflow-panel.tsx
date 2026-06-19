@@ -77,7 +77,7 @@ import {
   isRequestValidationErrorArray,
   type TracecatApiError,
 } from "@/lib/errors"
-import { getRelativeTime } from "@/lib/event-history"
+import { formatExactTimestamp } from "@/lib/event-history"
 import { useWorkflow } from "@/providers/workflow"
 
 const createWorkflowUpdateFormSchema = (workspaceId: string) =>
@@ -378,7 +378,7 @@ function WorkflowVersionsHistory({
                     {isLatest ? <Badge variant="outline">Latest</Badge> : null}
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">
-                    {getRelativeTime(new Date(definition.created_at))}
+                    {formatExactTimestamp(new Date(definition.created_at))}
                   </div>
                 </div>
                 {!isCurrent ? (

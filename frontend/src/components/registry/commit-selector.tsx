@@ -14,7 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
-import { getRelativeTime } from "@/lib/event-history"
+import { formatExactTimestamp } from "@/lib/event-history"
 import { cn } from "@/lib/utils"
 
 interface CommitSelectorProps {
@@ -105,7 +105,7 @@ export function CommitSelector({
             const isSelected = commit.sha === effectiveCurrentSha
             const isHead = index === 0
             const commitDate = new Date(commit.date)
-            const relativeTime = getRelativeTime(commitDate)
+            const exactTimestamp = formatExactTimestamp(commitDate)
 
             return (
               <DropdownMenuItem
@@ -142,7 +142,7 @@ export function CommitSelector({
                       )}
                     </div>
                     <span className="text-xs text-muted-foreground">
-                      {relativeTime}
+                      {exactTimestamp}
                     </span>
                   </div>
                   {commit.tags && commit.tags.length > 0 && (

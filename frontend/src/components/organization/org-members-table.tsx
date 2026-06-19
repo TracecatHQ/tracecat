@@ -62,7 +62,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { getRelativeTime } from "@/lib/event-history"
+import { formatExactTimestamp } from "@/lib/event-history"
 import {
   useOrgMembers,
   useRbacRoles,
@@ -362,11 +362,10 @@ export function OrgMembersTable() {
                     return <div className="text-xs">-</div>
                   }
                   const date = new Date(lastLoginAt)
-                  const ago = getRelativeTime(date)
+                  const exactTimestamp = formatExactTimestamp(date)
                   return (
-                    <div className="space-x-2 text-xs">
-                      <span>{date.toLocaleString()}</span>
-                      <span className="text-muted-foreground">({ago})</span>
+                    <div className="text-xs text-muted-foreground">
+                      {exactTimestamp}
                     </div>
                   )
                 },
