@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import (
+    AgentCatalog,
     AgentPreset,
     AgentPresetVersion,
     CaseDropdownDefinition,
@@ -785,6 +786,59 @@ async def test_agent_preset_import_creates_new_version_without_mutating_history(
         "Updated instructions",
     ]
     assert preset.current_version_id == versions[-1].id
+
+
+@pytest.mark.anyio
+async def test_agent_preset_sync_preserves_catalog_id(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    catalog = AgentCatalog(
+        id=uuid.uuid4(),
+        organization_id=svc_role.organization_id,
+        model_provider="openai",
+        model_name="gpt-4.1-mini",
+    )
+    session.add(catalog)
+    await session.flush()
+    files = _agent_preset_git_tree(
+        source_id="qa-catalog-backed",
+        slug="qa-catalog-backed",
+        name="QA catalog backed",
+    )
+    preset_path = f"{AGENT_PRESET_ROOT}/qa-catalog-backed/preset.yml"
+    preset_spec = yaml.safe_load(files[preset_path])
+    preset_spec["catalog_id"] = str(catalog.id)
+    files[preset_path] = _yaml(preset_spec)
+
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="l" * 40)
+
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+    preset = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "qa-catalog-backed",
+        )
+    )
+    assert preset is not None
+    assert preset.catalog_id == catalog.id
+    version = await session.scalar(
+        select(AgentPresetVersion).where(
+            AgentPresetVersion.workspace_id == svc_role.workspace_id,
+            AgentPresetVersion.preset_id == preset.id,
+        )
+    )
+    assert version is not None
+    assert version.catalog_id == catalog.id
+
+    projection = await service.project_workspace(create_missing_mappings=False)
+    projected_spec = yaml.safe_load(projection.files[preset_path])
+    assert projected_spec["catalog_id"] == str(catalog.id)
 
 
 @pytest.mark.anyio

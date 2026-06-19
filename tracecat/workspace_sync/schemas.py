@@ -142,6 +142,7 @@ class AgentPresetResourceSpec(BaseModel):
     actions: list[str] = Field(default_factory=list)
     skills: list[AgentPresetSkillBinding] = Field(default_factory=list)
     subagents: list[AgentPresetSubagentRef] = Field(default_factory=list)
+    catalog_id: uuid.UUID | None = None
     model_name: str | None = None
     model_provider: str | None = None
     base_url: str | None = None

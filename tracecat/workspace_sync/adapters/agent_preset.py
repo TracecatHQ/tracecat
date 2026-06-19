@@ -103,6 +103,7 @@ class AgentPresetAdapter(CompoundYamlAdapter):
                     "actions": sorted(preset.actions or []),
                     "skills": skill_bindings,
                     "subagents": _subagent_refs(preset.agents),
+                    "catalog_id": preset.catalog_id,
                     "model_name": preset.model_name,
                     "model_provider": preset.model_provider,
                     "base_url": preset.base_url,
@@ -235,6 +236,8 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         preset.instructions = spec.instructions
         preset.actions = spec.actions or None
         preset.tool_approvals = _tool_approvals(spec.tool_approvals)
+        if _field_was_set(spec, "catalog_id"):
+            preset.catalog_id = spec.catalog_id
         preset.model_name = spec.model_name or preset.model_name
         preset.model_provider = spec.model_provider or preset.model_provider
         if _field_was_set(spec, "base_url"):
