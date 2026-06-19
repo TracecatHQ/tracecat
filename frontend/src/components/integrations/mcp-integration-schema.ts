@@ -4,6 +4,7 @@ import type {
   MCPConnectionSpec,
   PlatformMCPCatalogRead,
 } from "@/client"
+import { isExpression } from "@/lib/expressions"
 
 /**
  * Form schema for the MCP integration create/edit dialog.
@@ -92,14 +93,6 @@ export function isValidStringMap(
 }
 
 /**
- * Whether a value is a Tracecat template (e.g. `${{ SECRETS.x }}`). Templated
- * values resolve at run time, so they skip format validation.
- */
-function isTemplateExpression(value: string): boolean {
-  return value.includes("${{")
-}
-
-/**
  * Whether a string is an absolute http(s):// URL with a host.
  */
 function hasHttpScheme(value: string): boolean {
@@ -164,7 +157,7 @@ export function invalidUrlEnvKeys(
       continue
     }
     const trimmed = entryValue.trim()
-    if (trimmed === "" || isTemplateExpression(trimmed)) {
+    if (trimmed === "" || isExpression(trimmed)) {
       continue
     }
     if (!hasHttpScheme(trimmed)) {

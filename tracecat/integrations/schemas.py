@@ -22,6 +22,7 @@ from pydantic import (
     field_validator,
 )
 
+from tracecat.expressions.patterns import STANDALONE_TEMPLATE
 from tracecat.identifiers import UserID, WorkspaceID
 from tracecat.integrations.enums import IntegrationStatus, MCPAuthType, OAuthGrantType
 from tracecat.integrations.types import MCPServerType
@@ -363,17 +364,6 @@ class ProviderRead(BaseModel):
 MCPCredentialValueType = Literal["string", "url"]
 
 
-def _is_template_expression(value: str) -> bool:
-    """Whether a value is a Tracecat template (e.g. ``${{ SECRETS.x }}``).
-
-    Templated values resolve to their real (possibly URL) value only at run
-    time, so they must skip format validation here. A bare ``${{`` with no
-    closing ``}}`` is a malformed value, not a template, and is not skipped.
-    """
-    stripped = value.strip()
-    return stripped.startswith("${{") and stripped.endswith("}}")
-
-
 def validate_url_credential_values(values: dict[str, str], url_keys: set[str]) -> None:
     """Require an http(s):// scheme for values whose key is declared ``type: url``.
 
@@ -391,7 +381,9 @@ def validate_url_credential_values(values: dict[str, str], url_keys: set[str]) -
                 f"{key!r} must be a URL starting with 'http://' or 'https://'"
             )
         stripped = value.strip()
-        if not stripped or _is_template_expression(stripped):
+        # Empty (not yet filled in) and templated values resolve to their real
+        # value only at run time, so skip format validation here.
+        if not stripped or STANDALONE_TEMPLATE.match(stripped):
             continue
         parsed = urlparse(stripped)
         if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
