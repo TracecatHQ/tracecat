@@ -154,6 +154,11 @@ async def list_workflow_commits(
         )
     except HTTPException:
         raise
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
     except (TracecatSettingsError, TracecatValidationError, GitHubAppError) as e:
         logger.error("Git sync error fetching commits", exc_info=True)
         raise HTTPException(
@@ -195,6 +200,11 @@ async def list_workflow_branches(
         return await sync_service.list_branches(limit=limit)
     except HTTPException:
         raise
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
     except (TracecatSettingsError, TracecatValidationError, GitHubAppError) as e:
         logger.error("Git sync error fetching branches", exc_info=True)
         raise HTTPException(
@@ -305,6 +315,11 @@ async def pull_workflows(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid parameters: {str(e)}",
+        ) from e
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
         ) from e
     except (TracecatSettingsError, TracecatValidationError, GitHubAppError) as e:
         logger.error("Git sync error during workflow pull", exc_info=True)
