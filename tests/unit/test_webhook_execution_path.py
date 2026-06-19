@@ -566,11 +566,13 @@ class TestWebhookRouterExecutionPath:
             }
         )
 
+        raw_body = b'{"event": "test"}'
         request = MagicMock(spec=Request)
         request.headers = {
             "content-type": "application/json",
             "x-custom-header": "abc",
         }
+        request.body = AsyncMock(return_value=raw_body)
 
         with patch(
             "tracecat.webhooks.router.WorkflowExecutionsService.connect",
@@ -599,6 +601,7 @@ class TestWebhookRouterExecutionPath:
                 "x-custom-header": "abc",
             },
             "data": payload,
+            "raw_body": raw_body.decode("utf-8"),
         }
 
     @pytest.mark.anyio
@@ -620,6 +623,7 @@ class TestWebhookRouterExecutionPath:
             "content-type": "application/json",
             "x-tracecat-api-key": "super-secret",
         }
+        request.body = AsyncMock(return_value=b'{"event": "test"}')
 
         with patch(
             "tracecat.webhooks.router.WorkflowExecutionsService.connect",
@@ -660,6 +664,7 @@ class TestWebhookRouterExecutionPath:
 
         request = MagicMock(spec=Request)
         request.headers = {"content-type": "application/x-ndjson"}
+        request.body = AsyncMock(return_value=b'{"event":"a"}\n{"event":"b"}')
 
         with patch(
             "tracecat.webhooks.router.WorkflowExecutionsService.connect",
@@ -1407,10 +1412,14 @@ class TestWrappedPayloadDependency:
 
     @staticmethod
     def _request(
-        *, include_headers: bool, headers: dict[str, str] | None = None
+        *,
+        include_headers: bool,
+        headers: dict[str, str] | None = None,
+        body: bytes = b"",
     ) -> Request:
         request = MagicMock(spec=Request)
         request.headers = headers or {}
+        request.body = AsyncMock(return_value=body)
         request.state.webhook_include_headers = include_headers
         return request
 
@@ -1425,9 +1434,11 @@ class TestWrappedPayloadDependency:
 
     @pytest.mark.anyio
     async def test_wraps_when_flag_on(self):
+        raw_body = b'{"alert": "x"}'
         request = self._request(
             include_headers=True,
             headers={"content-type": "application/json", "x-custom-source": "siem"},
+            body=raw_body,
         )
         payload = {"alert": "x"}
         result = await _wrapped_payload(request=request, payload=payload)
@@ -1438,6 +1449,7 @@ class TestWrappedPayloadDependency:
                 "x-custom-source": "siem",
             },
             "data": payload,
+            "raw_body": raw_body.decode("utf-8"),
         }
 
     @pytest.mark.anyio

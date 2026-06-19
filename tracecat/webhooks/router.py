@@ -327,9 +327,10 @@ class WebhookTriggerEnvelope(TypedDict):
     status_code: int
     headers: dict[str, str]
     data: TriggerInputs | None
+    raw_body: str | None
 
 
-def _wrap_with_headers(
+async def _wrap_with_headers(
     payload: TriggerInputs | None, request: Request
 ) -> WebhookTriggerEnvelope:
     """Wrap the parsed body in a `core.http.request`-style envelope.
@@ -340,7 +341,14 @@ def _wrap_with_headers(
     headers = {
         k: v for k, v in request.headers.items() if k.lower() not in _REDACTED_HEADERS
     }
-    return WebhookTriggerEnvelope(status_code=200, headers=headers, data=payload)
+    body = await request.body()
+    raw_body = body.decode("utf-8") if body else None
+    return WebhookTriggerEnvelope(
+        status_code=200,
+        headers=headers,
+        data=payload,
+        raw_body=raw_body,
+    )
 
 
 async def _wrapped_payload(
@@ -353,7 +361,7 @@ async def _wrapped_payload(
     wraps per-batch-item inside ``_incoming_webhook`` instead.
     """
     if getattr(request.state, "webhook_include_headers", False):
-        return _wrap_with_headers(payload, request)
+        return await _wrap_with_headers(payload, request)
     return payload
 
 
@@ -389,7 +397,7 @@ async def _incoming_webhook(
             one_response = await service.create_workflow_execution_wait_for_start(
                 dsl=dsl_input,
                 wf_id=workflow_id,
-                payload=_wrap_with_headers(p, request) if include_headers else p,
+                payload=await _wrap_with_headers(p, request) if include_headers else p,
                 trigger_type=TriggerType.WEBHOOK,
                 registry_lock=RegistryLock.model_validate(defn.registry_lock)
                 if defn.registry_lock
@@ -408,7 +416,7 @@ async def _incoming_webhook(
         response = await service.create_workflow_execution_wait_for_start(
             dsl=dsl_input,
             wf_id=workflow_id,
-            payload=_wrap_with_headers(payload, request)
+            payload=await _wrap_with_headers(payload, request)
             if include_headers
             else payload,
             trigger_type=TriggerType.WEBHOOK,
