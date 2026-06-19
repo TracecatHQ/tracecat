@@ -233,6 +233,7 @@ class CaseFieldResourceSpec(BaseModel):
     name: str = Field(min_length=1)
     field_type: str | None = None
     kind: str | None = None
+    options: list[str] | None = None
 
 
 class VariableResourceSpec(BaseModel):

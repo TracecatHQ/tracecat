@@ -27,6 +27,7 @@ from tracecat.db.models import (
     AgentPreset,
     AgentPresetVersion,
     CaseDropdownDefinition,
+    CaseFields,
     CaseTag,
     Secret,
     Skill,
@@ -896,6 +897,46 @@ async def test_case_tag_import_allows_in_batch_name_swap(
     assert tag_a.color == "#303030"
     assert tag_b.name == "Alpha"
     assert tag_b.color == "#404040"
+
+
+@pytest.mark.anyio
+async def test_case_field_sync_preserves_select_options(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{CASE_FIELD_ROOT}/severity_band.yml": _yaml(
+            {
+                "version": 1,
+                "type": "case_field",
+                "id": "severity_band",
+                "name": "severity_band",
+                "field_type": "select",
+                "options": ["low", "medium", "high"],
+            }
+        ),
+    }
+
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="n" * 40)
+
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+    definition = await session.scalar(
+        select(CaseFields).where(CaseFields.workspace_id == svc_role.workspace_id)
+    )
+    assert definition is not None
+    assert definition.schema["severity_band"]["options"] == ["low", "medium", "high"]
+
+    projection = await service.project_workspace(create_missing_mappings=False)
+    field_spec = yaml.safe_load(
+        projection.files[f"{CASE_FIELD_ROOT}/severity_band.yml"]
+    )
+    assert field_spec["options"] == ["low", "medium", "high"]
 
 
 @pytest.mark.anyio
