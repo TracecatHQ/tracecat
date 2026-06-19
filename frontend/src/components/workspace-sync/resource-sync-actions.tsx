@@ -106,6 +106,7 @@ export function WorkspaceResourceSyncActions({
     exportWorkspaceIsPending ||
     branchesIsLoading ||
     (!hasBranches && !isCreatingBranch) ||
+    targetIsDefault ||
     targetBranch === "" ||
     exportMessage.trim() === ""
 
@@ -130,7 +131,7 @@ export function WorkspaceResourceSyncActions({
       const result = await exportWorkspace({
         message: exportMessage,
         branch: targetBranch,
-        create_pr: !targetIsDefault,
+        create_pr: true,
         include_schedules: false,
         provider: "github",
         resources: resourceRefs,
@@ -174,7 +175,7 @@ export function WorkspaceResourceSyncActions({
           <div className="min-w-0 space-y-1">
             <DialogTitle className="text-base">Push {label}</DialogTitle>
             <DialogDescription>
-              {describePush({ gitRepoUrl, label, targetIsDefault })}
+              {describePush({ gitRepoUrl, label })}
             </DialogDescription>
           </div>
         </DialogHeader>
@@ -186,7 +187,6 @@ export function WorkspaceResourceSyncActions({
               resourceCount={resourceCount}
               resourceCountIsLoading={previewIsLoading}
               targetBranch={targetBranch}
-              targetIsDefault={targetIsDefault}
               defaultBranch={defaultBranch}
             />
 
@@ -225,6 +225,11 @@ export function WorkspaceResourceSyncActions({
                 onBranchChange={setExportBranch}
                 showNoBranchesMessage={Boolean(gitRepoUrl)}
               />
+              {targetIsDefault ? (
+                <p className="text-[11px] text-destructive">
+                  Select or create a non-default branch to open a pull request.
+                </p>
+              ) : null}
             </div>
           </div>
         ) : null}
@@ -251,15 +256,9 @@ export function WorkspaceResourceSyncActions({
               disabled={exportDisabled}
               className="gap-1.5"
             >
-              {targetIsDefault ? (
-                <GitBranchIcon className="size-4" />
-              ) : (
-                <GitPullRequestIcon className="size-4" />
-              )}
+              <GitPullRequestIcon className="size-4" />
               {buildPushButtonLabel({
                 isPending: exportWorkspaceIsPending,
-                targetIsDefault,
-                targetBranch,
               })}
             </Button>
           </div>
@@ -274,7 +273,6 @@ interface PushFlowProps {
   resourceCount: number | undefined
   resourceCountIsLoading: boolean
   targetBranch: string
-  targetIsDefault: boolean
   defaultBranch: string | undefined
 }
 
@@ -287,7 +285,6 @@ function PushFlow({
   resourceCount,
   resourceCountIsLoading,
   targetBranch,
-  targetIsDefault,
   defaultBranch,
 }: PushFlowProps) {
   return (
@@ -304,37 +301,29 @@ function PushFlow({
         }
       />
       <FlowArrow />
-      {targetIsDefault ? (
-        <FlowNode
-          icon={<GitBranchIcon className="size-3.5" />}
-          title="Commit to"
-          value={
-            <span className="flex items-center gap-1.5">
-              <span className="truncate">{targetBranch}</span>
+      <FlowNode
+        icon={<GitBranchIcon className="size-3.5" />}
+        title="Branch"
+        value={
+          <span className="flex items-center gap-1.5">
+            <span className="truncate">{targetBranch || "—"}</span>
+            {targetBranch && targetBranch === defaultBranch ? (
               <Badge
                 variant="secondary"
                 className="h-4 shrink-0 rounded-sm px-1 text-[10px] font-normal"
               >
                 default
               </Badge>
-            </span>
-          }
-        />
-      ) : (
-        <>
-          <FlowNode
-            icon={<GitBranchIcon className="size-3.5" />}
-            title="Branch"
-            value={targetBranch || "—"}
-          />
-          <FlowArrow />
-          <FlowNode
-            icon={<GitPullRequestIcon className="size-3.5" />}
-            title="Pull request"
-            value={defaultBranch ?? "default branch"}
-          />
-        </>
-      )}
+            ) : null}
+          </span>
+        }
+      />
+      <FlowArrow />
+      <FlowNode
+        icon={<GitPullRequestIcon className="size-3.5" />}
+        title="Pull request"
+        value={defaultBranch ?? "default branch"}
+      />
     </div>
   )
 }
@@ -370,42 +359,27 @@ function FlowArrow() {
 interface DescribePushOptions {
   gitRepoUrl: string | undefined
   label: string
-  targetIsDefault: boolean
 }
 
 /**
  * Short header sentence; the flow strip carries the branch and PR specifics.
  */
-function describePush({
-  gitRepoUrl,
-  label,
-  targetIsDefault,
-}: DescribePushOptions): string {
+function describePush({ gitRepoUrl, label }: DescribePushOptions): string {
   if (!gitRepoUrl) {
     return "Configure a Git repository in workspace settings first."
-  }
-  if (targetIsDefault) {
-    return `Commit all ${label} in this workspace directly to the default branch.`
   }
   return `Commit all ${label} in this workspace, then open a pull request for review.`
 }
 
 interface BuildPushButtonLabelOptions {
   isPending: boolean
-  targetIsDefault: boolean
-  targetBranch: string
 }
 
 function buildPushButtonLabel({
   isPending,
-  targetIsDefault,
-  targetBranch,
 }: BuildPushButtonLabelOptions): string {
   if (isPending) {
     return "Pushing..."
-  }
-  if (targetIsDefault && targetBranch) {
-    return `Commit to ${targetBranch}`
   }
   return "Push & open PR"
 }
