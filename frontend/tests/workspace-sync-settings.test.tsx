@@ -251,6 +251,30 @@ describe("WorkspaceSyncSettings", () => {
     ).toBeInTheDocument()
   })
 
+  it("ignores cached app repositories when the repository query errors", () => {
+    render(
+      <WorkspaceSyncSettings
+        workspace={setupHooks({
+          repositoryHook: {
+            repositories,
+            repositoriesError: new Error("Failed to load repositories"),
+          },
+        })}
+      />
+    )
+
+    expect(screen.getByLabelText("Remote repository URL")).toBeInTheDocument()
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Select" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "Could not load GitHub App repositories. Enter a git+ssh URL manually."
+      )
+    ).toBeInTheDocument()
+  })
+
   it("disables the repository selector while repositories are loading", () => {
     render(
       <WorkspaceSyncSettings

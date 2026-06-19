@@ -51,10 +51,11 @@ export function WorkspaceSyncSettings({
   const [pullDialogOpen, setPullDialogOpen] = useState(false)
   const { updateWorkspace, isUpdating } = useWorkspaceSettings(workspace.id)
   const {
-    repositories = [],
+    repositories: queriedRepositories = [],
     repositoriesIsLoading,
     repositoriesError,
   } = useGitHubAppRepositories(workspace.id)
+  const repositories = repositoriesError ? [] : queriedRepositories
 
   const form = useForm<SyncSettingsForm>({
     resolver: zodResolver(syncSettingsSchema),
