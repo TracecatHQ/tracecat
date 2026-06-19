@@ -2,7 +2,7 @@ import asyncio
 import uuid
 from types import SimpleNamespace
 from typing import cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from redis.exceptions import ResponseError
@@ -258,7 +258,7 @@ async def test_case_trigger_consumer_done_allows_ack():
 
 
 @pytest.mark.anyio
-async def test_case_trigger_consumer_missing_definition_no_ack():
+async def test_case_trigger_consumer_missing_definition_allows_ack():
     event_id = uuid.uuid4()
     case_id = uuid.uuid4()
     workspace_id = uuid.uuid4()
@@ -285,6 +285,7 @@ async def test_case_trigger_consumer_missing_definition_no_ack():
     client.exists = AsyncMock(return_value=False)
     client.set_if_not_exists = AsyncMock(return_value=True)
     client.delete = AsyncMock(return_value=1)
+    client.set = AsyncMock(return_value=True)
 
     consumer = _build_consumer_with_mocks(
         client,
@@ -293,6 +294,7 @@ async def test_case_trigger_consumer_missing_definition_no_ack():
         triggers=[trigger],
         role=_build_role(workspace_id),
     )
+    consumer._disable_invalid_case_trigger = AsyncMock()
 
     fields = {
         "event_id": str(event_id),
@@ -301,7 +303,150 @@ async def test_case_trigger_consumer_missing_definition_no_ack():
         "event_type": "case_created",
     }
     should_ack = await consumer._process_message(fields)
-    assert should_ack is False
+    assert should_ack is True
+    client.set.assert_awaited_once_with(
+        f"case-trigger:done:{event_id}:{workflow_id}",
+        value="1",
+        expire_seconds=consumer.dedup_ttl,
+    )
+    consumer._disable_invalid_case_trigger.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_disable_invalid_case_trigger_sets_trigger_offline():
+    trigger = SimpleNamespace(workflow_id=uuid.uuid4(), status="online")
+    event = SimpleNamespace(id=uuid.uuid4())
+    session = SimpleNamespace(add=MagicMock(), flush=AsyncMock())
+
+    await CaseTriggerConsumer(client=AsyncMock())._disable_invalid_case_trigger(
+        session=session,
+        trigger=cast(CaseTrigger, trigger),
+        event=cast(CaseEvent, event),
+        reason="missing workflow definition",
+    )
+
+    assert trigger.status == "offline"
+    session.add.assert_called_once_with(trigger)
+    session.flush.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_dispatch_workflow_skips_non_current_definition(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    workflow_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    consumer = CaseTriggerConsumer(client=AsyncMock())
+    consumer._disable_invalid_case_trigger = AsyncMock()
+    workflow_service_connect = AsyncMock()
+
+    monkeypatch.setattr(
+        "tracecat.cases.triggers.consumer.WorkflowDefinitionsService.get_definition_by_workflow_id",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                workflow=SimpleNamespace(version=2),
+                version=1,
+                content={"title": "old"},
+                registry_lock=None,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "tracecat.cases.triggers.consumer.WorkflowExecutionsService.connect",
+        workflow_service_connect,
+    )
+
+    dispatched = await consumer._dispatch_workflow(
+        session=AsyncMock(),
+        role=_build_role(workspace_id),
+        trigger=cast(
+            CaseTrigger,
+            SimpleNamespace(workflow_id=workflow_id, status="online"),
+        ),
+        case=cast(
+            Case,
+            SimpleNamespace(id=uuid.uuid4(), workspace_id=workspace_id, tags=[]),
+        ),
+        event=cast(
+            CaseEvent,
+            SimpleNamespace(
+                id=uuid.uuid4(),
+                created_at=None,
+                type="case_closed",
+                user_id=None,
+            ),
+        ),
+    )
+
+    assert dispatched is True
+    consumer._disable_invalid_case_trigger.assert_awaited_once()
+    workflow_service_connect.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_dispatch_workflow_disables_structurally_invalid_definition(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    workflow_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    consumer = CaseTriggerConsumer(client=AsyncMock())
+    consumer._disable_invalid_case_trigger = AsyncMock()
+    workflow_service_connect = AsyncMock()
+
+    monkeypatch.setattr(
+        "tracecat.cases.triggers.consumer.WorkflowDefinitionsService.get_definition_by_workflow_id",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                workflow=SimpleNamespace(version=1),
+                version=1,
+                content={
+                    "title": "invalid",
+                    "description": "",
+                    "entrypoint": {"ref": "start"},
+                    "actions": [],
+                },
+                registry_lock=None,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "tracecat.cases.triggers.consumer.WorkflowExecutionsService.connect",
+        workflow_service_connect,
+    )
+
+    trigger = cast(
+        CaseTrigger,
+        SimpleNamespace(workflow_id=workflow_id, status="online"),
+    )
+    event = cast(
+        CaseEvent,
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            created_at=None,
+            type="case_closed",
+            user_id=None,
+        ),
+    )
+    dispatched = await consumer._dispatch_workflow(
+        session=AsyncMock(),
+        role=_build_role(workspace_id),
+        trigger=trigger,
+        case=cast(
+            Case,
+            SimpleNamespace(id=uuid.uuid4(), workspace_id=workspace_id, tags=[]),
+        ),
+        event=event,
+    )
+
+    assert dispatched is True
+    consumer._disable_invalid_case_trigger.assert_awaited_once()
+    disable_call = consumer._disable_invalid_case_trigger.await_args
+    assert disable_call is not None
+    disable_kwargs = disable_call.kwargs
+    assert disable_kwargs["trigger"] is trigger
+    assert disable_kwargs["event"] is event
+    assert disable_kwargs["reason"] == "invalid workflow definition content"
+    workflow_service_connect.assert_not_called()
 
 
 def _nogroup_retry_error() -> RetryError:

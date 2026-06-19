@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.auth.types import Role
 from tracecat.db.models import Workflow, Workspace
 from tracecat.dsl.common import DSLInput
+from tracecat.exceptions import ScopeDeniedError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 
@@ -188,6 +189,36 @@ async def test_create_workflow_definition_with_datetime_serialization(
     saved_datetime = content["actions"][0]["args"]["date_field"]
     assert isinstance(saved_datetime, str)  # Should be serialized as ISO string
     assert "2024-11-01T00:00:00" in saved_datetime
+
+
+@pytest.mark.anyio
+async def test_create_initial_workflow_definition_uses_create_scope(
+    session: AsyncSession,
+    svc_workspace: Workspace,
+    workflow_id: WorkflowUUID,
+):
+    create_only_role = Role(
+        type="service",
+        service_id="tracecat-api",
+        organization_id=svc_workspace.organization_id,
+        workspace_id=svc_workspace.id,
+        scopes=frozenset({"workflow:create"}),
+    )
+    service = WorkflowDefinitionsService(session=session, role=create_only_role)
+
+    definition = await service.create_initial_workflow_definition(
+        workflow_id=workflow_id,
+        dsl=_dsl_input("initial"),
+        commit=True,
+    )
+
+    assert definition.version == 1
+    with pytest.raises(ScopeDeniedError):
+        await service.create_workflow_definition(
+            workflow_id=workflow_id,
+            dsl=_dsl_input("v2"),
+            commit=True,
+        )
 
 
 @pytest.mark.anyio

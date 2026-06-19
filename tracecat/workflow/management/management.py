@@ -52,6 +52,7 @@ from tracecat.pagination import (
     CursorPaginationParams,
 )
 from tracecat.registry.lock.service import RegistryLockService
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.service import BaseWorkspaceService
 from tracecat.validation.schemas import (
     DSLValidationResult,
@@ -1195,6 +1196,25 @@ class WorkflowsManagementService(BaseWorkspaceService):
         if external_defn.case_trigger is not None and (
             external_defn.case_trigger.is_configured()
         ):
+            if external_defn.case_trigger.status == "online":
+                defn_service = WorkflowDefinitionsService(
+                    session=self.session, role=self.role
+                )
+                defn = await defn_service.create_initial_workflow_definition(
+                    WorkflowUUID.new(workflow.id),
+                    dsl,
+                    alias=workflow.alias,
+                    registry_lock=(
+                        RegistryLock.model_validate(workflow.registry_lock)
+                        if workflow.registry_lock
+                        else None
+                    ),
+                    commit=False,
+                )
+                workflow.version = defn.version
+                self.session.add(workflow)
+                await self.session.flush()
+
             case_trigger_service = CaseTriggersService(self.session, role=self.role)
             await case_trigger_service.upsert_case_trigger(
                 WorkflowUUID.new(workflow.id),

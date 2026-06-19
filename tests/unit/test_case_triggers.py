@@ -1,15 +1,41 @@
+from typing import Any
+
 import pytest
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.cases.enums import CaseEventType
 from tracecat.cases.tags.service import CaseTagsService
-from tracecat.db.models import CaseTrigger, Workflow
+from tracecat.db.models import CaseTrigger, Workflow, WorkflowDefinition
+from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig, CaseTriggerUpdate
 from tracecat.workflow.case_triggers.service import CaseTriggersService
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+def _runnable_definition_content() -> dict[str, Any]:
+    dsl = DSLInput.model_validate(
+        {
+            "title": "Runnable workflow",
+            "description": "Test workflow",
+            "entrypoint": {"ref": "start"},
+            "actions": [
+                {
+                    "ref": "start",
+                    "action": "core.transform.reshape",
+                    "args": {"value": "ok"},
+                }
+            ],
+        }
+    )
+    return dsl.model_dump(exclude_unset=True)
+
+
+def _case_closed_event_types() -> list[CaseEventType]:
+    return [CaseEventType.CASE_CLOSED]
 
 
 @pytest.mark.anyio
@@ -46,6 +72,121 @@ async def test_case_trigger_update_requires_events_when_online(
         await service.update_case_trigger(
             WorkflowUUID.new(workflow.id), CaseTriggerUpdate(status="online")
         )
+
+
+@pytest.mark.anyio
+async def test_case_trigger_update_requires_published_definition_when_online(
+    session: AsyncSession, svc_role
+):
+    workflow = Workflow(
+        title="Case Trigger Draft",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    session.add(workflow)
+    await session.flush()
+
+    case_trigger = CaseTrigger(
+        workspace_id=svc_role.workspace_id,
+        workflow_id=workflow.id,
+        status="offline",
+        event_types=[],
+        tag_filters=[],
+    )
+    session.add(case_trigger)
+    await session.commit()
+
+    service = CaseTriggersService(session, role=svc_role)
+    with pytest.raises(TracecatValidationError, match="Publish the workflow"):
+        await service.update_case_trigger(
+            WorkflowUUID.new(workflow.id),
+            CaseTriggerUpdate(status="online", event_types=_case_closed_event_types()),
+        )
+
+
+@pytest.mark.anyio
+async def test_case_trigger_update_requires_current_definition_when_online(
+    session: AsyncSession, svc_role
+):
+    workflow = Workflow(
+        title="Case Trigger Missing Current Definition",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+        version=2,
+    )
+    session.add(workflow)
+    await session.flush()
+
+    session.add(
+        WorkflowDefinition(
+            workspace_id=svc_role.workspace_id,
+            workflow_id=workflow.id,
+            version=1,
+            content=_runnable_definition_content(),
+        )
+    )
+    session.add(
+        CaseTrigger(
+            workspace_id=svc_role.workspace_id,
+            workflow_id=workflow.id,
+            status="offline",
+            event_types=[],
+            tag_filters=[],
+        )
+    )
+    await session.commit()
+
+    service = CaseTriggersService(session, role=svc_role)
+    with pytest.raises(TracecatValidationError, match="Publish the workflow"):
+        await service.update_case_trigger(
+            WorkflowUUID.new(workflow.id),
+            CaseTriggerUpdate(status="online", event_types=_case_closed_event_types()),
+        )
+
+
+@pytest.mark.anyio
+async def test_case_trigger_update_allows_online_with_current_definition(
+    session: AsyncSession, svc_role
+):
+    workflow = Workflow(
+        title="Case Trigger Published",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+        version=1,
+    )
+    session.add(workflow)
+    await session.flush()
+
+    session.add(
+        WorkflowDefinition(
+            workspace_id=svc_role.workspace_id,
+            workflow_id=workflow.id,
+            version=1,
+            content=_runnable_definition_content(),
+        )
+    )
+    session.add(
+        CaseTrigger(
+            workspace_id=svc_role.workspace_id,
+            workflow_id=workflow.id,
+            status="offline",
+            event_types=[],
+            tag_filters=[],
+        )
+    )
+    await session.commit()
+
+    service = CaseTriggersService(session, role=svc_role)
+    updated = await service.update_case_trigger(
+        WorkflowUUID.new(workflow.id),
+        CaseTriggerUpdate(status="online", event_types=_case_closed_event_types()),
+    )
+
+    assert updated.status == "online"
+    assert updated.event_types == ["case_closed"]
 
 
 @pytest.mark.anyio
