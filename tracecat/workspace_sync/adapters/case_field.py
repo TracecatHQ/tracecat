@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Mapping
 from typing import Any, cast
 
@@ -55,7 +56,12 @@ class CaseFieldAdapter(SingleYamlAdapter):
                 kind=field_def.get("kind"),
                 options=field_def.get("options"),
             )
-            resources.append(self.projected_resource(source_id, definition.id))
+            resources.append(
+                self.projected_resource(
+                    source_id,
+                    _case_field_local_id(definition.id, source_id),
+                )
+            )
         return ResourceProjection(specs=specs, resources=resources)
 
     async def import_specs(
@@ -109,7 +115,12 @@ class CaseFieldAdapter(SingleYamlAdapter):
                 select(CaseFields).where(CaseFields.workspace_id == ctx.workspace_id)
             )
             if definition is not None:
-                imported.append(self.imported_resource(source_id, definition.id))
+                imported.append(
+                    self.imported_resource(
+                        source_id,
+                        _case_field_local_id(definition.id, source_id),
+                    )
+                )
         return imported
 
 
@@ -137,3 +148,7 @@ def _case_field_options(
         if isinstance(options, list):
             return [str(option) for option in options]
     return None
+
+
+def _case_field_local_id(definition_id: uuid.UUID, source_id: str) -> uuid.UUID:
+    return uuid.uuid5(definition_id, source_id)

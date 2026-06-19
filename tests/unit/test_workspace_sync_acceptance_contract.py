@@ -33,6 +33,7 @@ from tracecat.db.models import (
     Skill,
     SkillVersion,
     Table,
+    WorkspaceSyncResourceMapping,
     WorkspaceVariable,
 )
 from tracecat.git.types import GitUrl
@@ -937,6 +938,48 @@ async def test_case_field_sync_preserves_select_options(
         projection.files[f"{CASE_FIELD_ROOT}/severity_band.yml"]
     )
     assert field_spec["options"] == ["low", "medium", "high"]
+
+
+@pytest.mark.anyio
+async def test_project_workspace_maps_case_fields_per_field(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    session.add(
+        CaseFields(
+            workspace_id=svc_role.workspace_id,
+            schema={
+                "external_ref": {"type": "TEXT"},
+                "severity_band": {
+                    "type": "SELECT",
+                    "options": ["low", "medium", "high"],
+                },
+            },
+        )
+    )
+    await session.flush()
+    service = WorkspaceSyncService(session=session, role=svc_role)
+
+    projection = await service.project_workspace()
+
+    assert f"{CASE_FIELD_ROOT}/external_ref.yml" in projection.files
+    assert f"{CASE_FIELD_ROOT}/severity_band.yml" in projection.files
+    mappings = list(
+        (
+            await session.scalars(
+                select(WorkspaceSyncResourceMapping).where(
+                    WorkspaceSyncResourceMapping.workspace_id == svc_role.workspace_id,
+                    WorkspaceSyncResourceMapping.resource_type
+                    == SyncResourceType.CASE_FIELD.value,
+                )
+            )
+        ).all()
+    )
+    assert {mapping.source_id for mapping in mappings} == {
+        "external_ref",
+        "severity_band",
+    }
+    assert len({mapping.local_id for mapping in mappings}) == 2
 
 
 @pytest.mark.anyio
