@@ -417,20 +417,19 @@ class TestMCPIntegrationCRUD:
         assert unlocked.mcp_auth_type == MCPAuthType.NONE
         assert unlocked.state == "connected"
 
-    async def test_platform_mcp_catalog_uses_workspace_row_name_and_description(
+    async def test_platform_mcp_catalog_always_shows_catalog_name_and_description(
         self,
         integration_service: IntegrationService,
         session: AsyncSession,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """A renamed workspace row's name/description win over catalog defaults.
+        """Catalog-bound rows display the repo-owned catalog name/description.
 
-        The catalog_slug binds the row to the entry, so the user's rename must
-        persist in the catalog listing rather than being overridden by the
-        repo-owned catalog name/description.
+        Platform catalog entries are not renameable, so the listing always shows
+        the catalog values regardless of what is stored on the workspace row.
         """
         catalog = _catalog_entry(
-            slug="renamable-mcp",
+            slug="fixed-name-mcp",
             name="Catalog Default Name",
             description="Catalog default description",
             connection_spec={
@@ -442,15 +441,17 @@ class TestMCPIntegrationCRUD:
                 "credentials": [],
                 "server_uri": "https://mcp.example.com/mcp",
             },
-            sort_key="0000:renamable-mcp",
+            sort_key="0000:fixed-name-mcp",
         )
         _install_catalog_entry(monkeypatch, catalog)
 
+        # Even if a row somehow carries a different stored name/description, the
+        # listing must not surface it for a catalog-bound entry.
         session.add(
             MCPIntegration(
                 workspace_id=integration_service.workspace_id,
-                name="My Renamed Server",
-                description="My own notes",
+                name="Stale Stored Name",
+                description="Stale stored notes",
                 slug=catalog.slug,
                 catalog_slug=catalog.slug,
                 server_type="http",
@@ -468,8 +469,56 @@ class TestMCPIntegrationCRUD:
         )
 
         item = next(entry for entry in items if entry.slug == catalog.slug)
-        assert item.name == "My Renamed Server"
-        assert item.description == "My own notes"
+        assert item.name == "Catalog Default Name"
+        assert item.description == "Catalog default description"
+
+    async def test_update_mcp_integration_ignores_rename_for_catalog_row(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Name/description edits are ignored for catalog-bound rows."""
+        catalog = _catalog_entry(
+            slug="locked-name-mcp",
+            name="Catalog Default Name",
+            description="Catalog default description",
+            connection_spec={
+                "kind": "http_none",
+                "server_type": "http",
+                "auth_type": "NONE",
+                "requires_config": False,
+                "config_fields": [],
+                "credentials": [],
+                "server_uri": "https://mcp.example.com/mcp",
+            },
+            sort_key="0000:locked-name-mcp",
+        )
+        _install_catalog_entry(monkeypatch, catalog)
+
+        mcp_integration = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name=catalog.name,
+                description=catalog.description,
+                catalog_slug=catalog.slug,
+                server_uri="https://mcp.example.com/mcp",
+                auth_type=MCPAuthType.NONE,
+            )
+        )
+        original_name = mcp_integration.name
+        original_slug = mcp_integration.slug
+
+        updated = await integration_service.update_mcp_integration(
+            mcp_integration_id=mcp_integration.id,
+            params=MCPIntegrationUpdate(
+                name="Attempted Rename",
+                description="Attempted new description",
+            ),
+        )
+        assert isinstance(updated, MCPIntegration)
+        assert updated.name == original_name
+        assert updated.slug == original_slug
+        assert updated.description == catalog.description
 
     async def test_platform_mcp_catalog_reports_deleted_oauth_row_as_not_connected(
         self,
