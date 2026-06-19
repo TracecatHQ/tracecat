@@ -842,6 +842,63 @@ async def test_agent_preset_sync_preserves_catalog_id(
 
 
 @pytest.mark.anyio
+async def test_case_tag_import_allows_in_batch_name_swap(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    tag_a = CaseTag(
+        workspace_id=svc_role.workspace_id,
+        ref="tag-a",
+        name="Alpha",
+        color="#101010",
+    )
+    tag_b = CaseTag(
+        workspace_id=svc_role.workspace_id,
+        ref="tag-b",
+        name="Beta",
+        color="#202020",
+    )
+    session.add_all([tag_a, tag_b])
+    await session.flush()
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{CASE_TAG_ROOT}/tag-a.yml": _yaml(
+            {
+                "version": 1,
+                "type": "case_tag",
+                "id": "tag-a",
+                "name": "Beta",
+                "color": "#303030",
+            }
+        ),
+        f"{CASE_TAG_ROOT}/tag-b.yml": _yaml(
+            {
+                "version": 1,
+                "type": "case_tag",
+                "id": "tag-b",
+                "name": "Alpha",
+                "color": "#404040",
+            }
+        ),
+    }
+
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="m" * 40)
+
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+    await session.refresh(tag_a)
+    await session.refresh(tag_b)
+    assert tag_a.name == "Beta"
+    assert tag_a.color == "#303030"
+    assert tag_b.name == "Alpha"
+    assert tag_b.color == "#404040"
+
+
+@pytest.mark.anyio
 async def test_table_import_rejects_multiple_unique_columns(
     session: AsyncSession,
     svc_role: Role,

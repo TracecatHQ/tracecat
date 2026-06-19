@@ -83,14 +83,37 @@ class CaseTagAdapter(SingleYamlAdapter):
         )
         tags_by_ref = {tag.ref: tag for tag in existing_tags}
         tags_by_name = {tag.name: tag for tag in existing_tags}
-        imported: list[ImportedResource] = []
+        import_targets: list[tuple[str, CaseTagResourceSpec, CaseTag | None]] = []
         for source_id, spec in sorted(tags.items()):
             tag = tags_by_ref.get(source_id)
             name_owner = tags_by_name.get(spec.name)
-            if name_owner is not None and (tag is None or name_owner.id != tag.id):
+            if (
+                name_owner is not None
+                and (tag is None or name_owner.id != tag.id)
+                and not _name_owner_released_by_batch(
+                    name_owner,
+                    specs=tags,
+                    tags_by_ref=tags_by_ref,
+                )
+            ):
                 raise ValueError(
                     f"Case tag name {spec.name!r} already exists in this workspace"
                 )
+            import_targets.append((source_id, spec, tag))
+
+        for _source_id, spec, tag in import_targets:
+            if tag is not None and tag.name != spec.name:
+                tag.name = f"__tracecat_sync_tmp_{tag.id}"
+                ctx.session.add(tag)
+        try:
+            await ctx.session.flush()
+        except IntegrityError as e:
+            raise ValueError(
+                "Case tag sync encountered a duplicate tag name or ref"
+            ) from e
+
+        imported_tags: list[tuple[str, CaseTag]] = []
+        for source_id, spec, tag in import_targets:
             if tag is None:
                 tag = CaseTag(
                     workspace_id=ctx.workspace_id,
@@ -102,14 +125,17 @@ class CaseTagAdapter(SingleYamlAdapter):
                 tag.name = spec.name
                 tag.color = spec.color
             ctx.session.add(tag)
-            try:
-                await ctx.session.flush()
-            except IntegrityError as e:
-                raise ValueError(
-                    "Case tag sync encountered a duplicate tag name or ref"
-                ) from e
-            imported.append(self.imported_resource(source_id, tag.id))
-        return imported
+            imported_tags.append((source_id, tag))
+        try:
+            await ctx.session.flush()
+        except IntegrityError as e:
+            raise ValueError(
+                "Case tag sync encountered a duplicate tag name or ref"
+            ) from e
+        return [
+            self.imported_resource(source_id, tag.id)
+            for source_id, tag in imported_tags
+        ]
 
 
 def _duplicates(values: Iterable[str]) -> set[str]:
@@ -121,3 +147,19 @@ def _duplicates(values: Iterable[str]) -> set[str]:
         else:
             seen.add(value)
     return duplicates
+
+
+def _name_owner_released_by_batch(
+    name_owner: CaseTag,
+    *,
+    specs: Mapping[str, CaseTagResourceSpec],
+    tags_by_ref: Mapping[str, CaseTag],
+) -> bool:
+    owner_spec = specs.get(name_owner.ref)
+    owner_by_ref = tags_by_ref.get(name_owner.ref)
+    return (
+        owner_spec is not None
+        and owner_by_ref is not None
+        and owner_by_ref.id == name_owner.id
+        and owner_spec.name != name_owner.name
+    )
