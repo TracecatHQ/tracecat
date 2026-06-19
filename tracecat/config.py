@@ -994,8 +994,8 @@ TRACECAT__CASE_TRIGGERS_LOCK_TTL_SECONDS = int(
 )
 """TTL for case trigger lock keys in seconds."""
 
-TRACECAT__CASE_DURATION_SYNC_ENABLED = (
-    os.environ.get("TRACECAT__CASE_DURATION_SYNC_ENABLED", "true").lower() == "true"
+TRACECAT__CASE_DURATION_SYNC_ENABLED = env_bool(
+    "TRACECAT__CASE_DURATION_SYNC_ENABLED", default=True
 )
 """Enable async case duration materialization from case event writes."""
 
