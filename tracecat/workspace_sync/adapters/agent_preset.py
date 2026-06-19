@@ -137,6 +137,7 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         specs: Mapping[str, BaseModel],
     ) -> list[ImportedResource]:
         presets = cast(Mapping[str, AgentPresetResourceSpec], specs)
+        import_order = self._preset_import_order(presets)
         imported: list[ImportedResource] = []
         preset_by_source_id: dict[str, AgentPreset] = {}
         for source_id, spec in sorted(presets.items()):
@@ -150,22 +151,13 @@ class AgentPresetAdapter(CompoundYamlAdapter):
                     workspace_id=ctx.workspace_id,
                     slug=spec.slug,
                     name=spec.name,
-                    model_name=getattr(spec, "model_name", None)
-                    or DEFAULT_AGENT_MODEL_NAME,
-                    model_provider=getattr(spec, "model_provider", None)
-                    or DEFAULT_AGENT_MODEL_PROVIDER,
+                    model_name=spec.model_name or DEFAULT_AGENT_MODEL_NAME,
+                    model_provider=spec.model_provider or DEFAULT_AGENT_MODEL_PROVIDER,
                     agents=AgentSubagentsConfig().model_dump(mode="json"),
                 )
             else:
                 preset.slug = spec.slug
-            preset.name = spec.name
-            preset.instructions = spec.instructions
-            preset.actions = spec.actions or None
-            preset.tool_approvals = _tool_approvals(spec.tool_approvals)
-            preset.model_name = getattr(spec, "model_name", None) or preset.model_name
-            preset.model_provider = (
-                getattr(spec, "model_provider", None) or preset.model_provider
-            )
+            self._apply_preset_spec(preset, spec)
             folder = await self._ensure_agent_folder(ctx, spec.folder_path)
             preset.folder_id = folder.id if folder is not None else None
             ctx.session.add(preset)
@@ -173,18 +165,92 @@ class AgentPresetAdapter(CompoundYamlAdapter):
             await self._replace_agent_tags(ctx, preset, spec.tags)
             preset_by_source_id[source_id] = preset
 
-        for source_id, spec in sorted(presets.items()):
+        for source_id in import_order:
+            spec = presets[source_id]
             preset = preset_by_source_id[source_id]
             preset.agents = await self._resolved_subagents_config(ctx, spec)
             ctx.session.add(preset)
             await ctx.session.flush()
-            version = await self._upsert_agent_preset_version(ctx, preset)
-            await self._replace_preset_skill_bindings(ctx, preset, version, spec)
+            skill_targets = await self._skill_binding_targets_for_spec(ctx, spec)
+            current_version = await self._current_version_for_preset(ctx, preset)
+            if current_version is not None and await self._version_matches_preset(
+                ctx,
+                current_version,
+                preset,
+                skill_targets,
+            ):
+                version = current_version
+            else:
+                version = await self._create_agent_preset_version(ctx, preset)
+                await self._replace_version_skill_bindings(ctx, version, skill_targets)
+            await self._replace_head_skill_bindings(ctx, preset, skill_targets)
             preset.current_version_id = version.id
             ctx.session.add(preset)
             await ctx.session.flush()
             imported.append(self.imported_resource(source_id, preset.id))
         return imported
+
+    def _preset_import_order(
+        self,
+        presets: Mapping[str, AgentPresetResourceSpec],
+    ) -> list[str]:
+        slug_to_source_id: dict[str, str] = {}
+        for source_id, spec in sorted(presets.items()):
+            if spec.slug in slug_to_source_id:
+                raise TracecatValidationError(
+                    f"Agent preset sync specs must have unique slugs: {spec.slug!r}"
+                )
+            slug_to_source_id[spec.slug] = source_id
+
+        visiting: set[str] = set()
+        visited: set[str] = set()
+        ordered: list[str] = []
+
+        def visit(source_id: str) -> None:
+            if source_id in visited:
+                return
+            if source_id in visiting:
+                raise TracecatValidationError(
+                    "Cyclic agent preset subagent reference detected during import"
+                )
+            visiting.add(source_id)
+            spec = presets[source_id]
+            for subagent in sorted(spec.subagents, key=lambda item: item.slug):
+                if child_source_id := slug_to_source_id.get(subagent.slug):
+                    visit(child_source_id)
+            visiting.remove(source_id)
+            visited.add(source_id)
+            ordered.append(source_id)
+
+        for source_id in sorted(presets):
+            visit(source_id)
+        return ordered
+
+    def _apply_preset_spec(
+        self,
+        preset: AgentPreset,
+        spec: AgentPresetResourceSpec,
+    ) -> None:
+        preset.name = spec.name
+        preset.instructions = spec.instructions
+        preset.actions = spec.actions or None
+        preset.tool_approvals = _tool_approvals(spec.tool_approvals)
+        preset.model_name = spec.model_name or preset.model_name
+        preset.model_provider = spec.model_provider or preset.model_provider
+        if _field_was_set(spec, "base_url"):
+            preset.base_url = spec.base_url
+        if _field_was_set(spec, "output_type"):
+            preset.output_type = spec.output_type
+        if _field_was_set(spec, "namespaces"):
+            preset.namespaces = spec.namespaces or None
+        if _field_was_set(spec, "mcp_integrations"):
+            preset.mcp_integrations = spec.mcp_integrations or None
+        if _field_was_set(spec, "retries"):
+            preset.retries = spec.retries
+        if _field_was_set(spec, "enable_thinking"):
+            preset.enable_thinking = spec.enable_thinking
+        if _field_was_set(spec, "enable_internet_access"):
+            preset.enable_internet_access = spec.enable_internet_access
 
     async def _preset_for_import(
         self,
@@ -355,27 +421,73 @@ class AgentPresetAdapter(CompoundYamlAdapter):
             )
         return {"enabled": bool(subagents), "subagents": subagents}
 
-    async def _upsert_agent_preset_version(
+    async def _current_version_for_preset(
+        self,
+        ctx: BaseWorkspaceService,
+        preset: AgentPreset,
+    ) -> AgentPresetVersion | None:
+        if preset.current_version_id is None:
+            return None
+        return await ctx.session.scalar(
+            select(AgentPresetVersion).where(
+                AgentPresetVersion.workspace_id == ctx.workspace_id,
+                AgentPresetVersion.preset_id == preset.id,
+                AgentPresetVersion.id == preset.current_version_id,
+            )
+        )
+
+    async def _version_matches_preset(
+        self,
+        ctx: BaseWorkspaceService,
+        version: AgentPresetVersion,
+        preset: AgentPreset,
+        skill_targets: list[tuple[Skill, SkillVersion]],
+    ) -> bool:
+        for key, value in self._version_attrs_from_preset(preset).items():
+            if getattr(version, key) != value:
+                return False
+        desired_skill_targets = {
+            (skill.id, skill_version.id) for skill, skill_version in skill_targets
+        }
+        existing_skill_targets = {
+            (skill_id, skill_version_id)
+            for skill_id, skill_version_id in (
+                await ctx.session.execute(
+                    select(
+                        AgentPresetVersionSkill.skill_id,
+                        AgentPresetVersionSkill.skill_version_id,
+                    ).where(
+                        AgentPresetVersionSkill.workspace_id == ctx.workspace_id,
+                        AgentPresetVersionSkill.preset_version_id == version.id,
+                    )
+                )
+            ).tuples()
+        }
+        return existing_skill_targets == desired_skill_targets
+
+    async def _create_agent_preset_version(
         self,
         ctx: BaseWorkspaceService,
         preset: AgentPreset,
     ) -> AgentPresetVersion:
-        version = None
-        if preset.current_version_id is not None:
-            version = await ctx.session.scalar(
-                select(AgentPresetVersion).where(
-                    AgentPresetVersion.workspace_id == ctx.workspace_id,
-                    AgentPresetVersion.preset_id == preset.id,
-                    AgentPresetVersion.id == preset.current_version_id,
-                )
+        current_version = await ctx.session.scalar(
+            select(sa.func.max(AgentPresetVersion.version)).where(
+                AgentPresetVersion.workspace_id == ctx.workspace_id,
+                AgentPresetVersion.preset_id == preset.id,
             )
-        if version is None:
-            version = AgentPresetVersion(
-                workspace_id=ctx.workspace_id,
-                preset_id=preset.id,
-                version=1,
-            )
-        attrs = {
+        )
+        version = AgentPresetVersion(
+            workspace_id=ctx.workspace_id,
+            preset_id=preset.id,
+            version=(current_version or 0) + 1,
+            **self._version_attrs_from_preset(preset),
+        )
+        ctx.session.add(version)
+        await ctx.session.flush()
+        return version
+
+    def _version_attrs_from_preset(self, preset: AgentPreset) -> dict[str, Any]:
+        return {
             "instructions": preset.instructions,
             "model_name": preset.model_name,
             "model_provider": preset.model_provider,
@@ -391,18 +503,12 @@ class AgentPresetAdapter(CompoundYamlAdapter):
             "enable_thinking": preset.enable_thinking,
             "enable_internet_access": preset.enable_internet_access,
         }
-        for key, value in attrs.items():
-            setattr(version, key, value)
-        ctx.session.add(version)
-        await ctx.session.flush()
-        return version
 
-    async def _replace_preset_skill_bindings(
+    async def _replace_head_skill_bindings(
         self,
         ctx: BaseWorkspaceService,
         preset: AgentPreset,
-        version: AgentPresetVersion,
-        spec: AgentPresetResourceSpec,
+        skill_targets: list[tuple[Skill, SkillVersion]],
     ) -> None:
         await ctx.session.execute(
             sa.delete(AgentPresetSkill).where(
@@ -410,16 +516,7 @@ class AgentPresetAdapter(CompoundYamlAdapter):
                 AgentPresetSkill.preset_id == preset.id,
             )
         )
-        await ctx.session.execute(
-            sa.delete(AgentPresetVersionSkill).where(
-                AgentPresetVersionSkill.workspace_id == ctx.workspace_id,
-                AgentPresetVersionSkill.preset_version_id == version.id,
-            )
-        )
-        for binding in spec.skills:
-            skill, skill_version = await self._skill_binding_targets(ctx, binding)
-            if skill is None or skill_version is None:
-                continue
+        for skill, skill_version in skill_targets:
             ctx.session.add(
                 AgentPresetSkill(
                     workspace_id=ctx.workspace_id,
@@ -428,6 +525,21 @@ class AgentPresetAdapter(CompoundYamlAdapter):
                     skill_version_id=skill_version.id,
                 )
             )
+        await ctx.session.flush()
+
+    async def _replace_version_skill_bindings(
+        self,
+        ctx: BaseWorkspaceService,
+        version: AgentPresetVersion,
+        skill_targets: list[tuple[Skill, SkillVersion]],
+    ) -> None:
+        await ctx.session.execute(
+            sa.delete(AgentPresetVersionSkill).where(
+                AgentPresetVersionSkill.workspace_id == ctx.workspace_id,
+                AgentPresetVersionSkill.preset_version_id == version.id,
+            )
+        )
+        for skill, skill_version in skill_targets:
             ctx.session.add(
                 AgentPresetVersionSkill(
                     workspace_id=ctx.workspace_id,
@@ -437,6 +549,19 @@ class AgentPresetAdapter(CompoundYamlAdapter):
                 )
             )
         await ctx.session.flush()
+
+    async def _skill_binding_targets_for_spec(
+        self,
+        ctx: BaseWorkspaceService,
+        spec: AgentPresetResourceSpec,
+    ) -> list[tuple[Skill, SkillVersion]]:
+        targets: list[tuple[Skill, SkillVersion]] = []
+        for binding in spec.skills:
+            skill, skill_version = await self._skill_binding_targets(ctx, binding)
+            if skill is None or skill_version is None:
+                continue
+            targets.append((skill, skill_version))
+        return targets
 
     async def _skill_binding_targets(
         self,
@@ -482,3 +607,7 @@ def _tool_approvals(value: dict[str, Any]) -> dict[str, bool] | None:
         key: bool(raw_value == "manual" or raw_value is True)
         for key, raw_value in value.items()
     }
+
+
+def _field_was_set(spec: BaseModel, field_name: str) -> bool:
+    return field_name in spec.model_fields_set

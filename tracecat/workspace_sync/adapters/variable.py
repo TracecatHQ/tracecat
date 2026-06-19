@@ -79,9 +79,13 @@ class VariableAdapter(EnvironmentYamlAdapter):
                     name=spec.name,
                     environment=spec.environment,
                     values=values,
+                    description=spec.description,
+                    tags=dict.fromkeys(spec.tags, "") if spec.tags else None,
                 )
             else:
                 variable.values = values
+                variable.description = spec.description
+                variable.tags = dict.fromkeys(spec.tags, "") if spec.tags else None
             ctx.session.add(variable)
             await ctx.session.flush()
             imported.append(self.imported_resource(source_id, variable.id))

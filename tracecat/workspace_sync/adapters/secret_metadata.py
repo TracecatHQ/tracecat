@@ -81,15 +81,10 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
             )
             existing_values: dict[str, SecretStr] = {}
             if secret is not None:
-                try:
-                    existing_values = {
-                        key_value.key: key_value.value
-                        for key_value in secret_service.decrypt_keys(
-                            secret.encrypted_keys
-                        )
-                    }
-                except Exception:
-                    existing_values = {}
+                existing_values = {
+                    key_value.key: key_value.value
+                    for key_value in secret_service.decrypt_keys(secret.encrypted_keys)
+                }
 
             key_values = [
                 SecretKeyValue(
@@ -109,11 +104,13 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
                     encrypted_keys=encrypted_keys,
                     environment=spec.environment,
                     tags=tags,
+                    description=spec.description,
                 )
             else:
                 secret.type = secret_type
                 secret.encrypted_keys = encrypted_keys
                 secret.tags = tags
+                secret.description = spec.description
             ctx.session.add(secret)
             await ctx.session.flush()
             imported.append(self.imported_resource(source_id, secret.id))

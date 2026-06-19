@@ -93,15 +93,20 @@ class CaseDropdownAdapter(SingleYamlAdapter):
                     workspace_id=ctx.workspace_id,
                     name=spec.name,
                     ref=source_id,
-                    is_ordered=True,
-                    position=0,
+                    is_ordered=spec.is_ordered,
+                    icon_name=spec.icon_name,
+                    position=spec.position,
+                    required_on_closure=spec.required_on_closure,
                 )
                 ctx.session.add(dropdown)
                 await ctx.session.flush()
                 existing_options = {}
             else:
                 dropdown.name = spec.name
-                dropdown.is_ordered = True
+                dropdown.is_ordered = spec.is_ordered
+                dropdown.icon_name = spec.icon_name
+                dropdown.position = spec.position
+                dropdown.required_on_closure = spec.required_on_closure
                 existing_options = {option.ref: option for option in dropdown.options}
 
             desired_refs = set()

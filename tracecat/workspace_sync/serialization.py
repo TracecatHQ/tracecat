@@ -13,7 +13,7 @@ def canonical_data(value: Any) -> Any:
     """Convert a value into JSON-compatible data with omitted null model fields."""
     if isinstance(value, BaseModel):
         return value.model_dump(mode="json", exclude_none=True)
-    return to_jsonable_python(value, fallback=str)
+    return to_jsonable_python(value)
 
 
 def canonical_json_bytes(value: Any, *, pretty: bool = False) -> bytes:

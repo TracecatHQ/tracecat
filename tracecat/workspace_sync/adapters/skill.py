@@ -269,8 +269,8 @@ class SkillAdapter(CompoundYamlAdapter):
                 "total_size_bytes": sum(
                     file_ref.blob.size_bytes for _, file_ref in file_refs
                 ),
-                "name": spec.slug,
-                "description": getattr(spec, "description", None),
+                "name": spec.name,
+                "description": spec.description,
             }
             if version is None:
                 version = SkillVersion(

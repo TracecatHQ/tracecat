@@ -142,6 +142,15 @@ class AgentPresetResourceSpec(BaseModel):
     actions: list[str] = Field(default_factory=list)
     skills: list[AgentPresetSkillBinding] = Field(default_factory=list)
     subagents: list[AgentPresetSubagentRef] = Field(default_factory=list)
+    model_name: str | None = None
+    model_provider: str | None = None
+    base_url: str | None = None
+    output_type: Any | None = None
+    namespaces: list[str] = Field(default_factory=list)
+    mcp_integrations: list[str] = Field(default_factory=list)
+    retries: int = Field(default=3, ge=0)
+    enable_thinking: bool = True
+    enable_internet_access: bool = False
 
 
 class SkillFileSpec(BaseModel):
@@ -161,6 +170,7 @@ class SkillResourceSpec(BaseModel):
     id: str = Field(min_length=1)
     slug: str = Field(min_length=1)
     name: str = Field(min_length=1)
+    description: str | None = None
     current_version: int | None = Field(default=None, ge=1)
     files: list[SkillFileSpec] = Field(default_factory=list)
     file_contents: dict[str, str] = Field(default_factory=dict, exclude=True)
@@ -198,6 +208,10 @@ class CaseDropdownResourceSpec(BaseModel):
     id: str = Field(min_length=1)
     name: str = Field(min_length=1)
     options: list[dict[str, Any]] = Field(default_factory=list)
+    is_ordered: bool = False
+    icon_name: str | None = None
+    position: int = 0
+    required_on_closure: bool = False
 
 
 class CaseDurationResourceSpec(BaseModel):
@@ -229,6 +243,8 @@ class VariableResourceSpec(BaseModel):
     name: str = Field(min_length=1)
     environment: str = Field(min_length=1)
     value: Any
+    description: str | None = None
+    tags: list[str] = Field(default_factory=list)
 
 
 class SecretMetadataResourceSpec(BaseModel):
@@ -242,6 +258,7 @@ class SecretMetadataResourceSpec(BaseModel):
     secret_type: str | None = None
     keys: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
+    description: str | None = None
 
     @model_validator(mode="before")
     @classmethod

@@ -225,6 +225,14 @@ class TableAdapter(CompoundYamlAdapter):
         imported: list[ImportedResource] = []
         table_service = BaseTablesService(session=ctx.session, role=ctx.role)
         for source_id, spec in sorted(tables.items()):
+            unique_columns = [
+                str(column["name"]) for column in spec.columns if column.get("unique")
+            ]
+            if len(unique_columns) > 1:
+                raise ValueError(
+                    "Table sync supports at most one unique column per table: "
+                    f"{spec.name} requested {', '.join(unique_columns)}"
+                )
             try:
                 table = await table_service.get_table_by_name(spec.name)
             except TracecatNotFoundError:

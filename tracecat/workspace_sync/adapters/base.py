@@ -132,8 +132,8 @@ class ResourceAdapter(ABC):
         """Human-readable resource label for sync preview surfaces."""
         for attr in ("name", "slug", "alias", "id"):
             value = getattr(spec, attr, None)
-            if isinstance(value, str) and value:
-                return value
+            if isinstance(value, str) and (cleaned := value.strip()):
+                return cleaned
         return None
 
     def projected_resource(

@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import yaml
 from pydantic import ValidationError
+from pydantic_core import PydanticSerializationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,9 +25,11 @@ from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import (
     AgentPreset,
     AgentPresetVersion,
+    CaseDropdownDefinition,
     CaseTag,
     Secret,
     Skill,
+    SkillVersion,
     Table,
     WorkspaceVariable,
 )
@@ -209,6 +212,11 @@ def test_skill_fixture_records_file_sha256s() -> None:
     for file_path, expected_hash in recorded_hashes.items():
         content = files[f"{SKILL_ROOT}/qa-enrichment-skill/files/{file_path}"]
         assert hashlib.sha256(content.encode()).hexdigest() == expected_hash
+
+
+def test_canonical_json_rejects_unsupported_objects() -> None:
+    with pytest.raises(PydanticSerializationError):
+        canonical_json_text(object())
 
 
 @pytest.mark.anyio
@@ -399,6 +407,15 @@ async def test_import_selected_fixture_reconciles_supported_non_workflow_resourc
         )
     )
     assert parent_preset is not None
+    assert parent_preset.agents["enabled"] is True
+    assert parent_preset.agents["subagents"][0]["preset"] == "qa-evidence-child"
+    assert parent_preset.base_url == "https://models.example.test/v1"
+    assert parent_preset.output_type == {"type": "json_schema", "name": "qa_triage"}
+    assert parent_preset.namespaces == ["tools.qa_enrichment"]
+    assert parent_preset.mcp_integrations == ["qa-mcp"]
+    assert parent_preset.retries == 4
+    assert parent_preset.enable_thinking is False
+    assert parent_preset.enable_internet_access is True
     first_parent_version_id = parent_preset.current_version_id
 
     second_imported_resources = await WorkspaceResourceImportService(
@@ -426,12 +443,22 @@ async def test_import_selected_fixture_reconciles_supported_non_workflow_resourc
     )
     assert len(preset_versions) == 1
 
-    assert await session.scalar(
+    skill = await session.scalar(
         select(Skill).where(
             Skill.workspace_id == workspace_id,
             Skill.name == "qa-enrichment-skill",
         )
     )
+    assert skill is not None
+    skill_version = await session.scalar(
+        select(SkillVersion).where(
+            SkillVersion.workspace_id == workspace_id,
+            SkillVersion.skill_id == skill.id,
+            SkillVersion.version == 1,
+        )
+    )
+    assert skill_version is not None
+    assert skill_version.name == "QA enrichment skill"
     assert await session.scalar(
         select(Table).where(
             Table.workspace_id == workspace_id,
@@ -444,20 +471,25 @@ async def test_import_selected_fixture_reconciles_supported_non_workflow_resourc
             CaseTag.ref == "qa-alert",
         )
     )
-    assert await session.scalar(
+    variable = await session.scalar(
         select(WorkspaceVariable).where(
             WorkspaceVariable.workspace_id == workspace_id,
             WorkspaceVariable.name == "qa_config",
             WorkspaceVariable.environment == "default",
         )
     )
-    assert await session.scalar(
+    assert variable is not None
+    assert variable.description == "QA config variable"
+    assert variable.tags == {"qa-sync": ""}
+    secret = await session.scalar(
         select(Secret).where(
             Secret.workspace_id == workspace_id,
             Secret.name == "qa_threatintel",
             Secret.environment == "default",
         )
     )
+    assert secret is not None
+    assert secret.description == "QA threat intel credentials"
 
 
 @pytest.mark.anyio
@@ -476,6 +508,17 @@ async def test_project_workspace_exports_supported_non_workflow_resources(
         session=session,
         role=svc_role,
     ).import_non_workflow_resources(snapshot.spec)
+    dropdown = await session.scalar(
+        select(CaseDropdownDefinition).where(
+            CaseDropdownDefinition.workspace_id == svc_role.workspace_id,
+            CaseDropdownDefinition.ref == "qa_resolution_reason",
+        )
+    )
+    assert dropdown is not None
+    assert dropdown.is_ordered is True
+    assert dropdown.icon_name == "ListChecks"
+    assert dropdown.position == 4
+    assert dropdown.required_on_closure is True
 
     projection = await service.project_workspace()
     files = projection.files
@@ -617,11 +660,168 @@ async def test_pull_agent_preset_slug_rename_reuses_source_id_mapping(
     assert presets[0].name == "QA identity renamed"
 
 
+@pytest.mark.anyio
+async def test_agent_preset_import_resolves_parent_before_child_order(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{AGENT_PRESET_ROOT}/a-parent/preset.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset",
+                "id": "a-parent",
+                "slug": "a-parent",
+                "name": "A parent",
+                "subagents": [{"slug": "z-child"}],
+            }
+        ),
+        f"{AGENT_PRESET_ROOT}/z-child/preset.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset",
+                "id": "z-child",
+                "slug": "z-child",
+                "name": "Z child",
+            }
+        ),
+    }
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="h" * 40)
+
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+
+    parent = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "a-parent",
+        )
+    )
+    child = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "z-child",
+        )
+    )
+    assert parent is not None
+    assert child is not None
+    assert child.current_version_id is not None
+    assert parent.agents["enabled"] is True
+    assert parent.agents["subagents"][0]["preset_version_id"] == str(
+        child.current_version_id
+    )
+
+
+@pytest.mark.anyio
+async def test_agent_preset_import_creates_new_version_without_mutating_history(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    transport = AsyncMock()
+    transport.read_files.side_effect = [
+        VcsTreeSnapshot(
+            commit_sha="i" * 40,
+            tree_sha="tree-1",
+            files=_agent_preset_git_tree(
+                source_id="qa-versioned",
+                slug="qa-versioned",
+                name="QA versioned",
+                instructions="Original instructions",
+            ),
+        ),
+        VcsTreeSnapshot(
+            commit_sha="j" * 40,
+            tree_sha="tree-2",
+            files=_agent_preset_git_tree(
+                source_id="qa-versioned",
+                slug="qa-versioned",
+                name="QA versioned",
+                instructions="Updated instructions",
+            ),
+        ),
+    ]
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
+    )
+
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        first_result = await service.pull(options=PullOptions(commit_sha="i" * 40))
+        second_result = await service.pull(options=PullOptions(commit_sha="j" * 40))
+
+    assert first_result.success is True
+    assert second_result.success is True
+    preset = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "qa-versioned",
+        )
+    )
+    assert preset is not None
+    versions = list(
+        (
+            await session.scalars(
+                select(AgentPresetVersion)
+                .where(
+                    AgentPresetVersion.workspace_id == svc_role.workspace_id,
+                    AgentPresetVersion.preset_id == preset.id,
+                )
+                .order_by(AgentPresetVersion.version.asc())
+            )
+        ).all()
+    )
+    assert [version.instructions for version in versions] == [
+        "Original instructions",
+        "Updated instructions",
+    ]
+    assert preset.current_version_id == versions[-1].id
+
+
+@pytest.mark.anyio
+async def test_table_import_rejects_multiple_unique_columns(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{TABLE_ROOT}/qa_multi_unique/table.yml": _yaml(
+            {
+                "version": 1,
+                "type": "table",
+                "id": "qa_multi_unique",
+                "name": "qa_multi_unique",
+                "columns": [
+                    {"name": "indicator", "type": "text", "unique": True},
+                    {"name": "source", "type": "text", "unique": True},
+                ],
+            }
+        ),
+    }
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="k" * 40)
+
+    assert diagnostics == []
+    with pytest.raises(ValueError, match="at most one unique column"):
+        await WorkspaceResourceImportService(
+            session=session,
+            role=svc_role,
+        ).import_non_workflow_resources(snapshot.spec)
+
+
 def _agent_preset_git_tree(
     *,
     source_id: str,
     slug: str,
     name: str,
+    instructions: str | None = None,
 ) -> dict[str, str]:
     return {
         MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
@@ -632,6 +832,7 @@ def _agent_preset_git_tree(
                 "id": source_id,
                 "slug": slug,
                 "name": name,
+                "instructions": instructions,
             }
         ),
     }
@@ -731,6 +932,15 @@ def _expanded_full_git_tree(*, include_schedules: bool) -> dict[str, str]:
                 "actions": ["tools.qa_enrichment.lookup"],
                 "skills": [{"slug": "qa-enrichment-skill", "version": 1}],
                 "subagents": [{"slug": "qa-evidence-child"}],
+                "model_name": "gpt-4.1-mini",
+                "model_provider": "openai",
+                "base_url": "https://models.example.test/v1",
+                "output_type": {"type": "json_schema", "name": "qa_triage"},
+                "namespaces": ["tools.qa_enrichment"],
+                "mcp_integrations": ["qa-mcp"],
+                "retries": 4,
+                "enable_thinking": False,
+                "enable_internet_access": True,
             }
         ),
         f"{AGENT_PRESET_ROOT}/qa-evidence-child/preset.yml": _yaml(
@@ -804,6 +1014,10 @@ def _expanded_full_git_tree(*, include_schedules: bool) -> dict[str, str]:
                 "type": "case_dropdown",
                 "id": "qa_resolution_reason",
                 "name": "qa_resolution_reason",
+                "is_ordered": True,
+                "icon_name": "ListChecks",
+                "position": 4,
+                "required_on_closure": True,
                 "options": [
                     {"ref": "benign", "label": "Benign", "position": 0},
                     {"ref": "true_positive", "label": "True positive", "position": 1},
@@ -839,6 +1053,8 @@ def _expanded_full_git_tree(*, include_schedules: bool) -> dict[str, str]:
                 "name": "qa_config",
                 "environment": "default",
                 "value": {"mode": "qa", "threshold": 7},
+                "description": "QA config variable",
+                "tags": ["qa-sync"],
             }
         ),
         f"{SECRET_METADATA_ROOT}/default/qa_threatintel.yml": _yaml(
@@ -851,6 +1067,7 @@ def _expanded_full_git_tree(*, include_schedules: bool) -> dict[str, str]:
                 "secret_type": "custom",
                 "keys": ["API_KEY", "BASE_URL"],
                 "tags": ["qa-sync"],
+                "description": "QA threat intel credentials",
             }
         ),
     }
@@ -950,6 +1167,7 @@ def _skill_spec(skill_files: dict[str, str]) -> dict[str, Any]:
         "id": "qa-enrichment-skill",
         "slug": "qa-enrichment-skill",
         "name": "QA enrichment skill",
+        "description": "Deterministic enrichment helper",
         "current_version": 1,
         "files": [
             {
