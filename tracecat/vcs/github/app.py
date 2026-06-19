@@ -194,7 +194,7 @@ class GitHubAppService(BaseOrgService):
         """Classify the stored GitHub App secret without failing on corruption."""
         secrets_service = SecretsService(session=self.session, role=self.role)
         try:
-            secret = await secrets_service.get_github_app_org_secret()
+            secret = await secrets_service._get_github_app_org_secret()
         except TracecatNotFoundError:
             return GitHubAppSecretState.MISSING, None, None
 

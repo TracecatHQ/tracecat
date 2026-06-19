@@ -369,10 +369,14 @@ class SecretsService(BaseOrgService):
         """Retrieve an organization-wide secret by its name."""
         return await self._get_org_secret_by_name(secret_name, environment)
 
+    async def _get_github_app_org_secret(self) -> OrganizationSecret:
+        """Retrieve the GitHub App organization secret for workflow sync."""
+        return await self._get_org_secret_by_name("github-app-credentials")
+
     @require_scope("workflow:sync")
     async def get_github_app_org_secret(self) -> OrganizationSecret:
         """Retrieve the GitHub App organization secret for workflow sync."""
-        return await self._get_org_secret_by_name("github-app-credentials")
+        return await self._get_github_app_org_secret()
 
     @require_scope("org:secret:create")
     @audit_log(resource_type="organization_secret", action="create")

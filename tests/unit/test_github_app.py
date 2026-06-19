@@ -143,7 +143,9 @@ class TestGitHubAppService:
         """Test retrieving GitHub App credentials."""
         with patch("tracecat.vcs.github.app.SecretsService") as mock_secrets_service:
             mock_service = Mock()
-            mock_service.get_github_app_org_secret = AsyncMock(return_value=mock_secret)
+            mock_service._get_github_app_org_secret = AsyncMock(
+                return_value=mock_secret
+            )
             mock_service.decrypt_keys = Mock(
                 return_value=[
                     SecretKeyValue(
@@ -180,7 +182,7 @@ class TestGitHubAppService:
         """Test retrieving GitHub App credentials when not found."""
         with patch("tracecat.vcs.github.app.SecretsService") as mock_secrets_service:
             mock_service = AsyncMock()
-            mock_service.get_github_app_org_secret.side_effect = TracecatNotFoundError(
+            mock_service._get_github_app_org_secret.side_effect = TracecatNotFoundError(
                 "Secret not found"
             )
             mock_secrets_service.return_value = mock_service
@@ -224,7 +226,9 @@ class TestGitHubAppService:
 
         with patch("tracecat.vcs.github.app.SecretsService") as mock_secrets_service:
             mock_service = Mock()
-            mock_service.get_github_app_org_secret = AsyncMock(return_value=mock_secret)
+            mock_service._get_github_app_org_secret = AsyncMock(
+                return_value=mock_secret
+            )
             mock_service.decrypt_keys = Mock(
                 return_value=[
                     SecretKeyValue(
@@ -264,7 +268,9 @@ class TestGitHubAppService:
         """Test getting credentials status when they exist."""
         with patch("tracecat.vcs.github.app.SecretsService") as mock_secrets_service:
             mock_service = Mock()
-            mock_service.get_github_app_org_secret = AsyncMock(return_value=mock_secret)
+            mock_service._get_github_app_org_secret = AsyncMock(
+                return_value=mock_secret
+            )
             mock_service.decrypt_keys = Mock(
                 return_value=[
                     SecretKeyValue(
@@ -564,6 +570,57 @@ class TestGitHubAppService:
             assert repositories[0].installation_id == 12345678
             assert repositories[0].installation_account == "test-org"
             assert repositories[0].installation_account_type == "Organization"
+            mock_integration.close.assert_called_once()
+
+    @pytest.mark.anyio
+    async def test_list_accessible_repositories_allows_workspace_update_scope(
+        self, github_service, github_admin_service, mock_credentials
+    ):
+        """Workspace settings users should list repos without workflow sync scope."""
+        await github_admin_service.register_app(
+            app_id=mock_credentials.app_id,
+            private_key_pem=mock_credentials.private_key,
+            webhook_secret=mock_credentials.webhook_secret,
+            client_id=mock_credentials.client_id,
+        )
+
+        workspace_settings_role = github_service.role.model_copy(
+            update={"scopes": frozenset({"workspace:update"})}
+        )
+        workspace_settings_service = GitHubAppService(
+            session=github_service.session,
+            role=workspace_settings_role,
+        )
+
+        account = Mock()
+        account.login = "test-org"
+        account.type = "Organization"
+
+        repo = Mock()
+        repo.id = 1
+        repo.name = "repo-a"
+        repo.full_name = "test-org/repo-a"
+        repo.private = True
+        repo.default_branch = "main"
+        repo.html_url = "https://github.com/test-org/repo-a"
+
+        installation = Mock()
+        installation.id = 12345678
+        installation.account = account
+        installation.get_repos.return_value = [repo]
+
+        with patch("tracecat.vcs.github.app.GithubIntegration") as mock_gh_integration:
+            mock_integration = Mock()
+            mock_integration.get_installations.return_value = [installation]
+            mock_gh_integration.return_value = mock_integration
+
+            repositories = (
+                await workspace_settings_service.list_accessible_repositories()
+            )
+
+            assert [repository.full_name for repository in repositories] == [
+                "test-org/repo-a"
+            ]
             mock_integration.close.assert_called_once()
 
     @pytest.mark.anyio
