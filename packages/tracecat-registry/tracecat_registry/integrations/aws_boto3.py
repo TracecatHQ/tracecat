@@ -23,12 +23,12 @@ else:
 
 from tracecat_registry import (
     RegistrySecret,
+    ctx,
     secrets,
     SecretNotFoundError,
     logger,
     registry,
 )
-from tracecat_registry.context import get_context
 
 _ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY = "TRACECAT_AWS_EXTERNAL_ID"
 _AWS_SERVICE_REGION_DOC = (
@@ -85,15 +85,16 @@ def _get_role_session_name() -> str:
             return session_name
 
     try:
-        ctx = get_context()
+        workspace_id = ctx.workspace_id
+        run_id = ctx.run_id
     except RuntimeError:
         return "tracecat-session"
 
     parts = ["tracecat"]
-    if ctx.workspace_id:
-        parts.extend(["ws", ctx.workspace_id.replace("-", "")[:8]])
-    if ctx.run_id:
-        parts.extend(["run", ctx.run_id.replace("-", "")[:8]])
+    if workspace_id:
+        parts.extend(["ws", workspace_id.replace("-", "")[:8]])
+    if run_id:
+        parts.extend(["run", run_id.replace("-", "")[:8]])
     return "-".join(parts)[:64]
 
 

@@ -3,8 +3,7 @@ from typing import Annotated
 from pydantic import Field
 from typing_extensions import Doc
 
-from tracecat_registry import RegistryOAuthSecret, registry, secrets
-from tracecat_registry.context import get_context
+from tracecat_registry import RegistryOAuthSecret, ctx, registry, secrets
 from tracecat_registry.core.agent import PYDANTIC_AI_REGISTRY_SECRETS
 from tracecat_registry.core.ai import (
     LEGACY_MODEL_FIELD_SCHEMA_EXTRA,
@@ -61,8 +60,7 @@ async def mcp(
         model=model, model_name=model_name, model_provider=model_provider
     )
     token = secrets.get(github_mcp_oauth_secret.token_name)
-    ctx = get_context()
-    result = await ctx.agents.run(
+    result = await ctx.agents.aio.run(
         user_prompt=user_prompt,
         config=AgentConfig(
             model_name=resolved_model.model_name,

@@ -7,8 +7,7 @@ from typing import Annotated, Any
 
 from typing_extensions import Doc
 
-from tracecat_registry import registry
-from tracecat_registry.context import get_context
+from tracecat_registry import ctx, registry
 from tracecat_registry.sdk.agents import CursorPage
 
 
@@ -26,9 +25,7 @@ async def list_skills(
     ] = None,
     reverse: Annotated[bool, Doc("Whether to reverse sort order.")] = False,
 ) -> CursorPage:
-    return await get_context().agents.list_skills(
-        limit=limit, cursor=cursor, reverse=reverse
-    )
+    return await ctx.agents.aio.list_skills(limit=limit, cursor=cursor, reverse=reverse)
 
 
 @registry.register(
@@ -42,7 +39,7 @@ async def create_skill(
     name: Annotated[str, Doc("Skill name in kebab-case (e.g., 'triage-assistant').")],
     description: Annotated[str | None, Doc("Optional skill description.")] = None,
 ) -> dict[str, Any]:
-    return await get_context().agents.create_skill(name=name, description=description)
+    return await ctx.agents.aio.create_skill(name=name, description=description)
 
 
 @registry.register(
@@ -58,7 +55,7 @@ async def get_skill(
         uuid.UUID | None, Doc("Optional canonical skill UUID.")
     ] = None,
 ) -> dict[str, Any]:
-    return await get_context().agents.get_skill(skill_id, skill_uuid=skill_uuid)
+    return await ctx.agents.aio.get_skill(skill_id, skill_uuid=skill_uuid)
 
 
 @registry.register(
@@ -79,7 +76,7 @@ async def list_skill_versions(
     ] = None,
     reverse: Annotated[bool, Doc("Whether to reverse sort order.")] = False,
 ) -> CursorPage:
-    return await get_context().agents.list_skill_versions(
+    return await ctx.agents.aio.list_skill_versions(
         skill_id=skill_id,
         skill_uuid=skill_uuid,
         limit=limit,
@@ -102,7 +99,7 @@ async def get_skill_version(
         uuid.UUID | None, Doc("Optional canonical skill UUID.")
     ] = None,
 ) -> dict[str, Any]:
-    return await get_context().agents.get_skill_version(
+    return await ctx.agents.aio.get_skill_version(
         skill_id=skill_id,
         skill_uuid=skill_uuid,
         version_id=version_id,
@@ -134,7 +131,7 @@ async def publish_skill_version(
         uuid.UUID | None, Doc("Optional canonical skill UUID.")
     ] = None,
 ) -> dict[str, Any]:
-    return await get_context().agents.publish_skill_version(
+    return await ctx.agents.aio.publish_skill_version(
         skill_id=skill_id,
         skill_uuid=skill_uuid,
         base_version_id=base_version_id,
@@ -156,7 +153,7 @@ async def restore_skill_version(
         uuid.UUID | None, Doc("Optional canonical skill UUID.")
     ] = None,
 ) -> dict[str, Any]:
-    return await get_context().agents.restore_skill_version(
+    return await ctx.agents.aio.restore_skill_version(
         skill_id=skill_id,
         skill_uuid=skill_uuid,
         version_id=version_id,
@@ -176,4 +173,4 @@ async def archive_skill(
         uuid.UUID | None, Doc("Optional canonical skill UUID.")
     ] = None,
 ) -> None:
-    await get_context().agents.archive_skill(skill_id, skill_uuid=skill_uuid)
+    await ctx.agents.aio.archive_skill(skill_id, skill_uuid=skill_uuid)
