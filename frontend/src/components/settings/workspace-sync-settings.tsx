@@ -83,8 +83,11 @@ export function WorkspaceSyncSettings({
   )
   const [repositoryInputMode, setRepositoryInputMode] =
     useState<RepositoryInputMode>("select")
+  const [hasSelectedRepositoryInputMode, setHasSelectedRepositoryInputMode] =
+    useState(false)
   useEffect(() => {
     if (
+      !hasSelectedRepositoryInputMode &&
       hasRepositoryOptions &&
       !repositoriesIsLoading &&
       currentGitRepoUrl &&
@@ -95,9 +98,15 @@ export function WorkspaceSyncSettings({
   }, [
     currentGitRepoUrl,
     currentGitUrlMatchesRepository,
+    hasSelectedRepositoryInputMode,
     hasRepositoryOptions,
     repositoriesIsLoading,
   ])
+  function handleRepositoryInputModeChange(mode: RepositoryInputMode) {
+    setHasSelectedRepositoryInputMode(true)
+    setRepositoryInputMode(mode)
+  }
+
   const shouldShowRepositoryModeTabs =
     hasRepositoryOptions && !repositoriesIsLoading
   const shouldShowRepositorySelect =
@@ -134,7 +143,7 @@ export function WorkspaceSyncSettings({
                       size="sm"
                       showTooltips={false}
                       value={repositoryInputMode}
-                      onValueChange={setRepositoryInputMode}
+                      onValueChange={handleRepositoryInputModeChange}
                       options={[
                         { value: "select", content: "Select" },
                         { value: "manual", content: "Manual" },
