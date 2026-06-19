@@ -130,9 +130,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     canExecuteAgents === true ||
     canViewServiceAccounts === true ||
     canViewInbox === true
-  const { hasEntitlement, isLoading: entitlementsIsLoading } = useEntitlements({
+  const {
+    hasEntitlement,
+    hasEntitlementData,
+    isLoading: entitlementsIsLoading,
+  } = useEntitlements({
     enabled: shouldLoadEntitlements,
   })
+  const entitlementsKnown = !entitlementsIsLoading && hasEntitlementData
   const agentAddonsEnabled = hasEntitlement("agent_addons")
   const workspaceChatEnabled = hasEntitlement("workspace_chat")
   const serviceAccountsEnabled = hasEntitlement("service_accounts")
@@ -153,10 +158,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         tag: "Beta",
         isActive: pathname?.startsWith(`${basePath}/chat`),
         visible: canAccessMissionControl,
-        isLocked: entitlementsIsLoading || !workspaceChatEnabled,
-        onSelect: entitlementsIsLoading
-          ? undefined
-          : () => setLockedFeatureDialogOpen(true),
+        isLocked: entitlementsKnown && !workspaceChatEnabled,
+        onSelect: entitlementsKnown
+          ? () => setLockedFeatureDialogOpen(true)
+          : undefined,
       },
       {
         title: "Workflows",
@@ -178,10 +183,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         icon: MousePointerClickIcon,
         isActive: pathname?.startsWith(`${basePath}/agents`),
         visible: canViewAgents === true,
-        isLocked: entitlementsIsLoading || !agentAddonsEnabled,
-        onSelect: entitlementsIsLoading
-          ? undefined
-          : () => setLockedFeatureDialogOpen(true),
+        isLocked: entitlementsKnown && !agentAddonsEnabled,
+        onSelect: entitlementsKnown
+          ? () => setLockedFeatureDialogOpen(true)
+          : undefined,
       },
       {
         title: "Tables",
@@ -223,10 +228,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         url: `${basePath}/skills`,
         icon: Pyramid,
         isActive: pathname?.startsWith(`${basePath}/skills`),
-        isLocked: entitlementsIsLoading || !agentAddonsEnabled,
-        onSelect: entitlementsIsLoading
-          ? undefined
-          : () => setLockedFeatureDialogOpen(true),
+        isLocked: entitlementsKnown && !agentAddonsEnabled,
+        onSelect: entitlementsKnown
+          ? () => setLockedFeatureDialogOpen(true)
+          : undefined,
         visible: canViewAgents === true,
       },
       {
@@ -247,7 +252,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       canViewVariables,
       canViewSecrets,
       canViewIntegrations,
-      entitlementsIsLoading,
+      entitlementsKnown,
       agentAddonsEnabled,
       workspaceChatEnabled,
       canViewAgents,
