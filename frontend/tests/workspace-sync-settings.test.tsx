@@ -55,6 +55,18 @@ const repositories: GitHubAppRepository[] = [
     installation_account: "test-org",
     installation_account_type: "Organization",
   },
+  {
+    id: 2,
+    name: "repo-b",
+    full_name: "test-org/repo-b",
+    private: true,
+    default_branch: "trunk",
+    git_url: "git+ssh://git@github.com/test-org/repo-b.git",
+    html_url: "https://github.com/test-org/repo-b",
+    installation_id: 12345678,
+    installation_account: "test-org",
+    installation_account_type: "Organization",
+  },
 ]
 
 const workspace = {
@@ -137,6 +149,25 @@ describe("WorkspaceSyncSettings", () => {
       expect(mockUpdateWorkspace).toHaveBeenCalledWith({
         settings: {
           git_repo_url: repositories[0].git_url,
+        },
+      })
+    })
+  })
+
+  it("preserves a selected app repository's non-main default branch", async () => {
+    const user = userEvent.setup()
+    render(<WorkspaceSyncSettings workspace={setupHooks()} />)
+
+    await user.click(screen.getByRole("combobox"))
+    await user.click(
+      await screen.findByRole("option", { name: "test-org/repo-b" })
+    )
+    await user.click(screen.getByRole("button", { name: "Save" }))
+
+    await waitFor(() => {
+      expect(mockUpdateWorkspace).toHaveBeenCalledWith({
+        settings: {
+          git_repo_url: `${repositories[1].git_url}@trunk`,
         },
       })
     })

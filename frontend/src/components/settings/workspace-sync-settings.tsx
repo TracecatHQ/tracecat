@@ -69,17 +69,24 @@ export function WorkspaceSyncSettings({
   })
 
   async function onSubmit(values: SyncSettingsForm) {
+    const selectedRepository =
+      repositoryInputMode === "select"
+        ? findMatchingRepository(values.git_repo_url, repositories)
+        : undefined
+
     await updateWorkspace({
       settings: {
-        git_repo_url: values.git_repo_url,
+        git_repo_url: selectedRepository
+          ? getRepositoryGitUrl(selectedRepository)
+          : values.git_repo_url,
       },
     })
   }
 
   const persistedGitUrl = workspace.settings?.git_repo_url || undefined
   const hasRepositoryOptions = repositories.length > 0
-  const currentGitUrlMatchesRepository = repositories.some(
-    (repository) => repository.git_url === currentGitRepoUrl
+  const currentGitUrlMatchesRepository = repositories.some((repository) =>
+    matchesRepositoryGitUrl(currentGitRepoUrl, repository)
   )
   const [repositoryInputMode, setRepositoryInputMode] =
     useState<RepositoryInputMode>("select")
@@ -154,8 +161,15 @@ export function WorkspaceSyncSettings({
                 {shouldShowRepositorySelect ? (
                   <Select
                     disabled={repositoriesIsLoading}
-                    onValueChange={field.onChange}
-                    value={field.value ?? ""}
+                    onValueChange={(value) => {
+                      const repository = repositories.find(
+                        (repo) => repo.git_url === value
+                      )
+                      field.onChange(
+                        repository ? getRepositoryGitUrl(repository) : value
+                      )
+                    }}
+                    value={getRepositorySelectValue(field.value, repositories)}
                   >
                     <FormControl>
                       <SelectTrigger aria-invalid={fieldState.invalid}>
@@ -171,8 +185,8 @@ export function WorkspaceSyncSettings({
                     <SelectContent>
                       <SelectGroup>
                         {field.value &&
-                          !repositories.some(
-                            (repository) => repository.git_url === field.value
+                          !repositories.some((repository) =>
+                            matchesRepositoryGitUrl(field.value, repository)
                           ) && (
                             <SelectItem value={field.value}>
                               {field.value}
@@ -261,4 +275,38 @@ function RepositorySelectItem({
   return (
     <SelectItem value={repository.git_url}>{repository.full_name}</SelectItem>
   )
+}
+
+function getRepositoryGitUrl(repository: GitHubAppRepository) {
+  const defaultBranch = repository.default_branch.trim()
+  if (!defaultBranch || defaultBranch === "main") {
+    return repository.git_url
+  }
+  return `${repository.git_url}@${defaultBranch}`
+}
+
+function matchesRepositoryGitUrl(
+  gitUrl: string | null | undefined,
+  repository: GitHubAppRepository
+) {
+  return (
+    gitUrl === repository.git_url || gitUrl === getRepositoryGitUrl(repository)
+  )
+}
+
+function findMatchingRepository(
+  gitUrl: string | null | undefined,
+  repositories: GitHubAppRepository[]
+) {
+  return repositories.find((repository) =>
+    matchesRepositoryGitUrl(gitUrl, repository)
+  )
+}
+
+function getRepositorySelectValue(
+  gitUrl: string | null | undefined,
+  repositories: GitHubAppRepository[]
+) {
+  const repository = findMatchingRepository(gitUrl, repositories)
+  return repository?.git_url ?? gitUrl ?? ""
 }
