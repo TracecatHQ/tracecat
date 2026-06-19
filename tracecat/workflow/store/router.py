@@ -15,7 +15,8 @@ from tracecat.identifiers.workflow import AnyWorkflowIDPath
 from tracecat.logger import logger
 from tracecat.registry.repositories.schemas import GitBranchInfo, GitCommitInfo
 from tracecat.sync import PullOptions, PullResult
-from tracecat.vcs.github.app import GitHubAppError
+from tracecat.vcs.github.app import GitHubAppError, GitHubAppService
+from tracecat.vcs.github.schemas import GitHubAppRepository
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.store.schemas import (
     WorkflowDslPublish,
@@ -81,6 +82,33 @@ async def publish_workflow(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
+        ) from e
+
+
+@router.get("/sync/repositories", response_model=list[GitHubAppRepository])
+@require_scope("workspace:update")
+async def list_workflow_repositories(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+) -> list[GitHubAppRepository]:
+    """List repositories granted to the configured GitHub App installation."""
+    if not role.workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+
+    try:
+        github_service = GitHubAppService(session=session, role=role)
+        return await github_service.list_accessible_repositories()
+    except GitHubAppError as e:
+        logger.error(
+            "GitHub App error listing accessible repositories",
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unable to list repositories: {str(e)}",
         ) from e
 
 

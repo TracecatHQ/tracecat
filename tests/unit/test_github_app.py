@@ -143,7 +143,9 @@ class TestGitHubAppService:
         """Test retrieving GitHub App credentials."""
         with patch("tracecat.vcs.github.app.SecretsService") as mock_secrets_service:
             mock_service = Mock()
-            mock_service.get_github_app_org_secret = AsyncMock(return_value=mock_secret)
+            mock_service._get_github_app_org_secret = AsyncMock(
+                return_value=mock_secret
+            )
             mock_service.decrypt_keys = Mock(
                 return_value=[
                     SecretKeyValue(
@@ -180,7 +182,7 @@ class TestGitHubAppService:
         """Test retrieving GitHub App credentials when not found."""
         with patch("tracecat.vcs.github.app.SecretsService") as mock_secrets_service:
             mock_service = AsyncMock()
-            mock_service.get_github_app_org_secret.side_effect = TracecatNotFoundError(
+            mock_service._get_github_app_org_secret.side_effect = TracecatNotFoundError(
                 "Secret not found"
             )
             mock_secrets_service.return_value = mock_service
@@ -224,7 +226,9 @@ class TestGitHubAppService:
 
         with patch("tracecat.vcs.github.app.SecretsService") as mock_secrets_service:
             mock_service = Mock()
-            mock_service.get_github_app_org_secret = AsyncMock(return_value=mock_secret)
+            mock_service._get_github_app_org_secret = AsyncMock(
+                return_value=mock_secret
+            )
             mock_service.decrypt_keys = Mock(
                 return_value=[
                     SecretKeyValue(
@@ -264,7 +268,9 @@ class TestGitHubAppService:
         """Test getting credentials status when they exist."""
         with patch("tracecat.vcs.github.app.SecretsService") as mock_secrets_service:
             mock_service = Mock()
-            mock_service.get_github_app_org_secret = AsyncMock(return_value=mock_secret)
+            mock_service._get_github_app_org_secret = AsyncMock(
+                return_value=mock_secret
+            )
             mock_service.decrypt_keys = Mock(
                 return_value=[
                     SecretKeyValue(
@@ -509,6 +515,174 @@ class TestGitHubAppService:
 
             with pytest.raises(GitHubAppError, match="GitHub API error"):
                 await github_service.get_github_client_for_repo(mock_repo_url)
+
+    @pytest.mark.anyio
+    async def test_list_accessible_repositories_success(
+        self, github_service, mock_credentials
+    ):
+        """Test listing repositories granted to the GitHub App installation."""
+        account = Mock()
+        account.login = "test-org"
+        account.type = "Organization"
+
+        repo_b = Mock()
+        repo_b.id = 2
+        repo_b.name = "repo-b"
+        repo_b.full_name = "test-org/repo-b"
+        repo_b.private = True
+        repo_b.default_branch = "trunk"
+        repo_b.html_url = "https://github.com/test-org/repo-b"
+
+        repo_a = Mock()
+        repo_a.id = 1
+        repo_a.name = "repo-a"
+        repo_a.full_name = "test-org/repo-a"
+        repo_a.private = False
+        repo_a.default_branch = "main"
+        repo_a.html_url = "https://github.com/test-org/repo-a"
+
+        installation = Mock()
+        installation.id = 12345678
+        installation.account = account
+        installation.get_repos.return_value = [repo_b, repo_a]
+
+        with (
+            patch.object(
+                github_service,
+                "_get_github_app_secret_state",
+                return_value=(GitHubAppSecretState.VALID, Mock(), mock_credentials),
+            ),
+            patch("tracecat.vcs.github.app.GithubIntegration") as mock_gh_integration,
+        ):
+            mock_integration = Mock()
+            mock_integration.get_installations.return_value = [installation]
+            mock_gh_integration.return_value = mock_integration
+
+            repositories = await github_service.list_accessible_repositories()
+
+            assert [repo.full_name for repo in repositories] == [
+                "test-org/repo-a",
+                "test-org/repo-b",
+            ]
+            assert repositories[0].git_url == (
+                "git+ssh://git@github.com/test-org/repo-a.git"
+            )
+            assert repositories[0].installation_id == 12345678
+            assert repositories[0].installation_account == "test-org"
+            assert repositories[0].installation_account_type == "Organization"
+            mock_integration.close.assert_called_once()
+
+    @pytest.mark.anyio
+    async def test_list_accessible_repositories_allows_workspace_update_scope(
+        self, github_service, github_admin_service, mock_credentials
+    ):
+        """Workspace settings users should list repos without workflow sync scope."""
+        await github_admin_service.register_app(
+            app_id=mock_credentials.app_id,
+            private_key_pem=mock_credentials.private_key,
+            webhook_secret=mock_credentials.webhook_secret,
+            client_id=mock_credentials.client_id,
+        )
+
+        workspace_settings_role = github_service.role.model_copy(
+            update={"scopes": frozenset({"workspace:update"})}
+        )
+        workspace_settings_service = GitHubAppService(
+            session=github_service.session,
+            role=workspace_settings_role,
+        )
+
+        account = Mock()
+        account.login = "test-org"
+        account.type = "Organization"
+
+        repo = Mock()
+        repo.id = 1
+        repo.name = "repo-a"
+        repo.full_name = "test-org/repo-a"
+        repo.private = True
+        repo.default_branch = "main"
+        repo.html_url = "https://github.com/test-org/repo-a"
+
+        installation = Mock()
+        installation.id = 12345678
+        installation.account = account
+        installation.get_repos.return_value = [repo]
+
+        with patch("tracecat.vcs.github.app.GithubIntegration") as mock_gh_integration:
+            mock_integration = Mock()
+            mock_integration.get_installations.return_value = [installation]
+            mock_gh_integration.return_value = mock_integration
+
+            repositories = (
+                await workspace_settings_service.list_accessible_repositories()
+            )
+
+            assert [repository.full_name for repository in repositories] == [
+                "test-org/repo-a"
+            ]
+            mock_integration.close.assert_called_once()
+
+    @pytest.mark.anyio
+    async def test_list_accessible_repositories_missing_credentials(
+        self, github_service
+    ):
+        """Missing credentials should raise a GitHub App error."""
+        with patch.object(
+            github_service,
+            "_get_github_app_secret_state",
+            return_value=(GitHubAppSecretState.MISSING, None, None),
+        ):
+            with pytest.raises(GitHubAppError, match="credentials not found"):
+                await github_service.list_accessible_repositories()
+
+    @pytest.mark.anyio
+    async def test_list_accessible_repositories_invalid_app_id(
+        self, github_service, mock_credentials
+    ):
+        """Invalid stored app IDs should raise a GitHub App error."""
+        bad_credentials = mock_credentials.model_copy(update={"app_id": "invalid"})
+
+        with (
+            patch.object(
+                github_service,
+                "_get_github_app_secret_state",
+                return_value=(GitHubAppSecretState.VALID, Mock(), bad_credentials),
+            ),
+            patch("tracecat.vcs.github.app.GithubIntegration") as mock_gh_integration,
+        ):
+            with pytest.raises(GitHubAppError, match="invalid credential data"):
+                await github_service.list_accessible_repositories()
+
+            mock_gh_integration.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_list_accessible_repositories_sanitizes_github_error(
+        self, github_service, mock_credentials
+    ):
+        """GitHub API errors should not expose raw upstream response data."""
+        with (
+            patch.object(
+                github_service,
+                "_get_github_app_secret_state",
+                return_value=(GitHubAppSecretState.VALID, Mock(), mock_credentials),
+            ),
+            patch("tracecat.vcs.github.app.GithubIntegration") as mock_gh_integration,
+        ):
+            mock_integration = Mock()
+            mock_integration.get_installations.side_effect = GithubException(
+                500,
+                {"message": "Server Error", "private": "upstream-details"},
+                {},
+            )
+            mock_gh_integration.return_value = mock_integration
+
+            with pytest.raises(GitHubAppError) as exc_info:
+                await github_service.list_accessible_repositories()
+
+            assert str(exc_info.value) == "GitHub API error: 500"
+            assert "upstream-details" not in str(exc_info.value)
+            mock_integration.close.assert_called_once()
 
     # ============================================================================
     # Permission Error Tests

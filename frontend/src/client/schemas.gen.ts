@@ -13386,6 +13386,78 @@ export const $GitHubAppPermissions = {
   description: "Type definition for GitHub App default permissions.",
 } as const
 
+export const $GitHubAppRepository = {
+  properties: {
+    id: {
+      type: "integer",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    full_name: {
+      type: "string",
+      title: "Full Name",
+    },
+    private: {
+      type: "boolean",
+      title: "Private",
+    },
+    default_branch: {
+      type: "string",
+      title: "Default Branch",
+    },
+    git_url: {
+      type: "string",
+      title: "Git Url",
+    },
+    html_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Html Url",
+    },
+    installation_id: {
+      type: "integer",
+      title: "Installation Id",
+    },
+    installation_account: {
+      type: "string",
+      title: "Installation Account",
+    },
+    installation_account_type: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Installation Account Type",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "name",
+    "full_name",
+    "private",
+    "default_branch",
+    "git_url",
+    "installation_id",
+    "installation_account",
+  ],
+  title: "GitHubAppRepository",
+  description: "Repository granted to the configured GitHub App installation.",
+} as const
+
 export const $GitHubWebhookAttributes = {
   properties: {
     url: {

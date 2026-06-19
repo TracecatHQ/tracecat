@@ -93,3 +93,13 @@ export function validateGitSshUrl(
       "Must be a valid Git SSH URL (e.g., git+ssh://<user>@github.com/org/repo.git)",
   })
 }
+
+/**
+ * Extract the optional ref suffix from a git+ssh URL.
+ */
+export function getGitSshUrlRef(url: string | null | undefined) {
+  if (!url) return null
+
+  const match = GIT_SSH_URL_REGEX.exec(url)
+  return match?.groups?.ref ?? null
+}

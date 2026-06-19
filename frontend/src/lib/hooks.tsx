@@ -1,5 +1,6 @@
 import {
   type Query,
+  type QueryClient,
   useMutation,
   useQuery,
   useQueryClient,
@@ -338,6 +339,7 @@ import {
   type WorkflowReadMinimal,
   type WorkflowsAddTagData,
   type WorkflowsCreateWorkflowData,
+  type WorkflowsListWorkflowRepositoriesResponse,
   type WorkflowsMoveWorkflowToFolderData,
   type WorkflowsRemoveTagData,
   type WorkspaceCreate,
@@ -351,6 +353,7 @@ import {
   workflowsAddTag,
   workflowsCreateWorkflow,
   workflowsDeleteWorkflow,
+  workflowsListWorkflowRepositories,
   workflowsListWorkflows,
   workflowsMoveWorkflowToFolder,
   workflowsRemoveTag,
@@ -2645,6 +2648,38 @@ export function useGitHubAppCredentialsStatus() {
   }
 }
 
+/**
+ * Fetch repositories granted to the configured GitHub App installation.
+ */
+export function useGitHubAppRepositories(workspaceId: string) {
+  const {
+    data: repositories,
+    isLoading: repositoriesIsLoading,
+    error: repositoriesError,
+    refetch: refetchRepositories,
+  } = useQuery<WorkflowsListWorkflowRepositoriesResponse>({
+    queryKey: ["github-app-repositories", workspaceId],
+    queryFn: async () =>
+      await workflowsListWorkflowRepositories({ workspaceId }),
+    enabled: Boolean(workspaceId),
+    retry: false,
+  })
+
+  return {
+    repositories,
+    repositoriesIsLoading,
+    repositoriesError,
+    refetchRepositories,
+  }
+}
+
+function clearGitHubAppRepositoryQueries(queryClient: QueryClient) {
+  queryClient.setQueriesData<WorkflowsListWorkflowRepositoriesResponse>(
+    { queryKey: ["github-app-repositories"] },
+    []
+  )
+}
+
 export function useGitHubAppCredentials() {
   const queryClient = useQueryClient()
 
@@ -2658,9 +2693,13 @@ export function useGitHubAppCredentials() {
       return await vcsSaveGithubAppCredentials({ requestBody: data })
     },
     onSuccess: () => {
+      clearGitHubAppRepositoryQueries(queryClient)
       // Invalidate and refetch credentials status
       queryClient.invalidateQueries({
         queryKey: ["github-app-credentials-status"],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["github-app-repositories"],
       })
     },
   })
@@ -2678,8 +2717,12 @@ export function useDeleteGitHubAppCredentials() {
       await vcsDeleteGithubAppCredentials()
     },
     onSuccess: () => {
+      clearGitHubAppRepositoryQueries(queryClient)
       queryClient.invalidateQueries({
         queryKey: ["github-app-credentials-status"],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["github-app-repositories"],
       })
     },
   })
