@@ -164,6 +164,7 @@ export function WorkspaceSyncBranchSelector({
           <Input
             value={branch}
             onChange={(event) => onBranchChange(event.target.value)}
+            onBlur={(event) => onBranchChange(event.target.value.trim())}
             placeholder={newBranchPlaceholder}
           />
           <p className="text-[11px] text-muted-foreground">

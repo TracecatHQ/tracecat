@@ -103,7 +103,17 @@ export function WorkflowPullDialog({
   const handleClose = () => {
     setPullResult(null)
     setSelectedCommitSha(null)
+    setSyncSchedules(false)
     onOpenChange(false)
+  }
+
+  function handleOpenChange(nextOpen: boolean) {
+    if (!nextOpen) {
+      setPullResult(null)
+      setSelectedCommitSha(null)
+      setSyncSchedules(false)
+    }
+    onOpenChange(nextOpen)
   }
 
   const handlePull = async () => {
@@ -146,7 +156,7 @@ export function WorkflowPullDialog({
 
   if (!gitRepoUrl) {
     return (
-      <Dialog open={open} onOpenChange={onOpenChange}>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Pull workspace config from Git</DialogTitle>
@@ -161,7 +171,7 @@ export function WorkflowPullDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Pull workspace config from Git</DialogTitle>

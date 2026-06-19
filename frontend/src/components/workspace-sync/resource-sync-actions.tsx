@@ -8,6 +8,7 @@ import {
 } from "lucide-react"
 import { type ReactNode, useEffect, useMemo, useState } from "react"
 import type { ResourceRef, SyncResourceType } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -50,6 +51,10 @@ export function WorkspaceResourceSyncActions({
   resources,
 }: WorkspaceResourceSyncActionsProps) {
   const workspaceId = useWorkspaceId()
+  const canPushWorkspaceSync =
+    useScopeCheck(undefined, ["workflow:update", "workflow:sync"], {
+      all: true,
+    }) === true
   const { workspace } = useWorkspaceDetails()
   const [open, setOpen] = useState(false)
   const [exportMessage, setExportMessage] = useState(`Push ${label}`)
@@ -89,13 +94,6 @@ export function WorkspaceResourceSyncActions({
     enabled: open,
     newBranchName: `sync/${branchSlug}`,
   })
-  const exportDisabled =
-    !gitRepoUrl ||
-    exportWorkspaceIsPending ||
-    branchesIsLoading ||
-    (!hasBranches && !isCreatingBranch) ||
-    exportBranch.trim() === "" ||
-    exportMessage.trim() === ""
 
   const repoName = getRepoDisplayName(gitRepoUrl)
   const targetBranch = exportBranch.trim()
@@ -103,6 +101,13 @@ export function WorkspaceResourceSyncActions({
     !isCreatingBranch &&
     Boolean(defaultBranch) &&
     targetBranch === defaultBranch
+  const exportDisabled =
+    !gitRepoUrl ||
+    exportWorkspaceIsPending ||
+    branchesIsLoading ||
+    (!hasBranches && !isCreatingBranch) ||
+    targetBranch === "" ||
+    exportMessage.trim() === ""
 
   useEffect(() => {
     if (!open) {
@@ -112,6 +117,10 @@ export function WorkspaceResourceSyncActions({
     setExportMessage(`Push ${label}`)
   }, [label, open, resetBranchCreation])
 
+  if (!canPushWorkspaceSync) {
+    return null
+  }
+
   async function handleExport() {
     if (!gitRepoUrl) {
       return
@@ -120,8 +129,8 @@ export function WorkspaceResourceSyncActions({
     try {
       const result = await exportWorkspace({
         message: exportMessage,
-        branch: exportBranch,
-        create_pr: true,
+        branch: targetBranch,
+        create_pr: !targetIsDefault,
         include_schedules: false,
         provider: "github",
         resources: resourceRefs,

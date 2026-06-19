@@ -146,6 +146,12 @@ export function useWorkspaceSyncExportPreview(
   { resources, includeSchedules = false, enabled = true }: ExportPreviewOptions
 ) {
   const resourceTypes = resources.map((resource) => resource.resource_type)
+  const resourceKey = resources
+    .map(
+      ({ resource_type, source_id, local_id }) =>
+        `${resource_type}:${source_id ?? ""}:${local_id ?? ""}`
+    )
+    .sort()
   const {
     data: preview,
     isLoading: previewIsLoading,
@@ -154,7 +160,7 @@ export function useWorkspaceSyncExportPreview(
     queryKey: [
       "workspace-sync-export-preview",
       workspaceId,
-      [...resourceTypes].sort(),
+      resourceKey,
       includeSchedules,
     ],
     queryFn: async (): Promise<WorkspaceSyncExportPreview> => {
