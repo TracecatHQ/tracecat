@@ -168,6 +168,7 @@ def test_full_acceptance_fixture_is_deterministic_and_secret_safe() -> None:
     assert set(files) == _expected_full_paths()
     assert sorted(files) == list(files)
     _assert_secret_metadata_has_no_values(files)
+    _assert_variable_exports_have_no_values(files)
     _assert_workflows_have_no_schedules(files)
 
 
@@ -531,6 +532,7 @@ async def test_project_workspace_exports_supported_non_workflow_resources(
     assert expected_non_workflow_paths <= set(files)
     assert not any(path.startswith(f"{WORKFLOW_ROOT}/") for path in files)
     _assert_secret_metadata_has_no_values(files)
+    _assert_variable_exports_have_no_values(files)
 
     table_rows = [
         json.loads(line)
@@ -1052,7 +1054,7 @@ def _expanded_full_git_tree(*, include_schedules: bool) -> dict[str, str]:
                 "id": "default/qa_config",
                 "name": "qa_config",
                 "environment": "default",
-                "value": {"mode": "qa", "threshold": 7},
+                "keys": ["mode", "threshold"],
                 "description": "QA config variable",
                 "tags": ["qa-sync"],
             }
@@ -1187,6 +1189,16 @@ def _assert_secret_metadata_has_no_values(files: dict[str, str]) -> None:
         assert "value" not in secret_spec
         assert "values" not in secret_spec
         assert secret_spec["keys"] == ["API_KEY", "BASE_URL"]
+
+
+def _assert_variable_exports_have_no_values(files: dict[str, str]) -> None:
+    for path, content in files.items():
+        if not path.startswith(f"{VARIABLE_ROOT}/"):
+            continue
+        variable_spec = yaml.safe_load(content)
+        assert "value" not in variable_spec
+        assert "values" not in variable_spec
+        assert variable_spec["keys"] == ["mode", "threshold"]
 
 
 def _assert_workflows_have_no_schedules(files: dict[str, str]) -> None:

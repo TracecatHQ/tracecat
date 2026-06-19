@@ -242,7 +242,8 @@ class VariableResourceSpec(BaseModel):
     id: str = Field(min_length=1)
     name: str = Field(min_length=1)
     environment: str = Field(min_length=1)
-    value: Any
+    keys: list[str] | None = None
+    value: Any | None = Field(default=None, exclude=True)
     description: str | None = None
     tags: list[str] = Field(default_factory=list)
 

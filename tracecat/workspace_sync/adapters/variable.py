@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import cast
+from typing import Any, cast
 
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -47,7 +47,7 @@ class VariableAdapter(EnvironmentYamlAdapter):
                     "id": source_id,
                     "name": variable.name,
                     "environment": variable.environment,
-                    "value": variable.values,
+                    "keys": sorted((variable.values or {}).keys()),
                     "description": variable.description,
                     "tags": sorted((variable.tags or {}).keys()),
                 }
@@ -70,8 +70,8 @@ class VariableAdapter(EnvironmentYamlAdapter):
                     WorkspaceVariable.environment == spec.environment,
                 )
             )
-            values = (
-                spec.value if isinstance(spec.value, dict) else {"value": spec.value}
+            values = _values_from_spec(
+                spec, existing=variable.values if variable else {}
             )
             if variable is None:
                 variable = WorkspaceVariable(
@@ -90,3 +90,16 @@ class VariableAdapter(EnvironmentYamlAdapter):
             await ctx.session.flush()
             imported.append(self.imported_resource(source_id, variable.id))
         return imported
+
+
+def _values_from_spec(
+    spec: VariableResourceSpec,
+    *,
+    existing: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if spec.value is not None:
+        return spec.value if isinstance(spec.value, dict) else {"value": spec.value}
+    existing_values = existing or {}
+    if spec.keys is None:
+        return dict(existing_values)
+    return {key: existing_values.get(key, "") for key in spec.keys}
