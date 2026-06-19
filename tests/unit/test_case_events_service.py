@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES, SERVICE_PRINCIPAL_SCOPES
+from tracecat.cases.durations import CaseDurationAnchorSelection
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.schemas import (
     AssigneeChangedEvent,
@@ -27,7 +28,7 @@ from tracecat.cases.schemas import (
     UpdatedEvent,
 )
 from tracecat.cases.service import CaseEventsService, CasesService
-from tracecat.db.models import CaseEvent
+from tracecat.db.models import CaseDurationDefinition, CaseEvent
 from tracecat.exceptions import TracecatAuthorizationError
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -652,6 +653,51 @@ class TestCaseEventsService:
             test_case, dedupe_window=timedelta(minutes=5)
         )
         assert duplicate_event is None
+
+    async def test_case_viewed_event_syncs_legacy_duration_definitions(
+        self,
+        case_events_service: CaseEventsService,
+        test_case,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Legacy case_viewed duration anchors still receive materialization work."""
+        enqueue_calls: list[dict[str, object]] = []
+
+        def fake_enqueue(*args, **kwargs) -> None:
+            enqueue_calls.append(kwargs)
+
+        assert case_events_service.role.workspace_id is not None
+        case_events_service.session.add(
+            CaseDurationDefinition(
+                workspace_id=case_events_service.role.workspace_id,
+                name="Viewed duration",
+                start_event_type=CaseEventType.CASE_VIEWED,
+                start_timestamp_path="created_at",
+                start_field_filters={},
+                start_selection=CaseDurationAnchorSelection.FIRST,
+                end_event_type=CaseEventType.CASE_CLOSED,
+                end_timestamp_path="created_at",
+                end_field_filters={},
+                end_selection=CaseDurationAnchorSelection.FIRST,
+            )
+        )
+        await case_events_service.session.flush()
+        monkeypatch.setattr(
+            "tracecat.cases.service.enqueue_case_duration_sync_after_commit",
+            fake_enqueue,
+        )
+
+        event = await case_events_service.create_case_viewed_event(test_case)
+
+        assert event is not None
+        assert enqueue_calls == [
+            {
+                "workspace_id": test_case.workspace_id,
+                "case_id": test_case.id,
+                "event_type": CaseEventType.CASE_VIEWED.value,
+                "reason": "case_event",
+            }
+        ]
 
     async def test_case_viewed_event_created_after_window_elapsed(
         self,

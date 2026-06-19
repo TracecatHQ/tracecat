@@ -96,6 +96,7 @@ from tracecat.db.models import (
     CaseDropdownDefinition,
     CaseDropdownOption,
     CaseDropdownValue,
+    CaseDurationDefinition,
     CaseEvent,
     CaseFields,
     CaseTagLink,
@@ -2464,11 +2465,31 @@ class CaseEventsService(BaseWorkspaceService):
                 if now_utc - last_created_at < dedupe_window:
                     return None
 
+        duration_sync: Literal["async", "none"] = (
+            "async" if await self._has_case_viewed_duration_definition() else "none"
+        )
+
         return await self.create_event(
             case=case,
             event=CaseViewedEvent(),
-            duration_sync="none",
+            duration_sync=duration_sync,
         )
+
+    async def _has_case_viewed_duration_definition(self) -> bool:
+        stmt = (
+            select(CaseDurationDefinition.id)
+            .where(
+                CaseDurationDefinition.workspace_id == self.workspace_id,
+                or_(
+                    CaseDurationDefinition.start_event_type
+                    == CaseEventType.CASE_VIEWED,
+                    CaseDurationDefinition.end_event_type == CaseEventType.CASE_VIEWED,
+                ),
+            )
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none() is not None
 
 
 class CaseTasksService(BaseWorkspaceService):
