@@ -27,6 +27,12 @@ export interface CaseEventOption {
   description?: string
 }
 
+export type CaseDurationAnchorEventType = Exclude<CaseEventType, "case_viewed">
+
+interface CaseDurationEventOption extends Omit<CaseEventOption, "value"> {
+  value: CaseDurationAnchorEventType
+}
+
 export const CASE_EVENT_OPTIONS: CaseEventOption[] = [
   {
     value: "case_created",
@@ -119,6 +125,14 @@ export const CASE_EVENT_VALUES = CASE_EVENT_OPTIONS.map(
   (option) => option.value
 ) as [CaseEventType, ...CaseEventType[]]
 
+export const CASE_DURATION_EVENT_OPTIONS = CASE_EVENT_OPTIONS.filter(
+  (option): option is CaseDurationEventOption => option.value !== "case_viewed"
+)
+
+export const CASE_DURATION_EVENT_VALUES = CASE_DURATION_EVENT_OPTIONS.map(
+  (option) => option.value
+) as [CaseDurationAnchorEventType, ...CaseDurationAnchorEventType[]]
+
 export const CASE_DURATION_SELECTION_OPTIONS: Array<{
   value: CaseDurationAnchorSelection
   label: string
@@ -171,6 +185,12 @@ export function isCaseEventFilterType(
   value: CaseEventType
 ): value is CaseEventFilterType {
   return value in CASE_EVENT_FILTER_OPTIONS
+}
+
+export function isCaseDurationAnchorEventType(
+  value: CaseEventType
+): value is CaseDurationAnchorEventType {
+  return value !== "case_viewed"
 }
 
 const CASE_TAG_EVENT_TYPES = [
