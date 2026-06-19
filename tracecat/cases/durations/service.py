@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import Sequence
 from datetime import datetime
@@ -185,10 +186,15 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
             .where(Case.workspace_id == self.workspace_id)
             .order_by(Case.surrogate_id.asc())
         )
-        result = await self.session.execute(stmt)
         duration_service = CaseDurationService(session=self.session, role=self.role)
-        async for case_id in cooperative_every(result.scalars().all(), every=8):
-            await duration_service.sync_case_durations(case_id)
+        case_ids = await self.session.stream_scalars(stmt)
+        try:
+            async for batch in case_ids.partitions(8):
+                for case_id in batch:
+                    await duration_service.sync_case_durations(case_id)
+                await asyncio.sleep(0)
+        finally:
+            await case_ids.close()
 
     async def _get_definition_entity(
         self, duration_id: uuid.UUID
