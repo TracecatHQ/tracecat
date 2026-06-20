@@ -7,15 +7,17 @@ description: QA Tracecat product features in a real local cluster. Use when Code
 
 ## Workflow
 
-1. Identify the feature, route, expected behavior, required role/scopes, and any setup data from the user's request and the current diff.
-2. Start or reuse a local Tracecat cluster with `just cluster up`; prefer `just cluster up -d` when background services are enough. If command syntax is unclear, inspect the command reference in `scripts/cluster`.
-3. Run `just cluster ports` and use the UI URL it prints, especially the Caddy/public app URL. Do not manually build or browse to `localhost:<port>`; using a raw localhost port can hit CSRF/session-origin issues.
-4. Open the UI with browser tooling:
+1. Build a best-effort understanding of the branch, PR, or diff before testing. Inspect the user's request, current branch name, changed files, `git diff`, and, when available, the PR title/body/comments with `gh pr view`.
+2. Follow linked work items when they are discoverable. If the branch, PR body, commits, or changed files mention Linear issue keys, search or open those issues with available Linear tools; use them to understand intent, acceptance criteria, and target user roles. Treat unavailable GitHub or Linear access as a limitation, not a reason to stop.
+3. Infer the most relevant user flows from that intent plus the touched routes, components, services, permissions, and data shapes. Choose a focused QA path and proceed without asking the user to confirm the plan unless the next step is destructive, requires credentials the agent cannot obtain, or would affect external production systems.
+4. Start or reuse a local Tracecat cluster with `just cluster up`; prefer `just cluster up -d` when background services are enough. If command syntax is unclear, inspect the command reference in `scripts/cluster`.
+5. Run `just cluster ports` and use the UI URL it prints, especially the Caddy/public app URL. Do not manually build or browse to `localhost:<port>`; using a raw localhost port can hit CSRF/session-origin issues.
+6. Open the UI with browser tooling:
    - In the Codex app, use the built-in in-app browser.
    - Outside the Codex app, use the Chrome DevTools MCP.
-5. Exercise the feature through the real UI. Prefer real cluster behavior over mock-only checks unless the user explicitly asks for mocks.
-6. Inspect visible UI state, console errors, failed network requests, and relevant service logs. Use `just cluster logs <service>` or `just cluster restart <service>` when needed.
-7. Report the QA result with the cluster URL used, steps performed, pass/fail status, screenshots or observations when useful, and any blockers.
+7. Exercise the inferred feature flows through the real UI. Prefer real cluster behavior over mock-only checks unless the user explicitly asks for mocks.
+8. Inspect visible UI state, console errors, failed network requests, and relevant service logs. Use `just cluster logs <service>` or `just cluster restart <service>` when needed.
+9. Report the inferred intent, cluster URL used, steps performed, pass/fail status, screenshots or observations when useful, and any blockers.
 
 ## Cluster Safety
 
