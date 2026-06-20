@@ -1858,6 +1858,77 @@ async def test_table_import_inserts_rows_without_unique_column(
     assert [row["indicator"] for row in rows.items] == ["alpha", "beta"]
 
 
+@pytest.mark.anyio
+async def test_table_import_updates_existing_column_metadata(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    first_files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{TABLE_ROOT}/qa_column_updates/table.yml": _yaml(
+            {
+                "version": 1,
+                "type": "table",
+                "id": "qa_column_updates",
+                "name": "qa_column_updates",
+                "columns": [
+                    {"name": "indicator", "type": "text", "unique": True},
+                    {"name": "status", "type": "text"},
+                ],
+            }
+        ),
+    }
+    second_files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{TABLE_ROOT}/qa_column_updates/table.yml": _yaml(
+            {
+                "version": 1,
+                "type": "table",
+                "id": "qa_column_updates",
+                "name": "qa_column_updates",
+                "columns": [
+                    {"name": "indicator", "type": "text"},
+                    {
+                        "name": "status",
+                        "type": "select",
+                        "nullable": False,
+                        "default": "medium",
+                        "options": ["low", "medium", "high"],
+                        "unique": True,
+                    },
+                ],
+            }
+        ),
+    }
+
+    first_snapshot, first_diagnostics = await service.parse_files(
+        first_files,
+        commit_sha="x" * 40,
+    )
+    second_snapshot, second_diagnostics = await service.parse_files(
+        second_files,
+        commit_sha="y" * 40,
+    )
+
+    assert first_diagnostics == []
+    assert second_diagnostics == []
+    importer = WorkspaceResourceImportService(session=session, role=svc_role)
+    await importer.import_non_workflow_resources(first_snapshot.spec)
+    await importer.import_non_workflow_resources(second_snapshot.spec)
+
+    table_service = BaseTablesService(session=session, role=svc_role)
+    table = await table_service.get_table_by_name("qa_column_updates")
+    await session.refresh(table, ["columns"])
+    columns = {column.name: column for column in table.columns}
+    status = columns["status"]
+    assert status.type == "SELECT"
+    assert status.nullable is False
+    assert status.default == "medium"
+    assert status.options == ["low", "medium", "high"]
+    assert set(await table_service.get_index(table)) == {"status"}
+
+
 async def _set_workspace_git_repo_url(
     session: AsyncSession,
     *,

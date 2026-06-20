@@ -12,13 +12,14 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from tracecat.db.models import Table
+from tracecat.db.models import Table, TableColumn
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import CursorPaginationParams
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import PullDiagnostic
 from tracecat.tables.schemas import (
     TableColumnCreate,
+    TableColumnUpdate,
     TableCreate,
     TableRowInsert,
     TableUpdate,
@@ -257,13 +258,7 @@ class TableAdapter(CompoundYamlAdapter):
                         TableCreate(
                             name=spec.name,
                             columns=[
-                                TableColumnCreate(
-                                    name=str(column["name"]),
-                                    type=sql_type(column["type"]),
-                                    nullable=bool(column.get("nullable", True)),
-                                    default=column.get("default"),
-                                    options=column.get("options"),
-                                )
+                                _column_create_from_spec(column)
                                 for column in spec.columns
                             ],
                         )
@@ -272,33 +267,26 @@ class TableAdapter(CompoundYamlAdapter):
                 else:
                     await ctx.session.refresh(table, ["columns"])
 
-            existing_columns = {column.name for column in table.columns}
+            existing_columns = {column.name: column for column in table.columns}
             for column in spec.columns:
                 column_name = str(column["name"])
-                if column_name in existing_columns:
+                existing_column = existing_columns.get(column_name)
+                if existing_column is None:
+                    await table_service.create_column(
+                        table,
+                        _column_create_from_spec(column),
+                    )
                     continue
-                await table_service.create_column(
-                    table,
-                    TableColumnCreate(
-                        name=column_name,
-                        type=sql_type(column["type"]),
-                        nullable=bool(column.get("nullable", True)),
-                        default=column.get("default"),
-                        options=column.get("options"),
-                    ),
-                )
+                if update := _column_update_from_spec(existing_column, column):
+                    await ctx.session.refresh(existing_column, ["table"])
+                    await table_service.update_column(existing_column, update)
             await ctx.session.refresh(table, ["columns"])
 
-            for column in spec.columns:
-                if not column.get("unique"):
-                    continue
-                try:
-                    if not await table_service.get_index(table):
-                        await table_service.create_unique_index(
-                            table, str(column["name"])
-                        )
-                except ValueError:
-                    pass
+            await _reconcile_unique_column(
+                table,
+                unique_columns=unique_columns,
+                table_service=table_service,
+            )
 
             for row in spec.rows:
                 await table_service.insert_row(
@@ -327,6 +315,60 @@ class TableAdapter(CompoundYamlAdapter):
             .options(selectinload(Table.columns))
         )
         return (await ctx.session.execute(stmt)).scalar_one_or_none()
+
+
+def _column_create_from_spec(column: Mapping[str, Any]) -> TableColumnCreate:
+    return TableColumnCreate(
+        name=str(column["name"]),
+        type=sql_type(column["type"]),
+        nullable=bool(column.get("nullable", True)),
+        default=column.get("default"),
+        options=cast(list[str] | None, column.get("options")),
+    )
+
+
+def _column_update_from_spec(
+    existing: TableColumn,
+    column: Mapping[str, Any],
+) -> TableColumnUpdate | None:
+    updates: dict[str, Any] = {}
+    desired_type = sql_type(column["type"])
+    if existing.type != desired_type.value:
+        updates["type"] = desired_type
+
+    desired_nullable = bool(column.get("nullable", True))
+    if existing.nullable != desired_nullable:
+        updates["nullable"] = desired_nullable
+
+    desired_default = column.get("default")
+    if existing.default != desired_default:
+        updates["default"] = desired_default
+
+    desired_options = cast(list[str] | None, column.get("options"))
+    if existing.options != desired_options:
+        updates["options"] = desired_options
+
+    return TableColumnUpdate(**updates) if updates else None
+
+
+async def _reconcile_unique_column(
+    table: Table,
+    *,
+    unique_columns: list[str],
+    table_service: BaseTablesService,
+) -> None:
+    desired_unique_column = unique_columns[0] if unique_columns else None
+    current_unique_columns = set(await table_service.get_index(table))
+    desired_unique_columns = {desired_unique_column} if desired_unique_column else set()
+
+    for column_name in sorted(current_unique_columns - desired_unique_columns):
+        try:
+            await table_service.drop_unique_index(table, column_name)
+        except ValueError:
+            pass
+
+    if desired_unique_column and desired_unique_column not in current_unique_columns:
+        await table_service.create_unique_index(table, desired_unique_column)
 
 
 def _jsonable(value: Any) -> Any:
