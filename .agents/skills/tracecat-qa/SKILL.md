@@ -1,9 +1,38 @@
 ---
 name: tracecat-qa
-description: QA Tracecat product features in a real local cluster. Use when Codex is asked to QA, browser-test, smoke test, or manually verify Tracecat UI behavior, feature flows, or PR changes using the repo's `just cluster` stack and browser tooling.
+description: QA Tracecat product features in a real local cluster. Use for QA, browser tests, smoke tests, or manual verification of Tracecat UI flows and PR changes with `just cluster`. In Codex desktop app sessions, use `browser:control-in-app-browser` first; use Chrome DevTools only after the in-app browser path concretely fails or when the user asks for Chrome.
 ---
 
 # Tracecat QA
+
+## Browser Tool Selection
+
+For Codex desktop app sessions, always use the `browser:control-in-app-browser`
+skill for Tracecat UI QA.
+
+Before opening a Tracecat URL in the Codex app:
+
+1. Read `browser:control-in-app-browser/SKILL.md`.
+2. Follow that skill's browser setup and control instructions.
+3. If direct in-app browser tools are not visible, follow that skill's tool
+   discovery path, including searching for `node_repl js`, before declaring the
+   in-app browser unavailable.
+4. Use the in-app browser's documented APIs for navigation, DOM inspection,
+   screenshots, console, and network checks.
+
+Do not call `mcp__chrome_devtools` just because Chrome DevTools tools are
+exposed directly by tool discovery.
+
+Use Chrome DevTools only when one of these is true:
+
+- The user explicitly asks for Chrome.
+- The task depends on the user's existing Chrome profile, cookies, session, or
+  extensions.
+- The in-app browser skill or tool path is unavailable or fails after a concrete
+  attempt.
+
+If falling back from the in-app browser to Chrome DevTools, state the reason in
+the QA report, including what in-app browser setup step failed.
 
 ## Workflow
 
@@ -13,7 +42,7 @@ description: QA Tracecat product features in a real local cluster. Use when Code
 4. Start or reuse a local Tracecat cluster with `just cluster up`; prefer `just cluster up -d` when background services are enough. If command syntax is unclear, inspect the command reference in `scripts/cluster`.
 5. Run `just cluster ports` and use the UI URL it prints, especially the Caddy/public app URL. Do not manually build or browse to `localhost:<port>`; using a raw localhost port can hit CSRF/session-origin issues.
 6. Open the UI with browser tooling:
-   - In the Codex app, use the built-in in-app browser.
+   - In the Codex app, use `browser:control-in-app-browser` first.
    - Outside the Codex app, use the Chrome DevTools MCP.
 7. Exercise the inferred feature flows through the real UI. Prefer real cluster behavior over mock-only checks unless the user explicitly asks for mocks.
 8. Inspect visible UI state, console errors, failed network requests, and relevant service logs. Use `just cluster logs <service>` or `just cluster restart <service>` when needed.
