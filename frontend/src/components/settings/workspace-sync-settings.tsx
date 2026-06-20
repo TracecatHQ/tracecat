@@ -58,12 +58,18 @@ import {
   useWorkspaceSyncBranchTarget,
   WorkspaceSyncBranchSelector,
 } from "@/components/workspace-sync/branch-target-selector"
+import { PushResourceManifest } from "@/components/workspace-sync/push-resource-manifest"
+import {
+  getWorkspaceSyncResourceLabel,
+  workspaceSyncResourceCountEntries,
+} from "@/components/workspace-sync/resource-metadata"
 import { UnifiedDiff } from "@/components/workspace-sync/unified-diff"
 import {
   useRepositoryBranches,
   useRepositoryCommits,
   useWorkflowSync,
   useWorkspaceSyncExport,
+  useWorkspaceSyncExportPreview,
 } from "@/hooks/use-workspace-sync"
 import { getApiErrorDetail } from "@/lib/errors"
 import { getRelativeTime } from "@/lib/event-history"
@@ -73,19 +79,6 @@ import { cn } from "@/lib/utils"
 
 type SyncMode = "push" | "pull"
 type RepositoryInputMode = "select" | "manual"
-
-const RESOURCE_LABELS: Record<string, string> = {
-  workflow: "Workflows",
-  agent_preset: "Agent presets",
-  skill: "Skills",
-  table: "Tables",
-  case_tag: "Case tags",
-  case_field: "Case fields",
-  case_dropdown: "Case dropdowns",
-  case_duration: "Case durations",
-  variable: "Variables",
-  secret_metadata: "Secret metadata",
-}
 
 export const syncSettingsSchema = z.object({
   git_repo_url: z
@@ -99,12 +92,6 @@ type SyncSettingsForm = z.infer<typeof syncSettingsSchema>
 
 interface WorkspaceSyncSettingsProps {
   workspace: WorkspaceRead
-}
-
-function resourceCountEntries(result: PullResult) {
-  return Object.entries(result.resource_counts ?? {})
-    .filter(([, count]) => count.found > 0 || count.imported > 0)
-    .sort(([left], [right]) => left.localeCompare(right))
 }
 
 /**
@@ -180,6 +167,11 @@ export function WorkspaceSyncSettings({
       enabled: Boolean(persistedGitUrl) && Boolean(defaultBranch),
     }
   )
+  const { preview: exportPreview, previewIsLoading: exportPreviewIsLoading } =
+    useWorkspaceSyncExportPreview(workspace.id, {
+      enabled:
+        Boolean(persistedGitUrl) && !isEditingConnection && mode === "push",
+    })
 
   const repoDisplayName = getRepoDisplayName(persistedGitUrl)
   const latestCommit = commits?.[0]
@@ -578,6 +570,11 @@ export function WorkspaceSyncSettings({
               />
             </div>
 
+            <PushResourceManifest
+              preview={exportPreview}
+              isLoading={exportPreviewIsLoading}
+            />
+
             <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex flex-wrap items-center gap-1.5 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
                 <ArrowUpIcon className="size-3.5" />
@@ -787,7 +784,7 @@ function SyncWarning({ children }: { children: React.ReactNode }) {
  * per-resource file diffs.
  */
 function PullPreviewSummary({ result }: { result: PullResult }) {
-  const resourceCounts = resourceCountEntries(result)
+  const resourceCounts = workspaceSyncResourceCountEntries(result)
   const totalFound =
     resourceCounts.length > 0
       ? resourceCounts.reduce((total, [, count]) => total + count.found, 0)
@@ -1004,7 +1001,7 @@ function PullResourceDiffItem({
             {diff.title ?? diff.source_id}
           </span>
           <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
-            {RESOURCE_LABELS[diff.resource_type] ?? diff.resource_type}
+            {getWorkspaceSyncResourceLabel(diff.resource_type)}
           </span>
         </CollapsibleTrigger>
         <div className="flex shrink-0 items-center gap-1.5">
@@ -1081,7 +1078,7 @@ function PullDiagnostics({
  * diagnostics.
  */
 function PullResultSummary({ result }: { result: PullResult }) {
-  const resourceCounts = resourceCountEntries(result)
+  const resourceCounts = workspaceSyncResourceCountEntries(result)
   const totalFound =
     resourceCounts.length > 0
       ? resourceCounts.reduce((total, [, count]) => total + count.found, 0)
@@ -1131,7 +1128,7 @@ function PullResultSummary({ result }: { result: PullResult }) {
               className="rounded-md border bg-muted/30 px-2 py-1.5"
             >
               <div className="font-medium">
-                {RESOURCE_LABELS[resourceType] ?? resourceType}
+                {getWorkspaceSyncResourceLabel(resourceType)}
               </div>
               <div className="text-muted-foreground">
                 {count.imported}/{count.found}

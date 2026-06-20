@@ -130,7 +130,7 @@ export function useWorkspaceSyncExport(workspaceId: string) {
 }
 
 interface ExportPreviewOptions {
-  resources: ResourceRef[]
+  resources?: ResourceRef[] | null
   includeSchedules?: boolean
   enabled?: boolean
 }
@@ -145,13 +145,16 @@ export function useWorkspaceSyncExportPreview(
   workspaceId: string,
   { resources, includeSchedules = false, enabled = true }: ExportPreviewOptions
 ) {
-  const resourceTypes = resources.map((resource) => resource.resource_type)
-  const resourceKey = resources
-    .map(
-      ({ resource_type, source_id, local_id }) =>
-        `${resource_type}:${source_id ?? ""}:${local_id ?? ""}`
-    )
-    .sort()
+  const isFullWorkspacePreview = resources === undefined || resources === null
+  const normalizedResources = resources ?? []
+  const resourceKey = isFullWorkspacePreview
+    ? ["__all__"]
+    : normalizedResources
+        .map(
+          ({ resource_type, source_id, local_id }) =>
+            `${resource_type}:${source_id ?? ""}:${local_id ?? ""}`
+        )
+        .sort()
   const {
     data: preview,
     isLoading: previewIsLoading,
@@ -167,26 +170,20 @@ export function useWorkspaceSyncExportPreview(
       return await workflowsPreviewExportWorkspaceSync({
         workspaceId,
         requestBody: {
-          resources,
+          resources: isFullWorkspacePreview ? undefined : normalizedResources,
           include_schedules: includeSchedules,
         },
       })
     },
-    enabled: Boolean(workspaceId) && enabled && resources.length > 0,
+    enabled:
+      Boolean(workspaceId) &&
+      enabled &&
+      (isFullWorkspacePreview || normalizedResources.length > 0),
     staleTime: 30 * 1000,
   })
 
-  const resourceCount = preview
-    ? resourceTypes.reduce(
-        (total, resourceType) =>
-          total + (preview.resource_counts[resourceType] ?? 0),
-        0
-      )
-    : undefined
-
   return {
     preview,
-    resourceCount,
     previewIsLoading,
     previewError,
   }

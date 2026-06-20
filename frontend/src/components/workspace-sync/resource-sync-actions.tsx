@@ -29,6 +29,11 @@ import {
   useWorkspaceSyncBranchTarget,
   WorkspaceSyncBranchSelector,
 } from "@/components/workspace-sync/branch-target-selector"
+import {
+  formatResourceTotal,
+  getWorkspaceSyncPreviewResourceTotal,
+  PushResourceManifest,
+} from "@/components/workspace-sync/push-resource-manifest"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import {
   useRepositoryBranches,
@@ -74,13 +79,17 @@ export function WorkspaceResourceSyncActions({
     () => resources.map((resourceType) => ({ resource_type: resourceType })),
     [resources]
   )
-  const { resourceCount, previewIsLoading } = useWorkspaceSyncExportPreview(
+  const { preview, previewIsLoading } = useWorkspaceSyncExportPreview(
     workspaceId,
     {
       resources: resourceRefs,
       enabled: open && Boolean(gitRepoUrl),
     }
   )
+  // The projection pulls in the dependency closure (e.g. secrets a workflow
+  // references), so the honest "Source" total spans every type, not just the
+  // types the button requested.
+  const totalResourceCount = getWorkspaceSyncPreviewResourceTotal(preview)
   const {
     branch: exportBranch,
     setBranch: setExportBranch,
@@ -183,11 +192,15 @@ export function WorkspaceResourceSyncActions({
         {gitRepoUrl ? (
           <div className="space-y-5 p-6">
             <PushFlow
-              label={label}
-              resourceCount={resourceCount}
-              resourceCountIsLoading={previewIsLoading}
+              total={totalResourceCount}
+              isLoading={previewIsLoading}
               targetBranch={targetBranch}
               defaultBranch={defaultBranch}
+            />
+
+            <PushResourceManifest
+              preview={preview}
+              isLoading={previewIsLoading}
             />
 
             <div className="space-y-2">
@@ -269,21 +282,20 @@ export function WorkspaceResourceSyncActions({
 }
 
 interface PushFlowProps {
-  label: string
-  resourceCount: number | undefined
-  resourceCountIsLoading: boolean
+  total: number | undefined
+  isLoading: boolean
   targetBranch: string
   defaultBranch: string | undefined
 }
 
 /**
  * Visual source -> branch -> pull request strip describing exactly where the
- * selected resources land when pushed.
+ * selected resources land when pushed. "Source" reports the full projection
+ * total; the manifest below breaks it down by resource type.
  */
 function PushFlow({
-  label,
-  resourceCount,
-  resourceCountIsLoading,
+  total,
+  isLoading,
   targetBranch,
   defaultBranch,
 }: PushFlowProps) {
@@ -293,10 +305,10 @@ function PushFlow({
         icon={<LayersIcon className="size-3.5" />}
         title="Source"
         value={
-          resourceCountIsLoading && resourceCount === undefined ? (
+          isLoading && total === undefined ? (
             <Skeleton className="h-4 w-16 rounded-sm" />
           ) : (
-            formatResourceCount(resourceCount, label)
+            formatResourceTotal(total)
           )
         }
       />
@@ -382,16 +394,4 @@ function buildPushButtonLabel({
     return "Pushing..."
   }
   return "Push & open PR"
-}
-
-/**
- * Renders the resource count with a singular/plural-aware label, e.g.
- * "12 agents" or "1 agent". Falls back to the label when no count is known.
- */
-function formatResourceCount(count: number | undefined, label: string): string {
-  if (count === undefined) {
-    return label
-  }
-  const singular = count === 1 ? label.replace(/s$/, "") : label
-  return `${count} ${singular}`
 }

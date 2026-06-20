@@ -24,6 +24,10 @@ import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "@/components/ui/use-toast"
 import {
+  getWorkspaceSyncResourceLabel,
+  workspaceSyncResourceCountEntries,
+} from "@/components/workspace-sync/resource-metadata"
+import {
   useRepositoryCommits,
   useWorkflowSync,
 } from "@/hooks/use-workspace-sync"
@@ -38,25 +42,6 @@ interface WorkflowPullDialogProps {
   onPullSuccess?: () => void
 }
 
-const RESOURCE_LABELS: Record<string, string> = {
-  workflow: "Workflows",
-  agent_preset: "Agent presets",
-  skill: "Skills",
-  table: "Tables",
-  case_tag: "Case tags",
-  case_field: "Case fields",
-  case_dropdown: "Case dropdowns",
-  case_duration: "Case durations",
-  variable: "Variables",
-  secret_metadata: "Secret metadata",
-}
-
-function resourceCountEntries(result: PullResult) {
-  return Object.entries(result.resource_counts ?? {})
-    .filter(([, count]) => count.found > 0 || count.imported > 0)
-    .sort(([left], [right]) => left.localeCompare(right))
-}
-
 export function WorkflowPullDialog({
   open,
   onOpenChange,
@@ -69,7 +54,9 @@ export function WorkflowPullDialog({
   )
   const [pullResult, setPullResult] = useState<PullResult | null>(null)
   const [syncSchedules, setSyncSchedules] = useState(false)
-  const resourceCounts = pullResult ? resourceCountEntries(pullResult) : []
+  const resourceCounts = pullResult
+    ? workspaceSyncResourceCountEntries(pullResult)
+    : []
   const totalFound =
     resourceCounts.length > 0
       ? resourceCounts.reduce((total, [, count]) => total + count.found, 0)
@@ -325,7 +312,7 @@ export function WorkflowPullDialog({
                         className="rounded-md border bg-muted/30 px-2 py-1.5"
                       >
                         <div className="font-medium">
-                          {RESOURCE_LABELS[resourceType] ?? resourceType}
+                          {getWorkspaceSyncResourceLabel(resourceType)}
                         </div>
                         <div className="text-muted-foreground">
                           {count.imported}/{count.found}

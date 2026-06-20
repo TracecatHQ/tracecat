@@ -4,15 +4,36 @@
 
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import type { GitHubAppRepository, WorkspaceRead } from "@/client"
+import type {
+  GitHubAppRepository,
+  WorkspaceRead,
+  WorkspaceSyncExportPreview,
+} from "@/client"
 import { WorkspaceSyncSettings } from "@/components/settings/workspace-sync-settings"
+import {
+  useRepositoryBranches,
+  useRepositoryCommits,
+  useWorkflowSync,
+  useWorkspaceSyncExport,
+  useWorkspaceSyncExportPreview,
+} from "@/hooks/use-workspace-sync"
 import { useGitHubAppRepositories, useWorkspaceSettings } from "@/lib/hooks"
 
 const mockUpdateWorkspace = jest.fn()
+const mockExportWorkspace = jest.fn()
+const mockPullWorkflows = jest.fn()
 
 jest.mock("@/lib/hooks", () => ({
   useGitHubAppRepositories: jest.fn(),
   useWorkspaceSettings: jest.fn(),
+}))
+
+jest.mock("@/hooks/use-workspace-sync", () => ({
+  useRepositoryBranches: jest.fn(),
+  useRepositoryCommits: jest.fn(),
+  useWorkflowSync: jest.fn(),
+  useWorkspaceSyncExport: jest.fn(),
+  useWorkspaceSyncExportPreview: jest.fn(),
 }))
 
 jest.mock("@/components/organization/workflow-pull-dialog", () => ({
@@ -100,6 +121,31 @@ function setupHooks({
     refetchRepositories: jest.fn(),
     ...repositoryHook,
   } as ReturnType<typeof useGitHubAppRepositories>)
+  jest.mocked(useRepositoryBranches).mockReturnValue({
+    branches: [],
+    branchesIsLoading: false,
+    branchesError: null,
+  } as ReturnType<typeof useRepositoryBranches>)
+  jest.mocked(useRepositoryCommits).mockReturnValue({
+    commits: [],
+    commitsIsLoading: false,
+    commitsError: null,
+  } as ReturnType<typeof useRepositoryCommits>)
+  jest.mocked(useWorkspaceSyncExport).mockReturnValue({
+    exportWorkspace: mockExportWorkspace,
+    exportWorkspaceIsPending: false,
+    exportWorkspaceError: null,
+  } as ReturnType<typeof useWorkspaceSyncExport>)
+  jest.mocked(useWorkflowSync).mockReturnValue({
+    pullWorkflows: mockPullWorkflows,
+    pullWorkflowsIsPending: false,
+    pullWorkflowsError: null,
+  } as ReturnType<typeof useWorkflowSync>)
+  jest.mocked(useWorkspaceSyncExportPreview).mockReturnValue({
+    preview: undefined,
+    previewIsLoading: false,
+    previewError: null,
+  } as ReturnType<typeof useWorkspaceSyncExportPreview>)
 
   return {
     ...workspace,
@@ -114,6 +160,8 @@ describe("WorkspaceSyncSettings", () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockUpdateWorkspace.mockResolvedValue(undefined)
+    mockExportWorkspace.mockResolvedValue(undefined)
+    mockPullWorkflows.mockResolvedValue(undefined)
   })
 
   it("allows manual git URLs when app repositories are available", async () => {
@@ -174,6 +222,7 @@ describe("WorkspaceSyncSettings", () => {
   })
 
   it("opens in manual mode for an existing custom git URL", async () => {
+    const user = userEvent.setup()
     const customUrl =
       "git+ssh://git@github.com/test-org/custom-repo.git@feature/custom"
 
@@ -183,6 +232,7 @@ describe("WorkspaceSyncSettings", () => {
       />
     )
 
+    await user.click(screen.getByRole("button", { name: "Edit connection" }))
     await waitFor(() => {
       expect(screen.getByDisplayValue(customUrl)).toBeInTheDocument()
     })
@@ -202,6 +252,7 @@ describe("WorkspaceSyncSettings", () => {
       />
     )
 
+    await user.click(screen.getByRole("button", { name: "Edit connection" }))
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Manual" })).toHaveAttribute(
         "aria-current",
@@ -268,6 +319,46 @@ describe("WorkspaceSyncSettings", () => {
       "aria-current",
       "true"
     )
+  })
+
+  it("shows the push resource preview for connected workspaces", () => {
+    const preview: WorkspaceSyncExportPreview = {
+      resource_counts: {
+        workflow: 2,
+        agent_preset: 0,
+        skill: 0,
+        table: 1,
+        case_tag: 1,
+        case_field: 0,
+        case_dropdown: 0,
+        case_duration: 0,
+        variable: 1,
+        secret_metadata: 0,
+      },
+      files: [
+        "workflows/root/definition.yml",
+        "workflows/child/definition.yml",
+        "tables/indicators/table.yml",
+        "case_tags/escalated.yml",
+        "variables/default/escalation.yml",
+      ],
+    }
+    const connectedWorkspace = setupHooks({
+      gitRepoUrl: repositories[0].git_url,
+    })
+    jest.mocked(useWorkspaceSyncExportPreview).mockReturnValue({
+      preview,
+      previewIsLoading: false,
+      previewError: null,
+    } as ReturnType<typeof useWorkspaceSyncExportPreview>)
+
+    render(<WorkspaceSyncSettings workspace={connectedWorkspace} />)
+
+    expect(screen.getByText("Included in this push")).toBeInTheDocument()
+    expect(screen.getByText("5 files")).toBeInTheDocument()
+    expect(screen.getByText("Workflows")).toBeInTheDocument()
+    expect(screen.getByText("Case tags")).toBeInTheDocument()
+    expect(screen.getByText("Variables")).toBeInTheDocument()
   })
 
   it("disables the repository selector while repositories are loading", () => {
