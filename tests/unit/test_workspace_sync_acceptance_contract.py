@@ -1621,6 +1621,86 @@ async def test_case_tag_import_allows_in_batch_name_swap(
 
 
 @pytest.mark.anyio
+async def test_variable_import_allows_in_batch_name_swap(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    variable_a = WorkspaceVariable(
+        workspace_id=svc_role.workspace_id,
+        name="Alpha",
+        environment="default",
+        values={"value": "a"},
+    )
+    variable_b = WorkspaceVariable(
+        workspace_id=svc_role.workspace_id,
+        name="Beta",
+        environment="default",
+        values={"value": "b"},
+    )
+    session.add_all([variable_a, variable_b])
+    await session.flush()
+    session.add_all(
+        [
+            WorkspaceSyncResourceMapping(
+                workspace_id=svc_role.workspace_id,
+                provider=VcsProvider.GITHUB.value,
+                resource_type=SyncResourceType.VARIABLE.value,
+                source_id="default/alpha",
+                source_path=f"{VARIABLE_ROOT}/default/alpha.yml",
+                local_id=variable_a.id,
+            ),
+            WorkspaceSyncResourceMapping(
+                workspace_id=svc_role.workspace_id,
+                provider=VcsProvider.GITHUB.value,
+                resource_type=SyncResourceType.VARIABLE.value,
+                source_id="default/beta",
+                source_path=f"{VARIABLE_ROOT}/default/beta.yml",
+                local_id=variable_b.id,
+            ),
+        ]
+    )
+    await session.flush()
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{VARIABLE_ROOT}/default/alpha.yml": _yaml(
+            {
+                "version": 1,
+                "type": "variable",
+                "id": "default/alpha",
+                "name": "Beta",
+                "environment": "default",
+                "keys": ["value"],
+            }
+        ),
+        f"{VARIABLE_ROOT}/default/beta.yml": _yaml(
+            {
+                "version": 1,
+                "type": "variable",
+                "id": "default/beta",
+                "name": "Alpha",
+                "environment": "default",
+                "keys": ["value"],
+            }
+        ),
+    }
+
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="w" * 40)
+
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+    await session.refresh(variable_a)
+    await session.refresh(variable_b)
+    assert variable_a.name == "Beta"
+    assert variable_a.values == {"value": "a"}
+    assert variable_b.name == "Alpha"
+    assert variable_b.values == {"value": "b"}
+
+
+@pytest.mark.anyio
 async def test_case_field_sync_preserves_select_options(
     session: AsyncSession,
     svc_role: Role,

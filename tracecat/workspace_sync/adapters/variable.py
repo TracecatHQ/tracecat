@@ -72,11 +72,45 @@ class VariableAdapter(EnvironmentYamlAdapter):
     ) -> list[ImportedResource]:
         variables = cast(Mapping[str, VariableResourceSpec], specs)
         imported: list[ImportedResource] = []
+        target_keys_by_source_id = _target_keys_by_source_id(variables)
+        _ensure_unique_targets(target_keys_by_source_id)
+        mapped_variables = {
+            source_id: variable
+            for source_id in sorted(variables)
+            if (
+                variable := await self._variable_by_source_id(
+                    ctx,
+                    source_id=source_id,
+                )
+            )
+            is not None
+        }
+        source_ids_by_variable_id = {
+            variable.id: source_id for source_id, variable in mapped_variables.items()
+        }
+        for source_id, variable in mapped_variables.items():
+            spec = variables[source_id]
+            await self._ensure_name_environment_available(
+                ctx,
+                source_id=source_id,
+                name=spec.name,
+                environment=spec.environment,
+                variable_id=variable.id,
+                source_ids_by_variable_id=source_ids_by_variable_id,
+                target_keys_by_source_id=target_keys_by_source_id,
+            )
+        await self._release_changing_mapped_variables(
+            ctx,
+            variables_by_source_id=mapped_variables,
+            target_keys_by_source_id=target_keys_by_source_id,
+        )
+
         for source_id, spec in sorted(variables.items()):
             variable = await self._variable_for_import(
                 ctx,
                 source_id=source_id,
                 spec=spec,
+                mapped_variable=mapped_variables.get(source_id),
             )
             values = _values_from_spec(
                 spec, existing=variable.values if variable else {}
@@ -107,16 +141,13 @@ class VariableAdapter(EnvironmentYamlAdapter):
         *,
         source_id: str,
         spec: VariableResourceSpec,
+        mapped_variable: WorkspaceVariable | None = None,
     ) -> WorkspaceVariable | None:
-        variable = await self._variable_by_source_id(ctx, source_id=source_id)
+        variable = mapped_variable or await self._variable_by_source_id(
+            ctx,
+            source_id=source_id,
+        )
         if variable is not None:
-            await self._ensure_name_environment_available(
-                ctx,
-                source_id=source_id,
-                name=spec.name,
-                environment=spec.environment,
-                variable_id=variable.id,
-            )
             return variable
 
         return await ctx.session.scalar(
@@ -152,6 +183,8 @@ class VariableAdapter(EnvironmentYamlAdapter):
         name: str,
         environment: str,
         variable_id: uuid.UUID,
+        source_ids_by_variable_id: Mapping[uuid.UUID, str] | None = None,
+        target_keys_by_source_id: Mapping[str, tuple[str, str]] | None = None,
     ) -> None:
         conflict_id = await ctx.session.scalar(
             select(WorkspaceVariable.id).where(
@@ -164,10 +197,36 @@ class VariableAdapter(EnvironmentYamlAdapter):
         if conflict_id is None:
             return
 
+        if source_ids_by_variable_id and target_keys_by_source_id:
+            conflict_source_id = source_ids_by_variable_id.get(conflict_id)
+            if conflict_source_id is not None and target_keys_by_source_id[
+                conflict_source_id
+            ] != (environment, name):
+                return
+
         raise ValueError(
             f"Variable sync source id {source_id!r} cannot use "
             f"{environment!r}/{name!r} because another variable already uses it."
         )
+
+    async def _release_changing_mapped_variables(
+        self,
+        ctx: BaseWorkspaceService,
+        *,
+        variables_by_source_id: Mapping[str, WorkspaceVariable],
+        target_keys_by_source_id: Mapping[str, tuple[str, str]],
+    ) -> None:
+        changed = False
+        for source_id, variable in variables_by_source_id.items():
+            if (variable.environment, variable.name) == target_keys_by_source_id[
+                source_id
+            ]:
+                continue
+            variable.name = f"__tracecat_sync_tmp_{variable.id.hex}"
+            ctx.session.add(variable)
+            changed = True
+        if changed:
+            await ctx.session.flush()
 
 
 def _values_from_spec(
@@ -181,3 +240,27 @@ def _values_from_spec(
     if spec.keys is None:
         return dict(existing_values)
     return {key: existing_values.get(key, "") for key in spec.keys}
+
+
+def _target_keys_by_source_id(
+    variables: Mapping[str, VariableResourceSpec],
+) -> dict[str, tuple[str, str]]:
+    return {
+        source_id: (spec.environment, spec.name)
+        for source_id, spec in variables.items()
+    }
+
+
+def _ensure_unique_targets(
+    target_keys_by_source_id: Mapping[str, tuple[str, str]],
+) -> None:
+    source_id_by_target: dict[tuple[str, str], str] = {}
+    for source_id, target_key in sorted(target_keys_by_source_id.items()):
+        if other_source_id := source_id_by_target.get(target_key):
+            environment, name = target_key
+            raise ValueError(
+                "Variable sync specs must have unique environment/name targets: "
+                f"{environment!r}/{name!r} is used by {other_source_id!r} "
+                f"and {source_id!r}."
+            )
+        source_id_by_target[target_key] = source_id
