@@ -47,6 +47,20 @@ def test_error_response_preserves_falsey_detail_field(detail: object) -> None:
     assert "fallback" not in str(exc_info.value)
 
 
+def test_error_response_uses_message_when_detail_is_null() -> None:
+    client = TracecatClient(api_url="http://api", token="", workspace_id="")
+    response = httpx.Response(
+        500,
+        json={"detail": None, "message": "database temporarily unavailable"},
+    )
+
+    with pytest.raises(TracecatAPIError) as exc_info:
+        client._handle_error_response(response)
+
+    assert exc_info.value.detail == "database temporarily unavailable"
+    assert "database temporarily unavailable" in str(exc_info.value)
+
+
 def test_error_string_renders_empty_structured_detail() -> None:
     err = TracecatAPIError(message="API request failed", status_code=500, detail={})
 
