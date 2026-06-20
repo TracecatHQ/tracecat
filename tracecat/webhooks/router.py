@@ -327,7 +327,7 @@ class WebhookTriggerEnvelope(TypedDict):
     status_code: int
     headers: dict[str, str]
     data: TriggerInputs | None
-    raw_body: NotRequired[str | None]
+    raw_body: NotRequired[str]
 
 
 def _include_raw_body(input_schema: dict[str, Any] | None) -> bool:
@@ -353,7 +353,7 @@ async def _wrap_with_headers(
     )
     if include_raw_body:
         body = await request.body()
-        envelope["raw_body"] = body.decode("utf-8") if body else None
+        envelope["raw_body"] = body.decode("utf-8")
     return envelope
 
 

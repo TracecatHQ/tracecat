@@ -727,6 +727,60 @@ class TestWebhookRouterExecutionPath:
         }
 
     @pytest.mark.anyio
+    async def test_include_headers_on_keeps_empty_raw_body_as_string(self):
+        workflow_id = WorkflowUUID.new_uuid4()
+        mock_service = AsyncMock()
+        mock_service.create_workflow_execution_wait_for_start = AsyncMock(
+            return_value={
+                "message": "Workflow execution started",
+                "wf_id": workflow_id,
+                "wf_exec_id": f"{workflow_id.short()}/exec_1",
+            }
+        )
+
+        request = MagicMock(spec=Request)
+        request.headers = {"content-type": "application/json"}
+        request.body = AsyncMock(return_value=b"")
+
+        defn = _definition(
+            entrypoint={
+                "ref": "start",
+                "expects": {
+                    "status_code": {"type": "int"},
+                    "headers": {"type": "dict[str, str]"},
+                    "data": {"type": "Any"},
+                    "raw_body": {"type": "str"},
+                },
+            }
+        )
+
+        with patch(
+            "tracecat.webhooks.router.WorkflowExecutionsService.connect",
+            AsyncMock(return_value=mock_service),
+        ):
+            await _incoming_webhook(
+                workflow_id=workflow_id,
+                defn=defn,
+                payload=None,
+                echo=False,
+                empty_echo=False,
+                vendor=None,
+                request=request,
+                content_type="application/json",
+                include_headers=True,
+            )
+
+        call_kwargs = (
+            mock_service.create_workflow_execution_wait_for_start.call_args.kwargs
+        )
+        assert call_kwargs["payload"] == {
+            "status_code": 200,
+            "headers": {"content-type": "application/json"},
+            "data": None,
+            "raw_body": "",
+        }
+
+    @pytest.mark.anyio
     async def test_include_headers_on_strips_api_key_header(self):
         """The webhook's own API key header must never reach the workflow."""
         workflow_id = WorkflowUUID.new_uuid4()
