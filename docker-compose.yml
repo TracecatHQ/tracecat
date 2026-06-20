@@ -80,6 +80,7 @@ services:
       # Local registry
       TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED:-false}
+      PYTHONPATH: ${PYTHONPATH:+${PYTHONPATH}:}/home/apiuser/.local:/app/local_registry
       # Redis
       REDIS_URL: ${REDIS_URL}
     volumes:
@@ -140,6 +141,7 @@ services:
       # Local registry
       TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED:-false}
+      PYTHONPATH: ${PYTHONPATH:+${PYTHONPATH}:}/home/apiuser/.local:/app/local_registry
       TRACECAT__EXECUTOR_CLIENT_TIMEOUT: ${TRACECAT__EXECUTOR_CLIENT_TIMEOUT:-300}
       # Sentry
       SENTRY_DSN: ${SENTRY_DSN:-}
@@ -153,6 +155,8 @@ services:
       TRACECAT__BLOB_STORAGE_BUCKET_AGENT: ${TRACECAT__BLOB_STORAGE_BUCKET_AGENT:-tracecat-agent}
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     command: ["python", "-m", "tracecat.dsl.worker"]
     depends_on:
       migrations:
@@ -277,6 +281,10 @@ services:
         TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES: ${TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES}
         # Registry
         TRACECAT__UNSAFE_DISABLE_SM_MASKING: ${TRACECAT__UNSAFE_DISABLE_SM_MASKING:-false}
+        # Local registry
+        TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
+        TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED:-false}
+        PYTHONPATH: ${PYTHONPATH:+${PYTHONPATH}:}/home/apiuser/.local:/app/local_registry
         # Temporal
         TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
         TEMPORAL__CLUSTER_NAMESPACE: ${TEMPORAL__CLUSTER_NAMESPACE}
@@ -303,6 +311,8 @@ services:
         TRACECAT__BLOB_STORAGE_BUCKET_AGENT: ${TRACECAT__BLOB_STORAGE_BUCKET_AGENT:-tracecat-agent}
         MINIO_ROOT_USER: ${MINIO_ROOT_USER}
         MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      volumes:
+        - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
       command: ["python", "-m", "tracecat.agent.worker"]
       depends_on:
         migrations:
@@ -329,7 +339,11 @@ services:
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
       TRACECAT__LITELLM_PORT: ${TRACECAT__LITELLM_PORT:-4000}
       TRACECAT__LITELLM_BASE_URL: ${TRACECAT__LITELLM_BASE_URL:-http://litellm:4000}
-      PYTHONPATH: /app:/app/packages/tracecat-registry:/app/packages/tracecat-ee
+      TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
+      TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED:-false}
+      PYTHONPATH: /app:/app/packages/tracecat-registry:/app/packages/tracecat-ee:/home/apiuser/.local:/app/local_registry
+    volumes:
+      - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     command: ["python", "-m", "tracecat.agent.litellm"]
     depends_on:
       migrations:
@@ -458,6 +472,10 @@ services:
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
       TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
       TRACECAT__EE_MULTI_TENANT: ${TRACECAT__EE_MULTI_TENANT:-false}
+      # Local registry
+      TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
+      TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED:-false}
+      PYTHONPATH: ${PYTHONPATH:+${PYTHONPATH}:}/home/apiuser/.local:/app/local_registry
       REDIS_URL: ${REDIS_URL}
       # Internal OIDC issuer (on the API server)
       USER_AUTH_SECRET: ${USER_AUTH_SECRET}
@@ -476,6 +494,8 @@ services:
       TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN: ${TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN:-}
       TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS: ${TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS:-3600}
       TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS: ${TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS:-128}
+    volumes:
+      - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     command: ["python", "-m", "tracecat.mcp"]
     depends_on:
       api:
