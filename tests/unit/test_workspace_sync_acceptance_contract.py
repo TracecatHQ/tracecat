@@ -20,6 +20,7 @@ from pydantic_core import PydanticSerializationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.support.fake_vcs import FakeVcsServer
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import (
@@ -35,16 +36,17 @@ from tracecat.db.models import (
     SkillVersion,
     Table,
     Workflow,
+    Workspace,
     WorkspaceSyncResourceMapping,
     WorkspaceVariable,
 )
 from tracecat.git.types import GitUrl
 from tracecat.registry.lock.types import RegistryLock
-from tracecat.sync import PullOptions
+from tracecat.sync import PullOptions, PushStatus
 from tracecat.tables.schemas import TableUpdate
 from tracecat.tables.service import BaseTablesService
 from tracecat.workspace_sync.adapters import WORKSPACE_RESOURCE_ADAPTERS
-from tracecat.workspace_sync.enums import SyncResourceType
+from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.importer import WorkspaceResourceImportService
 from tracecat.workspace_sync.schemas import (
     AGENT_PRESET_ROOT,
@@ -61,6 +63,7 @@ from tracecat.workspace_sync.schemas import (
     WorkspaceManifest,
     WorkspaceProjection,
     WorkspaceSpec,
+    WorkspaceSyncExportRequest,
     manifest_resource_roots,
 )
 from tracecat.workspace_sync.serialization import canonical_json_text
@@ -560,6 +563,111 @@ async def test_project_workspace_exports_supported_non_workflow_resources(
     )
     assert parent_preset["folder_path"] == "/QA/Agents/"
     assert parent_preset["tags"] == ["qa-sync"]
+
+
+@pytest.mark.anyio
+async def test_source_export_target_pull_preserves_projected_workspace(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Round-trip a workspace through VCS and assert target parity.
+
+    This is the black-box acceptance flow for workspace sync: a source workspace
+    pushes canonical sync files to a shared repo, a target workspace pulls them,
+    and both workspaces project back to the same canonical file set. The second
+    push/pull cycle proves in-place updates preserve parity after renames,
+    metadata edits, and an added resource.
+    """
+    assert svc_role.workspace_id is not None
+    repo_url = "git+ssh://git@github.com/TracecatHQ/git-sync-qa.git"
+    git_url = GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
+    fake_vcs = FakeVcsServer()
+    await _set_workspace_git_repo_url(
+        session,
+        workspace_id=svc_role.workspace_id,
+        repo_url=repo_url,
+    )
+    target_role = await _create_workspace_role(
+        session,
+        source_role=svc_role,
+        workspace_name="target-workspace",
+        repo_url=repo_url,
+    )
+    source_service = WorkspaceSyncService(
+        session=session,
+        role=svc_role,
+        transport_factory=fake_vcs.transport_factory,
+    )
+    target_service = WorkspaceSyncService(
+        session=session,
+        role=target_role,
+        transport_factory=fake_vcs.transport_factory,
+    )
+    seed_transport = fake_vcs.transport_factory(
+        VcsProvider.GITHUB,
+        session=session,
+        role=svc_role,
+    )
+    seed_commit = await seed_transport.write_files(
+        url=git_url,
+        files=_expanded_full_git_tree(include_schedules=False),
+        message="Seed source workspace",
+        branch="seed/source",
+        create_pr=False,
+    )
+    assert seed_commit.sha is not None
+
+    with patch(
+        "tracecat.workflow.management.management.RegistryLockService.resolve_lock_with_bindings",
+        AsyncMock(return_value=RegistryLock(origins={}, actions={})),
+    ):
+        source_pull = await source_service.pull(
+            options=PullOptions(commit_sha=seed_commit.sha)
+        )
+        assert source_pull.success is True
+
+        first_export = await source_service.export_workspace(
+            WorkspaceSyncExportRequest(
+                message="Push source workspace",
+                branch="sync/source-to-target",
+                create_pr=False,
+            )
+        )
+        assert first_export.commit.status is PushStatus.COMMITTED
+        assert first_export.commit.sha is not None
+
+        first_target_pull = await target_service.pull(
+            options=PullOptions(commit_sha=first_export.commit.sha)
+        )
+        assert first_target_pull.success is True
+        await _assert_projected_workspaces_match(source_service, target_service)
+
+        # Exercise a representative update batch before the second push/pull:
+        # mapped-resource renames, metadata edits, and one new resource.
+        await _mutate_source_workspace_for_roundtrip_update(session, role=svc_role)
+        second_export = await source_service.export_workspace(
+            WorkspaceSyncExportRequest(
+                message="Push source workspace update",
+                branch="sync/source-to-target",
+                create_pr=False,
+            )
+        )
+        assert second_export.commit.status is PushStatus.COMMITTED
+        assert second_export.commit.sha is not None
+        # Confirm the fake VCS commit stores exactly what source projection emits.
+        assert (
+            fake_vcs.repo_files(git_url, ref=second_export.commit.sha)
+            == (
+                await source_service.project_workspace(create_missing_mappings=False)
+            ).files
+        )
+
+        second_target_pull = await target_service.pull(
+            options=PullOptions(commit_sha=second_export.commit.sha)
+        )
+
+    assert second_target_pull.success is True
+    await _assert_projected_workspaces_match(source_service, target_service)
 
 
 @pytest.mark.anyio
@@ -1622,6 +1730,105 @@ async def test_table_import_rejects_multiple_unique_columns(
             session=session,
             role=svc_role,
         ).import_non_workflow_resources(snapshot.spec)
+
+
+async def _set_workspace_git_repo_url(
+    session: AsyncSession,
+    *,
+    workspace_id: uuid.UUID,
+    repo_url: str,
+) -> None:
+    workspace = await session.scalar(
+        select(Workspace).where(Workspace.id == workspace_id)
+    )
+    assert workspace is not None
+    workspace.settings = {
+        **(workspace.settings or {}),
+        "git_repo_url": repo_url,
+    }
+    session.add(workspace)
+    await session.flush()
+
+
+async def _create_workspace_role(
+    session: AsyncSession,
+    *,
+    source_role: Role,
+    workspace_name: str,
+    repo_url: str,
+) -> Role:
+    assert source_role.organization_id is not None
+    workspace = Workspace(
+        name=workspace_name,
+        organization_id=source_role.organization_id,
+        settings={"git_repo_url": repo_url},
+    )
+    session.add(workspace)
+    await session.flush()
+    return source_role.model_copy(update={"workspace_id": workspace.id})
+
+
+async def _assert_projected_workspaces_match(
+    source_service: WorkspaceSyncService,
+    target_service: WorkspaceSyncService,
+) -> None:
+    """Compare canonical sync files, not DB IDs or other local-only state."""
+    source_projection = await source_service.project_workspace(
+        create_missing_mappings=False
+    )
+    target_projection = await target_service.project_workspace(
+        create_missing_mappings=False
+    )
+    assert target_projection.files == source_projection.files
+
+
+async def _mutate_source_workspace_for_roundtrip_update(
+    session: AsyncSession,
+    *,
+    role: Role,
+) -> None:
+    assert role.workspace_id is not None
+    table = await session.scalar(
+        select(Table).where(
+            Table.workspace_id == role.workspace_id,
+            Table.name == "qa_indicators",
+        )
+    )
+    assert table is not None
+    await BaseTablesService(session=session, role=role).update_table(
+        table,
+        TableUpdate(name="qa_indicators_roundtrip"),
+    )
+
+    tag = await session.scalar(
+        select(CaseTag).where(
+            CaseTag.workspace_id == role.workspace_id,
+            CaseTag.ref == "qa-alert",
+        )
+    )
+    assert tag is not None
+    tag.name = "QA alert roundtrip"
+
+    variable = await session.scalar(
+        select(WorkspaceVariable).where(
+            WorkspaceVariable.workspace_id == role.workspace_id,
+            WorkspaceVariable.name == "qa_config",
+            WorkspaceVariable.environment == "default",
+        )
+    )
+    assert variable is not None
+    variable.name = "qa_config_roundtrip"
+    variable.description = "QA config variable updated by roundtrip"
+
+    session.add(
+        CaseTag(
+            workspace_id=role.workspace_id,
+            ref="roundtrip-followup",
+            name="Roundtrip followup",
+            color="#444CE7",
+        )
+    )
+    await session.flush()
 
 
 def _agent_preset_git_tree(

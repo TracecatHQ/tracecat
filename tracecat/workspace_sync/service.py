@@ -11,7 +11,9 @@ from difflib import unified_diff
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.auth.types import Role
 from tracecat.db.models import Workflow, Workspace, WorkspaceSyncResourceMapping
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import (
@@ -74,7 +76,11 @@ from tracecat.workspace_sync.schemas import (
     workspace_manifest_from_json,
 )
 from tracecat.workspace_sync.serialization import canonical_json_text
-from tracecat.workspace_sync.transport import vcs_transport_for_provider
+from tracecat.workspace_sync.transport import (
+    VcsSyncTransport,
+    VcsTransportFactory,
+    vcs_transport_for_provider,
+)
 from tracecat.workspace_sync.workflow import (
     workflow_source_path,
     workflow_spec_from_orm,
@@ -90,6 +96,16 @@ class WorkspaceSyncService(BaseWorkspaceService):
 
     service_name = "workspace_sync"
 
+    def __init__(
+        self,
+        session: AsyncSession,
+        role: Role | None = None,
+        *,
+        transport_factory: VcsTransportFactory | None = None,
+    ) -> None:
+        super().__init__(session=session, role=role)
+        self._transport_factory = transport_factory
+
     async def export_workspace(
         self,
         params: WorkspaceSyncExportRequest,
@@ -103,10 +119,8 @@ class WorkspaceSyncService(BaseWorkspaceService):
             include_schedules=params.include_schedules,
             create_missing_mappings=True,
         )
-        transport = vcs_transport_for_provider(
+        transport = self._transport_for_provider(
             params.provider,
-            session=self.session,
-            role=self.role,
         )
         commit = await transport.write_files(
             url=url,
@@ -173,10 +187,8 @@ class WorkspaceSyncService(BaseWorkspaceService):
             manifest=WorkspaceManifest(),
             spec=WorkspaceSpec(workflows={spec.id: spec}),
         )
-        transport = vcs_transport_for_provider(
+        transport = self._transport_for_provider(
             params.provider,
-            session=self.session,
-            role=self.role,
         )
         commit = await transport.write_files(
             url=url,
@@ -222,10 +234,8 @@ class WorkspaceSyncService(BaseWorkspaceService):
             )
 
         url = await self._workspace_git_url(provider=provider)
-        transport = vcs_transport_for_provider(
+        transport = self._transport_for_provider(
             provider,
-            session=self.session,
-            role=self.role,
         )
         remote_tree = await transport.read_files(url=url, ref=options.commit_sha)
         snapshot, diagnostics = await self.parse_files(
@@ -414,10 +424,8 @@ class WorkspaceSyncService(BaseWorkspaceService):
         provider: VcsProvider = VcsProvider.GITHUB,
     ) -> list[GitCommitInfo]:
         url = await self._workspace_git_url(provider=provider)
-        transport = vcs_transport_for_provider(
+        transport = self._transport_for_provider(
             provider,
-            session=self.session,
-            role=self.role,
         )
         return await transport.list_commits(url=url, branch=branch, limit=limit)
 
@@ -428,12 +436,18 @@ class WorkspaceSyncService(BaseWorkspaceService):
         provider: VcsProvider = VcsProvider.GITHUB,
     ) -> list[GitBranchInfo]:
         url = await self._workspace_git_url(provider=provider)
-        transport = vcs_transport_for_provider(
+        transport = self._transport_for_provider(
+            provider,
+        )
+        return await transport.list_branches(url=url, limit=limit)
+
+    def _transport_for_provider(self, provider: VcsProvider) -> VcsSyncTransport:
+        factory = self._transport_factory or vcs_transport_for_provider
+        return factory(
             provider,
             session=self.session,
             role=self.role,
         )
-        return await transport.list_branches(url=url, limit=limit)
 
     def _validate_export_params(self, params: WorkspaceSyncExportRequest) -> None:
         try:

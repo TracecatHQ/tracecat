@@ -75,6 +75,20 @@ class VcsSyncTransport(Protocol):
         ...
 
 
+class VcsTransportFactory(Protocol):
+    """Factory for provider-specific workspace sync transports."""
+
+    def __call__(
+        self,
+        provider: VcsProvider,
+        *,
+        session: Any,
+        role: Any,
+    ) -> VcsSyncTransport:
+        """Return a transport for the requested provider."""
+        ...
+
+
 def unsupported_transport(provider: VcsProvider) -> TracecatValidationError:
     return TracecatValidationError(
         f"{provider.value} workspace sync is not implemented yet. "
