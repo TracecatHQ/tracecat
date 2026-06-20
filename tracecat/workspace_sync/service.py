@@ -73,6 +73,7 @@ from tracecat.workspace_sync.schemas import (
     WorkspaceSyncExportPreviewRequest,
     WorkspaceSyncExportRequest,
     WorkspaceSyncExportResult,
+    manifest_resource_roots,
     workspace_manifest_from_json,
 )
 from tracecat.workspace_sync.serialization import canonical_json_text
@@ -129,6 +130,11 @@ class WorkspaceSyncService(BaseWorkspaceService):
             branch=params.branch,
             create_pr=params.create_pr,
             pr_base_branch=params.pr_base_branch,
+            delete_missing_paths_under=(
+                manifest_resource_roots(projection.manifest)
+                if resource_ids is None
+                else ()
+            ),
         )
         await self.session.commit()
         return WorkspaceSyncExportResult(

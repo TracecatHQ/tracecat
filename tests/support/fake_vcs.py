@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -76,6 +77,7 @@ class FakeVcsTransport:
         branch: str,
         create_pr: bool,
         pr_base_branch: str | None = None,
+        delete_missing_paths_under: Sequence[str] = (),
     ) -> CommitInfo:
         del create_pr
         repo = self._server._repo(url)
@@ -84,6 +86,7 @@ class FakeVcsTransport:
             message=message,
             branch=branch,
             base_branch=pr_base_branch or url.ref or self._server.default_branch,
+            delete_missing_paths_under=delete_missing_paths_under,
         )
 
     async def list_commits(
@@ -142,6 +145,7 @@ class _FakeRepo:
         message: str,
         branch: str,
         base_branch: str,
+        delete_missing_paths_under: Sequence[str] = (),
     ) -> CommitInfo:
         if not files:
             raise ValueError("At least one file is required for workspace sync export")
@@ -158,7 +162,13 @@ class _FakeRepo:
             for path, content in files.items()
             if current.files.get(path) != content
         }
-        if not changed:
+        managed_roots = _normalized_roots(delete_missing_paths_under)
+        deleted = {
+            path
+            for path in current.files
+            if path not in files and _path_is_under_roots(path, managed_roots)
+        }
+        if not changed and not deleted:
             return CommitInfo(
                 status=PushStatus.NO_OP,
                 sha=None,
@@ -167,7 +177,11 @@ class _FakeRepo:
                 message="No changes detected; nothing to commit.",
             )
 
-        next_files = dict(current.files)
+        next_files = {
+            path: content
+            for path, content in current.files.items()
+            if path not in deleted
+        }
         next_files.update(changed)
         commit = self._new_commit(
             branch=branch,
@@ -180,7 +194,7 @@ class _FakeRepo:
             sha=commit.sha,
             ref=branch,
             base_ref=base_branch,
-            message=f"Committed {len(changed)} file(s).",
+            message=f"Committed {len(changed) + len(deleted)} file(s).",
         )
 
     def commit_at_ref(self, ref: str) -> _FakeCommit:
@@ -223,3 +237,11 @@ class _FakeRepo:
         )
         self._commits[sha] = commit
         return commit
+
+
+def _normalized_roots(roots: Sequence[str]) -> tuple[str, ...]:
+    return tuple(root.strip("/") for root in roots if root.strip("/"))
+
+
+def _path_is_under_roots(path: str, roots: Sequence[str]) -> bool:
+    return any(path == root or path.startswith(f"{root}/") for root in roots)

@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from github.GithubException import GithubException
 
+from tests.support.fake_vcs import FakeVcsServer
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
@@ -396,6 +397,85 @@ async def test_export_workspace_commits_mapping_changes(
 
 
 @pytest.mark.anyio
+async def test_full_export_deletes_stale_sync_files(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    fake_vcs = FakeVcsServer()
+    git_url = GitUrl(host="github.com", org="TracecatHQ", repo="sync")
+    await _seed_fake_sync_branch(
+        fake_vcs,
+        git_url=git_url,
+        branch="sync/workspace",
+    )
+    service = WorkspaceSyncService(
+        session=workspace_sync_service.session,
+        role=workspace_sync_service.role,
+        transport_factory=fake_vcs.transport_factory,
+    )
+    service._workspace_git_url = AsyncMock(return_value=git_url)
+    service.project_workspace = AsyncMock(
+        return_value=WorkspaceProjection(
+            manifest=WorkspaceManifest(),
+            spec=WorkspaceSpec(),
+            files={MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())},
+        )
+    )
+
+    result = await service.export_workspace(
+        WorkspaceSyncExportRequest(
+            message="Push full workspace",
+            branch="sync/workspace",
+            create_pr=False,
+        )
+    )
+
+    assert result.commit.status is PushStatus.COMMITTED
+    assert result.commit.sha is not None
+    files = fake_vcs.repo_files(git_url, ref=result.commit.sha)
+    assert "workflows/stale/definition.yml" not in files
+    assert files["README.md"] == "# keep me\n"
+
+
+@pytest.mark.anyio
+async def test_selected_export_preserves_unselected_sync_files(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    fake_vcs = FakeVcsServer()
+    git_url = GitUrl(host="github.com", org="TracecatHQ", repo="sync")
+    await _seed_fake_sync_branch(
+        fake_vcs,
+        git_url=git_url,
+        branch="sync/workspace",
+    )
+    service = WorkspaceSyncService(
+        session=workspace_sync_service.session,
+        role=workspace_sync_service.role,
+        transport_factory=fake_vcs.transport_factory,
+    )
+    service._workspace_git_url = AsyncMock(return_value=git_url)
+    service.project_workspace = AsyncMock(
+        return_value=WorkspaceProjection(
+            manifest=WorkspaceManifest(),
+            spec=WorkspaceSpec(),
+            files={MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())},
+        )
+    )
+
+    result = await service.export_workspace(
+        WorkspaceSyncExportRequest(
+            message="Push selected tables",
+            branch="sync/workspace",
+            create_pr=False,
+            resources=[ResourceRef(resource_type=SyncResourceType.TABLE)],
+        )
+    )
+
+    assert result.commit.status is PushStatus.NO_OP
+    files = fake_vcs.repo_files(git_url, ref="sync/workspace")
+    assert "workflows/stale/definition.yml" in files
+
+
+@pytest.mark.anyio
 async def test_github_write_files_noop_skips_pr_for_branch_without_commits(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:
@@ -500,6 +580,30 @@ def _workspace_files(spec: WorkflowResourceSpec) -> dict[str, str]:
         MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
         workflow_source_path(spec.id): serialize_workflow_spec(spec),
     }
+
+
+async def _seed_fake_sync_branch(
+    fake_vcs: FakeVcsServer,
+    *,
+    git_url: GitUrl,
+    branch: str,
+) -> None:
+    seed_transport = fake_vcs.transport_factory(
+        VcsProvider.GITHUB,
+        session=AsyncMock(),
+        role=AsyncMock(),
+    )
+    await seed_transport.write_files(
+        url=git_url,
+        files={
+            MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+            "workflows/stale/definition.yml": "version: 1\n",
+            "README.md": "# keep me\n",
+        },
+        message="Seed sync branch",
+        branch=branch,
+        create_pr=False,
+    )
 
 
 async def _write_files_with_fake_repo(

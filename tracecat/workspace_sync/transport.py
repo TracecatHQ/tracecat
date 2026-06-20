@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import itertools
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -51,6 +52,7 @@ class VcsSyncTransport(Protocol):
         branch: str,
         create_pr: bool,
         pr_base_branch: str | None = None,
+        delete_missing_paths_under: Sequence[str] = (),
     ) -> CommitInfo:
         """Commit workspace sync files to a branch."""
         ...
@@ -107,6 +109,14 @@ def vcs_transport_for_provider(
             return GitHubWorkspaceSyncTransport(session=session, role=role)
         case VcsProvider.GITLAB | VcsProvider.BITBUCKET:
             raise unsupported_transport(provider)
+
+
+def _normalized_roots(roots: Sequence[str]) -> tuple[str, ...]:
+    return tuple(root.strip("/") for root in roots if root.strip("/"))
+
+
+def _path_is_under_roots(path: str, roots: Sequence[str]) -> bool:
+    return any(path == root or path.startswith(f"{root}/") for root in roots)
 
 
 class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
@@ -182,6 +192,7 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
         branch: str,
         create_pr: bool,
         pr_base_branch: str | None = None,
+        delete_missing_paths_under: Sequence[str] = (),
     ) -> CommitInfo:
         if not files:
             raise ValueError("At least one file is required for workspace sync export")
@@ -227,11 +238,18 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
                 if existing_content != content:
                     changed_files[path] = content
 
+            stale_paths = await self._stale_paths_under_roots(
+                repo=repo,
+                commit_sha=target_branch.commit.sha,
+                files=files,
+                roots=delete_missing_paths_under,
+            )
+
             pr_url: str | None = None
             pr_number: int | None = None
             pr_reused = False
             should_create_pr = create_pr and branch != base_branch_name
-            if not changed_files:
+            if not changed_files and not stale_paths:
                 branch_has_commits = await self._branch_has_commits_between(
                     repo=repo,
                     base_branch_name=base_branch_name,
@@ -269,6 +287,15 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
                         mode="100644",
                         type="blob",
                         sha=blob.sha,
+                    )
+                )
+            for path in sorted(stale_paths):
+                elements.append(
+                    InputGitTreeElement(
+                        path=path,
+                        mode="100644",
+                        type="blob",
+                        sha=None,
                     )
                 )
 
@@ -309,6 +336,32 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
             raise GitHubAppError(f"GitHub API error: {e.status} - {e.data}") from e
         finally:
             gh.close()
+
+    async def _stale_paths_under_roots(
+        self,
+        *,
+        repo: Any,
+        commit_sha: str,
+        files: dict[str, str],
+        roots: Sequence[str],
+    ) -> set[str]:
+        managed_roots = _normalized_roots(roots)
+        if not managed_roots:
+            return set()
+
+        tree = await asyncio.to_thread(
+            repo.get_git_tree,
+            sha=commit_sha,
+            recursive=True,
+        )
+        return {
+            item.path
+            for item in tree.tree
+            if item.type == "blob"
+            and item.path
+            and item.path not in files
+            and _path_is_under_roots(item.path, managed_roots)
+        }
 
     async def list_commits(
         self,
