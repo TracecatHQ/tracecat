@@ -28,7 +28,7 @@ class TracecatAPIError(TracecatSDKError):
         super().__init__(message)
 
     def __str__(self) -> str:
-        if self.detail:
+        if self.detail is not None:
             detail = (
                 self.detail
                 if isinstance(self.detail, str)

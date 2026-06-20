@@ -35,6 +35,24 @@ def test_error_response_preserves_structured_detail() -> None:
     assert "incompatible type" in str(exc_info.value)
 
 
+@pytest.mark.parametrize("detail", ["", [], {}, 0, False])
+def test_error_response_preserves_falsey_detail_field(detail: object) -> None:
+    client = TracecatClient(api_url="http://api", token="", workspace_id="")
+    response = httpx.Response(500, json={"detail": detail, "message": "fallback"})
+
+    with pytest.raises(TracecatAPIError) as exc_info:
+        client._handle_error_response(response)
+
+    assert exc_info.value.detail == detail
+    assert "fallback" not in str(exc_info.value)
+
+
+def test_error_string_renders_empty_structured_detail() -> None:
+    err = TracecatAPIError(message="API request failed", status_code=500, detail={})
+
+    assert str(err) == "API request failed (status=500): {}"
+
+
 def test_not_found_response_preserves_message_field() -> None:
     client = TracecatClient(api_url="http://api", token="", workspace_id="")
     response = httpx.Response(404, json={"message": "variable not found"})

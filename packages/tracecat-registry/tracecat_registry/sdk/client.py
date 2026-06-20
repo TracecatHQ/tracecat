@@ -177,7 +177,11 @@ class TracecatClient:
             return response.text or None
 
         if isinstance(data, dict):
-            return data.get("detail") or data.get("message") or data
+            if "detail" in data:
+                return data["detail"]
+            if "message" in data:
+                return data["message"]
+            return data
         return data
 
     def _handle_error_response(self, response: httpx.Response) -> None:
