@@ -68,9 +68,24 @@ jest.mock("@/components/ui/sidebar", () => ({
   SidebarMenuBadge: ({ children }: { children: ReactNode }) => (
     <span>{children}</span>
   ),
-  SidebarMenuButton: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
+  SidebarMenuButton: ({
+    asChild,
+    children,
+    disabled,
+    type,
+  }: {
+    asChild?: boolean
+    children: ReactNode
+    disabled?: boolean
+    type?: "button" | "submit" | "reset"
+  }) =>
+    asChild ? (
+      <>{children}</>
+    ) : (
+      <button type={type ?? "button"} disabled={disabled}>
+        {children}
+      </button>
+    ),
   SidebarMenuItem: ({ children }: { children: ReactNode }) => (
     <li>{children}</li>
   ),
@@ -154,6 +169,8 @@ describe("AppSidebar", () => {
     render(<AppSidebar />)
 
     expect(screen.getByText("Chat")).toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: /Chat/ })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /Chat/ })).toBeDisabled()
     expect(screen.queryByText("Locked")).not.toBeInTheDocument()
   })
 

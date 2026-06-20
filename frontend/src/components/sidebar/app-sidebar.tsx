@@ -69,6 +69,7 @@ type NavItem = {
   icon: LucideIcon
   isActive?: boolean
   isLocked?: boolean
+  isPendingEntitlement?: boolean
   onSelect?: () => void
   locked?: boolean
   visible?: boolean
@@ -159,9 +160,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         isActive: pathname?.startsWith(`${basePath}/chat`),
         visible: canAccessMissionControl,
         isLocked: entitlementsKnown && !workspaceChatEnabled,
-        onSelect: entitlementsKnown
-          ? () => setLockedFeatureDialogOpen(true)
-          : undefined,
+        isPendingEntitlement: !entitlementsKnown,
+        onSelect:
+          entitlementsKnown && !workspaceChatEnabled
+            ? () => setLockedFeatureDialogOpen(true)
+            : undefined,
       },
       {
         title: "Workflows",
@@ -184,9 +187,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         isActive: pathname?.startsWith(`${basePath}/agents`),
         visible: canViewAgents === true,
         isLocked: entitlementsKnown && !agentAddonsEnabled,
-        onSelect: entitlementsKnown
-          ? () => setLockedFeatureDialogOpen(true)
-          : undefined,
+        isPendingEntitlement: !entitlementsKnown,
+        onSelect:
+          entitlementsKnown && !agentAddonsEnabled
+            ? () => setLockedFeatureDialogOpen(true)
+            : undefined,
       },
       {
         title: "Tables",
@@ -229,9 +234,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         icon: Pyramid,
         isActive: pathname?.startsWith(`${basePath}/skills`),
         isLocked: entitlementsKnown && !agentAddonsEnabled,
-        onSelect: entitlementsKnown
-          ? () => setLockedFeatureDialogOpen(true)
-          : undefined,
+        isPendingEntitlement: !entitlementsKnown,
+        onSelect:
+          entitlementsKnown && !agentAddonsEnabled
+            ? () => setLockedFeatureDialogOpen(true)
+            : undefined,
         visible: canViewAgents === true,
       },
       {
@@ -339,6 +346,20 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                               <item.icon />
                               <span>{item.title}</span>
                               <LockedFeatureChip className="ml-auto shrink-0" />
+                            </SidebarMenuButton>
+                          ) : item.isPendingEntitlement ? (
+                            <SidebarMenuButton
+                              type="button"
+                              isActive={item.isActive}
+                              disabled
+                            >
+                              <item.icon />
+                              <span>{item.title}</span>
+                              {item.tag ? (
+                                <span className="ml-auto shrink-0 rounded-full border px-1.5 py-px text-[10px] font-medium leading-none text-muted-foreground">
+                                  {item.tag}
+                                </span>
+                              ) : null}
                             </SidebarMenuButton>
                           ) : (
                             <SidebarMenuButton asChild isActive={item.isActive}>
