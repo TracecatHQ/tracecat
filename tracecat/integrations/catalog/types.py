@@ -13,6 +13,7 @@ from tracecat.integrations.schemas import (
     MCPConnectionOption,
     MCPConnectionSpec,
     MCPConnectionTarget,
+    MCPCredentialValueType,
     PlatformMCPCatalogStatus,
 )
 
@@ -56,6 +57,8 @@ class RawCredential(BaseModel):
     required: bool = True
     secret: bool = True
     default_value: str | None = None
+    placeholder: str | None = None
+    type: MCPCredentialValueType = "string"
     target: MCPConnectionTarget
 
 

@@ -15023,6 +15023,23 @@ export const $MCPConfigField = {
       title: "Secret",
       default: false,
     },
+    placeholder: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Placeholder",
+    },
+    type: {
+      type: "string",
+      enum: ["string", "url"],
+      title: "Type",
+      default: "string",
+    },
   },
   type: "object",
   required: ["key", "label", "description", "target"],
@@ -15064,6 +15081,27 @@ export const $MCPConnectionCredential = {
         },
       ],
       title: "Default Value",
+    },
+    placeholder: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Placeholder",
+      description:
+        "Optional placeholder shown in the configure dialog to hint the expected value format (e.g. 'https://your-console.example.net').",
+    },
+    type: {
+      type: "string",
+      enum: ["string", "url"],
+      title: "Type",
+      description:
+        "Value type used for light client/server validation. 'url' requires an http(s):// scheme.",
+      default: "string",
     },
     target: {
       type: "string",

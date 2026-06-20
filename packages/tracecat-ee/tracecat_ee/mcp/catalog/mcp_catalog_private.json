@@ -22,6 +22,7 @@
             "description": "Elasticsearch/Kibana API key sent as the Authorization header in the form 'ApiKey <base64-encoded-api-key>'. The key must include Kibana privileges feature_agentBuilder.read and feature_actions.read, or the endpoint returns 403 Forbidden.",
             "required": true,
             "secret": true,
+            "placeholder": "ApiKey <base64-encoded-api-key>",
             "target": "http_header"
           }
         ],
@@ -104,6 +105,7 @@
                 "description": "Your Panther instance URL, including the https:// scheme (e.g. https://acme.runpanther.net).",
                 "required": true,
                 "secret": false,
+                "type": "url",
                 "target": "stdio_env"
               },
               {
@@ -598,6 +600,7 @@
             "description": "Regional Falcon API base URL, e.g. https://api.crowdstrike.com (US-1), https://api.us-2.crowdstrike.com (US-2), https://api.eu-1.crowdstrike.com (EU-1), or https://api.laggar.gcw.crowdstrike.com (GovCloud). Must match the cloud your Falcon tenant runs in.",
             "required": true,
             "secret": false,
+            "type": "url",
             "target": "stdio_env"
           }
         ],
@@ -659,6 +662,8 @@
             "description": "The SentinelOne management console endpoint, e.g. https://your-console.sentinelone.net",
             "required": true,
             "secret": false,
+            "type": "url",
+            "placeholder": "https://your-console.sentinelone.net",
             "target": "stdio_env"
           }
         ],
@@ -729,6 +734,7 @@
                 "description": "Jamf Pro instance base URL, e.g. https://yourcompany.jamfcloud.com",
                 "required": true,
                 "secret": false,
+                "type": "url",
                 "target": "stdio_env"
               },
               {
@@ -753,6 +759,7 @@
                 "description": "Jamf Protect tenant URL. Optional; only needed to enable Jamf Protect tools.",
                 "required": false,
                 "secret": false,
+                "type": "url",
                 "target": "stdio_env"
               },
               {
@@ -777,6 +784,7 @@
                 "description": "Jamf Security Cloud (RADAR/RISK API) base URL. Optional; only needed for Security Cloud tools.",
                 "required": false,
                 "secret": false,
+                "type": "url",
                 "target": "stdio_env"
               },
               {
@@ -1164,6 +1172,7 @@
             "description": "Base URL of the HashiCorp Vault server, e.g. http://127.0.0.1:8200. Defaults to http://127.0.0.1:8200 if unset.",
             "required": true,
             "secret": false,
+            "type": "url",
             "target": "stdio_env"
           },
           {
@@ -1434,6 +1443,7 @@
             "description": "The Cortex (XSIAM/XDR) tenant API base URL for your tenant, e.g. https://api-<tenant>.xdr.<region>.paloaltonetworks.com. Used as CORTEX_MCP_PAPI_URL.",
             "required": true,
             "secret": false,
+            "type": "url",
             "target": "stdio_env"
           },
           {
@@ -1577,6 +1587,7 @@
             "description": "Base URL of your ServiceNow instance, e.g. https://your-instance.service-now.com",
             "required": true,
             "secret": false,
+            "type": "url",
             "target": "stdio_env"
           },
           {
@@ -1625,6 +1636,7 @@
             "description": "OAuth token endpoint, e.g. https://your-instance.service-now.com/oauth_token.do (auth_type=oauth).",
             "required": false,
             "secret": false,
+            "type": "url",
             "target": "stdio_env"
           },
           {
@@ -1734,6 +1746,7 @@
             "description": "Optional API base URL. Defaults to https://api.pagerduty.com. Set to https://api.eu.pagerduty.com for EU-region PagerDuty accounts.",
             "required": false,
             "secret": false,
+            "type": "url",
             "target": "stdio_env"
           }
         ],
@@ -2186,6 +2199,7 @@
             "description": "Base URL of your Grafana instance, e.g. http://localhost:3000 or https://myinstance.grafana.net for Grafana Cloud.",
             "required": true,
             "secret": false,
+            "type": "url",
             "target": "stdio_env"
           },
           {
@@ -2378,6 +2392,7 @@
             "description": "Base URL of the HCP Terraform / Terraform Enterprise instance. Defaults to https://app.terraform.io. Set this to your TFE host for self-managed/Enterprise deployments.",
             "required": false,
             "secret": false,
+            "type": "url",
             "target": "stdio_env"
           }
         ],

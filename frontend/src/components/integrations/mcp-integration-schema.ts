@@ -4,6 +4,7 @@ import type {
   MCPConnectionSpec,
   PlatformMCPCatalogRead,
 } from "@/client"
+import { isExpression } from "@/lib/expressions"
 
 /**
  * Form schema for the MCP integration create/edit dialog.
@@ -92,6 +93,81 @@ export function isValidStringMap(
 }
 
 /**
+ * Whether a string is an absolute http(s):// URL with a host.
+ */
+function hasHttpScheme(value: string): boolean {
+  try {
+    const url = new URL(value)
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      url.host.length > 0
+    )
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The stdio_env keys a catalog spec declares `type: "url"`. The catalog is the
+ * single source of truth for which values are URLs — there is no name-based
+ * inference.
+ */
+export function urlTypedStdioEnvKeys(
+  spec: MCPConnectionSpec | null | undefined
+): Set<string> {
+  const keys = new Set<string>()
+  for (const cred of spec?.credentials ?? []) {
+    if (cred.target === "stdio_env" && cred.type === "url") {
+      keys.add(cred.key)
+    }
+  }
+  for (const field of spec?.config_fields ?? []) {
+    if (field.target === "stdio_env" && field.type === "url") {
+      keys.add(field.key)
+    }
+  }
+  return keys
+}
+
+/**
+ * Return the `urlKeys` whose value is present but missing an http(s):// scheme.
+ * Empty and templated values are skipped. Returns [] when the JSON does not
+ * parse — shape errors are reported by {@link isValidStringMap} instead.
+ */
+export function invalidUrlEnvKeys(
+  value: string,
+  urlKeys: Set<string>
+): string[] {
+  if (urlKeys.size === 0) {
+    return []
+  }
+  let parsed: Record<string, unknown>
+  try {
+    parsed = JSON.parse(value) as Record<string, unknown>
+  } catch {
+    return []
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return []
+  }
+  const invalid: string[] = []
+  for (const key of urlKeys) {
+    const entryValue = parsed[key]
+    if (typeof entryValue !== "string") {
+      continue
+    }
+    const trimmed = entryValue.trim()
+    if (trimmed === "" || isExpression(trimmed)) {
+      continue
+    }
+    if (!hasHttpScheme(trimmed)) {
+      invalid.push(key)
+    }
+  }
+  return invalid
+}
+
+/**
  * Normalize an OAuth client credential key for lenient comparisons, e.g.
  * "Client-Secret" and "client_secret" normalize to the same value.
  */
@@ -136,171 +212,211 @@ export function missingRequiredOAuthClientCredentials(
   return missing
 }
 
-export const mcpIntegrationFormSchema = z
-  .object({
-    name: z
-      .string()
-      .trim()
-      .min(3, { message: "Name must be at least 3 characters long" })
-      .max(255, { message: "Name must be 255 characters or fewer" }),
-    description: z
-      .string()
-      .trim()
-      .max(512, { message: "Description must be 512 characters or fewer" })
-      .optional()
-      .or(z.literal("")),
-    // Server type
-    server_type: z.enum(["http", "stdio"]),
-    // HTTP-type fields
-    server_uri: z.string().trim().optional().or(z.literal("")),
-    auth_type: z.enum(["OAUTH2", "CUSTOM", "NONE"]),
-    oauth_setup: z.enum([
-      "mcp_discovery",
-      "oauth_client",
-      "existing_integration",
-    ]),
-    oauth_integration_id: z.string().uuid().optional().or(z.literal("")),
-    oauth_client_credentials: z.string().trim().optional().or(z.literal("")),
-    custom_credentials: z.string().trim().optional().or(z.literal("")),
-    // Stdio-type fields
-    stdio_command: z.string().trim().optional().or(z.literal("")),
-    stdio_args: z.array(
-      z.object({
-        value: z.string(),
-      })
-    ),
-    stdio_env: z.string().trim().optional().or(z.literal("")),
-    // General fields
-    timeout: z.coerce.number().int().min(1).max(300).optional(),
-    catalog_slug: z.string().optional().or(z.literal("")),
-    connection_option_id: z.string().optional().or(z.literal("")),
-  })
-  // HTTP-type validation
-  .refine(
-    (data) => {
-      if (data.server_type === "http") {
-        if (!data.server_uri || data.server_uri.trim() === "") {
-          return false
-        }
-        try {
-          new URL(data.server_uri)
-          return true
-        } catch {
-          return false
-        }
-      }
-      return true
-    },
-    {
-      message: "Valid server URL is required for HTTP-type servers",
-      path: ["server_uri"],
-    }
-  )
-  .refine(
-    (data) => {
-      if (
-        data.server_type === "http" &&
-        data.auth_type === "OAUTH2" &&
-        data.oauth_setup === "existing_integration"
-      ) {
-        return !!data.oauth_integration_id && data.oauth_integration_id !== ""
-      }
-      return true
-    },
-    {
-      message: "OAuth integration is required for OAuth 2.0 authentication",
-      path: ["oauth_integration_id"],
-    }
-  )
-  .refine(
-    (data) => {
-      if (data.server_type === "http" && data.auth_type === "CUSTOM") {
-        if (!data.custom_credentials || data.custom_credentials.trim() === "") {
-          return false
-        }
-        return isValidStringMap(data.custom_credentials)
-      }
-      return true
-    },
-    {
-      message:
-        "Custom credentials must be a valid JSON object with string values",
-      path: ["custom_credentials"],
-    }
-  )
-  .refine(
-    (data) => {
-      if (
-        data.server_type === "http" &&
-        data.auth_type === "OAUTH2" &&
-        data.oauth_setup === "oauth_client"
-      ) {
-        return (
-          !!data.oauth_client_credentials &&
-          data.oauth_client_credentials.trim() !== "" &&
-          isValidStringMap(data.oauth_client_credentials, { allowEmpty: true })
-        )
-      }
-      return true
-    },
-    {
-      message: "OAuth client credentials must be a valid JSON object",
-      path: ["oauth_client_credentials"],
-    }
-  )
-  .refine(
-    (data) => {
-      if (
-        data.server_type === "http" &&
-        data.auth_type === "OAUTH2" &&
-        data.custom_credentials &&
-        data.custom_credentials.trim() !== ""
-      ) {
-        return isValidStringMap(data.custom_credentials)
-      }
-      return true
-    },
-    {
-      message:
-        "Additional headers must be a valid JSON object with string values",
-      path: ["custom_credentials"],
-    }
-  )
-  // Stdio-type validation
-  .refine(
-    (data) => {
-      if (data.server_type === "stdio") {
-        if (!data.stdio_command || data.stdio_command.trim() === "") {
-          return false
-        }
-        return isAllowedCommand(data.stdio_command.trim())
-      }
-      return true
-    },
-    {
-      message: `Command must be one of: ${ALLOWED_COMMANDS.join(", ")}`,
-      path: ["stdio_command"],
-    }
-  )
-  .refine(
-    (data) => {
-      if (
-        data.server_type === "stdio" &&
-        data.stdio_env &&
-        data.stdio_env.trim() !== ""
-      ) {
-        return isValidStringMap(data.stdio_env)
-      }
-      return true
-    },
-    {
-      message:
-        "Environment variables must be a valid JSON object with string values",
-      path: ["stdio_env"],
-    }
-  )
+const mcpIntegrationFormObjectSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(3, { message: "Name must be at least 3 characters long" })
+    .max(255, { message: "Name must be 255 characters or fewer" }),
+  description: z
+    .string()
+    .trim()
+    .max(512, { message: "Description must be 512 characters or fewer" })
+    .optional()
+    .or(z.literal("")),
+  // Server type
+  server_type: z.enum(["http", "stdio"]),
+  // HTTP-type fields
+  server_uri: z.string().trim().optional().or(z.literal("")),
+  auth_type: z.enum(["OAUTH2", "CUSTOM", "NONE"]),
+  oauth_setup: z.enum([
+    "mcp_discovery",
+    "oauth_client",
+    "existing_integration",
+  ]),
+  oauth_integration_id: z.string().uuid().optional().or(z.literal("")),
+  oauth_client_credentials: z.string().trim().optional().or(z.literal("")),
+  custom_credentials: z.string().trim().optional().or(z.literal("")),
+  // Stdio-type fields
+  stdio_command: z.string().trim().optional().or(z.literal("")),
+  stdio_args: z.array(
+    z.object({
+      value: z.string(),
+    })
+  ),
+  stdio_env: z.string().trim().optional().or(z.literal("")),
+  // General fields
+  timeout: z.coerce.number().int().min(1).max(300).optional(),
+  catalog_slug: z.string().optional().or(z.literal("")),
+  connection_option_id: z.string().optional().or(z.literal("")),
+})
 
-export type MCPIntegrationFormValues = z.infer<typeof mcpIntegrationFormSchema>
+/**
+ * Build the MCP integration form schema.
+ *
+ * `urlEnvKeys` is the set of stdio_env keys the selected catalog row declares
+ * `type: "url"` (see {@link urlTypedStdioEnvKeys}). It is a parameter rather
+ * than inferred from the value because the catalog type metadata lives in the
+ * connection spec (React state), not in the form data Zod can see. Pass an
+ * empty set for BYO servers, which declare no credential types.
+ */
+export function buildMcpIntegrationFormSchema(
+  urlEnvKeys: Set<string> = new Set()
+) {
+  return (
+    mcpIntegrationFormObjectSchema
+      // HTTP-type validation
+      .refine(
+        (data) => {
+          if (data.server_type === "http") {
+            if (!data.server_uri || data.server_uri.trim() === "") {
+              return false
+            }
+            try {
+              new URL(data.server_uri)
+              return true
+            } catch {
+              return false
+            }
+          }
+          return true
+        },
+        {
+          message: "Valid server URL is required for HTTP-type servers",
+          path: ["server_uri"],
+        }
+      )
+      .refine(
+        (data) => {
+          if (
+            data.server_type === "http" &&
+            data.auth_type === "OAUTH2" &&
+            data.oauth_setup === "existing_integration"
+          ) {
+            return (
+              !!data.oauth_integration_id && data.oauth_integration_id !== ""
+            )
+          }
+          return true
+        },
+        {
+          message: "OAuth integration is required for OAuth 2.0 authentication",
+          path: ["oauth_integration_id"],
+        }
+      )
+      .refine(
+        (data) => {
+          if (data.server_type === "http" && data.auth_type === "CUSTOM") {
+            if (
+              !data.custom_credentials ||
+              data.custom_credentials.trim() === ""
+            ) {
+              return false
+            }
+            return isValidStringMap(data.custom_credentials)
+          }
+          return true
+        },
+        {
+          message:
+            "Custom credentials must be a valid JSON object with string values",
+          path: ["custom_credentials"],
+        }
+      )
+      .refine(
+        (data) => {
+          if (
+            data.server_type === "http" &&
+            data.auth_type === "OAUTH2" &&
+            data.oauth_setup === "oauth_client"
+          ) {
+            return (
+              !!data.oauth_client_credentials &&
+              data.oauth_client_credentials.trim() !== "" &&
+              isValidStringMap(data.oauth_client_credentials, {
+                allowEmpty: true,
+              })
+            )
+          }
+          return true
+        },
+        {
+          message: "OAuth client credentials must be a valid JSON object",
+          path: ["oauth_client_credentials"],
+        }
+      )
+      .refine(
+        (data) => {
+          if (
+            data.server_type === "http" &&
+            data.auth_type === "OAUTH2" &&
+            data.custom_credentials &&
+            data.custom_credentials.trim() !== ""
+          ) {
+            return isValidStringMap(data.custom_credentials)
+          }
+          return true
+        },
+        {
+          message:
+            "Additional headers must be a valid JSON object with string values",
+          path: ["custom_credentials"],
+        }
+      )
+      // Stdio-type validation
+      .refine(
+        (data) => {
+          if (data.server_type === "stdio") {
+            if (!data.stdio_command || data.stdio_command.trim() === "") {
+              return false
+            }
+            return isAllowedCommand(data.stdio_command.trim())
+          }
+          return true
+        },
+        {
+          message: `Command must be one of: ${ALLOWED_COMMANDS.join(", ")}`,
+          path: ["stdio_command"],
+        }
+      )
+      .refine(
+        (data) => {
+          if (
+            data.server_type === "stdio" &&
+            data.stdio_env &&
+            data.stdio_env.trim() !== ""
+          ) {
+            return isValidStringMap(data.stdio_env)
+          }
+          return true
+        },
+        {
+          message:
+            "Environment variables must be a valid JSON object with string values",
+          path: ["stdio_env"],
+        }
+      )
+      // URL-typed stdio env vars (declared `type: "url"` by the catalog) must
+      // carry an http(s):// scheme so they don't fail deep inside the MCP server.
+      .refine(
+        (data) =>
+          data.server_type !== "stdio" ||
+          !data.stdio_env ||
+          invalidUrlEnvKeys(data.stdio_env, urlEnvKeys).length === 0,
+        (data) => ({
+          message: `Must start with http:// or https://: ${invalidUrlEnvKeys(
+            data.stdio_env ?? "",
+            urlEnvKeys
+          ).join(", ")}`,
+          path: ["stdio_env"],
+        })
+      )
+  )
+}
+
+export type MCPIntegrationFormValues = z.infer<
+  typeof mcpIntegrationFormObjectSchema
+>
 
 export const MCP_INTEGRATION_FORM_DEFAULTS: MCPIntegrationFormValues = {
   name: "",
@@ -322,8 +438,9 @@ export const MCP_INTEGRATION_FORM_DEFAULTS: MCPIntegrationFormValues = {
 
 /**
  * Build a credentials JSON template from a catalog entry's declared
- * credentials, so the user sees the expected keys (with secret values left as
- * placeholders to fill in). Returns "" when there are no credentials.
+ * credentials, so the user sees the expected keys prefilled with each
+ * credential's default value, placeholder hint, or an empty string to fill in.
+ * Returns "" when there are no credentials.
  */
 function credentialsTemplate(
   spec: MCPConnectionSpec | null | undefined,
@@ -338,7 +455,7 @@ function credentialsTemplate(
   }
   const obj: Record<string, string> = {}
   for (const cred of creds) {
-    obj[cred.key] = cred.default_value ?? ""
+    obj[cred.key] = cred.default_value ?? cred.placeholder ?? ""
   }
   return JSON.stringify(obj, null, 2)
 }
@@ -357,17 +474,17 @@ function stdioEnvTemplate(spec: MCPConnectionSpec | null | undefined): string {
   const obj: Record<string, string> = {}
   for (const cred of spec?.credentials ?? []) {
     if (cred.target === "stdio_env" && cred.required) {
-      obj[cred.key] = ""
+      obj[cred.key] = cred.placeholder ?? ""
     }
   }
   for (const field of spec?.config_fields ?? []) {
     if (field.target === "stdio_env" && field.required) {
-      obj[field.key] = ""
+      obj[field.key] = field.placeholder ?? ""
     }
   }
   if (isStdioConnectionSpec(spec)) {
     for (const key of spec.stdio_env ?? []) {
-      obj[key] = ""
+      obj[key] ??= ""
     }
   }
   return Object.keys(obj).length > 0 ? JSON.stringify(obj, null, 2) : ""
