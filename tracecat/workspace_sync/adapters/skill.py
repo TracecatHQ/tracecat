@@ -15,7 +15,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from tracecat.agent.skill.service import SkillFileBlobRef, SkillService
-from tracecat.db.models import Skill, SkillBlob, SkillVersion, SkillVersionFile
+from tracecat.db.models import (
+    Skill,
+    SkillBlob,
+    SkillVersion,
+    SkillVersionFile,
+    WorkspaceSyncResourceMapping,
+)
 from tracecat.service import BaseWorkspaceService
 from tracecat.storage import blob
 from tracecat.sync import PullDiagnostic
@@ -27,7 +33,7 @@ from tracecat.workspace_sync.adapters.base import (
     path_parts,
     unique_source_id,
 )
-from tracecat.workspace_sync.enums import SyncResourceType
+from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.schemas import (
     SKILL_ROOT,
     SkillFileSpec,
@@ -141,11 +147,14 @@ class SkillAdapter(CompoundYamlAdapter):
             .order_by(Skill.name.asc(), Skill.id.asc())
         )
         skills = list((await ctx.session.execute(stmt)).scalars().all())
+        source_ids_by_local_id = await self._source_ids_by_local_id(ctx)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
-        reserved: set[str] = set()
+        reserved: set[str] = set(source_ids_by_local_id.values())
         for skill in skills:
-            source_id = unique_source_id(skill.name, reserved=reserved)
+            source_id = source_ids_by_local_id.get(skill.id)
+            if source_id is None:
+                source_id = unique_source_id(skill.name, reserved=reserved)
             reserved.add(source_id)
             version = skill.current_version
             files: list[SkillFileSpec] = []
@@ -180,6 +189,20 @@ class SkillAdapter(CompoundYamlAdapter):
             )
             resources.append(self.projected_resource(source_id, skill.id))
         return ResourceProjection(specs=specs, resources=resources)
+
+    async def _source_ids_by_local_id(
+        self,
+        ctx: BaseWorkspaceService,
+    ) -> dict[uuid.UUID, str]:
+        stmt = select(
+            WorkspaceSyncResourceMapping.local_id,
+            WorkspaceSyncResourceMapping.source_id,
+        ).where(
+            WorkspaceSyncResourceMapping.workspace_id == ctx.workspace_id,
+            WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
+            WorkspaceSyncResourceMapping.resource_type == self.resource_type.value,
+        )
+        return dict((await ctx.session.execute(stmt)).tuples().all())
 
     async def _skill_version_rows(
         self,

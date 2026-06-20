@@ -645,6 +645,48 @@ async def test_project_workspace_preserves_table_source_id_after_rename(
 
 
 @pytest.mark.anyio
+async def test_project_workspace_preserves_skill_source_id_after_rename(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(
+        _expanded_selected_git_tree(),
+        commit_sha="o" * 40,
+    )
+
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+
+    await service.project_workspace()
+    skill = await session.scalar(
+        select(Skill).where(
+            Skill.workspace_id == svc_role.workspace_id,
+            Skill.name == "qa-enrichment-skill",
+        )
+    )
+    assert skill is not None
+
+    skill.name = "qa-enrichment-restored"
+    session.add(skill)
+    await session.flush()
+
+    projection = await service.project_workspace(create_missing_mappings=False)
+    old_path = f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml"
+    new_path = f"{SKILL_ROOT}/qa-enrichment-restored/skill.yml"
+
+    assert old_path in projection.files
+    assert new_path not in projection.files
+    skill_spec = yaml.safe_load(projection.files[old_path])
+    assert skill_spec["id"] == "qa-enrichment-skill"
+    assert skill_spec["slug"] == "qa-enrichment-restored"
+    assert skill_spec["name"] == "QA enrichment skill"
+
+
+@pytest.mark.anyio
 async def test_pull_table_rename_reuses_source_id_mapping(
     session: AsyncSession,
     svc_role: Role,
