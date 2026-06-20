@@ -24,6 +24,7 @@ const runrevealIntegration = {
   server_uri: "https://mcp.example.test",
   auth_type: "OAUTH2",
   oauth_integration_id: null,
+  state: "connected",
   stdio_command: null,
   stdio_args: null,
   has_stdio_env: false,

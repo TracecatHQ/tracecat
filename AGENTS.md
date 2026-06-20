@@ -21,6 +21,17 @@ Use this file for repo-wide guidance. Prefer the more specific notes in nested
 - `alembic/`: Database migrations.
 - `deployments/`: Docker, Fargate, EKS, and Helm deployment targets.
 
+## Fargate Deployment Notes
+
+- ECS Service Connect clients should explicitly depend on the ECS services that
+  publish the Service Connect aliases they resolve. This avoids startup and
+  rollout races where a client task starts before the provider alias is
+  registered or stable. Follow the existing UI-to-API ordering pattern; for
+  example, an agent-executor service that calls the managed LiteLLM alias should
+  depend on the LiteLLM ECS service unless that would create a dependency cycle.
+- When a cycle appears, prefer breaking the unnecessary provider dependency
+  rather than leaving the Service Connect client unordered.
+
 ## Setup and verification
 
 Use `uv` for Python commands and `pnpm` for frontend commands.
@@ -169,11 +180,14 @@ just gen-functions
   range-based constraints.
 - Do not bypass commit signing with `--no-gpg-sign` or `--no-verify`. If
   signing is broken, stop and ask the user to fix it.
-- Never copy customer-provided identifiers, URLs, tenant IDs, subscription IDs,
-  workspace names, resource group names, incident IDs, emails, domains, tokens,
-  or other potentially sensitive values into tests, docs, fixtures, snapshots,
-  examples, logs, or committed code. Replace them with clearly synthetic values
-  before writing files, and search for the original strings before committing.
+- Never copy customer-provided identifiers, customer names, URLs, tenant IDs,
+  subscription IDs, workspace names, resource group names, incident IDs, emails,
+  domains, tokens, or other potentially sensitive values into tests, docs,
+  fixtures, snapshots, examples, logs, committed code, commit messages, PR or
+  issue titles/bodies, PR comments, issue comments, review comments, or any
+  other published repository text. Use generic phrasing such as "affected
+  customer" or clearly synthetic placeholders instead, and search for the
+  original strings before committing, pushing, or publishing PR/issue text.
 - Do not assume PostgreSQL superuser access in migrations, queries, or scripts.
 - Never add methods to `tracecat/db/models.py`; keep database models minimal.
 - Never branch on exception or error-message strings to choose behavior, status

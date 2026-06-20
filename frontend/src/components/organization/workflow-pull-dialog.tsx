@@ -27,6 +27,7 @@ import {
   useWorkflowSync,
 } from "@/hooks/use-workspace-sync"
 import { getRelativeTime } from "@/lib/event-history"
+import { getGitSshUrlRef } from "@/lib/git"
 
 interface WorkflowPullDialogProps {
   open: boolean
@@ -50,13 +51,17 @@ export function WorkflowPullDialog({
 
   // Use hooks for workflow sync operations
   const { pullWorkflows, pullWorkflowsIsPending } = useWorkflowSync(workspaceId)
+  const gitRepoBranch = getGitSshUrlRef(gitRepoUrl)
 
   // Fetch commits for the repository
   const {
     commits,
     commitsIsLoading: commitsLoading,
     commitsError,
-  } = useRepositoryCommits(workspaceId, { enabled: open })
+  } = useRepositoryCommits(workspaceId, {
+    branch: gitRepoBranch ?? undefined,
+    enabled: open,
+  })
 
   // Auto-select HEAD commit when commits are loaded
   useEffect(() => {

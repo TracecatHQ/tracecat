@@ -67,6 +67,56 @@ export function getApiErrorDetail(error: unknown): string | null {
 }
 
 /**
+ * Strip credentials and query parameters from any URLs embedded in free text.
+ *
+ * Backend connection errors can echo a user-supplied server URI, which may
+ * carry secrets in its userinfo (`user:pass@`) or query string. Sanitize before
+ * surfacing such text in toasts or the console so those values are not leaked
+ * into UI output or logs. Non-URL text is returned unchanged.
+ */
+export function sanitizeUrlsInText(text: string): string {
+  return text.replace(/\bhttps?:\/\/[^\s]+/gi, (match) => {
+    try {
+      const url = new URL(match)
+      url.username = ""
+      url.password = ""
+      url.search = ""
+      url.hash = ""
+      return url.toString()
+    } catch {
+      // Not a parseable URL (e.g. trailing punctuation captured); fall back to
+      // dropping everything from the first `?` and any `userinfo@` segment.
+      return match
+        .replace(/^(https?:\/\/)[^/@]*@/i, "$1")
+        .replace(/[?#].*$/, "")
+    }
+  })
+}
+
+const MCP_OAUTH_DISCOVERY_ERROR_PATTERNS = [
+  "dynamic registration",
+  "discover oauth",
+  "oauth discovery",
+  "oauth server",
+  "authorization-server",
+  "oauth endpoint host",
+  "registration_endpoint",
+]
+
+export function getMcpOAuthConnectErrorDetail(error: unknown): string {
+  const detail = getApiErrorDetail(error) ?? "Unknown error"
+  const normalized = detail.toLowerCase()
+  if (
+    MCP_OAUTH_DISCOVERY_ERROR_PATTERNS.some((pattern) =>
+      normalized.includes(pattern)
+    )
+  ) {
+    return `MCP OAuth discovery failed. Create an OAuth integration manually, then select it from Advanced. ${detail}`
+  }
+  return detail
+}
+
+/**
  * Extract a structured `code` field from an API error's detail payload, when
  * the backend returns `{ "code": "...", ... }` for machine-readable handling.
  */

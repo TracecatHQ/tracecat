@@ -4,7 +4,6 @@ description: "Drive Tracecat from your own agent harness over MCP: build, edit, 
 ---
 
 import McpInstallation from "/snippets/mcp-installation.mdx";
-import McpInstallationSelfHosted from "/snippets/mcp-installation-self-hosted.mdx";
 import McpTools from "/snippets/mcp-tools.mdx";
 
 Tracecat works best with agentic coding tools (Claude Code, Cursor, Codex, OpenCode).
@@ -19,21 +18,41 @@ Agents connected to Tracecat MCP gain the ability to build and orchestrate core 
 
 Tracecat MCP turns any coding agent into a security automation architect and engineer.
 
-## Self-hosted
-
-MCP authentication uses a built-in OIDC provider. Your agent will be redirected to sign in through the browser on first connection.
-
-<McpInstallationSelfHosted />
-
-### Multi-organization deployments
-
-In multi-organization self-hosted deployments, MCP auth follows the active Tracecat organization selected in the browser. If you deep-link a specific organization during auth, keep `org=<organization-slug>` on the MCP continuation URL. Tracecat validates that the signed-in user belongs to that organization before issuing the MCP token, and stores the org context with the resume transaction so MCP auth can complete across multiple replicas.
-
-## Cloud
-
-<Badge icon="credit-card" color="blue" size="lg" shape="pill">Subscription required</Badge>
+## Setup
 
 <McpInstallation />
+
+### Multi-organization self-hosted deployments
+
+MCP auth follows the active Tracecat organization selected in the browser. If
+you deep-link a specific organization during auth, keep
+`org=<organization-slug>` on the MCP continuation URL. Tracecat validates that
+the signed-in user belongs to that organization before issuing the MCP token,
+and stores the org context with the resume transaction so MCP auth can complete
+across multiple replicas.
+
+## Personal access tokens
+
+OAuth is the default. For clients or environments that cannot complete a browser
+sign-in (CI, headless runners, shared dev containers), authenticate with a
+workspace-scoped personal access token (PAT) instead. PATs work the same on
+self-hosted and Tracecat Cloud.
+
+1. In your workspace, go to **Settings → MCP** and create a token. Set a name and
+   expiration.
+2. Copy the token when it is shown. It is only displayed once and cannot be
+   retrieved again.
+3. Pass it as a bearer header from your MCP client — see the **PAT** option in
+   each [Setup](#setup) tab above for Claude Code, Codex, Copilot, and Cursor.
+
+<Note>
+  Treat the PAT like a secret. It grants MCP access scoped to the workspace it
+  was created in. Always send it in the `Authorization` header—never in the URL
+  or a query string, where it leaks into server, proxy, and browser logs. Keep it
+  out of command output and application logs, and supply it through an environment
+  variable or secrets vault rather than hardcoding it in a config file. Revoke it
+  from **Settings → MCP** if it is exposed, and prefer short expirations.
+</Note>
 
 ## Starter prompts
 

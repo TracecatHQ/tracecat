@@ -19,6 +19,7 @@ from tracecat_ee.agent.workflows.durable import (
     UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,
     AgentWorkflowArgs,
     DurableAgentWorkflow,
+    _approved_user_mcp_tool_name,
     _build_approved_tool_run_input,
 )
 
@@ -416,6 +417,15 @@ async def test_build_config_prefers_pinned_preset_version_id() -> None:
     assert cfg.model_provider == pinned_config.model_provider
     assert cfg.actions == ["core.http_request"]
     assert cfg.instructions == "base instructions\nappend this"
+
+
+def test_approved_user_mcp_tool_name_from_normalized_approval() -> None:
+    assert _approved_user_mcp_tool_name("mcp.Jira.getIssue") == ("mcp__Jira__getIssue")
+    assert (
+        _approved_user_mcp_tool_name("mcp__tracecat-registry__mcp__Jira__getIssue")
+        == "mcp__Jira__getIssue"
+    )
+    assert _approved_user_mcp_tool_name("core.http_request") is None
 
 
 def test_build_approved_tool_run_input_is_deterministic() -> None:

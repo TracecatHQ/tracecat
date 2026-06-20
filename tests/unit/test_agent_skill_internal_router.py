@@ -36,7 +36,7 @@ def test_internal_router_does_not_expose_draft_publish() -> None:
         (route.path, method)
         for route in router.routes
         if isinstance(route, APIRoute)
-        for method in route.methods
+        for method in route.methods or ()
     }
 
     assert ("/internal/agent/skills/{skill_id}/publish", "POST") not in routes

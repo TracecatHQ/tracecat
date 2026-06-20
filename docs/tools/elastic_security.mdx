@@ -56,6 +56,17 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="source_fields" type="array[string] | object | null">
+
+Source field filter applied to each alert. Pass a list of dotted field
+names to include only those fields, or a dict of `includes` / `excludes`
+for fine-grained control. Maps directly to the Kibana `_source` request
+body parameter. When `null` (default), every field is returned.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="verify_ssl" type="boolean">
 
 Whether to verify SSL certificates.

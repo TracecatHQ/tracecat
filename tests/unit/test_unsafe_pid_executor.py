@@ -103,6 +103,97 @@ def main():
         assert result.output == 42
 
     @pytest.mark.anyio
+    async def test_execute_normalizes_non_json_leaf_values(
+        self, executor: UnsafePidExecutor
+    ) -> None:
+        script = """
+from datetime import datetime
+
+def main():
+    return {
+        "all_ips": {"2.2.2.2", "1.1.1.1"},
+        "seen_at": datetime(2026, 3, 30, 13, 9, 52),
+        "nested": [{"ports": {443, 80}}],
+    }
+"""
+        result = await executor.execute(script=script)
+        assert result.success
+        assert result.error is None
+        assert result.output == {
+            "all_ips": ["1.1.1.1", "2.2.2.2"],
+            "seen_at": "2026-03-30T13:09:52",
+            "nested": [{"ports": [80, 443]}],
+        }
+
+    @pytest.mark.anyio
+    async def test_execute_normalizes_mixed_sets_deterministically(
+        self, executor: UnsafePidExecutor
+    ) -> None:
+        script = """
+def main():
+    return {
+        "mixed": {1, "a"},
+        "nested": [{"values": {2, None}}],
+    }
+"""
+        result = await executor.execute(script=script)
+        assert result.success
+        assert result.error is None
+        assert result.output == {
+            "mixed": ["a", 1],
+            "nested": [{"values": [2, None]}],
+        }
+
+    @pytest.mark.anyio
+    async def test_execute_normalizes_dataclass_instances_and_classes(
+        self, executor: UnsafePidExecutor
+    ) -> None:
+        script = """
+from dataclasses import dataclass
+
+@dataclass
+class Finding:
+    name: str
+
+def main():
+    return {
+        "instance": Finding("alert"),
+        "class": Finding,
+    }
+"""
+        result = await executor.execute(script=script)
+        assert result.success
+        assert result.error is None
+        assert result.output == {
+            "instance": {"name": "alert"},
+            "class": "<class '__main__.Finding'>",
+        }
+
+    @pytest.mark.anyio
+    async def test_execute_reports_recursive_dataclass_as_serialization_error(
+        self, executor: UnsafePidExecutor
+    ) -> None:
+        script = """
+from dataclasses import dataclass
+
+@dataclass
+class Node:
+    name: str
+    child: object = None
+
+def main():
+    root = Node("root")
+    root.child = root
+    return root
+"""
+        result = await executor.execute(script=script)
+        assert not result.success
+        assert result.output == "Node(name='root', child=...)"
+        assert result.error is not None
+        assert "Output not JSON-serializable" in result.error
+        assert "Recursive dataclass values are not JSON-serializable" in result.error
+
+    @pytest.mark.anyio
     @pytest.mark.integration
     async def test_execute_does_not_inherit_process_env(
         self, executor: UnsafePidExecutor, monkeypatch: pytest.MonkeyPatch

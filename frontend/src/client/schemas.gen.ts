@@ -4837,21 +4837,6 @@ export const $ArtifactScope = {
   description: "Attribution scope for artifact data parts.",
 } as const
 
-export const $ArtifactType = {
-  type: "string",
-  enum: [
-    "case",
-    "workflow",
-    "run",
-    "table",
-    "agent",
-    "alert",
-    "integration",
-    "secret",
-    "generic",
-  ],
-} as const
-
 export const $AssigneeChangedEventRead = {
   properties: {
     wf_exec_id: {
@@ -5810,7 +5795,8 @@ export const $BinaryContent = {
   properties: {
     data: {
       type: "string",
-      format: "base64url",
+      contentEncoding: "base64",
+      contentMediaType: "application/octet-stream",
       title: "Data",
     },
     media_type: {
@@ -5891,63 +5877,6 @@ distinguish multiple files.`,
   description: "Binary content, e.g. an audio or image file.",
 } as const
 
-export const $Body_auth_auth_database_login = {
-  properties: {
-    grant_type: {
-      anyOf: [
-        {
-          type: "string",
-          pattern: "^password$",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Grant Type",
-    },
-    username: {
-      type: "string",
-      title: "Username",
-    },
-    password: {
-      type: "string",
-      format: "password",
-      title: "Password",
-    },
-    scope: {
-      type: "string",
-      title: "Scope",
-      default: "",
-    },
-    client_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Client Id",
-    },
-    client_secret: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      format: "password",
-      title: "Client Secret",
-    },
-  },
-  type: "object",
-  required: ["username", "password"],
-  title: "Body_auth-auth:database.login",
-} as const
-
 export const $Body_auth_reset_forgot_password = {
   properties: {
     email: {
@@ -5979,17 +5908,17 @@ export const $Body_auth_reset_reset_password = {
 
 export const $Body_auth_sso_acs = {
   properties: {
-    saml_response: {
+    SAMLResponse: {
       type: "string",
-      title: "Saml Response",
+      title: "Samlresponse",
     },
-    relay_state: {
+    RelayState: {
       type: "string",
-      title: "Relay State",
+      title: "Relaystate",
     },
   },
   type: "object",
-  required: ["saml_response", "relay_state"],
+  required: ["SAMLResponse", "RelayState"],
   title: "Body_auth-sso_acs",
 } as const
 
@@ -6022,8 +5951,8 @@ export const $Body_case_attachments_create_attachment = {
   properties: {
     file: {
       type: "string",
-      format: "binary",
       title: "File",
+      format: "binary",
     },
   },
   type: "object",
@@ -6035,8 +5964,8 @@ export const $Body_tables_import_csv = {
   properties: {
     file: {
       type: "string",
-      format: "binary",
       title: "File",
+      format: "binary",
     },
     column_mapping: {
       type: "string",
@@ -6052,8 +5981,8 @@ export const $Body_tables_import_table_from_csv = {
   properties: {
     file: {
       type: "string",
-      format: "binary",
       title: "File",
+      format: "binary",
     },
     table_name: {
       anyOf: [
@@ -13457,6 +13386,78 @@ export const $GitHubAppPermissions = {
   description: "Type definition for GitHub App default permissions.",
 } as const
 
+export const $GitHubAppRepository = {
+  properties: {
+    id: {
+      type: "integer",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    full_name: {
+      type: "string",
+      title: "Full Name",
+    },
+    private: {
+      type: "boolean",
+      title: "Private",
+    },
+    default_branch: {
+      type: "string",
+      title: "Default Branch",
+    },
+    git_url: {
+      type: "string",
+      title: "Git Url",
+    },
+    html_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Html Url",
+    },
+    installation_id: {
+      type: "integer",
+      title: "Installation Id",
+    },
+    installation_account: {
+      type: "string",
+      title: "Installation Account",
+    },
+    installation_account_type: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Installation Account Type",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "name",
+    "full_name",
+    "private",
+    "default_branch",
+    "git_url",
+    "installation_id",
+    "installation_account",
+  ],
+  title: "GitHubAppRepository",
+  description: "Repository granted to the configured GitHub App installation.",
+} as const
+
 export const $GitHubWebhookAttributes = {
   properties: {
     url: {
@@ -14947,6 +14948,401 @@ export const $MCPAuthType = {
   description: "Authentication type for MCP integrations.",
 } as const
 
+export const $MCPCatalogConnectResponse = {
+  properties: {
+    status: {
+      type: "string",
+      enum: ["connected", "oauth_redirect"],
+      title: "Status",
+    },
+    mcp_integration: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/MCPIntegrationRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    auth_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Auth Url",
+    },
+    provider_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Id",
+    },
+  },
+  type: "object",
+  required: ["status"],
+  title: "MCPCatalogConnectResponse",
+  description: "Response for connecting a platform MCP catalog entry.",
+} as const
+
+export const $MCPConfigField = {
+  properties: {
+    key: {
+      type: "string",
+      title: "Key",
+    },
+    label: {
+      type: "string",
+      title: "Label",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+    },
+    target: {
+      type: "string",
+      enum: ["server_uri", "oauth_client", "http_header", "stdio_env"],
+      title: "Target",
+    },
+    required: {
+      type: "boolean",
+      title: "Required",
+      default: true,
+    },
+    secret: {
+      type: "boolean",
+      title: "Secret",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["key", "label", "description", "target"],
+  title: "MCPConfigField",
+  description: "Typed configure-dialog field declared by a catalog spec.",
+} as const
+
+export const $MCPConnectionCredential = {
+  properties: {
+    key: {
+      type: "string",
+      title: "Key",
+    },
+    label: {
+      type: "string",
+      title: "Label",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+    },
+    required: {
+      type: "boolean",
+      title: "Required",
+      default: true,
+    },
+    secret: {
+      type: "boolean",
+      title: "Secret",
+      default: true,
+    },
+    default_value: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Default Value",
+    },
+    target: {
+      type: "string",
+      enum: ["server_uri", "oauth_client", "http_header", "stdio_env"],
+      title: "Target",
+    },
+  },
+  type: "object",
+  required: ["key", "label", "description", "target"],
+  title: "MCPConnectionCredential",
+  description:
+    "User-supplied value needed to materialize a catalog connection.",
+} as const
+
+export const $MCPConnectionOption = {
+  properties: {
+    id: {
+      type: "string",
+      maxLength: 80,
+      minLength: 1,
+      title: "Id",
+    },
+    label: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Label",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 512,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    docs_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Docs Url",
+    },
+    connection_spec: {
+      $ref: "#/components/schemas/MCPConnectionSpec",
+    },
+  },
+  type: "object",
+  required: ["id", "label", "connection_spec"],
+  title: "MCPConnectionOption",
+  description: "A connectable transport/auth option for one catalog provider.",
+} as const
+
+export const $MCPConnectionSpec = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/MCPHTTPOAuth2ConnectionSpec",
+    },
+    {
+      $ref: "#/components/schemas/MCPHTTPCustomConnectionSpec",
+    },
+    {
+      $ref: "#/components/schemas/MCPHTTPNoneConnectionSpec",
+    },
+    {
+      $ref: "#/components/schemas/MCPStdioCustomConnectionSpec",
+    },
+    {
+      $ref: "#/components/schemas/MCPStdioNoneConnectionSpec",
+    },
+  ],
+  discriminator: {
+    propertyName: "kind",
+    mapping: {
+      http_custom: "#/components/schemas/MCPHTTPCustomConnectionSpec",
+      http_none: "#/components/schemas/MCPHTTPNoneConnectionSpec",
+      http_oauth2: "#/components/schemas/MCPHTTPOAuth2ConnectionSpec",
+      stdio_custom: "#/components/schemas/MCPStdioCustomConnectionSpec",
+      stdio_none: "#/components/schemas/MCPStdioNoneConnectionSpec",
+    },
+  },
+} as const
+
+export const $MCPHTTPCustomConnectionSpec = {
+  properties: {
+    requires_config: {
+      type: "boolean",
+      title: "Requires Config",
+      default: false,
+    },
+    credentials: {
+      items: {
+        $ref: "#/components/schemas/MCPConnectionCredential",
+      },
+      type: "array",
+      title: "Credentials",
+    },
+    kind: {
+      type: "string",
+      const: "http_custom",
+      title: "Kind",
+      default: "http_custom",
+    },
+    server_type: {
+      type: "string",
+      const: "http",
+      title: "Server Type",
+      default: "http",
+    },
+    auth_type: {
+      type: "string",
+      const: "CUSTOM",
+      title: "Auth Type",
+      default: "CUSTOM",
+    },
+    server_uri: {
+      type: "string",
+      title: "Server Uri",
+    },
+    config_fields: {
+      items: {
+        $ref: "#/components/schemas/MCPConfigField",
+      },
+      type: "array",
+      title: "Config Fields",
+      description:
+        "Configure-dialog view of ``credentials``; same data, UI field shape.",
+      readOnly: true,
+    },
+  },
+  type: "object",
+  required: ["server_uri", "config_fields"],
+  title: "MCPHTTPCustomConnectionSpec",
+  description: "HTTP MCP server using user-provided headers or API keys.",
+} as const
+
+export const $MCPHTTPNoneConnectionSpec = {
+  properties: {
+    requires_config: {
+      type: "boolean",
+      title: "Requires Config",
+      default: false,
+    },
+    credentials: {
+      items: {
+        $ref: "#/components/schemas/MCPConnectionCredential",
+      },
+      type: "array",
+      title: "Credentials",
+    },
+    kind: {
+      type: "string",
+      const: "http_none",
+      title: "Kind",
+      default: "http_none",
+    },
+    server_type: {
+      type: "string",
+      const: "http",
+      title: "Server Type",
+      default: "http",
+    },
+    auth_type: {
+      type: "string",
+      const: "NONE",
+      title: "Auth Type",
+      default: "NONE",
+    },
+    server_uri: {
+      type: "string",
+      title: "Server Uri",
+    },
+    config_fields: {
+      items: {
+        $ref: "#/components/schemas/MCPConfigField",
+      },
+      type: "array",
+      title: "Config Fields",
+      description:
+        "Configure-dialog view of ``credentials``; same data, UI field shape.",
+      readOnly: true,
+    },
+  },
+  type: "object",
+  required: ["server_uri", "config_fields"],
+  title: "MCPHTTPNoneConnectionSpec",
+  description: "HTTP MCP server with no authentication.",
+} as const
+
+export const $MCPHTTPOAuth2ConnectionSpec = {
+  properties: {
+    requires_config: {
+      type: "boolean",
+      title: "Requires Config",
+      default: false,
+    },
+    credentials: {
+      items: {
+        $ref: "#/components/schemas/MCPConnectionCredential",
+      },
+      type: "array",
+      title: "Credentials",
+    },
+    kind: {
+      type: "string",
+      const: "http_oauth2",
+      title: "Kind",
+      default: "http_oauth2",
+    },
+    server_type: {
+      type: "string",
+      const: "http",
+      title: "Server Type",
+      default: "http",
+    },
+    auth_type: {
+      type: "string",
+      const: "OAUTH2",
+      title: "Auth Type",
+      default: "OAUTH2",
+    },
+    server_uri: {
+      type: "string",
+      title: "Server Uri",
+    },
+    scopes: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Scopes",
+    },
+    oauth_authorization_endpoint: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Oauth Authorization Endpoint",
+    },
+    oauth_token_endpoint: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Oauth Token Endpoint",
+    },
+    config_fields: {
+      items: {
+        $ref: "#/components/schemas/MCPConfigField",
+      },
+      type: "array",
+      title: "Config Fields",
+      description:
+        "Configure-dialog view of ``credentials``; same data, UI field shape.",
+      readOnly: true,
+    },
+  },
+  type: "object",
+  required: ["server_uri", "config_fields"],
+  title: "MCPHTTPOAuth2ConnectionSpec",
+  description: "HTTP MCP server using MCP OAuth.",
+} as const
+
 export const $MCPHttpIntegrationCreate = {
   properties: {
     name: {
@@ -14983,6 +15379,20 @@ export const $MCPHttpIntegrationCreate = {
       title: "Timeout",
       description: "Timeout in seconds",
       default: 30,
+    },
+    catalog_slug: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Catalog Slug",
+      description:
+        "Platform MCP catalog slug this workspace config is created from",
     },
     server_type: {
       type: "string",
@@ -15178,6 +15588,11 @@ export const $MCPIntegrationRead = {
       ],
       title: "Oauth Integration Id",
     },
+    state: {
+      type: "string",
+      enum: ["not_configured", "configured", "connected", "error"],
+      title: "State",
+    },
     stdio_command: {
       anyOf: [
         {
@@ -15219,6 +15634,20 @@ export const $MCPIntegrationRead = {
       ],
       title: "Timeout",
     },
+    tools: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/MCPToolSummary",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tools",
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -15241,6 +15670,7 @@ export const $MCPIntegrationRead = {
     "server_uri",
     "auth_type",
     "oauth_integration_id",
+    "state",
     "stdio_command",
     "stdio_args",
     "timeout",
@@ -15249,6 +15679,135 @@ export const $MCPIntegrationRead = {
   ],
   title: "MCPIntegrationRead",
   description: "Response model for MCP integration.",
+} as const
+
+export const $MCPIntegrationTestConnectionRequest = {
+  properties: {
+    mcp_integration_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid4",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Integration Id",
+    },
+    server_uri: {
+      type: "string",
+      maxLength: 2048,
+      minLength: 1,
+      title: "Server Uri",
+    },
+    auth_type: {
+      $ref: "#/components/schemas/MCPAuthType",
+      default: "NONE",
+    },
+    oauth_integration_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid4",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Oauth Integration Id",
+    },
+    custom_credentials: {
+      anyOf: [
+        {
+          type: "string",
+          format: "password",
+          writeOnly: true,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Custom Credentials",
+      description:
+        "JSON object of custom headers; falls back to stored headers when omitted",
+    },
+    timeout: {
+      anyOf: [
+        {
+          type: "integer",
+          maximum: 300,
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Timeout",
+    },
+  },
+  type: "object",
+  required: ["server_uri"],
+  title: "MCPIntegrationTestConnectionRequest",
+  description: `Request to test connectivity against an unsaved HTTP MCP configuration.
+
+Carries the (possibly edited, not yet persisted) form values. When
+\`\`mcp_integration_id\`\` is set, stored secrets from that row are used as a
+fallback for fields the caller leaves blank (e.g. unchanged credentials).`,
+} as const
+
+export const $MCPIntegrationTestConnectionResponse = {
+  properties: {
+    success: {
+      type: "boolean",
+      title: "Success",
+    },
+    mcp_integration_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid4",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Integration Id",
+    },
+    tools: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/MCPToolSummary",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tools",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error",
+    },
+  },
+  type: "object",
+  required: ["success", "message"],
+  title: "MCPIntegrationTestConnectionResponse",
+  description: "Response for testing connectivity to an MCP server.",
 } as const
 
 export const $MCPIntegrationUpdate = {
@@ -15277,6 +15836,18 @@ export const $MCPIntegrationUpdate = {
         },
       ],
       title: "Description",
+    },
+    server_type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/MCPServerType",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "MCP server type. Changing this clears fields from the previous type.",
     },
     server_uri: {
       anyOf: [
@@ -15387,6 +15958,41 @@ export const $MCPIntegrationUpdate = {
   type: "object",
   title: "MCPIntegrationUpdate",
   description: "Request model for updating an MCP integration.",
+} as const
+
+export const $MCPPackageOption = {
+  properties: {
+    manager: {
+      type: "string",
+      title: "Manager",
+    },
+    command: {
+      type: "string",
+      title: "Command",
+    },
+    args: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Args",
+    },
+    package: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Package",
+    },
+  },
+  type: "object",
+  required: ["manager", "command"],
+  title: "MCPPackageOption",
+  description: "Supported stdio package launch option.",
 } as const
 
 export const $MCPPersonalAccessTokenCreate = {
@@ -15551,6 +16157,87 @@ export const $MCPServerType = {
   enum: ["http", "stdio"],
 } as const
 
+export const $MCPStdioCustomConnectionSpec = {
+  properties: {
+    requires_config: {
+      type: "boolean",
+      title: "Requires Config",
+      default: false,
+    },
+    credentials: {
+      items: {
+        $ref: "#/components/schemas/MCPConnectionCredential",
+      },
+      type: "array",
+      title: "Credentials",
+    },
+    kind: {
+      type: "string",
+      const: "stdio_custom",
+      title: "Kind",
+      default: "stdio_custom",
+    },
+    server_type: {
+      type: "string",
+      const: "stdio",
+      title: "Server Type",
+      default: "stdio",
+    },
+    auth_type: {
+      type: "string",
+      const: "CUSTOM",
+      title: "Auth Type",
+      default: "CUSTOM",
+    },
+    stdio_command: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Stdio Command",
+    },
+    stdio_args: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Stdio Args",
+    },
+    stdio_env: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Stdio Env",
+    },
+    packages: {
+      items: {
+        $ref: "#/components/schemas/MCPPackageOption",
+      },
+      type: "array",
+      title: "Packages",
+    },
+    config_fields: {
+      items: {
+        $ref: "#/components/schemas/MCPConfigField",
+      },
+      type: "array",
+      title: "Config Fields",
+      description:
+        "Configure-dialog view of ``credentials``; same data, UI field shape.",
+      readOnly: true,
+    },
+  },
+  type: "object",
+  required: ["config_fields"],
+  title: "MCPStdioCustomConnectionSpec",
+  description: "Stdio MCP server using user-provided env vars.",
+} as const
+
 export const $MCPStdioIntegrationCreate = {
   properties: {
     name: {
@@ -15587,6 +16274,20 @@ export const $MCPStdioIntegrationCreate = {
       title: "Timeout",
       description: "Timeout in seconds",
       default: 30,
+    },
+    catalog_slug: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Catalog Slug",
+      description:
+        "Platform MCP catalog slug this workspace config is created from",
     },
     server_type: {
       type: "string",
@@ -15639,6 +16340,87 @@ export const $MCPStdioIntegrationCreate = {
   description: "Request model for creating a stdio MCP integration.",
 } as const
 
+export const $MCPStdioNoneConnectionSpec = {
+  properties: {
+    requires_config: {
+      type: "boolean",
+      title: "Requires Config",
+      default: false,
+    },
+    credentials: {
+      items: {
+        $ref: "#/components/schemas/MCPConnectionCredential",
+      },
+      type: "array",
+      title: "Credentials",
+    },
+    kind: {
+      type: "string",
+      const: "stdio_none",
+      title: "Kind",
+      default: "stdio_none",
+    },
+    server_type: {
+      type: "string",
+      const: "stdio",
+      title: "Server Type",
+      default: "stdio",
+    },
+    auth_type: {
+      type: "string",
+      const: "NONE",
+      title: "Auth Type",
+      default: "NONE",
+    },
+    stdio_command: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Stdio Command",
+    },
+    stdio_args: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Stdio Args",
+    },
+    stdio_env: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Stdio Env",
+    },
+    packages: {
+      items: {
+        $ref: "#/components/schemas/MCPPackageOption",
+      },
+      type: "array",
+      title: "Packages",
+    },
+    config_fields: {
+      items: {
+        $ref: "#/components/schemas/MCPConfigField",
+      },
+      type: "array",
+      title: "Config Fields",
+      description:
+        "Configure-dialog view of ``credentials``; same data, UI field shape.",
+      readOnly: true,
+    },
+  },
+  type: "object",
+  required: ["config_fields"],
+  title: "MCPStdioNoneConnectionSpec",
+  description: "Stdio MCP server with no authentication.",
+} as const
+
 export const $MCPStdioServerConfig = {
   properties: {
     type: {
@@ -15681,6 +16463,99 @@ export const $MCPStdioServerConfig = {
   required: ["type", "name", "command"],
   title: "MCPStdioServerConfig",
   description: "Configuration for a stdio MCP server.",
+} as const
+
+export const $MCPToolPolicyUpdate = {
+  properties: {
+    name: {
+      type: "string",
+      minLength: 1,
+      title: "Name",
+    },
+    enabled: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Enabled",
+    },
+    requires_approval: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Requires Approval",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "MCPToolPolicyUpdate",
+  description: "Per-tool policy update for a stored MCP integration tool.",
+} as const
+
+export const $MCPToolPolicyUpdateRequest = {
+  properties: {
+    tools: {
+      items: {
+        $ref: "#/components/schemas/MCPToolPolicyUpdate",
+      },
+      type: "array",
+      minItems: 1,
+      title: "Tools",
+    },
+  },
+  type: "object",
+  required: ["tools"],
+  title: "MCPToolPolicyUpdateRequest",
+  description: "Request to update per-tool MCP integration policy.",
+} as const
+
+export const $MCPToolSummary = {
+  properties: {
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+      default: true,
+    },
+    requires_approval: {
+      type: "boolean",
+      title: "Requires Approval",
+      default: false,
+    },
+    status: {
+      type: "string",
+      enum: ["available", "missing"],
+      title: "Status",
+      default: "available",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "MCPToolSummary",
+  description: "Summary of a tool discovered on a remote MCP server.",
 } as const
 
 export const $MessageKind = {
@@ -16754,7 +17629,7 @@ export const $OrganizationSecretRead = {
     },
     encrypted_keys: {
       type: "string",
-      format: "binary",
+      contentMediaType: "application/octet-stream",
       title: "Encrypted Keys",
     },
     environment: {
@@ -17149,6 +18024,214 @@ export const $PayloadChangedEventRead = {
   required: ["created_at"],
   title: "PayloadChangedEventRead",
   description: "Event for when a case payload is changed.",
+} as const
+
+export const $PlatformMCPCatalogListResponse = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/PlatformMCPCatalogRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "PlatformMCPCatalogListResponse",
+  description: "Cursor-paginated platform MCP catalog response.",
+} as const
+
+export const $PlatformMCPCatalogRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    slug: {
+      type: "string",
+      title: "Slug",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+    },
+    category: {
+      type: "string",
+      title: "Category",
+    },
+    status: {
+      type: "string",
+      enum: ["available", "coming_soon", "deprecated", "hidden"],
+      title: "Status",
+    },
+    icon_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Icon Url",
+    },
+    docs_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Docs Url",
+    },
+    provider_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Id",
+    },
+    connection_spec: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/MCPConnectionSpec",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    connection_options: {
+      items: {
+        $ref: "#/components/schemas/MCPConnectionOption",
+      },
+      type: "array",
+      title: "Connection Options",
+    },
+    locked: {
+      type: "boolean",
+      title: "Locked",
+      description:
+        "Whether this platform MCP catalog row is locked by entitlement.",
+    },
+    state: {
+      type: "string",
+      enum: ["not_configured", "configured", "connected", "error"],
+      title: "State",
+    },
+    mcp_integration_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid4",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Integration Id",
+    },
+    mcp_server_type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/MCPServerType",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    mcp_auth_type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/MCPAuthType",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    tools: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/MCPToolSummary",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tools",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    last_refreshed_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Refreshed At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "slug",
+    "name",
+    "description",
+    "category",
+    "status",
+    "icon_url",
+    "docs_url",
+    "provider_id",
+    "connection_spec",
+    "locked",
+    "state",
+    "mcp_integration_id",
+    "created_at",
+    "updated_at",
+    "last_refreshed_at",
+  ],
+  title: "PlatformMCPCatalogRead",
+  description: "Catalog row joined with workspace-specific MCP state.",
 } as const
 
 export const $PlatformRegistrySettingsRead = {
@@ -20599,7 +21682,7 @@ export const $SecretRead = {
     },
     encrypted_keys: {
       type: "string",
-      format: "binary",
+      contentMediaType: "application/octet-stream",
       title: "Encrypted Keys",
     },
     environment: {
@@ -25938,6 +27021,13 @@ export const $ValidationError = {
       type: "string",
       title: "Error Type",
     },
+    input: {
+      title: "Input",
+    },
+    ctx: {
+      type: "object",
+      title: "Context",
+    },
   },
   type: "object",
   required: ["loc", "msg", "type"],
@@ -28382,169 +29472,168 @@ export const $WorkflowExecutionEvent = {
   title: "WorkflowExecutionEvent",
 } as const
 
-export const $WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_ =
-  {
-    properties: {
-      source_event_id: {
-        type: "integer",
-        title: "Source Event Id",
-      },
-      schedule_time: {
-        type: "string",
-        format: "date-time",
-        title: "Schedule Time",
-      },
-      start_time: {
-        anyOf: [
-          {
-            type: "string",
-            format: "date-time",
-          },
-          {
-            type: "null",
-          },
-        ],
-        title: "Start Time",
-      },
-      close_time: {
-        anyOf: [
-          {
-            type: "string",
-            format: "date-time",
-          },
-          {
-            type: "null",
-          },
-        ],
-        title: "Close Time",
-      },
-      curr_event_type: {
-        $ref: "#/components/schemas/WorkflowEventType",
-      },
-      status: {
-        $ref: "#/components/schemas/WorkflowExecutionEventStatus",
-      },
-      action_name: {
-        type: "string",
-        title: "Action Name",
-      },
-      action_ref: {
-        type: "string",
-        title: "Action Ref",
-      },
-      action_input: {
-        title: "Action Input",
-      },
-      action_result: {
-        anyOf: [
-          {
-            $ref: "#/components/schemas/AgentOutput",
-          },
-          {},
-          {
-            type: "null",
-          },
-        ],
-        title: "Action Result",
-      },
-      action_error: {
-        anyOf: [
-          {
-            $ref: "#/components/schemas/EventFailure",
-          },
-          {
-            type: "null",
-          },
-        ],
-      },
-      stream_id: {
-        type: "string",
-        title: "Stream Id",
-        default: "<root>:0",
-      },
-      child_wf_exec_id: {
-        anyOf: [
-          {
-            type: "string",
-            pattern:
-              "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
-          },
-          {
-            type: "null",
-          },
-        ],
-        title: "Child Wf Exec Id",
-      },
-      child_wf_count: {
-        type: "integer",
-        title: "Child Wf Count",
-        default: 0,
-      },
-      loop_index: {
-        anyOf: [
-          {
-            type: "integer",
-          },
-          {
-            type: "null",
-          },
-        ],
-        title: "Loop Index",
-      },
-      while_iteration: {
-        anyOf: [
-          {
-            type: "integer",
-          },
-          {
-            type: "null",
-          },
-        ],
-        title: "While Iteration",
-      },
-      while_continue: {
-        anyOf: [
-          {
-            type: "boolean",
-          },
-          {
-            type: "null",
-          },
-        ],
-        title: "While Continue",
-      },
-      child_wf_wait_strategy: {
-        anyOf: [
-          {
-            $ref: "#/components/schemas/WaitStrategy",
-          },
-          {
-            type: "null",
-          },
-        ],
-      },
-      session: {
-        anyOf: [
-          {
-            $ref: "#/components/schemas/Session_Any_",
-          },
-          {
-            type: "null",
-          },
-        ],
-      },
+export const $WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_ = {
+  properties: {
+    source_event_id: {
+      type: "integer",
+      title: "Source Event Id",
     },
-    type: "object",
-    required: [
-      "source_event_id",
-      "schedule_time",
-      "curr_event_type",
-      "status",
-      "action_name",
-      "action_ref",
-    ],
-    title: "WorkflowExecutionEventCompact[Any, Union[AgentOutput, Any], Any]",
-  } as const
+    schedule_time: {
+      type: "string",
+      format: "date-time",
+      title: "Schedule Time",
+    },
+    start_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Start Time",
+    },
+    close_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Close Time",
+    },
+    curr_event_type: {
+      $ref: "#/components/schemas/WorkflowEventType",
+    },
+    status: {
+      $ref: "#/components/schemas/WorkflowExecutionEventStatus",
+    },
+    action_name: {
+      type: "string",
+      title: "Action Name",
+    },
+    action_ref: {
+      type: "string",
+      title: "Action Ref",
+    },
+    action_input: {
+      title: "Action Input",
+    },
+    action_result: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/AgentOutput",
+        },
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Action Result",
+    },
+    action_error: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/EventFailure",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    stream_id: {
+      type: "string",
+      title: "Stream Id",
+      default: "<root>:0",
+    },
+    child_wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+          pattern:
+            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Child Wf Exec Id",
+    },
+    child_wf_count: {
+      type: "integer",
+      title: "Child Wf Count",
+      default: 0,
+    },
+    loop_index: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Loop Index",
+    },
+    while_iteration: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "While Iteration",
+    },
+    while_continue: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "While Continue",
+    },
+    child_wf_wait_strategy: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WaitStrategy",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    session: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/Session_Any_",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: [
+    "source_event_id",
+    "schedule_time",
+    "curr_event_type",
+    "status",
+    "action_name",
+    "action_ref",
+  ],
+  title: "WorkflowExecutionEventCompact[Any, Union[AgentOutput, Any], Any]",
+} as const
 
 export const $WorkflowExecutionEventStatus = {
   type: "string",
@@ -28812,129 +29901,128 @@ export const $WorkflowExecutionRead = {
   title: "WorkflowExecutionRead",
 } as const
 
-export const $WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_ =
-  {
-    properties: {
-      id: {
-        type: "string",
-        title: "Id",
-        description: "The ID of the workflow execution",
-      },
-      run_id: {
-        type: "string",
-        title: "Run Id",
-        description: "The run ID of the workflow execution",
-      },
-      start_time: {
-        type: "string",
-        format: "date-time",
-        title: "Start Time",
-        description: "The start time of the workflow execution",
-      },
-      execution_time: {
-        anyOf: [
-          {
-            type: "string",
-            format: "date-time",
-          },
-          {
-            type: "null",
-          },
-        ],
-        title: "Execution Time",
-        description: "When this workflow run started or should start.",
-      },
-      close_time: {
-        anyOf: [
-          {
-            type: "string",
-            format: "date-time",
-          },
-          {
-            type: "null",
-          },
-        ],
-        title: "Close Time",
-        description: "When the workflow was closed if closed.",
-      },
-      status: {
-        type: "string",
-        enum: [
-          "RUNNING",
-          "COMPLETED",
-          "FAILED",
-          "CANCELED",
-          "TERMINATED",
-          "CONTINUED_AS_NEW",
-          "TIMED_OUT",
-        ],
-      },
-      workflow_type: {
-        type: "string",
-        title: "Workflow Type",
-      },
-      task_queue: {
-        type: "string",
-        title: "Task Queue",
-      },
-      history_length: {
-        type: "integer",
-        title: "History Length",
-        description: "Number of events in the history",
-      },
-      parent_wf_exec_id: {
-        anyOf: [
-          {
-            type: "string",
-            pattern:
-              "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
-          },
-          {
-            type: "null",
-          },
-        ],
-        title: "Parent Wf Exec Id",
-      },
-      trigger_type: {
-        $ref: "#/components/schemas/TriggerType",
-      },
-      execution_type: {
-        $ref: "#/components/schemas/ExecutionType",
-        description:
-          "Execution type (draft or published). Draft uses the draft workflow graph.",
-        default: "published",
-      },
-      events: {
-        items: {
-          $ref: "#/components/schemas/WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_",
-        },
-        type: "array",
-        title: "Events",
-        description: "Compact events in the workflow execution",
-      },
-      interactions: {
-        items: {
-          $ref: "#/components/schemas/InteractionRead",
-        },
-        type: "array",
-        title: "Interactions",
-        description: "The interactions in the workflow execution",
-      },
+export const $WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_ = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+      description: "The ID of the workflow execution",
     },
-    type: "object",
-    required: [
-      "id",
-      "run_id",
-      "start_time",
-      "status",
-      "workflow_type",
-      "task_queue",
-      "history_length",
-      "trigger_type",
-      "events",
-    ],
-    title: "WorkflowExecutionReadCompact[Any, Union[AgentOutput, Any], Any]",
-  } as const
+    run_id: {
+      type: "string",
+      title: "Run Id",
+      description: "The run ID of the workflow execution",
+    },
+    start_time: {
+      type: "string",
+      format: "date-time",
+      title: "Start Time",
+      description: "The start time of the workflow execution",
+    },
+    execution_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Execution Time",
+      description: "When this workflow run started or should start.",
+    },
+    close_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Close Time",
+      description: "When the workflow was closed if closed.",
+    },
+    status: {
+      type: "string",
+      enum: [
+        "RUNNING",
+        "COMPLETED",
+        "FAILED",
+        "CANCELED",
+        "TERMINATED",
+        "CONTINUED_AS_NEW",
+        "TIMED_OUT",
+      ],
+    },
+    workflow_type: {
+      type: "string",
+      title: "Workflow Type",
+    },
+    task_queue: {
+      type: "string",
+      title: "Task Queue",
+    },
+    history_length: {
+      type: "integer",
+      title: "History Length",
+      description: "Number of events in the history",
+    },
+    parent_wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+          pattern:
+            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Wf Exec Id",
+    },
+    trigger_type: {
+      $ref: "#/components/schemas/TriggerType",
+    },
+    execution_type: {
+      $ref: "#/components/schemas/ExecutionType",
+      description:
+        "Execution type (draft or published). Draft uses the draft workflow graph.",
+      default: "published",
+    },
+    events: {
+      items: {
+        $ref: "#/components/schemas/WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_",
+      },
+      type: "array",
+      title: "Events",
+      description: "Compact events in the workflow execution",
+    },
+    interactions: {
+      items: {
+        $ref: "#/components/schemas/InteractionRead",
+      },
+      type: "array",
+      title: "Interactions",
+      description: "The interactions in the workflow execution",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "run_id",
+    "start_time",
+    "status",
+    "workflow_type",
+    "task_queue",
+    "history_length",
+    "trigger_type",
+    "events",
+  ],
+  title: "WorkflowExecutionReadCompact[Any, Union[AgentOutput, Any], Any]",
+} as const
 
 export const $WorkflowExecutionReadMinimal = {
   properties: {
@@ -30496,6 +31584,63 @@ export const $Yaml = {
   },
   type: "object",
   title: "Yaml",
+} as const
+
+export const $login = {
+  properties: {
+    grant_type: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "^password$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Grant Type",
+    },
+    username: {
+      type: "string",
+      title: "Username",
+    },
+    password: {
+      type: "string",
+      format: "password",
+      title: "Password",
+    },
+    scope: {
+      type: "string",
+      title: "Scope",
+      default: "",
+    },
+    client_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Id",
+    },
+    client_secret: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      format: "password",
+      title: "Client Secret",
+    },
+  },
+  type: "object",
+  required: ["username", "password"],
+  title: "Body_auth-auth:database.login",
 } as const
 
 export const $tracecat__admin__registry__schemas__RegistrySyncResponse = {

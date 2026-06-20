@@ -18,7 +18,7 @@ import {
   DataTableColumnHeader,
   type DataTableToolbarProps,
 } from "@/components/data-table"
-import { getIcon, ProviderIcon } from "@/components/icons"
+import { getIcon, getMcpProviderIconId, ProviderIcon } from "@/components/icons"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -54,49 +54,6 @@ type AgentPresetTableRow = AgentPresetReadMinimal & Partial<AgentPresetRead>
 
 const toolPrefixes = {
   namespace: "namespace:",
-}
-
-function getMcpProviderId(slug: string): string | undefined {
-  const slugMap: Record<string, string> = {
-    "github-copilot": "github_mcp",
-    github: "github_mcp",
-    sentry: "sentry_mcp",
-    notion: "notion_mcp",
-    linear: "linear_mcp",
-    jira: "jira_mcp",
-    runreveal: "runreveal_mcp",
-    "secure-annex": "secureannex_mcp",
-    secureannex: "secureannex_mcp",
-    wiz: "wiz_mcp",
-  }
-
-  const normalized = slug.toLowerCase()
-  if (slugMap[normalized]) {
-    return slugMap[normalized]
-  }
-
-  // Normalize "<name>[-_]mcp" into "<normalized_name>_mcp".
-  // Examples:
-  // - github_mcp -> github_mcp
-  // - secure_annex_mcp -> secureannex_mcp
-  // - secure-annex-mcp -> secureannex_mcp
-  const mcpMatch = normalized.match(/^(.*?)(?:[_-]?mcp)$/)
-  if (mcpMatch && mcpMatch[1]) {
-    const compactBase = mcpMatch[1].replace(/[^a-z0-9]/g, "")
-    if (compactBase) {
-      return `${compactBase}_mcp`
-    }
-  }
-
-  if (normalized.endsWith("_mcp")) {
-    return normalized
-  }
-
-  if (normalized.endsWith("-mcp")) {
-    return normalized.replace(/-/g, "_")
-  }
-
-  return undefined
 }
 
 type ToolBadge = {
@@ -169,9 +126,7 @@ const buildMcpBadges = (
     preset.mcp_integrations.forEach((integration) => {
       const meta = mcpIntegrationMap.get(integration)
       const name = meta?.name
-      const providerId = meta?.slug
-        ? (getMcpProviderId(meta.slug) ?? "custom")
-        : "custom"
+      const providerId = getMcpProviderIconId(meta?.slug)
       addTool({
         id: integration,
         label: name ?? integration,

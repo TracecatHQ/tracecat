@@ -1,5 +1,6 @@
 import {
   type Query,
+  type QueryClient,
   useMutation,
   useQuery,
   useQueryClient,
@@ -141,15 +142,21 @@ import {
   listEnabledModels,
   type MCPIntegrationCreate,
   type MCPIntegrationRead,
+  type MCPIntegrationTestConnectionRequest,
   type MCPIntegrationUpdate,
+  type MCPToolPolicyUpdate,
   type McpIntegrationsListMcpIntegrationsData,
   type ModelCredentialCreate,
   type ModelCredentialUpdate,
+  mcpIntegrationsConnectMcpIntegration,
   mcpIntegrationsCreateMcpIntegration,
   mcpIntegrationsDeleteMcpIntegration,
   mcpIntegrationsGetMcpIntegration,
   mcpIntegrationsListMcpIntegrations,
+  mcpIntegrationsTestMcpConnectionConfig,
+  mcpIntegrationsTestMcpIntegrationConnection,
   mcpIntegrationsUpdateMcpIntegration,
+  mcpIntegrationsUpdateMcpIntegrationToolPolicies,
   type OAuthGrantType,
   type OrganizationDeleteOrgMemberData,
   type OrganizationDeleteSessionData,
@@ -332,6 +339,7 @@ import {
   type WorkflowReadMinimal,
   type WorkflowsAddTagData,
   type WorkflowsCreateWorkflowData,
+  type WorkflowsListWorkflowRepositoriesResponse,
   type WorkflowsMoveWorkflowToFolderData,
   type WorkflowsRemoveTagData,
   type WorkspaceCreate,
@@ -345,6 +353,7 @@ import {
   workflowsAddTag,
   workflowsCreateWorkflow,
   workflowsDeleteWorkflow,
+  workflowsListWorkflowRepositories,
   workflowsListWorkflows,
   workflowsMoveWorkflowToFolder,
   workflowsRemoveTag,
@@ -363,7 +372,13 @@ import {
 } from "@/lib/case-durations"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 import type { ModelInfo } from "@/lib/chat"
-import { retryHandler, type TracecatApiError } from "@/lib/errors"
+import {
+  getApiErrorDetail,
+  getMcpOAuthConnectErrorDetail,
+  retryHandler,
+  sanitizeUrlsInText,
+  type TracecatApiError,
+} from "@/lib/errors"
 import type { WorkflowExecutionReadCompact } from "@/lib/event-history"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -2633,6 +2648,38 @@ export function useGitHubAppCredentialsStatus() {
   }
 }
 
+/**
+ * Fetch repositories granted to the configured GitHub App installation.
+ */
+export function useGitHubAppRepositories(workspaceId: string) {
+  const {
+    data: repositories,
+    isLoading: repositoriesIsLoading,
+    error: repositoriesError,
+    refetch: refetchRepositories,
+  } = useQuery<WorkflowsListWorkflowRepositoriesResponse>({
+    queryKey: ["github-app-repositories", workspaceId],
+    queryFn: async () =>
+      await workflowsListWorkflowRepositories({ workspaceId }),
+    enabled: Boolean(workspaceId),
+    retry: false,
+  })
+
+  return {
+    repositories,
+    repositoriesIsLoading,
+    repositoriesError,
+    refetchRepositories,
+  }
+}
+
+function clearGitHubAppRepositoryQueries(queryClient: QueryClient) {
+  queryClient.setQueriesData<WorkflowsListWorkflowRepositoriesResponse>(
+    { queryKey: ["github-app-repositories"] },
+    []
+  )
+}
+
 export function useGitHubAppCredentials() {
   const queryClient = useQueryClient()
 
@@ -2646,9 +2693,13 @@ export function useGitHubAppCredentials() {
       return await vcsSaveGithubAppCredentials({ requestBody: data })
     },
     onSuccess: () => {
+      clearGitHubAppRepositoryQueries(queryClient)
       // Invalidate and refetch credentials status
       queryClient.invalidateQueries({
         queryKey: ["github-app-credentials-status"],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["github-app-repositories"],
       })
     },
   })
@@ -2666,8 +2717,12 @@ export function useDeleteGitHubAppCredentials() {
       await vcsDeleteGithubAppCredentials()
     },
     onSuccess: () => {
+      clearGitHubAppRepositoryQueries(queryClient)
       queryClient.invalidateQueries({
         queryKey: ["github-app-credentials-status"],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["github-app-repositories"],
       })
     },
   })
@@ -4569,6 +4624,51 @@ export function useCreateCustomProvider(workspaceId: string) {
   }
 }
 
+export function useConnectMcpIntegration(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutateAsync: connectMcpIntegration,
+    isPending: connectMcpIntegrationIsPending,
+    error: connectMcpIntegrationError,
+  } = useMutation({
+    mutationFn: async (params: MCPIntegrationCreate) => {
+      return await mcpIntegrationsConnectMcpIntegration({
+        workspaceId,
+        requestBody: params,
+      })
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({
+        queryKey: ["mcp-integrations", workspaceId],
+      })
+      if (result.auth_url) {
+        return
+      }
+      if (result.mcp_integration) {
+        toast({
+          title: "MCP integration created",
+          description: `Added ${result.mcp_integration.name}`,
+        })
+      }
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to connect MCP integration:", error)
+      toast({
+        title: "Failed to connect MCP integration",
+        description: getMcpOAuthConnectErrorDetail(error),
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    connectMcpIntegration,
+    connectMcpIntegrationIsPending,
+    connectMcpIntegrationError,
+  }
+}
+
 export function useCreateMcpIntegration(workspaceId: string) {
   const queryClient = useQueryClient()
 
@@ -4716,6 +4816,212 @@ export function useUpdateMcpIntegration(workspaceId: string) {
     updateMcpIntegration,
     updateMcpIntegrationIsPending,
     updateMcpIntegrationError,
+  }
+}
+
+export function useUpdateMcpIntegrationToolPolicies(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutateAsync: updateMcpIntegrationToolPolicies,
+    isPending: updateMcpIntegrationToolPoliciesIsPending,
+    error: updateMcpIntegrationToolPoliciesError,
+  } = useMutation({
+    mutationKey: ["update-mcp-integration-tool-policies", workspaceId],
+    mutationFn: async ({
+      mcpIntegrationId,
+      tools,
+    }: {
+      mcpIntegrationId: string
+      tools: MCPToolPolicyUpdate[]
+    }) => {
+      return await mcpIntegrationsUpdateMcpIntegrationToolPolicies({
+        workspaceId,
+        mcpIntegrationId,
+        requestBody: { tools },
+      })
+    },
+    // Optimistically patch the cached integration so policy switches flip
+    // immediately instead of waiting for the round-trip and refetch.
+    onMutate: async ({ mcpIntegrationId, tools }) => {
+      const queryKey = ["mcp-integration", workspaceId, mcpIntegrationId]
+      await queryClient.cancelQueries({ queryKey })
+      const previous = queryClient.getQueryData<MCPIntegrationRead>(queryKey)
+      if (previous?.tools) {
+        const patches = new Map(tools.map((tool) => [tool.name, tool]))
+        queryClient.setQueryData<MCPIntegrationRead>(queryKey, {
+          ...previous,
+          tools: previous.tools.map((tool) => {
+            const patch = patches.get(tool.name)
+            if (!patch) {
+              return tool
+            }
+            return {
+              ...tool,
+              enabled: patch.enabled ?? tool.enabled,
+              requires_approval:
+                patch.requires_approval ?? tool.requires_approval,
+            }
+          }),
+        })
+      }
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to update MCP tool policy:", error)
+      toast({
+        title: "Failed to update tool policy",
+        description: `${error.body?.detail || error.message}`,
+        variant: "destructive",
+      })
+    },
+    // Reconcile against the server once toggles settle instead of restoring a
+    // per-mutation snapshot. Toggles run concurrently (no disable-all gating),
+    // so restoring a stale snapshot on error would clobber a sibling toggle
+    // that already succeeded. Refetching re-syncs to server truth — a failed
+    // tool reverts, succeeded siblings stay. Only invalidate once this is the
+    // last in-flight toggle (isMutating counts the current one as 1), so a
+    // refetch can't overwrite siblings' still-pending optimistic patches.
+    onSettled: (_data, _error, { mcpIntegrationId }) => {
+      const stillInFlight = queryClient.isMutating({
+        mutationKey: ["update-mcp-integration-tool-policies", workspaceId],
+      })
+      if (stillInFlight > 1) {
+        return
+      }
+      queryClient.invalidateQueries({
+        queryKey: ["mcp-integration", workspaceId, mcpIntegrationId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["mcp-integrations", workspaceId],
+      })
+    },
+  })
+
+  return {
+    updateMcpIntegrationToolPolicies,
+    updateMcpIntegrationToolPoliciesIsPending,
+    updateMcpIntegrationToolPoliciesError,
+  }
+}
+
+/**
+ * Test connectivity against an unsaved (possibly edited) HTTP MCP
+ * configuration. Fully ephemeral: nothing is persisted server-side and no
+ * queries are invalidated — saving via connect/update runs its own
+ * verification.
+ */
+export function useTestMcpConnectionConfig(workspaceId: string) {
+  const {
+    mutateAsync: testMcpConnectionConfig,
+    isPending: testMcpConnectionConfigIsPending,
+    error: testMcpConnectionConfigError,
+  } = useMutation({
+    mutationFn: async (params: MCPIntegrationTestConnectionRequest) => {
+      return await mcpIntegrationsTestMcpConnectionConfig({
+        workspaceId,
+        requestBody: params,
+      })
+    },
+    onSuccess: (result) => {
+      if (result.success) {
+        const toolCount = result.tools?.length ?? 0
+        toast({
+          title: "Connection verified",
+          description: `${toolCount} ${toolCount === 1 ? "tool" : "tools"} available`,
+        })
+      } else {
+        toast({
+          title: "Connection failed",
+          description: sanitizeUrlsInText(result.error || result.message),
+          variant: "destructive",
+        })
+      }
+    },
+    onError: (error: TracecatApiError) => {
+      // The server URI is caller-controlled and may carry credentials in its
+      // userinfo/query; strip those from any URLs before logging or surfacing.
+      const detail = sanitizeUrlsInText(
+        getApiErrorDetail(error) ?? error.message
+      )
+      console.error("Failed to test MCP connection:", detail)
+      toast({
+        title: "Test failed",
+        description: `Could not test connection: ${detail}`,
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    testMcpConnectionConfig,
+    testMcpConnectionConfigIsPending,
+    testMcpConnectionConfigError,
+  }
+}
+
+/**
+ * Test connectivity to a saved MCP integration and persist its tool listing.
+ *
+ * Unlike {@link useTestMcpConnectionConfig} (which hits the ephemeral
+ * config-test endpoint and never persists), this calls the integration-scoped
+ * endpoint that refreshes and stores the discovered tools. On success it
+ * invalidates the integration query so the Tools list reflects the new
+ * verification result.
+ */
+export function useTestMcpIntegrationConnection(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutateAsync: testMcpIntegrationConnection,
+    isPending: testMcpIntegrationConnectionIsPending,
+    error: testMcpIntegrationConnectionError,
+  } = useMutation({
+    mutationFn: async (mcpIntegrationId: string) => {
+      return await mcpIntegrationsTestMcpIntegrationConnection({
+        workspaceId,
+        mcpIntegrationId,
+      })
+    },
+    onSuccess: (result, mcpIntegrationId) => {
+      // Tools are refreshed on success and preserved on failure, so refresh the
+      // integration regardless of outcome.
+      queryClient.invalidateQueries({
+        queryKey: ["mcp-integration", workspaceId, mcpIntegrationId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["mcp-integrations", workspaceId],
+      })
+      if (result.success) {
+        const toolCount = result.tools?.length ?? 0
+        toast({
+          title: "Connection verified",
+          description: `${toolCount} ${toolCount === 1 ? "tool" : "tools"} available`,
+        })
+      } else {
+        toast({
+          title: "Connection failed",
+          description: sanitizeUrlsInText(result.error || result.message),
+          variant: "destructive",
+        })
+      }
+    },
+    onError: (error: TracecatApiError) => {
+      const detail = sanitizeUrlsInText(
+        getApiErrorDetail(error) ?? error.message
+      )
+      console.error("Failed to test MCP connection:", detail)
+      toast({
+        title: "Test failed",
+        description: `Could not test connection: ${detail}`,
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    testMcpIntegrationConnection,
+    testMcpIntegrationConnectionIsPending,
+    testMcpIntegrationConnectionError,
   }
 }
 

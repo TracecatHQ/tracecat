@@ -1191,7 +1191,7 @@ seed_dev_user() {
 
     echo "[dev-seed] Waiting for API to be ready (up to 5 minutes)..."
     while [[ $attempt -le $max_attempts ]]; do
-        # Use /ready endpoint which checks full startup completion (not /health which returns immediately)
+        # Use deep readiness so dev seeding waits for registry sync.
         local status_code
         status_code=$(curl -s -o /dev/null -w "%{http_code}" "${api_url}/ready" 2>/dev/null || echo "000")
         if [[ "$status_code" == "200" ]]; then

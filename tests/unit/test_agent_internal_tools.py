@@ -46,6 +46,13 @@ def _build_preset_read(preset: dict[str, object]) -> AgentPresetRead:
     return AgentPresetRead.model_validate(data)
 
 
+def test_builder_bundled_actions_exclude_exa_tools():
+    assert all(
+        not action.startswith("tools.exa.")
+        for action in internal_tools.BUILDER_BUNDLED_ACTIONS
+    )
+
+
 def test_evaluate_configuration_prefers_workspace_secret_even_when_empty():
     requirements = [
         {

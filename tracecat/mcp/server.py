@@ -82,8 +82,20 @@ from tracecat.agent.types import OutputType
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
 from tracecat.auth.users import search_users
-from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
-from tracecat.cases.dropdowns.service import CaseDropdownValuesService
+from tracecat.cases.dropdowns.schemas import (
+    CaseDropdownDefinitionCreate,
+    CaseDropdownDefinitionRead,
+    CaseDropdownDefinitionUpdate,
+    CaseDropdownOptionCreate,
+    CaseDropdownOptionRead,
+    CaseDropdownOptionUpdate,
+    CaseDropdownValueInput,
+    CaseDropdownValueRead,
+)
+from tracecat.cases.dropdowns.service import (
+    CaseDropdownDefinitionsService,
+    CaseDropdownValuesService,
+)
 from tracecat.cases.enums import (
     CaseEventType,
     CaseFieldKind,
@@ -140,6 +152,7 @@ from tracecat.dsl.validation import (
 )
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
+    EntitlementRequired,
     RegistryActionValidationError,
     RegistryError,
     ScopeDeniedError,
@@ -383,15 +396,18 @@ async def _resolve_workspace_role(workspace_id: uuid.UUID) -> tuple[uuid.UUID, R
     return workspace_id, role
 
 
-async def _resolve_org_role() -> Role:
+async def _resolve_org_role(
+    org_id: uuid.UUID | None = None,
+) -> Role:
     """Resolve a role with organization context for the caller's token.
 
-    Queries the caller's OrganizationMembership rows directly. Errors with a
-    clear message on the multi-org case; tokens must carry explicit org
-    scoping to disambiguate (see `resolve_org_role_for_request`).
+    Queries the caller's active OrganizationMembership rows directly. Errors
+    with a clear message on the multi-org case; multi-org callers must pass
+    org_id explicitly unless the token itself is scoped to exactly one
+    organization (see `resolve_org_role_for_request`).
     """
     try:
-        return await resolve_org_role_for_request()
+        return await resolve_org_role_for_request(organization_id=org_id)
     except ValueError as exc:
         raise ToolError(str(exc)) from exc
 
@@ -789,11 +805,30 @@ class MCPMessageResponse(BaseModel):
     message: str
 
 
+class CaseDropdownOptionInput(BaseModel):
+    """Option payload for MCP case dropdown creation."""
+
+    label: str = Field(min_length=1, max_length=255)
+    ref: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=255,
+        description="Slug identifier. Defaults to the slugified label.",
+    )
+    icon_name: str | None = Field(default=None, max_length=100)
+    color: str | None = Field(default=None, max_length=50)
+    position: int | None = Field(
+        default=None, description="Sort position. Defaults to the list order."
+    )
+
+
 class WorkspaceSummaryResponse(BaseModel):
     """Workspace visible to the MCP caller."""
 
     id: uuid.UUID
     name: str
+    org_id: uuid.UUID
+    org_slug: str
 
 
 class MCPValidationDetailPayload(TypedDict):
@@ -2766,6 +2801,11 @@ async def _apply_workflow_yaml_update(
             workflow_id=workflow_id,
             schedules=yaml_payload.schedules,
         )
+        # The deleted Schedule rows are already flushed, but the eagerly-loaded
+        # workflow.schedules collection still references them; expire it so the
+        # save-update cascade from session.add(workflow) below does not touch
+        # deleted instances.
+        service.session.expire(workflow, ["schedules"])
 
     if yaml_payload is not None and yaml_payload.case_trigger is not None:
         case_trigger_service = CaseTriggersService(service.session, role=role)
@@ -3757,6 +3797,24 @@ def _case_tag_payload(tag: Any) -> CaseTagRead:
     return CaseTagRead.model_validate(tag, from_attributes=True)
 
 
+def _case_dropdown_definition_payload(definition: Any) -> CaseDropdownDefinitionRead:
+    """Serialize a case dropdown definition with its options."""
+    return CaseDropdownDefinitionRead.model_validate(definition, from_attributes=True)
+
+
+def _case_dropdown_option_payload(option: Any) -> CaseDropdownOptionRead:
+    """Serialize a case dropdown option."""
+    return CaseDropdownOptionRead.model_validate(option, from_attributes=True)
+
+
+def _slugify_dropdown_ref(value: str, *, field_name: str) -> str:
+    """Slugify a display name into a dropdown ref, matching the UI behavior."""
+    ref = slugify(value, separator="_")
+    if not ref:
+        raise ToolError(f"{field_name} must produce a valid reference")
+    return ref
+
+
 def _case_full_payload(
     case: Any,
     *,
@@ -3980,7 +4038,9 @@ async def list_workspaces(
 ) -> MCPPaginatedResponse[WorkspaceSummaryResponse]:
     """List all workspaces accessible to the authenticated user.
 
-    Returns a JSON array of workspace objects with id, name, and role.
+    Returns paginated workspace summaries including workspace id/name and the
+    owning org_id/org_slug. Multi-org users may receive workspaces from more
+    than one organization in a single response.
     """
     try:
         workspaces = [
@@ -4731,13 +4791,13 @@ async def list_actions(
     """Search or browse available actions and return compact context metadata.
 
     Supports three usage modes:
-    - **Search**: provide `query` to search by name/description across all namespaces.
+    - **Search**: provide `query` to search by name/description across all `namespaces`.
       Example: list_actions(workspace_id, query="send message")
-    - **Browse namespace**: provide `namespace` without `query` to list all actions
-      in a namespace. Example: list_actions(workspace_id, namespace="core")
+    - **Browse by `namespace`**: provide `namespace` without `query` to list all actions
+      in a `namespace`. Example: list_actions(workspace_id, namespace="core")
     - **Browse all**: omit both to list all available actions.
 
-    Common namespaces: `core`, `tools`, `ai`.
+    Common `namespaces`: `core`, `tools`, `ai`.
 
     Args:
         workspace_id: The workspace ID (from list_workspaces).
@@ -4806,6 +4866,7 @@ async def list_actions(
 
 @mcp.tool()
 async def sync_custom_registry(
+    org_id: uuid.UUID | None = None,
     target_commit_sha: str | None = None,
     force: bool = False,
 ) -> CustomRegistrySyncResponse:
@@ -4819,6 +4880,9 @@ async def sync_custom_registry(
     pick up newly synced action versions.
 
     Args:
+        org_id: Organization ID to sync. Required for unscoped tokens when the
+            caller belongs to multiple organizations. May be omitted for
+            single-org callers or tokens scoped with organization_id/org:<id>.
         target_commit_sha: 40-character commit SHA to sync to. Defaults to
             the remote's HEAD when omitted.
         force: Delete the repository's current registry version before
@@ -4829,7 +4893,7 @@ async def sync_custom_registry(
     `actions_count`, `forced`, and `error` (if the sync failed).
     """
     try:
-        role = await _resolve_org_role()
+        role = await _resolve_org_role(org_id)
         _role_organization_id(role)
         synced_at = datetime.now(UTC)
 
@@ -5569,7 +5633,7 @@ async def list_workflow_executions(
     """List recent executions for a workflow.
 
     Use this to see run history, check which runs succeeded or failed, and
-    find execution IDs for deeper inspection with get_workflow_execution.
+    find execution IDs for deeper inspection with `get_workflow_execution`.
 
     Args:
         workspace_id: The workspace ID.
@@ -6345,6 +6409,7 @@ async def create_case(
     payload: dict[str, Any] | None = None,
     tags: list[str] | None = None,
     create_missing_tags: bool = False,
+    dropdown_values: list[CaseDropdownValueInput] | None = None,
 ) -> CaseCreatedResponse:
     """Create a new case.
 
@@ -6365,6 +6430,10 @@ async def create_case(
         tags: Optional tag identifiers (IDs or refs) to add to the case.
         create_missing_tags: If true, automatically create any tags that do
             not already exist. Defaults to false.
+        dropdown_values: Optional dropdown selections. Each item provides
+            exactly one of `definition_id`/`definition_ref` and at most one
+            of `option_id`/`option_ref` (omit both to clear). Requires the
+            case add-ons entitlement.
 
     Returns JSON with a confirmation message and the created case ID.
     """
@@ -6383,6 +6452,7 @@ async def create_case(
             assignee_id=assignee_id,
             fields=fields,
             payload=payload,
+            dropdown_values=dropdown_values,
         )
 
         async with CasesService.with_session(role=role) as svc:
@@ -6401,6 +6471,15 @@ async def create_case(
             )
     except ToolError:
         raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except EntitlementRequired as e:
+        raise ToolError(str(e)) from e
+    except TracecatNotFoundError as e:
+        raise ToolError(str(e)) from e
+    except TracecatValidationError as e:
+        raise ToolError(str(e)) from e
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -6422,6 +6501,7 @@ async def update_case(
     payload: dict[str, Any] | None = None,
     tags: list[str] | None = None,
     create_missing_tags: bool = False,
+    dropdown_values: list[CaseDropdownValueInput] | None = None,
 ) -> MCPMessageResponse:
     """Update a case. Only provided fields are changed.
 
@@ -6443,6 +6523,10 @@ async def update_case(
             Replaces all existing tags.
         create_missing_tags: If true, automatically create any tags that do
             not already exist. Defaults to false.
+        dropdown_values: Optional dropdown selections to apply. Each item
+            provides exactly one of `definition_id`/`definition_ref` and at
+            most one of `option_id`/`option_ref` (omit both to clear).
+            Requires the case add-ons entitlement.
 
     Returns a confirmation message.
     """
@@ -6470,6 +6554,8 @@ async def update_case(
             update_kwargs["fields"] = fields
         if payload is not None:
             update_kwargs["payload"] = payload
+        if dropdown_values is not None:
+            update_kwargs["dropdown_values"] = dropdown_values
 
         params = CaseUpdate(**update_kwargs)
 
@@ -6491,6 +6577,13 @@ async def update_case(
             return MCPMessageResponse(message=f"Case {case_id} updated successfully")
     except ToolError:
         raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except EntitlementRequired as e:
+        raise ToolError(str(e)) from e
+    except TracecatNotFoundError as e:
+        raise ToolError(str(e)) from e
     except TracecatValidationError as e:
         raise ToolError(str(e)) from e
     except ValueError as e:
@@ -6582,7 +6675,7 @@ async def create_case_comment(
     content: str,
     parent_id: uuid.UUID | None = None,
 ) -> MCPMessageResponse:
-    """Create a new comment on a case. Provide ``parent_id`` to reply to an
+    """Create a new comment on a case. Provide `parent_id` to reply to an
     existing comment.
 
     Args:
@@ -6925,8 +7018,8 @@ async def run_case_task(
 ) -> CaseTaskRunStartedResponse:
     """Run the workflow associated with a case task.
 
-    Fetches the task's ``workflow_id`` and ``default_trigger_values``,
-    merges them with ``case_id`` and ``task_id`` context (plus any
+    Fetches the task's `workflow_id` and `default_trigger_values`,
+    merges them with `case_id` and `task_id` context (plus any
     caller-supplied overrides), then executes the latest published version
     of the workflow.
 
@@ -6934,11 +7027,11 @@ async def run_case_task(
         workspace_id: The workspace ID.
         case_id: Case UUID (must match the task's parent case).
         task_id: Task UUID. The task must have an associated
-            ``workflow_id``.
+            `workflow_id`.
         inputs: Optional additional trigger inputs object that overrides the
-            task's ``default_trigger_values``.
+            task's `default_trigger_values`.
 
-    Returns JSON with ``workflow_id``, ``execution_id``, and a message.
+    Returns JSON with `workflow_id`, `execution_id`, and a message.
     """
 
     try:
@@ -7463,6 +7556,463 @@ async def update_case_field(
     except Exception as e:
         logger.error("Failed to update case field", error=str(e))
         raise ToolError(f"Failed to update case field: {e}") from None
+
+
+# ---------------------------------------------------------------------------
+# Case Dropdowns
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def list_case_dropdowns(
+    workspace_id: uuid.UUID,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+) -> MCPPaginatedResponse[CaseDropdownDefinitionRead]:
+    """List case dropdown definitions in a workspace. Requires the case
+    add-ons entitlement.
+
+    Returns a paginated JSON array of dropdown objects with `id`, `name`,
+    `ref`, `icon_name`, `is_ordered`, `required_on_closure`, `position`, and
+    embedded `options`.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with CaseDropdownDefinitionsService.with_session(role=role) as svc:
+            definitions = await svc.list_definitions()
+            page = _paginate_items(
+                [_case_dropdown_definition_payload(d) for d in definitions],
+                tool_name="list_case_dropdowns",
+                limit=_normalize_limit(
+                    limit,
+                    default=config.TRACECAT__LIMIT_DEFAULT,
+                    max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+                ),
+                cursor=cursor,
+            )
+            return page
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except EntitlementRequired as e:
+        raise ToolError(str(e)) from e
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to list case dropdowns", error=str(e))
+        raise ToolError(f"Failed to list case dropdowns: {e}") from None
+
+
+@mcp.tool()
+async def create_case_dropdown(
+    workspace_id: uuid.UUID,
+    name: str,
+    ref: str | None = None,
+    icon_name: str | None = None,
+    is_ordered: bool = False,
+    required_on_closure: bool = False,
+    position: int = 0,
+    options: list[CaseDropdownOptionInput] | None = None,
+) -> CaseDropdownDefinitionRead:
+    """Create a case dropdown definition with optional initial options.
+    Requires the case add-ons entitlement.
+
+    Args:
+        workspace_id: The workspace ID.
+        name: Display name for the dropdown.
+        ref: Optional slug identifier. Defaults to the slugified name
+            (e.g. "Threat Level" -> "threat_level").
+        icon_name: Optional icon name.
+        is_ordered: Whether option order is semantically meaningful.
+        required_on_closure: Whether a value is required to close a case.
+        position: Sort position among the workspace dropdowns.
+        options: Optional initial options. Each option's `ref` defaults to
+            its slugified label and `position` defaults to its list order.
+
+    Returns JSON with the created dropdown definition and its options.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        resolved_ref = ref or _slugify_dropdown_ref(name, field_name="name")
+        option_params = [
+            CaseDropdownOptionCreate(
+                label=opt.label,
+                ref=opt.ref or _slugify_dropdown_ref(opt.label, field_name="label"),
+                icon_name=opt.icon_name,
+                color=opt.color,
+                position=opt.position if opt.position is not None else idx,
+            )
+            for idx, opt in enumerate(options or [])
+        ]
+        params = CaseDropdownDefinitionCreate(
+            name=name,
+            ref=resolved_ref,
+            icon_name=icon_name,
+            is_ordered=is_ordered,
+            required_on_closure=required_on_closure,
+            position=position,
+            options=option_params,
+        )
+        async with CaseDropdownDefinitionsService.with_session(role=role) as svc:
+            definition = await svc.create_definition(params)
+            return _case_dropdown_definition_payload(definition)
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except EntitlementRequired as e:
+        raise ToolError(str(e)) from e
+    except TracecatValidationError as e:
+        raise ToolError(str(e)) from e
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to create case dropdown", error=str(e))
+        raise ToolError(f"Failed to create case dropdown: {e}") from None
+
+
+@mcp.tool()
+async def update_case_dropdown(
+    workspace_id: uuid.UUID,
+    dropdown_id: uuid.UUID,
+    name: str | None = None,
+    ref: str | None = None,
+    icon_name: str | None = None,
+    is_ordered: bool | None = None,
+    required_on_closure: bool | None = None,
+    position: int | None = None,
+) -> CaseDropdownDefinitionRead:
+    """Update a case dropdown definition. Only provided fields are changed.
+    Requires the case add-ons entitlement.
+
+    Args:
+        workspace_id: The workspace ID.
+        dropdown_id: Dropdown definition UUID from `list_case_dropdowns`.
+        name: New display name. Renaming without an explicit `ref`
+            regenerates the ref from the new name.
+        ref: New slug identifier.
+        icon_name: New icon name.
+        is_ordered: Whether option order is semantically meaningful.
+        required_on_closure: Whether a value is required to close a case.
+        position: New sort position.
+
+    Returns JSON with the updated dropdown definition and its options.
+    """
+
+    try:
+        dropdown_id = _coerce_uuid_arg(dropdown_id, "dropdown_id")
+        _, role = await _resolve_workspace_role(workspace_id)
+        update_kwargs: dict[str, Any] = {}
+        if name is not None:
+            update_kwargs["name"] = name
+        if ref is not None:
+            update_kwargs["ref"] = ref
+        if icon_name is not None:
+            update_kwargs["icon_name"] = icon_name
+        if is_ordered is not None:
+            update_kwargs["is_ordered"] = is_ordered
+        if required_on_closure is not None:
+            update_kwargs["required_on_closure"] = required_on_closure
+        if position is not None:
+            update_kwargs["position"] = position
+        async with CaseDropdownDefinitionsService.with_session(role=role) as svc:
+            definition = await svc.get_definition(dropdown_id)
+            updated = await svc.update_definition(
+                definition, CaseDropdownDefinitionUpdate(**update_kwargs)
+            )
+            return _case_dropdown_definition_payload(updated)
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except EntitlementRequired as e:
+        raise ToolError(str(e)) from e
+    except TracecatNotFoundError as e:
+        raise ToolError(str(e)) from e
+    except TracecatValidationError as e:
+        raise ToolError(str(e)) from e
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to update case dropdown", error=str(e))
+        raise ToolError(f"Failed to update case dropdown: {e}") from None
+
+
+@mcp.tool()
+async def delete_case_dropdown(
+    workspace_id: uuid.UUID,
+    dropdown_id: uuid.UUID,
+) -> MCPMessageResponse:
+    """Delete a case dropdown definition along with all its options and
+    per-case values. Requires the case add-ons entitlement.
+
+    Args:
+        workspace_id: The workspace ID.
+        dropdown_id: Dropdown definition UUID from `list_case_dropdowns`.
+
+    Returns a confirmation message.
+    """
+
+    try:
+        dropdown_id = _coerce_uuid_arg(dropdown_id, "dropdown_id")
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with CaseDropdownDefinitionsService.with_session(role=role) as svc:
+            definition = await svc.get_definition(dropdown_id)
+            await svc.delete_definition(definition)
+            return MCPMessageResponse(
+                message=f"Case dropdown {dropdown_id} deleted successfully"
+            )
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except EntitlementRequired as e:
+        raise ToolError(str(e)) from e
+    except TracecatNotFoundError as e:
+        raise ToolError(str(e)) from e
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to delete case dropdown", error=str(e))
+        raise ToolError(f"Failed to delete case dropdown: {e}") from None
+
+
+@mcp.tool()
+async def add_case_dropdown_option(
+    workspace_id: uuid.UUID,
+    dropdown_id: uuid.UUID,
+    label: str,
+    ref: str | None = None,
+    icon_name: str | None = None,
+    color: str | None = None,
+    position: int | None = None,
+) -> CaseDropdownOptionRead:
+    """Add an option to a case dropdown definition. Requires the case
+    add-ons entitlement.
+
+    Args:
+        workspace_id: The workspace ID.
+        dropdown_id: Dropdown definition UUID from `list_case_dropdowns`.
+        label: Display label for the option.
+        ref: Optional slug identifier. Defaults to the slugified label.
+        icon_name: Optional icon name.
+        color: Optional display color.
+        position: Sort position. Defaults to the end of the option list.
+
+    Returns JSON with the created option.
+    """
+
+    try:
+        dropdown_id = _coerce_uuid_arg(dropdown_id, "dropdown_id")
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with CaseDropdownDefinitionsService.with_session(role=role) as svc:
+            definition = await svc.get_definition(dropdown_id)
+            if position is None:
+                # Append after the highest position; deletions leave gaps, so
+                # the option count can collide with an existing position.
+                position = (
+                    max((opt.position for opt in definition.options), default=-1) + 1
+                )
+            params = CaseDropdownOptionCreate(
+                label=label,
+                ref=ref or _slugify_dropdown_ref(label, field_name="label"),
+                icon_name=icon_name,
+                color=color,
+                position=position,
+            )
+            option = await svc.add_option(dropdown_id, params)
+            return _case_dropdown_option_payload(option)
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except EntitlementRequired as e:
+        raise ToolError(str(e)) from e
+    except TracecatNotFoundError as e:
+        raise ToolError(str(e)) from e
+    except TracecatValidationError as e:
+        raise ToolError(str(e)) from e
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to add case dropdown option", error=str(e))
+        raise ToolError(f"Failed to add case dropdown option: {e}") from None
+
+
+@mcp.tool()
+async def update_case_dropdown_option(
+    workspace_id: uuid.UUID,
+    dropdown_id: uuid.UUID,
+    option_id: uuid.UUID,
+    label: str | None = None,
+    ref: str | None = None,
+    icon_name: str | None = None,
+    color: str | None = None,
+    position: int | None = None,
+) -> CaseDropdownOptionRead:
+    """Update an option within a case dropdown definition. Only provided
+    fields are changed. Requires the case add-ons entitlement.
+
+    Args:
+        workspace_id: The workspace ID.
+        dropdown_id: Dropdown definition UUID from `list_case_dropdowns`.
+        option_id: Option UUID within the dropdown definition.
+        label: New display label.
+        ref: New slug identifier.
+        icon_name: New icon name.
+        color: New display color.
+        position: New sort position.
+
+    Returns JSON with the updated option.
+    """
+
+    try:
+        dropdown_id = _coerce_uuid_arg(dropdown_id, "dropdown_id")
+        option_id = _coerce_uuid_arg(option_id, "option_id")
+        _, role = await _resolve_workspace_role(workspace_id)
+        update_kwargs: dict[str, Any] = {}
+        if label is not None:
+            update_kwargs["label"] = label
+        if ref is not None:
+            update_kwargs["ref"] = ref
+        if icon_name is not None:
+            update_kwargs["icon_name"] = icon_name
+        if color is not None:
+            update_kwargs["color"] = color
+        if position is not None:
+            update_kwargs["position"] = position
+        async with CaseDropdownDefinitionsService.with_session(role=role) as svc:
+            await svc.get_definition(dropdown_id)
+            option = await svc.update_option(
+                dropdown_id, option_id, CaseDropdownOptionUpdate(**update_kwargs)
+            )
+            return _case_dropdown_option_payload(option)
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except EntitlementRequired as e:
+        raise ToolError(str(e)) from e
+    except TracecatNotFoundError as e:
+        raise ToolError(str(e)) from e
+    except TracecatValidationError as e:
+        raise ToolError(str(e)) from e
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to update case dropdown option", error=str(e))
+        raise ToolError(f"Failed to update case dropdown option: {e}") from None
+
+
+@mcp.tool()
+async def delete_case_dropdown_option(
+    workspace_id: uuid.UUID,
+    dropdown_id: uuid.UUID,
+    option_id: uuid.UUID,
+) -> MCPMessageResponse:
+    """Delete an option from a case dropdown definition. Requires the case
+    add-ons entitlement.
+
+    Args:
+        workspace_id: The workspace ID.
+        dropdown_id: Dropdown definition UUID from `list_case_dropdowns`.
+        option_id: Option UUID within the dropdown definition.
+
+    Returns a confirmation message.
+    """
+
+    try:
+        dropdown_id = _coerce_uuid_arg(dropdown_id, "dropdown_id")
+        option_id = _coerce_uuid_arg(option_id, "option_id")
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with CaseDropdownDefinitionsService.with_session(role=role) as svc:
+            await svc.get_definition(dropdown_id)
+            await svc.delete_option(dropdown_id, option_id)
+            return MCPMessageResponse(
+                message=f"Case dropdown option {option_id} deleted successfully"
+            )
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except EntitlementRequired as e:
+        raise ToolError(str(e)) from e
+    except TracecatNotFoundError as e:
+        raise ToolError(str(e)) from e
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to delete case dropdown option", error=str(e))
+        raise ToolError(f"Failed to delete case dropdown option: {e}") from None
+
+
+@mcp.tool()
+async def set_case_dropdown_value(
+    workspace_id: uuid.UUID,
+    case_id: uuid.UUID,
+    definition_id: uuid.UUID | None = None,
+    definition_ref: str | None = None,
+    option_id: uuid.UUID | None = None,
+    option_ref: str | None = None,
+) -> CaseDropdownValueRead:
+    """Set or clear a dropdown value on a case. Provide exactly one of
+    `definition_id` or `definition_ref`, and at most one of `option_id` or
+    `option_ref`; omit both option arguments to clear the value. Requires
+    the case add-ons entitlement.
+
+    Args:
+        workspace_id: The workspace ID.
+        case_id: Case UUID.
+        definition_id: Dropdown definition UUID.
+        definition_ref: Dropdown definition slug ref.
+        option_id: Option UUID to select.
+        option_ref: Option slug ref to select.
+
+    Returns JSON with the resulting value including definition and option
+    info.
+    """
+
+    try:
+        case_id = _coerce_uuid_arg(case_id, "case_id")
+        if definition_id is not None:
+            definition_id = _coerce_uuid_arg(definition_id, "definition_id")
+        if option_id is not None:
+            option_id = _coerce_uuid_arg(option_id, "option_id")
+        _, role = await _resolve_workspace_role(workspace_id)
+        value_input = CaseDropdownValueInput(
+            definition_id=definition_id,
+            definition_ref=definition_ref,
+            option_id=option_id,
+            option_ref=option_ref,
+        )
+        async with CaseDropdownValuesService.with_session(role=role) as svc:
+            return await svc.set_value_from_input(case_id, value_input)
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except EntitlementRequired as e:
+        raise ToolError(str(e)) from e
+    except TracecatNotFoundError as e:
+        raise ToolError(str(e)) from e
+    except TracecatValidationError as e:
+        raise ToolError(str(e)) from e
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to set case dropdown value", error=str(e))
+        raise ToolError(f"Failed to set case dropdown value: {e}") from None
 
 
 @mcp.tool()
@@ -8190,7 +8740,7 @@ async def list_integrations(workspace_id: uuid.UUID) -> IntegrationsInventoryRes
 async def get_agent_preset_authoring_context(
     workspace_id: uuid.UUID,
 ) -> AgentPresetAuthoringContextResponse:
-    """Get models, integrations, output_type guidance, and other preset authoring context."""
+    """Get models, integrations, `output_type` guidance, and other preset authoring context."""
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -8228,9 +8778,9 @@ async def create_agent_preset(
 ) -> AgentPresetRead:
     """Create an agent preset in the selected workspace.
 
-    Use ``skills`` to attach published skill versions. Each binding requires
-    ``skill_id`` and ``skill_version_id`` from ``list_skills`` and
-    ``publish_skill``.
+    Use `skills` to attach published skill versions. Each binding requires
+    `skill_id` and `skill_version_id` from `list_skills` and
+    `publish_skill`.
     """
 
     try:
@@ -8311,8 +8861,8 @@ async def update_agent_preset(
 ) -> AgentPresetRead:
     """Update an existing agent preset in the selected workspace.
 
-    Use ``skills`` to replace attached published skill-version bindings. Each
-    binding requires ``skill_id`` and ``skill_version_id``. Omit ``skills`` to
+    Use `skills` to replace attached published skill-version bindings. Each
+    binding requires `skill_id` and `skill_version_id`. Omit `skills` to
     leave bindings unchanged, or pass an empty list to detach all skills.
     """
 
@@ -8787,12 +9337,12 @@ async def upload_skill(
 ) -> SkillRead:
     """Upload a local skill directory into Tracecat as a workspace skill.
 
-    This creates a new logical skill. Use ``update_skill`` when replacing an
+    This creates a new logical skill. Use `update_skill` when replacing an
     existing skill draft to avoid duplicate skill rows with the same name.
 
     Agents should read the local directory themselves, preserve relative paths,
-    include the root ``SKILL.md`` file, and pass every file in ``files`` using
-    ``content_base64``.
+    include the root `SKILL.md` file, and pass every file in `files` using
+    `content_base64`.
     """
 
     try:
@@ -8834,7 +9384,7 @@ async def update_skill(
 ) -> SkillRead:
     """Replace an existing skill draft with a local skill directory.
 
-    This does not publish the draft. Call ``publish_skill`` after the update if
+    This does not publish the draft. Call `publish_skill` after the update if
     the skill should be attachable to agent presets.
     """
 

@@ -4,6 +4,7 @@ import orjson
 import pytest
 
 from tracecat.agent.catalog import loader
+from tracecat.agent.catalog.service import PlatformCatalogEntry
 
 
 class _CatalogResource:
@@ -66,9 +67,9 @@ def test_get_platform_catalog_models_filters_malformed_entries(
     )
 
     assert loader.get_platform_catalog_models() == [
-        {
-            "model_provider": "openai",
-            "model_name": "gpt-5",
-            "metadata": {"family": "gpt"},
-        }
+        PlatformCatalogEntry(
+            model_provider="openai",
+            model_name="gpt-5",
+            metadata={"family": "gpt"},
+        )
     ]

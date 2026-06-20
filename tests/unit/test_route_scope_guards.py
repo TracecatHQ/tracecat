@@ -356,6 +356,7 @@ async def test_organization_scope_guards(
             workflow_store_router.publish_workflow,
             ("workflow:update", "workflow:sync"),
         ),
+        (workflow_store_router.list_workflow_repositories, "workspace:update"),
         (workflow_store_router.list_workflow_commits, "workflow:sync"),
         (workflow_store_router.list_workflow_branches, "workflow:sync"),
         (workflow_store_router.pull_workflows, ("workflow:update", "workflow:sync")),

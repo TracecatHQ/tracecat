@@ -4355,6 +4355,10 @@ class OAuthIntegration(TimestampMixin, Base):
         Text,
         nullable=True,
     )
+    token_endpoint_auth_method: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+    )
 
     # Relationships
     user: Mapped[User | None] = relationship("User")
@@ -4478,6 +4482,9 @@ class MCPIntegration(TimestampMixin, Base):
         UniqueConstraint(
             "workspace_id", "slug", name="uq_mcp_integration_workspace_slug"
         ),
+        Index(
+            "ix_mcp_integration_workspace_catalog_slug", "workspace_id", "catalog_slug"
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -4509,6 +4516,11 @@ class MCPIntegration(TimestampMixin, Base):
         String,
         nullable=False,
         doc="Slug of the MCP integration",
+    )
+    catalog_slug: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+        doc="Platform MCP catalog slug this integration was created from",
     )
     # Server type: 'http' (HTTP/SSE) or 'stdio' (stdio)
     server_type: Mapped[str] = mapped_column(
@@ -4561,6 +4573,13 @@ class MCPIntegration(TimestampMixin, Base):
         Integer,
         nullable=True,
         doc="Timeout in seconds (HTTP timeout for http type, process timeout for stdio type)",
+    )
+    tools: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Tools discovered at the last successful connection verification "
+        "([{name, description, enabled, requires_approval, status}]); null means "
+        "the server is unverified",
     )
 
     oauth_integration: Mapped[OAuthIntegration | None] = relationship(

@@ -24,6 +24,14 @@ definition:
       type: int
       description: Maximum number of alerts to return.
       default: 100
+    source_fields:
+      type: list[str] | dict[str, Any] | None
+      description: |
+        Source field filter applied to each alert. Pass a list of dotted field
+        names to include only those fields, or a dict of `includes` / `excludes`
+        for fine-grained control. Maps directly to the Kibana `_source` request
+        body parameter. When `null` (default), every field is returned.
+      default: null
     base_url:
       type: str | None
       description: Kibana endpoint URL (e.g. https://localhost:5601).
@@ -47,6 +55,26 @@ definition:
             must_not:
               - exists:
                   field: kibana.alert.building_block_type
+    - ref: build_search_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          start_time: ${{ inputs.start_time }}
+          end_time: ${{ inputs.end_time }}
+          query: ${{ inputs.query || steps.search_query.result }}
+          limit: ${{ inputs.limit }}
+          source_fields: ${{ inputs.source_fields }}
+        script: |
+          def main(start_time, end_time, query, limit, source_fields):
+              payload = {
+                  "start": start_time,
+                  "end": end_time,
+                  "query": query,
+                  "size": limit,
+              }
+              if source_fields is not None:
+                  payload["_source"] = source_fields
+              return payload
     - ref: query_detection_alerts
       action: core.http_request
       args:
@@ -56,9 +84,5 @@ definition:
         headers:
           kbn-xsrf: kibana
           Authorization: ApiKey ${{ SECRETS.elastic_security.ELASTIC_API_KEY }}
-        payload:
-          start: ${{ inputs.start_time }}
-          end: ${{ inputs.end_time }}
-          query: ${{ inputs.query || steps.search_query.result }}
-          size: ${{ inputs.limit }}
+        payload: ${{ steps.build_search_payload.result }}
   returns: ${{ steps.query_detection_alerts.result.data }}

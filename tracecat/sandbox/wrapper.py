@@ -11,12 +11,17 @@ The wrapper script is executed inside the nsjail sandbox and handles:
 # to be written to the job directory before execution
 WRAPPER_SCRIPT = '''
 import asyncio
+import dataclasses
+import datetime
+import decimal
+import enum
 import importlib
 import inspect
 import json
 import os
 import sys
 import traceback
+import uuid
 from pathlib import Path
 
 def _install_action_gateway_sdk_transport():
@@ -97,6 +102,33 @@ def _resolve_output(value):
 
     return asyncio.run(await_value())
 
+def to_json_safe(value):
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    if isinstance(value, set | frozenset):
+        try:
+            return sorted(value)
+        except TypeError:
+            return sorted(value, key=repr)
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        try:
+            return dataclasses.asdict(value)
+        except RecursionError as e:
+            raise TypeError("Recursive dataclass values are not JSON-serializable") from e
+    if isinstance(value, datetime.datetime | datetime.date | datetime.time):
+        return value.isoformat()
+    if isinstance(value, datetime.timedelta):
+        return value.total_seconds()
+    if isinstance(value, decimal.Decimal):
+        return str(value)
+    if isinstance(value, enum.Enum):
+        return to_json_safe(value.value)
+    if isinstance(value, uuid.UUID | Path):
+        return str(value)
+    if isinstance(value, bytes | bytearray):
+        return value.decode("utf-8", errors="replace")
+    return repr(value)
+
 def main():
     """Execute user script and capture results."""
     # Read inputs from file
@@ -170,13 +202,11 @@ def main():
     # Write result to file
     result_path = Path("/work/result.json")
     try:
-        result_path.write_text(json.dumps(result))
-    except (TypeError, ValueError) as e:
-        # Handle non-JSON-serializable outputs (datetime, bytes, custom classes, etc.)
-        # Convert output to string representation so we don't lose the result
-        result["output"] = repr(result["output"])
+        result_path.write_text(json.dumps(result, default=to_json_safe))
+    except (TypeError, ValueError, RecursionError) as e:
         result["error"] = f"Output not JSON-serializable: {type(e).__name__}: {e}"
         result["success"] = False
+        result["output"] = repr(result["output"])
         result_path.write_text(json.dumps(result))
 
     # Exit with appropriate code

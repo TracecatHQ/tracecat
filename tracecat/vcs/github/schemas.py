@@ -17,6 +17,21 @@ class GitHubRepository(BaseModel):
     default_branch: str = "main"
 
 
+class GitHubAppRepository(BaseModel):
+    """Repository granted to the configured GitHub App installation."""
+
+    id: int
+    name: str
+    full_name: str
+    private: bool
+    default_branch: str
+    git_url: str
+    html_url: str | None = None
+    installation_id: int
+    installation_account: str
+    installation_account_type: str | None = None
+
+
 class GitHubInstallation(BaseModel):
     """GitHub App installation details."""
 
