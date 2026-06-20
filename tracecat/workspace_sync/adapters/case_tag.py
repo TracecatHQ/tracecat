@@ -36,11 +36,14 @@ class CaseTagAdapter(SingleYamlAdapter):
             .order_by(CaseTag.ref.asc(), CaseTag.id.asc())
         )
         tags = list((await ctx.session.execute(stmt)).scalars().all())
+        source_ids_by_local_id = await self.source_ids_by_local_id(ctx)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
-        reserved: set[str] = set()
+        reserved: set[str] = set(source_ids_by_local_id.values())
         for tag in tags:
-            source_id = unique_source_id(tag.ref, reserved=reserved)
+            source_id = source_ids_by_local_id.get(tag.id)
+            if source_id is None:
+                source_id = unique_source_id(tag.ref, reserved=reserved)
             reserved.add(source_id)
             specs[source_id] = CaseTagResourceSpec(
                 id=source_id,

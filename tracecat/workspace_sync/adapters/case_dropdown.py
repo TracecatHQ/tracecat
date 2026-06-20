@@ -36,11 +36,14 @@ class CaseDropdownAdapter(SingleYamlAdapter):
             .order_by(CaseDropdownDefinition.ref.asc(), CaseDropdownDefinition.id.asc())
         )
         dropdowns = list((await ctx.session.execute(stmt)).scalars().all())
+        source_ids_by_local_id = await self.source_ids_by_local_id(ctx)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
-        reserved: set[str] = set()
+        reserved: set[str] = set(source_ids_by_local_id.values())
         for dropdown in dropdowns:
-            source_id = unique_source_id(dropdown.ref, reserved=reserved)
+            source_id = source_ids_by_local_id.get(dropdown.id)
+            if source_id is None:
+                source_id = unique_source_id(dropdown.ref, reserved=reserved)
             reserved.add(source_id)
             specs[source_id] = CaseDropdownResourceSpec.model_validate(
                 {

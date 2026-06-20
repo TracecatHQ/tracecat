@@ -27,16 +27,19 @@ from tracecat.db.models import (
     AgentPreset,
     AgentPresetVersion,
     CaseDropdownDefinition,
+    CaseDurationDefinition,
     CaseFields,
     CaseTag,
     Secret,
     Skill,
     SkillVersion,
     Table,
+    Workflow,
     WorkspaceSyncResourceMapping,
     WorkspaceVariable,
 )
 from tracecat.git.types import GitUrl
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.sync import PullOptions
 from tracecat.tables.schemas import TableUpdate
 from tracecat.tables.service import BaseTablesService
@@ -687,6 +690,168 @@ async def test_project_workspace_preserves_skill_source_id_after_rename(
 
 
 @pytest.mark.anyio
+async def test_project_workspace_preserves_workflow_source_id_after_rename(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    transport = AsyncMock()
+    transport.read_files.return_value = VcsTreeSnapshot(
+        commit_sha="u" * 40,
+        tree_sha="tree-1",
+        files=_workflow_git_tree(
+            source_id="qa-workflow",
+            alias="qa-workflow",
+            title="QA workflow",
+        ),
+    )
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
+    )
+
+    with (
+        patch(
+            "tracecat.workspace_sync.service.vcs_transport_for_provider",
+            return_value=transport,
+        ),
+        patch(
+            "tracecat.workflow.management.management.RegistryLockService.resolve_lock_with_bindings",
+            AsyncMock(return_value=RegistryLock(origins={}, actions={})),
+        ),
+    ):
+        pull_result = await service.pull(options=PullOptions(commit_sha="u" * 40))
+
+    assert pull_result.success is True
+    workflow = await session.scalar(
+        select(Workflow).where(
+            Workflow.workspace_id == svc_role.workspace_id,
+            Workflow.alias == "qa-workflow",
+        )
+    )
+    assert workflow is not None
+    workflow.alias = "qa-workflow-renamed"
+    session.add(workflow)
+    await session.flush()
+
+    projection = await service.project_workspace(create_missing_mappings=False)
+    old_path = f"{WORKFLOW_ROOT}/qa-workflow/definition.yml"
+    new_path = f"{WORKFLOW_ROOT}/qa-workflow-renamed/definition.yml"
+
+    assert old_path in projection.files
+    assert new_path not in projection.files
+    workflow_spec = yaml.safe_load(projection.files[old_path])
+    assert workflow_spec["id"] == "qa-workflow"
+    assert workflow_spec["alias"] == "qa-workflow-renamed"
+
+
+@pytest.mark.anyio
+async def test_project_workspace_preserves_mapped_source_ids_after_renames(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(
+        _expanded_full_git_tree(include_schedules=False),
+        commit_sha="p" * 40,
+    )
+
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+    await service.project_workspace()
+
+    tag = await session.scalar(
+        select(CaseTag).where(
+            CaseTag.workspace_id == svc_role.workspace_id,
+            CaseTag.ref == "qa-alert",
+        )
+    )
+    dropdown = await session.scalar(
+        select(CaseDropdownDefinition).where(
+            CaseDropdownDefinition.workspace_id == svc_role.workspace_id,
+            CaseDropdownDefinition.ref == "qa_resolution_reason",
+        )
+    )
+    duration = await session.scalar(
+        select(CaseDurationDefinition).where(
+            CaseDurationDefinition.workspace_id == svc_role.workspace_id,
+            CaseDurationDefinition.name == "qa_time_to_triage",
+        )
+    )
+    variable = await session.scalar(
+        select(WorkspaceVariable).where(
+            WorkspaceVariable.workspace_id == svc_role.workspace_id,
+            WorkspaceVariable.name == "qa_config",
+            WorkspaceVariable.environment == "default",
+        )
+    )
+    secret = await session.scalar(
+        select(Secret).where(
+            Secret.workspace_id == svc_role.workspace_id,
+            Secret.name == "qa_threatintel",
+            Secret.environment == "default",
+        )
+    )
+    assert tag is not None
+    assert dropdown is not None
+    assert duration is not None
+    assert variable is not None
+    assert secret is not None
+
+    tag.name = "QA alert renamed"
+    tag.ref = "qa-alert-renamed"
+    dropdown.name = "QA resolution reason renamed"
+    dropdown.ref = "qa_resolution_reason_renamed"
+    duration.name = "qa_time_to_triage_renamed"
+    variable.name = "qa_config_renamed"
+    secret.name = "qa_threatintel_renamed"
+    session.add_all([tag, dropdown, duration, variable, secret])
+    await session.flush()
+
+    projection = await service.project_workspace(create_missing_mappings=False)
+
+    tag_spec = yaml.safe_load(projection.files[f"{CASE_TAG_ROOT}/qa-alert.yml"])
+    assert f"{CASE_TAG_ROOT}/qa-alert-renamed.yml" not in projection.files
+    assert tag_spec["id"] == "qa-alert"
+    assert tag_spec["name"] == "QA alert renamed"
+
+    dropdown_spec = yaml.safe_load(
+        projection.files[f"{CASE_DROPDOWN_ROOT}/qa_resolution_reason.yml"]
+    )
+    assert (
+        f"{CASE_DROPDOWN_ROOT}/qa_resolution_reason_renamed.yml" not in projection.files
+    )
+    assert dropdown_spec["id"] == "qa_resolution_reason"
+    assert dropdown_spec["name"] == "QA resolution reason renamed"
+
+    duration_spec = yaml.safe_load(
+        projection.files[f"{CASE_DURATION_ROOT}/qa_time_to_triage.yml"]
+    )
+    assert f"{CASE_DURATION_ROOT}/qa_time_to_triage_renamed.yml" not in projection.files
+    assert duration_spec["id"] == "qa_time_to_triage"
+    assert duration_spec["name"] == "qa_time_to_triage_renamed"
+
+    variable_spec = yaml.safe_load(
+        projection.files[f"{VARIABLE_ROOT}/default/qa_config.yml"]
+    )
+    assert f"{VARIABLE_ROOT}/default/qa_config_renamed.yml" not in projection.files
+    assert variable_spec["id"] == "default/qa_config"
+    assert variable_spec["name"] == "qa_config_renamed"
+
+    secret_spec = yaml.safe_load(
+        projection.files[f"{SECRET_METADATA_ROOT}/default/qa_threatintel.yml"]
+    )
+    assert (
+        f"{SECRET_METADATA_ROOT}/default/qa_threatintel_renamed.yml"
+        not in projection.files
+    )
+    assert secret_spec["id"] == "default/qa_threatintel"
+    assert secret_spec["name"] == "qa_threatintel_renamed"
+
+
+@pytest.mark.anyio
 async def test_pull_table_rename_reuses_source_id_mapping(
     session: AsyncSession,
     svc_role: Role,
@@ -820,6 +985,295 @@ async def test_pull_agent_preset_slug_rename_reuses_source_id_mapping(
     assert presets[0].id == first_preset_id
     assert presets[0].slug == "qa-identity-renamed"
     assert presets[0].name == "QA identity renamed"
+
+
+@pytest.mark.anyio
+async def test_pull_skill_slug_rename_reuses_source_id_mapping(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    transport = AsyncMock()
+    transport.read_files.side_effect = [
+        VcsTreeSnapshot(
+            commit_sha="h" * 40,
+            tree_sha="tree-1",
+            files=_skill_git_tree(
+                source_id="qa-enrichment-skill",
+                slug="qa-enrichment-skill",
+                name="QA enrichment skill",
+            ),
+        ),
+        VcsTreeSnapshot(
+            commit_sha="i" * 40,
+            tree_sha="tree-2",
+            files=_skill_git_tree(
+                source_id="qa-enrichment-skill",
+                slug="qa-enrichment-restored",
+                name="QA enrichment restored",
+            ),
+        ),
+    ]
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
+    )
+
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        first_result = await service.pull(options=PullOptions(commit_sha="h" * 40))
+        assert first_result.success is True
+        first_skill = await session.scalar(
+            select(Skill).where(
+                Skill.workspace_id == svc_role.workspace_id,
+                Skill.name == "qa-enrichment-skill",
+            )
+        )
+        assert first_skill is not None
+        first_skill_id = first_skill.id
+
+        second_result = await service.pull(options=PullOptions(commit_sha="i" * 40))
+
+    assert second_result.success is True
+    skills = list(
+        (
+            await session.scalars(
+                select(Skill).where(Skill.workspace_id == svc_role.workspace_id)
+            )
+        ).all()
+    )
+    assert len(skills) == 1
+    assert skills[0].id == first_skill_id
+    assert skills[0].name == "qa-enrichment-restored"
+    version = await session.scalar(
+        select(SkillVersion).where(
+            SkillVersion.workspace_id == svc_role.workspace_id,
+            SkillVersion.skill_id == first_skill_id,
+            SkillVersion.version == 1,
+        )
+    )
+    assert version is not None
+    assert version.name == "QA enrichment restored"
+
+
+@pytest.mark.anyio
+async def test_pull_workflow_alias_rename_reuses_source_id_mapping(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    transport = AsyncMock()
+    transport.read_files.side_effect = [
+        VcsTreeSnapshot(
+            commit_sha="q" * 40,
+            tree_sha="tree-1",
+            files=_workflow_git_tree(
+                source_id="qa-workflow",
+                alias="qa-workflow",
+                title="QA workflow",
+            ),
+        ),
+        VcsTreeSnapshot(
+            commit_sha="r" * 40,
+            tree_sha="tree-2",
+            files=_workflow_git_tree(
+                source_id="qa-workflow",
+                alias="qa-workflow-renamed",
+                title="QA workflow renamed",
+            ),
+        ),
+    ]
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
+    )
+
+    with (
+        patch(
+            "tracecat.workspace_sync.service.vcs_transport_for_provider",
+            return_value=transport,
+        ),
+        patch(
+            "tracecat.workflow.management.management.RegistryLockService.resolve_lock_with_bindings",
+            AsyncMock(return_value=RegistryLock(origins={}, actions={})),
+        ),
+    ):
+        first_result = await service.pull(options=PullOptions(commit_sha="q" * 40))
+        assert first_result.success is True
+        first_workflow = await session.scalar(
+            select(Workflow).where(
+                Workflow.workspace_id == svc_role.workspace_id,
+                Workflow.alias == "qa-workflow",
+            )
+        )
+        assert first_workflow is not None
+        first_workflow_id = first_workflow.id
+
+        second_result = await service.pull(options=PullOptions(commit_sha="r" * 40))
+
+    assert second_result.success is True
+    workflows = list(
+        (
+            await session.scalars(
+                select(Workflow).where(Workflow.workspace_id == svc_role.workspace_id)
+            )
+        ).all()
+    )
+    assert len(workflows) == 1
+    assert workflows[0].id == first_workflow_id
+    assert workflows[0].alias == "qa-workflow-renamed"
+
+
+@pytest.mark.anyio
+async def test_pull_simple_resource_renames_reuse_source_id_mappings(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    transport = AsyncMock()
+    transport.read_files.side_effect = [
+        VcsTreeSnapshot(
+            commit_sha="s" * 40,
+            tree_sha="tree-1",
+            files=_simple_resource_rename_git_tree(
+                tag_name="QA alert",
+                dropdown_name="QA resolution reason",
+                duration_name="QA time to triage",
+                variable_name="qa_config",
+                secret_name="qa_threatintel",
+            ),
+        ),
+        VcsTreeSnapshot(
+            commit_sha="t" * 40,
+            tree_sha="tree-2",
+            files=_simple_resource_rename_git_tree(
+                tag_name="QA alert renamed",
+                dropdown_name="QA resolution reason renamed",
+                duration_name="QA time to triage renamed",
+                variable_name="qa_config_renamed",
+                secret_name="qa_threatintel_renamed",
+            ),
+        ),
+    ]
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
+    )
+
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        first_result = await service.pull(options=PullOptions(commit_sha="s" * 40))
+        assert first_result.success is True
+        first_tag = await session.scalar(
+            select(CaseTag).where(
+                CaseTag.workspace_id == svc_role.workspace_id,
+                CaseTag.ref == "qa-alert",
+            )
+        )
+        first_dropdown = await session.scalar(
+            select(CaseDropdownDefinition).where(
+                CaseDropdownDefinition.workspace_id == svc_role.workspace_id,
+                CaseDropdownDefinition.ref == "qa_resolution_reason",
+            )
+        )
+        first_duration = await session.scalar(
+            select(CaseDurationDefinition).where(
+                CaseDurationDefinition.workspace_id == svc_role.workspace_id,
+                CaseDurationDefinition.name == "QA time to triage",
+            )
+        )
+        first_variable = await session.scalar(
+            select(WorkspaceVariable).where(
+                WorkspaceVariable.workspace_id == svc_role.workspace_id,
+                WorkspaceVariable.name == "qa_config",
+                WorkspaceVariable.environment == "default",
+            )
+        )
+        first_secret = await session.scalar(
+            select(Secret).where(
+                Secret.workspace_id == svc_role.workspace_id,
+                Secret.name == "qa_threatintel",
+                Secret.environment == "default",
+            )
+        )
+        assert first_tag is not None
+        assert first_dropdown is not None
+        assert first_duration is not None
+        assert first_variable is not None
+        assert first_secret is not None
+        first_ids = {
+            "tag": first_tag.id,
+            "dropdown": first_dropdown.id,
+            "duration": first_duration.id,
+            "variable": first_variable.id,
+            "secret": first_secret.id,
+        }
+
+        second_result = await service.pull(options=PullOptions(commit_sha="t" * 40))
+
+    assert second_result.success is True
+    tags = list(
+        (
+            await session.scalars(
+                select(CaseTag).where(CaseTag.workspace_id == svc_role.workspace_id)
+            )
+        ).all()
+    )
+    dropdowns = list(
+        (
+            await session.scalars(
+                select(CaseDropdownDefinition).where(
+                    CaseDropdownDefinition.workspace_id == svc_role.workspace_id
+                )
+            )
+        ).all()
+    )
+    durations = list(
+        (
+            await session.scalars(
+                select(CaseDurationDefinition).where(
+                    CaseDurationDefinition.workspace_id == svc_role.workspace_id
+                )
+            )
+        ).all()
+    )
+    variables = list(
+        (
+            await session.scalars(
+                select(WorkspaceVariable).where(
+                    WorkspaceVariable.workspace_id == svc_role.workspace_id
+                )
+            )
+        ).all()
+    )
+    secrets = list(
+        (
+            await session.scalars(
+                select(Secret).where(Secret.workspace_id == svc_role.workspace_id)
+            )
+        ).all()
+    )
+
+    assert len(tags) == 1
+    assert tags[0].id == first_ids["tag"]
+    assert tags[0].name == "QA alert renamed"
+    assert tags[0].ref == "qa-alert"
+    assert len(dropdowns) == 1
+    assert dropdowns[0].id == first_ids["dropdown"]
+    assert dropdowns[0].name == "QA resolution reason renamed"
+    assert dropdowns[0].ref == "qa_resolution_reason"
+    assert len(durations) == 1
+    assert durations[0].id == first_ids["duration"]
+    assert durations[0].name == "QA time to triage renamed"
+    assert len(variables) == 1
+    assert variables[0].id == first_ids["variable"]
+    assert variables[0].name == "qa_config_renamed"
+    assert variables[0].environment == "default"
+    assert len(secrets) == 1
+    assert secrets[0].id == first_ids["secret"]
+    assert secrets[0].name == "qa_threatintel_renamed"
+    assert secrets[0].environment == "default"
 
 
 @pytest.mark.anyio
@@ -1207,6 +1661,124 @@ def _table_git_tree(
                 "name": name,
                 "columns": [{"name": "indicator", "type": "text", "unique": True}],
                 "rows_path": None,
+            }
+        ),
+    }
+
+
+def _skill_git_tree(
+    *,
+    source_id: str,
+    slug: str,
+    name: str,
+) -> dict[str, str]:
+    content = "# QA Enrichment Skill\n"
+    return {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{SKILL_ROOT}/{source_id}/skill.yml": _yaml(
+            {
+                "version": 1,
+                "type": "skill",
+                "id": source_id,
+                "slug": slug,
+                "name": name,
+                "description": "Deterministic enrichment helper",
+                "current_version": 1,
+                "files": [
+                    {
+                        "path": "SKILL.md",
+                        "sha256": hashlib.sha256(content.encode()).hexdigest(),
+                    }
+                ],
+            }
+        ),
+        f"{SKILL_ROOT}/{source_id}/files/SKILL.md": content,
+    }
+
+
+def _workflow_git_tree(
+    *,
+    source_id: str,
+    alias: str,
+    title: str,
+) -> dict[str, str]:
+    return {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{WORKFLOW_ROOT}/{source_id}/definition.yml": _yaml(
+            _workflow_spec(
+                source_id=source_id,
+                title=title,
+                alias=alias,
+                folder_path="QA/Workflows",
+                actions=[
+                    {
+                        "ref": "reshape",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "${{ TRIGGER.value }}"},
+                    }
+                ],
+            )
+        ),
+    }
+
+
+def _simple_resource_rename_git_tree(
+    *,
+    tag_name: str,
+    dropdown_name: str,
+    duration_name: str,
+    variable_name: str,
+    secret_name: str,
+) -> dict[str, str]:
+    return {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{CASE_TAG_ROOT}/qa-alert.yml": _yaml(
+            {
+                "version": 1,
+                "type": "case_tag",
+                "id": "qa-alert",
+                "name": tag_name,
+                "color": "#D92D20",
+            }
+        ),
+        f"{CASE_DROPDOWN_ROOT}/qa_resolution_reason.yml": _yaml(
+            {
+                "version": 1,
+                "type": "case_dropdown",
+                "id": "qa_resolution_reason",
+                "name": dropdown_name,
+                "options": [],
+            }
+        ),
+        f"{CASE_DURATION_ROOT}/qa_time_to_triage.yml": _yaml(
+            {
+                "version": 1,
+                "type": "case_duration",
+                "id": "qa_time_to_triage",
+                "name": duration_name,
+                "start": {"event": "case_created", "selection": "first"},
+                "end": {"event": "status_changed", "selection": "first"},
+            }
+        ),
+        f"{VARIABLE_ROOT}/default/qa_config.yml": _yaml(
+            {
+                "version": 1,
+                "type": "variable",
+                "id": "default/qa_config",
+                "name": variable_name,
+                "environment": "default",
+                "keys": ["mode"],
+            }
+        ),
+        f"{SECRET_METADATA_ROOT}/default/qa_threatintel.yml": _yaml(
+            {
+                "version": 1,
+                "type": "secret_metadata",
+                "id": "default/qa_threatintel",
+                "name": secret_name,
+                "environment": "default",
+                "secret_type": "custom",
+                "keys": ["API_KEY"],
             }
         ),
     }

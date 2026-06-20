@@ -23,7 +23,6 @@ from tracecat.db.models import (
     AgentTagLink,
     Skill,
     SkillVersion,
-    WorkspaceSyncResourceMapping,
 )
 from tracecat.exceptions import TracecatValidationError
 from tracecat.service import BaseWorkspaceService
@@ -34,7 +33,7 @@ from tracecat.workspace_sync.adapters.base import (
     ResourceProjection,
     unique_source_id,
 )
-from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
+from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
     AGENT_PRESET_ROOT,
     AgentPresetResourceSpec,
@@ -71,7 +70,7 @@ class AgentPresetAdapter(CompoundYamlAdapter):
             .order_by(AgentPreset.slug.asc(), AgentPreset.id.asc())
         )
         presets = list((await ctx.session.execute(stmt)).scalars().all())
-        source_ids_by_local_id = await self._source_ids_by_local_id(ctx)
+        source_ids_by_local_id = await self.source_ids_by_local_id(ctx)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
         reserved: set[str] = set(source_ids_by_local_id.values())
@@ -117,20 +116,6 @@ class AgentPresetAdapter(CompoundYamlAdapter):
             )
             resources.append(self.projected_resource(source_id, preset.id))
         return ResourceProjection(specs=specs, resources=resources)
-
-    async def _source_ids_by_local_id(
-        self,
-        ctx: BaseWorkspaceService,
-    ) -> dict[uuid.UUID, str]:
-        stmt = select(
-            WorkspaceSyncResourceMapping.local_id,
-            WorkspaceSyncResourceMapping.source_id,
-        ).where(
-            WorkspaceSyncResourceMapping.workspace_id == ctx.workspace_id,
-            WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
-            WorkspaceSyncResourceMapping.resource_type == self.resource_type.value,
-        )
-        return dict((await ctx.session.execute(stmt)).tuples().all())
 
     async def import_specs(
         self,
@@ -287,22 +272,15 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         *,
         source_id: str,
     ) -> AgentPreset | None:
-        mapping = await ctx.session.scalar(
-            select(WorkspaceSyncResourceMapping).where(
-                WorkspaceSyncResourceMapping.workspace_id == ctx.workspace_id,
-                WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
-                WorkspaceSyncResourceMapping.resource_type == self.resource_type.value,
-                WorkspaceSyncResourceMapping.source_id == source_id,
-            )
-        )
-        if mapping is None:
+        local_id = await self.local_id_for_source_id(ctx, source_id)
+        if local_id is None:
             return None
 
         return await ctx.session.scalar(
             select(AgentPreset)
             .where(
                 AgentPreset.workspace_id == ctx.workspace_id,
-                AgentPreset.id == mapping.local_id,
+                AgentPreset.id == local_id,
             )
             .options(selectinload(AgentPreset.tags))
         )

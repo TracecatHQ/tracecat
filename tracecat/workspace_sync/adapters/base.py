@@ -17,11 +17,13 @@ from dataclasses import dataclass
 from typing import Any, ClassVar, Literal, cast
 
 from pydantic import BaseModel
+from sqlalchemy import select
 
+from tracecat.db.models import WorkspaceSyncResourceMapping
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import PullDiagnostic
 from tracecat.tables.enums import SqlType
-from tracecat.workspace_sync.enums import SyncResourceType
+from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.schemas import WorkspaceManifestResources, WorkspaceSpec
 
 type WorkspaceSpecField = Literal[
@@ -160,6 +162,33 @@ class ResourceAdapter(ABC):
             local_id=local_id,
         )
 
+    async def source_ids_by_local_id(
+        self,
+        ctx: BaseWorkspaceService,
+    ) -> dict[uuid.UUID, str]:
+        stmt = select(
+            WorkspaceSyncResourceMapping.local_id,
+            WorkspaceSyncResourceMapping.source_id,
+        ).where(
+            WorkspaceSyncResourceMapping.workspace_id == ctx.workspace_id,
+            WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
+            WorkspaceSyncResourceMapping.resource_type == self.resource_type.value,
+        )
+        return dict((await ctx.session.execute(stmt)).tuples().all())
+
+    async def local_id_for_source_id(
+        self,
+        ctx: BaseWorkspaceService,
+        source_id: str,
+    ) -> uuid.UUID | None:
+        stmt = select(WorkspaceSyncResourceMapping.local_id).where(
+            WorkspaceSyncResourceMapping.workspace_id == ctx.workspace_id,
+            WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
+            WorkspaceSyncResourceMapping.resource_type == self.resource_type.value,
+            WorkspaceSyncResourceMapping.source_id == source_id,
+        )
+        return await ctx.session.scalar(stmt)
+
 
 class CompoundYamlAdapter(ResourceAdapter):
     """``<root>/<source_id>/<filename>`` layout (agent presets, skills, tables)."""
@@ -262,6 +291,21 @@ def unique_source_id(value: str, *, reserved: set[str]) -> str:
 
 def environment_source_id(environment: str, name: str) -> str:
     return f"{path_segment(environment, fallback='default')}/{path_segment(name)}"
+
+
+def unique_environment_source_id(
+    environment: str,
+    name: str,
+    *,
+    reserved: set[str],
+) -> str:
+    base = environment_source_id(environment, name)
+    candidate = base
+    counter = 2
+    while candidate in reserved:
+        candidate = f"{base}-{counter}"
+        counter += 1
+    return candidate
 
 
 def sql_type(value: Any) -> SqlType:

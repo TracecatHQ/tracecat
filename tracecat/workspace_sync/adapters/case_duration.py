@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Mapping
 from typing import Any, cast
 
@@ -38,11 +39,14 @@ class CaseDurationAdapter(SingleYamlAdapter):
             )
         )
         durations = list((await ctx.session.execute(stmt)).scalars().all())
+        source_ids_by_local_id = await self.source_ids_by_local_id(ctx)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
-        reserved: set[str] = set()
+        reserved: set[str] = set(source_ids_by_local_id.values())
         for duration in durations:
-            source_id = unique_source_id(duration.name, reserved=reserved)
+            source_id = source_ids_by_local_id.get(duration.id)
+            if source_id is None:
+                source_id = unique_source_id(duration.name, reserved=reserved)
             reserved.add(source_id)
             specs[source_id] = CaseDurationResourceSpec.model_validate(
                 {
@@ -74,11 +78,10 @@ class CaseDurationAdapter(SingleYamlAdapter):
         durations = cast(Mapping[str, CaseDurationResourceSpec], specs)
         imported: list[ImportedResource] = []
         for source_id, spec in sorted(durations.items()):
-            duration = await ctx.session.scalar(
-                select(CaseDurationDefinition).where(
-                    CaseDurationDefinition.workspace_id == ctx.workspace_id,
-                    CaseDurationDefinition.name == spec.name,
-                )
+            duration = await self._duration_for_import(
+                ctx,
+                source_id=source_id,
+                spec=spec,
             )
             start = _duration_anchor(spec, "start")
             end = _duration_anchor(spec, "end")
@@ -106,6 +109,70 @@ class CaseDurationAdapter(SingleYamlAdapter):
             await ctx.session.flush()
             imported.append(self.imported_resource(source_id, duration.id))
         return imported
+
+    async def _duration_for_import(
+        self,
+        ctx: BaseWorkspaceService,
+        *,
+        source_id: str,
+        spec: CaseDurationResourceSpec,
+    ) -> CaseDurationDefinition | None:
+        duration = await self._duration_by_source_id(ctx, source_id=source_id)
+        if duration is not None:
+            await self._ensure_name_available(
+                ctx,
+                source_id=source_id,
+                name=spec.name,
+                duration_id=duration.id,
+            )
+            return duration
+
+        return await ctx.session.scalar(
+            select(CaseDurationDefinition).where(
+                CaseDurationDefinition.workspace_id == ctx.workspace_id,
+                CaseDurationDefinition.name == spec.name,
+            )
+        )
+
+    async def _duration_by_source_id(
+        self,
+        ctx: BaseWorkspaceService,
+        *,
+        source_id: str,
+    ) -> CaseDurationDefinition | None:
+        local_id = await self.local_id_for_source_id(ctx, source_id)
+        if local_id is None:
+            return None
+
+        return await ctx.session.scalar(
+            select(CaseDurationDefinition).where(
+                CaseDurationDefinition.workspace_id == ctx.workspace_id,
+                CaseDurationDefinition.id == local_id,
+            )
+        )
+
+    async def _ensure_name_available(
+        self,
+        ctx: BaseWorkspaceService,
+        *,
+        source_id: str,
+        name: str,
+        duration_id: uuid.UUID,
+    ) -> None:
+        conflict_id = await ctx.session.scalar(
+            select(CaseDurationDefinition.id).where(
+                CaseDurationDefinition.workspace_id == ctx.workspace_id,
+                CaseDurationDefinition.name == name,
+                CaseDurationDefinition.id != duration_id,
+            )
+        )
+        if conflict_id is None:
+            return
+
+        raise ValueError(
+            f"Case duration sync source id {source_id!r} cannot use name {name!r} "
+            "because another duration already uses that name."
+        )
 
 
 def _duration_anchor(spec: CaseDurationResourceSpec, key: str) -> dict[str, Any]:

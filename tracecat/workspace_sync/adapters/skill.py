@@ -20,8 +20,8 @@ from tracecat.db.models import (
     SkillBlob,
     SkillVersion,
     SkillVersionFile,
-    WorkspaceSyncResourceMapping,
 )
+from tracecat.exceptions import TracecatValidationError
 from tracecat.service import BaseWorkspaceService
 from tracecat.storage import blob
 from tracecat.sync import PullDiagnostic
@@ -33,7 +33,7 @@ from tracecat.workspace_sync.adapters.base import (
     path_parts,
     unique_source_id,
 )
-from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
+from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
     SKILL_ROOT,
     SkillFileSpec,
@@ -147,7 +147,7 @@ class SkillAdapter(CompoundYamlAdapter):
             .order_by(Skill.name.asc(), Skill.id.asc())
         )
         skills = list((await ctx.session.execute(stmt)).scalars().all())
-        source_ids_by_local_id = await self._source_ids_by_local_id(ctx)
+        source_ids_by_local_id = await self.source_ids_by_local_id(ctx)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
         reserved: set[str] = set(source_ids_by_local_id.values())
@@ -190,20 +190,6 @@ class SkillAdapter(CompoundYamlAdapter):
             resources.append(self.projected_resource(source_id, skill.id))
         return ResourceProjection(specs=specs, resources=resources)
 
-    async def _source_ids_by_local_id(
-        self,
-        ctx: BaseWorkspaceService,
-    ) -> dict[uuid.UUID, str]:
-        stmt = select(
-            WorkspaceSyncResourceMapping.local_id,
-            WorkspaceSyncResourceMapping.source_id,
-        ).where(
-            WorkspaceSyncResourceMapping.workspace_id == ctx.workspace_id,
-            WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
-            WorkspaceSyncResourceMapping.resource_type == self.resource_type.value,
-        )
-        return dict((await ctx.session.execute(stmt)).tuples().all())
-
     async def _skill_version_rows(
         self,
         ctx: BaseWorkspaceService,
@@ -232,12 +218,7 @@ class SkillAdapter(CompoundYamlAdapter):
         imported: list[ImportedResource] = []
         skill_service = SkillService(session=ctx.session, role=ctx.role)
         for source_id, spec in sorted(skills.items()):
-            skill = await ctx.session.scalar(
-                select(Skill).where(
-                    Skill.workspace_id == ctx.workspace_id,
-                    Skill.name == spec.slug,
-                )
-            )
+            skill = await self._skill_for_import(ctx, source_id=source_id, spec=spec)
             if skill is None:
                 skill = Skill(
                     workspace_id=ctx.workspace_id,
@@ -248,6 +229,7 @@ class SkillAdapter(CompoundYamlAdapter):
                 ctx.session.add(skill)
                 await ctx.session.flush()
             else:
+                skill.name = spec.slug
                 skill.description = getattr(spec, "description", None)
 
             file_refs: list[tuple[str, SkillFileBlobRef]] = []
@@ -329,3 +311,67 @@ class SkillAdapter(CompoundYamlAdapter):
             await ctx.session.flush()
             imported.append(self.imported_resource(source_id, skill.id))
         return imported
+
+    async def _skill_for_import(
+        self,
+        ctx: BaseWorkspaceService,
+        *,
+        source_id: str,
+        spec: SkillResourceSpec,
+    ) -> Skill | None:
+        skill = await self._skill_by_source_id(ctx, source_id=source_id)
+        if skill is not None:
+            await self._ensure_slug_available(
+                ctx,
+                source_id=source_id,
+                slug=spec.slug,
+                skill_id=skill.id,
+            )
+            return skill
+
+        return await ctx.session.scalar(
+            select(Skill).where(
+                Skill.workspace_id == ctx.workspace_id,
+                Skill.name == spec.slug,
+            )
+        )
+
+    async def _skill_by_source_id(
+        self,
+        ctx: BaseWorkspaceService,
+        *,
+        source_id: str,
+    ) -> Skill | None:
+        local_id = await self.local_id_for_source_id(ctx, source_id)
+        if local_id is None:
+            return None
+
+        return await ctx.session.scalar(
+            select(Skill).where(
+                Skill.workspace_id == ctx.workspace_id,
+                Skill.id == local_id,
+            )
+        )
+
+    async def _ensure_slug_available(
+        self,
+        ctx: BaseWorkspaceService,
+        *,
+        source_id: str,
+        slug: str,
+        skill_id: uuid.UUID,
+    ) -> None:
+        conflict_id = await ctx.session.scalar(
+            select(Skill.id).where(
+                Skill.workspace_id == ctx.workspace_id,
+                Skill.name == slug,
+                Skill.id != skill_id,
+            )
+        )
+        if conflict_id is None:
+            return
+
+        raise TracecatValidationError(
+            f"Skill sync source id {source_id!r} cannot use slug {slug!r} "
+            "because another skill already uses that slug."
+        )
