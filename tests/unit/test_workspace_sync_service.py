@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import uuid
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -42,6 +42,7 @@ from tracecat.workspace_sync.transport import (
 from tracecat.workspace_sync.workflow import (
     serialize_workflow_spec,
     workflow_source_path,
+    workflow_spec_to_remote,
 )
 
 
@@ -353,6 +354,85 @@ async def test_preview_export_counts_resources_without_mutating_mappings(
     _, kwargs = await_args
     assert kwargs["create_missing_mappings"] is False
     assert kwargs["resource_ids"] == {SyncResourceType.WORKFLOW: set()}
+
+
+@pytest.mark.anyio
+async def test_selected_workflow_export_includes_workflow_id_children(
+    workspace_sync_service: WorkspaceSyncService,
+    sample_dsl: DSLInput,
+) -> None:
+    parent_id = WorkflowUUID.new_uuid4()
+    child_id = WorkflowUUID.new_uuid4()
+    parent = cast(Any, SimpleNamespace(id=parent_id, alias=None))
+    child = cast(Any, SimpleNamespace(id=child_id, alias=None))
+    parent_dsl = DSLInput(
+        title="Parent",
+        description="Calls a child workflow by id",
+        entrypoint=DSLEntrypoint(ref="run_child", expects={}),
+        actions=[
+            ActionStatement(
+                ref="run_child",
+                action="core.workflow.execute",
+                args={"workflow_id": child_id.short()},
+            )
+        ],
+    )
+
+    async def get_workflow_dsl(workflow: Any, **_: Any) -> DSLInput:
+        return parent_dsl if workflow.id == parent_id else sample_dsl
+
+    with (
+        patch.object(
+            workspace_sync_service,
+            "_list_projectable_workflows",
+            AsyncMock(return_value=[parent, child]),
+        ),
+        patch.object(
+            workspace_sync_service,
+            "_get_workflow_dsl",
+            AsyncMock(side_effect=get_workflow_dsl),
+        ),
+    ):
+        workflows = await workspace_sync_service._projectable_workflow_closure(
+            {SyncResourceType.WORKFLOW: {parent_id}}
+        )
+
+    assert [workflow.id for workflow in workflows] == [parent_id, child_id]
+
+
+def test_workflow_spec_to_remote_rewrites_child_workflow_id_references() -> None:
+    source_parent_id = WorkflowUUID.new_uuid4()
+    source_child_id = WorkflowUUID.new_uuid4()
+    local_parent_id = WorkflowUUID.new_uuid4()
+    local_child_id = WorkflowUUID.new_uuid4()
+    spec = WorkflowResourceSpec(
+        id=source_parent_id.short(),
+        alias="parent",
+        definition=DSLInput(
+            title="Parent",
+            description="Calls a child workflow by source id",
+            entrypoint=DSLEntrypoint(ref="run_child", expects={}),
+            actions=[
+                ActionStatement(
+                    ref="run_child",
+                    action="core.workflow.execute",
+                    args={"workflow_id": source_child_id.short()},
+                )
+            ],
+        ),
+    )
+
+    remote = workflow_spec_to_remote(
+        spec,
+        local_workflow_id=local_parent_id,
+        local_workflow_ids={
+            source_parent_id.short(): local_parent_id,
+            source_child_id.short(): local_child_id,
+        },
+    )
+
+    assert remote.definition.actions[0].args["workflow_id"] == local_child_id.short()
+    assert spec.definition.actions[0].args["workflow_id"] == source_child_id.short()
 
 
 @pytest.mark.anyio

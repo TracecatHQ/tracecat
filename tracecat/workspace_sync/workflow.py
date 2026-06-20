@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, cast
 
 import yaml
@@ -119,8 +120,16 @@ def workflow_spec_from_orm(
 
 
 def workflow_spec_to_remote(
-    spec: WorkflowResourceSpec, *, local_workflow_id: WorkflowUUID
+    spec: WorkflowResourceSpec,
+    *,
+    local_workflow_id: WorkflowUUID,
+    local_workflow_ids: Mapping[str, WorkflowUUID] | None = None,
 ) -> RemoteWorkflowDefinition:
+    definition = (
+        _definition_with_local_workflow_ids(spec.definition, local_workflow_ids)
+        if local_workflow_ids
+        else spec.definition
+    )
     return RemoteWorkflowDefinition(
         id=local_workflow_id.short(),
         alias=spec.alias,
@@ -129,8 +138,63 @@ def workflow_spec_to_remote(
         schedules=spec.schedules,
         webhook=spec.webhook,
         case_trigger=spec.case_trigger,
-        definition=spec.definition,
+        definition=definition,
     )
+
+
+def _definition_with_local_workflow_ids(
+    definition: DSLInput,
+    local_workflow_ids: Mapping[str, WorkflowUUID],
+) -> DSLInput:
+    normalized_workflow_ids = _normalized_workflow_ids(local_workflow_ids)
+    actions = []
+    changed = False
+    for action in definition.actions:
+        if action.action != "core.workflow.execute":
+            actions.append(action)
+            continue
+        workflow_id = action.args.get("workflow_id")
+        if not isinstance(workflow_id, str):
+            actions.append(action)
+            continue
+        local_id = _local_workflow_id_for_reference(
+            workflow_id,
+            normalized_workflow_ids,
+        )
+        if local_id is None:
+            actions.append(action)
+            continue
+        args = {**action.args, "workflow_id": local_id.short()}
+        actions.append(action.model_copy(update={"args": args}))
+        changed = True
+    if not changed:
+        return definition
+    return definition.model_copy(update={"actions": actions})
+
+
+def _normalized_workflow_ids(
+    local_workflow_ids: Mapping[str, WorkflowUUID],
+) -> dict[str, WorkflowUUID]:
+    normalized: dict[str, WorkflowUUID] = {}
+    for source_id, local_id in local_workflow_ids.items():
+        normalized[source_id] = local_id
+        try:
+            normalized[WorkflowUUID.new(source_id).short()] = local_id
+        except ValueError:
+            continue
+    return normalized
+
+
+def _local_workflow_id_for_reference(
+    workflow_id: str,
+    local_workflow_ids: Mapping[str, WorkflowUUID],
+) -> WorkflowUUID | None:
+    if local_id := local_workflow_ids.get(workflow_id):
+        return local_id
+    try:
+        return local_workflow_ids.get(WorkflowUUID.new(workflow_id).short())
+    except ValueError:
+        return None
 
 
 def workflow_spec_from_legacy(

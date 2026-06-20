@@ -58,6 +58,7 @@ from tracecat.workspace_sync.resources import (
     parse_workspace_spec_files,
     serialize_workspace_spec_files,
     workflow_execute_aliases,
+    workflow_execute_ids,
     workflow_preset_slugs,
 )
 from tracecat.workspace_sync.schemas import (
@@ -473,12 +474,18 @@ class WorkspaceSyncService(BaseWorkspaceService):
         sync_schedules: bool,
     ) -> PullResult:
         local_ids: dict[str, WorkflowUUID] = {}
-        remote_workflows = []
-        for source_id, workflow_spec in sorted(snapshot.spec.workflows.items()):
+        for source_id in sorted(snapshot.spec.workflows):
             local_id = await self._resolve_local_workflow_id(source_id)
             local_ids[source_id] = local_id
+        remote_workflows = []
+        for source_id, workflow_spec in sorted(snapshot.spec.workflows.items()):
+            local_id = local_ids[source_id]
             remote_workflows.append(
-                workflow_spec_to_remote(workflow_spec, local_workflow_id=local_id)
+                workflow_spec_to_remote(
+                    workflow_spec,
+                    local_workflow_id=local_id,
+                    local_workflow_ids=local_ids,
+                )
             )
 
         workflow_importer = WorkflowImportService(
@@ -638,11 +645,19 @@ class WorkspaceSyncService(BaseWorkspaceService):
         self,
         snapshot: WorkspaceRemoteSnapshot,
     ) -> list[PullDiagnostic]:
+        local_ids: dict[str, WorkflowUUID] = {}
+        for source_id in sorted(snapshot.spec.workflows):
+            local_id = await self._resolve_local_workflow_id(source_id)
+            local_ids[source_id] = local_id
         remote_workflows = []
         for source_id, workflow_spec in sorted(snapshot.spec.workflows.items()):
-            local_id = await self._resolve_local_workflow_id(source_id)
+            local_id = local_ids[source_id]
             remote_workflows.append(
-                workflow_spec_to_remote(workflow_spec, local_workflow_id=local_id)
+                workflow_spec_to_remote(
+                    workflow_spec,
+                    local_workflow_id=local_id,
+                    local_workflow_ids=local_ids,
+                )
             )
 
         workflow_importer = WorkflowImportService(
@@ -711,6 +726,11 @@ class WorkspaceSyncService(BaseWorkspaceService):
             for alias in sorted(workflow_execute_aliases(dsl)):
                 child_id = aliases.get(alias)
                 if child_id is None or child_id in included:
+                    continue
+                included.add(child_id)
+                queue.append(child_id)
+            for child_id in sorted(workflow_execute_ids(dsl), key=str):
+                if child_id not in workflows_by_id or child_id in included:
                     continue
                 included.add(child_id)
                 queue.append(child_id)

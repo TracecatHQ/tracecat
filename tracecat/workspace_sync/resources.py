@@ -9,6 +9,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ValidationError
 
+from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.sync import PullDiagnostic
 from tracecat.workspace_sync.adapters import (
     AGENT_PRESET_RESOURCE_ADAPTER,
@@ -194,6 +195,10 @@ def workflow_execute_aliases(definition: BaseModel) -> set[str]:
     return _workflow_execute_aliases(definition)
 
 
+def workflow_execute_ids(definition: BaseModel) -> set[WorkflowUUID]:
+    return _workflow_execute_ids(definition)
+
+
 def workflow_preset_slugs(definition: BaseModel) -> set[str]:
     return _workflow_preset_slugs(definition)
 
@@ -300,6 +305,24 @@ def _workflow_execute_aliases(definition: BaseModel) -> set[str]:
         if isinstance(args, dict) and isinstance(args.get("workflow_alias"), str):
             aliases.add(args["workflow_alias"])
     return aliases
+
+
+def _workflow_execute_ids(definition: BaseModel) -> set[WorkflowUUID]:
+    workflow_ids: set[WorkflowUUID] = set()
+    for action in _definition_actions(definition):
+        if action.get("action") != "core.workflow.execute":
+            continue
+        args = action.get("args")
+        if not isinstance(args, dict):
+            continue
+        workflow_id = args.get("workflow_id")
+        if not isinstance(workflow_id, str):
+            continue
+        try:
+            workflow_ids.add(WorkflowUUID.new(workflow_id))
+        except ValueError:
+            continue
+    return workflow_ids
 
 
 def _workflow_preset_slugs(definition: BaseModel) -> set[str]:
