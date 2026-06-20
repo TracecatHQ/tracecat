@@ -17,7 +17,12 @@ from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import CursorPaginationParams
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import PullDiagnostic
-from tracecat.tables.schemas import TableColumnCreate, TableCreate, TableRowInsert
+from tracecat.tables.schemas import (
+    TableColumnCreate,
+    TableCreate,
+    TableRowInsert,
+    TableUpdate,
+)
 from tracecat.tables.service import BaseTablesService
 from tracecat.workspace_sync.adapters.base import (
     CompoundYamlAdapter,
@@ -250,43 +255,53 @@ class TableAdapter(CompoundYamlAdapter):
                     "Table sync supports at most one unique column per table: "
                     f"{spec.name} requested {', '.join(unique_columns)}"
                 )
-            try:
-                table = await table_service.get_table_by_name(spec.name)
-            except TracecatNotFoundError:
-                table = await table_service.create_table(
-                    TableCreate(
-                        name=spec.name,
-                        columns=[
-                            TableColumnCreate(
-                                name=str(column["name"]),
-                                type=sql_type(column["type"]),
-                                nullable=bool(column.get("nullable", True)),
-                                default=column.get("default"),
-                                options=column.get("options"),
-                            )
-                            for column in spec.columns
-                        ],
+            table = await self._table_by_source_id(ctx, source_id)
+            if table is not None:
+                if table.name != spec.name:
+                    table = await table_service.update_table(
+                        table,
+                        TableUpdate(name=spec.name),
                     )
-                )
                 await ctx.session.refresh(table, ["columns"])
             else:
-                await ctx.session.refresh(table, ["columns"])
-                existing_columns = {column.name for column in table.columns}
-                for column in spec.columns:
-                    column_name = str(column["name"])
-                    if column_name in existing_columns:
-                        continue
-                    await table_service.create_column(
-                        table,
-                        TableColumnCreate(
-                            name=column_name,
-                            type=sql_type(column["type"]),
-                            nullable=bool(column.get("nullable", True)),
-                            default=column.get("default"),
-                            options=column.get("options"),
-                        ),
+                try:
+                    table = await table_service.get_table_by_name(spec.name)
+                except TracecatNotFoundError:
+                    table = await table_service.create_table(
+                        TableCreate(
+                            name=spec.name,
+                            columns=[
+                                TableColumnCreate(
+                                    name=str(column["name"]),
+                                    type=sql_type(column["type"]),
+                                    nullable=bool(column.get("nullable", True)),
+                                    default=column.get("default"),
+                                    options=column.get("options"),
+                                )
+                                for column in spec.columns
+                            ],
+                        )
                     )
-                await ctx.session.refresh(table, ["columns"])
+                    await ctx.session.refresh(table, ["columns"])
+                else:
+                    await ctx.session.refresh(table, ["columns"])
+
+            existing_columns = {column.name for column in table.columns}
+            for column in spec.columns:
+                column_name = str(column["name"])
+                if column_name in existing_columns:
+                    continue
+                await table_service.create_column(
+                    table,
+                    TableColumnCreate(
+                        name=column_name,
+                        type=sql_type(column["type"]),
+                        nullable=bool(column.get("nullable", True)),
+                        default=column.get("default"),
+                        options=column.get("options"),
+                    ),
+                )
+            await ctx.session.refresh(table, ["columns"])
 
             for column in spec.columns:
                 if not column.get("unique"):
@@ -306,6 +321,28 @@ class TableAdapter(CompoundYamlAdapter):
             await ctx.session.flush()
             imported.append(self.imported_resource(source_id, table.id))
         return imported
+
+    async def _table_by_source_id(
+        self,
+        ctx: BaseWorkspaceService,
+        source_id: str,
+    ) -> Table | None:
+        stmt = (
+            select(Table)
+            .join(
+                WorkspaceSyncResourceMapping,
+                WorkspaceSyncResourceMapping.local_id == Table.id,
+            )
+            .where(
+                Table.workspace_id == ctx.workspace_id,
+                WorkspaceSyncResourceMapping.workspace_id == ctx.workspace_id,
+                WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
+                WorkspaceSyncResourceMapping.resource_type == self.resource_type.value,
+                WorkspaceSyncResourceMapping.source_id == source_id,
+            )
+            .options(selectinload(Table.columns))
+        )
+        return (await ctx.session.execute(stmt)).scalar_one_or_none()
 
 
 def _jsonable(value: Any) -> Any:

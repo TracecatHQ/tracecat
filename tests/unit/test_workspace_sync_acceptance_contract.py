@@ -645,6 +645,77 @@ async def test_project_workspace_preserves_table_source_id_after_rename(
 
 
 @pytest.mark.anyio
+async def test_pull_table_rename_reuses_source_id_mapping(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    transport = AsyncMock()
+    transport.read_files.side_effect = [
+        VcsTreeSnapshot(
+            commit_sha="m" * 40,
+            tree_sha="tree-1",
+            files=_table_git_tree(
+                source_id="qa_indicators",
+                name="qa_indicators",
+            ),
+        ),
+        VcsTreeSnapshot(
+            commit_sha="n" * 40,
+            tree_sha="tree-2",
+            files=_table_git_tree(
+                source_id="qa_indicators",
+                name="qa_indicators_renamed",
+            ),
+        ),
+    ]
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
+    )
+
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        first_result = await service.pull(options=PullOptions(commit_sha="m" * 40))
+
+        assert first_result.success is True
+        first_table = await session.scalar(
+            select(Table).where(
+                Table.workspace_id == svc_role.workspace_id,
+                Table.name == "qa_indicators",
+            )
+        )
+        assert first_table is not None
+        first_table_id = first_table.id
+
+        second_result = await service.pull(options=PullOptions(commit_sha="n" * 40))
+
+    assert second_result.success is True
+    tables = list(
+        (
+            await session.scalars(
+                select(Table).where(
+                    Table.workspace_id == svc_role.workspace_id,
+                )
+            )
+        ).all()
+    )
+    assert len(tables) == 1
+    assert tables[0].id == first_table_id
+    assert tables[0].name == "qa_indicators_renamed"
+    mapping = await session.scalar(
+        select(WorkspaceSyncResourceMapping).where(
+            WorkspaceSyncResourceMapping.workspace_id == svc_role.workspace_id,
+            WorkspaceSyncResourceMapping.resource_type == SyncResourceType.TABLE.value,
+            WorkspaceSyncResourceMapping.source_id == "qa_indicators",
+        )
+    )
+    assert mapping is not None
+    assert mapping.local_id == first_table_id
+
+
+@pytest.mark.anyio
 async def test_pull_agent_preset_slug_rename_reuses_source_id_mapping(
     session: AsyncSession,
     svc_role: Role,
@@ -1074,6 +1145,26 @@ def _agent_preset_git_tree(
                 "slug": slug,
                 "name": name,
                 "instructions": instructions,
+            }
+        ),
+    }
+
+
+def _table_git_tree(
+    *,
+    source_id: str,
+    name: str,
+) -> dict[str, str]:
+    return {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{TABLE_ROOT}/{source_id}/table.yml": _yaml(
+            {
+                "version": 1,
+                "type": "table",
+                "id": source_id,
+                "name": name,
+                "columns": [{"name": "indicator", "type": "text", "unique": True}],
+                "rows_path": None,
             }
         ),
     }
