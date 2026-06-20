@@ -98,7 +98,12 @@ export const WORKSPACE_SYNC_ROOT_TO_RESOURCE_TYPE: Record<
  * types for forward-compatible rendering.
  */
 export function getWorkspaceSyncResourceLabel(resourceType: string): string {
-  if (resourceType in WORKSPACE_SYNC_RESOURCE_TYPE_META) {
+  if (
+    Object.prototype.hasOwnProperty.call(
+      WORKSPACE_SYNC_RESOURCE_TYPE_META,
+      resourceType
+    )
+  ) {
     return WORKSPACE_SYNC_RESOURCE_TYPE_META[resourceType as SyncResourceType]
       .label
   }
