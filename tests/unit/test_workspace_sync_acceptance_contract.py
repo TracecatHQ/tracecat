@@ -41,6 +41,7 @@ from tracecat.db.models import (
     WorkspaceVariable,
 )
 from tracecat.git.types import GitUrl
+from tracecat.pagination import CursorPaginationParams
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.sync import PullOptions, PushStatus
 from tracecat.tables.schemas import TableUpdate
@@ -1730,6 +1731,51 @@ async def test_table_import_rejects_multiple_unique_columns(
             session=session,
             role=svc_role,
         ).import_non_workflow_resources(snapshot.spec)
+
+
+@pytest.mark.anyio
+async def test_table_import_inserts_rows_without_unique_column(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{TABLE_ROOT}/qa_non_unique/table.yml": _yaml(
+            {
+                "version": 1,
+                "type": "table",
+                "id": "qa_non_unique",
+                "name": "qa_non_unique",
+                "columns": [{"name": "indicator", "type": "text"}],
+                "rows_path": "rows.jsonl",
+            }
+        ),
+        f"{TABLE_ROOT}/qa_non_unique/rows.jsonl": "\n".join(
+            [
+                json.dumps({"indicator": "alpha"}, sort_keys=True),
+                json.dumps({"indicator": "beta"}, sort_keys=True),
+            ]
+        )
+        + "\n",
+    }
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="v" * 40)
+
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+
+    table_service = BaseTablesService(session=session, role=svc_role)
+    table = await table_service.get_table_by_name("qa_non_unique")
+    rows = await table_service.list_rows(
+        table,
+        CursorPaginationParams(limit=10),
+        order_by="indicator",
+        sort="asc",
+    )
+    assert [row["indicator"] for row in rows.items] == ["alpha", "beta"]
 
 
 async def _set_workspace_git_repo_url(

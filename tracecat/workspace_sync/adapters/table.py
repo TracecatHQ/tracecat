@@ -302,7 +302,8 @@ class TableAdapter(CompoundYamlAdapter):
 
             for row in spec.rows:
                 await table_service.insert_row(
-                    table, TableRowInsert(data=row, upsert=True)
+                    table,
+                    TableRowInsert(data=row, upsert=bool(unique_columns)),
                 )
             await ctx.session.flush()
             imported.append(self.imported_resource(source_id, table.id))
