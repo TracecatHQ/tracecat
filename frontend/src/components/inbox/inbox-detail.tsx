@@ -58,15 +58,11 @@ export function InboxDetail({
   const hasPendingApprovals = session.pendingApprovalCount > 0
   const inputDisabled = !isForkedSession && hasPendingApprovals
 
-  // Only reconnect to the live stream when the session is actually streaming.
-  // A fork is live only when it was just created in this view, which is exactly
-  // when a pendingMessage is queued for it; a fork discovered on mount has no
-  // pendingMessage and may have completed earlier. For the parent run, "live"
-  // means a streaming Temporal status (RUNNING or CONTINUED_AS_NEW). Resuming a
-  // terminal session replays its last persisted turn on top of the DB-seeded
-  // history, duplicating the chat. `resume` is read once on ChatSessionPane
-  // mount (the pane is keyed by sessionId), so the later pendingMessage clear
-  // does not flip it.
+  // Only resume the live stream when the session is actually streaming;
+  // resuming a terminal session replays its last turn and duplicates the chat.
+  // A fork is live only when just created here, signalled by a queued
+  // pendingMessage (a fork found on mount has none). `resume` is read once on
+  // mount (pane keyed by sessionId), so clearing pendingMessage later is fine.
   const shouldResume = isForkedSession
     ? pendingMessage !== undefined
     : isLiveAgentStatus(session.derivedStatus)

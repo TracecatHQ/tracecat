@@ -1,10 +1,12 @@
 """Inbox API router."""
 
+from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat import config
+from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.dependencies import WorkspaceUserRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
@@ -29,8 +31,7 @@ async def get_pending_count(
     if provider is None:
         return InboxPendingCount(count=0)
 
-    service = InboxService(session, role, provider)
-    return InboxPendingCount(count=await service.count_pending_items())
+    return InboxPendingCount(count=await provider.count_pending_items())
 
 
 @router.get("/items")
@@ -60,6 +61,18 @@ async def list_items(
     group: InboxGroup | None = Query(
         default=None,
         description="Filter items to a single display group",
+    ),
+    entity_type: AgentSessionEntity | None = Query(
+        default=None,
+        description="Filter items to a single entity type",
+    ),
+    created_after: datetime | None = Query(
+        default=None,
+        description="Only items created at or after this time (ISO 8601)",
+    ),
+    updated_after: datetime | None = Query(
+        default=None,
+        description="Only items updated at or after this time (ISO 8601)",
     ),
 ) -> CursorPaginatedResponse[InboxItemRead]:
     """List inbox items with cursor-based pagination.
@@ -91,6 +104,9 @@ async def list_items(
             sort=sort,
             search=search,
             group=group,
+            entity_type=entity_type,
+            created_after=created_after,
+            updated_after=updated_after,
         )
     except ValueError as e:
         logger.warning(f"Invalid request for list inbox items: {e}")

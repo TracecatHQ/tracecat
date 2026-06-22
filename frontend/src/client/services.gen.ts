@@ -8009,6 +8009,9 @@ export const inboxGetPendingCount = (
  * @param data.sort Sort direction (asc or desc)
  * @param data.search Case-insensitive search on item title
  * @param data.group Filter items to a single display group
+ * @param data.entityType Filter items to a single entity type
+ * @param data.createdAfter Only items created at or after this time (ISO 8601)
+ * @param data.updatedAfter Only items updated at or after this time (ISO 8601)
  * @returns CursorPaginatedResponse_InboxItemRead_ Successful Response
  * @throws ApiError
  */
@@ -8029,6 +8032,9 @@ export const inboxListItems = (
       sort: data.sort,
       search: data.search,
       group: data.group,
+      entity_type: data.entityType,
+      created_after: data.createdAfter,
+      updated_after: data.updatedAfter,
     },
     errors: {
       422: "Validation Error",

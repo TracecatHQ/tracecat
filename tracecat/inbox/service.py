@@ -7,8 +7,11 @@ from typing import TYPE_CHECKING, Literal
 from tracecat.service import BaseWorkspaceService
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from tracecat.agent.session.types import AgentSessionEntity
     from tracecat.auth.types import Role
     from tracecat.inbox.schemas import InboxItemRead
     from tracecat.inbox.types import InboxGroup, InboxProvider
@@ -44,6 +47,9 @@ class InboxService(BaseWorkspaceService):
         sort: Literal["asc", "desc"] | None = None,
         search: str | None = None,
         group: InboxGroup | None = None,
+        entity_type: AgentSessionEntity | None = None,
+        created_after: datetime | None = None,
+        updated_after: datetime | None = None,
     ) -> CursorPaginatedResponse[InboxItemRead]:
         """List inbox items with cursor-based pagination."""
         return await self.provider.list_items(
@@ -54,8 +60,7 @@ class InboxService(BaseWorkspaceService):
             sort=sort,
             search=search,
             group=group,
+            entity_type=entity_type,
+            created_after=created_after,
+            updated_after=updated_after,
         )
-
-    async def count_pending_items(self) -> int:
-        """Count pending inbox items that require attention."""
-        return await self.provider.count_pending_items()

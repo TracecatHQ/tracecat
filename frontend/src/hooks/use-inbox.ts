@@ -7,7 +7,7 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   type AgentSessionEntity,
   approvalsDeleteApproval,
@@ -187,21 +187,26 @@ function inboxItemToSessionItem(item: InboxItemRead): InboxSessionItem {
   }
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000
+
+const DATE_FILTER_DAYS: Record<NonNullable<DateFilterValue>, number> = {
+  "1d": 1,
+  "3d": 3,
+  "1w": 7,
+  "1m": 30,
+}
+
+/**
+ * Resolves a relative date filter to an absolute cutoff, relative to now.
+ *
+ * Call this at fetch time (inside `queryFn`), never to build a query key: the
+ * returned timestamp depends on the current time, so keying on it would change
+ * every render. Key on the raw `DateFilterValue` token instead — it is the
+ * stable identity of the user's selection.
+ */
 function getDateFromFilter(filter: DateFilterValue): Date | null {
   if (!filter) return null
-  const now = new Date()
-  switch (filter) {
-    case "1d":
-      return new Date(now.getTime() - 24 * 60 * 60 * 1000)
-    case "3d":
-      return new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000)
-    case "1w":
-      return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-    case "1m":
-      return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-    default:
-      return null
-  }
+  return new Date(Date.now() - DATE_FILTER_DAYS[filter] * DAY_MS)
 }
 
 interface InboxGroupQueryOptions {
@@ -209,6 +214,9 @@ interface InboxGroupQueryOptions {
   group: InboxGroup
   limit: number
   search: string
+  entityType: AgentSessionEntity | "all"
+  updatedAfter: DateFilterValue
+  createdAfter: DateFilterValue
   orderBy: InboxOrderBy
   sort: "asc" | "desc"
   enabled: boolean
@@ -227,12 +235,22 @@ function useInboxGroupQuery({
   group,
   limit,
   search,
+  entityType,
+  updatedAfter,
+  createdAfter,
   orderBy,
   sort,
   enabled,
   autoRefresh,
   pollMs,
 }: InboxGroupQueryOptions) {
+  // The server applies entity-type and date filters in its keyset selection, so
+  // they belong in the query key: changing a filter must restart the cursor
+  // stream rather than reuse pages chosen under the old filter. Key on the raw
+  // filter tokens (the stable identity of the user's selection); the absolute
+  // date cutoff is resolved at fetch time inside queryFn, so the key does not
+  // churn every render and there is no spurious refetch at the UTC day boundary.
+  const entityTypeParam = entityType === "all" ? null : entityType
   return useInfiniteQuery<
     InboxListItemsResponse,
     TracecatApiError,
@@ -240,7 +258,18 @@ function useInboxGroupQuery({
     readonly unknown[],
     string | null
   >({
-    queryKey: ["inbox-items", workspaceId, group, limit, search, orderBy, sort],
+    queryKey: [
+      "inbox-items",
+      workspaceId,
+      group,
+      limit,
+      search,
+      entityTypeParam,
+      updatedAfter,
+      createdAfter,
+      orderBy,
+      sort,
+    ],
     queryFn: ({ pageParam }) =>
       inboxListItems({
         workspaceId,
@@ -248,6 +277,9 @@ function useInboxGroupQuery({
         cursor: pageParam,
         search: search || null,
         group,
+        entityType: entityTypeParam,
+        updatedAfter: getDateFromFilter(updatedAfter)?.toISOString() ?? null,
+        createdAfter: getDateFromFilter(createdAfter)?.toISOString() ?? null,
         orderBy,
         sort,
       }),
@@ -306,6 +338,9 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     group: "review_required",
     limit,
     search: normalizedSearchQuery,
+    entityType,
+    updatedAfter,
+    createdAfter,
     orderBy,
     sort,
     enabled: baseEnabled,
@@ -317,6 +352,9 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     group: "running",
     limit,
     search: normalizedSearchQuery,
+    entityType,
+    updatedAfter,
+    createdAfter,
     orderBy,
     sort,
     enabled: baseEnabled,
@@ -328,6 +366,9 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     group: "error",
     limit,
     search: normalizedSearchQuery,
+    entityType,
+    updatedAfter,
+    createdAfter,
     orderBy,
     sort,
     enabled: baseEnabled,
@@ -339,6 +380,9 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     group: "completed",
     limit,
     search: normalizedSearchQuery,
+    entityType,
+    updatedAfter,
+    createdAfter,
     orderBy,
     sort,
     enabled: baseEnabled,
@@ -346,26 +390,10 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     pollMs: 10000,
   })
 
-  // Client-side filtering (entity type, date filters) applied per group
-  const filterSession = useCallback(
-    (session: InboxSessionItem) => {
-      const updatedAfterDate = getDateFromFilter(updatedAfter)
-      const createdAfterDate = getDateFromFilter(createdAfter)
-
-      if (entityType !== "all" && session.entity_type !== entityType) {
-        return false
-      }
-      if (updatedAfterDate && new Date(session.updated_at) < updatedAfterDate) {
-        return false
-      }
-      if (createdAfterDate && new Date(session.created_at) < createdAfterDate) {
-        return false
-      }
-      return true
-    },
-    [entityType, updatedAfter, createdAfter]
-  )
-
+  // Entity-type and date filters are applied server-side (in the keyset
+  // selection), so groups need no client-side post-filtering here. Doing it on
+  // the client would drop rows from an already-chosen page, making groups look
+  // short/empty and leaving hasMore tied to the unfiltered page.
   const groupQueries = {
     review_required: reviewRequiredQuery,
     running: runningQuery,
@@ -379,7 +407,7 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     ): InboxGroupState {
       const items = query.data?.pages.flatMap((page) => page.items) ?? []
       return {
-        sessions: items.map(inboxItemToSessionItem).filter(filterSession),
+        sessions: items.map(inboxItemToSessionItem),
         isLoading: query.isLoading,
         hasMore: query.hasNextPage,
         isLoadingMore: query.isFetchingNextPage,
@@ -399,7 +427,6 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     groupQueries.running,
     groupQueries.error,
     groupQueries.completed,
-    filterSession,
   ])
 
   const isLoading = INBOX_GROUP_ORDER.some(

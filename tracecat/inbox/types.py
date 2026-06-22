@@ -6,6 +6,9 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Literal, Protocol
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
+    from tracecat.agent.session.types import AgentSessionEntity
     from tracecat.inbox.schemas import InboxItemRead
     from tracecat.pagination import CursorPaginatedResponse
 
@@ -59,6 +62,9 @@ class InboxProvider(Protocol):
         sort: Literal["asc", "desc"] | None = None,
         search: str | None = None,
         group: InboxGroup | None = None,
+        entity_type: AgentSessionEntity | None = None,
+        created_after: datetime | None = None,
+        updated_after: datetime | None = None,
     ) -> CursorPaginatedResponse[InboxItemRead]:
         """List inbox items with cursor-based pagination."""
         ...

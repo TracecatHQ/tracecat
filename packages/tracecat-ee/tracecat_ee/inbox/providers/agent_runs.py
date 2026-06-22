@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 from sqlalchemy import String, and_, cast, distinct, func, or_, select
@@ -14,6 +15,7 @@ from temporalio.client import WorkflowExecutionStatus
 
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.common.stream_types import HarnessType
+from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import AgentSession, Approval, User, Workflow
 from tracecat.dsl.client import get_temporal_client
@@ -119,8 +121,21 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                 statuses[session_id] = status
         return statuses
 
-    def _base_query(self, search: str | None) -> Select[tuple[AgentSession]]:
-        """Base statement selecting inbox-eligible root sessions."""
+    def _base_query(
+        self,
+        search: str | None,
+        *,
+        entity_type: AgentSessionEntity | None = None,
+        created_after: datetime | None = None,
+        updated_after: datetime | None = None,
+    ) -> Select[tuple[AgentSession]]:
+        """Base statement selecting inbox-eligible root sessions.
+
+        ``entity_type`` and the date filters are applied here so they narrow the
+        keyset selection in SQL. Filtering client-side instead would let the
+        server fill a page with rows the client discards, making groups look
+        short/empty and tying ``has_more`` to the unfiltered page.
+        """
         # Root sessions only: runs of any inbox-eligible harness, plus legacy
         # sessions that already have approvals so existing inbox items don't
         # disappear.
@@ -139,6 +154,13 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                 ),
             ),
         )
+
+        if entity_type is not None:
+            base_stmt = base_stmt.where(AgentSession.entity_type == entity_type)
+        if created_after is not None:
+            base_stmt = base_stmt.where(AgentSession.created_at >= created_after)
+        if updated_after is not None:
+            base_stmt = base_stmt.where(AgentSession.updated_at >= updated_after)
 
         # The inbox polls multiple groups and the grouped scan can hydrate up to
         # GROUP_SCAN_MAX_SESSIONS sessions per request. Load only the columns the
@@ -167,6 +189,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             workflow_match = (
                 select(Workflow.id)
                 .where(
+                    Workflow.workspace_id == self.workspace_id,
                     Workflow.id == AgentSession.entity_id,
                     or_(
                         Workflow.title.ilike(like_term),
@@ -194,6 +217,9 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         sort: Literal["asc", "desc"] | None = None,
         search: str | None = None,
         group: InboxGroup | None = None,
+        entity_type: AgentSessionEntity | None = None,
+        created_after: datetime | None = None,
+        updated_after: datetime | None = None,
     ) -> CursorPaginatedResponse[InboxItemRead]:
         """List agent run items with cursor pagination."""
         if group is not None:
@@ -205,9 +231,17 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                 sort=sort,
                 search=search,
                 group=group,
+                entity_type=entity_type,
+                created_after=created_after,
+                updated_after=updated_after,
             )
 
-        base_stmt = self._base_query(search)
+        base_stmt = self._base_query(
+            search,
+            entity_type=entity_type,
+            created_after=created_after,
+            updated_after=updated_after,
+        )
 
         # Determine sort column and direction
         sort_col = order_by or "created_at"
@@ -286,7 +320,9 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                             )
                         )
             except (ValueError, KeyError) as e:
-                logger.warning(f"Invalid cursor: {e}")
+                # Surface malformed cursors as a client error so the router can
+                # return 400 instead of silently falling back to the first page.
+                raise ValueError(f"Invalid cursor: {e}") from e
 
         # Apply ordering with id as secondary sort for stable pagination. The id
         # tiebreaker must match the scan direction so the composite keyset stays
@@ -458,6 +494,9 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         sort: Literal["asc", "desc"] | None,
         search: str | None,
         group: InboxGroup,
+        entity_type: AgentSessionEntity | None = None,
+        created_after: datetime | None = None,
+        updated_after: datetime | None = None,
     ) -> CursorPaginatedResponse[InboxItemRead]:
         """List items belonging to a single display group.
 
@@ -481,7 +520,12 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             else AgentSession.created_at
         )
 
-        base_stmt = self._base_query(search)
+        base_stmt = self._base_query(
+            search,
+            entity_type=entity_type,
+            created_after=created_after,
+            updated_after=updated_after,
+        )
         # Narrow the scan with SQL predicates where group membership implies one
         if group is InboxGroup.REVIEW_REQUIRED:
             pending_exists = (
@@ -509,7 +553,9 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                 cursor_data = self.decode_cursor(cursor)
                 last_key = (cursor_data.sort_value, uuid.UUID(cursor_data.id))
             except (ValueError, KeyError) as e:
-                logger.warning("Invalid grouped inbox cursor", error=str(e))
+                # Surface malformed cursors as a client error so the router can
+                # return 400 instead of silently restarting the scan.
+                raise ValueError(f"Invalid grouped inbox cursor: {e}") from e
 
         matches: list[AgentSession] = []
         scanned = 0
@@ -667,7 +713,10 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         temporal_statuses = await self._resolve_temporal_statuses(sessions)
 
         if workflow_ids:
-            workflow_stmt = select(Workflow).where(Workflow.id.in_(list(workflow_ids)))
+            workflow_stmt = select(Workflow).where(
+                Workflow.workspace_id == self.workspace_id,
+                Workflow.id.in_(list(workflow_ids)),
+            )
             workflow_result = await self.session.execute(workflow_stmt)
             workflows = workflow_result.scalars().all()
             workflows_by_id = {w.id: w for w in workflows}

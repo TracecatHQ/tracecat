@@ -8,6 +8,7 @@ from typing import Literal, cast
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 from tracecat.inbox.schemas import InboxItemRead
 from tracecat.inbox.service import InboxService
@@ -36,6 +37,9 @@ class _InboxProvider:
         sort: Literal["asc", "desc"] | None = None,
         search: str | None = None,
         group: InboxGroup | None = None,
+        entity_type: AgentSessionEntity | None = None,
+        created_after: datetime | None = None,
+        updated_after: datetime | None = None,
     ) -> CursorPaginatedResponse[InboxItemRead]:
         self.calls.append(
             {
@@ -46,6 +50,9 @@ class _InboxProvider:
                 "sort": sort,
                 "search": search,
                 "group": group,
+                "entity_type": entity_type,
+                "created_after": created_after,
+                "updated_after": updated_after,
             }
         )
         return self.response
@@ -111,6 +118,8 @@ async def test_list_items_passes_arguments_through_to_provider() -> None:
     provider = _InboxProvider(_page([item], has_more=True, next_cursor="next"))
     service = _service(provider)
 
+    created_after = datetime(2026, 1, 1, tzinfo=UTC)
+    updated_after = datetime(2026, 2, 1, tzinfo=UTC)
     page = await service.list_items(
         limit=5,
         cursor="cur",
@@ -119,6 +128,9 @@ async def test_list_items_passes_arguments_through_to_provider() -> None:
         sort="asc",
         search="needle",
         group=InboxGroup.COMPLETED,
+        entity_type=AgentSessionEntity.CASE,
+        created_after=created_after,
+        updated_after=updated_after,
     )
 
     assert page is provider.response
@@ -132,13 +144,8 @@ async def test_list_items_passes_arguments_through_to_provider() -> None:
             "sort": "asc",
             "search": "needle",
             "group": InboxGroup.COMPLETED,
+            "entity_type": AgentSessionEntity.CASE,
+            "created_after": created_after,
+            "updated_after": updated_after,
         }
     ]
-
-
-@pytest.mark.anyio
-async def test_count_pending_items_delegates_to_provider() -> None:
-    provider = _InboxProvider(_page([]), pending_count=7)
-    service = _service(provider)
-
-    assert await service.count_pending_items() == 7

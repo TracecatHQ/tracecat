@@ -11620,7 +11620,15 @@ export type InboxGetPendingCountData = {
 export type InboxGetPendingCountResponse = InboxPendingCount
 
 export type InboxListItemsData = {
+  /**
+   * Only items created at or after this time (ISO 8601)
+   */
+  createdAfter?: string | null
   cursor?: string | null
+  /**
+   * Filter items to a single entity type
+   */
+  entityType?: AgentSessionEntity | null
   /**
    * Filter items to a single display group
    */
@@ -11639,6 +11647,10 @@ export type InboxListItemsData = {
    * Sort direction (asc or desc)
    */
   sort?: "asc" | "desc" | null
+  /**
+   * Only items updated at or after this time (ISO 8601)
+   */
+  updatedAfter?: string | null
   workspaceId: string
 }
 

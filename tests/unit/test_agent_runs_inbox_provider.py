@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.inbox.providers.agent_runs import AgentRunsInboxProvider
 
 from tracecat.agent.common.stream_types import HarnessType
+from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentSession
 from tracecat.inbox.schemas import InboxItemRead
@@ -382,3 +383,146 @@ async def test_classify_rejected_only_session_lands_in_error_group(
     )
 
     assert classifications[rejected.id] is InboxGroup.ERROR
+
+
+@pytest.mark.anyio
+async def test_ungrouped_list_applies_entity_type_and_date_filters() -> None:
+    """entity_type and date filters narrow the keyset selection in SQL.
+
+    Filtering in SQL (rather than client-side on a server-chosen page) is what
+    keeps groups from looking short/empty and keeps has_more honest.
+    """
+    session = _RecordingSession()
+    provider = AgentRunsInboxProvider(cast(AsyncSession, session), _role())
+
+    created_after = datetime(2026, 1, 1, tzinfo=UTC)
+    updated_after = datetime(2026, 2, 1, tzinfo=UTC)
+    await provider.list_items(
+        limit=10,
+        entity_type=AgentSessionEntity.CASE,
+        created_after=created_after,
+        updated_after=updated_after,
+    )
+
+    compiled = str(session.statements[-1].compile())
+    assert "agent_session.entity_type =" in compiled
+    assert "agent_session.created_at >=" in compiled
+    assert "agent_session.updated_at >=" in compiled
+
+
+@pytest.mark.anyio
+async def test_grouped_list_applies_entity_type_and_date_filters() -> None:
+    """Grouped scan inherits the same SQL filters via the shared base query."""
+    session = _RecordingSession()
+    provider = AgentRunsInboxProvider(cast(AsyncSession, session), _role())
+
+    await provider._list_items_grouped(
+        limit=10,
+        cursor=None,
+        reverse=False,
+        order_by=None,
+        sort=None,
+        search=None,
+        group=InboxGroup.COMPLETED,
+        entity_type=AgentSessionEntity.WORKFLOW,
+        created_after=datetime(2026, 1, 1, tzinfo=UTC),
+        updated_after=datetime(2026, 2, 1, tzinfo=UTC),
+    )
+
+    compiled = str(session.statements[-1].compile())
+    assert "agent_session.entity_type =" in compiled
+    assert "agent_session.created_at >=" in compiled
+    assert "agent_session.updated_at >=" in compiled
+
+
+@pytest.mark.anyio
+async def test_enrich_scopes_workflow_lookup_to_workspace() -> None:
+    """Workflow metadata enrichment must be scoped to the caller's workspace.
+
+    A session's ``entity_id`` can reference a workflow ID in another workspace;
+    without a workspace predicate the workflow title/alias of that other
+    workspace would leak into this workspace's inbox.
+    """
+    workspace_id = uuid.uuid4()
+    session = _RecordingSession()
+    provider = AgentRunsInboxProvider(cast(AsyncSession, session), _role(workspace_id))
+
+    agent_session = _agent_session(
+        "leaky", datetime(2026, 1, 1, tzinfo=UTC), workspace_id=workspace_id
+    )
+
+    await provider._enrich_sessions([agent_session])
+
+    workflow_statements = [
+        str(stmt.compile())
+        for stmt in session.statements
+        if "FROM workflow" in str(stmt.compile())
+    ]
+    assert workflow_statements, "expected a workflow enrichment query"
+    for compiled in workflow_statements:
+        assert "workflow.workspace_id =" in compiled
+
+
+@pytest.mark.anyio
+async def test_search_scopes_workflow_match_to_workspace() -> None:
+    """Search-by-workflow-name must be scoped to the caller's workspace.
+
+    The workflow-title/alias EXISTS subquery joins on entity_id; without a
+    workspace predicate a user could match (and thus infer) another workspace's
+    workflow names through search results.
+    """
+    session = _RecordingSession()
+    provider = AgentRunsInboxProvider(cast(AsyncSession, session), _role())
+
+    await provider.list_items(limit=10, search="secret")
+
+    compiled = str(session.statements[-1].compile())
+    assert "workflow.workspace_id =" in compiled
+
+
+@pytest.mark.anyio
+async def test_ungrouped_malformed_cursor_raises_value_error() -> None:
+    """A malformed cursor must raise ValueError so the router returns 400.
+
+    Silently ignoring the bad cursor would fall back to the first page and
+    return plausible-but-wrong data with misleading pagination flags.
+    """
+    session = _RecordingSession()
+    provider = AgentRunsInboxProvider(cast(AsyncSession, session), _role())
+
+    with pytest.raises(ValueError):
+        await provider.list_items(limit=10, cursor="not-base64")
+
+
+@pytest.mark.anyio
+async def test_grouped_malformed_cursor_raises_value_error() -> None:
+    """The grouped scan path must also reject malformed cursors with ValueError."""
+    session = _RecordingSession()
+    provider = AgentRunsInboxProvider(cast(AsyncSession, session), _role())
+
+    with pytest.raises(ValueError):
+        await provider._list_items_grouped(
+            limit=10,
+            cursor="not-base64",
+            reverse=False,
+            order_by=None,
+            sort=None,
+            search=None,
+            group=InboxGroup.COMPLETED,
+        )
+
+
+@pytest.mark.anyio
+async def test_unfiltered_list_omits_optional_predicates() -> None:
+    """No filters -> no entity_type equality or date-range predicates emitted."""
+    session = _RecordingSession()
+    provider = AgentRunsInboxProvider(cast(AsyncSession, session), _role())
+
+    await provider.list_items(limit=10)
+
+    compiled = str(session.statements[-1].compile())
+    # The base query always excludes the "approval" entity_type via `!=`, so an
+    # equality predicate would only appear from the entity_type filter.
+    assert "agent_session.entity_type =" not in compiled
+    assert "agent_session.created_at >=" not in compiled
+    assert "agent_session.updated_at >=" not in compiled
