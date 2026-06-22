@@ -67,6 +67,7 @@ class WorkflowDefinitionRead(Schema):
     workspace_id: WorkspaceID
     version: int
     content: dict[str, Any] | None = None
+    registry_lock: RegistryLock | None = None
     created_at: datetime
     updated_at: datetime
 

@@ -28676,6 +28676,16 @@ export const $WorkflowDefinitionRead = {
       ],
       title: "Content",
     },
+    registry_lock: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RegistryLock",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
     created_at: {
       type: "string",
       format: "date-time",

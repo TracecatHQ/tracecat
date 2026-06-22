@@ -366,9 +366,12 @@ function WorkflowVersionsHistory({
         {definitions.map((definition, index) => {
           const isCurrent = definition.version === currentVersion
           const isLatest = definition.version === latestVersion
+          const registryLockEntries = getRegistryLockEntries(definition)
+          const registryLockSummary =
+            formatRegistryLockSummary(registryLockEntries)
           return (
             <div key={definition.id}>
-              <div className="flex items-center gap-3 px-4 py-3">
+              <div className="flex items-start gap-3 px-4 py-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="font-medium">{`v${definition.version}`}</span>
@@ -379,6 +382,37 @@ function WorkflowVersionsHistory({
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">
                     {getRelativeTime(new Date(definition.created_at))}
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    {registryLockSummary ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Badge
+                            variant="outline"
+                            className="max-w-full truncate font-mono font-normal"
+                          >
+                            {registryLockSummary}
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-sm">
+                          <div className="space-y-1">
+                            <div className="font-medium">Registry lock</div>
+                            {registryLockEntries.map(([origin, version]) => (
+                              <div
+                                key={origin}
+                                className="break-all font-mono text-xs"
+                              >
+                                {`${origin}@${version}`}
+                              </div>
+                            ))}
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        No registry lock
+                      </span>
+                    )}
                   </div>
                 </div>
                 {!isCurrent ? (
@@ -407,6 +441,27 @@ function WorkflowVersionsHistory({
       </div>
     </TooltipProvider>
   )
+}
+
+function getRegistryLockEntries(
+  definition: WorkflowDefinitionRead
+): [string, string][] {
+  const origins = definition.registry_lock?.origins
+  if (!origins) {
+    return []
+  }
+  return Object.entries(origins).sort(([a], [b]) => a.localeCompare(b))
+}
+
+function formatRegistryLockSummary(entries: [string, string][]): string | null {
+  if (entries.length === 0) {
+    return null
+  }
+  const [origin, version] = entries[0]
+  if (entries.length === 1) {
+    return `${origin}@${version}`
+  }
+  return `${origin}@${version} +${entries.length - 1}`
 }
 
 function WorkflowSettingsPanel({

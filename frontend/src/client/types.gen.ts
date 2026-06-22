@@ -8499,6 +8499,7 @@ export type WorkflowDefinitionRead = {
   content?: {
     [key: string]: unknown
   } | null
+  registry_lock?: RegistryLock | null
   created_at: string
   updated_at: string
 }
