@@ -389,7 +389,7 @@ function WorkflowVersionsHistory({
                         <TooltipTrigger asChild>
                           <Badge
                             variant="outline"
-                            className="max-w-full truncate font-mono font-normal"
+                            className="max-w-full overflow-hidden truncate whitespace-nowrap font-mono font-normal"
                           >
                             {registryLockSummary}
                           </Badge>
@@ -397,12 +397,13 @@ function WorkflowVersionsHistory({
                         <TooltipContent className="max-w-sm">
                           <div className="space-y-1">
                             <div className="font-medium">Registry lock</div>
-                            {registryLockEntries.map(([origin, version]) => (
+                            {registryLockEntries.map((entry) => (
                               <div
-                                key={origin}
+                                key={entry.origin}
                                 className="break-all font-mono text-xs"
+                                title={`${entry.origin}@${entry.version}`}
                               >
-                                {`${origin}@${version}`}
+                                {entry.label}
                               </div>
                             ))}
                           </div>
@@ -443,25 +444,66 @@ function WorkflowVersionsHistory({
   )
 }
 
+type RegistryLockEntry = {
+  origin: string
+  version: string
+  label: string
+}
+
 function getRegistryLockEntries(
   definition: WorkflowDefinitionRead
-): [string, string][] {
+): RegistryLockEntry[] {
   const origins = definition.registry_lock?.origins
   if (!origins) {
     return []
   }
-  return Object.entries(origins).sort(([a], [b]) => a.localeCompare(b))
+  return Object.entries(origins)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([origin, version]) => ({
+      origin,
+      version,
+      label: formatRegistryLockEntry(origin, version),
+    }))
 }
 
-function formatRegistryLockSummary(entries: [string, string][]): string | null {
+function formatRegistryLockSummary(
+  entries: RegistryLockEntry[]
+): string | null {
   if (entries.length === 0) {
     return null
   }
-  const [origin, version] = entries[0]
+  const [{ label }] = entries
   if (entries.length === 1) {
-    return `${origin}@${version}`
+    return label
   }
-  return `${origin}@${version} +${entries.length - 1}`
+  return `${label} +${entries.length - 1}`
+}
+
+function formatRegistryLockEntry(origin: string, version: string): string {
+  return `${formatRegistryOrigin(origin)}@${formatRegistryVersion(origin, version)}`
+}
+
+function formatRegistryOrigin(origin: string): string {
+  if (origin === "tracecat_registry") {
+    return origin
+  }
+
+  const sshUrlMatch = origin.match(
+    /^git\+ssh:\/\/git@[^/:]+[:/]([^/]+)\/(.+?)(?:\.git)?$/
+  )
+  if (sshUrlMatch) {
+    const [, org, repo] = sshUrlMatch
+    return `${org}/${repo}`
+  }
+
+  return origin
+}
+
+function formatRegistryVersion(origin: string, version: string): string {
+  if (origin === "tracecat_registry") {
+    return version
+  }
+  return version.length > 12 ? version.slice(0, 12) : version
 }
 
 function WorkflowSettingsPanel({
