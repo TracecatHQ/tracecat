@@ -215,7 +215,7 @@ async def test_delete_membership_removes_orphan_assignment(
     assert assignment is None
 
 
-async def test_create_membership_heals_stale_workspace_assignment(
+async def test_create_membership_is_idempotent_with_existing_default_assignment(
     session: AsyncSession,
     membership_service: MembershipService,
     organization: Organization,
@@ -224,7 +224,7 @@ async def test_create_membership_heals_stale_workspace_assignment(
     actor_user: User,
     workspace_editor_role: DBRole,
 ) -> None:
-    """Create should succeed when only a stale workspace assignment exists."""
+    """Re-adding a member who already holds the default role is a no-op."""
     session.add(
         UserRoleAssignment(
             organization_id=organization.id,
@@ -262,6 +262,70 @@ async def test_create_membership_heals_stale_workspace_assignment(
     assert assignment_list[0].organization_id == organization.id
     assert assignment_list[0].role_id == workspace_editor_role.id
     assert assignment_list[0].assigned_by == actor_user.id
+
+
+async def test_create_membership_preserves_existing_custom_role(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    actor_user: User,
+    workspace_editor_role: DBRole,
+) -> None:
+    """Re-adding a member must not downgrade a pre-existing non-default role.
+
+    A duplicate/retried create_membership for a user who already holds a direct
+    workspace-scoped role (e.g. a custom admin role) must preserve that
+    assignment rather than overwriting it with the default workspace-editor
+    role.
+    """
+    admin_role = DBRole(
+        id=uuid.uuid4(),
+        name="Workspace Admin",
+        slug="workspace-admin",
+        description="Custom admin role",
+        organization_id=organization.id,
+    )
+    session.add(admin_role)
+    await session.flush()
+    session.add(
+        UserRoleAssignment(
+            organization_id=organization.id,
+            user_id=member_user.id,
+            workspace_id=workspace.id,
+            role_id=admin_role.id,
+            assigned_by=actor_user.id,
+        )
+    )
+    await session.commit()
+
+    await membership_service.create_membership(
+        workspace_id=workspace.id,
+        params=WorkspaceMembershipCreate(user_id=member_user.id),
+    )
+
+    assignment_list = list(
+        (
+            await session.execute(
+                select(UserRoleAssignment).where(
+                    UserRoleAssignment.workspace_id == workspace.id,
+                    UserRoleAssignment.user_id == member_user.id,
+                )
+            )
+        ).scalars()
+    )
+    membership = await session.scalar(
+        select(Membership).where(
+            Membership.workspace_id == workspace.id,
+            Membership.user_id == member_user.id,
+        )
+    )
+
+    assert membership is not None
+    assert len(assignment_list) == 1
+    # The custom admin role is preserved, not downgraded to workspace-editor.
+    assert assignment_list[0].role_id == admin_role.id
 
 
 async def test_create_membership_is_idempotent_when_membership_exists(

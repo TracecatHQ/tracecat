@@ -875,3 +875,65 @@ class TestRBACMembershipReconcile:
         await service.delete_user_assignment(assignment.id)
 
         assert await self._membership(session, workspace, user) is None
+
+    async def test_deleting_group_removes_materialized_membership(
+        self,
+        session: AsyncSession,
+        role: Role,
+        user: User,
+        workspace: Workspace,
+        seeded_scopes: list[Scope],
+    ):
+        """Deleting a ws-assigned group drops membership for its members.
+
+        The cascade removes GroupMember/GroupRoleAssignment but not the derived
+        Membership rows, so delete_group must reconcile the affected members.
+        """
+        service = RBACService(session, role=role)
+        custom_role = await service.create_role(
+            name="WS Role", scope_ids=[seeded_scopes[0].id]
+        )
+        group = await service.create_group(name="WS Group")
+        await service.add_group_member(group.id, user.id)
+        await service.create_group_role_assignment(
+            group_id=group.id,
+            role_id=custom_role.id,
+            workspace_id=workspace.id,
+        )
+        assert await self._membership(session, workspace, user) is not None
+
+        await service.delete_group(group.id)
+
+        assert await self._membership(session, workspace, user) is None
+
+    async def test_deleting_group_keeps_membership_with_other_path(
+        self,
+        session: AsyncSession,
+        role: Role,
+        user: User,
+        workspace: Workspace,
+        seeded_scopes: list[Scope],
+    ):
+        """A direct path keeps membership alive when the group is deleted."""
+        service = RBACService(session, role=role)
+        custom_role = await service.create_role(
+            name="WS Role", scope_ids=[seeded_scopes[0].id]
+        )
+        group = await service.create_group(name="WS Group")
+        await service.add_group_member(group.id, user.id)
+        await service.create_group_role_assignment(
+            group_id=group.id,
+            role_id=custom_role.id,
+            workspace_id=workspace.id,
+        )
+        # Independent direct path to the same workspace.
+        await service.create_user_assignment(
+            user_id=user.id,
+            role_id=custom_role.id,
+            workspace_id=workspace.id,
+        )
+        assert await self._membership(session, workspace, user) is not None
+
+        await service.delete_group(group.id)
+
+        assert await self._membership(session, workspace, user) is not None

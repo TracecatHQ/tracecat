@@ -406,8 +406,36 @@ class RBACService(BaseOrgService):
     async def delete_group(self, group_id: UUID) -> None:
         """Delete a group."""
         group = await self.get_group(group_id)
+
+        # Capture (member, workspace) pairs the group currently materializes
+        # before the delete cascades away GroupMember/GroupRoleAssignment rows.
+        # The cascade drops the RBAC paths but not the derived Membership rows,
+        # so we must reconcile each affected user/workspace ourselves afterwards.
+        affected = (
+            await self.session.execute(
+                select(GroupMember.user_id, GroupRoleAssignment.workspace_id)
+                .join(
+                    GroupRoleAssignment,
+                    GroupRoleAssignment.group_id == GroupMember.group_id,
+                )
+                .where(
+                    GroupMember.group_id == group_id,
+                    GroupRoleAssignment.workspace_id.is_not(None),
+                )
+                .distinct()
+            )
+        ).all()
+
         await self.session.delete(group)
         await self.session.commit()
+
+        # Post-delete reconcile: drops membership for members with no remaining
+        # path to the workspace, leaves it for those who still hold one.
+        membership_svc = MembershipService(self.session)
+        for user_id, workspace_id in affected:
+            if workspace_id is None:
+                continue
+            await membership_svc.reconcile_workspace_membership(user_id, workspace_id)
 
     @require_scope("org:rbac:update")
     @audit_log(
