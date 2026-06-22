@@ -217,12 +217,19 @@ class VariableAdapter(EnvironmentYamlAdapter):
         target_keys_by_source_id: Mapping[str, tuple[str, str]],
     ) -> None:
         changed = False
+        reserved_names_by_environment = await _reserved_names_by_environment(ctx)
         for source_id, variable in variables_by_source_id.items():
             if (variable.environment, variable.name) == target_keys_by_source_id[
                 source_id
             ]:
                 continue
-            variable.name = f"__tracecat_sync_tmp_{variable.id.hex}"
+            reserved_names = reserved_names_by_environment.setdefault(
+                variable.environment,
+                set(),
+            )
+            reserved_names.discard(variable.name)
+            variable.name = _unique_temporary_variable_name(variable, reserved_names)
+            reserved_names.add(variable.name)
             ctx.session.add(variable)
             changed = True
         if changed:
@@ -264,3 +271,32 @@ def _ensure_unique_targets(
                 f"and {source_id!r}."
             )
         source_id_by_target[target_key] = source_id
+
+
+async def _reserved_names_by_environment(
+    ctx: BaseWorkspaceService,
+) -> dict[str, set[str]]:
+    rows = (
+        await ctx.session.execute(
+            select(WorkspaceVariable.environment, WorkspaceVariable.name).where(
+                WorkspaceVariable.workspace_id == ctx.workspace_id
+            )
+        )
+    ).tuples()
+    reserved: dict[str, set[str]] = {}
+    for environment, name in rows:
+        reserved.setdefault(environment, set()).add(name)
+    return reserved
+
+
+def _unique_temporary_variable_name(
+    variable: WorkspaceVariable,
+    reserved_names: set[str],
+) -> str:
+    base = f"__tracecat_sync_tmp_{variable.id.hex}"
+    candidate = base
+    counter = 2
+    while candidate in reserved_names:
+        candidate = f"{base}_{counter}"
+        counter += 1
+    return candidate

@@ -1701,6 +1701,69 @@ async def test_variable_import_allows_in_batch_name_swap(
 
 
 @pytest.mark.anyio
+async def test_variable_import_temporary_name_avoids_existing_variables(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    variable = WorkspaceVariable(
+        workspace_id=svc_role.workspace_id,
+        name="Alpha",
+        environment="default",
+        values={"value": "a"},
+    )
+    session.add(variable)
+    await session.flush()
+    colliding_name = f"__tracecat_sync_tmp_{variable.id.hex}"
+    unrelated = WorkspaceVariable(
+        workspace_id=svc_role.workspace_id,
+        name=colliding_name,
+        environment="default",
+        values={"value": "unrelated"},
+    )
+    session.add_all(
+        [
+            unrelated,
+            WorkspaceSyncResourceMapping(
+                workspace_id=svc_role.workspace_id,
+                provider=VcsProvider.GITHUB.value,
+                resource_type=SyncResourceType.VARIABLE.value,
+                source_id="default/alpha",
+                source_path=f"{VARIABLE_ROOT}/default/alpha.yml",
+                local_id=variable.id,
+            ),
+        ]
+    )
+    await session.flush()
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{VARIABLE_ROOT}/default/alpha.yml": _yaml(
+            {
+                "version": 1,
+                "type": "variable",
+                "id": "default/alpha",
+                "name": "Gamma",
+                "environment": "default",
+                "keys": ["value"],
+            }
+        ),
+    }
+
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="z" * 40)
+
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+    await session.refresh(variable)
+    await session.refresh(unrelated)
+    assert variable.name == "Gamma"
+    assert variable.values == {"value": "a"}
+    assert unrelated.name == colliding_name
+
+
+@pytest.mark.anyio
 async def test_case_field_sync_preserves_select_options(
     session: AsyncSession,
     svc_role: Role,
