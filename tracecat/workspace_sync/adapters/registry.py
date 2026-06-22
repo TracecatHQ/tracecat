@@ -19,6 +19,9 @@ from tracecat.workspace_sync.adapters.workflow import WorkflowAdapter
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import WorkspaceSpec
 
+# Workflows need an adapter instance for path lookup, spec assembly, previews,
+# and dependency diagnostics, but workflow projection/import stays in
+# WorkspaceSyncService instead of the generic adapter loops.
 WORKFLOW_RESOURCE_ADAPTER = WorkflowAdapter()
 AGENT_PRESET_RESOURCE_ADAPTER = AgentPresetAdapter()
 SKILL_RESOURCE_ADAPTER = SkillAdapter()

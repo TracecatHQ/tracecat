@@ -1,8 +1,14 @@
-"""Workflow resource adapter.
+"""Workflow adapter registry shim.
 
-Workflows are projected and imported directly by ``WorkspaceSyncService`` (they
-need DSL resolution and closure handling), so this adapter only contributes path
-and parsing metadata and inherits the no-op project/import-specs defaults.
+Unlike the non-workflow adapters, this class does not project ORM rows or import
+specs by itself. Workflows need DSL resolution, dependency closure handling, and
+``WorkflowImportService`` integration, so ``WorkspaceSyncService`` owns that
+runtime behavior.
+
+This adapter keeps workflows visible to the generic workspace-sync registry for
+path lookup, manifest/spec assembly, dependency diagnostics, and preview labels.
+Workflow-specific conversion and YAML parsing live in
+``tracecat.workspace_sync.workflow``.
 """
 
 from __future__ import annotations
@@ -22,7 +28,7 @@ from tracecat.workspace_sync.workflow import (
 
 
 class WorkflowAdapter(ResourceAdapter):
-    """Path and parsing adapter for workflows; projection/import live in the service."""
+    """Registry adapter for workflow paths; projection/import live in the service."""
 
     resource_type = SyncResourceType.WORKFLOW
     spec_attr = "workflows"

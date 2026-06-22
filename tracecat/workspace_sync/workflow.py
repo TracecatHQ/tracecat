@@ -1,4 +1,17 @@
-"""Workflow resource adapter for workspace VCS sync."""
+"""Workflow spec conversion and serialization helpers.
+
+This module is deliberately not the workflow ``ResourceAdapter``. It contains
+the workflow-specific mechanics that are shared by ``WorkspaceSyncService`` and
+the thin workflow adapter shim:
+
+- repository path/source-id helpers
+- ORM workflow -> workspace-sync spec conversion
+- workspace-sync spec -> workflow-store remote definition conversion
+- child-workflow local-id rewriting for imports
+- current and legacy workflow YAML parsing/serialization
+
+The actual adapter class lives in ``tracecat.workspace_sync.adapters.workflow``.
+"""
 
 from __future__ import annotations
 

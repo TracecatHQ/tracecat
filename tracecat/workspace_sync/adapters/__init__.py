@@ -1,9 +1,10 @@
 """Workspace sync resource adapters.
 
-Each resource type is described by a single :class:`ResourceAdapter` subclass
-that owns its repository paths, parsing/serialization, database projection, and
-import logic. The projector, importer, and parser are thin loops over the
-adapter registry.
+Most resource types are fully described by one :class:`ResourceAdapter`
+subclass that owns repository paths, parsing/serialization, database projection,
+and import logic. Workflows are the exception: their adapter is only a registry
+shim for path/spec metadata, while ``WorkspaceSyncService`` handles workflow
+projection/import because it needs DSL resolution and workflow-store services.
 """
 
 from __future__ import annotations

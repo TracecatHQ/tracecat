@@ -1,10 +1,11 @@
 """Base class and shared helpers for workspace sync resource adapters.
 
-A :class:`ResourceAdapter` owns everything about one Git-backed workspace
-resource type in a single place: how it maps to repository paths, how it parses
-and serializes files, how it is projected out of the database, and how it is
-imported back in. The projector, importer, and parser are thin loops that
-delegate to the adapters.
+For most Git-backed workspace resource types, a :class:`ResourceAdapter` owns
+the full sync behavior in one place: repository paths, parsing/serialization,
+database projection, and database import. Workflows are special-cased: their
+adapter contributes registry/path metadata only, while ``WorkspaceSyncService``
+handles workflow projection/import directly because workflows need DSL
+resolution, dependency closure handling, and workflow-store services.
 """
 
 from __future__ import annotations
