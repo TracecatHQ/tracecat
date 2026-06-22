@@ -4,7 +4,6 @@ import uuid
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.schemas import UserRole
@@ -12,6 +11,9 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES
 from tracecat.authz.service import MembershipService
 from tracecat.db.models import (
+    Group,
+    GroupMember,
+    GroupRoleAssignment,
     Membership,
     Organization,
     User,
@@ -262,14 +264,20 @@ async def test_create_membership_heals_stale_workspace_assignment(
     assert assignment_list[0].assigned_by == actor_user.id
 
 
-async def test_create_membership_duplicate_raises_integrity_error(
+async def test_create_membership_is_idempotent_when_membership_exists(
     session: AsyncSession,
     membership_service: MembershipService,
     workspace: Workspace,
     member_user: User,
     workspace_editor_role: DBRole,
 ) -> None:
-    """Creating an existing membership should raise an integrity conflict."""
+    """Re-adding an existing member is idempotent under the reconciler.
+
+    The membership dial is now derived from the workspace-scoped role path via
+    ``reconcile_workspace_membership`` (ENG-1499 / B1), which upserts with
+    ``ON CONFLICT DO NOTHING``. Calling create again writes/heals the role
+    assignment and leaves a single membership row, rather than raising.
+    """
     assert workspace_editor_role.slug == "workspace-editor"
     session.add(
         Membership(
@@ -279,8 +287,245 @@ async def test_create_membership_duplicate_raises_integrity_error(
     )
     await session.commit()
 
-    with pytest.raises(IntegrityError):
-        await membership_service.create_membership(
-            workspace_id=workspace.id,
-            params=WorkspaceMembershipCreate(user_id=member_user.id),
+    await membership_service.create_membership(
+        workspace_id=workspace.id,
+        params=WorkspaceMembershipCreate(user_id=member_user.id),
+    )
+
+    memberships = (
+        (
+            await session.execute(
+                select(Membership).where(
+                    Membership.workspace_id == workspace.id,
+                    Membership.user_id == member_user.id,
+                )
+            )
         )
+        .scalars()
+        .all()
+    )
+    assert len(memberships) == 1
+
+
+# === reconcile_workspace_membership (ENG-1499 / B1) === #
+
+
+async def _get_membership(
+    session: AsyncSession, workspace: Workspace, user: User
+) -> Membership | None:
+    return await session.scalar(
+        select(Membership).where(
+            Membership.workspace_id == workspace.id,
+            Membership.user_id == user.id,
+        )
+    )
+
+
+@pytest.fixture
+async def group(session: AsyncSession, organization: Organization) -> Group:
+    grp = Group(
+        id=uuid.uuid4(),
+        name=f"group-{uuid.uuid4().hex[:8]}",
+        organization_id=organization.id,
+    )
+    session.add(grp)
+    await session.commit()
+    await session.refresh(grp)
+    return grp
+
+
+async def test_reconcile_materializes_membership_for_direct_ws_path(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    workspace_editor_role: DBRole,
+) -> None:
+    """A direct workspace-scoped role assignment should mint a membership row."""
+    session.add(
+        UserRoleAssignment(
+            organization_id=organization.id,
+            user_id=member_user.id,
+            workspace_id=workspace.id,
+            role_id=workspace_editor_role.id,
+        )
+    )
+    await session.commit()
+
+    await membership_service.reconcile_workspace_membership(
+        member_user.id, workspace.id
+    )
+
+    assert await _get_membership(session, workspace, member_user) is not None
+
+
+async def test_reconcile_org_wide_path_does_not_materialize(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    workspace_editor_role: DBRole,
+) -> None:
+    """Org-wide (workspace_id IS NULL) assignments must NOT create membership."""
+    session.add(
+        UserRoleAssignment(
+            organization_id=organization.id,
+            user_id=member_user.id,
+            workspace_id=None,
+            role_id=workspace_editor_role.id,
+        )
+    )
+    await session.commit()
+
+    await membership_service.reconcile_workspace_membership(
+        member_user.id, workspace.id
+    )
+
+    assert await _get_membership(session, workspace, member_user) is None
+
+
+async def test_reconcile_is_idempotent(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    workspace_editor_role: DBRole,
+) -> None:
+    """Reconciling twice yields exactly one membership row."""
+    session.add(
+        UserRoleAssignment(
+            organization_id=organization.id,
+            user_id=member_user.id,
+            workspace_id=workspace.id,
+            role_id=workspace_editor_role.id,
+        )
+    )
+    await session.commit()
+
+    await membership_service.reconcile_workspace_membership(
+        member_user.id, workspace.id
+    )
+    await membership_service.reconcile_workspace_membership(
+        member_user.id, workspace.id
+    )
+
+    rows = (
+        (
+            await session.execute(
+                select(Membership).where(
+                    Membership.workspace_id == workspace.id,
+                    Membership.user_id == member_user.id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 1
+
+
+async def test_reconcile_removes_membership_when_no_path_remains(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    workspace: Workspace,
+    member_user: User,
+) -> None:
+    """A membership with no backing ws-scoped path is reconciled away."""
+    session.add(Membership(user_id=member_user.id, workspace_id=workspace.id))
+    await session.commit()
+
+    await membership_service.reconcile_workspace_membership(
+        member_user.id, workspace.id
+    )
+
+    assert await _get_membership(session, workspace, member_user) is None
+
+
+async def test_reconcile_materializes_membership_for_group_ws_path(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    workspace_editor_role: DBRole,
+    group: Group,
+) -> None:
+    """Membership in a group with a ws-scoped assignment mints membership."""
+    session.add(GroupMember(group_id=group.id, user_id=member_user.id))
+    session.add(
+        GroupRoleAssignment(
+            organization_id=organization.id,
+            group_id=group.id,
+            workspace_id=workspace.id,
+            role_id=workspace_editor_role.id,
+        )
+    )
+    await session.commit()
+
+    await membership_service.reconcile_workspace_membership(
+        member_user.id, workspace.id
+    )
+
+    assert await _get_membership(session, workspace, member_user) is not None
+
+
+async def test_reconcile_keeps_membership_when_group_path_remains(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    workspace_editor_role: DBRole,
+    group: Group,
+) -> None:
+    """Removing a direct assignment keeps membership if a group path holds it."""
+    session.add(GroupMember(group_id=group.id, user_id=member_user.id))
+    session.add(
+        GroupRoleAssignment(
+            organization_id=organization.id,
+            group_id=group.id,
+            workspace_id=workspace.id,
+            role_id=workspace_editor_role.id,
+        )
+    )
+    session.add(Membership(user_id=member_user.id, workspace_id=workspace.id))
+    await session.commit()
+
+    # No direct assignment exists, but the group path does -> membership stays.
+    await membership_service.reconcile_workspace_membership(
+        member_user.id, workspace.id
+    )
+
+    assert await _get_membership(session, workspace, member_user) is not None
+
+
+async def test_reconcile_group_members_fans_out(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    actor_user: User,
+    workspace_editor_role: DBRole,
+    group: Group,
+) -> None:
+    """reconcile_group_members materializes membership for every group member."""
+    session.add(GroupMember(group_id=group.id, user_id=member_user.id))
+    session.add(GroupMember(group_id=group.id, user_id=actor_user.id))
+    session.add(
+        GroupRoleAssignment(
+            organization_id=organization.id,
+            group_id=group.id,
+            workspace_id=workspace.id,
+            role_id=workspace_editor_role.id,
+        )
+    )
+    await session.commit()
+
+    await membership_service.reconcile_group_members(group.id, workspace.id)
+
+    assert await _get_membership(session, workspace, member_user) is not None
+    assert await _get_membership(session, workspace, actor_user) is not None
