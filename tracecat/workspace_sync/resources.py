@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any, NamedTuple
 
 import yaml
@@ -348,31 +348,31 @@ def _find_cycle(graph: dict[str, list[str]]) -> list[str]:
     The returned list repeats the entry node at both ends (e.g.
     ``["a", "b", "a"]``). Nodes and edges are visited in sorted order for
     deterministic results.
+
+    Implemented as an iterative depth-first search to avoid recursion limits on
+    deep dependency chains. ``on_stack`` maps each node on the active path to its
+    stack depth, so a back edge yields the cycle in O(cycle length).
     """
-    visiting: set[str] = set()
+    adjacency = {node: sorted(children) for node, children in graph.items()}
     visited: set[str] = set()
-    path: list[str] = []
+    on_stack: dict[str, int] = {}
 
-    def visit(node: str) -> list[str]:
-        """Depth-first walk from ``node`` returning a back-edge cycle if found."""
-        if node in visiting:
-            cycle_start = path.index(node)
-            return path[cycle_start:] + [node]
-        if node in visited:
-            return []
-        visiting.add(node)
-        path.append(node)
-        for child in sorted(graph.get(node, [])):
-            cycle = visit(child)
-            if cycle:
-                return cycle
-        path.pop()
-        visiting.remove(node)
-        visited.add(node)
-        return []
-
-    for node in sorted(graph):
-        cycle = visit(node)
-        if cycle:
-            return cycle
+    for root in sorted(adjacency):
+        if root in visited:
+            continue
+        on_stack[root] = 0
+        stack: list[tuple[str, Iterator[str]]] = [(root, iter(adjacency[root]))]
+        while stack:
+            node, children = stack[-1]
+            for child in children:
+                if child in on_stack:
+                    return [frame[0] for frame in stack[on_stack[child] :]] + [child]
+                if child not in visited:
+                    on_stack[child] = len(stack)
+                    stack.append((child, iter(adjacency.get(child, []))))
+                    break
+            else:
+                stack.pop()
+                del on_stack[node]
+                visited.add(node)
     return []
