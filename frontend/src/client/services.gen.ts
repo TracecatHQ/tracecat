@@ -514,7 +514,6 @@ import type {
   ProvidersListProvidersData,
   ProvidersListProvidersResponse,
   PublicCheckHealthResponse,
-  PublicCheckReadyResponse,
   PublicHandleChannelEventData,
   PublicHandleChannelEventResponse,
   PublicHandleSlackOauthCallbackData,
@@ -12982,27 +12981,5 @@ export const publicCheckHealth =
     return __request(OpenAPI, {
       method: "GET",
       url: "/health",
-    })
-  }
-
-/**
- * Check Ready
- * Deep readiness check for platform registry sync state.
- *
- * Container health checks should use /health so transient registry sync delays
- * do not cause orchestrators to replace otherwise healthy API tasks.
- *
- * Returns a detailed response including registry sync status.
- * @returns ReadinessResponse Successful Response
- * @throws ApiError
- */
-export const publicCheckReady =
-  (): CancelablePromise<PublicCheckReadyResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/ready",
-      errors: {
-        503: "Platform registry sync is incomplete.",
-      },
     })
   }

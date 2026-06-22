@@ -2,7 +2,6 @@ import asyncio
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 
-import tracecat_registry
 from fastapi import (
     APIRouter,
     Depends,
@@ -112,7 +111,7 @@ from tracecat.cases.tags.internal_router import router as internal_case_tags_rou
 from tracecat.cases.tags.router import router as case_tags_router
 from tracecat.cases.triggers.consumer import start_case_trigger_consumer
 from tracecat.contexts import ctx_role
-from tracecat.db.dependencies import AsyncDBSession, AsyncDBSessionBypass
+from tracecat.db.dependencies import AsyncDBSessionBypass
 from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
 )
@@ -149,8 +148,6 @@ from tracecat.organization.management import (
 )
 from tracecat.organization.router import router as org_router
 from tracecat.registry.actions.router import router as registry_actions_router
-from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
-from tracecat.registry.repositories.platform_service import PlatformRegistryReposService
 from tracecat.registry.repositories.router import router as registry_repos_router
 from tracecat.registry.sync.jobs import sync_platform_registry_on_startup
 from tracecat.secrets.router import org_router as org_secrets_router
@@ -707,17 +704,6 @@ class HealthResponse(BaseModel):
     status: str
 
 
-class RegistryStatus(BaseModel):
-    synced: bool
-    expected_version: str
-    current_version: str | None
-
-
-class ReadinessResponse(BaseModel):
-    status: str
-    registry: RegistryStatus
-
-
 @app.get("/", include_in_schema=False)
 def root() -> HealthResponse:
     return HealthResponse(status="ok")
@@ -765,54 +751,3 @@ async def info(session: AsyncDBSessionBypass) -> AppInfo:
 @app.get("/health", tags=["public"])
 async def check_health() -> HealthResponse:
     return HealthResponse(status="ok")
-
-
-@app.get(
-    "/ready",
-    tags=["public"],
-    responses={
-        status.HTTP_503_SERVICE_UNAVAILABLE: {
-            "model": ReadinessResponse,
-            "description": "Platform registry sync is incomplete.",
-        },
-    },
-)
-async def check_ready(response: Response, session: AsyncDBSession) -> ReadinessResponse:
-    """Deep readiness check for platform registry sync state.
-
-    Container health checks should use /health so transient registry sync delays
-    do not cause orchestrators to replace otherwise healthy API tasks.
-
-    Returns a detailed response including registry sync status.
-    """
-    expected_version = tracecat_registry.__version__
-
-    # Check registry sync status
-    repos_service = PlatformRegistryReposService(session)
-    repo = await repos_service.get_repository(DEFAULT_REGISTRY_ORIGIN)
-
-    if repo is None or repo.current_version is None:
-        registry_status = RegistryStatus(
-            synced=False,
-            expected_version=expected_version,
-            current_version=None,
-        )
-    else:
-        registry_status = RegistryStatus(
-            synced=repo.current_version.version == expected_version,
-            expected_version=expected_version,
-            current_version=repo.current_version.version,
-        )
-
-    # Not ready if registry is not synced
-    if not registry_status.synced:
-        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-        return ReadinessResponse(
-            status="not_ready",
-            registry=registry_status,
-        )
-
-    return ReadinessResponse(
-        status="ready",
-        registry=registry_status,
-    )

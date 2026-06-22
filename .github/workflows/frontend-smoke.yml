@@ -99,7 +99,7 @@ jobs:
           compose_files=(-f docker-compose.local.yml -f .github/docker-compose.integration.yml)
           docker compose "${compose_files[@]}" up --no-build -d temporal api worker executor postgres_db caddy minio redis ui
 
-          timeout 300 bash -c 'until curl -fsS http://localhost/api/ready; do sleep 5; done'
+          timeout 300 bash -c 'until curl -fsS http://localhost/api/health; do sleep 5; done'
           timeout 120 bash -c 'until curl -fsS http://localhost; do sleep 5; done'
 
           set -a

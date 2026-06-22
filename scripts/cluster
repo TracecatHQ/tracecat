@@ -1189,13 +1189,12 @@ seed_dev_user() {
     local max_attempts=150
     local attempt=1
 
-    echo "[dev-seed] Waiting for API to be ready (up to 5 minutes)..."
+    echo "[dev-seed] Waiting for API health check (up to 5 minutes)..."
     while [[ $attempt -le $max_attempts ]]; do
-        # Use deep readiness so dev seeding waits for registry sync.
         local status_code
-        status_code=$(curl -s -o /dev/null -w "%{http_code}" "${api_url}/ready" 2>/dev/null || echo "000")
+        status_code=$(curl -s -o /dev/null -w "%{http_code}" "${api_url}/health" 2>/dev/null || echo "000")
         if [[ "$status_code" == "200" ]]; then
-            echo "[dev-seed] API is ready"
+            echo "[dev-seed] API health check passed"
             break
         fi
         sleep 2
@@ -1203,7 +1202,7 @@ seed_dev_user() {
     done
 
     if [[ $attempt -gt $max_attempts ]]; then
-        echo "[dev-seed] Warning: API did not become ready within 5 minutes, skipping dev seed"
+        echo "[dev-seed] Warning: API health check did not pass within 5 minutes, skipping dev seed"
         return 1
     fi
 
