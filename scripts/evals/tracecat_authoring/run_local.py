@@ -2064,20 +2064,6 @@ def validate_prompt_table_upsert_examples(
     )
 
 
-def validate_prompt_loop_parallelism_guardrails(text: str) -> CheckResult:
-    required_phrases = [
-        "Prefer `core.script.run_python` loops over action-level `for_each`",
-        "Prefer `core.script.run_python` loops over `core.transform.scatter` / `core.transform.gather`",
-        "hurt the scheduler",
-    ]
-    missing = [phrase for phrase in required_phrases if phrase not in text]
-    return CheckResult(
-        "prompt_loop_parallelism_guardrails",
-        not missing,
-        f"missing={missing}",
-    )
-
-
 def validate_prompt_mcp_tool_argument_guardrails(text: str) -> CheckResult:
     required_phrases = [
         "not an MCP tool argument reference",
@@ -2125,7 +2111,6 @@ def static_prompt_checks() -> list[CheckResult]:
     checks.append(validate_prompt_result_shapes(prompt_facing_text))
     checks.append(validate_prompt_action_literals(prompt_facing_text))
     checks.append(validate_prompt_table_upsert_examples(sources))
-    checks.append(validate_prompt_loop_parallelism_guardrails(prompt_facing_text))
     checks.append(validate_prompt_mcp_tool_argument_guardrails(prompt_facing_text))
     checks.append(validate_registered_action_section(dsl_text))
     return checks

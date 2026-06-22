@@ -2967,20 +2967,25 @@ show candidate integrations first.
 `${{ condition -> true_value : false_value }}`
 - Literals: `None` (NOT `null`), `true`, `false`, strings, numbers
 - There is NO inline `for` comprehension syntax in expressions. \
-Use `core.script.run_python` for list transformations and loops.
+Use `core.script.run_python` for list transformations; see loop guidance below \
+for workflow fan-out.
 
 ## Loop and batching guidance
-- Prefer `core.script.run_python` loops over action-level `for_each`, even for \
-bounded lists. `for_each` can create enough scheduled work to hurt the scheduler.
-- Use `for_each` only when the user explicitly needs separate workflow action \
-runs per item and accepts the scheduler/concurrency tradeoff.
+- Default to `core.transform.scatter` for workflow-level loop management: \
+scatter alerts into `core.cases.create_case`, run `ai.agent` or \
+`ai.preset_agent` per item, branch enrichment, or call `core.workflow.execute`. \
+Add `core.transform.gather` only when downstream steps need combined results.
+- Use best judgment: use `core.script.run_python` for data-heavy in-process \
+work such as list transforms, batching, joins, dedupe, sorting, grouping, \
+chunked table writes, batch table uploads, and bounded async HTTP loops. \
+Run-python scripts can import Tracecat modules when needed for platform-native \
+helpers.
+- Avoid action-level `for_each` by default. Use it only for known, bounded lists \
+when the user explicitly needs separate workflow action runs per item and accepts \
+the scheduler/concurrency tradeoff. Unbounded or large `for_each` loops can hurt \
+the scheduler.
 - Use `core.loop.start` / `core.loop.end` for while-style workflow loops where \
 the next iteration depends on prior action output.
-- Prefer `core.script.run_python` loops over `core.transform.scatter` / \
-`core.transform.gather`. Scatter/gather has the same scheduler/concurrency risk \
-and should be reserved for explicit workflow-stream fan-out/fan-in requirements.
-- Use `core.script.run_python` for list transforms, batching, joins, dedupe, \
-sorting, grouping, chunked table writes, and bounded async HTTP loops.
 
 ## Key DSL fields (inside each action under `actions:`)
 - `ref` — unique slug identifier for the action
@@ -3389,30 +3394,33 @@ actions:
 ```
 
 ### Scatter/Gather (Parallel Fan-out/Fan-in)
-Prefer `core.script.run_python` loops over scatter/gather, even for bounded
-lists. Scatter/gather creates per-item scheduled work and can hurt the scheduler.
-Use it only when the user explicitly needs separate workflow execution streams
-and accepts the concurrency tradeoff.
+Default to scatter for workflow-level loops: scatter alerts into
+`core.cases.create_case`, run `ai.agent` or `ai.preset_agent` per item, branch
+enrichment, or call `core.workflow.execute`. Add gather only when a downstream
+step needs combined results. Use `core.script.run_python` for data-heavy
+in-process shaping, joins, dedupe, chunked table writes, batch table uploads, or
+bounded async HTTP loops.
 ```yaml
 actions:
-  - ref: scatter_items
+  - ref: scatter_alerts
     action: core.transform.scatter
     args:
-      collection: ${{ TRIGGER.items }}
-  - ref: process_item
-    action: core.http_request
-    depends_on: [scatter_items]
+      collection: ${{ TRIGGER.alerts }}
+  - ref: create_case
+    action: core.cases.create_case
+    depends_on: [scatter_alerts]
     args:
-      url: "https://api.example.com/process/${{ ACTIONS.scatter_items.result.id }}"
-      method: POST
+      summary: ${{ ACTIONS.scatter_alerts.result.summary || "Alert" }}
+      description: ${{ ACTIONS.scatter_alerts.result.description || "Created from alert" }}
+      payload: ${{ ACTIONS.scatter_alerts.result }}
   - ref: gather_results
     action: core.transform.gather
-    depends_on: [process_item]
+    depends_on: [create_case]
     args:
-      items: ${{ ACTIONS.process_item.result }}
+      items: ${{ ACTIONS.create_case.result }}
 ```
 **Key**: Inside a scatter stream, `ACTIONS.<scatter_ref>.result` gives each item. \
-Multiple actions can chain within the stream before the gather collects results.
+Omit gather when no downstream aggregate is needed.
 
 ### AI Action (Simple LLM Call)
 ```yaml
@@ -3446,10 +3454,11 @@ actions:
 Use top-level `model_name` and `model_provider` only when explicitly requested.
 
 ### For-each Syntax (Avoid by Default)
-Prefer `core.script.run_python` loops over `for_each`, even for bounded lists.
-`for_each` creates per-item scheduled work and can hurt the scheduler. Use it
-only when the user explicitly needs separate workflow action runs per item and
-accepts the concurrency tradeoff.
+Avoid `for_each` unless the list is known and bounded and the user explicitly
+needs separate workflow action runs per item. `for_each` creates per-item
+scheduled work and can hurt the scheduler; use `core.script.run_python` for
+ordinary in-process loops and `core.transform.scatter` / `core.transform.gather`
+for durable workflow fan-out/fan-in.
 ```yaml
 actions:
   - ref: process_items

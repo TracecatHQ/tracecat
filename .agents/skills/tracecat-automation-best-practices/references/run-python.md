@@ -7,12 +7,17 @@ rather than scattering it across many nodes.
 
 ## Loops and concurrency
 
-- Prefer `core.script.run_python` loops over action-level `for_each`, even for bounded lists.
-  `for_each` can create enough scheduled work to hurt the scheduler. Use it only when the user
-  explicitly needs separate workflow action runs per item and accepts the concurrency tradeoff.
-- Prefer `core.script.run_python` loops over `core.transform.scatter` / `core.transform.gather`.
-  Scatter/gather has the same scheduler/concurrency risk; reserve it for explicit
-  workflow-stream fan-out/fan-in requirements.
+- Default to `core.transform.scatter` for workflow-level loops: scatter alerts into
+  `core.cases.create_case`, run `ai.agent` or `ai.preset_agent` per item, branch enrichment,
+  or call `core.workflow.execute`. Add `core.transform.gather` only when downstream steps need
+  combined results.
+- Use best judgment: choose `core.script.run_python` for data-heavy in-process loops such as
+  transforms, batching, joins, dedupe, sorting, grouping, chunked table writes, batch table
+  uploads, bounded async HTTP loops, and per-item error handling where separate workflow
+  streams are unnecessary.
+- Avoid action-level `for_each` by default. Use it only for known, bounded lists when the user
+  explicitly needs separate workflow action runs per item and accepts the scheduler/concurrency
+  tradeoff.
 - Use `core.loop.start` / `core.loop.end` only when each iteration depends on prior action
   output.
 - Use bounded async concurrency inside `core.script.run_python` for bulk HTTP or table
