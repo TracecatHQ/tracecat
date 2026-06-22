@@ -26,6 +26,9 @@ from tracecat.tables.enums import SqlType
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.schemas import WorkspaceManifestResources, WorkspaceSpec
 
+# Attribute on ``WorkspaceSpec`` and ``WorkspaceManifestResources`` that holds a
+# given resource type's specs/root. Each adapter binds to exactly one of these
+# via its ``spec_attr`` class variable.
 type WorkspaceSpecField = Literal[
     "workflows",
     "agent_presets",
@@ -42,24 +45,47 @@ type WorkspaceSpecField = Literal[
 
 @dataclass(frozen=True, slots=True)
 class ProjectedResource:
+    """One resource projected out of the database during an export."""
+
     resource_type: SyncResourceType
+    """The kind of resource being synced (workflow, table, ...)."""
     source_id: str
+    """Portable, Git-owned identity, e.g. ``my-table`` (or the compound
+    ``prod/api-key`` for environment-scoped resources)."""
     source_path: str
+    """Where the resource's primary file lives in the repository."""
     local_id: uuid.UUID
+    """Workspace-local database UUID this ``source_id`` maps to."""
 
 
 @dataclass(frozen=True, slots=True)
 class ImportedResource:
+    """One resource reconciled into the database during an import.
+
+    Carries the same identity as :class:`ProjectedResource`, recorded after the
+    spec has been written back to local state so the sync mapping can be
+    persisted.
+    """
+
     resource_type: SyncResourceType
+    """The kind of resource being synced (workflow, table, ...)."""
     source_id: str
+    """Portable, Git-owned identity that maps to ``local_id``."""
     source_path: str
+    """Where the resource's primary file lives in the repository."""
     local_id: uuid.UUID
+    """Workspace-local database UUID this ``source_id`` maps to."""
 
 
 @dataclass(frozen=True, slots=True)
 class ResourceProjection:
+    """The result of projecting one resource type out of the database."""
+
     specs: dict[str, BaseModel]
+    """Map of ``source_id`` to its Git-owned spec model."""
     resources: list[ProjectedResource]
+    """Identities linking each ``source_id`` to its ``local_id``, parallel to
+    ``specs``."""
 
 
 class ResourceAdapter(ABC):
@@ -72,8 +98,11 @@ class ResourceAdapter(ABC):
     """
 
     resource_type: ClassVar[SyncResourceType]
+    """The sync resource type this adapter handles."""
     spec_attr: ClassVar[WorkspaceSpecField]
+    """Attribute on ``WorkspaceSpec``/``WorkspaceManifestResources`` for this type."""
     model: ClassVar[type[BaseModel]]
+    """Pydantic spec model the resource serializes to and from."""
 
     # -- paths and serialization ------------------------------------------
     @abstractmethod
@@ -86,14 +115,23 @@ class ResourceAdapter(ABC):
         path: str,
         roots: WorkspaceManifestResources,
     ) -> str | None:
-        """Return the source id a primary file path maps to, or ``None``."""
+        """Return the source id a primary file path maps to, or ``None``.
+
+        Inverse of :meth:`source_path`. ``None`` means the path is not a primary
+        file for this resource type.
+        """
 
     def extra_path_from_path(
         self,
         path: str,
         roots: WorkspaceManifestResources,
     ) -> tuple[str, str] | None:
-        """Map a companion file path to ``(source_id, relative_path)``."""
+        """Map a companion file path to ``(source_id, relative_path)``.
+
+        Companion files are everything beyond the primary file (skill blobs,
+        table rows). Returns ``None`` when ``path`` is not such a file; the
+        default has no companion files.
+        """
         return None
 
     def serialize_extra_files(
@@ -115,7 +153,11 @@ class ResourceAdapter(ABC):
 
     # -- database projection and import -----------------------------------
     async def project(self, ctx: BaseWorkspaceService) -> ResourceProjection:
-        """Project local database state into resource specs."""
+        """Project this resource type's database rows into Git specs.
+
+        Returns an empty projection by default; projectable adapters override
+        it. Workflows are projected by the sync service, not here.
+        """
         return ResourceProjection(specs={}, resources=[])
 
     async def import_specs(
@@ -123,11 +165,15 @@ class ResourceAdapter(ABC):
         ctx: BaseWorkspaceService,
         specs: Mapping[str, BaseModel],
     ) -> list[ImportedResource]:
-        """Reconcile resource specs into local database state."""
+        """Reconcile this resource type's Git specs into the local database.
+
+        Returns nothing by default; importable adapters override it.
+        """
         return []
 
     # -- helpers ----------------------------------------------------------
     def specs(self, spec: WorkspaceSpec) -> dict[str, BaseModel]:
+        """Pull this resource type's ``source_id`` -> spec map off a workspace spec."""
         return cast(dict[str, BaseModel], getattr(spec, self.spec_attr))
 
     def display_name(self, spec: BaseModel) -> str | None:
@@ -143,6 +189,7 @@ class ResourceAdapter(ABC):
         source_id: str,
         local_id: uuid.UUID,
     ) -> ProjectedResource:
+        """Build a :class:`ProjectedResource` with this adapter's type and path."""
         return ProjectedResource(
             resource_type=self.resource_type,
             source_id=source_id,
@@ -155,6 +202,7 @@ class ResourceAdapter(ABC):
         source_id: str,
         local_id: uuid.UUID,
     ) -> ImportedResource:
+        """Build an :class:`ImportedResource` with this adapter's type and path."""
         return ImportedResource(
             resource_type=self.resource_type,
             source_id=source_id,
@@ -166,6 +214,11 @@ class ResourceAdapter(ABC):
         self,
         ctx: BaseWorkspaceService,
     ) -> dict[uuid.UUID, str]:
+        """Load this resource type's ``local_id`` -> ``source_id`` sync mappings.
+
+        Used during projection to reuse the source id already assigned to a
+        local resource instead of minting a fresh one.
+        """
         stmt = select(
             WorkspaceSyncResourceMapping.local_id,
             WorkspaceSyncResourceMapping.source_id,
@@ -181,6 +234,7 @@ class ResourceAdapter(ABC):
         ctx: BaseWorkspaceService,
         source_id: str,
     ) -> uuid.UUID | None:
+        """Resolve a single ``source_id`` to its mapped ``local_id``, if any."""
         stmt = select(WorkspaceSyncResourceMapping.local_id).where(
             WorkspaceSyncResourceMapping.workspace_id == ctx.workspace_id,
             WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
@@ -194,6 +248,11 @@ class ResourceAdapter(ABC):
         ctx: BaseWorkspaceService,
         source_ids: Iterable[str],
     ) -> dict[str, uuid.UUID]:
+        """Bulk-resolve ``source_id`` values to their mapped ``local_id`` UUIDs.
+
+        Only mapped ids appear in the result, so the returned dict may be
+        smaller than ``source_ids``.
+        """
         source_id_values = set(source_ids)
         if not source_id_values:
             return {}
@@ -210,10 +269,16 @@ class ResourceAdapter(ABC):
 
 
 class CompoundYamlAdapter(ResourceAdapter):
-    """``<root>/<source_id>/<filename>`` layout (agent presets, skills, tables)."""
+    """Layout ``<root>/<source_id>/<filename>``.
+
+    Each resource owns a directory, so it can carry companion files next to its
+    primary file (agent presets, skills, tables).
+    """
 
     root: ClassVar[str]
+    """Top-level repository directory for this resource type."""
     filename: ClassVar[str]
+    """Primary file name inside each resource directory."""
 
     def source_path(self, source_id: str) -> str:
         return f"{self.root}/{source_id}/{self.filename}"
@@ -225,6 +290,7 @@ class CompoundYamlAdapter(ResourceAdapter):
     ) -> str | None:
         parts = path_parts(path)
         root_parts = path_parts(str(getattr(roots, self.spec_attr)))
+        # Must be exactly <root>/<source_id>/<filename>.
         if len(parts) != len(root_parts) + 2:
             return None
         if parts[: len(root_parts)] != root_parts or parts[-1] != self.filename:
@@ -233,9 +299,14 @@ class CompoundYamlAdapter(ResourceAdapter):
 
 
 class SingleYamlAdapter(ResourceAdapter):
-    """``<root>/<source_id>.yml`` layout (case tags, fields, dropdowns, durations)."""
+    """Layout ``<root>/<source_id>.yml``.
+
+    One flat file per resource, with no companion files (case tags, fields,
+    dropdowns, durations).
+    """
 
     root: ClassVar[str]
+    """Top-level repository directory for this resource type."""
 
     def source_path(self, source_id: str) -> str:
         return f"{self.root}/{source_id}.yml"
@@ -247,6 +318,7 @@ class SingleYamlAdapter(ResourceAdapter):
     ) -> str | None:
         parts = path_parts(path)
         root_parts = path_parts(str(getattr(roots, self.spec_attr)))
+        # Must be exactly <root>/<filename>.yml.
         if len(parts) != len(root_parts) + 1:
             return None
         if parts[: len(root_parts)] != root_parts:
@@ -258,14 +330,17 @@ class SingleYamlAdapter(ResourceAdapter):
 
 
 class EnvironmentYamlAdapter(ResourceAdapter):
-    """``<root>/<environment>/<name>.yml`` layout (variables, secret metadata).
+    """Layout ``<root>/<environment>/<name>.yml`` (variables, secret metadata).
 
-    The source id is the compound ``<environment>/<name>`` segment.
+    The source id is the compound ``<environment>/<name>`` segment, so its
+    single embedded ``/`` expands into the environment subdirectory on disk.
     """
 
     root: ClassVar[str]
+    """Top-level repository directory for this resource type."""
 
     def source_path(self, source_id: str) -> str:
+        # source_id is "<environment>/<name>", yielding <root>/<env>/<name>.yml.
         return f"{self.root}/{source_id}.yml"
 
     def source_id_from_path(
@@ -275,6 +350,7 @@ class EnvironmentYamlAdapter(ResourceAdapter):
     ) -> str | None:
         parts = path_parts(path)
         root_parts = path_parts(str(getattr(roots, self.spec_attr)))
+        # Must be exactly <root>/<environment>/<name>.yml.
         if len(parts) != len(root_parts) + 2:
             return None
         if parts[: len(root_parts)] != root_parts:
@@ -289,16 +365,27 @@ class EnvironmentYamlAdapter(ResourceAdapter):
 
 
 def path_parts(path: str) -> list[str]:
+    """Split a repository path into its non-empty, slash-free segments."""
     return [part for part in path.strip("/").split("/") if part]
 
 
 def path_segment(value: str, *, fallback: str = "resource") -> str:
+    """Slugify ``value`` into a single filesystem-safe path segment.
+
+    Replaces path separators and other unsafe characters with ``-``, trims to
+    96 characters, and returns ``fallback`` when nothing usable remains.
+    """
     cleaned = value.strip().replace("/", "-").replace("\\", "-")
     safe = re.sub(r"[^A-Za-z0-9_.-]+", "-", cleaned).strip("-._")
     return safe[:96].strip("-._") or fallback
 
 
 def unique_source_id(value: str, *, reserved: set[str]) -> str:
+    """Slugify ``value`` into a ``source_id`` not already in ``reserved``.
+
+    Appends ``-2``, ``-3``, ... to break collisions. ``reserved`` is read only;
+    callers add the returned id to it themselves.
+    """
     base = path_segment(value)
     candidate = base
     counter = 2
@@ -309,6 +396,7 @@ def unique_source_id(value: str, *, reserved: set[str]) -> str:
 
 
 def environment_source_id(environment: str, name: str) -> str:
+    """Build the compound ``<environment>/<name>`` source id for an env resource."""
     return f"{path_segment(environment, fallback='default')}/{path_segment(name)}"
 
 
@@ -318,6 +406,7 @@ def unique_environment_source_id(
     *,
     reserved: set[str],
 ) -> str:
+    """Like :func:`unique_source_id`, but for ``<environment>/<name>`` ids."""
     base = environment_source_id(environment, name)
     candidate = base
     counter = 2
@@ -328,5 +417,10 @@ def unique_environment_source_id(
 
 
 def sql_type(value: Any) -> SqlType:
+    """Coerce a column ``type`` label into a :class:`SqlType`.
+
+    Normalizes hyphens to underscores and upper-cases before lookup, so a label
+    like ``"multi-select"`` resolves to ``SqlType.MULTI_SELECT``.
+    """
     raw = str(value).replace("-", "_").upper()
     return SqlType(raw)
