@@ -174,18 +174,14 @@ class SkillAdapter(CompoundYamlAdapter):
                     )
                     file_contents[version_file.path] = content.decode("utf-8")
 
-            specs[source_id] = SkillResourceSpec.model_validate(
-                {
-                    "id": source_id,
-                    "slug": skill.name,
-                    "name": version.name if version is not None else skill.name,
-                    "current_version": (
-                        version.version if version is not None else None
-                    ),
-                    "description": skill.description,
-                    "files": files,
-                    "file_contents": file_contents,
-                }
+            specs[source_id] = SkillResourceSpec(
+                id=source_id,
+                slug=skill.name,
+                name=version.name if version is not None else skill.name,
+                current_version=version.version if version is not None else None,
+                description=skill.description,
+                files=files,
+                file_contents=file_contents,
             )
             resources.append(self.projected_resource(source_id, skill.id))
         return ResourceProjection(specs=specs, resources=resources)

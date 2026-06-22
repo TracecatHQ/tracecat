@@ -59,16 +59,14 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
                 key_value.key
                 for key_value in secret_service.decrypt_keys(secret.encrypted_keys)
             )
-            specs[source_id] = SecretMetadataResourceSpec.model_validate(
-                {
-                    "id": source_id,
-                    "name": secret.name,
-                    "environment": secret.environment,
-                    "secret_type": secret.type,
-                    "keys": keys,
-                    "tags": sorted((secret.tags or {}).keys()),
-                    "description": secret.description,
-                }
+            specs[source_id] = SecretMetadataResourceSpec(
+                id=source_id,
+                name=secret.name,
+                environment=secret.environment,
+                secret_type=secret.type,
+                keys=keys,
+                tags=sorted((secret.tags or {}).keys()),
+                description=secret.description,
             )
             resources.append(self.projected_resource(source_id, secret.id))
         return ResourceProjection(specs=specs, resources=resources)

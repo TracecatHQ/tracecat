@@ -8,6 +8,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
+from tracecat.cases.enums import CaseEventType
 from tracecat.dsl.common import DSLInput
 from tracecat.sync import CommitInfo
 from tracecat.workflow.store.schemas import (
@@ -215,13 +217,27 @@ class CaseDropdownResourceSpec(BaseModel):
     required_on_closure: bool = False
 
 
+class CaseDurationAnchorSpec(BaseModel):
+    """Event boundary describing one end of a case duration."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    event: CaseEventType
+    selection: CaseDurationAnchorSelection = CaseDurationAnchorSelection.FIRST
+    timestamp_path: str = "created_at"
+    field_filters: dict[str, Any] = Field(default_factory=dict)
+
+
 class CaseDurationResourceSpec(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     version: Literal[1] = 1
     type: Literal["case_duration"] = "case_duration"
     id: str = Field(min_length=1)
     name: str = Field(min_length=1)
+    description: str | None = None
+    start: CaseDurationAnchorSpec
+    end: CaseDurationAnchorSpec
 
 
 class CaseFieldResourceSpec(BaseModel):

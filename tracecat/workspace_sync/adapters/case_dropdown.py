@@ -46,32 +46,30 @@ class CaseDropdownAdapter(SingleYamlAdapter):
             if source_id is None:
                 source_id = unique_source_id(dropdown.ref, reserved=reserved)
             reserved.add(source_id)
-            specs[source_id] = CaseDropdownResourceSpec.model_validate(
-                {
-                    "id": source_id,
-                    "name": dropdown.name,
-                    "options": [
-                        {
-                            key: value
-                            for key, value in {
-                                "ref": option.ref,
-                                "label": option.label,
-                                "position": option.position,
-                                "icon_name": option.icon_name,
-                                "color": option.color,
-                            }.items()
-                            if value is not None
-                        }
-                        for option in sorted(
-                            dropdown.options,
-                            key=lambda item: (item.position, item.ref),
-                        )
-                    ],
-                    "is_ordered": dropdown.is_ordered,
-                    "icon_name": dropdown.icon_name,
-                    "position": dropdown.position,
-                    "required_on_closure": dropdown.required_on_closure,
-                }
+            specs[source_id] = CaseDropdownResourceSpec(
+                id=source_id,
+                name=dropdown.name,
+                options=[
+                    {
+                        key: value
+                        for key, value in {
+                            "ref": option.ref,
+                            "label": option.label,
+                            "position": option.position,
+                            "icon_name": option.icon_name,
+                            "color": option.color,
+                        }.items()
+                        if value is not None
+                    }
+                    for option in sorted(
+                        dropdown.options,
+                        key=lambda item: (item.position, item.ref),
+                    )
+                ],
+                is_ordered=dropdown.is_ordered,
+                icon_name=dropdown.icon_name,
+                position=dropdown.position,
+                required_on_closure=dropdown.required_on_closure,
             )
             resources.append(self.projected_resource(source_id, dropdown.id))
         return ResourceProjection(specs=specs, resources=resources)

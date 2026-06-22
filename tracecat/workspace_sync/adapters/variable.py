@@ -52,15 +52,13 @@ class VariableAdapter(EnvironmentYamlAdapter):
                     reserved=reserved,
                 )
             reserved.add(source_id)
-            specs[source_id] = VariableResourceSpec.model_validate(
-                {
-                    "id": source_id,
-                    "name": variable.name,
-                    "environment": variable.environment,
-                    "keys": sorted((variable.values or {}).keys()),
-                    "description": variable.description,
-                    "tags": sorted((variable.tags or {}).keys()),
-                }
+            specs[source_id] = VariableResourceSpec(
+                id=source_id,
+                name=variable.name,
+                environment=variable.environment,
+                keys=sorted((variable.values or {}).keys()),
+                description=variable.description,
+                tags=sorted((variable.tags or {}).keys()),
             )
             resources.append(self.projected_resource(source_id, variable.id))
         return ResourceProjection(specs=specs, resources=resources)

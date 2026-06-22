@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import cast
 
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
-from tracecat.cases.enums import CaseEventType
 from tracecat.db.models import CaseDurationDefinition
 from tracecat.service import BaseWorkspaceService
 from tracecat.workspace_sync.adapters.base import (
@@ -21,7 +19,11 @@ from tracecat.workspace_sync.adapters.base import (
     unique_source_id,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
-from tracecat.workspace_sync.schemas import CASE_DURATION_ROOT, CaseDurationResourceSpec
+from tracecat.workspace_sync.schemas import (
+    CASE_DURATION_ROOT,
+    CaseDurationAnchorSpec,
+    CaseDurationResourceSpec,
+)
 
 
 class CaseDurationAdapter(SingleYamlAdapter):
@@ -48,24 +50,22 @@ class CaseDurationAdapter(SingleYamlAdapter):
             if source_id is None:
                 source_id = unique_source_id(duration.name, reserved=reserved)
             reserved.add(source_id)
-            specs[source_id] = CaseDurationResourceSpec.model_validate(
-                {
-                    "id": source_id,
-                    "name": duration.name,
-                    "description": duration.description,
-                    "start": {
-                        "event": duration.start_event_type.value,
-                        "selection": duration.start_selection.value,
-                        "timestamp_path": duration.start_timestamp_path,
-                        "field_filters": duration.start_field_filters,
-                    },
-                    "end": {
-                        "event": duration.end_event_type.value,
-                        "selection": duration.end_selection.value,
-                        "timestamp_path": duration.end_timestamp_path,
-                        "field_filters": duration.end_field_filters,
-                    },
-                }
+            specs[source_id] = CaseDurationResourceSpec(
+                id=source_id,
+                name=duration.name,
+                description=duration.description,
+                start=CaseDurationAnchorSpec(
+                    event=duration.start_event_type,
+                    selection=duration.start_selection,
+                    timestamp_path=duration.start_timestamp_path,
+                    field_filters=duration.start_field_filters,
+                ),
+                end=CaseDurationAnchorSpec(
+                    event=duration.end_event_type,
+                    selection=duration.end_selection,
+                    timestamp_path=duration.end_timestamp_path,
+                    field_filters=duration.end_field_filters,
+                ),
             )
             resources.append(self.projected_resource(source_id, duration.id))
         return ResourceProjection(specs=specs, resources=resources)
@@ -83,19 +83,17 @@ class CaseDurationAdapter(SingleYamlAdapter):
                 source_id=source_id,
                 spec=spec,
             )
-            start = _duration_anchor(spec, "start")
-            end = _duration_anchor(spec, "end")
             attrs = {
                 "name": spec.name,
-                "description": getattr(spec, "description", None),
-                "start_event_type": start["event_type"],
-                "start_selection": start["selection"],
-                "start_timestamp_path": start["timestamp_path"],
-                "start_field_filters": start["field_filters"],
-                "end_event_type": end["event_type"],
-                "end_selection": end["selection"],
-                "end_timestamp_path": end["timestamp_path"],
-                "end_field_filters": end["field_filters"],
+                "description": spec.description,
+                "start_event_type": spec.start.event,
+                "start_selection": spec.start.selection,
+                "start_timestamp_path": spec.start.timestamp_path,
+                "start_field_filters": spec.start.field_filters,
+                "end_event_type": spec.end.event,
+                "end_selection": spec.end.selection,
+                "end_timestamp_path": spec.end.timestamp_path,
+                "end_field_filters": spec.end.field_filters,
             }
             if duration is None:
                 duration = CaseDurationDefinition(
@@ -173,15 +171,3 @@ class CaseDurationAdapter(SingleYamlAdapter):
             f"Case duration sync source id {source_id!r} cannot use name {name!r} "
             "because another duration already uses that name."
         )
-
-
-def _duration_anchor(spec: CaseDurationResourceSpec, key: str) -> dict[str, Any]:
-    data = getattr(spec, key, None)
-    if not isinstance(data, dict):
-        data = {}
-    return {
-        "event_type": CaseEventType(data.get("event", "case_created")),
-        "selection": CaseDurationAnchorSelection(data.get("selection", "first")),
-        "timestamp_path": data.get("timestamp_path", "created_at"),
-        "field_filters": data.get("field_filters", {}),
-    }
