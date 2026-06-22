@@ -92,6 +92,21 @@ class AuditService(BaseService):
                 return None
         return orjson.loads(value)
 
+    async def _get_audit_setting(self, key: str, *, default: Any = None) -> Any | None:
+        """Fetch an audit setting from the active audit sink."""
+        if self.audit_sink == "platform":
+            value = await self._get_platform_setting(key)
+            return default if value is None and default is not None else value
+
+        from tracecat.settings.service import get_setting
+
+        return await get_setting(
+            key,
+            role=self.role if isinstance(self.role, Role) else None,
+            session=self.session,
+            default=default,
+        )
+
     async def _get_webhook_url(self) -> str | None:
         """Fetch the configured audit webhook URL.
 
@@ -100,16 +115,7 @@ class AuditService(BaseService):
         2. Organization setting `audit_webhook_url`
         """
 
-        if self.audit_sink == "platform":
-            value = await self._get_platform_setting("audit_webhook_url")
-        else:
-            from tracecat.settings.service import get_setting
-
-            value = await get_setting(
-                "audit_webhook_url",
-                role=self.role if isinstance(self.role, Role) else None,
-                session=self.session,
-            )
+        value = await self._get_audit_setting("audit_webhook_url")
         if value is None:
             return None
         if not isinstance(value, str):
@@ -128,16 +134,7 @@ class AuditService(BaseService):
 
         Note: Uses get_setting (uncached) to ensure changes take effect immediately.
         """
-        if self.audit_sink == "platform":
-            value = await self._get_platform_setting("audit_webhook_custom_headers")
-        else:
-            from tracecat.settings.service import get_setting
-
-            value = await get_setting(
-                "audit_webhook_custom_headers",
-                role=self.role if isinstance(self.role, Role) else None,
-                session=self.session,
-            )
+        value = await self._get_audit_setting("audit_webhook_custom_headers")
         if value is None:
             return None
         if not isinstance(value, dict):
@@ -151,16 +148,7 @@ class AuditService(BaseService):
 
     async def _get_custom_payload(self) -> dict[str, Any] | None:
         """Fetch the configured custom payload for the audit webhook."""
-        if self.audit_sink == "platform":
-            value = await self._get_platform_setting("audit_webhook_custom_payload")
-        else:
-            from tracecat.settings.service import get_setting
-
-            value = await get_setting(
-                "audit_webhook_custom_payload",
-                role=self.role if isinstance(self.role, Role) else None,
-                session=self.session,
-            )
+        value = await self._get_audit_setting("audit_webhook_custom_payload")
         if value is None:
             return None
         if not isinstance(value, dict):
@@ -173,19 +161,7 @@ class AuditService(BaseService):
 
     async def _get_verify_ssl(self) -> bool:
         """Fetch SSL verification setting for audit webhook requests."""
-        if self.audit_sink == "platform":
-            value = await self._get_platform_setting("audit_webhook_verify_ssl")
-            if value is None:
-                value = True
-        else:
-            from tracecat.settings.service import get_setting
-
-            value = await get_setting(
-                "audit_webhook_verify_ssl",
-                role=self.role if isinstance(self.role, Role) else None,
-                session=self.session,
-                default=True,
-            )
+        value = await self._get_audit_setting("audit_webhook_verify_ssl", default=True)
         if not isinstance(value, bool):
             self.logger.warning(
                 "audit_webhook_verify_ssl must be a bool",
@@ -197,16 +173,7 @@ class AuditService(BaseService):
 
     async def _get_payload_attribute(self) -> str | None:
         """Fetch optional wrapper attribute for webhook payloads."""
-        if self.audit_sink == "platform":
-            value = await self._get_platform_setting("audit_webhook_payload_attribute")
-        else:
-            from tracecat.settings.service import get_setting
-
-            value = await get_setting(
-                "audit_webhook_payload_attribute",
-                role=self.role if isinstance(self.role, Role) else None,
-                session=self.session,
-            )
+        value = await self._get_audit_setting("audit_webhook_payload_attribute")
         if value is None:
             return None
         if not isinstance(value, str):

@@ -25,12 +25,12 @@ _RESOURCE_ID_ATTR_MAP: dict[str, str] = {
     "organization_session": "session_id",
     "organization": "org_id",
     "organization_domain": "domain_id",
-    "organization_invitation": "invitation_id",
+    "organization_invitation": "id",
     "organization_tier": "org_id",
     "platform_registry_repository": "repository_id",
     "platform_registry_version": "version_id",
     "tier": "tier_id",
-    "user": "user_id",
+    "user": "id",
 }
 
 

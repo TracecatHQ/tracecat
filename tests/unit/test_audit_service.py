@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -273,6 +274,110 @@ async def test_auth_success_audit_emits_superuser_auth_only_to_platform_sink(
 
 
 @pytest.mark.anyio
+async def test_on_after_login_without_org_context_skips_org_sinks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A context-less login (basic/OIDC) must not fan out to org sinks.
+
+    Regression test for the smell where a non-org-specific login was attributed
+    into every organization the user belonged to. A platform superuser who is a
+    member of several orgs must only ever reach the platform sink here.
+    """
+    user = MagicMock()
+    user.id = uuid.uuid4()
+    user.email = "super@example.com"
+    user.is_superuser = True
+    calls: list[dict[str, object]] = []
+
+    @asynccontextmanager
+    async def fake_with_session(
+        role: Role | PlatformRole | None = None,
+        *,
+        session=None,
+        audit_sink=None,
+    ):
+        class FakeAuditService:
+            async def create_event(self, **kwargs):
+                calls.append({"role": role, "audit_sink": audit_sink})
+
+        yield FakeAuditService()
+
+    # If the fanout regressed, it would re-derive these memberships and write to
+    # their org sinks. Returning a non-empty set makes that regression fail.
+    async def fake_list_org_ids(self, user_id):
+        return {uuid.uuid4(), uuid.uuid4()}
+
+    monkeypatch.setattr(AuditService, "with_session", fake_with_session)
+    monkeypatch.setattr(UserManager, "_list_user_org_ids", fake_list_org_ids)
+    manager = UserManager.__new__(UserManager)
+    manager.logger = MagicMock()
+    manager.user_db = MagicMock()
+    manager.user_db.update = AsyncMock()
+
+    # Basic/OIDC caller shape: organization_id defaults to None.
+    await manager.on_after_login(user, request=None, response=None)
+
+    assert [call["audit_sink"] for call in calls] == ["platform"]
+    assert isinstance(calls[0]["role"], PlatformRole)
+
+
+@pytest.mark.anyio
+async def test_on_after_login_with_org_context_fans_out_to_that_org(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A login carrying explicit org context (SAML) writes that one org's sinks."""
+    org_id = uuid.uuid4()
+    user = MagicMock()
+    user.id = uuid.uuid4()
+    user.email = "super@example.com"
+    user.is_superuser = True
+    calls: list[dict[str, object]] = []
+
+    @asynccontextmanager
+    async def fake_with_session(
+        role: Role | PlatformRole | None = None,
+        *,
+        session=None,
+        audit_sink=None,
+    ):
+        class FakeAuditService:
+            async def create_event(self, **kwargs):
+                calls.append(
+                    {
+                        "role": role,
+                        "audit_sink": audit_sink,
+                        "organization_id": getattr(role, "organization_id", None),
+                    }
+                )
+
+        yield FakeAuditService()
+
+    # Should never be consulted when explicit org context is supplied.
+    async def fake_list_org_ids(self, user_id):
+        raise AssertionError("must not re-derive memberships with explicit org context")
+
+    monkeypatch.setattr(AuditService, "with_session", fake_with_session)
+    monkeypatch.setattr(UserManager, "_list_user_org_ids", fake_list_org_ids)
+    manager = UserManager.__new__(UserManager)
+    manager.logger = MagicMock()
+    manager.user_db = MagicMock()
+    manager.user_db.update = AsyncMock()
+
+    await manager.on_after_login(
+        user, request=None, response=None, organization_id=org_id
+    )
+
+    # superuser platform event + the single org's (platform, organization) sinks.
+    assert [call["audit_sink"] for call in calls] == [
+        "platform",
+        "platform",
+        "organization",
+    ]
+    org_scoped = [c for c in calls if isinstance(c["role"], Role)]
+    assert {c["organization_id"] for c in org_scoped} == {org_id}
+
+
+@pytest.mark.anyio
 async def test_auth_success_audit_skips_platform_scoped_auth_for_non_superusers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -290,6 +395,66 @@ async def test_auth_success_audit_skips_platform_scoped_auth_for_non_superusers(
     )
 
     with_session.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_on_after_register_emits_user_create_audit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = uuid.uuid4()
+    user = MagicMock()
+    user.id = user_id
+    user.email = "registered@example.com"
+    user.is_superuser = False
+    calls: list[dict[str, object]] = []
+
+    @asynccontextmanager
+    async def fake_with_session(
+        role: Role | PlatformRole | None = None,
+        *,
+        session=None,
+        audit_sink=None,
+    ):
+        class FakeAuditService:
+            async def create_event(self, **kwargs):
+                calls.append(
+                    {
+                        "role": role,
+                        "session": session,
+                        "audit_sink": audit_sink,
+                        "kwargs": kwargs,
+                    }
+                )
+
+        yield FakeAuditService()
+
+    monkeypatch.setattr(AuditService, "with_session", fake_with_session)
+    monkeypatch.setattr(
+        "tracecat.auth.users.ensure_single_tenant_user_defaults",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        "tracecat.auth.users.config.TRACECAT__AUTH_SUPERADMIN_EMAIL",
+        "superadmin@example.com",
+    )
+
+    manager = UserManager.__new__(UserManager)
+    manager.logger = MagicMock()
+    manager._pending_invitation_token = None
+
+    await manager.on_after_register(user)
+
+    assert len(calls) == 1
+    call = calls[0]
+    assert call["audit_sink"] == "platform"
+    role = call["role"]
+    assert isinstance(role, PlatformRole)
+    assert role.user_id == user_id
+    assert call["kwargs"] == {
+        "resource_type": "user",
+        "action": "create",
+        "resource_id": user_id,
+    }
 
 
 @pytest.mark.anyio
@@ -431,6 +596,77 @@ async def test_post_event_wraps_payload_when_attribute_configured(
     assert set(wrapped_payload.keys()) == {"event"}
     assert wrapped_payload["event"]["custom"] == "yes"
     assert wrapped_payload["event"]["actor_label"] == "user@example.com"
+
+
+@pytest.mark.anyio
+async def test_audit_log_organization_invitation_create_uses_returned_id(
+    role: Role,
+) -> None:
+    invitation_id = uuid.uuid4()
+
+    class MockService:
+        def __init__(self):
+            self.session = AsyncMock()
+
+        @audit_log(resource_type="organization_invitation", action="create")
+        async def create_invitation(self):
+            return SimpleNamespace(id=invitation_id)
+
+    service = MockService()
+    token = ctx_role.set(role)
+    create_event_calls: list[dict[str, object]] = []
+
+    async def mock_create_event(*args, **kwargs):
+        create_event_calls.append(kwargs)
+
+    try:
+        with patch.object(AuditService, "create_event", side_effect=mock_create_event):
+            await service.create_invitation()
+    finally:
+        ctx_role.reset(token)
+
+    success_call = next(
+        call
+        for call in create_event_calls
+        if call["status"] == AuditEventStatus.SUCCESS
+    )
+    assert success_call["resource_id"] == invitation_id
+
+
+@pytest.mark.anyio
+async def test_audit_log_explicit_invitation_id_overrides_result_id(
+    role: Role,
+) -> None:
+    invitation_id = uuid.uuid4()
+    unrelated_result_id = uuid.uuid4()
+
+    class MockService:
+        def __init__(self):
+            self.session = AsyncMock()
+
+        @audit_log(
+            resource_type="organization_invitation",
+            action="revoke",
+            resource_id_attr="invitation_id",
+        )
+        async def revoke_invitation(self, invitation_id: uuid.UUID):
+            return SimpleNamespace(id=unrelated_result_id)
+
+    service = MockService()
+    token = ctx_role.set(role)
+    create_event_calls: list[dict[str, object]] = []
+
+    async def mock_create_event(*args, **kwargs):
+        create_event_calls.append(kwargs)
+
+    try:
+        with patch.object(AuditService, "create_event", side_effect=mock_create_event):
+            await service.revoke_invitation(invitation_id)
+    finally:
+        ctx_role.reset(token)
+
+    resource_ids = [call["resource_id"] for call in create_event_calls]
+    assert resource_ids == [invitation_id, invitation_id]
 
 
 @pytest.mark.anyio

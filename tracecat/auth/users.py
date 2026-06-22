@@ -351,7 +351,11 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 user=user.email,
                 error=e,
             )
-        org_ids = {organization_id} if organization_id is not None else None
+        # Only fan out to an organization sink when the login carries explicit
+        # org context (e.g. SAML against a specific org). A context-less login
+        # (basic/OIDC) has no org scope, so it is recorded in the platform sink
+        # only and must not be attributed into org-controlled audit sinks.
+        org_ids = {organization_id} if organization_id is not None else set()
         await self._emit_auth_success_audit(
             user=user,
             auth_method=self._auth_method_from_request(request),
@@ -362,6 +366,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         self, user: User, request: Request | None = None
     ) -> None:
         self.logger.info("User registered", user_id=str(user.id), email=user.email)
+        await self._emit_user_create_audit(user=user)
 
         # Promote to superuser if email matches configured superadmin email
         # No count/lock needed - email uniqueness ensures only one user can have this email
@@ -426,6 +431,32 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             )
         return None
 
+    async def _emit_user_create_audit(self, *, user: User) -> None:
+        """Emit a platform-scoped lifecycle event for self-service registration."""
+        audit_role = PlatformRole(
+            type="user",
+            user_id=user.id,
+            service_id="tracecat-api",
+        )
+        try:
+            async with AuditService.with_session(
+                role=audit_role,
+                audit_sink="platform",
+            ) as audit_svc:
+                await audit_svc.create_event(
+                    resource_type="user",
+                    action="create",
+                    resource_id=user.id,
+                )
+        except Exception as exc:
+            self.logger.warning(
+                "Failed to emit user registration audit event",
+                user_id=str(user.id),
+                action="create",
+                audit_sink="platform",
+                error=str(exc),
+            )
+
     def _auth_method_from_request(self, request: Request | None) -> str:
         """Return a coarse auth method label without user-provided data."""
         if request is None:
@@ -448,7 +479,16 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         auth_method: str,
         org_ids: set[OrganizationID] | None = None,
     ) -> None:
-        """Emit sanitized auth success events to the relevant audit sinks."""
+        """Emit sanitized auth success events to the relevant audit sinks.
+
+        ``org_ids`` is the set of organizations the login is explicitly scoped
+        to. It is empty (or ``None``) for context-less logins (basic/OIDC),
+        which are recorded in the platform sink only. Organization-scoped sinks
+        receive a sign-in event only for orgs in ``org_ids`` -- we never fan out
+        across all of a user's memberships for a login that carried no org
+        context, since that would attribute a non-org-specific login (including
+        platform-superuser sessions) into org-controlled audit sinks.
+        """
         if user.is_superuser:
             audit_role = PlatformRole(
                 type="user",
@@ -476,10 +516,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                     error=str(exc),
                 )
 
-        target_org_ids = (
-            await self._list_user_org_ids(user.id) if org_ids is None else org_ids
-        )
-        for org_id in target_org_ids:
+        for org_id in org_ids or set():
             audit_role = Role(
                 type="user",
                 user_id=user.id,
