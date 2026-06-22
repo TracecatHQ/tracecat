@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping
-from typing import cast
 
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -23,6 +21,7 @@ from tracecat.workspace_sync.schemas import (
     CASE_DURATION_ROOT,
     CaseDurationAnchorSpec,
     CaseDurationResourceSpec,
+    WorkspaceSpec,
 )
 
 
@@ -76,10 +75,10 @@ class CaseDurationAdapter(SingleYamlAdapter):
     async def import_specs(
         self,
         ctx: BaseWorkspaceService,
-        specs: Mapping[str, BaseModel],
+        workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         """Reconcile duration specs, creating or updating each definition."""
-        durations = cast(Mapping[str, CaseDurationResourceSpec], specs)
+        durations = workspace_spec.case_durations
         imported: list[ImportedResource] = []
         for source_id, spec in sorted(durations.items()):
             duration = await self._duration_for_import(

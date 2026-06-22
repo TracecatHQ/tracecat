@@ -164,9 +164,9 @@ class ResourceAdapter(ABC):
     async def import_specs(
         self,
         ctx: BaseWorkspaceService,
-        specs: Mapping[str, BaseModel],
+        workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
-        """Reconcile this resource type's Git specs into the local database.
+        """Reconcile this resource type's Git spec slice into the local database.
 
         Returns nothing by default; importable adapters override it.
         """

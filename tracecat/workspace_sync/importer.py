@@ -33,5 +33,5 @@ class WorkspaceResourceImportService(BaseWorkspaceService):
         """
         imported: list[ImportedResource] = []
         for adapter in NON_WORKFLOW_IMPORT_ADAPTERS:
-            imported.extend(await adapter.import_specs(self, adapter.specs(spec)))
+            imported.extend(await adapter.import_specs(self, spec))
         return imported

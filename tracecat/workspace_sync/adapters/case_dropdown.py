@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import cast
-
 import sqlalchemy as sa
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -20,7 +17,11 @@ from tracecat.workspace_sync.adapters.base import (
     unique_source_id,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
-from tracecat.workspace_sync.schemas import CASE_DROPDOWN_ROOT, CaseDropdownResourceSpec
+from tracecat.workspace_sync.schemas import (
+    CASE_DROPDOWN_ROOT,
+    CaseDropdownResourceSpec,
+    WorkspaceSpec,
+)
 
 
 class CaseDropdownAdapter(SingleYamlAdapter):
@@ -80,10 +81,10 @@ class CaseDropdownAdapter(SingleYamlAdapter):
     async def import_specs(
         self,
         ctx: BaseWorkspaceService,
-        specs: Mapping[str, BaseModel],
+        workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         """Reconcile dropdown specs, syncing each definition's options in place."""
-        dropdowns = cast(Mapping[str, CaseDropdownResourceSpec], specs)
+        dropdowns = workspace_spec.case_dropdowns
         imported: list[ImportedResource] = []
         source_ids = set(dropdowns)
         mapped_local_ids_by_source_id = await self.local_ids_by_source_id(

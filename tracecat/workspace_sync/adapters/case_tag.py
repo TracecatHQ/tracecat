@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterable, Mapping
-from typing import cast
 
 import sqlalchemy as sa
 from pydantic import BaseModel
@@ -21,7 +20,11 @@ from tracecat.workspace_sync.adapters.base import (
     unique_source_id,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
-from tracecat.workspace_sync.schemas import CASE_TAG_ROOT, CaseTagResourceSpec
+from tracecat.workspace_sync.schemas import (
+    CASE_TAG_ROOT,
+    CaseTagResourceSpec,
+    WorkspaceSpec,
+)
 
 
 class CaseTagAdapter(SingleYamlAdapter):
@@ -60,7 +63,7 @@ class CaseTagAdapter(SingleYamlAdapter):
     async def import_specs(
         self,
         ctx: BaseWorkspaceService,
-        specs: Mapping[str, BaseModel],
+        workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         """Reconcile case tag specs, resolving name collisions before persisting.
 
@@ -68,7 +71,7 @@ class CaseTagAdapter(SingleYamlAdapter):
         with existing tags, then temporarily renames tags being relabeled so the
         unique name constraint holds across the two-phase flush.
         """
-        tags = cast(Mapping[str, CaseTagResourceSpec], specs)
+        tags = workspace_spec.case_tags
         if not tags:
             return []
 

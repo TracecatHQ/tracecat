@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any
 
 import sqlalchemy as sa
 from pydantic import BaseModel
@@ -39,6 +39,7 @@ from tracecat.workspace_sync.schemas import (
     AgentPresetResourceSpec,
     AgentPresetSkillBinding,
     AgentPresetSubagentRef,
+    WorkspaceSpec,
 )
 
 AGENT_PRESET_FILENAME = "preset.yml"
@@ -121,7 +122,7 @@ class AgentPresetAdapter(CompoundYamlAdapter):
     async def import_specs(
         self,
         ctx: BaseWorkspaceService,
-        specs: Mapping[str, BaseModel],
+        workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         """Reconcile agent preset specs into the local database.
 
@@ -129,7 +130,7 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         and tag set; the second resolves subagent references and skill bindings
         in topological order and pins each preset's current version.
         """
-        presets = cast(Mapping[str, AgentPresetResourceSpec], specs)
+        presets = workspace_spec.agent_presets
         import_order = self._preset_import_order(presets)
         imported: list[ImportedResource] = []
         preset_by_source_id: dict[str, AgentPreset] = {}

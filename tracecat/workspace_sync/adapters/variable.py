@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any
 
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -19,7 +19,11 @@ from tracecat.workspace_sync.adapters.base import (
     unique_environment_source_id,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
-from tracecat.workspace_sync.schemas import VARIABLE_ROOT, VariableResourceSpec
+from tracecat.workspace_sync.schemas import (
+    VARIABLE_ROOT,
+    VariableResourceSpec,
+    WorkspaceSpec,
+)
 
 
 class VariableAdapter(EnvironmentYamlAdapter):
@@ -78,7 +82,7 @@ class VariableAdapter(EnvironmentYamlAdapter):
     async def import_specs(
         self,
         ctx: BaseWorkspaceService,
-        specs: Mapping[str, BaseModel],
+        workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         """Reconcile variable specs into the database, preserving existing values.
 
@@ -87,7 +91,7 @@ class VariableAdapter(EnvironmentYamlAdapter):
         changing, then creates or updates each variable. Existing values are kept
         for declared keys; values for keys no longer declared are dropped.
         """
-        variables = cast(Mapping[str, VariableResourceSpec], specs)
+        variables = workspace_spec.variables
         imported: list[ImportedResource] = []
         target_keys_by_source_id = _target_keys_by_source_id(variables)
         _ensure_unique_targets(target_keys_by_source_id)

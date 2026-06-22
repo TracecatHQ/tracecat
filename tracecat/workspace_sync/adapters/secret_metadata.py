@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping
-from typing import cast
 
 from pydantic import BaseModel, SecretStr
 from sqlalchemy import select
@@ -25,6 +23,7 @@ from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
     SECRET_METADATA_ROOT,
     SecretMetadataResourceSpec,
+    WorkspaceSpec,
 )
 
 
@@ -77,7 +76,7 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
     async def import_specs(
         self,
         ctx: BaseWorkspaceService,
-        specs: Mapping[str, BaseModel],
+        workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         """Reconcile secret metadata specs, preserving existing key values.
 
@@ -85,7 +84,7 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
         keys new to the spec are created with an empty value to be filled in
         later.
         """
-        secret_metadata = cast(Mapping[str, SecretMetadataResourceSpec], specs)
+        secret_metadata = workspace_spec.secret_metadata
         imported: list[ImportedResource] = []
         secret_service = SecretsService(session=ctx.session, role=ctx.role)
         for source_id, spec in sorted(secret_metadata.items()):

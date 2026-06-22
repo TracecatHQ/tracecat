@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any
 
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -25,7 +25,11 @@ from tracecat.workspace_sync.adapters.base import (
     unique_source_id,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
-from tracecat.workspace_sync.schemas import CASE_FIELD_ROOT, CaseFieldResourceSpec
+from tracecat.workspace_sync.schemas import (
+    CASE_FIELD_ROOT,
+    CaseFieldResourceSpec,
+    WorkspaceSpec,
+)
 
 
 class CaseFieldAdapter(SingleYamlAdapter):
@@ -75,10 +79,10 @@ class CaseFieldAdapter(SingleYamlAdapter):
     async def import_specs(
         self,
         ctx: BaseWorkspaceService,
-        specs: Mapping[str, BaseModel],
+        workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         """Reconcile field specs, creating new columns or updating schema entries."""
-        fields = cast(Mapping[str, CaseFieldResourceSpec], specs)
+        fields = workspace_spec.case_fields
         imported: list[ImportedResource] = []
         field_service = CaseFieldsService(session=ctx.session, role=ctx.role)
         for source_id, spec in sorted(fields.items()):

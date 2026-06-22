@@ -39,6 +39,7 @@ from tracecat.workspace_sync.schemas import (
     TABLE_ROOT,
     TableResourceSpec,
     WorkspaceManifestResources,
+    WorkspaceSpec,
 )
 
 TABLE_FILENAME = "table.yml"
@@ -256,7 +257,7 @@ class TableAdapter(CompoundYamlAdapter):
     async def import_specs(
         self,
         ctx: BaseWorkspaceService,
-        specs: Mapping[str, BaseModel],
+        workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         """Reconcile table specs into the database: tables, columns, unique index, rows.
 
@@ -264,7 +265,7 @@ class TableAdapter(CompoundYamlAdapter):
         optional unique column, then inserts (or upserts, when a unique column
         exists) its rows.
         """
-        tables = cast(Mapping[str, TableResourceSpec], specs)
+        tables = workspace_spec.tables
         imported: list[ImportedResource] = []
         table_service = BaseTablesService(session=ctx.session, role=ctx.role)
         for source_id, spec in sorted(tables.items()):

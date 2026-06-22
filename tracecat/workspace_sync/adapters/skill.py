@@ -39,6 +39,7 @@ from tracecat.workspace_sync.schemas import (
     SkillFileSpec,
     SkillResourceSpec,
     WorkspaceManifestResources,
+    WorkspaceSpec,
 )
 
 SKILL_FILENAME = "skill.yml"
@@ -225,7 +226,7 @@ class SkillAdapter(CompoundYamlAdapter):
     async def import_specs(
         self,
         ctx: BaseWorkspaceService,
-        specs: Mapping[str, BaseModel],
+        workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         """Reconcile skill specs into the local database.
 
@@ -233,7 +234,7 @@ class SkillAdapter(CompoundYamlAdapter):
         creates or updates the target :class:`SkillVersion` (rewriting its file
         rows and recomputing the manifest hash) before pinning it as current.
         """
-        skills = cast(Mapping[str, SkillResourceSpec], specs)
+        skills = workspace_spec.skills
         imported: list[ImportedResource] = []
         skill_service = SkillService(session=ctx.session, role=ctx.role)
         for source_id, spec in sorted(skills.items()):
