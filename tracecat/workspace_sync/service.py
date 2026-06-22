@@ -14,9 +14,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
+from tracecat.authz.controls import get_missing_scopes
 from tracecat.db.models import Workflow, Workspace, WorkspaceSyncResourceMapping
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import (
+    ScopeDeniedError,
     TracecatNotFoundError,
     TracecatSettingsError,
     TracecatValidationError,
@@ -92,6 +94,18 @@ from tracecat.workspaces.service import WorkspaceService
 
 MAX_PULL_RESOURCE_DIFF_LINES = 240
 
+_EXPORT_READ_SCOPES_BY_RESOURCE_TYPE: dict[SyncResourceType, str] = {
+    SyncResourceType.AGENT_PRESET: "agent:read",
+    SyncResourceType.SKILL: "agent:read",
+    SyncResourceType.TABLE: "table:read",
+    SyncResourceType.CASE_TAG: "case:read",
+    SyncResourceType.CASE_FIELD: "case:read",
+    SyncResourceType.CASE_DROPDOWN: "case:read",
+    SyncResourceType.CASE_DURATION: "case:read",
+    SyncResourceType.VARIABLE: "variable:read",
+    SyncResourceType.SECRET_METADATA: "secret:read",
+}
+
 
 class WorkspaceSyncService(BaseWorkspaceService):
     """Direct workspace import/export over a VCS provider."""
@@ -121,6 +135,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
             include_schedules=params.include_schedules,
             create_missing_mappings=True,
         )
+        self._require_projected_export_scopes(projection.spec)
         transport = self._transport_for_provider(
             params.provider,
         )
@@ -160,6 +175,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
             include_schedules=params.include_schedules,
             create_missing_mappings=False,
         )
+        self._require_projected_export_scopes(projection.spec)
         return WorkspaceSyncExportPreview(
             resource_counts=projection.spec.resource_count_map(),
             files=sorted(projection.files),
@@ -466,6 +482,24 @@ class WorkspaceSyncService(BaseWorkspaceService):
                 )
         except ValueError as e:
             raise TracecatValidationError(str(e)) from e
+
+    def _require_projected_export_scopes(self, spec: WorkspaceSpec) -> None:
+        required_scopes = sorted(_export_read_scopes_for_spec(spec))
+        if not required_scopes:
+            return
+
+        if self.role is None or self.role.scopes is None:
+            raise ScopeDeniedError(
+                required_scopes=required_scopes,
+                missing_scopes=required_scopes,
+            )
+
+        missing = sorted(get_missing_scopes(self.role.scopes, set(required_scopes)))
+        if missing:
+            raise ScopeDeniedError(
+                required_scopes=required_scopes,
+                missing_scopes=missing,
+            )
 
     async def _import_snapshot(
         self,
@@ -1175,6 +1209,16 @@ def _skill_source_ids_for_slugs(
     return {
         source_id for source_id, skill in spec.skills.items() if skill.slug in slugs
     }
+
+
+def _export_read_scopes_for_spec(spec: WorkspaceSpec) -> set[str]:
+    scopes: set[str] = set()
+    for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
+        if adapter.specs(spec) and (
+            scope := _EXPORT_READ_SCOPES_BY_RESOURCE_TYPE.get(adapter.resource_type)
+        ):
+            scopes.add(scope)
+    return scopes
 
 
 def _filter_specs[T](specs: dict[str, T], source_ids: set[str] | None) -> dict[str, T]:

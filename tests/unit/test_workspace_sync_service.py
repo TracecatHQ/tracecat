@@ -16,7 +16,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import ScopeDeniedError, TracecatValidationError
 from tracecat.git.types import GitUrl
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.sync import CommitInfo, PullOptions, PushStatus
@@ -25,6 +25,8 @@ from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.schemas import (
     MANIFEST_FILENAME,
     ResourceRef,
+    SecretMetadataResourceSpec,
+    VariableResourceSpec,
     WorkflowResourceSpec,
     WorkspaceManifest,
     WorkspaceProjection,
@@ -354,6 +356,48 @@ async def test_preview_export_counts_resources_without_mutating_mappings(
     _, kwargs = await_args
     assert kwargs["create_missing_mappings"] is False
     assert kwargs["resource_ids"] == {SyncResourceType.WORKFLOW: set()}
+
+
+@pytest.mark.anyio
+async def test_preview_export_requires_scopes_for_projected_sensitive_metadata() -> (
+    None
+):
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"workflow:update", "workflow:sync"}),
+    )
+    service = WorkspaceSyncService(session=AsyncMock(), role=role)
+    service.project_workspace = AsyncMock(
+        return_value=WorkspaceProjection(
+            manifest=WorkspaceManifest(),
+            spec=WorkspaceSpec(
+                variables={
+                    "default/api_token": VariableResourceSpec(
+                        id="default/api_token",
+                        name="api_token",
+                        environment="default",
+                    )
+                },
+                secret_metadata={
+                    "default/vendor_api": SecretMetadataResourceSpec(
+                        id="default/vendor_api",
+                        name="vendor_api",
+                        environment="default",
+                        keys=["TOKEN"],
+                    )
+                },
+            ),
+            files={},
+        )
+    )
+
+    with pytest.raises(ScopeDeniedError) as exc_info:
+        await service.preview_export_workspace(WorkspaceSyncExportPreviewRequest())
+
+    assert set(exc_info.value.missing_scopes) == {"secret:read", "variable:read"}
 
 
 @pytest.mark.anyio
