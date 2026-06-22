@@ -55,6 +55,7 @@ class CaseFieldAdapter(SingleYamlAdapter):
                 field_type=field_def.get("type"),
                 kind=field_def.get("kind"),
                 options=field_def.get("options"),
+                required_on_closure=bool(field_def.get("required_on_closure")),
             )
             resources.append(
                 self.projected_resource(
@@ -95,12 +96,19 @@ class CaseFieldAdapter(SingleYamlAdapter):
                     field_def["options"] = field_params.options
                 if field_params.kind is not None:
                     field_def["kind"] = field_params.kind.value
+                if spec.required_on_closure:
+                    field_def["required_on_closure"] = True
                 await field_service._update_field_schema(field_params.name, field_def)
             else:
                 current_schema[source_id] = {
                     "type": field_type.value,
                     **({"options": field_options} if field_options else {}),
                     **({"kind": field_kind} if field_kind else {}),
+                    **(
+                        {"required_on_closure": True}
+                        if spec.required_on_closure
+                        else {}
+                    ),
                 }
                 if definition is None:
                     definition = CaseFields(

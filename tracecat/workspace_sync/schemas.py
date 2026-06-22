@@ -234,6 +234,7 @@ class CaseFieldResourceSpec(BaseModel):
     field_type: str | None = None
     kind: str | None = None
     options: list[str] | None = None
+    required_on_closure: bool = False
 
 
 class VariableResourceSpec(BaseModel):
