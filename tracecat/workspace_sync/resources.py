@@ -10,6 +10,7 @@ import yaml
 from pydantic import BaseModel, ValidationError
 
 from tracecat.dsl.common import DSLInput
+from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.sync import PullDiagnostic
@@ -209,7 +210,9 @@ def workflow_references(definition: DSLInput) -> WorkflowReferences:
     preset_slugs: set[str] = set()
     for action in definition.actions:
         match action:
-            case ActionStatement(action="core.workflow.execute", args=args):
+            case ActionStatement(
+                action=PlatformAction.CHILD_WORKFLOW_EXECUTE, args=args
+            ):
                 if isinstance(alias := args.get("workflow_alias"), str):
                     execute_aliases.add(alias)
                 if isinstance(workflow_id := args.get("workflow_id"), str):
@@ -218,7 +221,7 @@ def workflow_references(definition: DSLInput) -> WorkflowReferences:
                     except ValueError:
                         pass
             case ActionStatement(
-                action="ai.preset_agent",
+                action=PlatformAction.AI_PRESET_AGENT,
                 args={"preset_slug": str(preset_slug)},
             ):
                 preset_slugs.add(preset_slug)

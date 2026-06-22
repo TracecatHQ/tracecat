@@ -12,6 +12,7 @@ from slugify import slugify
 from tracecat.cases.enums import CaseEventType
 from tracecat.db.models import Workflow
 from tracecat.dsl.common import DSLInput
+from tracecat.dsl.enums import PlatformAction
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.sync import PullDiagnostic
 from tracecat.workflow.case_triggers.schemas import is_case_trigger_configured
@@ -150,7 +151,7 @@ def _definition_with_local_workflow_ids(
     actions = []
     changed = False
     for action in definition.actions:
-        if action.action != "core.workflow.execute":
+        if action.action != PlatformAction.CHILD_WORKFLOW_EXECUTE:
             actions.append(action)
             continue
         workflow_id = action.args.get("workflow_id")
