@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 import uuid
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any, ClassVar, Literal, cast
 
@@ -188,6 +188,25 @@ class ResourceAdapter(ABC):
             WorkspaceSyncResourceMapping.source_id == source_id,
         )
         return await ctx.session.scalar(stmt)
+
+    async def local_ids_by_source_id(
+        self,
+        ctx: BaseWorkspaceService,
+        source_ids: Iterable[str],
+    ) -> dict[str, uuid.UUID]:
+        source_id_values = set(source_ids)
+        if not source_id_values:
+            return {}
+        stmt = select(
+            WorkspaceSyncResourceMapping.source_id,
+            WorkspaceSyncResourceMapping.local_id,
+        ).where(
+            WorkspaceSyncResourceMapping.workspace_id == ctx.workspace_id,
+            WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
+            WorkspaceSyncResourceMapping.resource_type == self.resource_type.value,
+            WorkspaceSyncResourceMapping.source_id.in_(source_id_values),
+        )
+        return dict((await ctx.session.execute(stmt)).tuples().all())
 
 
 class CompoundYamlAdapter(ResourceAdapter):

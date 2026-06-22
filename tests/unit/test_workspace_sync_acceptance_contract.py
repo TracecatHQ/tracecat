@@ -1621,6 +1621,65 @@ async def test_case_tag_import_allows_in_batch_name_swap(
 
 
 @pytest.mark.anyio
+async def test_case_tag_import_reuses_source_id_mapping_after_local_rename(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    tag = CaseTag(
+        workspace_id=svc_role.workspace_id,
+        name="Renamed Alert",
+        ref="renamed-alert",
+        color="#202020",
+    )
+    session.add(tag)
+    await session.flush()
+    session.add(
+        WorkspaceSyncResourceMapping(
+            workspace_id=svc_role.workspace_id,
+            provider=VcsProvider.GITHUB.value,
+            resource_type=SyncResourceType.CASE_TAG.value,
+            source_id="qa-alert",
+            source_path=f"{CASE_TAG_ROOT}/qa-alert.yml",
+            local_id=tag.id,
+        )
+    )
+    await session.flush()
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{CASE_TAG_ROOT}/qa-alert.yml": _yaml(
+            {
+                "version": 1,
+                "type": "case_tag",
+                "id": "qa-alert",
+                "name": "Original Alert",
+                "color": "#303030",
+            }
+        ),
+    }
+
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="c" * 40)
+
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+    await session.refresh(tag)
+    tags = list(
+        (
+            await session.scalars(
+                select(CaseTag).where(CaseTag.workspace_id == svc_role.workspace_id)
+            )
+        ).all()
+    )
+    assert len(tags) == 1
+    assert tag.name == "Original Alert"
+    assert tag.ref == "qa-alert"
+    assert tag.color == "#303030"
+
+
+@pytest.mark.anyio
 async def test_variable_import_allows_in_batch_name_swap(
     session: AsyncSession,
     svc_role: Role,

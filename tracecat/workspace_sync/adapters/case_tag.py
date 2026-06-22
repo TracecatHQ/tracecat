@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Iterable, Mapping
 from typing import cast
 
@@ -71,24 +72,43 @@ class CaseTagAdapter(SingleYamlAdapter):
 
         source_ids = set(tags)
         names = {spec.name for spec in tags.values()}
+        mapped_local_ids_by_source_id = await self.local_ids_by_source_id(
+            ctx,
+            source_ids,
+        )
+        mapped_local_ids = set(mapped_local_ids_by_source_id.values())
+        conditions = [
+            CaseTag.ref.in_(source_ids),
+            CaseTag.name.in_(names),
+        ]
+        if mapped_local_ids:
+            conditions.append(CaseTag.id.in_(mapped_local_ids))
         existing_tags = list(
             (
                 await ctx.session.scalars(
                     select(CaseTag).where(
                         CaseTag.workspace_id == ctx.workspace_id,
-                        sa.or_(
-                            CaseTag.ref.in_(source_ids),
-                            CaseTag.name.in_(names),
-                        ),
+                        sa.or_(*conditions),
                     )
                 )
             ).all()
         )
+        tags_by_id = {tag.id: tag for tag in existing_tags}
+        tags_by_source_id = {
+            source_id: tag
+            for source_id, local_id in mapped_local_ids_by_source_id.items()
+            if (tag := tags_by_id.get(local_id)) is not None
+        }
         tags_by_ref = {tag.ref: tag for tag in existing_tags}
         tags_by_name = {tag.name: tag for tag in existing_tags}
+        source_ids_by_tag_id: dict[uuid.UUID, str] = {
+            tag.id: source_id for source_id, tag in tags_by_source_id.items()
+        }
+        for ref, tag in tags_by_ref.items():
+            source_ids_by_tag_id.setdefault(tag.id, ref)
         import_targets: list[tuple[str, CaseTagResourceSpec, CaseTag | None]] = []
         for source_id, spec in sorted(tags.items()):
-            tag = tags_by_ref.get(source_id)
+            tag = tags_by_source_id.get(source_id) or tags_by_ref.get(source_id)
             name_owner = tags_by_name.get(spec.name)
             if (
                 name_owner is not None
@@ -96,7 +116,7 @@ class CaseTagAdapter(SingleYamlAdapter):
                 and not _name_owner_released_by_batch(
                     name_owner,
                     specs=tags,
-                    tags_by_ref=tags_by_ref,
+                    source_ids_by_tag_id=source_ids_by_tag_id,
                 )
             ):
                 raise ValueError(
@@ -126,6 +146,7 @@ class CaseTagAdapter(SingleYamlAdapter):
                 )
             else:
                 tag.name = spec.name
+                tag.ref = source_id
                 tag.color = spec.color
             ctx.session.add(tag)
             imported_tags.append((source_id, tag))
@@ -156,13 +177,8 @@ def _name_owner_released_by_batch(
     name_owner: CaseTag,
     *,
     specs: Mapping[str, CaseTagResourceSpec],
-    tags_by_ref: Mapping[str, CaseTag],
+    source_ids_by_tag_id: Mapping[uuid.UUID, str],
 ) -> bool:
-    owner_spec = specs.get(name_owner.ref)
-    owner_by_ref = tags_by_ref.get(name_owner.ref)
-    return (
-        owner_spec is not None
-        and owner_by_ref is not None
-        and owner_by_ref.id == name_owner.id
-        and owner_spec.name != name_owner.name
-    )
+    owner_source_id = source_ids_by_tag_id.get(name_owner.id)
+    owner_spec = specs.get(owner_source_id) if owner_source_id is not None else None
+    return owner_spec is not None and owner_spec.name != name_owner.name
