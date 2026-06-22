@@ -18,6 +18,7 @@ from tracecat.exceptions import (
     RegistryActionValidationError,
     RegistryError,
     RegistryNotFound,
+    ScopeDeniedError,
     TracecatCredentialsNotFoundError,
     TracecatValidationError,
 )
@@ -128,7 +129,7 @@ async def sync_registry_repository(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
-    except (EntitlementRequired, HTTPException):
+    except (EntitlementRequired, ScopeDeniedError, HTTPException):
         raise
     except Exception as e:
         logger.error("Unexpected error while syncing repository", exc=e)

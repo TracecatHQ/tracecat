@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 import tracecat.auth.credentials as auth_credentials_module
 import tracecat.registry.repositories.router as repos_router_module
 from tracecat.auth.types import Role
-from tracecat.exceptions import EntitlementRequired
+from tracecat.exceptions import EntitlementRequired, ScopeDeniedError
 
 
 @pytest.fixture
@@ -46,6 +46,32 @@ async def test_sync_custom_repository_requires_entitlement(
     payload = response.json()
     assert payload["type"] == "EntitlementRequired"
     assert payload["detail"]["entitlement"] == "custom_registry"
+
+
+@pytest.mark.anyio
+async def test_sync_custom_repository_surfaces_scope_denied(
+    client: TestClient, test_admin_role: Role, mock_role_acl_dependency: AsyncMock
+) -> None:
+    repository_id = uuid4()
+
+    with patch.object(repos_router_module, "RegistryReposService") as MockReposService:
+        mock_repos_service = AsyncMock()
+        mock_repos_service.sync_repository.side_effect = ScopeDeniedError(
+            required_scopes=["org:registry:delete"],
+            missing_scopes=["org:registry:delete"],
+        )
+        MockReposService.return_value = mock_repos_service
+
+        response = client.post(
+            f"/registry/repos/{repository_id}/sync",
+            json={"force": True},
+        )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    payload = response.json()
+    assert payload["error"]["code"] == "insufficient_scope"
+    assert payload["error"]["required_scopes"] == ["org:registry:delete"]
+    assert payload["error"]["missing_scopes"] == ["org:registry:delete"]
 
 
 @pytest.mark.anyio
