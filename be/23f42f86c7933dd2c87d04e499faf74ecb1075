@@ -1,0 +1,21 @@
+tracecat/mcp/server.py
+  s_ad027de6884f32::t_ff7e3892cf7e6b 2970-2971,2974-2976,2979-2983
+  s_ad027de6884f32::t_0c2f2b2902fb0e 2977-2978
+  s_ad027de6884f32::t_9d3f89ac4ef57a 2984-2987,3455-3459
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "be23f42f86c7933dd2c87d04e499faf74ecb1075",
+  "prompts": {},
+  "sessions": {
+    "s_ad027de6884f32": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ef141-9011-7a30-ae92-5e26bbc10912",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
