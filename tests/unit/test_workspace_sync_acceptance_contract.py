@@ -28,6 +28,7 @@ from tracecat.db.models import (
     AgentPreset,
     AgentPresetVersion,
     CaseDropdownDefinition,
+    CaseDropdownOption,
     CaseDurationDefinition,
     CaseFields,
     CaseTag,
@@ -1677,6 +1678,95 @@ async def test_case_tag_import_reuses_source_id_mapping_after_local_rename(
     assert tag.name == "Original Alert"
     assert tag.ref == "qa-alert"
     assert tag.color == "#303030"
+
+
+@pytest.mark.anyio
+async def test_case_dropdown_import_reuses_source_id_mapping_after_local_rename(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    dropdown = CaseDropdownDefinition(
+        workspace_id=svc_role.workspace_id,
+        name="Renamed Reason",
+        ref="renamed_reason",
+        is_ordered=False,
+        icon_name=None,
+        position=7,
+        required_on_closure=False,
+    )
+    session.add(dropdown)
+    await session.flush()
+    session.add_all(
+        [
+            CaseDropdownOption(
+                definition_id=dropdown.id,
+                ref="old",
+                label="Old",
+                position=0,
+            ),
+            WorkspaceSyncResourceMapping(
+                workspace_id=svc_role.workspace_id,
+                provider=VcsProvider.GITHUB.value,
+                resource_type=SyncResourceType.CASE_DROPDOWN.value,
+                source_id="qa_resolution_reason",
+                source_path=f"{CASE_DROPDOWN_ROOT}/qa_resolution_reason.yml",
+                local_id=dropdown.id,
+            ),
+        ]
+    )
+    await session.flush()
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{CASE_DROPDOWN_ROOT}/qa_resolution_reason.yml": _yaml(
+            {
+                "version": 1,
+                "type": "case_dropdown",
+                "id": "qa_resolution_reason",
+                "name": "Resolution Reason",
+                "is_ordered": True,
+                "icon_name": "shield-alert",
+                "position": 2,
+                "required_on_closure": True,
+                "options": [
+                    {
+                        "ref": "false_positive",
+                        "label": "False positive",
+                        "position": 0,
+                        "color": "#303030",
+                    }
+                ],
+            }
+        ),
+    }
+
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="d" * 40)
+
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+    await session.refresh(dropdown, ["options"])
+    definitions = list(
+        (
+            await session.scalars(
+                select(CaseDropdownDefinition).where(
+                    CaseDropdownDefinition.workspace_id == svc_role.workspace_id
+                )
+            )
+        ).all()
+    )
+    assert len(definitions) == 1
+    assert dropdown.name == "Resolution Reason"
+    assert dropdown.ref == "qa_resolution_reason"
+    assert dropdown.is_ordered is True
+    assert dropdown.icon_name == "shield-alert"
+    assert dropdown.position == 2
+    assert dropdown.required_on_closure is True
+    assert [(option.ref, option.label) for option in dropdown.options] == [
+        ("false_positive", "False positive")
+    ]
 
 
 @pytest.mark.anyio

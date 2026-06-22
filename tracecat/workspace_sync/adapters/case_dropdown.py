@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import cast
 
+import sqlalchemy as sa
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -82,14 +83,37 @@ class CaseDropdownAdapter(SingleYamlAdapter):
     ) -> list[ImportedResource]:
         dropdowns = cast(Mapping[str, CaseDropdownResourceSpec], specs)
         imported: list[ImportedResource] = []
-        for source_id, spec in sorted(dropdowns.items()):
-            dropdown = await ctx.session.scalar(
-                select(CaseDropdownDefinition)
-                .where(
-                    CaseDropdownDefinition.workspace_id == ctx.workspace_id,
-                    CaseDropdownDefinition.ref == source_id,
+        source_ids = set(dropdowns)
+        mapped_local_ids_by_source_id = await self.local_ids_by_source_id(
+            ctx,
+            source_ids,
+        )
+        mapped_local_ids = set(mapped_local_ids_by_source_id.values())
+        conditions = [CaseDropdownDefinition.ref.in_(source_ids)]
+        if mapped_local_ids:
+            conditions.append(CaseDropdownDefinition.id.in_(mapped_local_ids))
+        existing_dropdowns = list(
+            (
+                await ctx.session.scalars(
+                    select(CaseDropdownDefinition)
+                    .where(
+                        CaseDropdownDefinition.workspace_id == ctx.workspace_id,
+                        sa.or_(*conditions),
+                    )
+                    .options(selectinload(CaseDropdownDefinition.options))
                 )
-                .options(selectinload(CaseDropdownDefinition.options))
+            ).all()
+        )
+        dropdowns_by_id = {dropdown.id: dropdown for dropdown in existing_dropdowns}
+        dropdowns_by_source_id = {
+            source_id: dropdown
+            for source_id, local_id in mapped_local_ids_by_source_id.items()
+            if (dropdown := dropdowns_by_id.get(local_id)) is not None
+        }
+        dropdowns_by_ref = {dropdown.ref: dropdown for dropdown in existing_dropdowns}
+        for source_id, spec in sorted(dropdowns.items()):
+            dropdown = dropdowns_by_source_id.get(source_id) or dropdowns_by_ref.get(
+                source_id
             )
             if dropdown is None:
                 dropdown = CaseDropdownDefinition(
@@ -106,6 +130,7 @@ class CaseDropdownAdapter(SingleYamlAdapter):
                 existing_options = {}
             else:
                 dropdown.name = spec.name
+                dropdown.ref = source_id
                 dropdown.is_ordered = spec.is_ordered
                 dropdown.icon_name = spec.icon_name
                 dropdown.position = spec.position
