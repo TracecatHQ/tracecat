@@ -18,6 +18,7 @@ import { z } from "zod"
 import {
   ApiError,
   type ExpectedField_Input,
+  type RegistryLockEntryRead,
   type WorkflowDefinitionRead,
   type WorkflowRead,
   type WorkflowUpdate,
@@ -444,30 +445,14 @@ function WorkflowVersionsHistory({
   )
 }
 
-type RegistryLockEntry = {
-  origin: string
-  version: string
-  label: string
-}
-
 function getRegistryLockEntries(
   definition: WorkflowDefinitionRead
-): RegistryLockEntry[] {
-  const origins = definition.registry_lock?.origins
-  if (!origins) {
-    return []
-  }
-  return Object.entries(origins)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([origin, version]) => ({
-      origin,
-      version,
-      label: formatRegistryLockEntry(origin, version),
-    }))
+): RegistryLockEntryRead[] {
+  return definition.registry_lock_entries
 }
 
 function formatRegistryLockSummary(
-  entries: RegistryLockEntry[]
+  entries: RegistryLockEntryRead[]
 ): string | null {
   if (entries.length === 0) {
     return null
@@ -477,33 +462,6 @@ function formatRegistryLockSummary(
     return label
   }
   return `${label} +${entries.length - 1}`
-}
-
-function formatRegistryLockEntry(origin: string, version: string): string {
-  return `${formatRegistryOrigin(origin)}@${formatRegistryVersion(origin, version)}`
-}
-
-function formatRegistryOrigin(origin: string): string {
-  if (origin === "tracecat_registry") {
-    return origin
-  }
-
-  const sshUrlMatch = origin.match(
-    /^git\+ssh:\/\/git@[^/:]+[:/]([^/]+)\/(.+?)(?:\.git)?$/
-  )
-  if (sshUrlMatch) {
-    const [, org, repo] = sshUrlMatch
-    return `${org}/${repo}`
-  }
-
-  return origin
-}
-
-function formatRegistryVersion(origin: string, version: string): string {
-  if (origin === "tracecat_registry") {
-    return version
-  }
-  return version.length > 12 ? version.slice(0, 12) : version
 }
 
 function WorkflowSettingsPanel({

@@ -19514,6 +19514,27 @@ Attributes:
         bundled tracecat_registry package is an exact match for the lock.`,
 } as const
 
+export const $RegistryLockEntryRead = {
+  properties: {
+    origin: {
+      type: "string",
+      title: "Origin",
+    },
+    version: {
+      type: "string",
+      title: "Version",
+    },
+    label: {
+      type: "string",
+      title: "Label",
+    },
+  },
+  type: "object",
+  required: ["origin", "version", "label"],
+  title: "RegistryLockEntryRead",
+  description: "Display metadata for one registry lock origin.",
+} as const
+
 export const $RegistryOAuthSecret = {
   properties: {
     type: {
@@ -28696,6 +28717,14 @@ export const $WorkflowDefinitionRead = {
       format: "date-time",
       title: "Updated At",
     },
+    registry_lock_entries: {
+      items: {
+        $ref: "#/components/schemas/RegistryLockEntryRead",
+      },
+      type: "array",
+      title: "Registry Lock Entries",
+      readOnly: true,
+    },
   },
   type: "object",
   required: [
@@ -28705,6 +28734,7 @@ export const $WorkflowDefinitionRead = {
     "version",
     "created_at",
     "updated_at",
+    "registry_lock_entries",
   ],
   title: "WorkflowDefinitionRead",
   description: "API response model for persisted workflow definitions.",

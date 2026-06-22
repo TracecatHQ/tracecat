@@ -5944,6 +5944,15 @@ export type RegistryLock = {
 }
 
 /**
+ * Display metadata for one registry lock origin.
+ */
+export type RegistryLockEntryRead = {
+  origin: string
+  version: string
+  label: string
+}
+
+/**
  * OAuth secret for a provider.
  */
 export type RegistryOAuthSecret = {
@@ -8502,6 +8511,7 @@ export type WorkflowDefinitionRead = {
   registry_lock?: RegistryLock | null
   created_at: string
   updated_at: string
+  registry_lock_entries: Array<RegistryLockEntryRead>
 }
 
 export type WorkflowDefinitionReadMinimal = {
