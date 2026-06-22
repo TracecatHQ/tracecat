@@ -90,29 +90,27 @@ class AgentPresetAdapter(CompoundYamlAdapter):
                 )
                 if binding.skill is not None and binding.skill_version is not None
             ]
-            specs[source_id] = AgentPresetResourceSpec.model_validate(
-                {
-                    "id": source_id,
-                    "slug": preset.slug,
-                    "name": preset.name,
-                    "folder_path": preset.folder.path if preset.folder else None,
-                    "tags": sorted(tag.name for tag in preset.tags),
-                    "instructions": preset.instructions,
-                    "tool_approvals": preset.tool_approvals or {},
-                    "actions": sorted(preset.actions or []),
-                    "skills": skill_bindings,
-                    "subagents": _subagent_refs(preset.agents),
-                    "catalog_id": preset.catalog_id,
-                    "model_name": preset.model_name,
-                    "model_provider": preset.model_provider,
-                    "base_url": preset.base_url,
-                    "output_type": preset.output_type,
-                    "namespaces": sorted(preset.namespaces or []),
-                    "mcp_integrations": sorted(preset.mcp_integrations or []),
-                    "retries": preset.retries,
-                    "enable_thinking": preset.enable_thinking,
-                    "enable_internet_access": preset.enable_internet_access,
-                }
+            specs[source_id] = AgentPresetResourceSpec(
+                id=source_id,
+                slug=preset.slug,
+                name=preset.name,
+                folder_path=preset.folder.path if preset.folder else None,
+                tags=sorted(tag.name for tag in preset.tags),
+                instructions=preset.instructions,
+                tool_approvals=preset.tool_approvals or {},
+                actions=sorted(preset.actions or []),
+                skills=skill_bindings,
+                subagents=_subagent_refs(preset.agents),
+                catalog_id=preset.catalog_id,
+                model_name=preset.model_name,
+                model_provider=preset.model_provider,
+                base_url=preset.base_url,
+                output_type=preset.output_type,
+                namespaces=sorted(preset.namespaces or []),
+                mcp_integrations=sorted(preset.mcp_integrations or []),
+                retries=preset.retries,
+                enable_thinking=preset.enable_thinking,
+                enable_internet_access=preset.enable_internet_access,
             )
             resources.append(self.projected_resource(source_id, preset.id))
         return ResourceProjection(specs=specs, resources=resources)
