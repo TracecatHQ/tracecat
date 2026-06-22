@@ -173,17 +173,21 @@ class TableAdapter(CompoundYamlAdapter):
             rows.append(row)
         return rows
 
-    async def project(self, ctx: BaseWorkspaceService) -> ResourceProjection:
+    async def project(
+        self, workspace_service: BaseWorkspaceService
+    ) -> ResourceProjection:
         """Project workspace tables into specs, including columns and all rows."""
         stmt = (
             select(Table)
-            .where(Table.workspace_id == ctx.workspace_id)
+            .where(Table.workspace_id == workspace_service.workspace_id)
             .options(selectinload(Table.columns))
             .order_by(Table.name.asc(), Table.id.asc())
         )
-        tables = list((await ctx.session.execute(stmt)).scalars().all())
-        table_service = BaseTablesService(session=ctx.session, role=ctx.role)
-        source_ids_by_local_id = await self.source_ids_by_local_id(ctx)
+        tables = list((await workspace_service.session.execute(stmt)).scalars().all())
+        table_service = BaseTablesService(
+            session=workspace_service.session, role=workspace_service.role
+        )
+        source_ids_by_local_id = await self.source_ids_by_local_id(workspace_service)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
         reserved: set[str] = set(source_ids_by_local_id.values())
@@ -208,7 +212,9 @@ class TableAdapter(CompoundYamlAdapter):
                 if column.name in unique_columns:
                     column_spec["unique"] = True
                 columns.append(column_spec)
-            rows = await self._project_rows(ctx, table, table_service=table_service)
+            rows = await self._project_rows(
+                workspace_service, table, table_service=table_service
+            )
             specs[source_id] = TableResourceSpec(
                 id=source_id,
                 name=table.name,
@@ -221,7 +227,7 @@ class TableAdapter(CompoundYamlAdapter):
 
     async def _project_rows(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         table: Table,
         *,
         table_service: BaseTablesService,
@@ -256,7 +262,7 @@ class TableAdapter(CompoundYamlAdapter):
 
     async def import_specs(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         """Reconcile table specs into the database: tables, columns, unique index, rows.
@@ -267,7 +273,9 @@ class TableAdapter(CompoundYamlAdapter):
         """
         tables = workspace_spec.tables
         imported: list[ImportedResource] = []
-        table_service = BaseTablesService(session=ctx.session, role=ctx.role)
+        table_service = BaseTablesService(
+            session=workspace_service.session, role=workspace_service.role
+        )
         for source_id, spec in sorted(tables.items()):
             unique_columns = [
                 str(column["name"]) for column in spec.columns if column.get("unique")
@@ -277,14 +285,14 @@ class TableAdapter(CompoundYamlAdapter):
                     "Table sync supports at most one unique column per table: "
                     f"{spec.name} requested {', '.join(unique_columns)}"
                 )
-            table = await self._table_by_source_id(ctx, source_id)
+            table = await self._table_by_source_id(workspace_service, source_id)
             if table is not None:
                 if table.name != spec.name:
                     table = await table_service.update_table(
                         table,
                         TableUpdate(name=spec.name),
                     )
-                await ctx.session.refresh(table, ["columns"])
+                await workspace_service.session.refresh(table, ["columns"])
             else:
                 try:
                     table = await table_service.get_table_by_name(spec.name)
@@ -298,9 +306,9 @@ class TableAdapter(CompoundYamlAdapter):
                             ],
                         )
                     )
-                    await ctx.session.refresh(table, ["columns"])
+                    await workspace_service.session.refresh(table, ["columns"])
                 else:
-                    await ctx.session.refresh(table, ["columns"])
+                    await workspace_service.session.refresh(table, ["columns"])
 
             existing_columns = {column.name: column for column in table.columns}
             for column in spec.columns:
@@ -313,9 +321,9 @@ class TableAdapter(CompoundYamlAdapter):
                     )
                     continue
                 if update := _column_update_from_spec(existing_column, column):
-                    await ctx.session.refresh(existing_column, ["table"])
+                    await workspace_service.session.refresh(existing_column, ["table"])
                     await table_service.update_column(existing_column, update)
-            await ctx.session.refresh(table, ["columns"])
+            await workspace_service.session.refresh(table, ["columns"])
 
             await _reconcile_unique_column(
                 table,
@@ -328,29 +336,29 @@ class TableAdapter(CompoundYamlAdapter):
                     table,
                     TableRowInsert(data=row, upsert=bool(unique_columns)),
                 )
-            await ctx.session.flush()
+            await workspace_service.session.flush()
             imported.append(self.imported_resource(source_id, table.id))
         return imported
 
     async def _table_by_source_id(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         source_id: str,
     ) -> Table | None:
         """Load the mapped :class:`Table` (with columns) for ``source_id``, if any."""
-        local_id = await self.local_id_for_source_id(ctx, source_id)
+        local_id = await self.local_id_for_source_id(workspace_service, source_id)
         if local_id is None:
             return None
 
         stmt = (
             select(Table)
             .where(
-                Table.workspace_id == ctx.workspace_id,
+                Table.workspace_id == workspace_service.workspace_id,
                 Table.id == local_id,
             )
             .options(selectinload(Table.columns))
         )
-        return (await ctx.session.execute(stmt)).scalar_one_or_none()
+        return (await workspace_service.session.execute(stmt)).scalar_one_or_none()
 
 
 def _column_create_from_spec(column: Mapping[str, Any]) -> TableColumnCreate:

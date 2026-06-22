@@ -33,17 +33,23 @@ class CaseDurationAdapter(SingleYamlAdapter):
     model = CaseDurationResourceSpec
     root = CASE_DURATION_ROOT
 
-    async def project(self, ctx: BaseWorkspaceService) -> ResourceProjection:
+    async def project(
+        self, workspace_service: BaseWorkspaceService
+    ) -> ResourceProjection:
         """Project case duration definitions, with their anchors, into specs."""
         stmt = (
             select(CaseDurationDefinition)
-            .where(CaseDurationDefinition.workspace_id == ctx.workspace_id)
+            .where(
+                CaseDurationDefinition.workspace_id == workspace_service.workspace_id
+            )
             .order_by(
                 CaseDurationDefinition.name.asc(), CaseDurationDefinition.id.asc()
             )
         )
-        durations = list((await ctx.session.execute(stmt)).scalars().all())
-        source_ids_by_local_id = await self.source_ids_by_local_id(ctx)
+        durations = list(
+            (await workspace_service.session.execute(stmt)).scalars().all()
+        )
+        source_ids_by_local_id = await self.source_ids_by_local_id(workspace_service)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
         reserved: set[str] = set(source_ids_by_local_id.values())
@@ -74,7 +80,7 @@ class CaseDurationAdapter(SingleYamlAdapter):
 
     async def import_specs(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         """Reconcile duration specs, creating or updating each definition."""
@@ -82,7 +88,7 @@ class CaseDurationAdapter(SingleYamlAdapter):
         imported: list[ImportedResource] = []
         for source_id, spec in sorted(durations.items()):
             duration = await self._duration_for_import(
-                ctx,
+                workspace_service,
                 source_id=source_id,
                 spec=spec,
             )
@@ -100,20 +106,20 @@ class CaseDurationAdapter(SingleYamlAdapter):
             }
             if duration is None:
                 duration = CaseDurationDefinition(
-                    workspace_id=ctx.workspace_id,
+                    workspace_id=workspace_service.workspace_id,
                     **attrs,
                 )
             else:
                 for key, value in attrs.items():
                     setattr(duration, key, value)
-            ctx.session.add(duration)
-            await ctx.session.flush()
+            workspace_service.session.add(duration)
+            await workspace_service.session.flush()
             imported.append(self.imported_resource(source_id, duration.id))
         return imported
 
     async def _duration_for_import(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         *,
         source_id: str,
         spec: CaseDurationResourceSpec,
@@ -123,53 +129,55 @@ class CaseDurationAdapter(SingleYamlAdapter):
         When matched by source id, verifies ``spec``'s name is still free before
         reusing the row. Returns ``None`` when no existing duration matches.
         """
-        duration = await self._duration_by_source_id(ctx, source_id=source_id)
+        duration = await self._duration_by_source_id(
+            workspace_service, source_id=source_id
+        )
         if duration is not None:
             await self._ensure_name_available(
-                ctx,
+                workspace_service,
                 source_id=source_id,
                 name=spec.name,
                 duration_id=duration.id,
             )
             return duration
 
-        return await ctx.session.scalar(
+        return await workspace_service.session.scalar(
             select(CaseDurationDefinition).where(
-                CaseDurationDefinition.workspace_id == ctx.workspace_id,
+                CaseDurationDefinition.workspace_id == workspace_service.workspace_id,
                 CaseDurationDefinition.name == spec.name,
             )
         )
 
     async def _duration_by_source_id(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         *,
         source_id: str,
     ) -> CaseDurationDefinition | None:
         """Load the duration mapped to ``source_id`` via the sync mapping, if any."""
-        local_id = await self.local_id_for_source_id(ctx, source_id)
+        local_id = await self.local_id_for_source_id(workspace_service, source_id)
         if local_id is None:
             return None
 
-        return await ctx.session.scalar(
+        return await workspace_service.session.scalar(
             select(CaseDurationDefinition).where(
-                CaseDurationDefinition.workspace_id == ctx.workspace_id,
+                CaseDurationDefinition.workspace_id == workspace_service.workspace_id,
                 CaseDurationDefinition.id == local_id,
             )
         )
 
     async def _ensure_name_available(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         *,
         source_id: str,
         name: str,
         duration_id: uuid.UUID,
     ) -> None:
         """Raise if another duration already owns ``name`` in this workspace."""
-        conflict_id = await ctx.session.scalar(
+        conflict_id = await workspace_service.session.scalar(
             select(CaseDurationDefinition.id).where(
-                CaseDurationDefinition.workspace_id == ctx.workspace_id,
+                CaseDurationDefinition.workspace_id == workspace_service.workspace_id,
                 CaseDurationDefinition.name == name,
                 CaseDurationDefinition.id != duration_id,
             )

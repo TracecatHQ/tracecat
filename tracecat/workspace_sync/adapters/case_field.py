@@ -44,10 +44,14 @@ class CaseFieldAdapter(SingleYamlAdapter):
     model = CaseFieldResourceSpec
     root = CASE_FIELD_ROOT
 
-    async def project(self, ctx: BaseWorkspaceService) -> ResourceProjection:
+    async def project(
+        self, workspace_service: BaseWorkspaceService
+    ) -> ResourceProjection:
         """Project each entry of the workspace case fields schema into a spec."""
-        definition = await ctx.session.scalar(
-            select(CaseFields).where(CaseFields.workspace_id == ctx.workspace_id)
+        definition = await workspace_service.session.scalar(
+            select(CaseFields).where(
+                CaseFields.workspace_id == workspace_service.workspace_id
+            )
         )
         if definition is None:
             return ResourceProjection(specs={}, resources=[])
@@ -78,16 +82,20 @@ class CaseFieldAdapter(SingleYamlAdapter):
 
     async def import_specs(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         """Reconcile field specs, creating new columns or updating schema entries."""
         fields = workspace_spec.case_fields
         imported: list[ImportedResource] = []
-        field_service = CaseFieldsService(session=ctx.session, role=ctx.role)
+        field_service = CaseFieldsService(
+            session=workspace_service.session, role=workspace_service.role
+        )
         for source_id, spec in sorted(fields.items()):
-            definition = await ctx.session.scalar(
-                select(CaseFields).where(CaseFields.workspace_id == ctx.workspace_id)
+            definition = await workspace_service.session.scalar(
+                select(CaseFields).where(
+                    CaseFields.workspace_id == workspace_service.workspace_id
+                )
             )
             current_schema = dict(definition.schema or {}) if definition else {}
             field_type = sql_type(spec.field_type or "text")
@@ -124,15 +132,17 @@ class CaseFieldAdapter(SingleYamlAdapter):
                 }
                 if definition is None:
                     definition = CaseFields(
-                        workspace_id=ctx.workspace_id,
+                        workspace_id=workspace_service.workspace_id,
                         schema={},
                     )
                 definition.schema = current_schema
                 flag_modified(definition, "schema")
-                ctx.session.add(definition)
-                await ctx.session.flush()
-            definition = await ctx.session.scalar(
-                select(CaseFields).where(CaseFields.workspace_id == ctx.workspace_id)
+                workspace_service.session.add(definition)
+                await workspace_service.session.flush()
+            definition = await workspace_service.session.scalar(
+                select(CaseFields).where(
+                    CaseFields.workspace_id == workspace_service.workspace_id
+                )
             )
             if definition is not None:
                 imported.append(

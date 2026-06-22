@@ -43,19 +43,23 @@ class VariableAdapter(EnvironmentYamlAdapter):
     root = VARIABLE_ROOT
     """Top-level repository directory for variables."""
 
-    async def project(self, ctx: BaseWorkspaceService) -> ResourceProjection:
+    async def project(
+        self, workspace_service: BaseWorkspaceService
+    ) -> ResourceProjection:
         """Project workspace variables into specs, recording key names but no values."""
         stmt = (
             select(WorkspaceVariable)
-            .where(WorkspaceVariable.workspace_id == ctx.workspace_id)
+            .where(WorkspaceVariable.workspace_id == workspace_service.workspace_id)
             .order_by(
                 WorkspaceVariable.environment.asc(),
                 WorkspaceVariable.name.asc(),
                 WorkspaceVariable.id.asc(),
             )
         )
-        variables = list((await ctx.session.execute(stmt)).scalars().all())
-        source_ids_by_local_id = await self.source_ids_by_local_id(ctx)
+        variables = list(
+            (await workspace_service.session.execute(stmt)).scalars().all()
+        )
+        source_ids_by_local_id = await self.source_ids_by_local_id(workspace_service)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
         reserved: set[str] = set(source_ids_by_local_id.values())
@@ -81,7 +85,7 @@ class VariableAdapter(EnvironmentYamlAdapter):
 
     async def import_specs(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         """Reconcile variable specs into the database, preserving existing values.
@@ -100,7 +104,7 @@ class VariableAdapter(EnvironmentYamlAdapter):
             for source_id in sorted(variables)
             if (
                 variable := await self._variable_by_source_id(
-                    ctx,
+                    workspace_service,
                     source_id=source_id,
                 )
             )
@@ -112,7 +116,7 @@ class VariableAdapter(EnvironmentYamlAdapter):
         for source_id, variable in mapped_variables.items():
             spec = variables[source_id]
             await self._ensure_name_environment_available(
-                ctx,
+                workspace_service,
                 source_id=source_id,
                 name=spec.name,
                 environment=spec.environment,
@@ -121,14 +125,14 @@ class VariableAdapter(EnvironmentYamlAdapter):
                 target_keys_by_source_id=target_keys_by_source_id,
             )
         await self._release_changing_mapped_variables(
-            ctx,
+            workspace_service,
             variables_by_source_id=mapped_variables,
             target_keys_by_source_id=target_keys_by_source_id,
         )
 
         for source_id, spec in sorted(variables.items()):
             variable = await self._variable_for_import(
-                ctx,
+                workspace_service,
                 source_id=source_id,
                 spec=spec,
                 mapped_variable=mapped_variables.get(source_id),
@@ -138,7 +142,7 @@ class VariableAdapter(EnvironmentYamlAdapter):
             )
             if variable is None:
                 variable = WorkspaceVariable(
-                    workspace_id=ctx.workspace_id,
+                    workspace_id=workspace_service.workspace_id,
                     name=spec.name,
                     environment=spec.environment,
                     values=values,
@@ -151,14 +155,14 @@ class VariableAdapter(EnvironmentYamlAdapter):
                 variable.values = values
                 variable.description = spec.description
                 variable.tags = dict.fromkeys(spec.tags, "") if spec.tags else None
-            ctx.session.add(variable)
-            await ctx.session.flush()
+            workspace_service.session.add(variable)
+            await workspace_service.session.flush()
             imported.append(self.imported_resource(source_id, variable.id))
         return imported
 
     async def _variable_for_import(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         *,
         source_id: str,
         spec: VariableResourceSpec,
@@ -170,15 +174,15 @@ class VariableAdapter(EnvironmentYamlAdapter):
         spec's ``name`` and ``environment``; returns ``None`` when neither exists.
         """
         variable = mapped_variable or await self._variable_by_source_id(
-            ctx,
+            workspace_service,
             source_id=source_id,
         )
         if variable is not None:
             return variable
 
-        return await ctx.session.scalar(
+        return await workspace_service.session.scalar(
             select(WorkspaceVariable).where(
-                WorkspaceVariable.workspace_id == ctx.workspace_id,
+                WorkspaceVariable.workspace_id == workspace_service.workspace_id,
                 WorkspaceVariable.name == spec.name,
                 WorkspaceVariable.environment == spec.environment,
             )
@@ -186,25 +190,25 @@ class VariableAdapter(EnvironmentYamlAdapter):
 
     async def _variable_by_source_id(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         *,
         source_id: str,
     ) -> WorkspaceVariable | None:
         """Load the mapped :class:`WorkspaceVariable` for ``source_id``, if any."""
-        local_id = await self.local_id_for_source_id(ctx, source_id)
+        local_id = await self.local_id_for_source_id(workspace_service, source_id)
         if local_id is None:
             return None
 
-        return await ctx.session.scalar(
+        return await workspace_service.session.scalar(
             select(WorkspaceVariable).where(
-                WorkspaceVariable.workspace_id == ctx.workspace_id,
+                WorkspaceVariable.workspace_id == workspace_service.workspace_id,
                 WorkspaceVariable.id == local_id,
             )
         )
 
     async def _ensure_name_environment_available(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         *,
         source_id: str,
         name: str,
@@ -219,9 +223,9 @@ class VariableAdapter(EnvironmentYamlAdapter):
         batch and is moving away from ``(environment, name)``, since it will be
         released later; any other collision raises :class:`ValueError`.
         """
-        conflict_id = await ctx.session.scalar(
+        conflict_id = await workspace_service.session.scalar(
             select(WorkspaceVariable.id).where(
-                WorkspaceVariable.workspace_id == ctx.workspace_id,
+                WorkspaceVariable.workspace_id == workspace_service.workspace_id,
                 WorkspaceVariable.name == name,
                 WorkspaceVariable.environment == environment,
                 WorkspaceVariable.id != variable_id,
@@ -244,7 +248,7 @@ class VariableAdapter(EnvironmentYamlAdapter):
 
     async def _release_changing_mapped_variables(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         *,
         variables_by_source_id: Mapping[str, WorkspaceVariable],
         target_keys_by_source_id: Mapping[str, tuple[str, str]],
@@ -256,7 +260,9 @@ class VariableAdapter(EnvironmentYamlAdapter):
         variable in the batch can claim it without colliding.
         """
         changed = False
-        reserved_names_by_environment = await _reserved_names_by_environment(ctx)
+        reserved_names_by_environment = await _reserved_names_by_environment(
+            workspace_service
+        )
         for source_id, variable in variables_by_source_id.items():
             if (variable.environment, variable.name) == target_keys_by_source_id[
                 source_id
@@ -269,10 +275,10 @@ class VariableAdapter(EnvironmentYamlAdapter):
             reserved_names.discard(variable.name)
             variable.name = _unique_temporary_variable_name(variable, reserved_names)
             reserved_names.add(variable.name)
-            ctx.session.add(variable)
+            workspace_service.session.add(variable)
             changed = True
         if changed:
-            await ctx.session.flush()
+            await workspace_service.session.flush()
 
 
 def _values_from_spec(
@@ -321,13 +327,13 @@ def _ensure_unique_targets(
 
 
 async def _reserved_names_by_environment(
-    ctx: BaseWorkspaceService,
+    workspace_service: BaseWorkspaceService,
 ) -> dict[str, set[str]]:
     """Return the set of in-use variable names per environment for the workspace."""
     rows = (
-        await ctx.session.execute(
+        await workspace_service.session.execute(
             select(WorkspaceVariable.environment, WorkspaceVariable.name).where(
-                WorkspaceVariable.workspace_id == ctx.workspace_id
+                WorkspaceVariable.workspace_id == workspace_service.workspace_id
             )
         )
     ).tuples()

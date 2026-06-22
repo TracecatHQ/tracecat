@@ -35,16 +35,20 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
     model = SecretMetadataResourceSpec
     root = SECRET_METADATA_ROOT
 
-    async def project(self, ctx: BaseWorkspaceService) -> ResourceProjection:
+    async def project(
+        self, workspace_service: BaseWorkspaceService
+    ) -> ResourceProjection:
         """Project secrets into specs, emitting only key names, not their values."""
         stmt = (
             select(Secret)
-            .where(Secret.workspace_id == ctx.workspace_id)
+            .where(Secret.workspace_id == workspace_service.workspace_id)
             .order_by(Secret.environment.asc(), Secret.name.asc(), Secret.id.asc())
         )
-        secrets = list((await ctx.session.execute(stmt)).scalars().all())
-        secret_service = SecretsService(session=ctx.session, role=ctx.role)
-        source_ids_by_local_id = await self.source_ids_by_local_id(ctx)
+        secrets = list((await workspace_service.session.execute(stmt)).scalars().all())
+        secret_service = SecretsService(
+            session=workspace_service.session, role=workspace_service.role
+        )
+        source_ids_by_local_id = await self.source_ids_by_local_id(workspace_service)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
         reserved: set[str] = set(source_ids_by_local_id.values())
@@ -75,7 +79,7 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
 
     async def import_specs(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         """Reconcile secret metadata specs, preserving existing key values.
@@ -86,10 +90,12 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
         """
         secret_metadata = workspace_spec.secret_metadata
         imported: list[ImportedResource] = []
-        secret_service = SecretsService(session=ctx.session, role=ctx.role)
+        secret_service = SecretsService(
+            session=workspace_service.session, role=workspace_service.role
+        )
         for source_id, spec in sorted(secret_metadata.items()):
             secret = await self._secret_for_import(
-                ctx,
+                workspace_service,
                 source_id=source_id,
                 spec=spec,
             )
@@ -112,7 +118,7 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
             tags = dict.fromkeys(spec.tags, "") if spec.tags else None
             if secret is None:
                 secret = Secret(
-                    workspace_id=ctx.workspace_id,
+                    workspace_id=workspace_service.workspace_id,
                     name=spec.name,
                     type=secret_type,
                     encrypted_keys=encrypted_keys,
@@ -127,14 +133,14 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
                 secret.encrypted_keys = encrypted_keys
                 secret.tags = tags
                 secret.description = spec.description
-            ctx.session.add(secret)
-            await ctx.session.flush()
+            workspace_service.session.add(secret)
+            await workspace_service.session.flush()
             imported.append(self.imported_resource(source_id, secret.id))
         return imported
 
     async def _secret_for_import(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         *,
         source_id: str,
         spec: SecretMetadataResourceSpec,
@@ -144,10 +150,10 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
         When matched by source id, verifies ``spec``'s name and environment are
         still free before reusing the row. Returns ``None`` when nothing matches.
         """
-        secret = await self._secret_by_source_id(ctx, source_id=source_id)
+        secret = await self._secret_by_source_id(workspace_service, source_id=source_id)
         if secret is not None:
             await self._ensure_name_environment_available(
-                ctx,
+                workspace_service,
                 source_id=source_id,
                 name=spec.name,
                 environment=spec.environment,
@@ -155,9 +161,9 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
             )
             return secret
 
-        return await ctx.session.scalar(
+        return await workspace_service.session.scalar(
             select(Secret).where(
-                Secret.workspace_id == ctx.workspace_id,
+                Secret.workspace_id == workspace_service.workspace_id,
                 Secret.name == spec.name,
                 Secret.environment == spec.environment,
             )
@@ -165,25 +171,25 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
 
     async def _secret_by_source_id(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         *,
         source_id: str,
     ) -> Secret | None:
         """Load the secret mapped to ``source_id`` via the sync mapping, if any."""
-        local_id = await self.local_id_for_source_id(ctx, source_id)
+        local_id = await self.local_id_for_source_id(workspace_service, source_id)
         if local_id is None:
             return None
 
-        return await ctx.session.scalar(
+        return await workspace_service.session.scalar(
             select(Secret).where(
-                Secret.workspace_id == ctx.workspace_id,
+                Secret.workspace_id == workspace_service.workspace_id,
                 Secret.id == local_id,
             )
         )
 
     async def _ensure_name_environment_available(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         *,
         source_id: str,
         name: str,
@@ -191,9 +197,9 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
         secret_id: uuid.UUID,
     ) -> None:
         """Raise if another secret already owns ``name`` in ``environment``."""
-        conflict_id = await ctx.session.scalar(
+        conflict_id = await workspace_service.session.scalar(
             select(Secret.id).where(
-                Secret.workspace_id == ctx.workspace_id,
+                Secret.workspace_id == workspace_service.workspace_id,
                 Secret.name == name,
                 Secret.environment == environment,
                 Secret.id != secret_id,

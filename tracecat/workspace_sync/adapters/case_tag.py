@@ -35,15 +35,17 @@ class CaseTagAdapter(SingleYamlAdapter):
     model = CaseTagResourceSpec
     root = CASE_TAG_ROOT
 
-    async def project(self, ctx: BaseWorkspaceService) -> ResourceProjection:
+    async def project(
+        self, workspace_service: BaseWorkspaceService
+    ) -> ResourceProjection:
         """Project case tags into specs."""
         stmt = (
             select(CaseTag)
-            .where(CaseTag.workspace_id == ctx.workspace_id)
+            .where(CaseTag.workspace_id == workspace_service.workspace_id)
             .order_by(CaseTag.ref.asc(), CaseTag.id.asc())
         )
-        tags = list((await ctx.session.execute(stmt)).scalars().all())
-        source_ids_by_local_id = await self.source_ids_by_local_id(ctx)
+        tags = list((await workspace_service.session.execute(stmt)).scalars().all())
+        source_ids_by_local_id = await self.source_ids_by_local_id(workspace_service)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
         reserved: set[str] = set(source_ids_by_local_id.values())
@@ -62,7 +64,7 @@ class CaseTagAdapter(SingleYamlAdapter):
 
     async def import_specs(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         """Reconcile case tag specs, resolving name collisions before persisting.
@@ -85,7 +87,7 @@ class CaseTagAdapter(SingleYamlAdapter):
         source_ids = set(tags)
         names = {spec.name for spec in tags.values()}
         mapped_local_ids_by_source_id = await self.local_ids_by_source_id(
-            ctx,
+            workspace_service,
             source_ids,
         )
         mapped_local_ids = set(mapped_local_ids_by_source_id.values())
@@ -97,9 +99,9 @@ class CaseTagAdapter(SingleYamlAdapter):
             conditions.append(CaseTag.id.in_(mapped_local_ids))
         existing_tags = list(
             (
-                await ctx.session.scalars(
+                await workspace_service.session.scalars(
                     select(CaseTag).where(
-                        CaseTag.workspace_id == ctx.workspace_id,
+                        CaseTag.workspace_id == workspace_service.workspace_id,
                         sa.or_(*conditions),
                     )
                 )
@@ -139,9 +141,9 @@ class CaseTagAdapter(SingleYamlAdapter):
         for _source_id, spec, tag in import_targets:
             if tag is not None and tag.name != spec.name:
                 tag.name = f"__tracecat_sync_tmp_{tag.id}"
-                ctx.session.add(tag)
+                workspace_service.session.add(tag)
         try:
-            await ctx.session.flush()
+            await workspace_service.session.flush()
         except IntegrityError as e:
             raise ValueError(
                 "Case tag sync encountered a duplicate tag name or ref"
@@ -151,7 +153,7 @@ class CaseTagAdapter(SingleYamlAdapter):
         for source_id, spec, tag in import_targets:
             if tag is None:
                 tag = CaseTag(
-                    workspace_id=ctx.workspace_id,
+                    workspace_id=workspace_service.workspace_id,
                     name=spec.name,
                     ref=source_id,
                     color=spec.color,
@@ -160,10 +162,10 @@ class CaseTagAdapter(SingleYamlAdapter):
                 tag.name = spec.name
                 tag.ref = source_id
                 tag.color = spec.color
-            ctx.session.add(tag)
+            workspace_service.session.add(tag)
             imported_tags.append((source_id, tag))
         try:
-            await ctx.session.flush()
+            await workspace_service.session.flush()
         except IntegrityError as e:
             raise ValueError(
                 "Case tag sync encountered a duplicate tag name or ref"

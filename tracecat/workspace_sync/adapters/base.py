@@ -153,7 +153,9 @@ class ResourceAdapter(ABC):
         return specs
 
     # -- database projection and import -----------------------------------
-    async def project(self, ctx: BaseWorkspaceService) -> ResourceProjection:
+    async def project(
+        self, workspace_service: BaseWorkspaceService
+    ) -> ResourceProjection:
         """Project this resource type's database rows into Git specs.
 
         Returns an empty projection by default; projectable adapters override
@@ -163,7 +165,7 @@ class ResourceAdapter(ABC):
 
     async def import_specs(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         """Reconcile this resource type's Git spec slice into the local database.
@@ -213,7 +215,7 @@ class ResourceAdapter(ABC):
 
     async def source_ids_by_local_id(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
     ) -> dict[uuid.UUID, str]:
         """Load this resource type's ``local_id`` -> ``source_id`` sync mappings.
 
@@ -224,29 +226,29 @@ class ResourceAdapter(ABC):
             WorkspaceSyncResourceMapping.local_id,
             WorkspaceSyncResourceMapping.source_id,
         ).where(
-            WorkspaceSyncResourceMapping.workspace_id == ctx.workspace_id,
+            WorkspaceSyncResourceMapping.workspace_id == workspace_service.workspace_id,
             WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
             WorkspaceSyncResourceMapping.resource_type == self.resource_type.value,
         )
-        return dict((await ctx.session.execute(stmt)).tuples().all())
+        return dict((await workspace_service.session.execute(stmt)).tuples().all())
 
     async def local_id_for_source_id(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         source_id: str,
     ) -> uuid.UUID | None:
         """Resolve a single ``source_id`` to its mapped ``local_id``, if any."""
         stmt = select(WorkspaceSyncResourceMapping.local_id).where(
-            WorkspaceSyncResourceMapping.workspace_id == ctx.workspace_id,
+            WorkspaceSyncResourceMapping.workspace_id == workspace_service.workspace_id,
             WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
             WorkspaceSyncResourceMapping.resource_type == self.resource_type.value,
             WorkspaceSyncResourceMapping.source_id == source_id,
         )
-        return await ctx.session.scalar(stmt)
+        return await workspace_service.session.scalar(stmt)
 
     async def local_ids_by_source_id(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         source_ids: Iterable[str],
     ) -> dict[str, uuid.UUID]:
         """Bulk-resolve ``source_id`` values to their mapped ``local_id`` UUIDs.
@@ -261,12 +263,12 @@ class ResourceAdapter(ABC):
             WorkspaceSyncResourceMapping.source_id,
             WorkspaceSyncResourceMapping.local_id,
         ).where(
-            WorkspaceSyncResourceMapping.workspace_id == ctx.workspace_id,
+            WorkspaceSyncResourceMapping.workspace_id == workspace_service.workspace_id,
             WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
             WorkspaceSyncResourceMapping.resource_type == self.resource_type.value,
             WorkspaceSyncResourceMapping.source_id.in_(source_id_values),
         )
-        return dict((await ctx.session.execute(stmt)).tuples().all())
+        return dict((await workspace_service.session.execute(stmt)).tuples().all())
 
 
 class CompoundYamlAdapter(ResourceAdapter):

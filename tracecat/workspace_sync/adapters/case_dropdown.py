@@ -32,16 +32,22 @@ class CaseDropdownAdapter(SingleYamlAdapter):
     model = CaseDropdownResourceSpec
     root = CASE_DROPDOWN_ROOT
 
-    async def project(self, ctx: BaseWorkspaceService) -> ResourceProjection:
+    async def project(
+        self, workspace_service: BaseWorkspaceService
+    ) -> ResourceProjection:
         """Project case dropdown definitions, with their options, into specs."""
         stmt = (
             select(CaseDropdownDefinition)
-            .where(CaseDropdownDefinition.workspace_id == ctx.workspace_id)
+            .where(
+                CaseDropdownDefinition.workspace_id == workspace_service.workspace_id
+            )
             .options(selectinload(CaseDropdownDefinition.options))
             .order_by(CaseDropdownDefinition.ref.asc(), CaseDropdownDefinition.id.asc())
         )
-        dropdowns = list((await ctx.session.execute(stmt)).scalars().all())
-        source_ids_by_local_id = await self.source_ids_by_local_id(ctx)
+        dropdowns = list(
+            (await workspace_service.session.execute(stmt)).scalars().all()
+        )
+        source_ids_by_local_id = await self.source_ids_by_local_id(workspace_service)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
         reserved: set[str] = set(source_ids_by_local_id.values())
@@ -80,7 +86,7 @@ class CaseDropdownAdapter(SingleYamlAdapter):
 
     async def import_specs(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         """Reconcile dropdown specs, syncing each definition's options in place."""
@@ -88,7 +94,7 @@ class CaseDropdownAdapter(SingleYamlAdapter):
         imported: list[ImportedResource] = []
         source_ids = set(dropdowns)
         mapped_local_ids_by_source_id = await self.local_ids_by_source_id(
-            ctx,
+            workspace_service,
             source_ids,
         )
         mapped_local_ids = set(mapped_local_ids_by_source_id.values())
@@ -97,10 +103,11 @@ class CaseDropdownAdapter(SingleYamlAdapter):
             conditions.append(CaseDropdownDefinition.id.in_(mapped_local_ids))
         existing_dropdowns = list(
             (
-                await ctx.session.scalars(
+                await workspace_service.session.scalars(
                     select(CaseDropdownDefinition)
                     .where(
-                        CaseDropdownDefinition.workspace_id == ctx.workspace_id,
+                        CaseDropdownDefinition.workspace_id
+                        == workspace_service.workspace_id,
                         sa.or_(*conditions),
                     )
                     .options(selectinload(CaseDropdownDefinition.options))
@@ -120,7 +127,7 @@ class CaseDropdownAdapter(SingleYamlAdapter):
             )
             if dropdown is None:
                 dropdown = CaseDropdownDefinition(
-                    workspace_id=ctx.workspace_id,
+                    workspace_id=workspace_service.workspace_id,
                     name=spec.name,
                     ref=source_id,
                     is_ordered=spec.is_ordered,
@@ -128,8 +135,8 @@ class CaseDropdownAdapter(SingleYamlAdapter):
                     position=spec.position,
                     required_on_closure=spec.required_on_closure,
                 )
-                ctx.session.add(dropdown)
-                await ctx.session.flush()
+                workspace_service.session.add(dropdown)
+                await workspace_service.session.flush()
                 existing_options = {}
             else:
                 dropdown.name = spec.name
@@ -157,11 +164,11 @@ class CaseDropdownAdapter(SingleYamlAdapter):
                 option.position = int(option_spec.get("position", position))
                 option.icon_name = option_spec.get("icon_name")
                 option.color = option_spec.get("color")
-                ctx.session.add(option)
+                workspace_service.session.add(option)
             for option in existing_options.values():
                 if option.ref not in desired_refs:
-                    await ctx.session.delete(option)
-            ctx.session.add(dropdown)
-            await ctx.session.flush()
+                    await workspace_service.session.delete(option)
+            workspace_service.session.add(dropdown)
+            await workspace_service.session.flush()
             imported.append(self.imported_resource(source_id, dropdown.id))
         return imported

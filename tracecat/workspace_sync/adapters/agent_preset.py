@@ -56,11 +56,13 @@ class AgentPresetAdapter(CompoundYamlAdapter):
     root = AGENT_PRESET_ROOT
     filename = AGENT_PRESET_FILENAME
 
-    async def project(self, ctx: BaseWorkspaceService) -> ResourceProjection:
+    async def project(
+        self, workspace_service: BaseWorkspaceService
+    ) -> ResourceProjection:
         """Project agent presets into Git specs."""
         stmt = (
             select(AgentPreset)
-            .where(AgentPreset.workspace_id == ctx.workspace_id)
+            .where(AgentPreset.workspace_id == workspace_service.workspace_id)
             .options(
                 selectinload(AgentPreset.folder),
                 selectinload(AgentPreset.tags),
@@ -73,8 +75,8 @@ class AgentPresetAdapter(CompoundYamlAdapter):
             )
             .order_by(AgentPreset.slug.asc(), AgentPreset.id.asc())
         )
-        presets = list((await ctx.session.execute(stmt)).scalars().all())
-        source_ids_by_local_id = await self.source_ids_by_local_id(ctx)
+        presets = list((await workspace_service.session.execute(stmt)).scalars().all())
+        source_ids_by_local_id = await self.source_ids_by_local_id(workspace_service)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
         reserved: set[str] = set(source_ids_by_local_id.values())
@@ -121,7 +123,7 @@ class AgentPresetAdapter(CompoundYamlAdapter):
 
     async def import_specs(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         """Reconcile agent preset specs into the local database.
@@ -136,13 +138,13 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         preset_by_source_id: dict[str, AgentPreset] = {}
         for source_id, spec in sorted(presets.items()):
             preset = await self._preset_for_import(
-                ctx,
+                workspace_service,
                 source_id=source_id,
                 spec=spec,
             )
             if preset is None:
                 preset = AgentPreset(
-                    workspace_id=ctx.workspace_id,
+                    workspace_id=workspace_service.workspace_id,
                     slug=spec.slug,
                     name=spec.name,
                     model_name=spec.model_name or DEFAULT_AGENT_MODEL_NAME,
@@ -152,35 +154,49 @@ class AgentPresetAdapter(CompoundYamlAdapter):
             else:
                 preset.slug = spec.slug
             self._apply_preset_spec(preset, spec)
-            folder = await self._ensure_agent_folder(ctx, spec.folder_path)
+            folder = await self._ensure_agent_folder(
+                workspace_service, spec.folder_path
+            )
             preset.folder_id = folder.id if folder is not None else None
-            ctx.session.add(preset)
-            await ctx.session.flush()
-            await self._replace_agent_tags(ctx, preset, spec.tags)
+            workspace_service.session.add(preset)
+            await workspace_service.session.flush()
+            await self._replace_agent_tags(workspace_service, preset, spec.tags)
             preset_by_source_id[source_id] = preset
 
         for source_id in import_order:
             spec = presets[source_id]
             preset = preset_by_source_id[source_id]
-            preset.agents = await self._resolved_subagents_config(ctx, spec)
-            ctx.session.add(preset)
-            await ctx.session.flush()
-            skill_targets = await self._skill_binding_targets_for_spec(ctx, spec)
-            current_version = await self._current_version_for_preset(ctx, preset)
+            preset.agents = await self._resolved_subagents_config(
+                workspace_service, spec
+            )
+            workspace_service.session.add(preset)
+            await workspace_service.session.flush()
+            skill_targets = await self._skill_binding_targets_for_spec(
+                workspace_service, spec
+            )
+            current_version = await self._current_version_for_preset(
+                workspace_service, preset
+            )
             if current_version is not None and await self._version_matches_preset(
-                ctx,
+                workspace_service,
                 current_version,
                 preset,
                 skill_targets,
             ):
                 version = current_version
             else:
-                version = await self._create_agent_preset_version(ctx, preset)
-                await self._replace_version_skill_bindings(ctx, version, skill_targets)
-            await self._replace_head_skill_bindings(ctx, preset, skill_targets)
+                version = await self._create_agent_preset_version(
+                    workspace_service, preset
+                )
+                await self._replace_version_skill_bindings(
+                    workspace_service, version, skill_targets
+                )
+            await self._replace_head_skill_bindings(
+                workspace_service, preset, skill_targets
+            )
             preset.current_version_id = version.id
-            ctx.session.add(preset)
-            await ctx.session.flush()
+            workspace_service.session.add(preset)
+            await workspace_service.session.flush()
             imported.append(self.imported_resource(source_id, preset.id))
         return imported
 
@@ -264,7 +280,7 @@ class AgentPresetAdapter(CompoundYamlAdapter):
 
     async def _preset_for_import(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         *,
         source_id: str,
         spec: AgentPresetResourceSpec,
@@ -275,20 +291,20 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         is still free), then falls back to matching on slug. Returns ``None``
         when no preset exists and a new one must be created.
         """
-        preset = await self._preset_by_source_id(ctx, source_id=source_id)
+        preset = await self._preset_by_source_id(workspace_service, source_id=source_id)
         if preset is not None:
             await self._ensure_slug_available(
-                ctx,
+                workspace_service,
                 source_id=source_id,
                 slug=spec.slug,
                 preset_id=preset.id,
             )
             return preset
 
-        return await ctx.session.scalar(
+        return await workspace_service.session.scalar(
             select(AgentPreset)
             .where(
-                AgentPreset.workspace_id == ctx.workspace_id,
+                AgentPreset.workspace_id == workspace_service.workspace_id,
                 AgentPreset.slug == spec.slug,
             )
             .options(selectinload(AgentPreset.tags))
@@ -296,19 +312,19 @@ class AgentPresetAdapter(CompoundYamlAdapter):
 
     async def _preset_by_source_id(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         *,
         source_id: str,
     ) -> AgentPreset | None:
         """Load the preset mapped to ``source_id`` via the sync mapping, if any."""
-        local_id = await self.local_id_for_source_id(ctx, source_id)
+        local_id = await self.local_id_for_source_id(workspace_service, source_id)
         if local_id is None:
             return None
 
-        return await ctx.session.scalar(
+        return await workspace_service.session.scalar(
             select(AgentPreset)
             .where(
-                AgentPreset.workspace_id == ctx.workspace_id,
+                AgentPreset.workspace_id == workspace_service.workspace_id,
                 AgentPreset.id == local_id,
             )
             .options(selectinload(AgentPreset.tags))
@@ -316,7 +332,7 @@ class AgentPresetAdapter(CompoundYamlAdapter):
 
     async def _ensure_slug_available(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         *,
         source_id: str,
         slug: str,
@@ -327,9 +343,9 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         Raises :class:`TracecatValidationError` when another preset in the
         workspace owns ``slug``.
         """
-        conflict_id = await ctx.session.scalar(
+        conflict_id = await workspace_service.session.scalar(
             select(AgentPreset.id).where(
-                AgentPreset.workspace_id == ctx.workspace_id,
+                AgentPreset.workspace_id == workspace_service.workspace_id,
                 AgentPreset.slug == slug,
                 AgentPreset.id != preset_id,
             )
@@ -344,7 +360,7 @@ class AgentPresetAdapter(CompoundYamlAdapter):
 
     async def _ensure_agent_folder(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         folder_path: str | None,
     ) -> AgentFolder | None:
         """Resolve ``folder_path`` to an :class:`AgentFolder`, creating segments.
@@ -362,25 +378,25 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         folder: AgentFolder | None = None
         for segment in segments:
             current_path = f"{current_path}{segment}/"
-            folder = await ctx.session.scalar(
+            folder = await workspace_service.session.scalar(
                 select(AgentFolder).where(
-                    AgentFolder.workspace_id == ctx.workspace_id,
+                    AgentFolder.workspace_id == workspace_service.workspace_id,
                     AgentFolder.path == current_path,
                 )
             )
             if folder is None:
                 folder = AgentFolder(
-                    workspace_id=ctx.workspace_id,
+                    workspace_id=workspace_service.workspace_id,
                     name=segment,
                     path=current_path,
                 )
-                ctx.session.add(folder)
-                await ctx.session.flush()
+                workspace_service.session.add(folder)
+                await workspace_service.session.flush()
         return folder
 
     async def _replace_agent_tags(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         preset: AgentPreset,
         tag_names: list[str],
     ) -> None:
@@ -389,36 +405,38 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         Drops existing links, then upserts each tag by its slugified ref and
         re-links it, so tags are deduplicated and reused across presets.
         """
-        await ctx.session.execute(
+        await workspace_service.session.execute(
             sa.delete(AgentTagLink).where(AgentTagLink.preset_id == preset.id)
         )
         tag_ids: list[uuid.UUID] = []
         for name in sorted(dict.fromkeys(tag_names)):
             ref = slugify(name, separator="-") or name
-            tag = await ctx.session.scalar(
+            tag = await workspace_service.session.scalar(
                 select(AgentTag).where(
-                    AgentTag.workspace_id == ctx.workspace_id,
+                    AgentTag.workspace_id == workspace_service.workspace_id,
                     AgentTag.ref == ref,
                 )
             )
             if tag is None:
                 tag = AgentTag(
-                    workspace_id=ctx.workspace_id,
+                    workspace_id=workspace_service.workspace_id,
                     name=name,
                     ref=ref,
                 )
             else:
                 tag.name = name
-            ctx.session.add(tag)
-            await ctx.session.flush()
+            workspace_service.session.add(tag)
+            await workspace_service.session.flush()
             tag_ids.append(tag.id)
         for tag_id in tag_ids:
-            ctx.session.add(AgentTagLink(tag_id=tag_id, preset_id=preset.id))
-        await ctx.session.flush()
+            workspace_service.session.add(
+                AgentTagLink(tag_id=tag_id, preset_id=preset.id)
+            )
+        await workspace_service.session.flush()
 
     async def _resolved_subagents_config(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         spec: AgentPresetResourceSpec,
     ) -> dict[str, Any]:
         """Build the subagents config dict for ``spec``.
@@ -432,9 +450,9 @@ class AgentPresetAdapter(CompoundYamlAdapter):
 
         subagents: list[dict[str, Any]] = []
         for subagent in spec.subagents:
-            child = await ctx.session.scalar(
+            child = await workspace_service.session.scalar(
                 select(AgentPreset).where(
-                    AgentPreset.workspace_id == ctx.workspace_id,
+                    AgentPreset.workspace_id == workspace_service.workspace_id,
                     AgentPreset.slug == subagent.slug,
                 )
             )
@@ -455,15 +473,15 @@ class AgentPresetAdapter(CompoundYamlAdapter):
 
     async def _current_version_for_preset(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         preset: AgentPreset,
     ) -> AgentPresetVersion | None:
         """Return ``preset``'s current :class:`AgentPresetVersion`, if pinned."""
         if preset.current_version_id is None:
             return None
-        return await ctx.session.scalar(
+        return await workspace_service.session.scalar(
             select(AgentPresetVersion).where(
-                AgentPresetVersion.workspace_id == ctx.workspace_id,
+                AgentPresetVersion.workspace_id == workspace_service.workspace_id,
                 AgentPresetVersion.preset_id == preset.id,
                 AgentPresetVersion.id == preset.current_version_id,
             )
@@ -471,7 +489,7 @@ class AgentPresetAdapter(CompoundYamlAdapter):
 
     async def _version_matches_preset(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         version: AgentPresetVersion,
         preset: AgentPreset,
         skill_targets: list[tuple[Skill, SkillVersion]],
@@ -491,12 +509,13 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         existing_skill_targets = {
             (skill_id, skill_version_id)
             for skill_id, skill_version_id in (
-                await ctx.session.execute(
+                await workspace_service.session.execute(
                     select(
                         AgentPresetVersionSkill.skill_id,
                         AgentPresetVersionSkill.skill_version_id,
                     ).where(
-                        AgentPresetVersionSkill.workspace_id == ctx.workspace_id,
+                        AgentPresetVersionSkill.workspace_id
+                        == workspace_service.workspace_id,
                         AgentPresetVersionSkill.preset_version_id == version.id,
                     )
                 )
@@ -506,7 +525,7 @@ class AgentPresetAdapter(CompoundYamlAdapter):
 
     async def _create_agent_preset_version(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         preset: AgentPreset,
     ) -> AgentPresetVersion:
         """Create the next :class:`AgentPresetVersion` snapshotting ``preset``.
@@ -514,20 +533,20 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         Increments the version number past the preset's highest existing version
         and copies the current preset attributes onto the new row.
         """
-        current_version = await ctx.session.scalar(
+        current_version = await workspace_service.session.scalar(
             select(sa.func.max(AgentPresetVersion.version)).where(
-                AgentPresetVersion.workspace_id == ctx.workspace_id,
+                AgentPresetVersion.workspace_id == workspace_service.workspace_id,
                 AgentPresetVersion.preset_id == preset.id,
             )
         )
         version = AgentPresetVersion(
-            workspace_id=ctx.workspace_id,
+            workspace_id=workspace_service.workspace_id,
             preset_id=preset.id,
             version=(current_version or 0) + 1,
             **self._version_attrs_from_preset(preset),
         )
-        ctx.session.add(version)
-        await ctx.session.flush()
+        workspace_service.session.add(version)
+        await workspace_service.session.flush()
         return version
 
     def _version_attrs_from_preset(self, preset: AgentPreset) -> dict[str, Any]:
@@ -551,55 +570,55 @@ class AgentPresetAdapter(CompoundYamlAdapter):
 
     async def _replace_head_skill_bindings(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         preset: AgentPreset,
         skill_targets: list[tuple[Skill, SkillVersion]],
     ) -> None:
         """Replace ``preset``'s head skill bindings with ``skill_targets``."""
-        await ctx.session.execute(
+        await workspace_service.session.execute(
             sa.delete(AgentPresetSkill).where(
-                AgentPresetSkill.workspace_id == ctx.workspace_id,
+                AgentPresetSkill.workspace_id == workspace_service.workspace_id,
                 AgentPresetSkill.preset_id == preset.id,
             )
         )
         for skill, skill_version in skill_targets:
-            ctx.session.add(
+            workspace_service.session.add(
                 AgentPresetSkill(
-                    workspace_id=ctx.workspace_id,
+                    workspace_id=workspace_service.workspace_id,
                     preset_id=preset.id,
                     skill_id=skill.id,
                     skill_version_id=skill_version.id,
                 )
             )
-        await ctx.session.flush()
+        await workspace_service.session.flush()
 
     async def _replace_version_skill_bindings(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         version: AgentPresetVersion,
         skill_targets: list[tuple[Skill, SkillVersion]],
     ) -> None:
         """Replace ``version``'s skill bindings with ``skill_targets``."""
-        await ctx.session.execute(
+        await workspace_service.session.execute(
             sa.delete(AgentPresetVersionSkill).where(
-                AgentPresetVersionSkill.workspace_id == ctx.workspace_id,
+                AgentPresetVersionSkill.workspace_id == workspace_service.workspace_id,
                 AgentPresetVersionSkill.preset_version_id == version.id,
             )
         )
         for skill, skill_version in skill_targets:
-            ctx.session.add(
+            workspace_service.session.add(
                 AgentPresetVersionSkill(
-                    workspace_id=ctx.workspace_id,
+                    workspace_id=workspace_service.workspace_id,
                     preset_version_id=version.id,
                     skill_id=skill.id,
                     skill_version_id=skill_version.id,
                 )
             )
-        await ctx.session.flush()
+        await workspace_service.session.flush()
 
     async def _skill_binding_targets_for_spec(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         spec: AgentPresetResourceSpec,
     ) -> list[tuple[Skill, SkillVersion]]:
         """Resolve ``spec``'s skill bindings to ``(skill, version)`` pairs.
@@ -609,7 +628,9 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         """
         targets: list[tuple[Skill, SkillVersion]] = []
         for binding in spec.skills:
-            skill, skill_version = await self._skill_binding_targets(ctx, binding)
+            skill, skill_version = await self._skill_binding_targets(
+                workspace_service, binding
+            )
             if skill is None or skill_version is None:
                 continue
             targets.append((skill, skill_version))
@@ -617,7 +638,7 @@ class AgentPresetAdapter(CompoundYamlAdapter):
 
     async def _skill_binding_targets(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         binding: AgentPresetSkillBinding,
     ) -> tuple[Skill | None, SkillVersion | None]:
         """Resolve one skill binding to its ``(skill, version)`` pair.
@@ -626,9 +647,9 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         current version when ``binding.version`` is unset). Returns
         ``(None, None)`` when the skill or version cannot be found.
         """
-        skill = await ctx.session.scalar(
+        skill = await workspace_service.session.scalar(
             select(Skill).where(
-                Skill.workspace_id == ctx.workspace_id,
+                Skill.workspace_id == workspace_service.workspace_id,
                 Skill.name == binding.slug,
             )
         )
@@ -636,14 +657,14 @@ class AgentPresetAdapter(CompoundYamlAdapter):
             return None, None
         version_number = binding.version
         stmt = select(SkillVersion).where(
-            SkillVersion.workspace_id == ctx.workspace_id,
+            SkillVersion.workspace_id == workspace_service.workspace_id,
             SkillVersion.skill_id == skill.id,
         )
         if version_number is not None:
             stmt = stmt.where(SkillVersion.version == version_number)
         else:
             stmt = stmt.where(SkillVersion.id == skill.current_version_id)
-        version = await ctx.session.scalar(stmt)
+        version = await workspace_service.session.scalar(stmt)
         return skill, version
 
 

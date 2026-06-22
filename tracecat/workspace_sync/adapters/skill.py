@@ -152,19 +152,21 @@ class SkillAdapter(CompoundYamlAdapter):
             updated[source_id] = spec.model_copy(update={"file_contents": contents})
         return updated
 
-    async def project(self, ctx: BaseWorkspaceService) -> ResourceProjection:
+    async def project(
+        self, workspace_service: BaseWorkspaceService
+    ) -> ResourceProjection:
         """Project skills and their current-version file blobs into Git specs."""
         stmt = (
             select(Skill)
             .where(
-                Skill.workspace_id == ctx.workspace_id,
+                Skill.workspace_id == workspace_service.workspace_id,
                 Skill.archived_at.is_(None),
             )
             .options(selectinload(Skill.current_version))
             .order_by(Skill.name.asc(), Skill.id.asc())
         )
-        skills = list((await ctx.session.execute(stmt)).scalars().all())
-        source_ids_by_local_id = await self.source_ids_by_local_id(ctx)
+        skills = list((await workspace_service.session.execute(stmt)).scalars().all())
+        source_ids_by_local_id = await self.source_ids_by_local_id(workspace_service)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
         reserved: set[str] = set(source_ids_by_local_id.values())
@@ -177,7 +179,7 @@ class SkillAdapter(CompoundYamlAdapter):
             files: list[SkillFileSpec] = []
             file_contents: dict[str, str] = {}
             if version is not None:
-                rows = await self._skill_version_rows(ctx, version.id)
+                rows = await self._skill_version_rows(workspace_service, version.id)
                 for version_file, blob_row in rows:
                     content = await blob.download_file(
                         key=blob_row.key,
@@ -205,7 +207,7 @@ class SkillAdapter(CompoundYamlAdapter):
 
     async def _skill_version_rows(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         version_id: uuid.UUID,
     ) -> list[tuple[SkillVersionFile, SkillBlob]]:
         """Return a version's files joined to their blobs, ordered by path."""
@@ -213,19 +215,21 @@ class SkillAdapter(CompoundYamlAdapter):
             select(SkillVersionFile, SkillBlob)
             .join(SkillBlob, SkillVersionFile.blob_id == SkillBlob.id)
             .where(
-                SkillVersionFile.workspace_id == ctx.workspace_id,
+                SkillVersionFile.workspace_id == workspace_service.workspace_id,
                 SkillVersionFile.skill_version_id == version_id,
             )
             .order_by(SkillVersionFile.path.asc())
         )
         return [
             (version_file, blob_row)
-            for version_file, blob_row in (await ctx.session.execute(stmt)).all()
+            for version_file, blob_row in (
+                await workspace_service.session.execute(stmt)
+            ).all()
         ]
 
     async def import_specs(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         """Reconcile skill specs into the local database.
@@ -236,18 +240,22 @@ class SkillAdapter(CompoundYamlAdapter):
         """
         skills = workspace_spec.skills
         imported: list[ImportedResource] = []
-        skill_service = SkillService(session=ctx.session, role=ctx.role)
+        skill_service = SkillService(
+            session=workspace_service.session, role=workspace_service.role
+        )
         for source_id, spec in sorted(skills.items()):
-            skill = await self._skill_for_import(ctx, source_id=source_id, spec=spec)
+            skill = await self._skill_for_import(
+                workspace_service, source_id=source_id, spec=spec
+            )
             if skill is None:
                 skill = Skill(
-                    workspace_id=ctx.workspace_id,
+                    workspace_id=workspace_service.workspace_id,
                     name=spec.slug,
                     description=getattr(spec, "description", None),
                     draft_revision=0,
                 )
-                ctx.session.add(skill)
-                await ctx.session.flush()
+                workspace_service.session.add(skill)
+                await workspace_service.session.flush()
             else:
                 skill.name = spec.slug
                 skill.description = getattr(spec, "description", None)
@@ -269,9 +277,9 @@ class SkillAdapter(CompoundYamlAdapter):
                 )
 
             version_number = spec.current_version or 1
-            version = await ctx.session.scalar(
+            version = await workspace_service.session.scalar(
                 select(SkillVersion).where(
-                    SkillVersion.workspace_id == ctx.workspace_id,
+                    SkillVersion.workspace_id == workspace_service.workspace_id,
                     SkillVersion.skill_id == skill.id,
                     SkillVersion.version == version_number,
                 )
@@ -299,27 +307,27 @@ class SkillAdapter(CompoundYamlAdapter):
             }
             if version is None:
                 version = SkillVersion(
-                    workspace_id=ctx.workspace_id,
+                    workspace_id=workspace_service.workspace_id,
                     skill_id=skill.id,
                     version=version_number,
                     **attrs,
                 )
-                ctx.session.add(version)
-                await ctx.session.flush()
+                workspace_service.session.add(version)
+                await workspace_service.session.flush()
             else:
                 for key, value in attrs.items():
                     setattr(version, key, value)
-                await ctx.session.execute(
+                await workspace_service.session.execute(
                     sa.delete(SkillVersionFile).where(
-                        SkillVersionFile.workspace_id == ctx.workspace_id,
+                        SkillVersionFile.workspace_id == workspace_service.workspace_id,
                         SkillVersionFile.skill_version_id == version.id,
                     )
                 )
 
             for path, file_ref in sorted(file_refs, key=lambda item: item[0]):
-                ctx.session.add(
+                workspace_service.session.add(
                     SkillVersionFile(
-                        workspace_id=ctx.workspace_id,
+                        workspace_id=workspace_service.workspace_id,
                         skill_version_id=version.id,
                         path=path,
                         blob_id=file_ref.blob.id,
@@ -327,14 +335,14 @@ class SkillAdapter(CompoundYamlAdapter):
                     )
                 )
             skill.current_version_id = version.id
-            ctx.session.add(skill)
-            await ctx.session.flush()
+            workspace_service.session.add(skill)
+            await workspace_service.session.flush()
             imported.append(self.imported_resource(source_id, skill.id))
         return imported
 
     async def _skill_for_import(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         *,
         source_id: str,
         spec: SkillResourceSpec,
@@ -345,44 +353,44 @@ class SkillAdapter(CompoundYamlAdapter):
         is still free), then falls back to matching on slug. Returns ``None``
         when a new skill must be created.
         """
-        skill = await self._skill_by_source_id(ctx, source_id=source_id)
+        skill = await self._skill_by_source_id(workspace_service, source_id=source_id)
         if skill is not None:
             await self._ensure_slug_available(
-                ctx,
+                workspace_service,
                 source_id=source_id,
                 slug=spec.slug,
                 skill_id=skill.id,
             )
             return skill
 
-        return await ctx.session.scalar(
+        return await workspace_service.session.scalar(
             select(Skill).where(
-                Skill.workspace_id == ctx.workspace_id,
+                Skill.workspace_id == workspace_service.workspace_id,
                 Skill.name == spec.slug,
             )
         )
 
     async def _skill_by_source_id(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         *,
         source_id: str,
     ) -> Skill | None:
         """Load the skill mapped to ``source_id`` via the sync mapping, if any."""
-        local_id = await self.local_id_for_source_id(ctx, source_id)
+        local_id = await self.local_id_for_source_id(workspace_service, source_id)
         if local_id is None:
             return None
 
-        return await ctx.session.scalar(
+        return await workspace_service.session.scalar(
             select(Skill).where(
-                Skill.workspace_id == ctx.workspace_id,
+                Skill.workspace_id == workspace_service.workspace_id,
                 Skill.id == local_id,
             )
         )
 
     async def _ensure_slug_available(
         self,
-        ctx: BaseWorkspaceService,
+        workspace_service: BaseWorkspaceService,
         *,
         source_id: str,
         slug: str,
@@ -393,9 +401,9 @@ class SkillAdapter(CompoundYamlAdapter):
         Raises :class:`TracecatValidationError` when another skill in the
         workspace owns ``slug``.
         """
-        conflict_id = await ctx.session.scalar(
+        conflict_id = await workspace_service.session.scalar(
             select(Skill.id).where(
-                Skill.workspace_id == ctx.workspace_id,
+                Skill.workspace_id == workspace_service.workspace_id,
                 Skill.name == slug,
                 Skill.id != skill_id,
             )
