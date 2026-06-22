@@ -1,0 +1,21 @@
+tracecat/integrations/catalog/mcp_catalog.json
+  s_a9e4a715061ef2::t_50d5347c5e7a21 306-311
+packages/tracecat-ee/tracecat_ee/mcp/catalog/mcp_catalog_private.json
+  s_a9e4a715061ef2::t_50d5347c5e7a21 2155-2178
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "dcb01d4e13d512ce0630ec5ae3e50f147872b25d",
+  "prompts": {},
+  "sessions": {
+    "s_a9e4a715061ef2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ef05e-c4bc-7fe1-b9ec-9337ed1b85d8",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
