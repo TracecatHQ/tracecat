@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Callable
-from typing import Any
+from typing import Any, NamedTuple
 
 import yaml
 from pydantic import BaseModel, ValidationError
 
+from tracecat.dsl.common import DSLInput
+from tracecat.dsl.schemas import ActionStatement
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.sync import PullDiagnostic
 from tracecat.workspace_sync.adapters import (
@@ -118,7 +120,8 @@ def validate_workspace_dependencies(spec: WorkspaceSpec) -> list[PullDiagnostic]
     skill_slugs = {skill.slug for skill in spec.skills.values()}
 
     for source_id, workflow in sorted(spec.workflows.items()):
-        for alias in sorted(_workflow_execute_aliases(workflow.definition)):
+        references = workflow_references(workflow.definition)
+        for alias in sorted(references.execute_aliases):
             if alias not in workflow_aliases:
                 diagnostics.append(
                     PullDiagnostic(
@@ -129,7 +132,7 @@ def validate_workspace_dependencies(spec: WorkspaceSpec) -> list[PullDiagnostic]
                         details={"workflow_source_id": source_id, "alias": alias},
                     )
                 )
-        for preset_slug in sorted(_workflow_preset_slugs(workflow.definition)):
+        for preset_slug in sorted(references.preset_slugs):
             if preset_slug not in preset_slugs:
                 diagnostics.append(
                     PullDiagnostic(
@@ -191,16 +194,35 @@ def validate_workspace_dependencies(spec: WorkspaceSpec) -> list[PullDiagnostic]
     return diagnostics
 
 
-def workflow_execute_aliases(definition: BaseModel) -> set[str]:
-    return _workflow_execute_aliases(definition)
+class WorkflowReferences(NamedTuple):
+    """Cross-resource references extracted from a workflow definition."""
+
+    execute_aliases: set[str]
+    execute_ids: set[WorkflowUUID]
+    preset_slugs: set[str]
 
 
-def workflow_execute_ids(definition: BaseModel) -> set[WorkflowUUID]:
-    return _workflow_execute_ids(definition)
-
-
-def workflow_preset_slugs(definition: BaseModel) -> set[str]:
-    return _workflow_preset_slugs(definition)
+def workflow_references(definition: DSLInput) -> WorkflowReferences:
+    """Collect child workflow and agent preset references in a single pass."""
+    execute_aliases: set[str] = set()
+    execute_ids: set[WorkflowUUID] = set()
+    preset_slugs: set[str] = set()
+    for action in definition.actions:
+        match action:
+            case ActionStatement(action="core.workflow.execute", args=args):
+                if isinstance(alias := args.get("workflow_alias"), str):
+                    execute_aliases.add(alias)
+                if isinstance(workflow_id := args.get("workflow_id"), str):
+                    try:
+                        execute_ids.add(WorkflowUUID.new(workflow_id))
+                    except ValueError:
+                        pass
+            case ActionStatement(
+                action="ai.preset_agent",
+                args={"preset_slug": str(preset_slug)},
+            ):
+                preset_slugs.add(preset_slug)
+    return WorkflowReferences(execute_aliases, execute_ids, preset_slugs)
 
 
 def _parse_yaml_resource[ModelT: BaseModel](
@@ -294,54 +316,6 @@ def _serialize_yaml_model(model: BaseModel) -> str:
         sort_keys=False,
         allow_unicode=True,
     )
-
-
-def _workflow_execute_aliases(definition: BaseModel) -> set[str]:
-    aliases: set[str] = set()
-    for action in _definition_actions(definition):
-        if action.get("action") != "core.workflow.execute":
-            continue
-        args = action.get("args")
-        if isinstance(args, dict) and isinstance(args.get("workflow_alias"), str):
-            aliases.add(args["workflow_alias"])
-    return aliases
-
-
-def _workflow_execute_ids(definition: BaseModel) -> set[WorkflowUUID]:
-    workflow_ids: set[WorkflowUUID] = set()
-    for action in _definition_actions(definition):
-        if action.get("action") != "core.workflow.execute":
-            continue
-        args = action.get("args")
-        if not isinstance(args, dict):
-            continue
-        workflow_id = args.get("workflow_id")
-        if not isinstance(workflow_id, str):
-            continue
-        try:
-            workflow_ids.add(WorkflowUUID.new(workflow_id))
-        except ValueError:
-            continue
-    return workflow_ids
-
-
-def _workflow_preset_slugs(definition: BaseModel) -> set[str]:
-    preset_slugs: set[str] = set()
-    for action in _definition_actions(definition):
-        if action.get("action") != "ai.preset_agent":
-            continue
-        args = action.get("args")
-        if isinstance(args, dict) and isinstance(args.get("preset_slug"), str):
-            preset_slugs.add(args["preset_slug"])
-    return preset_slugs
-
-
-def _definition_actions(definition: BaseModel) -> list[dict[str, Any]]:
-    data = definition.model_dump(mode="json")
-    actions = data.get("actions")
-    if not isinstance(actions, list):
-        return []
-    return [action for action in actions if isinstance(action, dict)]
 
 
 def _find_cycle(graph: dict[str, list[str]]) -> list[str]:

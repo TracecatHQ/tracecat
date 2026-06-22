@@ -59,9 +59,7 @@ from tracecat.workspace_sync.projector import (
 from tracecat.workspace_sync.resources import (
     parse_workspace_spec_files,
     serialize_workspace_spec_files,
-    workflow_execute_aliases,
-    workflow_execute_ids,
-    workflow_preset_slugs,
+    workflow_references,
 )
 from tracecat.workspace_sync.schemas import (
     MANIFEST_FILENAME,
@@ -757,13 +755,14 @@ class WorkspaceSyncService(BaseWorkspaceService):
             if workflow is None:
                 continue
             dsl = await dsl_for(workflow)
-            for alias in sorted(workflow_execute_aliases(dsl)):
+            references = workflow_references(dsl)
+            for alias in sorted(references.execute_aliases):
                 child_id = aliases.get(alias)
                 if child_id is None or child_id in included:
                     continue
                 included.add(child_id)
                 queue.append(child_id)
-            for child_id in sorted(workflow_execute_ids(dsl), key=str):
+            for child_id in sorted(references.execute_ids, key=str):
                 if child_id not in workflows_by_id or child_id in included:
                     continue
                 included.add(child_id)
@@ -845,7 +844,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
                 {
                     slug
                     for workflow in workflow_specs.values()
-                    for slug in workflow_preset_slugs(workflow.definition)
+                    for slug in workflow_references(workflow.definition).preset_slugs
                 },
             )
         )
