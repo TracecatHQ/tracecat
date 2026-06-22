@@ -18973,21 +18973,6 @@ export const $RateLimitInfo = {
   title: "RateLimitInfo",
 } as const
 
-export const $ReadinessResponse = {
-  properties: {
-    status: {
-      type: "string",
-      title: "Status",
-    },
-    registry: {
-      $ref: "#/components/schemas/RegistryStatus",
-    },
-  },
-  type: "object",
-  required: ["status", "registry"],
-  title: "ReadinessResponse",
-} as const
-
 export const $ReasoningUIPart = {
   properties: {
     type: {
@@ -19873,33 +19858,6 @@ export const $RegistrySecretType = {
       oauth: "#/components/schemas/RegistryOAuthSecret",
     },
   },
-} as const
-
-export const $RegistryStatus = {
-  properties: {
-    synced: {
-      type: "boolean",
-      title: "Synced",
-    },
-    expected_version: {
-      type: "string",
-      title: "Expected Version",
-    },
-    current_version: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Current Version",
-    },
-  },
-  type: "object",
-  required: ["synced", "expected_version", "current_version"],
-  title: "RegistryStatus",
 } as const
 
 export const $RegistryStatusResponse = {

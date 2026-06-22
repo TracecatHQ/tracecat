@@ -5702,11 +5702,6 @@ export type RateLimitInfo = {
 
 export type status6 = "allowed" | "allowed_warning" | "rejected"
 
-export type ReadinessResponse = {
-  status: string
-  registry: RegistryStatus
-}
-
 /**
  * A reasoning part of a message.
  */
@@ -6035,12 +6030,6 @@ export type RegistrySecret = {
 export type secret_type = "custom" | "ssh_key" | "mtls" | "ca_cert"
 
 export type RegistrySecretType = RegistrySecret | RegistryOAuthSecret
-
-export type RegistryStatus = {
-  synced: boolean
-  expected_version: string
-  current_version: string | null
-}
 
 /**
  * Registry health status.
@@ -13193,8 +13182,6 @@ export type AuthDiscoverAuthMethodResponse = AuthDiscoverResponse
 
 export type PublicCheckHealthResponse = HealthResponse
 
-export type PublicCheckReadyResponse = ReadinessResponse
-
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
     post: {
@@ -19845,20 +19832,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: HealthResponse
-      }
-    }
-  }
-  "/ready": {
-    get: {
-      res: {
-        /**
-         * Successful Response
-         */
-        200: ReadinessResponse
-        /**
-         * Platform registry sync is incomplete.
-         */
-        503: ReadinessResponse
       }
     }
   }
