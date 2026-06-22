@@ -31,9 +31,14 @@ from tracecat.workspaces.service import WorkspaceService
 
 @dataclass(frozen=True)
 class VcsTreeSnapshot:
+    """Snapshot of workspace sync files read from a single commit."""
+
     commit_sha: str
+    """Resolved commit SHA the snapshot was read from."""
     tree_sha: str | None
+    """SHA of the commit's root tree, when the provider exposes it."""
     files: dict[str, str]
+    """Map of repository path to decoded UTF-8 file content."""
 
 
 class VcsSyncTransport(Protocol):
@@ -92,6 +97,7 @@ class VcsTransportFactory(Protocol):
 
 
 def unsupported_transport(provider: VcsProvider) -> TracecatValidationError:
+    """Build the error raised for providers without a sync transport yet."""
     return TracecatValidationError(
         f"{provider.value} workspace sync is not implemented yet. "
         "GitLab and Bitbucket will use token-backed VCS transports in a later pass."
@@ -104,6 +110,11 @@ def vcs_transport_for_provider(
     session: Any,
     role: Any,
 ) -> VcsSyncTransport:
+    """Return the :class:`VcsSyncTransport` for ``provider``.
+
+    Raises :func:`unsupported_transport` for providers that are not yet
+    implemented.
+    """
     match provider:
         case VcsProvider.GITHUB:
             return GitHubWorkspaceSyncTransport(session=session, role=role)
@@ -112,10 +123,12 @@ def vcs_transport_for_provider(
 
 
 def _normalized_roots(roots: Sequence[str]) -> tuple[str, ...]:
+    """Strip surrounding slashes off each root and drop empty entries."""
     return tuple(root.strip("/") for root in roots if root.strip("/"))
 
 
 def _path_is_under_roots(path: str, roots: Sequence[str]) -> bool:
+    """Return whether ``path`` equals or sits beneath any of ``roots``."""
     return any(path == root or path.startswith(f"{root}/") for root in roots)
 
 
@@ -130,6 +143,12 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
         url: GitUrl,
         ref: str,
     ) -> VcsTreeSnapshot:
+        """Read the manifest and managed resource files at ``ref``.
+
+        Resolves ``ref`` to a commit, walks its tree, and decodes every blob
+        under the manifest's resource roots (plus the manifest itself) into a
+        :class:`VcsTreeSnapshot`. Blobs that are not valid UTF-8 are skipped.
+        """
         gh_svc = GitHubAppService(session=self.session, role=self.role)
         gh = await gh_svc.get_github_client_for_repo(url)
         try:
@@ -147,6 +166,7 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
             }
 
             async def fetch_text(path: str) -> str | None:
+                """Fetch a blob and decode it as UTF-8, or ``None`` if binary."""
                 blob = await asyncio.to_thread(repo.get_git_blob, blob_shas[path])
                 try:
                     return base64.b64decode(blob.content).decode("utf-8")
@@ -194,6 +214,15 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
         pr_base_branch: str | None = None,
         delete_missing_paths_under: Sequence[str] = (),
     ) -> CommitInfo:
+        """Commit ``files`` to ``branch``, optionally opening a pull request.
+
+        Creates ``branch`` off ``pr_base_branch`` (or the repo default) when it
+        is missing, writes only the files whose content changed, and deletes any
+        stale blobs under ``delete_missing_paths_under`` that are absent from
+        ``files``. Returns a no-op :class:`CommitInfo` when nothing changed,
+        reusing or opening a pull request when ``create_pr`` is set and the
+        branch diverges from its base.
+        """
         if not files:
             raise ValueError("At least one file is required for workspace sync export")
         message = message.strip()
@@ -345,6 +374,11 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
         files: dict[str, str],
         roots: Sequence[str],
     ) -> set[str]:
+        """Return managed blob paths at ``commit_sha`` no longer in ``files``.
+
+        These are the stale files under ``roots`` that an export should delete so
+        the branch mirrors the projected workspace exactly.
+        """
         managed_roots = _normalized_roots(roots)
         if not managed_roots:
             return set()
@@ -370,6 +404,7 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
         branch: str = "main",
         limit: int = 10,
     ) -> list[GitCommitInfo]:
+        """Return up to ``limit`` most recent commits on ``branch``."""
         gh_svc = GitHubAppService(session=self.session, role=self.role)
         gh = await gh_svc.get_github_client_for_repo(url)
         try:
@@ -400,6 +435,7 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
         url: GitUrl,
         limit: int = 100,
     ) -> list[GitBranchInfo]:
+        """Return up to ``limit`` branches, flagging the repository default."""
         gh_svc = GitHubAppService(session=self.session, role=self.role)
         gh = await gh_svc.get_github_client_for_repo(url)
         try:
@@ -429,7 +465,14 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
         branch_name: str,
         base_branch_name: str,
     ) -> tuple[str | None, int | None, bool]:
+        """Reuse or open the sync pull request for ``branch_name``.
+
+        Returns ``(html_url, number, reused)``, where ``reused`` is ``True`` when
+        an existing open pull request was found instead of created.
+        """
+
         def _first_open_pull_request() -> Any | None:
+            """Return the first open PR from ``branch_name`` into the base, if any."""
             pulls = repo.get_pulls(
                 state="open",
                 head=f"{url.org}:{branch_name}",
@@ -476,6 +519,7 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
         base_branch_name: str,
         branch_name: str,
     ) -> bool:
+        """Return whether ``branch_name`` is ahead of ``base_branch_name``."""
         comparison = await asyncio.to_thread(
             repo.compare,
             base_branch_name,

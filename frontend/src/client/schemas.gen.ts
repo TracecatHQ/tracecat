@@ -20355,6 +20355,8 @@ export const $ResourceRef = {
   type: "object",
   required: ["resource_type"],
   title: "ResourceRef",
+  description:
+    "Reference to a single resource by type and either source or local id.",
 } as const
 
 export const $ResponseInteraction = {
@@ -23873,6 +23875,7 @@ export const $SyncResourceType = {
     "secret_metadata",
   ],
   title: "SyncResourceType",
+  description: "Kind of workspace resource that can be synced to and from Git.",
 } as const
 
 export const $SyntaxToken = {
@@ -27544,6 +27547,7 @@ export const $VcsProvider = {
   type: "string",
   enum: ["github", "gitlab", "bitbucket"],
   title: "VcsProvider",
+  description: "Version control host backing a workspace sync repository.",
 } as const
 
 export const $VercelChatRequest = {
@@ -31885,6 +31889,8 @@ export const $WorkspaceSyncExportRequest = {
   type: "object",
   required: ["message", "branch"],
   title: "WorkspaceSyncExportRequest",
+  description:
+    "Request to commit selected workspace resources to a Git branch.",
 } as const
 
 export const $WorkspaceSyncExportResult = {
@@ -31903,6 +31909,8 @@ export const $WorkspaceSyncExportResult = {
   type: "object",
   required: ["commit", "files"],
   title: "WorkspaceSyncExportResult",
+  description:
+    "Outcome of a workspace export: the commit made and files written.",
 } as const
 
 export const $WorkspaceUpdate = {

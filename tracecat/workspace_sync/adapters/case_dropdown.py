@@ -24,12 +24,15 @@ from tracecat.workspace_sync.schemas import CASE_DROPDOWN_ROOT, CaseDropdownReso
 
 
 class CaseDropdownAdapter(SingleYamlAdapter):
+    """Sync adapter for case dropdown definitions and their options."""
+
     resource_type = SyncResourceType.CASE_DROPDOWN
     spec_attr = "case_dropdowns"
     model = CaseDropdownResourceSpec
     root = CASE_DROPDOWN_ROOT
 
     async def project(self, ctx: BaseWorkspaceService) -> ResourceProjection:
+        """Project case dropdown definitions, with their options, into specs."""
         stmt = (
             select(CaseDropdownDefinition)
             .where(CaseDropdownDefinition.workspace_id == ctx.workspace_id)
@@ -79,6 +82,7 @@ class CaseDropdownAdapter(SingleYamlAdapter):
         ctx: BaseWorkspaceService,
         specs: Mapping[str, BaseModel],
     ) -> list[ImportedResource]:
+        """Reconcile dropdown specs, syncing each definition's options in place."""
         dropdowns = cast(Mapping[str, CaseDropdownResourceSpec], specs)
         imported: list[ImportedResource] = []
         source_ids = set(dropdowns)

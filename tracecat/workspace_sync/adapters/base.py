@@ -281,6 +281,7 @@ class CompoundYamlAdapter(ResourceAdapter):
     """Primary file name inside each resource directory."""
 
     def source_path(self, source_id: str) -> str:
+        """Build ``<root>/<source_id>/<filename>``."""
         return f"{self.root}/{source_id}/{self.filename}"
 
     def source_id_from_path(
@@ -288,6 +289,7 @@ class CompoundYamlAdapter(ResourceAdapter):
         path: str,
         roots: WorkspaceManifestResources,
     ) -> str | None:
+        """Recover the source id from a ``<root>/<source_id>/<filename>`` path."""
         parts = path_parts(path)
         root_parts = path_parts(str(getattr(roots, self.spec_attr)))
         # Must be exactly <root>/<source_id>/<filename>.
@@ -309,6 +311,7 @@ class SingleYamlAdapter(ResourceAdapter):
     """Top-level repository directory for this resource type."""
 
     def source_path(self, source_id: str) -> str:
+        """Build ``<root>/<source_id>.yml``."""
         return f"{self.root}/{source_id}.yml"
 
     def source_id_from_path(
@@ -316,6 +319,7 @@ class SingleYamlAdapter(ResourceAdapter):
         path: str,
         roots: WorkspaceManifestResources,
     ) -> str | None:
+        """Recover the source id from a ``<root>/<source_id>.yml`` path."""
         parts = path_parts(path)
         root_parts = path_parts(str(getattr(roots, self.spec_attr)))
         # Must be exactly <root>/<filename>.yml.
@@ -340,6 +344,7 @@ class EnvironmentYamlAdapter(ResourceAdapter):
     """Top-level repository directory for this resource type."""
 
     def source_path(self, source_id: str) -> str:
+        """Build ``<root>/<environment>/<name>.yml`` from the compound source id."""
         # source_id is "<environment>/<name>", yielding <root>/<env>/<name>.yml.
         return f"{self.root}/{source_id}.yml"
 
@@ -348,6 +353,7 @@ class EnvironmentYamlAdapter(ResourceAdapter):
         path: str,
         roots: WorkspaceManifestResources,
     ) -> str | None:
+        """Recover the compound ``<environment>/<name>`` source id from a path."""
         parts = path_parts(path)
         root_parts = path_parts(str(getattr(roots, self.spec_attr)))
         # Must be exactly <root>/<environment>/<name>.yml.

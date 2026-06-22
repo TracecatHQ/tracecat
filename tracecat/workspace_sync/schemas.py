@@ -36,6 +36,8 @@ WORKFLOW_DEFINITION_FILENAME = "definition.yml"
 
 
 class WorkspaceManifestResources(BaseModel):
+    """Repository root directory for each synced resource type."""
+
     model_config = ConfigDict(extra="forbid")
 
     workflows: str = f"{WORKFLOW_ROOT}/"
@@ -51,6 +53,8 @@ class WorkspaceManifestResources(BaseModel):
 
 
 class WorkspaceManifest(BaseModel):
+    """Top-level ``tracecat.json`` describing a workspace sync repository."""
+
     model_config = ConfigDict(extra="forbid")
 
     version: Literal[1] = 1
@@ -106,6 +110,7 @@ class WorkflowResourceSpec(BaseModel):
     @field_validator("id")
     @classmethod
     def validate_source_id(cls, value: str) -> str:
+        """Require the workflow id to be a non-empty single path segment."""
         cleaned = value.strip().strip("/")
         if not cleaned:
             raise ValueError("workflow source id cannot be empty")
@@ -115,6 +120,8 @@ class WorkflowResourceSpec(BaseModel):
 
 
 class AgentPresetSkillBinding(BaseModel):
+    """Reference from an agent preset to a skill, optionally version-pinned."""
+
     model_config = ConfigDict(extra="allow")
 
     slug: str = Field(min_length=1)
@@ -122,6 +129,8 @@ class AgentPresetSkillBinding(BaseModel):
 
 
 class AgentPresetSubagentRef(BaseModel):
+    """Reference from an agent preset to another preset used as a subagent."""
+
     model_config = ConfigDict(extra="allow")
 
     slug: str = Field(min_length=1)
@@ -157,6 +166,8 @@ class AgentPresetResourceSpec(BaseModel):
 
 
 class SkillFileSpec(BaseModel):
+    """One file belonging to a skill, identified by path and content hash."""
+
     model_config = ConfigDict(extra="allow")
 
     path: str = Field(min_length=1)
@@ -194,6 +205,8 @@ class TableResourceSpec(BaseModel):
 
 
 class CaseTagResourceSpec(BaseModel):
+    """Canonical Git-owned desired state for a case tag."""
+
     model_config = ConfigDict(extra="allow")
 
     version: Literal[1] = 1
@@ -204,6 +217,8 @@ class CaseTagResourceSpec(BaseModel):
 
 
 class CaseDropdownResourceSpec(BaseModel):
+    """Canonical Git-owned desired state for a case dropdown field."""
+
     model_config = ConfigDict(extra="allow")
 
     version: Literal[1] = 1
@@ -229,6 +244,8 @@ class CaseDurationAnchorSpec(BaseModel):
 
 
 class CaseDurationResourceSpec(BaseModel):
+    """Canonical Git-owned desired state for a case duration metric."""
+
     model_config = ConfigDict(extra="forbid")
 
     version: Literal[1] = 1
@@ -241,6 +258,8 @@ class CaseDurationResourceSpec(BaseModel):
 
 
 class CaseFieldResourceSpec(BaseModel):
+    """Canonical Git-owned desired state for a custom case field."""
+
     model_config = ConfigDict(extra="allow")
 
     version: Literal[1] = 1
@@ -254,6 +273,12 @@ class CaseFieldResourceSpec(BaseModel):
 
 
 class VariableResourceSpec(BaseModel):
+    """Canonical Git-owned desired state for an environment-scoped variable.
+
+    The ``value`` is excluded from serialization; Git tracks only the variable's
+    metadata, not its material.
+    """
+
     model_config = ConfigDict(extra="allow")
 
     version: Literal[1] = 1
@@ -268,6 +293,12 @@ class VariableResourceSpec(BaseModel):
 
 
 class SecretMetadataResourceSpec(BaseModel):
+    """Canonical Git-owned desired state for a secret's metadata only.
+
+    Tracks a secret's name, environment, type, key names, and tags. The secret
+    value material itself is never stored in Git.
+    """
+
     model_config = ConfigDict(extra="allow")
 
     version: Literal[1] = 1
@@ -283,12 +314,19 @@ class SecretMetadataResourceSpec(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def reject_secret_values(cls, data: Any) -> Any:
+        """Reject input carrying ``value``/``values`` so secrets never reach Git."""
         if isinstance(data, dict) and ({"value", "values"} & data.keys()):
             raise ValueError("secret value material is not allowed in Git")
         return data
 
 
 class WorkspaceSpec(BaseModel):
+    """Full Git-owned desired state for a workspace across all resource types.
+
+    Each resource type maps ``source_id`` to its spec model, mirroring the
+    repository layout.
+    """
+
     version: Literal[1] = 1
     workflows: dict[str, WorkflowResourceSpec] = Field(default_factory=dict)
     agent_presets: dict[str, AgentPresetResourceSpec] = Field(default_factory=dict)
@@ -303,6 +341,7 @@ class WorkspaceSpec(BaseModel):
 
     @model_validator(mode="after")
     def validate_resource_keys(self) -> WorkspaceSpec:
+        """Require each map key to equal the ``id`` of the spec it points to."""
         resources: tuple[tuple[str, dict[str, Any]], ...] = (
             ("Workflow", self.workflows),
             ("Agent preset", self.agent_presets),
@@ -327,6 +366,7 @@ class WorkspaceSpec(BaseModel):
         return self
 
     def resource_count_map(self) -> dict[str, int]:
+        """Count specs per resource type, keyed by :class:`SyncResourceType` value."""
         return {
             SyncResourceType.WORKFLOW.value: len(self.workflows),
             SyncResourceType.AGENT_PRESET.value: len(self.agent_presets),
@@ -342,12 +382,16 @@ class WorkspaceSpec(BaseModel):
 
 
 class WorkspaceProjection(BaseModel):
+    """Locally projected workspace state plus the files it serializes to."""
+
     manifest: WorkspaceManifest
     spec: WorkspaceSpec
     files: dict[str, str]
 
 
 class WorkspaceRemoteSnapshot(BaseModel):
+    """Workspace state read back from a remote Git commit."""
+
     commit_sha: str
     tree_sha: str | None = None
     files: dict[str, str]
@@ -355,12 +399,16 @@ class WorkspaceRemoteSnapshot(BaseModel):
 
 
 class ResourceRef(BaseModel):
+    """Reference to a single resource by type and either source or local id."""
+
     resource_type: SyncResourceType
     source_id: str | None = None
     local_id: uuid.UUID | None = None
 
 
 class WorkspaceSyncExportRequest(BaseModel):
+    """Request to commit selected workspace resources to a Git branch."""
+
     message: str = Field(min_length=1)
     branch: str
     create_pr: bool = False
@@ -372,6 +420,7 @@ class WorkspaceSyncExportRequest(BaseModel):
     @field_validator("message")
     @classmethod
     def validate_message(cls, value: str) -> str:
+        """Trim the commit message and reject empty or whitespace-only input."""
         cleaned = value.strip()
         if not cleaned:
             raise ValueError("message cannot be empty or whitespace")
@@ -397,10 +446,13 @@ class WorkspaceSyncExportPreview(BaseModel):
 
 
 class WorkspaceSyncExportResult(BaseModel):
+    """Outcome of a workspace export: the commit made and files written."""
+
     commit: CommitInfo
     files: list[str]
 
     def as_workflow_publish_result(self) -> WorkflowDslPublishResult:
+        """Adapt this export result to the legacy :class:`WorkflowDslPublishResult`."""
         return WorkflowDslPublishResult(
             status=self.commit.status.value,
             commit_sha=self.commit.sha,

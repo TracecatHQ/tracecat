@@ -6142,6 +6142,9 @@ export type ResourcePullCount = {
   imported: number
 }
 
+/**
+ * Reference to a single resource by type and either source or local id.
+ */
 export type ResourceRef = {
   resource_type: SyncResourceType
   source_id?: string | null
@@ -7131,6 +7134,9 @@ export type StringListFieldChange = {
   removed?: Array<string>
 }
 
+/**
+ * Kind of workspace resource that can be synced to and from Git.
+ */
 export type SyncResourceType =
   | "workflow"
   | "agent_preset"
@@ -8207,6 +8213,9 @@ export type VariableUpdate = {
   environment?: string | null
 }
 
+/**
+ * Version control host backing a workspace sync repository.
+ */
 export type VcsProvider = "github" | "gitlab" | "bitbucket"
 
 /**
@@ -9401,6 +9410,9 @@ export type WorkspaceSyncExportPreviewRequest = {
   include_schedules?: boolean
 }
 
+/**
+ * Request to commit selected workspace resources to a Git branch.
+ */
 export type WorkspaceSyncExportRequest = {
   message: string
   branch: string
@@ -9411,6 +9423,9 @@ export type WorkspaceSyncExportRequest = {
   include_schedules?: boolean
 }
 
+/**
+ * Outcome of a workspace export: the commit made and files written.
+ */
 export type WorkspaceSyncExportResult = {
   commit: CommitInfo
   files: Array<string>

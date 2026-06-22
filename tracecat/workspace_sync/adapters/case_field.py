@@ -29,12 +29,19 @@ from tracecat.workspace_sync.schemas import CASE_FIELD_ROOT, CaseFieldResourceSp
 
 
 class CaseFieldAdapter(SingleYamlAdapter):
+    """Sync adapter for case field definitions held in the case fields schema.
+
+    Fields live as entries in a single workspace-wide :class:`CaseFields` schema
+    rather than as their own rows, so each spec maps to one schema key.
+    """
+
     resource_type = SyncResourceType.CASE_FIELD
     spec_attr = "case_fields"
     model = CaseFieldResourceSpec
     root = CASE_FIELD_ROOT
 
     async def project(self, ctx: BaseWorkspaceService) -> ResourceProjection:
+        """Project each entry of the workspace case fields schema into a spec."""
         definition = await ctx.session.scalar(
             select(CaseFields).where(CaseFields.workspace_id == ctx.workspace_id)
         )
@@ -70,6 +77,7 @@ class CaseFieldAdapter(SingleYamlAdapter):
         ctx: BaseWorkspaceService,
         specs: Mapping[str, BaseModel],
     ) -> list[ImportedResource]:
+        """Reconcile field specs, creating new columns or updating schema entries."""
         fields = cast(Mapping[str, CaseFieldResourceSpec], specs)
         imported: list[ImportedResource] = []
         field_service = CaseFieldsService(session=ctx.session, role=ctx.role)
@@ -133,6 +141,7 @@ class CaseFieldAdapter(SingleYamlAdapter):
 
 
 def _case_field_kind(value: Any) -> CaseFieldKind | None:
+    """Coerce a raw ``kind`` value into a :class:`CaseFieldKind`, or ``None``."""
     if value is None:
         return None
     try:
@@ -146,6 +155,12 @@ def _case_field_options(
     current_schema: Mapping[str, Any],
     field_type: SqlType,
 ) -> list[str] | None:
+    """Resolve select options for a field, falling back to the current schema.
+
+    Returns ``None`` for non-select field types or when no options are
+    available. Prefers ``spec.options``, else the options already stored in
+    ``current_schema``.
+    """
     if field_type not in (SqlType.SELECT, SqlType.MULTI_SELECT):
         return None
     if spec.options is not None:
@@ -159,4 +174,9 @@ def _case_field_options(
 
 
 def _case_field_local_id(definition_id: uuid.UUID, source_id: str) -> uuid.UUID:
+    """Derive a stable per-field ``local_id`` from the schema definition and source id.
+
+    Case fields share one :class:`CaseFields` row, so a UUIDv5 of the definition
+    id and ``source_id`` gives each field a deterministic, distinct local id.
+    """
     return uuid.uuid5(definition_id, source_id)

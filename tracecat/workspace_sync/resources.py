@@ -100,6 +100,12 @@ def serialize_workspace_spec_files(
     manifest_filename: str,
     manifest_serializer: Callable[[WorkspaceManifest], str],
 ) -> dict[str, str]:
+    """Serialize a workspace spec into its full set of repository files.
+
+    Writes the manifest, each workflow definition, and every non-workflow
+    resource's primary file plus companion files, returning a path-sorted map of
+    repository path to file content.
+    """
     files = {manifest_filename: manifest_serializer(manifest)}
     for source_id, workflow_spec in sorted(spec.workflows.items()):
         files[WORKFLOW_RESOURCE_ADAPTER.source_path(source_id)] = (
@@ -113,6 +119,12 @@ def serialize_workspace_spec_files(
 
 
 def validate_workspace_dependencies(spec: WorkspaceSpec) -> list[PullDiagnostic]:
+    """Check cross-resource references in a workspace spec for dangling links.
+
+    Flags workflows that reference unknown child workflow aliases or agent preset
+    slugs, agent presets that reference missing skills or subagents, and cyclic
+    subagent references. Returns one :class:`PullDiagnostic` per problem found.
+    """
     diagnostics: list[PullDiagnostic] = []
     workflow_aliases = {
         workflow.alias for workflow in spec.workflows.values() if workflow.alias
@@ -237,6 +249,13 @@ def _parse_yaml_resource[ModelT: BaseModel](
     destination: dict[str, ModelT],
     diagnostics: list[PullDiagnostic],
 ) -> None:
+    """Parse one YAML resource file into ``destination`` or record a diagnostic.
+
+    Loads ``content``, backfills the ``id`` field from ``expected_source_id``
+    when absent, validates it against ``model``, and stores the spec under its
+    ``source_id``. Any empty file, mismatched id, YAML error, or validation error
+    appends a :class:`PullDiagnostic` instead of raising.
+    """
     yaml_data: dict[str, Any] | None = None
     try:
         raw = yaml.safe_load(content)
@@ -304,6 +323,7 @@ def _parse_yaml_resource[ModelT: BaseModel](
 
 
 def _resource_title(data: dict[str, Any] | None) -> str | None:
+    """Return a resource's ``name`` or ``title`` for diagnostics, if present."""
     if not data:
         return None
     name = data.get("name")
@@ -314,6 +334,7 @@ def _resource_title(data: dict[str, Any] | None) -> str | None:
 
 
 def _serialize_yaml_model(model: BaseModel) -> str:
+    """Serialize a spec model to YAML, omitting null fields and keeping key order."""
     return yaml.safe_dump(
         model.model_dump(mode="json", exclude_none=True),
         sort_keys=False,
@@ -322,11 +343,18 @@ def _serialize_yaml_model(model: BaseModel) -> str:
 
 
 def _find_cycle(graph: dict[str, list[str]]) -> list[str]:
+    """Return the first dependency cycle in ``graph`` as a node path, else ``[]``.
+
+    The returned list repeats the entry node at both ends (e.g.
+    ``["a", "b", "a"]``). Nodes and edges are visited in sorted order for
+    deterministic results.
+    """
     visiting: set[str] = set()
     visited: set[str] = set()
     path: list[str] = []
 
     def visit(node: str) -> list[str]:
+        """Depth-first walk from ``node`` returning a back-edge cycle if found."""
         if node in visiting:
             cycle_start = path.index(node)
             return path[cycle_start:] + [node]

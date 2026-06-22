@@ -23,12 +23,24 @@ from tracecat.workspace_sync.schemas import VARIABLE_ROOT, VariableResourceSpec
 
 
 class VariableAdapter(EnvironmentYamlAdapter):
+    """Adapter for environment-scoped workspace variables.
+
+    Each variable lives at ``<root>/<environment>/<name>.yml``. Only metadata
+    (key names, description, tags) is synced; variable values are not tracked in
+    Git.
+    """
+
     resource_type = SyncResourceType.VARIABLE
+    """The sync resource type this adapter handles."""
     spec_attr = "variables"
+    """Attribute on ``WorkspaceSpec``/``WorkspaceManifestResources`` for variables."""
     model = VariableResourceSpec
+    """Pydantic spec model variables serialize to and from."""
     root = VARIABLE_ROOT
+    """Top-level repository directory for variables."""
 
     async def project(self, ctx: BaseWorkspaceService) -> ResourceProjection:
+        """Project workspace variables into specs, recording key names but no values."""
         stmt = (
             select(WorkspaceVariable)
             .where(WorkspaceVariable.workspace_id == ctx.workspace_id)
@@ -68,6 +80,13 @@ class VariableAdapter(EnvironmentYamlAdapter):
         ctx: BaseWorkspaceService,
         specs: Mapping[str, BaseModel],
     ) -> list[ImportedResource]:
+        """Reconcile variable specs into the database, preserving existing values.
+
+        Validates that target ``environment``/``name`` pairs are unique, frees up
+        any conflicting names by temporarily renaming variables whose identity is
+        changing, then creates or updates each variable. Existing values are kept
+        for declared keys; values for keys no longer declared are dropped.
+        """
         variables = cast(Mapping[str, VariableResourceSpec], specs)
         imported: list[ImportedResource] = []
         target_keys_by_source_id = _target_keys_by_source_id(variables)
@@ -141,6 +160,11 @@ class VariableAdapter(EnvironmentYamlAdapter):
         spec: VariableResourceSpec,
         mapped_variable: WorkspaceVariable | None = None,
     ) -> WorkspaceVariable | None:
+        """Resolve the variable a spec should update, by mapping then by name/environment.
+
+        Prefers the already-mapped variable, then falls back to one matching the
+        spec's ``name`` and ``environment``; returns ``None`` when neither exists.
+        """
         variable = mapped_variable or await self._variable_by_source_id(
             ctx,
             source_id=source_id,
@@ -162,6 +186,7 @@ class VariableAdapter(EnvironmentYamlAdapter):
         *,
         source_id: str,
     ) -> WorkspaceVariable | None:
+        """Load the mapped :class:`WorkspaceVariable` for ``source_id``, if any."""
         local_id = await self.local_id_for_source_id(ctx, source_id)
         if local_id is None:
             return None
@@ -184,6 +209,12 @@ class VariableAdapter(EnvironmentYamlAdapter):
         source_ids_by_variable_id: Mapping[uuid.UUID, str] | None = None,
         target_keys_by_source_id: Mapping[str, tuple[str, str]] | None = None,
     ) -> None:
+        """Raise if another variable blocks claiming ``environment``/``name``.
+
+        A conflict is tolerated when the blocking variable is itself in this sync
+        batch and is moving away from ``(environment, name)``, since it will be
+        released later; any other collision raises :class:`ValueError`.
+        """
         conflict_id = await ctx.session.scalar(
             select(WorkspaceVariable.id).where(
                 WorkspaceVariable.workspace_id == ctx.workspace_id,
@@ -214,6 +245,12 @@ class VariableAdapter(EnvironmentYamlAdapter):
         variables_by_source_id: Mapping[str, WorkspaceVariable],
         target_keys_by_source_id: Mapping[str, tuple[str, str]],
     ) -> None:
+        """Park variables whose identity is changing under temporary names.
+
+        Renames each mapped variable whose ``(environment, name)`` differs from
+        its target to a unique placeholder, freeing the original name so another
+        variable in the batch can claim it without colliding.
+        """
         changed = False
         reserved_names_by_environment = await _reserved_names_by_environment(ctx)
         for source_id, variable in variables_by_source_id.items():
@@ -239,6 +276,12 @@ def _values_from_spec(
     *,
     existing: dict[str, Any] | None,
 ) -> dict[str, Any]:
+    """Build a variable's stored values from its spec and current values.
+
+    An explicit ``value`` overrides everything; otherwise declared ``keys`` are
+    seeded from existing values (defaulting to ``""``). A spec with no keys
+    leaves the existing values untouched.
+    """
     if spec.value is not None:
         return spec.value if isinstance(spec.value, dict) else {"value": spec.value}
     existing_values = existing or {}
@@ -250,6 +293,7 @@ def _values_from_spec(
 def _target_keys_by_source_id(
     variables: Mapping[str, VariableResourceSpec],
 ) -> dict[str, tuple[str, str]]:
+    """Map each ``source_id`` to its target ``(environment, name)`` pair."""
     return {
         source_id: (spec.environment, spec.name)
         for source_id, spec in variables.items()
@@ -259,6 +303,7 @@ def _target_keys_by_source_id(
 def _ensure_unique_targets(
     target_keys_by_source_id: Mapping[str, tuple[str, str]],
 ) -> None:
+    """Raise if two source ids target the same ``(environment, name)`` pair."""
     source_id_by_target: dict[tuple[str, str], str] = {}
     for source_id, target_key in sorted(target_keys_by_source_id.items()):
         if other_source_id := source_id_by_target.get(target_key):
@@ -274,6 +319,7 @@ def _ensure_unique_targets(
 async def _reserved_names_by_environment(
     ctx: BaseWorkspaceService,
 ) -> dict[str, set[str]]:
+    """Return the set of in-use variable names per environment for the workspace."""
     rows = (
         await ctx.session.execute(
             select(WorkspaceVariable.environment, WorkspaceVariable.name).where(
@@ -291,6 +337,11 @@ def _unique_temporary_variable_name(
     variable: WorkspaceVariable,
     reserved_names: set[str],
 ) -> str:
+    """Mint a placeholder variable name not present in ``reserved_names``.
+
+    Derives the name from the variable's id and appends ``_2``, ``_3``, ... to
+    break any collision with an already-reserved name.
+    """
     base = f"__tracecat_sync_tmp_{variable.id.hex}"
     candidate = base
     counter = 2

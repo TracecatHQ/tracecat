@@ -42,16 +42,29 @@ from tracecat.workspace_sync.schemas import (
 )
 
 TABLE_FILENAME = "table.yml"
+"""Primary file name inside each table's directory."""
 
 
 class TableAdapter(CompoundYamlAdapter):
+    """Adapter for tables, syncing a column schema plus optional JSONL rows.
+
+    The schema lives in ``table.yml`` and rows are serialized as a companion
+    JSONL file (one JSON object per line) alongside it.
+    """
+
     resource_type = SyncResourceType.TABLE
+    """The sync resource type this adapter handles."""
     spec_attr = "tables"
+    """Attribute on ``WorkspaceSpec``/``WorkspaceManifestResources`` for tables."""
     model = TableResourceSpec
+    """Pydantic spec model tables serialize to and from."""
     root = TABLE_ROOT
+    """Top-level repository directory for tables."""
     filename = TABLE_FILENAME
+    """Primary file name inside each table's directory."""
 
     def _rows_source_path(self, source_id: str, rows_path: str) -> str:
+        """Return the repository path of a table's companion JSONL rows file."""
         return f"{self.root}/{source_id}/{rows_path}"
 
     def extra_path_from_path(
@@ -59,6 +72,7 @@ class TableAdapter(CompoundYamlAdapter):
         path: str,
         roots: WorkspaceManifestResources,
     ) -> tuple[str, str] | None:
+        """Map a path under a table's directory to ``(source_id, relative_path)``."""
         parts = path_parts(path)
         root_parts = path_parts(roots.tables)
         if len(parts) < len(root_parts) + 2:
@@ -76,6 +90,7 @@ class TableAdapter(CompoundYamlAdapter):
         source_id: str,
         spec: BaseModel,
     ) -> dict[str, str]:
+        """Serialize a table's rows into a JSONL companion file, if it has any."""
         table = cast(TableResourceSpec, spec)
         if not table.rows or not table.rows_path:
             return {}
@@ -91,6 +106,7 @@ class TableAdapter(CompoundYamlAdapter):
         extra_files: Mapping[tuple[str, str], str],
         diagnostics: list[PullDiagnostic],
     ) -> dict[str, BaseModel]:
+        """Parse each table's JSONL companion file and fold its rows into the spec."""
         updated: dict[str, BaseModel] = {}
         for source_id, base_spec in specs.items():
             spec = cast(TableResourceSpec, base_spec)
@@ -115,6 +131,11 @@ class TableAdapter(CompoundYamlAdapter):
         *,
         diagnostics: list[PullDiagnostic],
     ) -> list[dict[str, Any]]:
+        """Parse JSONL ``content`` into row dicts, recording per-line diagnostics.
+
+        Blank lines are skipped; lines that fail to decode or are not JSON
+        objects are dropped and reported via ``diagnostics``.
+        """
         rows: list[dict[str, Any]] = []
         rows_path = spec.rows_path or ""
         for line_number, line in enumerate(content.splitlines(), start=1):
@@ -152,6 +173,7 @@ class TableAdapter(CompoundYamlAdapter):
         return rows
 
     async def project(self, ctx: BaseWorkspaceService) -> ResourceProjection:
+        """Project workspace tables into specs, including columns and all rows."""
         stmt = (
             select(Table)
             .where(Table.workspace_id == ctx.workspace_id)
@@ -203,6 +225,12 @@ class TableAdapter(CompoundYamlAdapter):
         *,
         table_service: BaseTablesService,
     ) -> list[dict[str, Any]]:
+        """Page through a table's rows and return them in a deterministic order.
+
+        Drops the ``id``, ``created_at``, and ``updated_at`` columns, coerces
+        values to JSON-compatible data, and sorts the result so exports are
+        stable across runs.
+        """
         cursor: str | None = None
         rows: list[dict[str, Any]] = []
         while True:
@@ -230,6 +258,12 @@ class TableAdapter(CompoundYamlAdapter):
         ctx: BaseWorkspaceService,
         specs: Mapping[str, BaseModel],
     ) -> list[ImportedResource]:
+        """Reconcile table specs into the database: tables, columns, unique index, rows.
+
+        Creates or renames each table, syncs its columns, reconciles its single
+        optional unique column, then inserts (or upserts, when a unique column
+        exists) its rows.
+        """
         tables = cast(Mapping[str, TableResourceSpec], specs)
         imported: list[ImportedResource] = []
         table_service = BaseTablesService(session=ctx.session, role=ctx.role)
@@ -302,6 +336,7 @@ class TableAdapter(CompoundYamlAdapter):
         ctx: BaseWorkspaceService,
         source_id: str,
     ) -> Table | None:
+        """Load the mapped :class:`Table` (with columns) for ``source_id``, if any."""
         local_id = await self.local_id_for_source_id(ctx, source_id)
         if local_id is None:
             return None
@@ -318,6 +353,7 @@ class TableAdapter(CompoundYamlAdapter):
 
 
 def _column_create_from_spec(column: Mapping[str, Any]) -> TableColumnCreate:
+    """Build a :class:`TableColumnCreate` from a spec column mapping."""
     return TableColumnCreate(
         name=str(column["name"]),
         type=sql_type(column["type"]),
@@ -331,6 +367,11 @@ def _column_update_from_spec(
     existing: TableColumn,
     column: Mapping[str, Any],
 ) -> TableColumnUpdate | None:
+    """Diff an existing column against its spec, or ``None`` if already in sync.
+
+    Compares type, nullability, default, and options, returning a
+    :class:`TableColumnUpdate` carrying only the fields that differ.
+    """
     updates: dict[str, Any] = {}
     desired_type = sql_type(column["type"])
     if existing.type != desired_type.value:
@@ -357,6 +398,12 @@ async def _reconcile_unique_column(
     unique_columns: list[str],
     table_service: BaseTablesService,
 ) -> None:
+    """Align a table's unique index with the single desired unique column.
+
+    Drops any current unique indexes that are not the desired column and
+    creates the desired one if it is missing. ``unique_columns`` holds at most
+    one entry; an empty list means no column should be unique.
+    """
     desired_unique_column = unique_columns[0] if unique_columns else None
     current_unique_columns = set(await table_service.get_index(table))
     desired_unique_columns = {desired_unique_column} if desired_unique_column else set()
@@ -372,6 +419,11 @@ async def _reconcile_unique_column(
 
 
 def _jsonable(value: Any) -> Any:
+    """Recursively coerce a row value into JSON-compatible data.
+
+    Renders UUIDs and date/datetime values as strings and recurses through
+    dicts and non-string sequences; other values pass through unchanged.
+    """
     if isinstance(value, uuid.UUID):
         return str(value)
     if isinstance(value, datetime):

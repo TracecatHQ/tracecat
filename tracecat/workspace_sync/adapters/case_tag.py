@@ -25,12 +25,15 @@ from tracecat.workspace_sync.schemas import CASE_TAG_ROOT, CaseTagResourceSpec
 
 
 class CaseTagAdapter(SingleYamlAdapter):
+    """Sync adapter for case tags, enforcing unique tag names on import."""
+
     resource_type = SyncResourceType.CASE_TAG
     spec_attr = "case_tags"
     model = CaseTagResourceSpec
     root = CASE_TAG_ROOT
 
     async def project(self, ctx: BaseWorkspaceService) -> ResourceProjection:
+        """Project case tags into specs."""
         stmt = (
             select(CaseTag)
             .where(CaseTag.workspace_id == ctx.workspace_id)
@@ -59,6 +62,12 @@ class CaseTagAdapter(SingleYamlAdapter):
         ctx: BaseWorkspaceService,
         specs: Mapping[str, BaseModel],
     ) -> list[ImportedResource]:
+        """Reconcile case tag specs, resolving name collisions before persisting.
+
+        Rejects duplicate names within the batch and unreleased name conflicts
+        with existing tags, then temporarily renames tags being relabeled so the
+        unique name constraint holds across the two-phase flush.
+        """
         tags = cast(Mapping[str, CaseTagResourceSpec], specs)
         if not tags:
             return []
@@ -163,6 +172,7 @@ class CaseTagAdapter(SingleYamlAdapter):
 
 
 def _duplicates(values: Iterable[str]) -> set[str]:
+    """Return the set of values that appear more than once in ``values``."""
     seen: set[str] = set()
     duplicates: set[str] = set()
     for value in values:
@@ -179,6 +189,11 @@ def _name_owner_released_by_batch(
     specs: Mapping[str, CaseTagResourceSpec],
     source_ids_by_tag_id: Mapping[uuid.UUID, str],
 ) -> bool:
+    """Return whether the current owner of a name is being renamed by this batch.
+
+    A ``True`` result means the name will be freed during the same import, so a
+    different tag may safely claim it.
+    """
     owner_source_id = source_ids_by_tag_id.get(name_owner.id)
     owner_spec = specs.get(owner_source_id) if owner_source_id is not None else None
     return owner_spec is not None and owner_spec.name != name_owner.name

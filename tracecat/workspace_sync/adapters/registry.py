@@ -69,6 +69,12 @@ RESOURCE_ADAPTERS_BY_TYPE: dict[SyncResourceType, ResourceAdapter] = {
 def workspace_spec_from_maps(
     specs_by_attr: Mapping[str, Mapping[str, Any]],
 ) -> WorkspaceSpec:
+    """Build a :class:`WorkspaceSpec` from per-adapter ``source_id`` -> spec maps.
+
+    Each adapter contributes its :attr:`~ResourceAdapter.spec_attr` slice, with
+    entries sorted by ``source_id`` for deterministic output. Adapters with no
+    entries in ``specs_by_attr`` default to an empty map.
+    """
     return WorkspaceSpec.model_validate(
         {
             adapter.spec_attr: dict(

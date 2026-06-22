@@ -6,12 +6,16 @@ from enum import StrEnum
 
 
 class VcsProvider(StrEnum):
+    """Version control host backing a workspace sync repository."""
+
     GITHUB = "github"
     GITLAB = "gitlab"
     BITBUCKET = "bitbucket"
 
 
 class SyncResourceType(StrEnum):
+    """Kind of workspace resource that can be synced to and from Git."""
+
     WORKFLOW = "workflow"
     AGENT_PRESET = "agent_preset"
     SKILL = "skill"

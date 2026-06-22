@@ -32,12 +32,18 @@ from tracecat.workspace_sync.schemas import (
 
 
 def workflow_source_path(source_id: str) -> str:
+    """Repository path for a workflow's definition file."""
     return f"{WORKFLOW_ROOT}/{source_id}/{WORKFLOW_DEFINITION_FILENAME}"
 
 
 def workflow_source_id_from_path(
     path: str, *, workflow_root: str = WORKFLOW_ROOT
 ) -> str | None:
+    """Return the source id a workflow definition path maps to, or ``None``.
+
+    Inverse of :func:`workflow_source_path`. ``None`` means ``path`` is not a
+    ``<workflow_root>/<source_id>/<definition>`` workflow file.
+    """
     parts = path.strip("/").split("/")
     if len(parts) != 3:
         return None
@@ -50,10 +56,16 @@ def workflow_source_id_from_path(
 def is_workflow_definition_path(
     path: str, *, workflow_root: str = WORKFLOW_ROOT
 ) -> bool:
+    """Return whether ``path`` is a workflow definition file."""
     return workflow_source_id_from_path(path, workflow_root=workflow_root) is not None
 
 
 def default_workflow_source_id(*, alias: str | None, title: str) -> str:
+    """Derive a slugified source id from a workflow's alias or title.
+
+    Prefers ``alias``, falls back to ``title``, then to ``"workflow"``, and
+    trims the result to 96 characters.
+    """
     base = (
         slugify((alias or "").strip(), separator="-")
         or slugify(title.strip(), separator="-")
@@ -69,6 +81,11 @@ def workflow_spec_from_orm(
     source_id: str,
     include_schedules: bool = False,
 ) -> WorkflowResourceSpec:
+    """Build a :class:`WorkflowResourceSpec` from an ORM workflow and its DSL.
+
+    Carries over the folder path, tags, webhook, and a configured case trigger.
+    Schedules are included only when ``include_schedules`` is set.
+    """
     folder_path = workflow.folder.path if workflow.folder else None
     webhook = workflow.webhook
 
@@ -126,6 +143,12 @@ def workflow_spec_to_remote(
     local_workflow_id: WorkflowUUID,
     local_workflow_ids: Mapping[str, WorkflowUUID] | None = None,
 ) -> RemoteWorkflowDefinition:
+    """Convert a spec into a :class:`RemoteWorkflowDefinition` for local import.
+
+    Stamps the definition with ``local_workflow_id`` and, when
+    ``local_workflow_ids`` is supplied, rewrites child-workflow references to the
+    local ids via :func:`_definition_with_local_workflow_ids`.
+    """
     definition = (
         _definition_with_local_workflow_ids(spec.definition, local_workflow_ids)
         if local_workflow_ids
@@ -147,6 +170,11 @@ def _definition_with_local_workflow_ids(
     definition: DSLInput,
     local_workflow_ids: Mapping[str, WorkflowUUID],
 ) -> DSLInput:
+    """Rewrite child-workflow references in ``definition`` to local ids.
+
+    Returns the original ``definition`` unchanged when no
+    ``CHILD_WORKFLOW_EXECUTE`` action resolves to a known local id.
+    """
     normalized_workflow_ids = _normalized_workflow_ids(local_workflow_ids)
     actions = []
     changed = False
@@ -176,6 +204,11 @@ def _definition_with_local_workflow_ids(
 def _normalized_workflow_ids(
     local_workflow_ids: Mapping[str, WorkflowUUID],
 ) -> dict[str, WorkflowUUID]:
+    """Index ``local_workflow_ids`` by both source id and short workflow id.
+
+    Lets reference lookups match whether the definition cites a portable source
+    id or a short ``WorkflowUUID``.
+    """
     normalized: dict[str, WorkflowUUID] = {}
     for source_id, local_id in local_workflow_ids.items():
         normalized[source_id] = local_id
@@ -190,6 +223,10 @@ def _local_workflow_id_for_reference(
     workflow_id: str,
     local_workflow_ids: Mapping[str, WorkflowUUID],
 ) -> WorkflowUUID | None:
+    """Resolve a child-workflow reference to its local id, or ``None``.
+
+    Tries the raw reference first, then its short ``WorkflowUUID`` form.
+    """
     if local_id := local_workflow_ids.get(workflow_id):
         return local_id
     try:
@@ -203,6 +240,10 @@ def workflow_spec_from_legacy(
     *,
     source_id: str | None = None,
 ) -> WorkflowResourceSpec:
+    """Adapt a legacy :class:`RemoteWorkflowDefinition` into a resource spec.
+
+    Uses ``source_id`` as the spec id when given, otherwise the remote's own id.
+    """
     return WorkflowResourceSpec(
         id=source_id or remote.id,
         alias=remote.alias,
@@ -216,6 +257,7 @@ def workflow_spec_from_legacy(
 
 
 def serialize_workflow_spec(spec: WorkflowResourceSpec) -> str:
+    """Serialize a workflow spec to YAML, omitting null fields."""
     data = spec.model_dump(mode="json", exclude_none=True)
     return yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
 
@@ -223,6 +265,13 @@ def serialize_workflow_spec(spec: WorkflowResourceSpec) -> str:
 def parse_workflow_spec(
     path: str, content: str, *, workflow_root: str = WORKFLOW_ROOT
 ) -> tuple[WorkflowResourceSpec | None, PullDiagnostic | None]:
+    """Parse a workflow YAML file into a spec, or a :class:`PullDiagnostic`.
+
+    Accepts both the current ``type: workflow`` format and the legacy
+    :class:`RemoteWorkflowDefinition` layout. Returns ``(spec, None)`` on
+    success or ``(None, diagnostic)`` describing the parse, validation, or
+    source-id mismatch failure.
+    """
     source_id = workflow_source_id_from_path(path, workflow_root=workflow_root)
     yaml_data: dict[str, Any] | None = None
     try:

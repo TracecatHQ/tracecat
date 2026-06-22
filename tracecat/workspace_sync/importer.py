@@ -26,6 +26,11 @@ class WorkspaceResourceImportService(BaseWorkspaceService):
         self,
         spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
+        """Reconcile every non-workflow resource in ``spec`` into the database.
+
+        Runs the :data:`NON_WORKFLOW_IMPORT_ADAPTERS` in dependency order and
+        returns the flattened :class:`ImportedResource` identities.
+        """
         imported: list[ImportedResource] = []
         for adapter in NON_WORKFLOW_IMPORT_ADAPTERS:
             imported.extend(await adapter.import_specs(self, adapter.specs(spec)))

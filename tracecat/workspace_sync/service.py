@@ -91,6 +91,7 @@ from tracecat.workspace_sync.workflow import (
 from tracecat.workspaces.service import WorkspaceService
 
 MAX_PULL_RESOURCE_DIFF_LINES = 240
+"""Maximum number of unified-diff lines kept per resource in a pull preview."""
 
 _EXPORT_READ_SCOPES_BY_RESOURCE_TYPE: dict[SyncResourceType, str] = {
     SyncResourceType.AGENT_PRESET: "agent:read",
@@ -103,6 +104,7 @@ _EXPORT_READ_SCOPES_BY_RESOURCE_TYPE: dict[SyncResourceType, str] = {
     SyncResourceType.VARIABLE: "variable:read",
     SyncResourceType.SECRET_METADATA: "secret:read",
 }
+"""Read scope each non-workflow resource type requires before it can be exported."""
 
 
 class WorkspaceSyncService(BaseWorkspaceService):
@@ -117,6 +119,11 @@ class WorkspaceSyncService(BaseWorkspaceService):
         *,
         transport_factory: VcsTransportFactory | None = None,
     ) -> None:
+        """Initialize the service, optionally with a custom VCS transport factory.
+
+        ``transport_factory`` overrides :func:`vcs_transport_for_provider`, which
+        lets tests substitute an in-memory transport.
+        """
         super().__init__(session=session, role=role)
         self._transport_factory = transport_factory
 
@@ -186,6 +193,11 @@ class WorkspaceSyncService(BaseWorkspaceService):
         dsl: DSLInput,
         params: WorkspaceSyncExportRequest,
     ) -> WorkspaceSyncExportResult:
+        """Export a single workflow to a branch and optional PR.
+
+        Unlike :meth:`export_workspace`, this writes only the one workflow's
+        files and records the resulting branch on ``workflow.git_sync_branch``.
+        """
         self._validate_export_params(params)
         url = await self._workspace_git_url(provider=params.provider)
         await self.session.refresh(
@@ -321,6 +333,15 @@ class WorkspaceSyncService(BaseWorkspaceService):
         include_schedules: bool = False,
         create_missing_mappings: bool = True,
     ) -> WorkspaceProjection:
+        """Project the workspace into a manifest, spec, and serialized files.
+
+        Walks the projectable workflow closure (resolving child workflows
+        referenced by alias or id), projects non-workflow resources via
+        :class:`WorkspaceResourceProjector`, and trims the result to the
+        requested selection. When ``create_missing_mappings`` is set, sync
+        mappings are minted for any newly projected resource; pass ``False`` for
+        read-only previews. A ``None`` selection exports the whole workspace.
+        """
         selection = _selection_from_workflow_ids(
             workflow_ids=workflow_ids,
             resource_ids=resource_ids,
@@ -397,6 +418,13 @@ class WorkspaceSyncService(BaseWorkspaceService):
         commit_sha: str = "",
         tree_sha: str | None = None,
     ) -> tuple[WorkspaceRemoteSnapshot, list[PullDiagnostic]]:
+        """Parse repository files into a remote snapshot and any diagnostics.
+
+        Reads the manifest first; a malformed manifest short-circuits with an
+        empty spec and a single parse diagnostic. Otherwise the manifest's roots
+        drive :func:`parse_workspace_spec_files`, and its diagnostics are merged
+        into the returned list.
+        """
         diagnostics: list[PullDiagnostic] = []
         manifest = WorkspaceManifest()
         if manifest_content := files.get(MANIFEST_FILENAME):
@@ -444,6 +472,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         limit: int = 10,
         provider: VcsProvider = VcsProvider.GITHUB,
     ) -> list[GitCommitInfo]:
+        """List recent commits on ``branch`` for the workspace repository."""
         url = await self._workspace_git_url(provider=provider)
         transport = self._transport_for_provider(
             provider,
@@ -456,6 +485,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         limit: int = 100,
         provider: VcsProvider = VcsProvider.GITHUB,
     ) -> list[GitBranchInfo]:
+        """List branches for the workspace repository."""
         url = await self._workspace_git_url(provider=provider)
         transport = self._transport_for_provider(
             provider,
@@ -463,6 +493,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         return await transport.list_branches(url=url, limit=limit)
 
     def _transport_for_provider(self, provider: VcsProvider) -> VcsSyncTransport:
+        """Build the VCS transport for ``provider`` using the configured factory."""
         factory = self._transport_factory or vcs_transport_for_provider
         return factory(
             provider,
@@ -471,6 +502,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         )
 
     def _validate_export_params(self, params: WorkspaceSyncExportRequest) -> None:
+        """Validate the export branch names, raising :class:`TracecatValidationError`."""
         try:
             validate_short_branch_name(params.branch, field_name="branch")
             if params.pr_base_branch is not None:
@@ -482,6 +514,11 @@ class WorkspaceSyncService(BaseWorkspaceService):
             raise TracecatValidationError(str(e)) from e
 
     def _require_projected_export_scopes(self, spec: WorkspaceSpec) -> None:
+        """Enforce the read scopes the projected ``spec`` requires.
+
+        Raises :class:`ScopeDeniedError` when the caller's role is missing any
+        scope implied by the resource types present in ``spec``.
+        """
         required_scopes = sorted(_export_read_scopes_for_spec(spec))
         if not required_scopes:
             return
@@ -505,6 +542,14 @@ class WorkspaceSyncService(BaseWorkspaceService):
         *,
         sync_schedules: bool,
     ) -> PullResult:
+        """Reconcile a validated snapshot into the database within one transaction.
+
+        Validates the workflows, then imports non-workflow resources and
+        workflows inside a nested transaction and upserts every sync mapping. Any
+        failure rolls the transaction back and surfaces a transaction
+        diagnostic. The returned :class:`PullResult` reports found and imported
+        counts per resource type.
+        """
         local_ids: dict[str, WorkflowUUID] = {}
         for source_id in sorted(snapshot.spec.workflows):
             local_id = await self._resolve_local_workflow_id(source_id)
@@ -624,6 +669,13 @@ class WorkspaceSyncService(BaseWorkspaceService):
         *,
         sync_schedules: bool,
     ) -> list[PullResourceDiff]:
+        """Compute per-resource diffs between local state and the incoming snapshot.
+
+        Projects the current workspace read-only and serializes the target spec,
+        then emits a canonical unified file diff for every changed path that maps
+        to a resource. Adapters own path mapping and labels; the service compares
+        the full projection against the repository snapshot.
+        """
         current_projection = await self.project_workspace(
             include_schedules=sync_schedules,
             create_missing_mappings=False,
@@ -677,6 +729,11 @@ class WorkspaceSyncService(BaseWorkspaceService):
         self,
         snapshot: WorkspaceRemoteSnapshot,
     ) -> list[PullDiagnostic]:
+        """Validate the snapshot's workflows without importing them.
+
+        Used during dry runs to surface workflow validation errors alongside the
+        computed resource diffs.
+        """
         local_ids: dict[str, WorkflowUUID] = {}
         for source_id in sorted(snapshot.spec.workflows):
             local_id = await self._resolve_local_workflow_id(source_id)
@@ -703,6 +760,10 @@ class WorkspaceSyncService(BaseWorkspaceService):
         *,
         workflow_ids: Sequence[WorkflowUUID] | None,
     ) -> list[Workflow]:
+        """Load the workspace's workflows, optionally filtered to ``workflow_ids``.
+
+        Ordered by creation time then id for a stable projection.
+        """
         stmt = (
             select(Workflow)
             .where(Workflow.workspace_id == self.workspace_id)
@@ -717,6 +778,13 @@ class WorkspaceSyncService(BaseWorkspaceService):
         self,
         selection: dict[SyncResourceType, set[uuid.UUID]] | None,
     ) -> list[Workflow]:
+        """Resolve the workflows to project, expanding child-workflow references.
+
+        A ``None`` selection projects every workflow. Otherwise the selected
+        workflows are expanded transitively over their ``execute`` references
+        (by alias or id) so child workflows are pulled into the export closure.
+        The result preserves the global creation order.
+        """
         if selection is None:
             return await self._list_projectable_workflows(workflow_ids=None)
 
@@ -739,6 +807,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         dsl_by_id: dict[uuid.UUID, DSLInput] = {}
 
         async def dsl_for(workflow: Workflow) -> DSLInput:
+            """Return the workflow's DSL, caching it across closure expansion."""
             if workflow.id not in dsl_by_id:
                 dsl_by_id[workflow.id] = await self._get_workflow_dsl(
                     workflow,
@@ -777,6 +846,11 @@ class WorkspaceSyncService(BaseWorkspaceService):
         defn_service: WorkflowDefinitionsService,
         mgmt_service: WorkflowsManagementService,
     ) -> DSLInput:
+        """Return a workflow's DSL, preferring its committed definition.
+
+        Falls back to building the DSL from the workflow graph when no stored
+        definition content exists.
+        """
         definition = await defn_service.get_definition_by_workflow_id(
             WorkflowUUID.new(workflow.id)
         )
@@ -788,6 +862,13 @@ class WorkspaceSyncService(BaseWorkspaceService):
         self,
         resources: list[ResourceRef] | None,
     ) -> dict[SyncResourceType, set[uuid.UUID]] | None:
+        """Resolve resource references into a per-type set of local UUIDs.
+
+        Direct ``local_id`` refs pass through; ``source_id`` refs are resolved
+        via their sync mapping and raise :class:`TracecatValidationError` when no
+        mapping exists. A ref with neither id selects the whole resource type.
+        Returns ``None`` when ``resources`` is empty (a full-workspace export).
+        """
         if not resources:
             return None
         resource_ids: dict[SyncResourceType, set[uuid.UUID]] = {}
@@ -822,6 +903,16 @@ class WorkspaceSyncService(BaseWorkspaceService):
         projected_resources: list[ProjectedResource],
         projected_spec: WorkspaceSpec,
     ) -> tuple[WorkspaceSpec, list[ProjectedResource]]:
+        """Trim non-workflow resources to the dependency closure of a selection.
+
+        A full-workspace export keeps everything. A partial export starts from
+        the directly selected resources, then pulls in the non-workflow
+        resources the selected workflows and presets depend on: presets and
+        skills referenced by slug (expanded transitively through subagents and
+        skill bindings), case tags from case triggers, and variables, secrets,
+        and tables referenced anywhere in the included payloads. Returns the
+        filtered spec alongside the projected resources that survived the filter.
+        """
         if full_workspace_export:
             return projected_spec, projected_resources
 
@@ -937,6 +1028,12 @@ class WorkspaceSyncService(BaseWorkspaceService):
         create: bool,
         reserved_source_ids: set[str],
     ) -> str:
+        """Return the source id for a workflow, minting one when none is mapped.
+
+        Reuses the existing sync mapping if present. Otherwise derives a unique
+        id from the workflow's short UUID, avoiding ``reserved_source_ids`` and
+        existing mappings, and persists a new mapping when ``create`` is set.
+        """
         mapping = await self._mapping_by_local_id(
             resource_type=SyncResourceType.WORKFLOW.value,
             local_id=WorkflowUUID.new(workflow.id),
@@ -965,6 +1062,11 @@ class WorkspaceSyncService(BaseWorkspaceService):
         preferred_source_id: str,
         reserved_source_ids: set[str],
     ) -> str:
+        """Return ``preferred_source_id`` or a ``-N`` suffixed variant that is free.
+
+        Suffixes are appended until the candidate is neither in
+        ``reserved_source_ids`` nor already mapped for ``resource_type``.
+        """
         base = preferred_source_id
         counter = 2
         candidate = base
@@ -977,6 +1079,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         return candidate
 
     async def _source_id_exists(self, *, resource_type: str, source_id: str) -> bool:
+        """Return whether a sync mapping already claims ``source_id``."""
         return (
             await self._mapping_by_source_id(
                 resource_type=resource_type,
@@ -986,6 +1089,12 @@ class WorkspaceSyncService(BaseWorkspaceService):
         )
 
     async def _resolve_local_workflow_id(self, source_id: str) -> WorkflowUUID:
+        """Resolve a workflow ``source_id`` to its local workflow UUID.
+
+        Prefers the sync mapping. Falls back to treating ``source_id`` as a
+        legacy workflow id and matching an existing workflow; when neither
+        resolves, a fresh UUID is minted for a brand-new import.
+        """
         mapping = await self._mapping_by_source_id(
             resource_type=SyncResourceType.WORKFLOW.value,
             source_id=source_id,
@@ -1012,6 +1121,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         resource_type: str,
         source_id: str,
     ) -> WorkspaceSyncResourceMapping | None:
+        """Return the sync mapping for ``(resource_type, source_id)``, if any."""
         stmt = select(WorkspaceSyncResourceMapping).where(
             WorkspaceSyncResourceMapping.workspace_id == self.workspace_id,
             WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
@@ -1026,6 +1136,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         resource_type: str,
         local_id: uuid.UUID,
     ) -> WorkspaceSyncResourceMapping | None:
+        """Return the sync mapping for ``(resource_type, local_id)``, if any."""
         stmt = select(WorkspaceSyncResourceMapping).where(
             WorkspaceSyncResourceMapping.workspace_id == self.workspace_id,
             WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
@@ -1042,6 +1153,12 @@ class WorkspaceSyncService(BaseWorkspaceService):
         source_path: str,
         local_id: uuid.UUID,
     ) -> WorkspaceSyncResourceMapping:
+        """Create or update the sync mapping for ``source_id``.
+
+        Refreshes ``source_path`` and ``local_id`` on an existing mapping, or
+        inserts a new one, then flushes so the row is visible within the current
+        transaction.
+        """
         mapping = await self._mapping_by_source_id(
             resource_type=resource_type,
             source_id=source_id,
@@ -1066,6 +1183,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         manifest: WorkspaceManifest,
         spec: WorkspaceSpec,
     ) -> dict[str, str]:
+        """Serialize a manifest and spec into the repository's path-to-content map."""
         return serialize_workspace_spec_files(
             manifest=manifest,
             spec=spec,
@@ -1079,6 +1197,11 @@ class WorkspaceSyncService(BaseWorkspaceService):
         *,
         imported_workflows: int = 0,
     ) -> dict[str, ResourcePullCount]:
+        """Build per-type found/imported counts from a spec.
+
+        Only workflows report a non-zero ``imported`` value here; other resource
+        types are filled in later by :meth:`_resource_counts_from_imported`.
+        """
         return {
             resource_type: ResourcePullCount(
                 found=found,
@@ -1096,6 +1219,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         *,
         imported_workflows: int,
     ) -> dict[str, ResourcePullCount]:
+        """Overlay actual import counts for non-workflow resources onto the spec counts."""
         counts = self._resource_counts_from_spec(
             spec,
             imported_workflows=imported_workflows,
@@ -1112,9 +1236,16 @@ class WorkspaceSyncService(BaseWorkspaceService):
         return counts
 
     def _has_non_workflow_resources(self, spec: WorkspaceSpec) -> bool:
+        """Return whether ``spec`` carries any non-workflow resource."""
         return any(adapter.specs(spec) for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS)
 
     async def _workspace_git_url(self, *, provider: VcsProvider) -> GitUrl:
+        """Resolve the workspace's configured Git repository URL.
+
+        Raises :class:`TracecatSettingsError` when no URL is configured or it is
+        invalid, and :class:`TracecatValidationError` for providers other than
+        GitHub, which is the only one currently supported.
+        """
         workspace = await self._workspace()
         repo_url = (
             workspace.settings.get("git_repo_url") if workspace.settings else None
@@ -1135,6 +1266,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
             ) from e
 
     async def _workspace(self) -> Workspace:
+        """Load the current workspace, raising :class:`TracecatNotFoundError` if absent."""
         workspace = await WorkspaceService(
             session=self.session,
             role=self.role,
@@ -1145,7 +1277,9 @@ class WorkspaceSyncService(BaseWorkspaceService):
 
 
 _VAR_REF_RE = re.compile(r"\bVARS\.([A-Za-z_][A-Za-z0-9_-]*)")
+"""Capture the ``<name>`` in a ``VARS.<name>`` expression reference."""
 _SECRET_REF_RE = re.compile(r"\bSECRETS\.([A-Za-z_][A-Za-z0-9_-]*)")
+"""Capture the ``<name>`` in a ``SECRETS.<name>`` expression reference."""
 
 
 def _selection_from_workflow_ids(
@@ -1153,6 +1287,12 @@ def _selection_from_workflow_ids(
     workflow_ids: Sequence[WorkflowUUID] | None,
     resource_ids: dict[SyncResourceType, set[uuid.UUID]] | None,
 ) -> dict[SyncResourceType, set[uuid.UUID]] | None:
+    """Merge explicit ``workflow_ids`` into a per-type resource selection.
+
+    Returns ``None`` (the full-workspace sentinel) only when both inputs are
+    ``None``. Provided ``workflow_ids`` always set the
+    :attr:`SyncResourceType.WORKFLOW` entry, overriding any in ``resource_ids``.
+    """
     if workflow_ids is None:
         if resource_ids is None:
             return None
@@ -1180,6 +1320,11 @@ def _direct_source_ids_by_type(
     resource_ids: dict[SyncResourceType, set[uuid.UUID]],
     projected_resources: list[ProjectedResource],
 ) -> dict[SyncResourceType, set[str]]:
+    """Map the selected local ids to the source ids directly chosen for export.
+
+    A resource type whose selected id set is empty is treated as "select all"
+    of that type, so every projected resource of that type is included.
+    """
     direct: dict[SyncResourceType, set[str]] = {}
     for resource in projected_resources:
         selected_local_ids = resource_ids.get(resource.resource_type)
@@ -1194,6 +1339,7 @@ def _preset_source_ids_for_slugs(
     spec: WorkspaceSpec,
     slugs: set[str],
 ) -> set[str]:
+    """Return the source ids of agent presets whose slug is in ``slugs``."""
     return {
         source_id
         for source_id, preset in spec.agent_presets.items()
@@ -1205,12 +1351,14 @@ def _skill_source_ids_for_slugs(
     spec: WorkspaceSpec,
     slugs: set[str],
 ) -> set[str]:
+    """Return the source ids of skills whose slug is in ``slugs``."""
     return {
         source_id for source_id, skill in spec.skills.items() if skill.slug in slugs
     }
 
 
 def _export_read_scopes_for_spec(spec: WorkspaceSpec) -> set[str]:
+    """Collect the read scopes implied by the resource types present in ``spec``."""
     scopes: set[str] = set()
     for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
         if adapter.specs(spec) and (
@@ -1221,6 +1369,7 @@ def _export_read_scopes_for_spec(spec: WorkspaceSpec) -> set[str]:
 
 
 def _filter_specs[T](specs: dict[str, T], source_ids: set[str] | None) -> dict[str, T]:
+    """Restrict ``specs`` to ``source_ids``, ordered by id; empty selection drops all."""
     if not source_ids:
         return {}
     return {
@@ -1231,6 +1380,7 @@ def _filter_specs[T](specs: dict[str, T], source_ids: set[str] | None) -> dict[s
 
 
 def _variable_names(payloads: list[Any]) -> set[str]:
+    """Return the ``VARS.<name>`` variable names referenced anywhere in ``payloads``."""
     return {
         match
         for text in _payload_strings(payloads)
@@ -1239,6 +1389,7 @@ def _variable_names(payloads: list[Any]) -> set[str]:
 
 
 def _secret_names(payloads: list[Any]) -> set[str]:
+    """Return the ``SECRETS.<name>`` secret names referenced anywhere in ``payloads``."""
     return {
         match
         for text in _payload_strings(payloads)
@@ -1247,6 +1398,11 @@ def _secret_names(payloads: list[Any]) -> set[str]:
 
 
 def _payloads_reference_table(payloads: list[Any], table_name: str) -> bool:
+    """Return whether any payload references ``table_name``.
+
+    Matches an exact ``table``/``table_name``/``table_slug`` field value as well
+    as a whole-word occurrence of the name inside any string value.
+    """
     table_pattern = re.compile(
         rf"(?<![A-Za-z0-9_.-]){re.escape(table_name)}(?![A-Za-z0-9_.-])"
     )
@@ -1263,12 +1419,14 @@ def _payloads_reference_table(payloads: list[Any], table_name: str) -> bool:
 
 
 def _payload_strings(payloads: list[Any]) -> list[str]:
+    """Return every string value found while walking ``payloads``."""
     return [
         value for _key, value in _payload_key_values(payloads) if isinstance(value, str)
     ]
 
 
 def _payload_key_values(payloads: list[Any]) -> list[tuple[str | None, Any]]:
+    """Flatten ``payloads`` into ``(key, value)`` pairs over their JSON form."""
     values: list[tuple[str | None, Any]] = []
     for payload in payloads:
         values.extend(_walk_payload(_json_payload(payload), key=None))
@@ -1276,6 +1434,10 @@ def _payload_key_values(payloads: list[Any]) -> list[tuple[str | None, Any]]:
 
 
 def _walk_payload(value: Any, *, key: str | None) -> list[tuple[str | None, Any]]:
+    """Recursively collect ``(key, value)`` pairs from a nested JSON structure.
+
+    Dict children carry their own key; list items inherit the parent's key.
+    """
     values = [(key, value)]
     if isinstance(value, dict):
         for child_key, child_value in value.items():
@@ -1287,6 +1449,7 @@ def _walk_payload(value: Any, *, key: str | None) -> list[tuple[str | None, Any]
 
 
 def _json_payload(payload: Any) -> Any:
+    """Return a JSON-compatible view of ``payload``, dumping Pydantic models."""
     if hasattr(payload, "model_dump"):
         return payload.model_dump(mode="json", exclude_none=True)
     return payload
@@ -1297,6 +1460,12 @@ def _spec_for_pull_options(
     *,
     sync_schedules: bool,
 ) -> WorkspaceSpec:
+    """Project the pull target spec, stripping workflow schedules unless opted in.
+
+    When ``sync_schedules`` is ``False`` the spec is copied with every
+    workflow's ``schedules`` cleared so a diff or import never touches schedule
+    configuration.
+    """
     if sync_schedules:
         return spec
     return spec.model_copy(
@@ -1314,6 +1483,11 @@ def _resource_identity_from_path(
     *,
     roots: WorkspaceManifestResources,
 ) -> tuple[ResourceAdapter, str] | None:
+    """Resolve a repository path to its ``(adapter, source_id)``, or ``None``.
+
+    Tries each adapter's primary-file mapping first, then its companion-file
+    mapping, so both kinds of path resolve to the owning resource.
+    """
     for adapter in (WORKFLOW_RESOURCE_ADAPTER, *NON_WORKFLOW_RESOURCE_ADAPTERS):
         if source_id := adapter.source_id_from_path(path, roots):
             return adapter, source_id
@@ -1329,6 +1503,11 @@ def _unified_resource_diff(
     before: str | None,
     after: str,
 ) -> tuple[str, bool]:
+    """Build a unified diff of ``before`` versus ``after`` for ``path``.
+
+    Returns the diff text and whether it was truncated to
+    :data:`MAX_PULL_RESOURCE_DIFF_LINES`.
+    """
     lines = list(
         unified_diff(
             (before or "").splitlines(),
@@ -1353,6 +1532,7 @@ def _resource_title(
     adapter: ResourceAdapter,
     source_id: str,
 ) -> str | None:
+    """Return a human-readable title for a resource, falling back to ``source_id``."""
     resource = adapter.specs(spec).get(source_id)
     if resource is None:
         return source_id

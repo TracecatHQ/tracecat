@@ -27,8 +27,12 @@ __all__ = [
 
 @dataclass(frozen=True, slots=True)
 class WorkspaceResourceProjection:
+    """Combined projection of all non-workflow workspace resources."""
+
     spec: WorkspaceSpec
+    """Assembled workspace spec holding each resource type's Git-owned specs."""
     resources: list[ProjectedResource]
+    """Flattened identities linking each ``source_id`` to its ``local_id``."""
 
 
 class WorkspaceResourceProjector(BaseWorkspaceService):
@@ -37,6 +41,12 @@ class WorkspaceResourceProjector(BaseWorkspaceService):
     service_name = "workspace_resource_projector"
 
     async def project_non_workflow_resources(self) -> WorkspaceResourceProjection:
+        """Project every non-workflow resource type into one combined spec.
+
+        Runs each adapter in :data:`NON_WORKFLOW_RESOURCE_ADAPTERS`, keys its
+        specs by ``spec_attr``, and assembles them into a
+        :class:`WorkspaceResourceProjection` alongside the projected identities.
+        """
         specs_by_attr: dict[str, dict[str, Any]] = {}
         resources: list[ProjectedResource] = []
         for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:

@@ -27,12 +27,15 @@ from tracecat.workspace_sync.schemas import (
 
 
 class CaseDurationAdapter(SingleYamlAdapter):
+    """Sync adapter for case duration definitions and their start/end anchors."""
+
     resource_type = SyncResourceType.CASE_DURATION
     spec_attr = "case_durations"
     model = CaseDurationResourceSpec
     root = CASE_DURATION_ROOT
 
     async def project(self, ctx: BaseWorkspaceService) -> ResourceProjection:
+        """Project case duration definitions, with their anchors, into specs."""
         stmt = (
             select(CaseDurationDefinition)
             .where(CaseDurationDefinition.workspace_id == ctx.workspace_id)
@@ -75,6 +78,7 @@ class CaseDurationAdapter(SingleYamlAdapter):
         ctx: BaseWorkspaceService,
         specs: Mapping[str, BaseModel],
     ) -> list[ImportedResource]:
+        """Reconcile duration specs, creating or updating each definition."""
         durations = cast(Mapping[str, CaseDurationResourceSpec], specs)
         imported: list[ImportedResource] = []
         for source_id, spec in sorted(durations.items()):
@@ -115,6 +119,11 @@ class CaseDurationAdapter(SingleYamlAdapter):
         source_id: str,
         spec: CaseDurationResourceSpec,
     ) -> CaseDurationDefinition | None:
+        """Resolve the existing duration a spec maps to, by source id then name.
+
+        When matched by source id, verifies ``spec``'s name is still free before
+        reusing the row. Returns ``None`` when no existing duration matches.
+        """
         duration = await self._duration_by_source_id(ctx, source_id=source_id)
         if duration is not None:
             await self._ensure_name_available(
@@ -138,6 +147,7 @@ class CaseDurationAdapter(SingleYamlAdapter):
         *,
         source_id: str,
     ) -> CaseDurationDefinition | None:
+        """Load the duration mapped to ``source_id`` via the sync mapping, if any."""
         local_id = await self.local_id_for_source_id(ctx, source_id)
         if local_id is None:
             return None
@@ -157,6 +167,7 @@ class CaseDurationAdapter(SingleYamlAdapter):
         name: str,
         duration_id: uuid.UUID,
     ) -> None:
+        """Raise if another duration already owns ``name`` in this workspace."""
         conflict_id = await ctx.session.scalar(
             select(CaseDurationDefinition.id).where(
                 CaseDurationDefinition.workspace_id == ctx.workspace_id,

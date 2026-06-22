@@ -29,12 +29,15 @@ from tracecat.workspace_sync.schemas import (
 
 
 class SecretMetadataAdapter(EnvironmentYamlAdapter):
+    """Sync adapter for secret metadata: key names only, never secret values."""
+
     resource_type = SyncResourceType.SECRET_METADATA
     spec_attr = "secret_metadata"
     model = SecretMetadataResourceSpec
     root = SECRET_METADATA_ROOT
 
     async def project(self, ctx: BaseWorkspaceService) -> ResourceProjection:
+        """Project secrets into specs, emitting only key names, not their values."""
         stmt = (
             select(Secret)
             .where(Secret.workspace_id == ctx.workspace_id)
@@ -76,6 +79,12 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
         ctx: BaseWorkspaceService,
         specs: Mapping[str, BaseModel],
     ) -> list[ImportedResource]:
+        """Reconcile secret metadata specs, preserving existing key values.
+
+        Existing values are retained for keys already present on the secret;
+        keys new to the spec are created with an empty value to be filled in
+        later.
+        """
         secret_metadata = cast(Mapping[str, SecretMetadataResourceSpec], specs)
         imported: list[ImportedResource] = []
         secret_service = SecretsService(session=ctx.session, role=ctx.role)
@@ -131,6 +140,11 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
         source_id: str,
         spec: SecretMetadataResourceSpec,
     ) -> Secret | None:
+        """Resolve the existing secret a spec maps to, by source id then name/env.
+
+        When matched by source id, verifies ``spec``'s name and environment are
+        still free before reusing the row. Returns ``None`` when nothing matches.
+        """
         secret = await self._secret_by_source_id(ctx, source_id=source_id)
         if secret is not None:
             await self._ensure_name_environment_available(
@@ -156,6 +170,7 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
         *,
         source_id: str,
     ) -> Secret | None:
+        """Load the secret mapped to ``source_id`` via the sync mapping, if any."""
         local_id = await self.local_id_for_source_id(ctx, source_id)
         if local_id is None:
             return None
@@ -176,6 +191,7 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
         environment: str,
         secret_id: uuid.UUID,
     ) -> None:
+        """Raise if another secret already owns ``name`` in ``environment``."""
         conflict_id = await ctx.session.scalar(
             select(Secret.id).where(
                 Secret.workspace_id == ctx.workspace_id,

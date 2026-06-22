@@ -46,6 +46,8 @@ SKILL_FILES_DIR = "files"
 
 
 class SkillAdapter(CompoundYamlAdapter):
+    """Adapter for skills: a manifest file plus its versioned file blobs."""
+
     resource_type = SyncResourceType.SKILL
     spec_attr = "skills"
     model = SkillResourceSpec
@@ -53,6 +55,7 @@ class SkillAdapter(CompoundYamlAdapter):
     filename = SKILL_FILENAME
 
     def _file_source_path(self, source_id: str, file_path: str) -> str:
+        """Return the repository path for a skill file under ``files/``."""
         return f"{self.root}/{source_id}/{SKILL_FILES_DIR}/{file_path}"
 
     def extra_path_from_path(
@@ -60,6 +63,11 @@ class SkillAdapter(CompoundYamlAdapter):
         path: str,
         roots: WorkspaceManifestResources,
     ) -> tuple[str, str] | None:
+        """Map a skill file path to ``(source_id, file_path)``.
+
+        Matches ``<root>/<source_id>/files/<file_path>`` and returns ``None``
+        for anything else (including the primary manifest file).
+        """
         parts = path_parts(path)
         root_parts = path_parts(roots.skills)
         if len(parts) < len(root_parts) + 3:
@@ -78,6 +86,7 @@ class SkillAdapter(CompoundYamlAdapter):
         source_id: str,
         spec: BaseModel,
     ) -> dict[str, str]:
+        """Serialize a skill's file blobs to their repository paths."""
         skill = cast(SkillResourceSpec, spec)
         return {
             self._file_source_path(source_id, file_path): content
@@ -90,6 +99,12 @@ class SkillAdapter(CompoundYamlAdapter):
         extra_files: Mapping[tuple[str, str], str],
         diagnostics: list[PullDiagnostic],
     ) -> dict[str, BaseModel]:
+        """Fold parsed skill file blobs back into each skill spec.
+
+        Attaches file contents by source id and emits a :class:`PullDiagnostic`
+        for any declared file that is missing or whose SHA256 does not match the
+        manifest.
+        """
         contents_by_source: dict[str, dict[str, str]] = defaultdict(dict)
         for (source_id, relpath), content in extra_files.items():
             contents_by_source[source_id][relpath] = content
@@ -137,6 +152,7 @@ class SkillAdapter(CompoundYamlAdapter):
         return updated
 
     async def project(self, ctx: BaseWorkspaceService) -> ResourceProjection:
+        """Project skills and their current-version file blobs into Git specs."""
         stmt = (
             select(Skill)
             .where(
@@ -191,6 +207,7 @@ class SkillAdapter(CompoundYamlAdapter):
         ctx: BaseWorkspaceService,
         version_id: uuid.UUID,
     ) -> list[tuple[SkillVersionFile, SkillBlob]]:
+        """Return a version's files joined to their blobs, ordered by path."""
         stmt = (
             select(SkillVersionFile, SkillBlob)
             .join(SkillBlob, SkillVersionFile.blob_id == SkillBlob.id)
@@ -210,6 +227,12 @@ class SkillAdapter(CompoundYamlAdapter):
         ctx: BaseWorkspaceService,
         specs: Mapping[str, BaseModel],
     ) -> list[ImportedResource]:
+        """Reconcile skill specs into the local database.
+
+        Upserts each skill, stores its file contents as deduplicated blobs, and
+        creates or updates the target :class:`SkillVersion` (rewriting its file
+        rows and recomputing the manifest hash) before pinning it as current.
+        """
         skills = cast(Mapping[str, SkillResourceSpec], specs)
         imported: list[ImportedResource] = []
         skill_service = SkillService(session=ctx.session, role=ctx.role)
@@ -315,6 +338,12 @@ class SkillAdapter(CompoundYamlAdapter):
         source_id: str,
         spec: SkillResourceSpec,
     ) -> Skill | None:
+        """Resolve the existing skill to update for ``source_id``, if any.
+
+        Prefers the skill already mapped to ``source_id`` (validating the slug
+        is still free), then falls back to matching on slug. Returns ``None``
+        when a new skill must be created.
+        """
         skill = await self._skill_by_source_id(ctx, source_id=source_id)
         if skill is not None:
             await self._ensure_slug_available(
@@ -338,6 +367,7 @@ class SkillAdapter(CompoundYamlAdapter):
         *,
         source_id: str,
     ) -> Skill | None:
+        """Load the skill mapped to ``source_id`` via the sync mapping, if any."""
         local_id = await self.local_id_for_source_id(ctx, source_id)
         if local_id is None:
             return None
@@ -357,6 +387,11 @@ class SkillAdapter(CompoundYamlAdapter):
         slug: str,
         skill_id: uuid.UUID,
     ) -> None:
+        """Guard that ``slug`` is not already used by a different skill.
+
+        Raises :class:`TracecatValidationError` when another skill in the
+        workspace owns ``slug``.
+        """
         conflict_id = await ctx.session.scalar(
             select(Skill.id).where(
                 Skill.workspace_id == ctx.workspace_id,
