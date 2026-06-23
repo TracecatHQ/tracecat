@@ -126,8 +126,11 @@ args:
   manage workflows, and action names such as `core.http_request` only inside workflow YAML.
 - Inventing `tools.*` action names. Discover actions with `list_actions`, then inspect exact
   schemas with `get_action_context`.
-- Using `for_each` or scatter/gather for normal loops, batching, filtering, joins, or table
-  writes — prefer a `core.script.run_python` loop (see [run-python](references/run-python.md)).
+- Using `for_each` for ordinary loop management, or using scatter/gather for data-heavy
+  batching, filtering, joins, or table writes. Default to scatter for workflow-level loops;
+  add gather only when downstream steps need combined results. Use `core.script.run_python`
+  for data-heavy processing (see
+  [run-python](references/run-python.md)).
 - Using `insert_rows(..., upsert=True)` without a unique index on the key column (see
   [tables](references/tables.md)).
 - Granting `core.http_request` to an agent without explicit user approval of broad network
