@@ -472,9 +472,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
     ) -> list[GitCommitInfo]:
         """List recent commits on ``branch`` for the workspace repository."""
         url = await self._workspace_git_url(provider=provider)
-        transport = self._transport_for_provider(
-            provider,
-        )
+        transport = self._transport_for_provider(provider)
         return await transport.list_commits(url=url, branch=branch, limit=limit)
 
     async def list_branches(
@@ -485,9 +483,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
     ) -> list[GitBranchInfo]:
         """List branches for the workspace repository."""
         url = await self._workspace_git_url(provider=provider)
-        transport = self._transport_for_provider(
-            provider,
-        )
+        transport = self._transport_for_provider(provider)
         return await transport.list_branches(url=url, limit=limit)
 
     def _transport_for_provider(self, provider: VcsProvider) -> VcsSyncTransport:
