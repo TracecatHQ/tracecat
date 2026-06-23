@@ -70,6 +70,7 @@ from tracecat.agent.stream.events import (
     StreamEvent,
     StreamKeepAlive,
     StreamMessage,
+    parse_vercel_frame_cursor,
 )
 from tracecat.agent.types import UnifiedMessage
 from tracecat.artifacts.schemas import ARTIFACT_DATA_PART_TYPE
@@ -730,9 +731,14 @@ VercelSSEPayload = (
 )
 
 
-def format_sse(data: VercelSSEPayload) -> str:
-    """Formats a dictionary into a Server-Sent Event string."""
-    return f"data: {to_json(data).decode()}\n\n"
+def format_sse(data: VercelSSEPayload, sse_id: str | None = None) -> str:
+    """Formats a payload into a Server-Sent Event string.
+
+    When ``sse_id`` is given, emit an ``id:`` line so the browser records it as
+    the Last-Event-ID for reconnect.
+    """
+    prefix = f"id: {sse_id}\n" if sse_id else ""
+    return f"{prefix}data: {to_json(data).decode()}\n\n"
 
 
 @dataclasses.dataclass
@@ -754,7 +760,7 @@ class VercelStreamContext:
     consistent start/delta/end sequences required by the Vercel protocol.
     """
 
-    message_id: str
+    message_id: str | None
     # Active parts keyed by event index -> maintains per-part lifecycle state.
     part_states: dict[int, _PartState] = dataclasses.field(default_factory=dict)
     tool_finished: dict[str, bool] = dataclasses.field(default_factory=dict)
@@ -766,6 +772,11 @@ class VercelStreamContext:
     # Cache approval data for continuation reconstruction
     approval_tool_name: dict[str, str] = dataclasses.field(default_factory=dict)
     approval_input: dict[str, Any] = dataclasses.field(default_factory=dict)
+    # Count of repair frames synthesized on resume (a *_DELTA reopening a part
+    # whose start was emitted before the reconnect cursor). These frames did not
+    # exist in the original stream, so sse_vercel must emit them but neither count
+    # them toward the composite frame index nor apply the resume-drop filter.
+    repair_frames: int = 0
 
     def _create_part_state(
         self,
@@ -872,11 +883,15 @@ class VercelStreamContext:
                 if event.part_id is not None:
                     state = self.part_states.get(event.part_id)
                     if state is None:
-                        logger.warning(
-                            "Received delta for unknown part index",
-                            index=event.part_id,
-                        )
-                    elif event.text:
+                        # Resume landed mid-text-block: the TEXT_START was emitted
+                        # before the reconnect cursor, so this fresh context never
+                        # opened the part. Lazily open one so the tail renders as a
+                        # new text part in the same bubble instead of vanishing.
+                        # This start is a repair frame (not in the original stream).
+                        state = self._create_part_state(event.part_id, "text")
+                        self.repair_frames += 1
+                        yield TextStartEventPayload(id=state.part_id)
+                    if event.text:
                         yield TextDeltaEventPayload(id=state.part_id, delta=event.text)
 
             case StreamEventType.TEXT_STOP:
@@ -900,7 +915,14 @@ class VercelStreamContext:
             case StreamEventType.THINKING_DELTA:
                 if event.part_id is not None:
                     state = self.part_states.get(event.part_id)
-                    if state and event.thinking:
+                    if state is None:
+                        # Resume landed mid-thinking-block (see TEXT_DELTA above):
+                        # lazily open a reasoning part so the tail isn't dropped.
+                        # This start is a repair frame (not in the original stream).
+                        state = self._create_part_state(event.part_id, "reasoning")
+                        self.repair_frames += 1
+                        yield ReasoningStartEventPayload(id=state.part_id)
+                    if event.thinking:
                         yield ReasoningDeltaEventPayload(
                             id=state.part_id, delta=event.thinking
                         )
@@ -1771,24 +1793,72 @@ def convert_chat_messages_to_ui(
     return UIMessagesTA.validate_python(raw_messages)
 
 
-async def sse_vercel(events: AsyncIterable[StreamEvent]) -> AsyncIterable[str]:
-    """Stream Redis events as Vercel AI SDK frames without persisting adapter output."""
+async def sse_vercel(
+    events: AsyncIterable[StreamEvent],
+    *,
+    message_id: str | None,
+    resume_from: str | None = None,
+) -> AsyncIterable[str]:
+    """Stream Redis events as Vercel AI SDK frames without persisting adapter output.
 
-    message_id = f"msg_{uuid.uuid4().hex}"
+    ``message_id`` is the stable assistant-bubble id (``session_id:curr_run_id``)
+    so reconnects within a turn resume the same bubble instead of spawning a new
+    one. It is omitted for terminal reconnects where no run id can be resolved.
+
+    Each Redis entry can fan out to many Vercel frames, so frames carry a
+    composite ``id: {redis_id}:{frame_index}`` that the browser sends back as
+    ``Last-Event-ID``. On resume we re-fan the cursor entry and drop the frames
+    the client already saw (``resume_from``).
+    """
+
     context = VercelStreamContext(message_id=message_id)
+    resume_cursor = parse_vercel_frame_cursor(resume_from)
+
+    # Composite-id state: the Redis id of the entry currently fanning out and a
+    # per-entry frame counter. emit() omits id: when redis_id is None.
+    redis_id: str | None = None
+    frame_index = 0
+
+    def emit(payload: VercelSSEPayload) -> str | None:
+        nonlocal frame_index
+        # Repair frames (a part-start the handler synthesized on resume because
+        # the real start was before the cursor) did not exist in the original
+        # stream. Always emit them and do NOT consume a frame index, so the real
+        # frames keep their original indices and the drop math stays correct.
+        # They carry no id: the client never needs to resume *to* a synthesized
+        # frame, and reusing the next real frame's id would collide.
+        if context.repair_frames > 0:
+            context.repair_frames -= 1
+            return format_sse(payload)
+        sse_id = f"{redis_id}:{frame_index}" if redis_id else None
+        current_frame_index = frame_index
+        frame_index += 1
+        # Drop frames at or before the resume cursor within its entry: the client
+        # already rendered them.
+        if (
+            resume_cursor is not None
+            and redis_id == resume_cursor.redis_id
+            and current_frame_index <= resume_cursor.frame_index
+        ):
+            return None
+        return format_sse(payload, sse_id)
 
     try:
         # 1. Start of the message stream
-        yield format_sse(StartEventPayload(messageId=message_id))
+        if message_id is not None:
+            yield format_sse(StartEventPayload(messageId=message_id))
 
         # 2. Process events from Redis stream
         async for stream_event in events:
             match stream_event:
-                case StreamDelta(event=agent_event):
+                case StreamDelta(id=delta_id, event=agent_event):
+                    redis_id, frame_index = delta_id, 0
                     # Process agent stream events (PartStartEvent, PartDeltaEvent, etc.)
                     async for msg in context.handle_event(agent_event):
-                        yield format_sse(msg)
-                case StreamMessage(message=message):
+                        if frame := emit(msg):
+                            yield frame
+                case StreamMessage(id=message_redis_id, message=message):
+                    redis_id, frame_index = message_redis_id, 0
                     if approval_payload := _extract_approval_payload_from_message(
                         message
                     ):
@@ -1811,7 +1881,8 @@ async def sse_vercel(events: AsyncIterable[StreamEvent]) -> AsyncIterable[str]:
                                     ) in context.collect_current_part_end_events(
                                         index=index
                                     ):
-                                        yield format_sse(end_evt)
+                                        if frame := emit(end_evt):
+                                            yield frame
                         except Exception:
                             # Best-effort only; do not abort streaming on cache/finalize errors
                             pass
@@ -1822,7 +1893,8 @@ async def sse_vercel(events: AsyncIterable[StreamEvent]) -> AsyncIterable[str]:
                             )
                         )
                         for data_event in context.flush_data_events():
-                            yield format_sse(data_event)
+                            if frame := emit(data_event):
+                                yield frame
                     continue
                 case StreamKeepAlive():
                     yield StreamKeepAlive.sse()
@@ -1839,9 +1911,14 @@ async def sse_vercel(events: AsyncIterable[StreamEvent]) -> AsyncIterable[str]:
                     logger.debug("End-of-stream marker from Redis")
                     break
 
-        # 3. Finalize any open parts at the end of the stream
+        # 3. Finalize any open parts at the end of the stream.
+        # These post-StreamEnd frames inherit the previous entry's redis_id, so a
+        # composite-cursor resume could reopen an empty part. Safe today: /stream
+        # forces 0-0 replay (resume_from=None). Give them a sentinel id before
+        # enabling composite resume here.
         for message in context.collect_current_part_end_events():
-            yield format_sse(message)
+            if frame := emit(message):
+                yield frame
 
     except Exception as e:
         # 4. Handle errors

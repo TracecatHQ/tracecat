@@ -25,7 +25,7 @@ from tracecat.agent.session.schemas import (
     AgentSessionUpdate,
 )
 from tracecat.agent.session.service import AgentSessionService
-from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
 from tracecat.agent.stream.artifacts import artifact_stream_event
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
@@ -46,6 +46,16 @@ from tracecat.exceptions import EntitlementRequired, TracecatNotFoundError
 from tracecat.logger import logger
 
 router = APIRouter(prefix="/agent/sessions", tags=["agent-sessions"])
+
+
+def _bubble_id(session_id: uuid.UUID, curr_run_id: uuid.UUID | None) -> str | None:
+    """Stable assistant-bubble id for a turn, if the turn is known.
+
+    ``session_id:curr_run_id`` is stable for the whole run, so the AI SDK upserts
+    the live assistant in place across reconnects instead of spawning a duplicate
+    bubble.
+    """
+    return f"{session_id}:{curr_run_id}" if curr_run_id else None
 
 
 async def _require_workspace_chat_entitlement_for_session_tree(
@@ -438,7 +448,7 @@ async def send_message(
                 detail="Workspace access required",
             )
 
-        stream = await AgentStream.new(session_id, workspace_id)
+        message_id: str | None = None
         async with AgentSessionService.with_session(role=role) as svc:
             # Check if this is a legacy chat (read-only)
             if await svc.is_legacy_session(session_id):
@@ -459,16 +469,19 @@ async def send_message(
             )
 
             if isinstance(request, ContinueRunRequest):
-                # Continuations should follow only newly appended events. Resuming
-                # from the persisted DB cursor can replay the approval request that
-                # the active client already rendered before clicking approve/deny.
+                # Continuations resume the same workflow + per-turn stream. Reuse
+                # the existing stream id and follow only newly appended events;
+                # resuming from "0-0" would replay the approval request the active
+                # client already rendered before clicking approve/deny.
+                stream_id = agent_session.active_stream_id
+                stream = await AgentStream.new(session_id, workspace_id, stream_id)
                 start_id = "$"
             else:
-                # Each fresh execution turn gets a new Redis stream buffer so
-                # stale events from the prior turn are never replayed.
-                await stream.reset_for_new_turn()
-                # Read from the beginning of the freshly cleared stream so we still
-                # pick up events emitted before the SSE response starts consuming.
+                # Mint the per-turn stream id at the HTTP layer (turn start) so the
+                # seed artifact and the worker producer both write to the same
+                # fresh per-turn key. No reset/reuse of a prior turn's buffer.
+                stream_id = uuid.uuid4()
+                stream = await AgentStream.new(session_id, workspace_id, stream_id)
                 start_id = "0-0"
                 if await svc.should_seed_initial_artifact(agent_session) and (
                     artifact := await svc.build_initial_artifact(agent_session)
@@ -481,14 +494,23 @@ async def send_message(
 
             # Run session turn (spawns DurableAgentWorkflow)
             try:
-                await svc.run_turn(
+                turn_response = await svc.run_turn(
                     session_id=session_id,
                     request=request,
+                    active_stream_id=stream_id,
                 )
             except Exception:
                 if not isinstance(request, ContinueRunRequest):
+                    # Startup failed after we minted the stream: surface a terminal
+                    # frame so reconnecting clients don't hang, and clear pointers.
+                    # Non-continue turns always mint a fresh per-turn stream id.
+                    assert stream_id is not None
                     try:
-                        await stream.abort_new_turn()
+                        await stream.error("Failed to start agent turn")
+                        await stream.done()
+                        await svc.clear_active_turn(
+                            session_id, expected_stream_id=stream_id
+                        )
                     except Exception as rollback_exc:
                         logger.warning(
                             "Failed to clear stream state after turn startup failure",
@@ -496,6 +518,17 @@ async def send_message(
                             error=str(rollback_exc),
                         )
                 raise
+
+            # Build a bubble id stable for this turn. Prefer the run id returned by
+            # run_turn (new turns) — terminal cleanup may already have nulled the
+            # session row on a fast turn. Continuations return None and reuse the
+            # in-progress run id still pinned on the session row.
+            if turn_response is not None and turn_response.curr_run_id is not None:
+                run_id = turn_response.curr_run_id
+            else:
+                refreshed = await svc.get_session(session_id)
+                run_id = refreshed.curr_run_id if refreshed else None
+            message_id = _bubble_id(session_id, run_id)
 
         logger.info(
             "Starting Vercel streaming session",
@@ -505,7 +538,12 @@ async def send_message(
 
         # Create stream and return with Vercel format
         return StreamingResponse(
-            stream.sse(http_request.is_disconnected, last_id=start_id, format="vercel"),
+            stream.sse(
+                http_request.is_disconnected,
+                last_id=start_id,
+                format="vercel",
+                message_id=message_id,
+            ),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache, no-transform",
@@ -565,40 +603,6 @@ async def stream_session_events(
             detail="Workspace access required",
         )
 
-        # Try to get last_stream_id from session, but don't fail if session doesn't exist yet.
-        # This handles the race condition where frontend connects before session is created.
-    last_stream_id: str | None = None
-    async with AgentSessionService.with_session(role=role) as svc:
-        agent_session = await svc.get_session(session_id)
-        if agent_session is not None:
-            await _require_workspace_chat_entitlement_for_session_tree(
-                svc=svc,
-                session=svc.session,
-                role=role,
-                agent_session=agent_session,
-            )
-            last_stream_id = agent_session.last_stream_id
-        else:
-            legacy_chat = await svc.get_legacy_chat(session_id)
-            if legacy_chat is not None:
-                await require_workspace_chat_entitlement_for_entity(
-                    session=svc.session,
-                    role=role,
-                    entity_type=AgentSessionEntity(legacy_chat.entity_type),
-                )
-                last_stream_id = legacy_chat.last_stream_id
-
-    last_event_id = request.headers.get("Last-Event-ID")
-    if last_stream_id is None and not last_event_id:
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
-    start_id = last_event_id or last_stream_id or "0-0"
-    logger.info(
-        "Starting session stream",
-        last_id=start_id,
-        session_id=session_id,
-    )
-
-    stream = await AgentStream.new(session_id, workspace_id)
     headers = {
         "Cache-Control": "no-cache, no-transform",
         "Connection": "keep-alive",
@@ -608,8 +612,88 @@ async def stream_session_events(
     }
     if format == "vercel":
         headers["x-vercel-ai-ui-message-stream"] = "v1"
+
+    last_event_id = request.headers.get("Last-Event-ID")
+
+    # Resolve the turn lifecycle. Temporal owns it: we describe the current run
+    # live rather than reading a cached DB status. Don't fail if the session row
+    # doesn't exist yet (the frontend may connect before it is created).
+    async with AgentSessionService.with_session(role=role) as svc:
+        agent_session = await svc.get_session(session_id)
+        if agent_session is None:
+            # Legacy chat fallback: no Temporal workflow / per-turn key. Keep the
+            # old per-session behaviour driven by the stored cursor.
+            legacy_chat = await svc.get_legacy_chat(session_id)
+            if legacy_chat is None:
+                return Response(status_code=status.HTTP_204_NO_CONTENT)
+            await require_workspace_chat_entitlement_for_entity(
+                session=svc.session,
+                role=role,
+                entity_type=AgentSessionEntity(legacy_chat.entity_type),
+            )
+            last_stream_id = legacy_chat.last_stream_id
+            if last_stream_id is None and not last_event_id:
+                return Response(status_code=status.HTTP_204_NO_CONTENT)
+            start_id = last_event_id or last_stream_id or "0-0"
+            legacy_stream = await AgentStream.new(session_id, workspace_id)
+            return StreamingResponse(
+                legacy_stream.sse(
+                    request.is_disconnected, last_id=start_id, format=format
+                ),
+                media_type="text/event-stream",
+                headers=headers,
+            )
+
+        await _require_workspace_chat_entitlement_for_session_tree(
+            svc=svc,
+            session=svc.session,
+            role=role,
+            agent_session=agent_session,
+        )
+        active_stream_id = agent_session.active_stream_id
+        lifecycle, curr_run_id = await svc.get_turn_lifecycle(agent_session)
+
+    message_id = _bubble_id(session_id, curr_run_id)
+
+    # FAILED | TERMINATED (incl. failed-to-start): the workflow will not produce a
+    # terminal frame, so emit one ourselves and let the client refetch DB history.
+    if lifecycle is TurnLifecycle.FAILED:
+        finished = await AgentStream.new(session_id, workspace_id, active_stream_id)
+        return StreamingResponse(
+            finished.finished_sse(format=format, message_id=message_id),
+            media_type="text/event-stream",
+            headers=headers,
+        )
+
+    # No live run, or the run is already COMPLETED: nothing to attach to. The
+    # canonical assistant message is in DB history; the client refetches.
+    if lifecycle is not TurnLifecycle.RUNNING:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    # RUNNING: join the per-turn Redis stream and always replay the whole active
+    # turn from the start. The mid-turn DB load hides the active run's rows, so
+    # Redis is the sole source for the live assistant; a partial (Last-Event-ID)
+    # resume would drop everything before the cursor. Full 0-0 replay keeps the
+    # bubble whole at the cost of re-streaming the in-flight turn on reconnect.
+    # (Cursor/frame-precise resume is intentionally not used here; revisit if we
+    # reconcile committed partial rows with the live stream id.)
+    stream = await AgentStream.new(session_id, workspace_id, active_stream_id)
+    start_id = "0-0"
+    resume_from: str | None = None
+
+    logger.info(
+        "Starting session stream",
+        last_id=start_id,
+        session_id=session_id,
+    )
     return StreamingResponse(
-        stream.sse(request.is_disconnected, last_id=start_id, format=format),
+        stream.sse(
+            request.is_disconnected,
+            last_id=start_id,
+            format=format,
+            message_id=message_id,
+            resume_from=resume_from,
+        ),
         media_type="text/event-stream",
         headers=headers,
     )

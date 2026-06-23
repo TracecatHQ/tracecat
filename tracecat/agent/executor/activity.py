@@ -90,6 +90,13 @@ class AgentExecutorInput(BaseModel):
 
     session_id: uuid.UUID
     workspace_id: uuid.UUID
+    # Per-turn stream id (Redis key suffix). Pinned at workflow start so the
+    # producer writes to the same per-turn key the reader joins. None for legacy
+    # executions that predate per-turn keys (falls back to the per-session key).
+    active_stream_id: uuid.UUID | None = None
+    # Workflow run id for this turn. Pinned so the producer tags persisted
+    # history rows, letting mid-turn loads hide the active run's partial rows.
+    curr_run_id: uuid.UUID | None = None
     user_prompt: str
     config: AgentConfig
     # Role for context
@@ -406,6 +413,8 @@ class SandboxedAgentExecutor:
             loopback_input = LoopbackInput(
                 session_id=self.input.session_id,
                 workspace_id=self.input.workspace_id,
+                active_stream_id=self.input.active_stream_id,
+                curr_run_id=self.input.curr_run_id,
             )
             handler = LoopbackHandler(input=loopback_input)
 

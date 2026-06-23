@@ -54,6 +54,14 @@ class RunAgentArgs(BaseModel):
     """User prompt for the agent."""
     session_id: uuid.UUID
     """Session ID for the agent execution."""
+    active_stream_id: uuid.UUID | None = None
+    """Per-turn stream id (Redis key suffix). Minted at the HTTP layer at turn
+    start and pinned here so the worker producer writes to the same per-turn key
+    the reader joins. None for legacy executions that predate per-turn keys."""
+    curr_run_id: uuid.UUID | None = None
+    """Workflow run id for this turn. Pinned here so the producer tags persisted
+    history rows with it, letting mid-turn loads hide the active run's partial
+    rows. None for legacy executions."""
     config: AgentConfig | None = None
     """Configuration for the agent. Required if preset_slug is not provided."""
     preset_slug: str | None = None

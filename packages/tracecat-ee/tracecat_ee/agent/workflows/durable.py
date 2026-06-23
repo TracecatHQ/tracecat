@@ -57,12 +57,14 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.schemas import AgentOutput, RunAgentArgs, RunUsage, ToolFilters
     from tracecat.agent.session.activities import (
         CreateSessionInput,
+        FinalizeTurnInput,
         LoadSessionInput,
         LoadSessionMessagesInput,
         LoadSessionResult,
         PendingToolResult,
         ReconcileToolResultsInput,
         create_session_activity,
+        finalize_turn_activity,
         load_session_activity,
         load_session_messages_activity,
         reconcile_tool_results_activity,
@@ -453,6 +455,9 @@ def _preserved_agents_binding(
     return None
 
 
+FINALIZE_TURN_PATCH = "durable-agent-finalize-turn-v1"
+
+
 @workflow.defn
 class DurableAgentWorkflow:
     @workflow.init
@@ -472,6 +477,7 @@ class DurableAgentWorkflow:
         self.workspace_id = args.role.workspace_id
         self.organization_id = args.role.organization_id
         self.session_id = args.agent_args.session_id
+        self.active_stream_id = args.agent_args.active_stream_id
         self.harness_type = args.harness_type or "claude_code"
         self.approvals = ApprovalManager(role=self.role)
         self.max_requests = args.agent_args.max_requests
@@ -830,6 +836,43 @@ class DurableAgentWorkflow:
             ):
                 await self._emit_session_error(e.message)
             raise
+        finally:
+            # Terminal boundary only: approval-pause awaits inside the executor
+            # loop and never reaches here. Clear the active-turn pointers so the
+            # mid-turn DB filter releases the final rows and reconnect -> 204.
+            # Patch-gated: finalize_turn_activity is a new command, so old
+            # histories recorded before this change must not replay it.
+            if workflow.patched(FINALIZE_TURN_PATCH):
+                await self._finalize_turn()
+
+    async def _finalize_turn(self) -> None:
+        """Clear active-turn pointers at terminal (compare-and-clear by run_id)."""
+        # Use the workflow-id token (same as the persisted curr_run_id), not
+        # args.agent_args.curr_run_id, which is None for DSL/workflow callers and
+        # would skip cleanup. workflow.info() is replay-safe.
+        run_id = AgentWorkflowID.from_workflow_id(
+            workflow.info().workflow_id
+        ).session_id
+        try:
+            await workflow.execute_activity(
+                finalize_turn_activity,
+                FinalizeTurnInput(
+                    role=self.role,
+                    session_id=self.session_id,
+                    run_id=run_id,
+                ),
+                start_to_close_timeout=timedelta(seconds=10),
+                # Idempotent (compare-and-clear by run_id); retry so a transient
+                # failure doesn't leave curr_run_id set and hide the final row.
+                retry_policy=RETRY_POLICIES["activity:fail_slow"],
+            )
+        except ActivityError as exc:
+            logger.warning(
+                "Failed to finalize agent turn pointers",
+                session_id=str(self.session_id),
+                run_id=str(run_id),
+                error=str(exc),
+            )
 
     async def _emit_session_error(self, message: str) -> None:
         try:
@@ -839,6 +882,10 @@ class DurableAgentWorkflow:
                     session_id=self.session_id,
                     workspace_id=self.workspace_id,
                     message=message,
+                    # Chat turns pin a per-turn stream id; the client reads the
+                    # suffixed key, so the error/done markers must land there.
+                    # None falls back to the per-session key for non-chat turns.
+                    active_stream_id=self.active_stream_id,
                 ),
                 start_to_close_timeout=timedelta(seconds=10),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
@@ -1018,6 +1065,8 @@ class DurableAgentWorkflow:
         executor_input = AgentExecutorInput(
             session_id=self.session_id,
             workspace_id=self.workspace_id,
+            active_stream_id=args.agent_args.active_stream_id,
+            curr_run_id=curr_run_id,
             user_prompt=args.agent_args.user_prompt,
             config=cfg,
             role=self.role,
@@ -1098,6 +1147,7 @@ class DurableAgentWorkflow:
                         denied_tools=denied_tools,
                         registry_lock=root_registry_lock,
                         mcp_auth_token=compiled_run.root.mcp_auth_token,
+                        active_stream_id=args.agent_args.active_stream_id,
                     )
                     logger.info(
                         "Tool execution completed",
@@ -1120,6 +1170,8 @@ class DurableAgentWorkflow:
                 executor_input = AgentExecutorInput(
                     session_id=self.session_id,
                     workspace_id=self.workspace_id,
+                    active_stream_id=args.agent_args.active_stream_id,
+                    curr_run_id=curr_run_id,
                     user_prompt=args.agent_args.user_prompt,
                     config=cfg,
                     role=self.role,
@@ -1278,6 +1330,7 @@ class DurableAgentWorkflow:
         denied_tools: list[DeniedToolCall],
         registry_lock: RegistryLock,
         mcp_auth_token: str,
+        active_stream_id: uuid.UUID | None,
     ) -> list:
         logical_time = workflow.now()
         service_role = build_tracecat_mcp_role(
@@ -1331,6 +1384,7 @@ class DurableAgentWorkflow:
                 workspace_id=self.workspace_id,
                 role=self.role,
                 pending_results=pending_results,
+                active_stream_id=active_stream_id,
             ),
             start_to_close_timeout=timedelta(seconds=300),
             retry_policy=RETRY_POLICIES["activity:fail_fast"],

@@ -95,6 +95,8 @@ class LoopbackInput:
 
     session_id: uuid.UUID
     workspace_id: uuid.UUID
+    active_stream_id: uuid.UUID | None = None
+    curr_run_id: uuid.UUID | None = None
 
 
 @dataclass(kw_only=True, slots=True)
@@ -803,6 +805,7 @@ class LoopbackHandler:
         redis_stream = await AgentStream.new(
             session_id=self.input.session_id,
             workspace_id=self.input.workspace_id,
+            stream_id=self.input.active_stream_id,
         )
         return AgentStreamSink(stream=redis_stream)
 
@@ -996,6 +999,7 @@ class LoopbackHandler:
                 workspace_id=self.input.workspace_id,
                 content=_session_line_db_content(line_data),
                 kind=kind,
+                curr_run_id=self.input.curr_run_id,
             )
             session.add(history_entry)
             await session.commit()

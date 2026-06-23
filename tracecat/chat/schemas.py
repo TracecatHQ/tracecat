@@ -76,6 +76,14 @@ class ChatResponse(BaseModel):
 
     stream_url: str = Field(..., description="URL to connect for SSE streaming")
     chat_id: uuid.UUID = Field(..., description="Unique chat identifier")
+    curr_run_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Run id of the turn just spawned. Returned so callers can build the "
+            "stable bubble id without re-reading the session row, which terminal "
+            "cleanup (finalize_turn) may have already cleared on a fast turn."
+        ),
+    )
 
 
 class ChatCreate(BaseModel):

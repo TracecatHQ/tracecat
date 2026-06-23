@@ -8062,7 +8062,7 @@ async def test_get_agent_preset_returns_full_configuration(
 @pytest.mark.parametrize(
     ("last_stream_id", "expected_start_id"),
     [
-        ("1717426372766-0", "1717426372766-0"),
+        ("1717426372766-0", "0-0"),
         (None, "0-0"),
     ],
 )
@@ -8100,7 +8100,14 @@ async def test_run_agent_preset_uses_session_stream_cursor(
             created_session_request["value"] = create
             return session
 
-        async def run_turn(self, _session_id: uuid.UUID, _request: Any) -> None:
+        async def run_turn(
+            self,
+            _session_id: uuid.UUID,
+            _request: Any,
+            *,
+            active_stream_id: uuid.UUID | None = None,
+        ) -> None:
+            captured["active_stream_id"] = active_stream_id
             return None
 
     captured: dict[str, Any] = {}
@@ -8110,11 +8117,13 @@ async def test_run_agent_preset_uses_session_stream_cursor(
         workspace_id_arg: uuid.UUID,
         timeout: float,
         last_id: str,
+        stream_id: uuid.UUID | None = None,
     ) -> str:
         captured["session_id"] = session_id
         captured["workspace_id"] = workspace_id_arg
         captured["timeout"] = timeout
         captured["last_id"] = last_id
+        captured["stream_id"] = stream_id
         return "agent response"
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
@@ -8143,6 +8152,9 @@ async def test_run_agent_preset_uses_session_stream_cursor(
     assert captured["workspace_id"] == workspace_id
     assert captured["timeout"] == 120
     assert captured["last_id"] == expected_start_id
+    # Producer (run_turn) and consumer (_collect) must share the minted id.
+    assert captured["stream_id"] is not None
+    assert captured["stream_id"] == captured["active_stream_id"]
 
 
 @pytest.mark.anyio
@@ -10001,7 +10013,11 @@ async def test_collect_agent_response_returns_text(
             )
             yield StreamEnd(id="1717426372769-0")
 
-    async def _new(_session_id: uuid.UUID, _workspace_id: uuid.UUID) -> _Stream:
+    async def _new(
+        _session_id: uuid.UUID,
+        _workspace_id: uuid.UUID,
+        _stream_id: uuid.UUID | None = None,
+    ) -> _Stream:
         return _Stream()
 
     monkeypatch.setattr(mcp_server.AgentStream, "new", _new)
@@ -10046,7 +10062,11 @@ async def test_collect_agent_response_surfaces_approval_requests(
             )
             yield StreamEnd(id="1717426372769-0")
 
-    async def _new(_session_id: uuid.UUID, _workspace_id: uuid.UUID) -> _Stream:
+    async def _new(
+        _session_id: uuid.UUID,
+        _workspace_id: uuid.UUID,
+        _stream_id: uuid.UUID | None = None,
+    ) -> _Stream:
         return _Stream()
 
     monkeypatch.setattr(mcp_server.AgentStream, "new", _new)
