@@ -827,12 +827,26 @@ class WorkspaceSyncService(BaseWorkspaceService):
             references = workflow_references(dsl)
             for alias in sorted(references.execute_aliases):
                 child_id = aliases.get(alias)
-                if child_id is None or child_id in included:
+                if child_id is None:
+                    self.logger.warning(
+                        "Skipping unresolvable child workflow alias in export closure",
+                        alias=alias,
+                        parent_workflow_id=str(workflow_id),
+                    )
+                    continue
+                if child_id in included:
                     continue
                 included.add(child_id)
                 queue.append(child_id)
             for child_id in sorted(references.execute_ids, key=str):
-                if child_id not in workflows_by_id or child_id in included:
+                if child_id not in workflows_by_id:
+                    self.logger.warning(
+                        "Skipping unresolvable child workflow reference in export closure",
+                        child_workflow_id=str(child_id),
+                        parent_workflow_id=str(workflow_id),
+                    )
+                    continue
+                if child_id in included:
                     continue
                 included.add(child_id)
                 queue.append(child_id)
