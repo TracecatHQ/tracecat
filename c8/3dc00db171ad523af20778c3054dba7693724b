@@ -1,0 +1,26 @@
+.agents/skills/tracecat-automation-best-practices/SKILL.md
+  s_ad027de6884f32::t_55ff26c06b07ec 129-132
+tracecat/mcp/server.py
+  s_ad027de6884f32::t_0c2f2b2902fb0e 2977-2978
+  s_ad027de6884f32::t_8d0346a4cfa89d 3398-3403
+  s_ad027de6884f32::t_9d3f89ac4ef57a 2984-2987,3457-3461
+  s_ad027de6884f32::t_ff7e3892cf7e6b 2970-2971,2974-2976,2979-2983
+.agents/skills/tracecat-automation-best-practices/references/run-python.md
+  s_ad027de6884f32::t_5c309dca7da23a 10-20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.11",
+  "base_commit_sha": "c83dc00db171ad523af20778c3054dba7693724b",
+  "prompts": {},
+  "sessions": {
+    "s_ad027de6884f32": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ef141-9011-7a30-ae92-5e26bbc10912",
+        "model": "gpt-5.5"
+      },
+      "human_author": null
+    }
+  }
+}
