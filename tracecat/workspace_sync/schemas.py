@@ -321,6 +321,33 @@ class SkillResourceSpec(BaseModel):
     )
 
 
+class TableColumnSpec(BaseModel):
+    """Canonical Git-owned desired state for a single table column.
+
+    Optional fields default to ``None`` so the YAML serializer (which omits
+    null values) writes a minimal column definition: ``nullable`` appears only
+    when the column is not nullable, and ``unique`` only when the column backs
+    the table's unique index.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, description="Column name.")
+    type: str = Field(min_length=1, description="SQL column type, lowercased.")
+    nullable: bool | None = Field(
+        default=None,
+        description="``False`` when the column is not nullable; null means nullable.",
+    )
+    default: Any = Field(default=None, description="Optional default value.")
+    options: list[str] | None = Field(
+        default=None, description="Allowed values for select-style columns."
+    )
+    unique: bool | None = Field(
+        default=None,
+        description="``True`` when this column backs the table's unique index.",
+    )
+
+
 class TableResourceSpec(BaseModel):
     """Canonical Git-owned desired state for table metadata and schema only."""
 
@@ -335,7 +362,7 @@ class TableResourceSpec(BaseModel):
         description="Stable source id; the table's single-segment file path key.",
     )
     name: str = Field(min_length=1, description="Table name.")
-    columns: list[dict[str, Any]] = Field(
+    columns: list[TableColumnSpec] = Field(
         default_factory=list, description="Column definitions for the table schema."
     )
 

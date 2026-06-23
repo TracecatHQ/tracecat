@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any
 
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -30,6 +29,7 @@ from tracecat.workspace_sync.adapters.base import (
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
     TABLE_ROOT,
+    TableColumnSpec,
     TableResourceSpec,
     WorkspaceSpec,
 )
@@ -76,21 +76,18 @@ class TableAdapter(CompoundYamlAdapter):
                 source_id = unique_source_id(table.name, reserved=reserved)
             reserved.add(source_id)
             unique_columns = set(await table_service.get_index(table))
-            columns: list[dict[str, Any]] = []
+            columns: list[TableColumnSpec] = []
             for column in sorted(table.columns, key=lambda item: item.name):
-                column_spec: dict[str, Any] = {
-                    "name": column.name,
-                    "type": column.type.lower(),
-                }
-                if not column.nullable:
-                    column_spec["nullable"] = False
-                if column.default is not None:
-                    column_spec["default"] = column.default
-                if column.options:
-                    column_spec["options"] = column.options
-                if column.name in unique_columns:
-                    column_spec["unique"] = True
-                columns.append(column_spec)
+                columns.append(
+                    TableColumnSpec(
+                        name=column.name,
+                        type=column.type.lower(),
+                        nullable=None if column.nullable else False,
+                        default=column.default,
+                        options=column.options or None,
+                        unique=True if column.name in unique_columns else None,
+                    )
+                )
             specs[source_id] = TableResourceSpec(
                 id=source_id,
                 name=table.name,
@@ -116,9 +113,7 @@ class TableAdapter(CompoundYamlAdapter):
             session=workspace_service.session, role=workspace_service.role
         )
         for source_id, spec in sorted(tables.items()):
-            unique_columns = [
-                str(column["name"]) for column in spec.columns if column.get("unique")
-            ]
+            unique_columns = [column.name for column in spec.columns if column.unique]
             if len(unique_columns) > 1:
                 raise ValueError(
                     "Table sync supports at most one unique column per table: "
@@ -151,7 +146,7 @@ class TableAdapter(CompoundYamlAdapter):
 
             existing_columns = {column.name: column for column in table.columns}
             for column in spec.columns:
-                column_name = str(column["name"])
+                column_name = column.name
                 existing_column = existing_columns.get(column_name)
                 if existing_column is None:
                     await table_service.create_column(
@@ -195,20 +190,20 @@ class TableAdapter(CompoundYamlAdapter):
         return (await workspace_service.session.execute(stmt)).scalar_one_or_none()
 
 
-def _column_create_from_spec(column: Mapping[str, Any]) -> TableColumnCreate:
-    """Build a :class:`TableColumnCreate` from a spec column mapping."""
+def _column_create_from_spec(column: TableColumnSpec) -> TableColumnCreate:
+    """Build a :class:`TableColumnCreate` from a spec column."""
     return TableColumnCreate(
-        name=str(column["name"]),
-        type=sql_type(column["type"]),
-        nullable=bool(column.get("nullable", True)),
-        default=column.get("default"),
-        options=cast(list[str] | None, column.get("options")),
+        name=column.name,
+        type=sql_type(column.type),
+        nullable=column.nullable if column.nullable is not None else True,
+        default=column.default,
+        options=column.options,
     )
 
 
 def _column_update_from_spec(
     existing: TableColumn,
-    column: Mapping[str, Any],
+    column: TableColumnSpec,
 ) -> TableColumnUpdate | None:
     """Diff an existing column against its spec, or ``None`` if already in sync.
 
@@ -216,19 +211,19 @@ def _column_update_from_spec(
     :class:`TableColumnUpdate` carrying only the fields that differ.
     """
     updates: dict[str, Any] = {}
-    desired_type = sql_type(column["type"])
+    desired_type = sql_type(column.type)
     if existing.type != desired_type.value:
         updates["type"] = desired_type
 
-    desired_nullable = bool(column.get("nullable", True))
+    desired_nullable = column.nullable if column.nullable is not None else True
     if existing.nullable != desired_nullable:
         updates["nullable"] = desired_nullable
 
-    desired_default = column.get("default")
+    desired_default = column.default
     if existing.default != desired_default:
         updates["default"] = desired_default
 
-    desired_options = cast(list[str] | None, column.get("options"))
+    desired_options = column.options
     if existing.options != desired_options:
         updates["options"] = desired_options
 
