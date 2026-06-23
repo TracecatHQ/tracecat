@@ -42,15 +42,10 @@ async def pg_advisory_lock(session: AsyncSession, key: int) -> AsyncIterator[Non
 async def pg_advisory_xact_lock(session: AsyncSession, key: int) -> None:
     """Acquire a transaction-scoped PostgreSQL advisory lock.
 
-    Unlike :func:`pg_advisory_lock` (a session-level lock bound to the
-    connection), this lock is released automatically when the surrounding
-    transaction commits or rolls back. Use this whenever the caller commits
-    while holding the lock: a session-level lock would be orphaned because the
-    connection can be returned to the pool at commit, leaving the unlock to run
-    on a different connection.
-
-    Must be called inside a transaction; the lock is held until that
-    transaction ends.
+    Released automatically when the transaction commits or rolls back. Prefer
+    this over :func:`pg_advisory_lock` when the caller commits while holding the
+    lock — a session-level lock would be orphaned once the connection returns to
+    the pool. Must be called inside a transaction.
 
     Args:
         session: Database session

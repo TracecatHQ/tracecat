@@ -31822,6 +31822,11 @@ export const $WorkspaceMember = {
       type: "string",
       title: "Role Name",
     },
+    via_group: {
+      type: "boolean",
+      title: "Via Group",
+      default: false,
+    },
   },
   type: "object",
   required: ["user_id", "first_name", "last_name", "email", "role_name"],
