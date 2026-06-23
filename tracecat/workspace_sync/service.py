@@ -44,6 +44,7 @@ from tracecat.workflow.store.schemas import (
 from tracecat.workspace_sync.adapters import (
     NON_WORKFLOW_RESOURCE_ADAPTERS,
     WORKFLOW_RESOURCE_ADAPTER,
+    WORKSPACE_RESOURCE_ADAPTERS,
     ResourceAdapter,
     workspace_spec_from_maps,
 )
@@ -690,13 +691,14 @@ class WorkspaceSyncService(BaseWorkspaceService):
         to a resource. Adapters own path mapping and labels; the service compares
         the full projection against the repository snapshot.
         """
-        current_projection = await self.project_workspace(
-            include_schedules=sync_schedules,
-            create_missing_mappings=False,
-        )
         target_spec = _spec_for_pull_options(
             snapshot.spec,
             sync_schedules=sync_schedules,
+        )
+        current_projection = await self.project_workspace(
+            resource_ids=_resource_type_selection_from_spec(target_spec),
+            include_schedules=sync_schedules,
+            create_missing_mappings=False,
         )
         target_files = self._files_from_spec(
             manifest=WorkspaceManifest(),
@@ -1380,6 +1382,21 @@ def _non_workflow_resource_types_for_projection(
         resource_type
         for resource_type in selection
         if resource_type != SyncResourceType.WORKFLOW
+    }
+
+
+def _resource_type_selection_from_spec(
+    spec: WorkspaceSpec,
+) -> dict[SyncResourceType, set[uuid.UUID]]:
+    """Return a type-level selection for every resource type present in ``spec``.
+
+    An empty id set means "select all resources of this type" to
+    :meth:`WorkspaceSyncService.project_workspace`.
+    """
+    return {
+        adapter.resource_type: set()
+        for adapter in WORKSPACE_RESOURCE_ADAPTERS
+        if adapter.specs(spec)
     }
 
 

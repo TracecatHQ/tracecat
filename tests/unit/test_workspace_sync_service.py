@@ -203,6 +203,87 @@ async def test_pull_dry_run_returns_resource_diffs_without_import(
 
 
 @pytest.mark.anyio
+async def test_pull_dry_run_projects_current_workspace_by_target_resource_types(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    source_id = "default/api_token"
+    current_spec = WorkspaceSpec(
+        variables={
+            source_id: VariableResourceSpec(
+                id=source_id,
+                name="api_token",
+                environment="default",
+                description="current",
+            )
+        }
+    )
+    incoming_spec = WorkspaceSpec(
+        variables={
+            source_id: VariableResourceSpec(
+                id=source_id,
+                name="api_token",
+                environment="default",
+                description="incoming",
+            )
+        }
+    )
+    transport = AsyncMock()
+    transport.read_files.return_value = VcsTreeSnapshot(
+        commit_sha="a" * 40,
+        tree_sha="tree-sha",
+        files=workspace_sync_service._files_from_spec(
+            manifest=WorkspaceManifest(),
+            spec=incoming_spec,
+        ),
+    )
+    import_service = AsyncMock()
+    import_service.validate_workflows.return_value = []
+    workspace_sync_service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="tracecat", repo="sync")
+    )
+    workspace_sync_service.project_workspace = AsyncMock(
+        return_value=WorkspaceProjection(
+            manifest=WorkspaceManifest(),
+            spec=current_spec,
+            files=workspace_sync_service._files_from_spec(
+                manifest=WorkspaceManifest(),
+                spec=current_spec,
+            ),
+        )
+    )
+
+    with (
+        patch(
+            "tracecat.workspace_sync.service.vcs_transport_for_provider",
+            return_value=transport,
+        ),
+        patch(
+            "tracecat.workspace_sync.service.WorkflowImportService",
+            return_value=import_service,
+        ),
+    ):
+        result = await workspace_sync_service.pull(
+            options=PullOptions(commit_sha="a" * 40, dry_run=True),
+        )
+
+    assert result.success is True
+    assert result.resource_diffs is not None
+    assert len(result.resource_diffs) == 1
+    diff = result.resource_diffs[0]
+    assert diff.resource_type == SyncResourceType.VARIABLE.value
+    assert diff.title == "api_token"
+    assert "current" in diff.diff
+    assert "incoming" in diff.diff
+    workspace_sync_service.project_workspace.assert_awaited_once()
+    await_args = workspace_sync_service.project_workspace.await_args
+    assert await_args is not None
+    _, kwargs = await_args
+    assert kwargs["create_missing_mappings"] is False
+    assert kwargs["resource_ids"] == {SyncResourceType.VARIABLE: set()}
+    import_service.import_workflows.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_pull_dry_run_ignores_schedule_diff_when_schedule_sync_is_disabled(
     workspace_sync_service: WorkspaceSyncService,
     sample_dsl: DSLInput,
