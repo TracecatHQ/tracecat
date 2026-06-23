@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from collections import Counter
+from collections import Counter, deque
 from collections.abc import Sequence
 from dataclasses import replace
 from difflib import unified_diff
@@ -817,9 +817,9 @@ class WorkspaceSyncService(BaseWorkspaceService):
             return dsl_by_id[workflow.id]
 
         included = set(selected_workflow_ids)
-        queue = list(selected_workflow_ids)
+        queue = deque(selected_workflow_ids)
         while queue:
-            workflow_id = queue.pop(0)
+            workflow_id = queue.popleft()
             workflow = workflows_by_id.get(workflow_id)
             if workflow is None:
                 continue
