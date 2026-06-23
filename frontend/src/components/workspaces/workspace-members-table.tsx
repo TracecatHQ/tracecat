@@ -21,6 +21,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -44,6 +45,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import {
   useWorkspaceMembers,
@@ -218,8 +224,21 @@ export function WorkspaceMembersTable({
                 />
               ),
               cell: ({ row }) => (
-                <div className="text-xs capitalize">
+                <div className="flex items-center gap-2 text-xs capitalize">
                   {row.getValue<string>("role_name")}
+                  {row.original.via_group && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Badge variant="secondary" className="font-normal">
+                          Via group
+                        </Badge>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        Access granted through a group. Manage this role from
+                        the group's settings.
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
                 </div>
               ),
               enableSorting: true,
@@ -230,6 +249,9 @@ export function WorkspaceMembersTable({
               id: "actions",
               enableHiding: false,
               cell: ({ row }) => {
+                // Managed via the group, and the backend rejects these edits —
+                // disable the row actions rather than offer a guaranteed failure.
+                const viaGroup = row.original.via_group ?? false
                 return (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -247,32 +269,78 @@ export function WorkspaceMembersTable({
                         Copy user ID
                       </DropdownMenuItem>
 
-                      {canUpdateMembers && (
-                        <DialogTrigger asChild>
-                          <DropdownMenuItem
-                            onClick={() => {
-                              setSelectedUser(row.original)
-                              setIsChangeRoleOpen(true)
-                            }}
-                          >
-                            Change role
-                          </DropdownMenuItem>
-                        </DialogTrigger>
-                      )}
+                      {canUpdateMembers &&
+                        (viaGroup ? (
+                          <Tooltip>
+                            {/*
+                             * A disabled element does not emit the pointer or
+                             * focus events Radix needs, so it cannot itself be
+                             * the tooltip trigger. Wrap the disabled item in a
+                             * focusable span and make the span the trigger so
+                             * the explanation still shows on hover/focus.
+                             */}
+                            <TooltipTrigger asChild>
+                              <span tabIndex={0}>
+                                <DropdownMenuItem
+                                  disabled
+                                  onSelect={(e) => e.preventDefault()}
+                                >
+                                  Change role
+                                </DropdownMenuItem>
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              Role is managed through the group.
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          <DialogTrigger asChild>
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setSelectedUser(row.original)
+                                setIsChangeRoleOpen(true)
+                              }}
+                            >
+                              Change role
+                            </DropdownMenuItem>
+                          </DialogTrigger>
+                        ))}
 
-                      {canRemoveMembers && (
-                        <AlertDialogTrigger asChild>
-                          <DropdownMenuItem
-                            className="text-rose-500 focus:text-rose-600"
-                            onClick={() => {
-                              setSelectedUser(row.original)
-                              console.debug("Selected user", row.original)
-                            }}
-                          >
-                            Remove from workspace
-                          </DropdownMenuItem>
-                        </AlertDialogTrigger>
-                      )}
+                      {canRemoveMembers &&
+                        (viaGroup ? (
+                          <Tooltip>
+                            {/*
+                             * Disabled elements swallow the events Radix needs
+                             * to open a tooltip, so the disabled item is wrapped
+                             * in a focusable span that acts as the trigger.
+                             */}
+                            <TooltipTrigger asChild>
+                              <span tabIndex={0}>
+                                <DropdownMenuItem
+                                  disabled
+                                  onSelect={(e) => e.preventDefault()}
+                                >
+                                  Remove from workspace
+                                </DropdownMenuItem>
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              Remove the user from the group to revoke access.
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          <AlertDialogTrigger asChild>
+                            <DropdownMenuItem
+                              className="text-rose-500 focus:text-rose-600"
+                              onClick={() => {
+                                setSelectedUser(row.original)
+                                console.debug("Selected user", row.original)
+                              }}
+                            >
+                              Remove from workspace
+                            </DropdownMenuItem>
+                          </AlertDialogTrigger>
+                        ))}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 )

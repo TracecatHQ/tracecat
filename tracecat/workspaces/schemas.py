@@ -131,6 +131,9 @@ class WorkspaceMember(Schema):
     last_name: str | None
     email: EmailStr
     role_name: str
+    # Access reaches the workspace through a group; the UI gates per-row
+    # remove/edit actions on this since they're managed via the group.
+    via_group: bool = False
 
 
 class WorkspaceRead(Schema):
