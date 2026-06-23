@@ -644,6 +644,9 @@ export function WorkspaceSyncSettings({
               <PullPreviewSummary result={pullPreview} />
             )}
             {pullResult && <PullResultSummary result={pullResult} />}
+            {!(pullPreview && pullPreviewMatchesSelection) && !pullResult && (
+              <PullEmptyState />
+            )}
 
             <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex flex-wrap items-center gap-1.5 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
@@ -653,43 +656,45 @@ export function WorkspaceSyncSettings({
                   {effectivePullSha?.substring(0, 7) ?? "—"}
                 </span>
               </div>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={handlePreviewPull}
-                disabled={
-                  pullWorkflowsIsPending ||
-                  commitsIsLoading ||
-                  !effectivePullSha
-                }
-                className="shrink-0 gap-1.5"
-              >
-                {pullWorkflowsIsPending && pullAction === "preview" ? (
-                  <Loader2Icon className="size-4 animate-spin" />
-                ) : (
-                  <SearchIcon className="size-4" />
-                )}
-                {pullWorkflowsIsPending && pullAction === "preview"
-                  ? "Previewing..."
-                  : "Preview changes"}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                onClick={handleApplyPull}
-                disabled={pullWorkflowsIsPending || !canApplyPull}
-                className="shrink-0 gap-1.5"
-              >
-                {pullWorkflowsIsPending && pullAction === "apply" ? (
-                  <Loader2Icon className="size-4 animate-spin" />
-                ) : (
-                  <ArrowDownIcon className="size-4" />
-                )}
-                {pullWorkflowsIsPending && pullAction === "apply"
-                  ? "Applying..."
-                  : "Apply pull"}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={handlePreviewPull}
+                  disabled={
+                    pullWorkflowsIsPending ||
+                    commitsIsLoading ||
+                    !effectivePullSha
+                  }
+                  className="shrink-0 gap-1.5"
+                >
+                  {pullWorkflowsIsPending && pullAction === "preview" ? (
+                    <Loader2Icon className="size-4 animate-spin" />
+                  ) : (
+                    <SearchIcon className="size-4" />
+                  )}
+                  {pullWorkflowsIsPending && pullAction === "preview"
+                    ? "Previewing..."
+                    : "Preview changes"}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleApplyPull}
+                  disabled={pullWorkflowsIsPending || !canApplyPull}
+                  className="shrink-0 gap-1.5"
+                >
+                  {pullWorkflowsIsPending && pullAction === "apply" ? (
+                    <Loader2Icon className="size-4 animate-spin" />
+                  ) : (
+                    <ArrowDownIcon className="size-4" />
+                  )}
+                  {pullWorkflowsIsPending && pullAction === "apply"
+                    ? "Applying..."
+                    : "Apply pull"}
+                </Button>
+              </div>
             </div>
           </TabsContent>
         </Tabs>
@@ -775,6 +780,23 @@ function SyncWarning({ children }: { children: React.ReactNode }) {
     <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
       <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" />
       <span>{children}</span>
+    </div>
+  )
+}
+
+/**
+ * Placeholder shown in the pull view before a preview has been generated,
+ * nudging the user to preview the incoming diff before applying.
+ */
+function PullEmptyState() {
+  return (
+    <div className="flex flex-col items-center gap-2 rounded-md border border-dashed px-6 py-10 text-center">
+      <SearchIcon className="size-5 text-muted-foreground" />
+      <p className="text-sm font-medium text-foreground">No preview yet</p>
+      <p className="max-w-xs text-xs text-muted-foreground">
+        Preview changes first to review the incoming resource diff before
+        applying the pull.
+      </p>
     </div>
   )
 }
