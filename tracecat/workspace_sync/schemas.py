@@ -40,16 +40,46 @@ class WorkspaceManifestResources(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    workflows: str = f"{WORKFLOW_ROOT}/"
-    agent_presets: str = f"{AGENT_PRESET_ROOT}/"
-    skills: str = f"{SKILL_ROOT}/"
-    tables: str = f"{TABLE_ROOT}/"
-    case_tags: str = f"{CASE_TAG_ROOT}/"
-    case_fields: str = f"{CASE_FIELD_ROOT}/"
-    case_dropdowns: str = f"{CASE_DROPDOWN_ROOT}/"
-    case_durations: str = f"{CASE_DURATION_ROOT}/"
-    variables: str = f"{VARIABLE_ROOT}/"
-    secret_metadata: str = f"{SECRET_METADATA_ROOT}/"
+    workflows: str = Field(
+        default=f"{WORKFLOW_ROOT}/",
+        description="Repository-relative root directory for workflow files.",
+    )
+    agent_presets: str = Field(
+        default=f"{AGENT_PRESET_ROOT}/",
+        description="Repository-relative root directory for agent preset files.",
+    )
+    skills: str = Field(
+        default=f"{SKILL_ROOT}/",
+        description="Repository-relative root directory for skill files.",
+    )
+    tables: str = Field(
+        default=f"{TABLE_ROOT}/",
+        description="Repository-relative root directory for table files.",
+    )
+    case_tags: str = Field(
+        default=f"{CASE_TAG_ROOT}/",
+        description="Repository-relative root directory for case tag files.",
+    )
+    case_fields: str = Field(
+        default=f"{CASE_FIELD_ROOT}/",
+        description="Repository-relative root directory for case field files.",
+    )
+    case_dropdowns: str = Field(
+        default=f"{CASE_DROPDOWN_ROOT}/",
+        description="Repository-relative root directory for case dropdown files.",
+    )
+    case_durations: str = Field(
+        default=f"{CASE_DURATION_ROOT}/",
+        description="Repository-relative root directory for case duration files.",
+    )
+    variables: str = Field(
+        default=f"{VARIABLE_ROOT}/",
+        description="Repository-relative root directory for variable files.",
+    )
+    secret_metadata: str = Field(
+        default=f"{SECRET_METADATA_ROOT}/",
+        description="Repository-relative root directory for secret metadata files.",
+    )
 
 
 class WorkspaceManifest(BaseModel):
@@ -57,9 +87,10 @@ class WorkspaceManifest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    version: Literal[1] = 1
+    version: Literal[1] = Field(default=1, description="Manifest schema version.")
     resources: WorkspaceManifestResources = Field(
-        default_factory=WorkspaceManifestResources
+        default_factory=WorkspaceManifestResources,
+        description="Per-resource-type repository root directories.",
     )
 
 
@@ -96,16 +127,41 @@ def manifest_resource_roots(manifest: WorkspaceManifest) -> tuple[str, ...]:
 class WorkflowResourceSpec(BaseModel):
     """Canonical Git-owned desired state for a workflow resource."""
 
-    version: Literal[1] = 1
-    type: Literal["workflow"] = "workflow"
-    id: str = Field(min_length=1)
-    alias: str | None = None
-    folder_path: str | None = None
-    tags: list[RemoteWorkflowTag] | None = None
-    schedules: list[RemoteWorkflowSchedule] | None = None
-    webhook: RemoteWebhook | None = None
-    case_trigger: RemoteCaseTrigger | None = None
-    definition: DSLInput
+    version: Literal[1] = Field(default=1, description="Spec schema version.")
+    type: Literal["workflow"] = Field(
+        default="workflow", description="Resource type discriminator."
+    )
+    id: str = Field(
+        min_length=1,
+        description="Stable source id; the workflow's single-segment file path key.",
+    )
+    alias: str | None = Field(
+        default=None,
+        description="Optional human-friendly alias used for cross-references.",
+    )
+    folder_path: str | None = Field(
+        default=None,
+        description="Workspace folder the workflow lives under, if any.",
+    )
+    tags: list[RemoteWorkflowTag] | None = Field(
+        default=None,
+        description="Workflow tags, or ``None`` when tags are not synced.",
+    )
+    schedules: list[RemoteWorkflowSchedule] | None = Field(
+        default=None,
+        description="Workflow schedules, or ``None`` when schedules are not synced.",
+    )
+    webhook: RemoteWebhook | None = Field(
+        default=None,
+        description="Inbound webhook trigger config, if the workflow has one.",
+    )
+    case_trigger: RemoteCaseTrigger | None = Field(
+        default=None,
+        description="Case-event trigger config, if the workflow has one.",
+    )
+    definition: DSLInput = Field(
+        description="The workflow DSL: the executable graph and its metadata.",
+    )
 
     @field_validator("id")
     @classmethod
@@ -124,8 +180,12 @@ class AgentPresetSkillBinding(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    slug: str = Field(min_length=1)
-    version: int | None = Field(default=None, ge=1)
+    slug: str = Field(min_length=1, description="Slug of the referenced skill.")
+    version: int | None = Field(
+        default=None,
+        ge=1,
+        description="Pinned skill version, or ``None`` to track the latest.",
+    )
 
 
 class AgentPresetSubagentRef(BaseModel):
@@ -133,7 +193,9 @@ class AgentPresetSubagentRef(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    slug: str = Field(min_length=1)
+    slug: str = Field(
+        min_length=1, description="Slug of the preset used as a subagent."
+    )
 
 
 class AgentPresetResourceSpec(BaseModel):
@@ -141,28 +203,73 @@ class AgentPresetResourceSpec(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    version: Literal[1] = 1
-    type: Literal["agent_preset"] = "agent_preset"
-    id: str = Field(min_length=1)
-    slug: str = Field(min_length=1)
-    name: str = Field(min_length=1)
-    folder_path: str | None = None
-    tags: list[str] = Field(default_factory=list)
-    instructions: str | None = None
-    tool_approvals: dict[str, Any] = Field(default_factory=dict)
-    actions: list[str] = Field(default_factory=list)
-    skills: list[AgentPresetSkillBinding] = Field(default_factory=list)
-    subagents: list[AgentPresetSubagentRef] = Field(default_factory=list)
-    catalog_id: uuid.UUID | None = None
-    model_name: str | None = None
-    model_provider: str | None = None
-    base_url: str | None = None
-    output_type: Any | None = None
-    namespaces: list[str] = Field(default_factory=list)
-    mcp_integrations: list[str] = Field(default_factory=list)
-    retries: int = Field(default=3, ge=0)
-    enable_thinking: bool = True
-    enable_internet_access: bool = False
+    version: Literal[1] = Field(default=1, description="Spec schema version.")
+    type: Literal["agent_preset"] = Field(
+        default="agent_preset", description="Resource type discriminator."
+    )
+    id: str = Field(
+        min_length=1,
+        description="Stable source id; the preset's single-segment file path key.",
+    )
+    slug: str = Field(
+        min_length=1, description="Unique preset slug used for cross-references."
+    )
+    name: str = Field(min_length=1, description="Human-readable preset name.")
+    folder_path: str | None = Field(
+        default=None, description="Workspace folder the preset lives under, if any."
+    )
+    tags: list[str] = Field(default_factory=list, description="Free-form preset tags.")
+    instructions: str | None = Field(
+        default=None, description="System prompt / instructions for the agent."
+    )
+    tool_approvals: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Per-tool approval policy keyed by tool name.",
+    )
+    actions: list[str] = Field(
+        default_factory=list, description="Registry action names the agent may call."
+    )
+    skills: list[AgentPresetSkillBinding] = Field(
+        default_factory=list,
+        description="Skills bound to the preset, optionally version-pinned.",
+    )
+    subagents: list[AgentPresetSubagentRef] = Field(
+        default_factory=list, description="Other presets invoked as subagents."
+    )
+    catalog_id: uuid.UUID | None = Field(
+        default=None,
+        description="Source model catalog entry id, if model is catalog-backed.",
+    )
+    model_name: str | None = Field(
+        default=None,
+        description="Override model name, or ``None`` to inherit defaults.",
+    )
+    model_provider: str | None = Field(
+        default=None,
+        description="Override model provider, or ``None`` to inherit defaults.",
+    )
+    base_url: str | None = Field(
+        default=None, description="Override provider base URL, if any."
+    )
+    output_type: Any | None = Field(
+        default=None,
+        description="Structured output schema, if the agent returns structured data.",
+    )
+    namespaces: list[str] = Field(
+        default_factory=list,
+        description="Registry namespaces the agent's tools are drawn from.",
+    )
+    mcp_integrations: list[str] = Field(
+        default_factory=list,
+        description="MCP integration slugs available to the agent.",
+    )
+    retries: int = Field(default=3, ge=0, description="Maximum agent run retries.")
+    enable_thinking: bool = Field(
+        default=True, description="Whether extended thinking is enabled."
+    )
+    enable_internet_access: bool = Field(
+        default=False, description="Whether the agent may access the internet."
+    )
 
 
 class SkillFileSpec(BaseModel):
@@ -170,8 +277,12 @@ class SkillFileSpec(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    path: str = Field(min_length=1)
-    sha256: str = Field(min_length=64, max_length=64)
+    path: str = Field(min_length=1, description="Skill-relative file path.")
+    sha256: str = Field(
+        min_length=64,
+        max_length=64,
+        description="Hex-encoded SHA-256 of the file contents.",
+    )
 
 
 class SkillResourceSpec(BaseModel):
@@ -179,15 +290,35 @@ class SkillResourceSpec(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    version: Literal[1] = 1
-    type: Literal["skill"] = "skill"
-    id: str = Field(min_length=1)
-    slug: str = Field(min_length=1)
-    name: str = Field(min_length=1)
-    description: str | None = None
-    current_version: int | None = Field(default=None, ge=1)
-    files: list[SkillFileSpec] = Field(default_factory=list)
-    file_contents: dict[str, str] = Field(default_factory=dict, exclude=True)
+    version: Literal[1] = Field(default=1, description="Spec schema version.")
+    type: Literal["skill"] = Field(
+        default="skill", description="Resource type discriminator."
+    )
+    id: str = Field(
+        min_length=1,
+        description="Stable source id; the skill's single-segment file path key.",
+    )
+    slug: str = Field(
+        min_length=1, description="Unique skill slug used for cross-references."
+    )
+    name: str = Field(min_length=1, description="Human-readable skill name.")
+    description: str | None = Field(
+        default=None, description="Optional skill description."
+    )
+    current_version: int | None = Field(
+        default=None,
+        ge=1,
+        description="Published skill version, or ``None`` if unversioned.",
+    )
+    files: list[SkillFileSpec] = Field(
+        default_factory=list,
+        description="Manifest of the skill's files and their content hashes.",
+    )
+    file_contents: dict[str, str] = Field(
+        default_factory=dict,
+        exclude=True,
+        description="In-memory file contents keyed by path; excluded from serialization.",
+    )
 
 
 class TableResourceSpec(BaseModel):
@@ -195,13 +326,27 @@ class TableResourceSpec(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    version: Literal[1] = 1
-    type: Literal["table"] = "table"
-    id: str = Field(min_length=1)
-    name: str = Field(min_length=1)
-    columns: list[dict[str, Any]] = Field(default_factory=list)
-    rows_path: str | None = "rows.jsonl"
-    rows: list[dict[str, Any]] = Field(default_factory=list, exclude=True)
+    version: Literal[1] = Field(default=1, description="Spec schema version.")
+    type: Literal["table"] = Field(
+        default="table", description="Resource type discriminator."
+    )
+    id: str = Field(
+        min_length=1,
+        description="Stable source id; the table's single-segment file path key.",
+    )
+    name: str = Field(min_length=1, description="Table name.")
+    columns: list[dict[str, Any]] = Field(
+        default_factory=list, description="Column definitions for the table schema."
+    )
+    rows_path: str | None = Field(
+        default="rows.jsonl",
+        description="Repository-relative path to the JSONL rows file, if rows are synced.",
+    )
+    rows: list[dict[str, Any]] = Field(
+        default_factory=list,
+        exclude=True,
+        description="In-memory table rows; excluded from serialization.",
+    )
 
 
 class CaseTagResourceSpec(BaseModel):
@@ -209,11 +354,16 @@ class CaseTagResourceSpec(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    version: Literal[1] = 1
-    type: Literal["case_tag"] = "case_tag"
-    id: str = Field(min_length=1)
-    name: str = Field(min_length=1)
-    color: str | None = None
+    version: Literal[1] = Field(default=1, description="Spec schema version.")
+    type: Literal["case_tag"] = Field(
+        default="case_tag", description="Resource type discriminator."
+    )
+    id: str = Field(
+        min_length=1,
+        description="Stable source id; the case tag's single-segment file path key.",
+    )
+    name: str = Field(min_length=1, description="Case tag name.")
+    color: str | None = Field(default=None, description="Optional display color.")
 
 
 class CaseDropdownResourceSpec(BaseModel):
@@ -221,15 +371,27 @@ class CaseDropdownResourceSpec(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    version: Literal[1] = 1
-    type: Literal["case_dropdown"] = "case_dropdown"
-    id: str = Field(min_length=1)
-    name: str = Field(min_length=1)
-    options: list[dict[str, Any]] = Field(default_factory=list)
-    is_ordered: bool = False
-    icon_name: str | None = None
-    position: int = 0
-    required_on_closure: bool = False
+    version: Literal[1] = Field(default=1, description="Spec schema version.")
+    type: Literal["case_dropdown"] = Field(
+        default="case_dropdown", description="Resource type discriminator."
+    )
+    id: str = Field(
+        min_length=1,
+        description="Stable source id; the dropdown's single-segment file path key.",
+    )
+    name: str = Field(min_length=1, description="Case dropdown field name.")
+    options: list[dict[str, Any]] = Field(
+        default_factory=list, description="Dropdown option definitions."
+    )
+    is_ordered: bool = Field(
+        default=False, description="Whether option order is significant."
+    )
+    icon_name: str | None = Field(default=None, description="Optional icon name.")
+    position: int = Field(default=0, description="Display ordering position.")
+    required_on_closure: bool = Field(
+        default=False,
+        description="Whether a value is required before a case can close.",
+    )
 
 
 class CaseDurationAnchorSpec(BaseModel):
@@ -237,10 +399,21 @@ class CaseDurationAnchorSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    event: CaseEventType
-    selection: CaseDurationAnchorSelection = CaseDurationAnchorSelection.FIRST
-    timestamp_path: str = "created_at"
-    field_filters: dict[str, Any] = Field(default_factory=dict)
+    event: CaseEventType = Field(
+        description="Case event type that marks this boundary."
+    )
+    selection: CaseDurationAnchorSelection = Field(
+        default=CaseDurationAnchorSelection.FIRST,
+        description="Which matching event to pick (first or last).",
+    )
+    timestamp_path: str = Field(
+        default="created_at",
+        description="Path to the timestamp field on the selected event.",
+    )
+    field_filters: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Field equality filters narrowing matching events.",
+    )
 
 
 class CaseDurationResourceSpec(BaseModel):
@@ -248,13 +421,24 @@ class CaseDurationResourceSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    version: Literal[1] = 1
-    type: Literal["case_duration"] = "case_duration"
-    id: str = Field(min_length=1)
-    name: str = Field(min_length=1)
-    description: str | None = None
-    start: CaseDurationAnchorSpec
-    end: CaseDurationAnchorSpec
+    version: Literal[1] = Field(default=1, description="Spec schema version.")
+    type: Literal["case_duration"] = Field(
+        default="case_duration", description="Resource type discriminator."
+    )
+    id: str = Field(
+        min_length=1,
+        description="Stable source id; the duration's single-segment file path key.",
+    )
+    name: str = Field(min_length=1, description="Case duration metric name.")
+    description: str | None = Field(
+        default=None, description="Optional metric description."
+    )
+    start: CaseDurationAnchorSpec = Field(
+        description="Event boundary that starts the duration."
+    )
+    end: CaseDurationAnchorSpec = Field(
+        description="Event boundary that ends the duration."
+    )
 
 
 class CaseFieldResourceSpec(BaseModel):
@@ -262,14 +446,28 @@ class CaseFieldResourceSpec(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    version: Literal[1] = 1
-    type: Literal["case_field"] = "case_field"
-    id: str = Field(min_length=1)
-    name: str = Field(min_length=1)
-    field_type: str | None = None
-    kind: str | None = None
-    options: list[str] | None = None
-    required_on_closure: bool = False
+    version: Literal[1] = Field(default=1, description="Spec schema version.")
+    type: Literal["case_field"] = Field(
+        default="case_field", description="Resource type discriminator."
+    )
+    id: str = Field(
+        min_length=1,
+        description="Stable source id; the field's single-segment file path key.",
+    )
+    name: str = Field(min_length=1, description="Case field name.")
+    field_type: str | None = Field(
+        default=None, description="Underlying field data type, if specified."
+    )
+    kind: str | None = Field(
+        default=None, description="Field kind/category, if specified."
+    )
+    options: list[str] | None = Field(
+        default=None, description="Allowed values for enumerated fields, if any."
+    )
+    required_on_closure: bool = Field(
+        default=False,
+        description="Whether a value is required before a case can close.",
+    )
 
 
 class VariableResourceSpec(BaseModel):
@@ -281,15 +479,32 @@ class VariableResourceSpec(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    version: Literal[1] = 1
-    type: Literal["variable"] = "variable"
-    id: str = Field(min_length=1)
-    name: str = Field(min_length=1)
-    environment: str = Field(min_length=1)
-    keys: list[str] | None = None
-    value: Any | None = Field(default=None, exclude=True)
-    description: str | None = None
-    tags: list[str] = Field(default_factory=list)
+    version: Literal[1] = Field(default=1, description="Spec schema version.")
+    type: Literal["variable"] = Field(
+        default="variable", description="Resource type discriminator."
+    )
+    id: str = Field(
+        min_length=1,
+        description="Stable source id; the variable's single-segment file path key.",
+    )
+    name: str = Field(min_length=1, description="Variable name.")
+    environment: str = Field(
+        min_length=1, description="Environment the variable is scoped to."
+    )
+    keys: list[str] | None = Field(
+        default=None, description="Key names contained in the variable, if structured."
+    )
+    value: Any | None = Field(
+        default=None,
+        exclude=True,
+        description="Variable material; excluded from serialization (Git tracks metadata only).",
+    )
+    description: str | None = Field(
+        default=None, description="Optional variable description."
+    )
+    tags: list[str] = Field(
+        default_factory=list, description="Free-form variable tags."
+    )
 
 
 class SecretMetadataResourceSpec(BaseModel):
@@ -301,15 +516,29 @@ class SecretMetadataResourceSpec(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    version: Literal[1] = 1
-    type: Literal["secret_metadata"] = "secret_metadata"
-    id: str = Field(min_length=1)
-    name: str = Field(min_length=1)
-    environment: str = Field(min_length=1)
-    secret_type: str | None = None
-    keys: list[str] = Field(default_factory=list)
-    tags: list[str] = Field(default_factory=list)
-    description: str | None = None
+    version: Literal[1] = Field(default=1, description="Spec schema version.")
+    type: Literal["secret_metadata"] = Field(
+        default="secret_metadata", description="Resource type discriminator."
+    )
+    id: str = Field(
+        min_length=1,
+        description="Stable source id; the secret's single-segment file path key.",
+    )
+    name: str = Field(min_length=1, description="Secret name.")
+    environment: str = Field(
+        min_length=1, description="Environment the secret is scoped to."
+    )
+    secret_type: str | None = Field(
+        default=None, description="Secret type/category, if specified."
+    )
+    keys: list[str] = Field(
+        default_factory=list,
+        description="Key names contained in the secret (names only, no values).",
+    )
+    tags: list[str] = Field(default_factory=list, description="Free-form secret tags.")
+    description: str | None = Field(
+        default=None, description="Optional secret description."
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -327,17 +556,37 @@ class WorkspaceSpec(BaseModel):
     repository layout.
     """
 
-    version: Literal[1] = 1
-    workflows: dict[str, WorkflowResourceSpec] = Field(default_factory=dict)
-    agent_presets: dict[str, AgentPresetResourceSpec] = Field(default_factory=dict)
-    skills: dict[str, SkillResourceSpec] = Field(default_factory=dict)
-    tables: dict[str, TableResourceSpec] = Field(default_factory=dict)
-    case_tags: dict[str, CaseTagResourceSpec] = Field(default_factory=dict)
-    case_fields: dict[str, CaseFieldResourceSpec] = Field(default_factory=dict)
-    case_dropdowns: dict[str, CaseDropdownResourceSpec] = Field(default_factory=dict)
-    case_durations: dict[str, CaseDurationResourceSpec] = Field(default_factory=dict)
-    variables: dict[str, VariableResourceSpec] = Field(default_factory=dict)
-    secret_metadata: dict[str, SecretMetadataResourceSpec] = Field(default_factory=dict)
+    version: Literal[1] = Field(default=1, description="Spec schema version.")
+    workflows: dict[str, WorkflowResourceSpec] = Field(
+        default_factory=dict, description="Workflow specs keyed by source id."
+    )
+    agent_presets: dict[str, AgentPresetResourceSpec] = Field(
+        default_factory=dict, description="Agent preset specs keyed by source id."
+    )
+    skills: dict[str, SkillResourceSpec] = Field(
+        default_factory=dict, description="Skill specs keyed by source id."
+    )
+    tables: dict[str, TableResourceSpec] = Field(
+        default_factory=dict, description="Table specs keyed by source id."
+    )
+    case_tags: dict[str, CaseTagResourceSpec] = Field(
+        default_factory=dict, description="Case tag specs keyed by source id."
+    )
+    case_fields: dict[str, CaseFieldResourceSpec] = Field(
+        default_factory=dict, description="Case field specs keyed by source id."
+    )
+    case_dropdowns: dict[str, CaseDropdownResourceSpec] = Field(
+        default_factory=dict, description="Case dropdown specs keyed by source id."
+    )
+    case_durations: dict[str, CaseDurationResourceSpec] = Field(
+        default_factory=dict, description="Case duration specs keyed by source id."
+    )
+    variables: dict[str, VariableResourceSpec] = Field(
+        default_factory=dict, description="Variable specs keyed by source id."
+    )
+    secret_metadata: dict[str, SecretMetadataResourceSpec] = Field(
+        default_factory=dict, description="Secret metadata specs keyed by source id."
+    )
 
     @model_validator(mode="after")
     def validate_resource_keys(self) -> WorkspaceSpec:
@@ -384,38 +633,68 @@ class WorkspaceSpec(BaseModel):
 class WorkspaceProjection(BaseModel):
     """Locally projected workspace state plus the files it serializes to."""
 
-    manifest: WorkspaceManifest
-    spec: WorkspaceSpec
-    files: dict[str, str]
+    manifest: WorkspaceManifest = Field(
+        description="Manifest describing the projected repository layout."
+    )
+    spec: WorkspaceSpec = Field(description="Projected workspace desired state.")
+    files: dict[str, str] = Field(
+        description="Serialized repository files keyed by repository-relative path."
+    )
 
 
 class WorkspaceRemoteSnapshot(BaseModel):
     """Workspace state read back from a remote Git commit."""
 
-    commit_sha: str
-    tree_sha: str | None = None
-    files: dict[str, str]
-    spec: WorkspaceSpec
+    commit_sha: str = Field(description="SHA of the commit the snapshot was read from.")
+    tree_sha: str | None = Field(
+        default=None, description="SHA of the commit's tree, if known."
+    )
+    files: dict[str, str] = Field(
+        description="Repository files keyed by repository-relative path."
+    )
+    spec: WorkspaceSpec = Field(
+        description="Workspace desired state parsed from the commit."
+    )
 
 
 class ResourceRef(BaseModel):
     """Reference to a single resource by type and either source or local id."""
 
-    resource_type: SyncResourceType
-    source_id: str | None = None
-    local_id: uuid.UUID | None = None
+    resource_type: SyncResourceType = Field(
+        description="Type of the referenced resource."
+    )
+    source_id: str | None = Field(
+        default=None,
+        description="Git source id of the resource, if referenced by source id.",
+    )
+    local_id: uuid.UUID | None = Field(
+        default=None,
+        description="Local database id of the resource, if referenced by local id.",
+    )
 
 
 class WorkspaceSyncExportRequest(BaseModel):
     """Request to commit selected workspace resources to a Git branch."""
 
-    message: str = Field(min_length=1)
-    branch: str
-    create_pr: bool = False
-    pr_base_branch: str | None = None
-    resources: list[ResourceRef] | None = None
-    provider: VcsProvider = VcsProvider.GITHUB
-    include_schedules: bool = False
+    message: str = Field(min_length=1, description="Commit message for the export.")
+    branch: str = Field(description="Target branch to commit to.")
+    create_pr: bool = Field(
+        default=False, description="Whether to open a pull request for the commit."
+    )
+    pr_base_branch: str | None = Field(
+        default=None, description="Base branch for the pull request, if created."
+    )
+    resources: list[ResourceRef] | None = Field(
+        default=None,
+        description="Specific resources to export, or ``None`` to export all.",
+    )
+    provider: VcsProvider = Field(
+        default=VcsProvider.GITHUB, description="VCS provider to push to."
+    )
+    include_schedules: bool = Field(
+        default=False,
+        description="Whether to include workflow schedules in the export.",
+    )
 
     @field_validator("message")
     @classmethod
@@ -430,8 +709,14 @@ class WorkspaceSyncExportRequest(BaseModel):
 class WorkspaceSyncExportPreviewRequest(BaseModel):
     """Request a dry-run projection of what an export would push to Git."""
 
-    resources: list[ResourceRef] | None = None
-    include_schedules: bool = False
+    resources: list[ResourceRef] | None = Field(
+        default=None,
+        description="Specific resources to preview, or ``None`` for all.",
+    )
+    include_schedules: bool = Field(
+        default=False,
+        description="Whether to include workflow schedules in the preview.",
+    )
 
 
 class WorkspaceSyncExportPreview(BaseModel):
@@ -441,15 +726,21 @@ class WorkspaceSyncExportPreview(BaseModel):
     locally without writing to Git or mutating sync mappings.
     """
 
-    resource_counts: dict[str, int]
-    files: list[str]
+    resource_counts: dict[str, int] = Field(
+        description="Count of resources to commit, keyed by resource type."
+    )
+    files: list[str] = Field(
+        description="Repository-relative paths the export would write."
+    )
 
 
 class WorkspaceSyncExportResult(BaseModel):
     """Outcome of a workspace export: the commit made and files written."""
 
-    commit: CommitInfo
-    files: list[str]
+    commit: CommitInfo = Field(description="Metadata for the commit that was created.")
+    files: list[str] = Field(
+        description="Repository-relative paths written by the export."
+    )
 
     def as_workflow_publish_result(self) -> WorkflowDslPublishResult:
         """Adapt this export result to the legacy :class:`WorkflowDslPublishResult`."""

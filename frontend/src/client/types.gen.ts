@@ -6146,8 +6146,17 @@ export type ResourcePullCount = {
  * Reference to a single resource by type and either source or local id.
  */
 export type ResourceRef = {
+  /**
+   * Type of the referenced resource.
+   */
   resource_type: SyncResourceType
+  /**
+   * Git source id of the resource, if referenced by source id.
+   */
   source_id?: string | null
+  /**
+   * Local database id of the resource, if referenced by local id.
+   */
   local_id?: string | null
 }
 
@@ -9396,9 +9405,15 @@ export type WorkspaceSettingsUpdate = {
  * locally without writing to Git or mutating sync mappings.
  */
 export type WorkspaceSyncExportPreview = {
+  /**
+   * Count of resources to commit, keyed by resource type.
+   */
   resource_counts: {
     [key: string]: number
   }
+  /**
+   * Repository-relative paths the export would write.
+   */
   files: Array<string>
 }
 
@@ -9406,7 +9421,13 @@ export type WorkspaceSyncExportPreview = {
  * Request a dry-run projection of what an export would push to Git.
  */
 export type WorkspaceSyncExportPreviewRequest = {
+  /**
+   * Specific resources to preview, or ``None`` for all.
+   */
   resources?: Array<ResourceRef> | null
+  /**
+   * Whether to include workflow schedules in the preview.
+   */
   include_schedules?: boolean
 }
 
@@ -9414,12 +9435,33 @@ export type WorkspaceSyncExportPreviewRequest = {
  * Request to commit selected workspace resources to a Git branch.
  */
 export type WorkspaceSyncExportRequest = {
+  /**
+   * Commit message for the export.
+   */
   message: string
+  /**
+   * Target branch to commit to.
+   */
   branch: string
+  /**
+   * Whether to open a pull request for the commit.
+   */
   create_pr?: boolean
+  /**
+   * Base branch for the pull request, if created.
+   */
   pr_base_branch?: string | null
+  /**
+   * Specific resources to export, or ``None`` to export all.
+   */
   resources?: Array<ResourceRef> | null
+  /**
+   * VCS provider to push to.
+   */
   provider?: VcsProvider
+  /**
+   * Whether to include workflow schedules in the export.
+   */
   include_schedules?: boolean
 }
 
@@ -9427,7 +9469,13 @@ export type WorkspaceSyncExportRequest = {
  * Outcome of a workspace export: the commit made and files written.
  */
 export type WorkspaceSyncExportResult = {
+  /**
+   * Metadata for the commit that was created.
+   */
   commit: CommitInfo
+  /**
+   * Repository-relative paths written by the export.
+   */
   files: Array<string>
 }
 

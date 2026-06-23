@@ -20327,6 +20327,7 @@ export const $ResourceRef = {
   properties: {
     resource_type: {
       $ref: "#/components/schemas/SyncResourceType",
+      description: "Type of the referenced resource.",
     },
     source_id: {
       anyOf: [
@@ -20338,6 +20339,7 @@ export const $ResourceRef = {
         },
       ],
       title: "Source Id",
+      description: "Git source id of the resource, if referenced by source id.",
     },
     local_id: {
       anyOf: [
@@ -20350,6 +20352,8 @@ export const $ResourceRef = {
         },
       ],
       title: "Local Id",
+      description:
+        "Local database id of the resource, if referenced by local id.",
     },
   },
   type: "object",
@@ -31789,6 +31793,7 @@ export const $WorkspaceSyncExportPreview = {
       },
       type: "object",
       title: "Resource Counts",
+      description: "Count of resources to commit, keyed by resource type.",
     },
     files: {
       items: {
@@ -31796,6 +31801,7 @@ export const $WorkspaceSyncExportPreview = {
       },
       type: "array",
       title: "Files",
+      description: "Repository-relative paths the export would write.",
     },
   },
   type: "object",
@@ -31822,10 +31828,12 @@ export const $WorkspaceSyncExportPreviewRequest = {
         },
       ],
       title: "Resources",
+      description: "Specific resources to preview, or ``None`` for all.",
     },
     include_schedules: {
       type: "boolean",
       title: "Include Schedules",
+      description: "Whether to include workflow schedules in the preview.",
       default: false,
     },
   },
@@ -31841,14 +31849,17 @@ export const $WorkspaceSyncExportRequest = {
       type: "string",
       minLength: 1,
       title: "Message",
+      description: "Commit message for the export.",
     },
     branch: {
       type: "string",
       title: "Branch",
+      description: "Target branch to commit to.",
     },
     create_pr: {
       type: "boolean",
       title: "Create Pr",
+      description: "Whether to open a pull request for the commit.",
       default: false,
     },
     pr_base_branch: {
@@ -31861,6 +31872,7 @@ export const $WorkspaceSyncExportRequest = {
         },
       ],
       title: "Pr Base Branch",
+      description: "Base branch for the pull request, if created.",
     },
     resources: {
       anyOf: [
@@ -31875,14 +31887,17 @@ export const $WorkspaceSyncExportRequest = {
         },
       ],
       title: "Resources",
+      description: "Specific resources to export, or ``None`` to export all.",
     },
     provider: {
       $ref: "#/components/schemas/VcsProvider",
+      description: "VCS provider to push to.",
       default: "github",
     },
     include_schedules: {
       type: "boolean",
       title: "Include Schedules",
+      description: "Whether to include workflow schedules in the export.",
       default: false,
     },
   },
@@ -31897,6 +31912,7 @@ export const $WorkspaceSyncExportResult = {
   properties: {
     commit: {
       $ref: "#/components/schemas/CommitInfo",
+      description: "Metadata for the commit that was created.",
     },
     files: {
       items: {
@@ -31904,6 +31920,7 @@ export const $WorkspaceSyncExportResult = {
       },
       type: "array",
       title: "Files",
+      description: "Repository-relative paths written by the export.",
     },
   },
   type: "object",
