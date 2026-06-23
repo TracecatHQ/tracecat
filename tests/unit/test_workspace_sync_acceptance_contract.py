@@ -673,6 +673,179 @@ async def test_source_export_target_pull_preserves_projected_workspace(
 
 
 @pytest.mark.anyio
+async def test_legacy_workflow_only_repo_upgrades_to_expanded_workspace_sync(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Upgrade an existing workflow-only sync repo through the new workspace sync.
+
+    Models an existing installation before the expanded resource format ships:
+    both source and destination workspaces already track a remote repository that
+    contains only legacy ``workflows/`` files and no ``tracecat.json`` manifest.
+    After upgrade, the source workspace can create non-workflow resources, export
+    the full workspace with the new manifest, and the destination can pull that
+    upgraded commit without losing the existing workflows.
+    """
+    assert svc_role.workspace_id is not None
+    # ======================================================================
+    # ARRANGE: stand up a legacy (pre-upgrade) installation
+    # ======================================================================
+    # Two workspaces (source + target) share one remote repo. ``repo_url`` is the
+    # user-facing config string; ``git_url`` is the parsed form the fake VCS keys
+    # its in-memory repos by.
+    repo_url = "git+ssh://git@github.com/TracecatHQ/git-sync-upgrade-qa.git"
+    git_url = GitUrl(
+        host="github.com",
+        org="TracecatHQ",
+        repo="git-sync-upgrade-qa",
+    )
+    fake_vcs = FakeVcsServer()
+    # Point the source workspace at the shared repo, then clone its config onto a
+    # second workspace so both sides sync against the same remote.
+    await _set_workspace_git_repo_url(
+        session,
+        workspace_id=svc_role.workspace_id,
+        repo_url=repo_url,
+    )
+    target_role = await _create_workspace_role(
+        session,
+        source_role=svc_role,
+        workspace_name="target-upgrade-workspace",
+        repo_url=repo_url,
+    )
+    # One sync service per workspace; both share the fake VCS transport so they
+    # read/write the same in-memory repo instead of hitting a real GitHub.
+    source_service = WorkspaceSyncService(
+        session=session,
+        role=svc_role,
+        transport_factory=fake_vcs.transport_factory,
+    )
+    target_service = WorkspaceSyncService(
+        session=session,
+        role=target_role,
+        transport_factory=fake_vcs.transport_factory,
+    )
+    # Seed the remote with the *pre-upgrade* repo layout directly (bypassing the
+    # sync services) so the starting commit looks like a legacy installation.
+    seed_transport = fake_vcs.transport_factory(
+        VcsProvider.GITHUB,
+        session=session,
+        role=svc_role,
+    )
+    legacy_commit = await seed_transport.write_files(
+        url=git_url,
+        files=_legacy_workflow_only_git_tree(),
+        message="Seed legacy workflow sync repository",
+        branch="main",
+        create_pr=False,
+    )
+    assert legacy_commit.sha is not None
+    # Sanity-check the seed actually models the legacy format: no manifest file
+    # and every tracked path lives under the workflows/ root.
+    legacy_remote_files = fake_vcs.repo_files(git_url, ref=legacy_commit.sha)
+    assert MANIFEST_FILENAME not in legacy_remote_files
+    assert all(path.startswith(f"{WORKFLOW_ROOT}/") for path in legacy_remote_files)
+
+    with patch(
+        "tracecat.workflow.management.management.RegistryLockService.resolve_lock_with_bindings",
+        AsyncMock(return_value=RegistryLock(origins={}, actions={})),
+    ):
+        # ==================================================================
+        # PRE-UPGRADE: both workspaces sync the legacy workflow-only remote
+        # ==================================================================
+        # Both workspaces represent existing users before upgrade: they can pull
+        # the workflow-only remote and preserve those workflow identities locally.
+        source_legacy_pull = await source_service.pull(
+            options=PullOptions(commit_sha=legacy_commit.sha)
+        )
+        target_legacy_pull = await target_service.pull(
+            options=PullOptions(commit_sha=legacy_commit.sha)
+        )
+        # A successful pull on a manifest-less commit proves the new sync code is
+        # backward compatible with the legacy layout.
+        assert source_legacy_pull.success is True
+        assert target_legacy_pull.success is True
+
+        # Projecting the freshly-pulled target back to files shows what the new
+        # code canonically emits for a legacy workspace.
+        target_legacy_projection = await target_service.project_workspace(
+            create_missing_mappings=False
+        )
+        # The manifest is synthesised on projection even though the remote never
+        # had one...
+        assert MANIFEST_FILENAME in target_legacy_projection.files
+        # ...but no expanded resources (e.g. agent presets) are invented out of
+        # thin air: a legacy repo only carried workflows.
+        assert not any(
+            path.startswith(f"{AGENT_PRESET_ROOT}/")
+            for path in target_legacy_projection.files
+        )
+
+        # ==================================================================
+        # UPGRADE: source gains expanded resources and pushes the new format
+        # ==================================================================
+        # Simulate post-upgrade source-side edits. parse_files validates the new
+        # expanded tree (no diagnostics == it parsed cleanly), then the import
+        # service writes the non-workflow resources into the source DB. These rows
+        # are local database state only; the remote is still legacy until
+        # export_workspace writes the new manifest and resource dirs below.
+        expanded_snapshot, expanded_diagnostics = await source_service.parse_files(
+            _expanded_full_git_tree(include_schedules=False),
+            commit_sha="e" * 40,
+        )
+        assert expanded_diagnostics == []
+        await WorkspaceResourceImportService(
+            session=session,
+            role=svc_role,
+        ).import_non_workflow_resources(expanded_snapshot.spec)
+
+        # Export the now-expanded source workspace. This is the upgrade commit:
+        # the first push that writes the manifest + resource directories on top of
+        # the legacy workflow files.
+        upgraded_export = await source_service.export_workspace(
+            WorkspaceSyncExportRequest(
+                message="Upgrade workspace sync repository",
+                branch="sync/workspace-upgrade",
+                create_pr=False,
+            )
+        )
+        # The export must land as a real commit (not a no-op/skip) for the target
+        # to have something to pull.
+        assert upgraded_export.commit.status is PushStatus.COMMITTED
+        assert upgraded_export.commit.sha is not None
+        # The upgrade commit must now contain the manifest plus a representative
+        # resource from each new family (preset / table / case tag) — proof the
+        # legacy repo was actually expanded, not just re-pushed.
+        upgraded_remote_files = fake_vcs.repo_files(
+            git_url,
+            ref=upgraded_export.commit.sha,
+        )
+        assert MANIFEST_FILENAME in upgraded_remote_files
+        assert f"{AGENT_PRESET_ROOT}/qa-triage-parent/preset.yml" in (
+            upgraded_remote_files
+        )
+        assert f"{TABLE_ROOT}/qa_indicators/table.yml" in upgraded_remote_files
+        assert f"{CASE_TAG_ROOT}/qa-alert.yml" in upgraded_remote_files
+
+        # ==================================================================
+        # POST-UPGRADE: target pulls the upgraded commit
+        # ==================================================================
+        # The destination upgrades by pulling the new commit, exactly as a real
+        # installation would after the source side ships the expanded format.
+        target_upgraded_pull = await target_service.pull(
+            options=PullOptions(commit_sha=upgraded_export.commit.sha)
+        )
+
+    assert target_upgraded_pull.success is True
+    # Parity check: after the upgrade round-trip, source and target project to an
+    # identical file set — no workflows lost, no resources dropped or duplicated.
+    await _assert_projected_workspaces_match(source_service, target_service)
+    # And the target DB actually materialised the new resource rows, not just the
+    # files — i.e. the pull imported the expanded format end to end.
+    await _assert_workspace_has_expanded_resource_rows(session, target_role)
+
+
+@pytest.mark.anyio
 async def test_project_workspace_preserves_agent_preset_source_id_after_rename(
     session: AsyncSession,
     svc_role: Role,
@@ -2194,6 +2367,93 @@ async def _assert_projected_workspaces_match(
     assert target_projection.files == source_projection.files
 
 
+async def _assert_workspace_has_expanded_resource_rows(
+    session: AsyncSession,
+    role: Role,
+) -> None:
+    """Assert the upgraded destination contains representative new resources.
+
+    File-level parity (``_assert_projected_workspaces_match``) only proves the
+    bytes round-tripped. This helper queries the DB directly to prove the pull
+    actually *materialised* one row from every new resource family, so a silent
+    "files written but not imported" regression can't pass.
+    """
+    workspace_id = role.workspace_id
+    assert workspace_id is not None
+    # Workflow: the legacy resource family must survive the upgrade, keyed by the
+    # alias it was seeded with.
+    assert await session.scalar(
+        select(Workflow).where(
+            Workflow.workspace_id == workspace_id,
+            Workflow.alias == "qa-root",
+        )
+    )
+    # Agent preset + its skill: presets are folder-based resources, skills are
+    # nested files under them, so both confirm the nested layout imported.
+    assert await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == workspace_id,
+            AgentPreset.slug == "qa-triage-parent",
+        )
+    )
+    assert await session.scalar(
+        select(Skill).where(
+            Skill.workspace_id == workspace_id,
+            Skill.name == "qa-enrichment-skill",
+        )
+    )
+    # Table: schema-bearing resource.
+    assert await session.scalar(
+        select(Table).where(
+            Table.workspace_id == workspace_id,
+            Table.name == "qa_indicators",
+        )
+    )
+    # Case tag: simple single-file case resource keyed by ref.
+    assert await session.scalar(
+        select(CaseTag).where(
+            CaseTag.workspace_id == workspace_id,
+            CaseTag.ref == "qa-alert",
+        )
+    )
+    # Case dropdown + duration definitions: case configuration resources.
+    assert await session.scalar(
+        select(CaseDropdownDefinition).where(
+            CaseDropdownDefinition.workspace_id == workspace_id,
+            CaseDropdownDefinition.ref == "qa_resolution_reason",
+        )
+    )
+    assert await session.scalar(
+        select(CaseDurationDefinition).where(
+            CaseDurationDefinition.workspace_id == workspace_id,
+            CaseDurationDefinition.name == "qa_time_to_triage",
+        )
+    )
+    # Case fields: a single per-workspace row whose JSON schema must include the
+    # custom field, so check the column was merged in rather than just present.
+    case_fields = await session.scalar(
+        select(CaseFields).where(CaseFields.workspace_id == workspace_id)
+    )
+    assert case_fields is not None
+    assert "qa_external_ref" in (case_fields.schema or {})
+    # Variable + secret: environment-scoped resources, so the env discriminator is
+    # part of the lookup to prove it round-tripped too.
+    assert await session.scalar(
+        select(WorkspaceVariable).where(
+            WorkspaceVariable.workspace_id == workspace_id,
+            WorkspaceVariable.name == "qa_config",
+            WorkspaceVariable.environment == "default",
+        )
+    )
+    assert await session.scalar(
+        select(Secret).where(
+            Secret.workspace_id == workspace_id,
+            Secret.name == "qa_threatintel",
+            Secret.environment == "default",
+        )
+    )
+
+
 async def _mutate_source_workspace_for_roundtrip_update(
     session: AsyncSession,
     *,
@@ -2241,6 +2501,62 @@ async def _mutate_source_workspace_for_roundtrip_update(
         )
     )
     await session.flush()
+
+
+def _legacy_workflow_only_git_tree() -> dict[str, str]:
+    """Old sync repository layout: workflow YAML files only, no manifest.
+
+    Models a parent (``qa-root``) that invokes a child (``qa-child``) by alias so
+    the seed exercises cross-workflow references, the trickiest thing to preserve
+    across an upgrade.
+    """
+    return {
+        f"{WORKFLOW_ROOT}/qa-root/definition.yml": _legacy_workflow_yaml(
+            _workflow_spec(
+                source_id="qa-root",
+                title="qa-root-orchestrator",
+                alias="qa-root",
+                folder_path="QA/Root",
+                actions=[
+                    {
+                        "ref": "execute_child",
+                        "action": "core.workflow.execute",
+                        "args": {"workflow_alias": "qa-child"},
+                    }
+                ],
+            )
+        ),
+        f"{WORKFLOW_ROOT}/qa-child/definition.yml": _legacy_workflow_yaml(
+            _workflow_spec(
+                source_id="qa-child",
+                title="qa-child-enrichment",
+                alias="qa-child",
+                folder_path="QA/Children",
+                actions=[
+                    {
+                        "ref": "enrich",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "${{ TRIGGER.indicator }}"},
+                    }
+                ],
+            )
+        ),
+    }
+
+
+def _legacy_workflow_yaml(spec: dict[str, Any]) -> str:
+    """Downgrade a modern workflow spec into the legacy on-disk shape.
+
+    Legacy files predate the expanded format, so strip the fields it added
+    (``version``/``type``) and rewrite ``id`` into the old ``wf_<hex>`` form
+    instead of the prefixed-ULID used today. Copy first so the caller's spec is
+    left untouched.
+    """
+    legacy = deepcopy(spec)
+    legacy.pop("version", None)
+    legacy.pop("type", None)
+    legacy["id"] = "wf_" + "".join(char for char in spec["id"] if char.isalnum())
+    return _yaml(legacy)
 
 
 def _agent_preset_git_tree(
