@@ -43,7 +43,6 @@ from tracecat.db.models import (
     WorkspaceVariable,
 )
 from tracecat.git.types import GitUrl
-from tracecat.pagination import CursorPaginationParams
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.sync import PullOptions, PushStatus
 from tracecat.tables.schemas import TableUpdate
@@ -570,14 +569,10 @@ async def test_project_workspace_exports_supported_non_workflow_resources(
     _assert_secret_metadata_has_no_values(files)
     _assert_variable_exports_have_no_values(files)
 
-    table_rows = [
-        json.loads(line)
-        for line in files[f"{TABLE_ROOT}/qa_indicators/rows.jsonl"].splitlines()
-    ]
-    assert {row["indicator"] for row in table_rows} == {
-        "bad.example",
-        "hash:0123456789abcdef",
-    }
+    assert f"{TABLE_ROOT}/qa_indicators/rows.jsonl" not in files
+    table_spec = yaml.safe_load(files[f"{TABLE_ROOT}/qa_indicators/table.yml"])
+    assert "rows_path" not in table_spec
+    assert "rows" not in table_spec
     skill_spec = yaml.safe_load(files[f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml"])
     assert {file["path"] for file in skill_spec["files"]} == {
         "SKILL.md",
@@ -2869,7 +2864,7 @@ async def test_table_import_rejects_multiple_unique_columns(
 
 
 @pytest.mark.anyio
-async def test_table_import_inserts_rows_without_unique_column(
+async def test_table_specs_reject_runtime_row_fields(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
@@ -2896,21 +2891,11 @@ async def test_table_import_inserts_rows_without_unique_column(
     }
     snapshot, diagnostics = await service.parse_files(files, commit_sha="v" * 40)
 
-    assert diagnostics == []
-    await WorkspaceResourceImportService(
-        session=session,
-        role=svc_role,
-    ).import_non_workflow_resources(snapshot.spec)
-
-    table_service = BaseTablesService(session=session, role=svc_role)
-    table = await table_service.get_table_by_name("qa_non_unique")
-    rows = await table_service.list_rows(
-        table,
-        CursorPaginationParams(limit=10),
-        order_by="indicator",
-        sort="asc",
-    )
-    assert [row["indicator"] for row in rows.items] == ["alpha", "beta"]
+    assert snapshot.spec.tables == {}
+    assert len(diagnostics) == 1
+    assert diagnostics[0].workflow_path == f"{TABLE_ROOT}/qa_non_unique/table.yml"
+    assert diagnostics[0].error_type == "validation"
+    assert "rows_path" in diagnostics[0].message
 
 
 @pytest.mark.anyio
@@ -3490,7 +3475,6 @@ def _table_git_tree(
                 "id": source_id,
                 "name": name,
                 "columns": [{"name": "indicator", "type": "text", "unique": True}],
-                "rows_path": None,
             }
         ),
     }
@@ -3751,30 +3735,8 @@ def _expanded_full_git_tree(*, include_schedules: bool) -> dict[str, str]:
                     },
                     {"name": "seen_at", "type": "timestamptz"},
                 ],
-                "rows_path": "rows.jsonl",
             }
         ),
-        f"{TABLE_ROOT}/qa_indicators/rows.jsonl": "\n".join(
-            [
-                json.dumps(
-                    {
-                        "indicator": "bad.example",
-                        "severity": "high",
-                        "seen_at": "2026-06-14T00:00:00Z",
-                    },
-                    sort_keys=True,
-                ),
-                json.dumps(
-                    {
-                        "indicator": "hash:0123456789abcdef",
-                        "severity": "medium",
-                        "seen_at": "2026-06-14T01:00:00Z",
-                    },
-                    sort_keys=True,
-                ),
-            ]
-        )
-        + "\n",
         f"{CASE_TAG_ROOT}/qa-alert.yml": _yaml(
             {
                 "version": 1,
@@ -3874,7 +3836,6 @@ def _expected_full_paths() -> set[str]:
         f"{SKILL_ROOT}/qa-enrichment-skill/files/SKILL.md",
         f"{SKILL_ROOT}/qa-enrichment-skill/files/enrich.py",
         f"{TABLE_ROOT}/qa_indicators/table.yml",
-        f"{TABLE_ROOT}/qa_indicators/rows.jsonl",
         f"{CASE_TAG_ROOT}/qa-alert.yml",
         f"{CASE_DROPDOWN_ROOT}/qa_resolution_reason.yml",
         f"{CASE_DURATION_ROOT}/qa_time_to_triage.yml",

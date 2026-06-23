@@ -1,11 +1,8 @@
-"""Table resource adapter (schema plus optional JSONL rows)."""
+"""Table resource adapter (schema only, never runtime rows)."""
 
 from __future__ import annotations
 
-import json
-import uuid
-from collections.abc import Mapping, Sequence
-from datetime import date, datetime
+from collections.abc import Mapping
 from typing import Any, cast
 
 from pydantic import BaseModel
@@ -14,14 +11,11 @@ from sqlalchemy.orm import selectinload
 
 from tracecat.db.models import Table, TableColumn
 from tracecat.exceptions import TracecatNotFoundError
-from tracecat.pagination import CursorPaginationParams
 from tracecat.service import BaseWorkspaceService
-from tracecat.sync import PullDiagnostic
 from tracecat.tables.schemas import (
     TableColumnCreate,
     TableColumnUpdate,
     TableCreate,
-    TableRowInsert,
     TableUpdate,
 )
 from tracecat.tables.service import BaseTablesService
@@ -30,7 +24,6 @@ from tracecat.workspace_sync.adapters.base import (
     ImportedResource,
     ProjectedResource,
     ResourceProjection,
-    path_parts,
     sql_type,
     unique_source_id,
 )
@@ -38,7 +31,6 @@ from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
     TABLE_ROOT,
     TableResourceSpec,
-    WorkspaceManifestResources,
     WorkspaceSpec,
 )
 
@@ -47,11 +39,7 @@ TABLE_FILENAME = "table.yml"
 
 
 class TableAdapter(CompoundYamlAdapter):
-    """Adapter for tables, syncing a column schema plus optional JSONL rows.
-
-    The schema lives in ``table.yml`` and rows are serialized as a companion
-    JSONL file (one JSON object per line) alongside it.
-    """
+    """Adapter for tables, syncing table metadata and schema only."""
 
     resource_type = SyncResourceType.TABLE
     """The sync resource type this adapter handles."""
@@ -64,119 +52,10 @@ class TableAdapter(CompoundYamlAdapter):
     filename = TABLE_FILENAME
     """Primary file name inside each table's directory."""
 
-    def _rows_source_path(self, source_id: str, rows_path: str) -> str:
-        """Return the repository path of a table's companion JSONL rows file."""
-        return f"{self.root}/{source_id}/{rows_path}"
-
-    def extra_path_from_path(
-        self,
-        path: str,
-        roots: WorkspaceManifestResources,
-    ) -> tuple[str, str] | None:
-        """Map a path under a table's directory to ``(source_id, relative_path)``."""
-        parts = path_parts(path)
-        root_parts = path_parts(roots.tables)
-        if len(parts) < len(root_parts) + 2:
-            return None
-        if parts[: len(root_parts)] != root_parts:
-            return None
-        source_id = parts[len(root_parts)]
-        relpath = "/".join(parts[len(root_parts) + 1 :])
-        if not source_id or not relpath:
-            return None
-        return source_id, relpath
-
-    def serialize_extra_files(
-        self,
-        source_id: str,
-        spec: BaseModel,
-    ) -> dict[str, str]:
-        """Serialize a table's rows into a JSONL companion file, if it has any."""
-        table = cast(TableResourceSpec, spec)
-        if not table.rows or not table.rows_path:
-            return {}
-        return {
-            self._rows_source_path(source_id, table.rows_path): "".join(
-                json.dumps(row, sort_keys=True) + "\n" for row in table.rows
-            )
-        }
-
-    def attach_extra_files(
-        self,
-        specs: dict[str, BaseModel],
-        extra_files: Mapping[tuple[str, str], str],
-        diagnostics: list[PullDiagnostic],
-    ) -> dict[str, BaseModel]:
-        """Parse each table's JSONL companion file and fold its rows into the spec."""
-        updated: dict[str, BaseModel] = {}
-        for source_id, base_spec in specs.items():
-            spec = cast(TableResourceSpec, base_spec)
-            rows: list[dict[str, Any]] = []
-            if spec.rows_path and (
-                content := extra_files.get((source_id, spec.rows_path))
-            ):
-                rows = self._parse_rows(
-                    source_id,
-                    spec,
-                    content,
-                    diagnostics=diagnostics,
-                )
-            updated[source_id] = spec.model_copy(update={"rows": rows})
-        return updated
-
-    def _parse_rows(
-        self,
-        source_id: str,
-        spec: TableResourceSpec,
-        content: str,
-        *,
-        diagnostics: list[PullDiagnostic],
-    ) -> list[dict[str, Any]]:
-        """Parse JSONL ``content`` into row dicts, recording per-line diagnostics.
-
-        Blank lines are skipped; lines that fail to decode or are not JSON
-        objects are dropped and reported via ``diagnostics``.
-        """
-        rows: list[dict[str, Any]] = []
-        rows_path = spec.rows_path or ""
-        for line_number, line in enumerate(content.splitlines(), start=1):
-            if not line.strip():
-                continue
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError as e:
-                diagnostics.append(
-                    PullDiagnostic(
-                        workflow_path=self._rows_source_path(source_id, rows_path),
-                        workflow_title=spec.name,
-                        error_type="parse",
-                        message=f"Invalid table JSONL row at line {line_number}: {e}",
-                        details={
-                            "table": spec.name,
-                            "line_number": line_number,
-                            "error": str(e),
-                        },
-                    )
-                )
-                continue
-            if not isinstance(row, dict):
-                diagnostics.append(
-                    PullDiagnostic(
-                        workflow_path=self._rows_source_path(source_id, rows_path),
-                        workflow_title=spec.name,
-                        error_type="validation",
-                        message=f"Table row at line {line_number} is not an object",
-                        details={"table": spec.name, "line_number": line_number},
-                    )
-                )
-                continue
-            rows.append(row)
-        return rows
-
     async def project(
         self, workspace_service: BaseWorkspaceService
     ) -> ResourceProjection:
-        """Project workspace tables into specs, including columns and all rows."""
+        """Project workspace table metadata and column schema into specs."""
         stmt = (
             select(Table)
             .where(Table.workspace_id == workspace_service.workspace_id)
@@ -212,64 +91,24 @@ class TableAdapter(CompoundYamlAdapter):
                 if column.name in unique_columns:
                     column_spec["unique"] = True
                 columns.append(column_spec)
-            rows = await self._project_rows(
-                workspace_service, table, table_service=table_service
-            )
             specs[source_id] = TableResourceSpec(
                 id=source_id,
                 name=table.name,
                 columns=columns,
-                rows_path="rows.jsonl",
-                rows=rows,
             )
             resources.append(self.projected_resource(source_id, table.id))
         return ResourceProjection(specs=specs, resources=resources)
-
-    async def _project_rows(
-        self,
-        workspace_service: BaseWorkspaceService,
-        table: Table,
-        *,
-        table_service: BaseTablesService,
-    ) -> list[dict[str, Any]]:
-        """Page through a table's rows and return them in a deterministic order.
-
-        Drops the ``id``, ``created_at``, and ``updated_at`` columns, coerces
-        values to JSON-compatible data, and sorts the result so exports are
-        stable across runs.
-        """
-        cursor: str | None = None
-        rows: list[dict[str, Any]] = []
-        while True:
-            page = await table_service.list_rows(
-                table,
-                CursorPaginationParams(limit=200, cursor=cursor),
-                order_by="id",
-                sort="asc",
-            )
-            for row in page.items:
-                rows.append(
-                    {
-                        key: _jsonable(value)
-                        for key, value in row.items()
-                        if key not in {"id", "created_at", "updated_at"}
-                    }
-                )
-            if not page.next_cursor:
-                break
-            cursor = page.next_cursor
-        return sorted(rows, key=lambda row: repr(sorted(row.items())))
 
     async def import_specs(
         self,
         workspace_service: BaseWorkspaceService,
         workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
-        """Reconcile table specs into the database: tables, columns, unique index, rows.
+        """Reconcile table specs into the database.
 
-        Creates or renames each table, syncs its columns, reconciles its single
-        optional unique column, then inserts (or upserts, when a unique column
-        exists) its rows.
+        Creates or renames each table, syncs its columns, and reconciles its
+        single optional unique column. Table rows are runtime data and are not
+        imported from Git.
         """
         tables = workspace_spec.tables
         imported: list[ImportedResource] = []
@@ -331,11 +170,6 @@ class TableAdapter(CompoundYamlAdapter):
                 table_service=table_service,
             )
 
-            for row in spec.rows:
-                await table_service.insert_row(
-                    table,
-                    TableRowInsert(data=row, upsert=bool(unique_columns)),
-                )
             await workspace_service.session.flush()
             imported.append(self.imported_resource(source_id, table.id))
         return imported
@@ -425,22 +259,3 @@ async def _reconcile_unique_column(
 
     if desired_unique_column and desired_unique_column not in current_unique_columns:
         await table_service.create_unique_index(table, desired_unique_column)
-
-
-def _jsonable(value: Any) -> Any:
-    """Recursively coerce a row value into JSON-compatible data.
-
-    Renders UUIDs and date/datetime values as strings and recurses through
-    dicts and non-string sequences; other values pass through unchanged.
-    """
-    if isinstance(value, uuid.UUID):
-        return str(value)
-    if isinstance(value, datetime):
-        return value.isoformat()
-    if isinstance(value, date):
-        return value.isoformat()
-    if isinstance(value, dict):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
-        return [_jsonable(item) for item in value]
-    return value

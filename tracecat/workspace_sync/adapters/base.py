@@ -129,9 +129,9 @@ class ResourceAdapter(ABC):
     ) -> tuple[str, str] | None:
         """Map a companion file path to ``(source_id, relative_path)``.
 
-        Companion files are everything beyond the primary file (skill blobs,
-        table rows). Returns ``None`` when ``path`` is not such a file; the
-        default has no companion files.
+        Companion files are everything beyond the primary file, such as skill
+        blobs. Returns ``None`` when ``path`` is not such a file; the default
+        has no companion files.
         """
         return None
 
@@ -140,7 +140,7 @@ class ResourceAdapter(ABC):
         source_id: str,
         spec: BaseModel,
     ) -> dict[str, str]:
-        """Serialize companion files (skill files, table rows, ...)."""
+        """Serialize companion files such as skill files."""
         return {}
 
     def attach_extra_files(

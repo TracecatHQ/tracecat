@@ -322,9 +322,9 @@ class SkillResourceSpec(BaseModel):
 
 
 class TableResourceSpec(BaseModel):
-    """Canonical Git-owned desired state for a table schema and optional rows."""
+    """Canonical Git-owned desired state for table metadata and schema only."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     version: Literal[1] = Field(default=1, description="Spec schema version.")
     type: Literal["table"] = Field(
@@ -337,15 +337,6 @@ class TableResourceSpec(BaseModel):
     name: str = Field(min_length=1, description="Table name.")
     columns: list[dict[str, Any]] = Field(
         default_factory=list, description="Column definitions for the table schema."
-    )
-    rows_path: str | None = Field(
-        default="rows.jsonl",
-        description="Repository-relative path to the JSONL rows file, if rows are synced.",
-    )
-    rows: list[dict[str, Any]] = Field(
-        default_factory=list,
-        exclude=True,
-        description="In-memory table rows; excluded from serialization.",
     )
 
 
