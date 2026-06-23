@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -12,8 +13,14 @@ from tracecat import config
 from tracecat.auth import discovery as auth_discovery_module
 from tracecat.auth.discovery import AuthDiscoveryMethod, AuthDiscoveryService
 from tracecat.auth.enums import AuthType
-from tracecat.db.models import Organization, OrganizationDomain
+from tracecat.db.models import (
+    Organization,
+    OrganizationDomain,
+    OrganizationInvitation,
+    Role,
+)
 from tracecat.exceptions import TracecatValidationError
+from tracecat.invitations.enums import InvitationStatus
 from tracecat.organization.domains import normalize_domain
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -48,6 +55,41 @@ async def _create_domain(
     session.add(organization_domain)
     await session.commit()
     return organization_domain
+
+
+async def _create_role(session: AsyncSession, organization_id: uuid.UUID) -> Role:
+    role = Role(
+        id=uuid.uuid4(),
+        name="Organization Member",
+        slug="organization-member",
+        description="Organization member role",
+        organization_id=organization_id,
+    )
+    session.add(role)
+    await session.commit()
+    return role
+
+
+async def _create_pending_org_invitation(
+    session: AsyncSession,
+    organization: Organization,
+    email: str,
+    *,
+    status: InvitationStatus = InvitationStatus.PENDING,
+) -> OrganizationInvitation:
+    role = await _create_role(session, organization.id)
+    invitation = OrganizationInvitation(
+        id=uuid.uuid4(),
+        organization_id=organization.id,
+        email=email,
+        role_id=role.id,
+        token=f"{uuid.uuid4().hex}{uuid.uuid4().hex}",
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+        status=status,
+    )
+    session.add(invitation)
+    await session.commit()
+    return invitation
 
 
 @pytest.mark.anyio
@@ -129,6 +171,69 @@ async def test_discovery_returns_safe_platform_fallback_for_unknown_domains(
     response = await service.discover("user@unknown-domain.example")
 
     assert response.method == AuthDiscoveryMethod.OIDC
+
+
+@pytest.mark.anyio
+async def test_discovery_uses_pending_invitation_for_single_unmapped_email(
+    session: AsyncSession,
+    organization: Organization,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _create_pending_org_invitation(
+        session, organization, "invited@external-guest.example"
+    )
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AUTH_TYPES",
+        {AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
+    )
+    monkeypatch.setattr(
+        auth_discovery_module, "get_setting", AsyncMock(return_value=True)
+    )
+    service = AuthDiscoveryService(session)
+
+    response = await service.discover("invited@external-guest.example")
+
+    assert response.method == AuthDiscoveryMethod.SAML
+    assert response.organization_slug == organization.slug
+    assert response.next_url is not None
+    assert f"org={organization.slug}" in response.next_url
+
+
+@pytest.mark.anyio
+async def test_discovery_falls_back_for_ambiguous_pending_invitations(
+    session: AsyncSession,
+    organization: Organization,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    other_org = Organization(
+        id=uuid.uuid4(),
+        name="Other Org",
+        slug=f"other-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    session.add(other_org)
+    await session.commit()
+    await _create_pending_org_invitation(
+        session, organization, "invited@external-guest.example"
+    )
+    await _create_pending_org_invitation(
+        session, other_org, "invited@external-guest.example"
+    )
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AUTH_TYPES",
+        {AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
+    )
+    service = AuthDiscoveryService(session)
+
+    response = await service.discover("invited@external-guest.example")
+
+    assert response.method == AuthDiscoveryMethod.OIDC
+    assert response.organization_slug is None
+    assert response.next_url is None
 
 
 @pytest.mark.anyio
