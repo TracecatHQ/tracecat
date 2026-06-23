@@ -10,6 +10,7 @@ from dataclasses import dataclass, replace
 from difflib import unified_diff
 from typing import Any
 
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1641,7 +1642,7 @@ def _walk_payload(value: Any, *, key: str | None) -> list[tuple[str | None, Any]
 
 def _json_payload(payload: Any) -> Any:
     """Return a JSON-compatible view of ``payload``, dumping Pydantic models."""
-    if hasattr(payload, "model_dump"):
+    if isinstance(payload, BaseModel):
         return payload.model_dump(mode="json", exclude_none=True)
     return payload
 
