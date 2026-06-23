@@ -206,7 +206,6 @@ class WorkspaceSyncService(BaseWorkspaceService):
         )
         source_id = await self._source_id_for_workflow(
             workflow=workflow,
-            dsl=dsl,
             create=True,
             reserved_source_ids=set(),
         )
@@ -364,7 +363,6 @@ class WorkspaceSyncService(BaseWorkspaceService):
             )
             source_id = await self._source_id_for_workflow(
                 workflow=workflow,
-                dsl=dsl,
                 create=create_missing_mappings,
                 reserved_source_ids=set(specs),
             )
@@ -1038,7 +1036,6 @@ class WorkspaceSyncService(BaseWorkspaceService):
         self,
         *,
         workflow: Workflow,
-        dsl: DSLInput,
         create: bool,
         reserved_source_ids: set[str],
     ) -> str:
