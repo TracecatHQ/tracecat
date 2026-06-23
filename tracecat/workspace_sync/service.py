@@ -386,7 +386,9 @@ class WorkspaceSyncService(BaseWorkspaceService):
         non_workflow_projection = await WorkspaceResourceProjector(
             session=self.session,
             role=self.role,
-        ).project_non_workflow_resources()
+        ).project_non_workflow_resources(
+            resource_types=_non_workflow_resource_types_for_projection(selection)
+        )
         non_workflow_spec, projected_resources = self._filtered_non_workflow_spec(
             full_workspace_export=full_workspace_export,
             workflow_specs=specs,
@@ -1360,6 +1362,25 @@ def _selection_from_workflow_ids(
         uuid.UUID(str(workflow_id)) for workflow_id in workflow_ids
     }
     return selection
+
+
+def _non_workflow_resource_types_for_projection(
+    selection: dict[SyncResourceType, set[uuid.UUID]] | None,
+) -> set[SyncResourceType] | None:
+    """Return the non-workflow resource types that can be projected directly.
+
+    ``None`` means the projector must load every non-workflow type. Full exports
+    and workflow-containing selections need the full metadata surface because
+    workflow and preset dependency closure can discover any supported resource
+    type transitively.
+    """
+    if selection is None or SyncResourceType.WORKFLOW in selection:
+        return None
+    return {
+        resource_type
+        for resource_type in selection
+        if resource_type != SyncResourceType.WORKFLOW
+    }
 
 
 def _direct_source_ids_by_type(

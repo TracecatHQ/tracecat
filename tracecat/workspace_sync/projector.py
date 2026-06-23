@@ -16,6 +16,7 @@ from tracecat.workspace_sync.adapters import (
     ProjectedResource,
     workspace_spec_from_maps,
 )
+from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import WorkspaceSpec
 
 __all__ = [
@@ -40,16 +41,26 @@ class WorkspaceResourceProjector(BaseWorkspaceService):
 
     service_name = "workspace_resource_projector"
 
-    async def project_non_workflow_resources(self) -> WorkspaceResourceProjection:
+    async def project_non_workflow_resources(
+        self,
+        *,
+        resource_types: set[SyncResourceType] | None = None,
+    ) -> WorkspaceResourceProjection:
         """Project every non-workflow resource type into one combined spec.
 
-        Runs each adapter in :data:`NON_WORKFLOW_RESOURCE_ADAPTERS`, keys its
-        specs by ``spec_attr``, and assembles them into a
+        Runs each selected adapter in :data:`NON_WORKFLOW_RESOURCE_ADAPTERS`,
+        keys its specs by ``spec_attr``, and assembles them into a
         :class:`WorkspaceResourceProjection` alongside the projected identities.
+        A ``None`` resource type filter projects every non-workflow type.
         """
         specs_by_attr: dict[str, dict[str, Any]] = {}
         resources: list[ProjectedResource] = []
         for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
+            if (
+                resource_types is not None
+                and adapter.resource_type not in resource_types
+            ):
+                continue
             projection = await adapter.project(self)
             specs_by_attr[adapter.spec_attr] = projection.specs
             resources.extend(projection.resources)
