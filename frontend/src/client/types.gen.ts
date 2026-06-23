@@ -8511,7 +8511,10 @@ export type WorkflowDefinitionRead = {
   registry_lock?: RegistryLock | null
   created_at: string
   updated_at: string
-  registry_lock_entries: Array<RegistryLockEntryRead>
+  /**
+   * Registry lock origins with server-normalized display labels.
+   */
+  readonly registry_lock_entries: Array<RegistryLockEntryRead>
 }
 
 export type WorkflowDefinitionReadMinimal = {

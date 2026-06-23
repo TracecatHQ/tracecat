@@ -1,4 +1,47 @@
+from datetime import UTC, datetime
+from uuid import uuid4
+
+from tracecat.workflow.management.schemas import (
+    WorkflowDefinitionRead,
+    format_registry_origin,
+)
 from tracecat.workflow.management.utils import build_trigger_inputs_schema
+
+
+def test_workflow_definition_read_accepts_legacy_flat_registry_lock():
+    created_at = datetime.now(UTC)
+    definition = WorkflowDefinitionRead.model_validate(
+        {
+            "id": uuid4(),
+            "workflow_id": uuid4(),
+            "workspace_id": uuid4(),
+            "version": 1,
+            "content": {},
+            "registry_lock": {
+                "tracecat_registry": "2025.12.10.123456",
+                "git+ssh://deploy@example.com/acme/actions.git": "abcdef1234567890",
+            },
+            "created_at": created_at,
+            "updated_at": created_at,
+        }
+    )
+
+    assert definition.registry_lock is not None
+    assert definition.registry_lock.origins == {
+        "tracecat_registry": "2025.12.10.123456",
+        "git+ssh://deploy@example.com/acme/actions.git": "abcdef1234567890",
+    }
+    assert definition.registry_lock.actions == {}
+    assert definition.registry_lock_entries[0].label == "acme/actions@abcdef123456"
+    assert definition.registry_lock_entries[1].label == (
+        "tracecat_registry@2025.12.10.123456"
+    )
+
+
+def test_format_registry_origin_accepts_non_git_ssh_users():
+    origin = "git+ssh://deploy@example.com/acme/actions.git"
+
+    assert format_registry_origin(origin) == "acme/actions"
 
 
 def test_build_trigger_inputs_schema_generates_json_schema():

@@ -5,6 +5,7 @@ from collections.abc import Iterable
 from datetime import datetime
 from enum import StrEnum
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel, Field, computed_field, field_validator
@@ -42,15 +43,13 @@ def format_registry_origin(origin: str) -> str:
     if origin == "tracecat_registry":
         return origin
 
-    prefix = "git+ssh://git@"
-    if not origin.startswith(prefix):
+    parsed = urlparse(origin)
+    if parsed.scheme != "git+ssh":
         return origin
 
-    path_start = origin.find("/", len(prefix))
-    if path_start == -1:
+    path = parsed.path.lstrip("/")
+    if not path:
         return origin
-
-    path = origin[path_start + 1 :]
     if path.endswith(".git"):
         path = path[:-4]
     parts = path.split("/")
@@ -116,6 +115,23 @@ class WorkflowDefinitionRead(Schema):
     registry_lock: RegistryLock | None = None
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("registry_lock", mode="before")
+    @classmethod
+    def normalize_legacy_registry_lock(cls, value: Any) -> Any:
+        """Accept flat registry locks written by the original DB migration."""
+        if value is None or isinstance(value, RegistryLock):
+            return value
+        if not isinstance(value, dict):
+            return value
+        if any(key in value for key in ("origins", "actions", "origin_fingerprints")):
+            return value
+        if not all(
+            isinstance(origin, str) and isinstance(version, str)
+            for origin, version in value.items()
+        ):
+            return value
+        return {"origins": value, "actions": {}}
 
     @computed_field
     @property

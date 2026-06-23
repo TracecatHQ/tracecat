@@ -28723,6 +28723,8 @@ export const $WorkflowDefinitionRead = {
       },
       type: "array",
       title: "Registry Lock Entries",
+      description:
+        "Registry lock origins with server-normalized display labels.",
       readOnly: true,
     },
   },
