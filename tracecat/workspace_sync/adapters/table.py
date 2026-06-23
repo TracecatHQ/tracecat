@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import sqlalchemy as sa
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -22,6 +23,7 @@ from tracecat.workspace_sync.adapters.base import (
     CompoundYamlAdapter,
     ImportedResource,
     ProjectedResource,
+    ResourceDependencyRefs,
     ResourceProjection,
     sql_type,
     unique_source_id,
@@ -56,13 +58,58 @@ class TableAdapter(CompoundYamlAdapter):
         self, workspace_service: BaseWorkspaceService
     ) -> ResourceProjection:
         """Project workspace table metadata and column schema into specs."""
-        stmt = (
+        stmt = self._projection_stmt(workspace_service)
+        tables = list((await workspace_service.session.execute(stmt)).scalars().all())
+        return await self._projection_from_tables(workspace_service, tables)
+
+    async def project_dependency_refs(
+        self,
+        workspace_service: BaseWorkspaceService,
+        refs: ResourceDependencyRefs,
+    ) -> ResourceProjection:
+        """Project tables selected directly or referenced by table name."""
+        if refs.select_all:
+            return await self.project(workspace_service)
+        if not refs.local_ids and not refs.source_ids and not refs.names:
+            return ResourceProjection(specs={}, resources=[])
+
+        local_ids = set(refs.local_ids)
+        if refs.source_ids:
+            local_ids.update(
+                (
+                    await self.local_ids_by_source_id(
+                        workspace_service,
+                        refs.source_ids,
+                    )
+                ).values()
+            )
+        stmt = self._projection_stmt(workspace_service)
+        if local_ids and refs.names:
+            stmt = stmt.where(
+                sa.or_(Table.id.in_(local_ids), Table.name.in_(refs.names))
+            )
+        elif local_ids:
+            stmt = stmt.where(Table.id.in_(local_ids))
+        else:
+            stmt = stmt.where(Table.name.in_(refs.names))
+        tables = list((await workspace_service.session.execute(stmt)).scalars().all())
+        return await self._projection_from_tables(workspace_service, tables)
+
+    def _projection_stmt(self, workspace_service: BaseWorkspaceService) -> sa.Select:
+        """Build the base eager-loaded table projection query."""
+        return (
             select(Table)
             .where(Table.workspace_id == workspace_service.workspace_id)
             .options(selectinload(Table.columns))
             .order_by(Table.name.asc(), Table.id.asc())
         )
-        tables = list((await workspace_service.session.execute(stmt)).scalars().all())
+
+    async def _projection_from_tables(
+        self,
+        workspace_service: BaseWorkspaceService,
+        tables: list[Table],
+    ) -> ResourceProjection:
+        """Build sync specs from eager-loaded table rows."""
         table_service = BaseTablesService(
             session=workspace_service.session, role=workspace_service.role
         )

@@ -866,6 +866,74 @@ async def test_selected_export_by_source_id_targets_mapped_resource_after_rename
 
 
 @pytest.mark.anyio
+async def test_agent_preset_only_export_lazily_includes_dependency_closure(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    repo_url = "git+ssh://git@github.com/TracecatHQ/git-sync-preset-closure-qa.git"
+    git_url = GitUrl(
+        host="github.com",
+        org="TracecatHQ",
+        repo="git-sync-preset-closure-qa",
+    )
+    fake_vcs = FakeVcsServer()
+    assert svc_role.workspace_id is not None
+    await _set_workspace_git_repo_url(
+        session,
+        workspace_id=svc_role.workspace_id,
+        repo_url=repo_url,
+    )
+    service = WorkspaceSyncService(
+        session=session,
+        role=svc_role,
+        transport_factory=fake_vcs.transport_factory,
+    )
+    await _import_expanded_non_workflow_resources(
+        session,
+        role=svc_role,
+        service=service,
+    )
+    parent_preset = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "qa-triage-parent",
+        )
+    )
+    assert parent_preset is not None
+    parent_preset.instructions = (
+        "Use ${{ VARS.qa_config }} and "
+        "${{ SECRETS.qa_threatintel.BASE_URL }} with table qa_indicators."
+    )
+    session.add(parent_preset)
+    await session.flush()
+
+    export = await service.export_workspace(
+        WorkspaceSyncExportRequest(
+            message="Export preset closure",
+            branch="sync/preset-closure",
+            create_pr=False,
+            resources=[ResourceRef(resource_type=SyncResourceType.AGENT_PRESET)],
+        )
+    )
+
+    assert export.commit.status is PushStatus.COMMITTED
+    assert export.commit.sha is not None
+    files = fake_vcs.repo_files(git_url, ref=export.commit.sha)
+    assert not any(path.startswith(f"{WORKFLOW_ROOT}/") for path in files)
+    assert f"{AGENT_PRESET_ROOT}/qa-triage-parent/preset.yml" in files
+    assert f"{AGENT_PRESET_ROOT}/qa-evidence-child/preset.yml" in files
+    assert f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml" in files
+    assert f"{SKILL_ROOT}/qa-enrichment-skill/files/SKILL.md" in files
+    assert f"{VARIABLE_ROOT}/default/qa_config.yml" in files
+    assert f"{SECRET_METADATA_ROOT}/default/qa_threatintel.yml" in files
+    assert f"{TABLE_ROOT}/qa_indicators/table.yml" in files
+    assert not any(path.startswith(f"{CASE_TAG_ROOT}/") for path in files)
+    assert not any(path.startswith(f"{CASE_FIELD_ROOT}/") for path in files)
+    assert not any(path.startswith(f"{CASE_DROPDOWN_ROOT}/") for path in files)
+    assert not any(path.startswith(f"{CASE_DURATION_ROOT}/") for path in files)
+
+
+@pytest.mark.anyio
 async def test_legacy_workflow_only_repo_upgrades_to_expanded_workspace_sync(
     session: AsyncSession,
     svc_role: Role,

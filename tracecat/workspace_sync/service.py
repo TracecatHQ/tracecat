@@ -8,7 +8,7 @@ from collections import Counter, deque
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from difflib import unified_diff
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -44,11 +44,13 @@ from tracecat.workflow.store.schemas import (
 )
 from tracecat.workspace_sync.adapters import (
     NON_WORKFLOW_RESOURCE_ADAPTERS,
+    RESOURCE_ADAPTERS_BY_TYPE,
     WORKFLOW_RESOURCE_ADAPTER,
     WORKSPACE_RESOURCE_ADAPTERS,
     ResourceAdapter,
     workspace_spec_from_maps,
 )
+from tracecat.workspace_sync.adapters.base import ResourceDependencyRefs
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.importer import (
     ImportedResource,
@@ -56,6 +58,7 @@ from tracecat.workspace_sync.importer import (
 )
 from tracecat.workspace_sync.projector import (
     ProjectedResource,
+    WorkspaceResourceProjection,
     WorkspaceResourceProjector,
 )
 from tracecat.workspace_sync.resources import (
@@ -65,6 +68,7 @@ from tracecat.workspace_sync.resources import (
 )
 from tracecat.workspace_sync.schemas import (
     MANIFEST_FILENAME,
+    AgentPresetResourceSpec,
     ResourceRef,
     WorkflowResourceSpec,
     WorkspaceManifest,
@@ -360,11 +364,11 @@ class WorkspaceSyncService(BaseWorkspaceService):
         """Project the workspace into a manifest, spec, and serialized files.
 
         Walks the projectable workflow closure (resolving child workflows
-        referenced by alias or id), projects non-workflow resources via
-        :class:`WorkspaceResourceProjector`, and trims the result to the
-        requested selection. When ``create_missing_mappings`` is set, sync
-        mappings are minted for any newly projected resource; pass ``False`` for
-        read-only previews. A ``None`` selection exports the whole workspace.
+        referenced by alias or id), then projects non-workflow resources reached
+        from the selected workflow/resource dependency graph. When
+        ``create_missing_mappings`` is set, sync mappings are minted for any
+        newly projected resource; pass ``False`` for read-only previews. A
+        ``None`` selection exports the whole workspace.
         """
         # Normalize the two selection inputs into one per-type map (None = all).
         selection = _selection_from_workflow_ids(
@@ -406,21 +410,15 @@ class WorkspaceSyncService(BaseWorkspaceService):
                 include_schedules=include_schedules,
             )
 
-        # Project every non-workflow resource, then trim to the selection's
-        # dependency closure (a full export keeps all of them).
-        non_workflow_projection = await WorkspaceResourceProjector(
-            session=self.session,
-            role=self.role,
-        ).project_non_workflow_resources(
-            resource_types=_non_workflow_resource_types_for_projection(selection)
-        )
-        non_workflow_spec, projected_resources = self._filtered_non_workflow_spec(
+        # Full exports project every resource. Partial exports walk dependencies
+        # lazily so the selection defines roots, not the whole candidate graph.
+        non_workflow_projection = await self._project_non_workflow_closure(
             full_workspace_export=full_workspace_export,
             workflow_specs=specs,
             resource_ids=selection,
-            projected_resources=non_workflow_projection.resources,
-            projected_spec=non_workflow_projection.spec,
         )
+        non_workflow_spec = non_workflow_projection.spec
+        projected_resources = non_workflow_projection.resources
         # Mint sync mappings for the surviving resources (skipped for previews).
         if create_missing_mappings:
             await self._upsert_mappings(
@@ -989,145 +987,161 @@ class WorkspaceSyncService(BaseWorkspaceService):
             resource_ids.setdefault(resource.resource_type, set()).add(mapping.local_id)
         return resource_ids
 
-    def _filtered_non_workflow_spec(
+    async def _project_non_workflow_closure(
         self,
         *,
         full_workspace_export: bool,
         workflow_specs: dict[str, WorkflowResourceSpec],
         resource_ids: dict[SyncResourceType, set[uuid.UUID]] | None,
-        projected_resources: list[ProjectedResource],
-        projected_spec: WorkspaceSpec,
-    ) -> tuple[WorkspaceSpec, list[ProjectedResource]]:
-        """Trim non-workflow resources to the dependency closure of a selection.
-
-        A full-workspace export keeps everything. A partial export starts from
-        the directly selected resources, then pulls in the non-workflow
-        resources the selected workflows and presets depend on: presets and
-        skills referenced by slug (expanded transitively through subagents and
-        skill bindings), case tags from case triggers, and variables, secrets,
-        and tables referenced anywhere in the included payloads. Returns the
-        filtered spec alongside the projected resources that survived the filter.
-        """
+    ) -> WorkspaceResourceProjection:
+        """Project non-workflow resources reached by the export dependency graph."""
         if full_workspace_export:
-            return projected_spec, projected_resources
+            return await WorkspaceResourceProjector(
+                session=self.session,
+                role=self.role,
+            ).project_non_workflow_resources()
 
-        # ``desired`` accumulates, per resource type, the source ids that must
-        # ship with this partial export. Seed it with the directly selected ids.
-        direct_source_ids = _direct_source_ids_by_type(
-            resource_ids=resource_ids or {},
-            projected_resources=projected_resources,
+        specs_by_attr: dict[str, dict[str, BaseModel]] = {
+            adapter.spec_attr: {} for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS
+        }
+        resources_by_key: dict[tuple[SyncResourceType, str], ProjectedResource] = {}
+        seen: set[tuple[SyncResourceType, str]] = set()
+        queue: deque[tuple[SyncResourceType, ResourceDependencyRefs]] = deque()
+
+        def enqueue(
+            resource_type: SyncResourceType,
+            refs: ResourceDependencyRefs,
+        ) -> None:
+            if resource_type == SyncResourceType.WORKFLOW:
+                return
+            if not _has_dependency_refs(refs):
+                return
+            queue.append((resource_type, refs))
+
+        # Seed roots chosen directly by the export request.
+        for resource_type, local_ids in (resource_ids or {}).items():
+            if resource_type == SyncResourceType.WORKFLOW:
+                continue
+            enqueue(
+                resource_type,
+                ResourceDependencyRefs(
+                    select_all=not local_ids,
+                    local_ids=set(local_ids),
+                ),
+            )
+
+        # Seed non-workflow resources referenced by selected workflow specs.
+        self._enqueue_payload_dependency_refs(
+            queue,
+            list(workflow_specs.values()),
         )
-        desired = {
-            resource_type: set(source_ids)
-            for resource_type, source_ids in direct_source_ids.items()
-        }
-        known_table_names = {
-            table.name: source_id for source_id, table in projected_spec.tables.items()
-        }
-
-        # Add presets the workflows invoke by slug, and case tags their case
-        # triggers filter on.
-        payloads: list[Any] = list(workflow_specs.values())
-        desired.setdefault(SyncResourceType.AGENT_PRESET, set()).update(
-            _preset_source_ids_for_slugs(
-                projected_spec,
-                {
+        enqueue(
+            SyncResourceType.AGENT_PRESET,
+            ResourceDependencyRefs(
+                slugs={
                     slug
                     for workflow in workflow_specs.values()
                     for slug in workflow_references(workflow.definition).preset_slugs
                 },
-            )
+            ),
         )
-        desired.setdefault(SyncResourceType.CASE_TAG, set()).update(
-            source_id
-            for workflow in workflow_specs.values()
-            if workflow.case_trigger is not None
-            for source_id in workflow.case_trigger.tag_filters
-            if source_id in projected_spec.case_tags
-        )
-
-        # Presets pull in further presets (subagents) and skills, which can in
-        # turn reference more presets. Iterate to a fixed point so the closure is
-        # complete. ``payloads`` is rebuilt each pass to include the new presets
-        # so the variable/secret/table scan below sees their references too.
-        while True:
-            added = False
-            included_presets = [
-                projected_spec.agent_presets[source_id]
-                for source_id in sorted(
-                    desired.get(SyncResourceType.AGENT_PRESET, set())
-                )
-                if source_id in projected_spec.agent_presets
-            ]
-            payloads = [*list(workflow_specs.values()), *included_presets]
-            for preset in included_presets:
-                # Each subagent slug may resolve to another preset to include.
-                for subagent in preset.subagents:
-                    for source_id in _preset_source_ids_for_slugs(
-                        projected_spec,
-                        {subagent.slug},
-                    ):
-                        preset_sources = desired.setdefault(
-                            SyncResourceType.AGENT_PRESET,
-                            set(),
-                        )
-                        if source_id not in preset_sources:
-                            preset_sources.add(source_id)
-                            added = True
-                # And each skill binding resolves to a skill to include.
-                skill_sources = desired.setdefault(SyncResourceType.SKILL, set())
-                for binding in preset.skills:
-                    for source_id in _skill_source_ids_for_slugs(
-                        projected_spec,
-                        {binding.slug},
-                    ):
-                        if source_id not in skill_sources:
-                            skill_sources.add(source_id)
-                            added = True
-            # No new presets/skills this pass means the closure is complete.
-            if not added:
-                break
-
-        # Scan the included workflow + preset payloads for VARS./SECRETS./table
-        # references and pull in whichever of those resources actually exist.
-        desired.setdefault(SyncResourceType.VARIABLE, set()).update(
-            source_id
-            for name in _variable_names(payloads)
-            if (source_id := f"default/{name}") in projected_spec.variables
-        )
-        desired.setdefault(SyncResourceType.SECRET_METADATA, set()).update(
-            source_id
-            for name in _secret_names(payloads)
-            if (source_id := f"default/{name}") in projected_spec.secret_metadata
-        )
-        desired.setdefault(SyncResourceType.TABLE, set()).update(
-            source_id
-            for name, source_id in known_table_names.items()
-            if _payloads_reference_table(payloads, name)
+        enqueue(
+            SyncResourceType.CASE_TAG,
+            ResourceDependencyRefs(
+                source_ids={
+                    source_id
+                    for workflow in workflow_specs.values()
+                    if workflow.case_trigger is not None
+                    for source_id in workflow.case_trigger.tag_filters
+                },
+            ),
         )
 
-        # Materialize the filtered spec and the matching projected resources.
-        filtered = workspace_spec_from_maps(
-            {
-                adapter.spec_attr: _filter_specs(
-                    adapter.specs(projected_spec),
-                    desired.get(adapter.resource_type, set()),
-                )
-                for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS
+        while queue:
+            resource_type, refs = queue.popleft()
+            adapter = RESOURCE_ADAPTERS_BY_TYPE[resource_type]
+            projection = await adapter.project_dependency_refs(self, refs)
+            resources_by_source_id = {
+                resource.source_id: resource for resource in projection.resources
             }
+            new_presets: list[AgentPresetResourceSpec] = []
+
+            for source_id, spec in projection.specs.items():
+                key = (resource_type, source_id)
+                if key in seen:
+                    continue
+                seen.add(key)
+                specs_by_attr[adapter.spec_attr][source_id] = spec
+                if resource := resources_by_source_id.get(source_id):
+                    resources_by_key[key] = resource
+                if resource_type == SyncResourceType.AGENT_PRESET:
+                    new_presets.append(cast(AgentPresetResourceSpec, spec))
+
+            if not new_presets:
+                continue
+
+            # Newly reached presets can introduce more preset, skill, and
+            # metadata dependencies. Only scan each preset once, when first seen.
+            enqueue(
+                SyncResourceType.AGENT_PRESET,
+                ResourceDependencyRefs(
+                    slugs={
+                        subagent.slug
+                        for preset in new_presets
+                        for subagent in preset.subagents
+                    },
+                ),
+            )
+            enqueue(
+                SyncResourceType.SKILL,
+                ResourceDependencyRefs(
+                    slugs={
+                        binding.slug
+                        for preset in new_presets
+                        for binding in preset.skills
+                    },
+                ),
+            )
+            self._enqueue_payload_dependency_refs(queue, new_presets)
+
+        return WorkspaceResourceProjection(
+            spec=workspace_spec_from_maps(specs_by_attr),
+            resources=[
+                resources_by_key[key]
+                for key in sorted(
+                    resources_by_key,
+                    key=lambda item: (item[0].value, item[1]),
+                )
+            ],
         )
-        included_resource_types = {
-            adapter.resource_type.value
-            for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS
-            if adapter.specs(filtered)
-        }
-        filtered_resources = [
-            resource
-            for resource in projected_resources
-            if resource.source_id in desired.get(resource.resource_type, set())
-            and resource.resource_type.value in included_resource_types
-        ]
-        return filtered, filtered_resources
+
+    def _enqueue_payload_dependency_refs(
+        self,
+        queue: deque[tuple[SyncResourceType, ResourceDependencyRefs]],
+        payloads: list[Any],
+    ) -> None:
+        """Queue variable, secret, and table refs discovered in payload content."""
+        if variable_names := _variable_names(payloads):
+            queue.append(
+                (
+                    SyncResourceType.VARIABLE,
+                    ResourceDependencyRefs(names=variable_names),
+                )
+            )
+        if secret_names := _secret_names(payloads):
+            queue.append(
+                (
+                    SyncResourceType.SECRET_METADATA,
+                    ResourceDependencyRefs(names=secret_names),
+                )
+            )
+        if table_names := _table_names(payloads):
+            queue.append(
+                (
+                    SyncResourceType.TABLE,
+                    ResourceDependencyRefs(names=table_names),
+                )
+            )
 
     async def _source_id_for_workflow(
         self,
@@ -1438,6 +1452,20 @@ _VAR_REF_RE = re.compile(r"\bVARS\.([A-Za-z_][A-Za-z0-9_-]*)")
 """Capture the ``<name>`` in a ``VARS.<name>`` expression reference."""
 _SECRET_REF_RE = re.compile(r"\bSECRETS\.([A-Za-z_][A-Za-z0-9_-]*)")
 """Capture the ``<name>`` in a ``SECRETS.<name>`` expression reference."""
+_TABLE_REF_TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]*")
+"""Candidate table-name token in a free-form payload string."""
+
+
+def _has_dependency_refs(refs: ResourceDependencyRefs) -> bool:
+    """Return whether ``refs`` can address at least one resource."""
+    return (
+        refs.select_all
+        or bool(refs.local_ids)
+        or bool(refs.source_ids)
+        or bool(refs.slugs)
+        or bool(refs.names)
+        or bool(refs.environment_names)
+    )
 
 
 def _selection_from_workflow_ids(
@@ -1473,25 +1501,6 @@ def _selection_from_workflow_ids(
     return selection
 
 
-def _non_workflow_resource_types_for_projection(
-    selection: dict[SyncResourceType, set[uuid.UUID]] | None,
-) -> set[SyncResourceType] | None:
-    """Return the non-workflow resource types that can be projected directly.
-
-    ``None`` means the projector must load every non-workflow type. Full exports
-    and workflow-containing selections need the full metadata surface because
-    workflow and preset dependency closure can discover any supported resource
-    type transitively.
-    """
-    if selection is None or SyncResourceType.WORKFLOW in selection:
-        return None
-    return {
-        resource_type
-        for resource_type in selection
-        if resource_type != SyncResourceType.WORKFLOW
-    }
-
-
 def _resource_type_selection_from_spec(
     spec: WorkspaceSpec,
 ) -> dict[SyncResourceType, set[uuid.UUID]]:
@@ -1507,48 +1516,6 @@ def _resource_type_selection_from_spec(
     }
 
 
-def _direct_source_ids_by_type(
-    *,
-    resource_ids: dict[SyncResourceType, set[uuid.UUID]],
-    projected_resources: list[ProjectedResource],
-) -> dict[SyncResourceType, set[str]]:
-    """Map the selected local ids to the source ids directly chosen for export.
-
-    A resource type whose selected id set is empty is treated as "select all"
-    of that type, so every projected resource of that type is included.
-    """
-    direct: dict[SyncResourceType, set[str]] = {}
-    for resource in projected_resources:
-        selected_local_ids = resource_ids.get(resource.resource_type)
-        if selected_local_ids is None:
-            continue
-        if not selected_local_ids or resource.local_id in selected_local_ids:
-            direct.setdefault(resource.resource_type, set()).add(resource.source_id)
-    return direct
-
-
-def _preset_source_ids_for_slugs(
-    spec: WorkspaceSpec,
-    slugs: set[str],
-) -> set[str]:
-    """Return the source ids of agent presets whose slug is in ``slugs``."""
-    return {
-        source_id
-        for source_id, preset in spec.agent_presets.items()
-        if preset.slug in slugs
-    }
-
-
-def _skill_source_ids_for_slugs(
-    spec: WorkspaceSpec,
-    slugs: set[str],
-) -> set[str]:
-    """Return the source ids of skills whose slug is in ``slugs``."""
-    return {
-        source_id for source_id, skill in spec.skills.items() if skill.slug in slugs
-    }
-
-
 def _export_read_scopes_for_spec(spec: WorkspaceSpec) -> set[str]:
     """Collect the read scopes implied by the resource types present in ``spec``."""
     scopes: set[str] = set()
@@ -1558,17 +1525,6 @@ def _export_read_scopes_for_spec(spec: WorkspaceSpec) -> set[str]:
         ):
             scopes.add(scope)
     return scopes
-
-
-def _filter_specs[T](specs: dict[str, T], source_ids: set[str] | None) -> dict[str, T]:
-    """Restrict ``specs`` to ``source_ids``, ordered by id; empty selection drops all."""
-    if not source_ids:
-        return {}
-    return {
-        source_id: specs[source_id]
-        for source_id in sorted(source_ids)
-        if source_id in specs
-    }
 
 
 def _variable_names(payloads: list[Any]) -> set[str]:
@@ -1589,25 +1545,23 @@ def _secret_names(payloads: list[Any]) -> set[str]:
     }
 
 
-def _payloads_reference_table(payloads: list[Any], table_name: str) -> bool:
-    """Return whether any payload references ``table_name``.
-
-    Matches an exact ``table``/``table_name``/``table_slug`` field value as well
-    as a whole-word occurrence of the name inside any string value.
-    """
-    table_pattern = re.compile(
-        rf"(?<![A-Za-z0-9_.-]){re.escape(table_name)}(?![A-Za-z0-9_.-])"
-    )
+def _table_names(payloads: list[Any]) -> set[str]:
+    """Return candidate table names referenced anywhere in ``payloads``."""
+    names: set[str] = set()
     for key, value in _payload_key_values(payloads):
         if (
             key in {"table", "table_name", "table_slug"}
             and isinstance(value, str)
-            and value == table_name
+            and value
         ):
-            return True
-        if isinstance(value, str) and table_pattern.search(value):
-            return True
-    return False
+            names.add(value)
+        if isinstance(value, str):
+            names.update(
+                token
+                for raw_token in _TABLE_REF_TOKEN_RE.findall(value)
+                if (token := raw_token.strip(".,;:!?()[]{}\"'"))
+            )
+    return names
 
 
 def _payload_strings(payloads: list[Any]) -> list[str]:

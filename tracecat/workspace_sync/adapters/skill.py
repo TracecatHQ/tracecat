@@ -29,6 +29,7 @@ from tracecat.workspace_sync.adapters.base import (
     CompoundYamlAdapter,
     ImportedResource,
     ProjectedResource,
+    ResourceDependencyRefs,
     ResourceProjection,
     path_parts,
     unique_source_id,
@@ -156,7 +157,46 @@ class SkillAdapter(CompoundYamlAdapter):
         self, workspace_service: BaseWorkspaceService
     ) -> ResourceProjection:
         """Project skills and their current-version file blobs into Git specs."""
-        stmt = (
+        stmt = self._projection_stmt(workspace_service)
+        skills = list((await workspace_service.session.execute(stmt)).scalars().all())
+        return await self._projection_from_skills(workspace_service, skills)
+
+    async def project_dependency_refs(
+        self,
+        workspace_service: BaseWorkspaceService,
+        refs: ResourceDependencyRefs,
+    ) -> ResourceProjection:
+        """Project skills selected directly or referenced by slug."""
+        if refs.select_all:
+            return await self.project(workspace_service)
+        if not refs.local_ids and not refs.source_ids and not refs.slugs:
+            return ResourceProjection(specs={}, resources=[])
+
+        local_ids = set(refs.local_ids)
+        if refs.source_ids:
+            local_ids.update(
+                (
+                    await self.local_ids_by_source_id(
+                        workspace_service,
+                        refs.source_ids,
+                    )
+                ).values()
+            )
+        stmt = self._projection_stmt(workspace_service)
+        if local_ids and refs.slugs:
+            stmt = stmt.where(
+                sa.or_(Skill.id.in_(local_ids), Skill.name.in_(refs.slugs))
+            )
+        elif local_ids:
+            stmt = stmt.where(Skill.id.in_(local_ids))
+        else:
+            stmt = stmt.where(Skill.name.in_(refs.slugs))
+        skills = list((await workspace_service.session.execute(stmt)).scalars().all())
+        return await self._projection_from_skills(workspace_service, skills)
+
+    def _projection_stmt(self, workspace_service: BaseWorkspaceService) -> sa.Select:
+        """Build the base eager-loaded skill projection query."""
+        return (
             select(Skill)
             .where(
                 Skill.workspace_id == workspace_service.workspace_id,
@@ -165,7 +205,13 @@ class SkillAdapter(CompoundYamlAdapter):
             .options(selectinload(Skill.current_version))
             .order_by(Skill.name.asc(), Skill.id.asc())
         )
-        skills = list((await workspace_service.session.execute(stmt)).scalars().all())
+
+    async def _projection_from_skills(
+        self,
+        workspace_service: BaseWorkspaceService,
+        skills: list[Skill],
+    ) -> ResourceProjection:
+        """Build sync specs from eager-loaded skill rows."""
         source_ids_by_local_id = await self.source_ids_by_local_id(workspace_service)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []

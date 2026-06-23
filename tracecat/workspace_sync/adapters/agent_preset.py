@@ -30,6 +30,7 @@ from tracecat.workspace_sync.adapters.base import (
     CompoundYamlAdapter,
     ImportedResource,
     ProjectedResource,
+    ResourceDependencyRefs,
     ResourceProjection,
     unique_source_id,
 )
@@ -60,7 +61,49 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         self, workspace_service: BaseWorkspaceService
     ) -> ResourceProjection:
         """Project agent presets into Git specs."""
-        stmt = (
+        stmt = self._projection_stmt(workspace_service)
+        presets = list((await workspace_service.session.execute(stmt)).scalars().all())
+        return await self._projection_from_presets(workspace_service, presets)
+
+    async def project_dependency_refs(
+        self,
+        workspace_service: BaseWorkspaceService,
+        refs: ResourceDependencyRefs,
+    ) -> ResourceProjection:
+        """Project presets selected directly or referenced by slug."""
+        if refs.select_all:
+            return await self.project(workspace_service)
+        if not refs.local_ids and not refs.source_ids and not refs.slugs:
+            return ResourceProjection(specs={}, resources=[])
+
+        local_ids = set(refs.local_ids)
+        if refs.source_ids:
+            local_ids.update(
+                (
+                    await self.local_ids_by_source_id(
+                        workspace_service,
+                        refs.source_ids,
+                    )
+                ).values()
+            )
+        stmt = self._projection_stmt(workspace_service)
+        if local_ids and refs.slugs:
+            stmt = stmt.where(
+                sa.or_(
+                    AgentPreset.id.in_(local_ids),
+                    AgentPreset.slug.in_(refs.slugs),
+                )
+            )
+        elif local_ids:
+            stmt = stmt.where(AgentPreset.id.in_(local_ids))
+        else:
+            stmt = stmt.where(AgentPreset.slug.in_(refs.slugs))
+        presets = list((await workspace_service.session.execute(stmt)).scalars().all())
+        return await self._projection_from_presets(workspace_service, presets)
+
+    def _projection_stmt(self, workspace_service: BaseWorkspaceService) -> sa.Select:
+        """Build the base eager-loaded preset projection query."""
+        return (
             select(AgentPreset)
             .where(AgentPreset.workspace_id == workspace_service.workspace_id)
             .options(
@@ -75,7 +118,13 @@ class AgentPresetAdapter(CompoundYamlAdapter):
             )
             .order_by(AgentPreset.slug.asc(), AgentPreset.id.asc())
         )
-        presets = list((await workspace_service.session.execute(stmt)).scalars().all())
+
+    async def _projection_from_presets(
+        self,
+        workspace_service: BaseWorkspaceService,
+        presets: list[AgentPreset],
+    ) -> ResourceProjection:
+        """Build sync specs from eager-loaded preset rows."""
         source_ids_by_local_id = await self.source_ids_by_local_id(workspace_service)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []

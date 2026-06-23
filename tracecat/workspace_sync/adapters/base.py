@@ -14,7 +14,7 @@ import re
 import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, ClassVar, Literal, cast
 
 from pydantic import BaseModel
@@ -87,6 +87,24 @@ class ResourceProjection:
     resources: list[ProjectedResource]
     """Identities linking each ``source_id`` to its ``local_id``, parallel to
     ``specs``."""
+
+
+@dataclass(frozen=True, slots=True)
+class ResourceDependencyRefs:
+    """Identifiers used to lazily project resources reached by dependency closure."""
+
+    select_all: bool = False
+    """Whether every resource of the target type is selected."""
+    local_ids: set[uuid.UUID] = field(default_factory=set)
+    """Workspace-local ids selected directly by the export request."""
+    source_ids: set[str] = field(default_factory=set)
+    """Git-owned source ids referenced directly by another resource."""
+    slugs: set[str] = field(default_factory=set)
+    """Slug references such as agent preset and skill slugs."""
+    names: set[str] = field(default_factory=set)
+    """Name references such as table names or environment-agnostic variable names."""
+    environment_names: set[tuple[str, str]] = field(default_factory=set)
+    """Environment-qualified ``(environment, name)`` references."""
 
 
 class ResourceAdapter(ABC):
@@ -162,6 +180,44 @@ class ResourceAdapter(ABC):
         it. Workflows are projected by the sync service, not here.
         """
         return ResourceProjection(specs={}, resources=[])
+
+    async def project_dependency_refs(
+        self,
+        workspace_service: BaseWorkspaceService,
+        refs: ResourceDependencyRefs,
+    ) -> ResourceProjection:
+        """Project resources addressed by dependency-closure refs.
+
+        The default implementation filters a full type projection by local id or
+        source id. Adapters with natural lookup keys such as slug or
+        ``(environment, name)`` override this to avoid full type scans.
+        """
+        projection = await self.project(workspace_service)
+        if refs.select_all:
+            return projection
+
+        source_ids = set(refs.source_ids)
+        if refs.local_ids:
+            source_ids.update(
+                resource.source_id
+                for resource in projection.resources
+                if resource.local_id in refs.local_ids
+            )
+        if not source_ids:
+            return ResourceProjection(specs={}, resources=[])
+
+        return ResourceProjection(
+            specs={
+                source_id: spec
+                for source_id, spec in projection.specs.items()
+                if source_id in source_ids
+            },
+            resources=[
+                resource
+                for resource in projection.resources
+                if resource.source_id in source_ids
+            ],
+        )
 
     async def import_specs(
         self,
