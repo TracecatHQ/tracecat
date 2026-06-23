@@ -1,11 +1,33 @@
 from __future__ import annotations
 
 import pytest
+from botocore.exceptions import HTTPClientError
+from temporalio.exceptions import ApplicationError
 
 from tracecat.dsl import action
 from tracecat.dsl.action import materialize_context
 from tracecat.dsl.schemas import ExecutionContext, TaskResult
 from tracecat.storage.object import CollectionObject, InlineObject, ObjectRef
+
+
+@pytest.mark.anyio
+async def test_materialize_context_marks_storage_transport_errors_retryable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def raise_transport_error(*_args: object, **_kwargs: object) -> object:
+        raise HTTPClientError(
+            error=RuntimeError("File descriptor 512 is used by transport")
+        )
+
+    monkeypatch.setattr(action, "retrieve_stored_object", raise_transport_error)
+
+    ctx = ExecutionContext(ACTIONS={}, TRIGGER=InlineObject(data={"trigger": 1}))
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await materialize_context(ctx)
+
+    assert exc_info.value.non_retryable is False
+    assert exc_info.value.type == "StorageMaterializationError"
 
 
 @pytest.mark.anyio
