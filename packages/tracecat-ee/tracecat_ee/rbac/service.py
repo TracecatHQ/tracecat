@@ -407,10 +407,9 @@ class RBACService(BaseOrgService):
         """Delete a group."""
         group = await self.get_group(group_id)
 
-        # Capture (member, workspace) pairs the group currently materializes
-        # before the delete cascades away GroupMember/GroupRoleAssignment rows.
-        # The cascade drops the RBAC paths but not the derived Membership rows,
-        # so we must reconcile each affected user/workspace ourselves afterwards.
+        # Snapshot affected (member, workspace) pairs before deleting: the
+        # cascade drops the RBAC paths but not the derived Membership rows, so we
+        # reconcile them ourselves afterwards.
         affected = (
             await self.session.execute(
                 select(GroupMember.user_id, GroupRoleAssignment.workspace_id)
@@ -634,8 +633,7 @@ class RBACService(BaseOrgService):
         await self.session.commit()
         await self.session.refresh(assignment, ["group", "role", "workspace"])
 
-        # Workspace-scoped group assignment materializes membership for every
-        # current group member (bounded cold burst on a rare admin action).
+        # A ws-scoped group assignment materializes membership for every member.
         if workspace_id is not None:
             await MembershipService(self.session).reconcile_group_members(
                 group_id, workspace_id

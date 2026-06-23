@@ -23,7 +23,8 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.db.models import Role as DBRole
-from tracecat.exceptions import TracecatValidationError
+from tracecat.db.rls import workspace_rls_context
+from tracecat.exceptions import TracecatConflictError, TracecatValidationError
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 from tracecat.logger import logger
 from tracecat.service import BaseService
@@ -45,28 +46,26 @@ def workspace_scoped_path_exists(
     user_id: UserID | ColumnElement[uuid.UUID] | InstrumentedAttribute[uuid.UUID],
     workspace_id: WorkspaceID,
 ) -> ColumnElement[bool]:
-    """SQL EXISTS predicate: does the user hold a workspace-scoped role path to W?
-
-    A workspace-scoped path is either:
-      - a direct ``UserRoleAssignment(user, role, workspace_id=W)``, or
-      - membership in a group that holds a ``GroupRoleAssignment(group, role,
-        workspace_id=W)``.
-
-    Org-wide assignments (``workspace_id IS NULL``) grant access via scopes but
-    are deliberately NOT membership-materializing, so they are excluded here.
-
-    This is the single source of truth for the membership invariant. The runtime
-    reconciler uses this exact predicate.
-
-    ``user_id`` may be a literal or a column expression (e.g. an outer
-    ``GroupMember.user_id``), so the predicate can be correlated inside a
-    set-based statement.
+    """
+    Source of truth for the membership invariant. Org-wide assignments
+    (``workspace_id IS NULL``) are deliberately excluded. ``user_id`` may be a
+    column expression so the predicate can correlate inside a set-based statement.
     """
     direct = exists().where(
         UserRoleAssignment.user_id == user_id,
         UserRoleAssignment.workspace_id == workspace_id,
     )
-    via_group = (
+    return or_(direct, group_scoped_path_exists(user_id, workspace_id))
+
+
+def group_scoped_path_exists(
+    user_id: UserID | ColumnElement[uuid.UUID] | InstrumentedAttribute[uuid.UUID],
+    workspace_id: WorkspaceID,
+) -> ColumnElement[bool]:
+    """Does the user reach W through a group? The group half of
+    :func:`workspace_scoped_path_exists`, shared so the two checks can't drift.
+    """
+    return (
         select(GroupMember.user_id)
         .join(
             GroupRoleAssignment,
@@ -78,7 +77,6 @@ def workspace_scoped_path_exists(
         )
         .exists()
     )
-    return or_(direct, via_group)
 
 
 class MembershipService(BaseService):
@@ -104,21 +102,16 @@ class MembershipService(BaseService):
     async def list_workspace_members(
         self, workspace_id: WorkspaceID
     ) -> list[WorkspaceMember]:
-        """List all workspace members with their workspace roles from RBAC.
+        """List workspace members with their roles.
 
-        A member's displayed role comes from a direct
-        ``UserRoleAssignment`` when one exists. Members whose workspace access
-        is materialized solely through a group (e.g. a group granted Workspace
-        Admin) have no direct assignment, so the group-derived role is shown
-        instead. Without this, such members would fall back to the "Workspace
-        Editor" default and be displayed with a role they do not actually hold.
-
-        Roles are not privilege-ordered in the schema, so when a member only has
-        group-derived roles we pick one deterministically by role name.
+        Displayed role: direct assignment if any, else group-derived, else the
+        editor default. ``via_group`` flags members reachable through a group
+        (even if they also hold a direct assignment) — the same condition under
+        which :meth:`delete_membership` refuses removal, so the UI can gate
+        per-row actions on it.
         """
-        # Group-derived workspace role for each user, one row per user. There is
-        # no privilege ranking on Role, so min(name) gives a stable, repeatable
-        # choice when a user inherits multiple group roles for the workspace.
+        # One group-derived role per user; min(name) picks deterministically
+        # when a user inherits several (Role has no privilege ranking).
         group_role = (
             select(
                 GroupMember.user_id.label("user_id"),
@@ -138,13 +131,16 @@ class MembershipService(BaseService):
         statement = (
             select(
                 User,
-                # Direct assignment role wins; otherwise the group-derived role;
-                # otherwise the default editor label.
+                # Direct role wins, else group-derived, else default editor.
                 func.coalesce(
                     DBRole.name,
                     group_role.c.role_name,
                     literal("Workspace Editor"),
                 ).label("role_name"),
+                # Same predicate as delete_membership's rejection check, so a
+                # user with both a direct and group path reads as via_group
+                # (removable=false) — matching what the delete would do.
+                group_scoped_path_exists(User.id, workspace_id).label("via_group"),
             )
             .select_from(Membership)
             .join(User, Membership.user_id == User.id)
@@ -169,8 +165,9 @@ class MembershipService(BaseService):
                 last_name=user.last_name,
                 email=user.email,
                 role_name=role_name,
+                via_group=bool(via_group),
             )
-            for user, role_name in rows
+            for user, role_name, via_group in rows
         ]
 
     async def get_membership(
@@ -244,14 +241,9 @@ class MembershipService(BaseService):
             raise TracecatValidationError("Workspace or default role not found")
         organization_id, role_id = org_role_row
 
-        # Write the workspace-scoped role path; the reconciler derives the
-        # Membership row from it (single write path for the membership dial).
-        #
-        # Idempotent and non-destructive: if the user already holds a direct
-        # workspace-scoped assignment (e.g. a custom admin role, or a retry of
-        # this same call), ON CONFLICT DO NOTHING preserves it rather than
-        # downgrading them to the default workspace-editor role. The default is
-        # only materialized for users who have no existing direct assignment.
+        # Write the role path; the reconciler derives the Membership row from it.
+        # DO NOTHING keeps any existing direct assignment (e.g. a custom admin
+        # role) instead of downgrading it to the default editor.
         await self.session.execute(
             pg_insert(UserRoleAssignment)
             .values(
@@ -275,14 +267,27 @@ class MembershipService(BaseService):
     async def delete_membership(
         self, workspace_id: WorkspaceID, user_id: UserID
     ) -> None:
-        """Delete a workspace membership.
+        """Remove the user's direct role path to the workspace, then reconcile.
+
+        Rejects with a conflict if access is group-derived: dropping direct
+        assignments would leave the group path intact and the user would
+        reappear, so they must be removed via the group instead.
 
         Note: The authorization cache is request-scoped, so changes will be
         reflected in subsequent requests automatically.
         """
-        # Remove the direct workspace-scoped role path, then reconcile. The
-        # reconciler deletes the Membership row only if no other ws-scoped path
-        # (e.g. a group assignment) still holds it.
+        # A group-derived path survives this removal, so reject before mutating.
+        has_group_path = await self.session.scalar(
+            select(group_scoped_path_exists(user_id, workspace_id))
+        )
+        if has_group_path:
+            raise TracecatConflictError(
+                "User's workspace access is granted through a group. Remove the "
+                "user from the group or change the group's role assignment."
+            )
+
+        # Remove the direct role path, then reconcile (drops Membership only if
+        # no other ws-scoped path remains).
         await self.session.execute(
             delete(UserRoleAssignment).where(
                 UserRoleAssignment.workspace_id == workspace_id,
@@ -295,49 +300,40 @@ class MembershipService(BaseService):
     async def reconcile_workspace_membership(
         self, user_id: UserID, workspace_id: WorkspaceID
     ) -> None:
-        """Drive the ``Membership`` dial in lockstep with workspace-scoped RBAC.
+        """Upsert/delete Membership(user, W) to match workspace-scoped RBAC.
 
-        Membership(user, W) must exist iff the user holds at least one
-        workspace-scoped role path to W (direct or via a group). This consults
-        :func:`workspace_scoped_path_exists` and upserts or deletes the
-        ``Membership`` row accordingly.
-
-        Idempotent. Serialized per (user, W) with a transaction-scoped advisory
-        lock so concurrent reconciles cannot race into a contradictory state.
-        The lock is held until this method's own commit (it must be
-        transaction-scoped: a session-level lock would be orphaned when the
-        commit returns the connection to the pool). The unique constraint
-        (composite PK) is the only other DB backstop; no triggers, no
-        background job.
-
-        The caller is responsible for committing any RBAC writes that motivated
-        the reconcile. This method commits its own membership change.
+        The row must exist iff the user holds at least one ws-scoped role path
+        (direct or via group). Idempotent, serialized per (user, W) by a
+        transaction-scoped advisory lock, and committed here. Runs inside a
+        temporary ws-scoped RLS context so org-scoped callers (RBAC routes) can
+        still write the row under enforce mode. The caller commits the RBAC
+        writes that motivated the reconcile.
         """
         lock_key = derive_lock_key_from_parts(
             "membership", str(user_id), str(workspace_id)
         )
-        await pg_advisory_xact_lock(self.session, lock_key)
-        has_path = await self.session.scalar(
-            select(workspace_scoped_path_exists(user_id, workspace_id))
-        )
-        if has_path:
-            # Upsert: presence fact, no extra columns to update.
-            await self.session.execute(
-                pg_insert(Membership)
-                .values(user_id=user_id, workspace_id=workspace_id)
-                .on_conflict_do_nothing(
-                    index_elements=[Membership.user_id, Membership.workspace_id]
-                )
+        async with workspace_rls_context(self.session, workspace_id):
+            await pg_advisory_xact_lock(self.session, lock_key)
+            has_path = await self.session.scalar(
+                select(workspace_scoped_path_exists(user_id, workspace_id))
             )
-        else:
-            await self.session.execute(
-                delete(Membership).where(
-                    Membership.user_id == user_id,
-                    Membership.workspace_id == workspace_id,
+            if has_path:
+                await self.session.execute(
+                    pg_insert(Membership)
+                    .values(user_id=user_id, workspace_id=workspace_id)
+                    .on_conflict_do_nothing(
+                        index_elements=[Membership.user_id, Membership.workspace_id]
+                    )
                 )
-            )
-        # Commit releases the transaction-scoped advisory lock.
-        await self.session.commit()
+            else:
+                await self.session.execute(
+                    delete(Membership).where(
+                        Membership.user_id == user_id,
+                        Membership.workspace_id == workspace_id,
+                    )
+                )
+            # Commit releases the transaction-scoped advisory lock.
+            await self.session.commit()
         logger.debug(
             "Reconciled workspace membership",
             user_id=user_id,
@@ -350,20 +346,12 @@ class MembershipService(BaseService):
     ) -> None:
         """Reconcile every member of a group against one workspace.
 
-        Used by group-level admin mutations: a single group role assignment
-        change fans out to all current group members for the affected
-        workspace.
-
-        Set-based rather than per-member: two statements (upsert + delete) under
-        a single group-level advisory lock, constant in the group size. This is
-        the fanout path that a bulk membership sync (e.g. SCIM) would hammer, so
-        it must not degrade to O(N) round trips. The group-level lock serializes
-        concurrent fanouts for the same group; per-user direct writes still
-        reconcile under their own (user, W) lock and self-heal.
+        Fans a group role-assignment change out to all current members. Set-based
+        (upsert + delete) under one group-level advisory lock, so it stays O(1)
+        round trips even under bulk syncs (SCIM). Runs in a temporary ws-scoped
+        RLS context so org-scoped RBAC routes can write the rows under enforce
+        mode.
         """
-        # Members of this group, as a subquery. The outer statements never range
-        # over ``GroupMember`` directly, so the predicate's own ``group_member``
-        # reference cannot auto-correlate to it (no alias needed).
         group_member_ids = select(GroupMember.user_id).where(
             GroupMember.group_id == group_id
         )
@@ -371,32 +359,32 @@ class MembershipService(BaseService):
         lock_key = derive_lock_key_from_parts(
             "membership_group", str(group_id), str(workspace_id)
         )
-        # Transaction-scoped: the lock is released by this method's commit, so it
-        # must not outlive the connection if that connection returns to the pool.
-        await pg_advisory_xact_lock(self.session, lock_key)
-        # Materialize membership for members that now hold a ws-scoped path.
-        await self.session.execute(
-            pg_insert(Membership)
-            .from_select(
-                ["user_id", "workspace_id"],
-                select(GroupMember.user_id, literal(workspace_id)).where(
-                    GroupMember.group_id == group_id,
-                    workspace_scoped_path_exists(GroupMember.user_id, workspace_id),
-                ),
+        async with workspace_rls_context(self.session, workspace_id):
+            # Transaction-scoped lock; released by this method's commit.
+            await pg_advisory_xact_lock(self.session, lock_key)
+            # Materialize membership for members that now hold a ws-scoped path.
+            await self.session.execute(
+                pg_insert(Membership)
+                .from_select(
+                    ["user_id", "workspace_id"],
+                    select(GroupMember.user_id, literal(workspace_id)).where(
+                        GroupMember.group_id == group_id,
+                        workspace_scoped_path_exists(GroupMember.user_id, workspace_id),
+                    ),
+                )
+                .on_conflict_do_nothing(
+                    index_elements=[Membership.user_id, Membership.workspace_id]
+                )
             )
-            .on_conflict_do_nothing(
-                index_elements=[Membership.user_id, Membership.workspace_id]
+            # Drop membership for members that no longer hold any ws-scoped path.
+            await self.session.execute(
+                delete(Membership).where(
+                    Membership.workspace_id == workspace_id,
+                    Membership.user_id.in_(group_member_ids),
+                    ~workspace_scoped_path_exists(Membership.user_id, workspace_id),
+                )
             )
-        )
-        # Drop membership for members that no longer hold any ws-scoped path.
-        await self.session.execute(
-            delete(Membership).where(
-                Membership.workspace_id == workspace_id,
-                Membership.user_id.in_(group_member_ids),
-                ~workspace_scoped_path_exists(Membership.user_id, workspace_id),  # pyright: ignore[reportArgumentType]
-            )
-        )
-        await self.session.commit()
+            await self.session.commit()
         logger.debug(
             "Reconciled group members",
             group_id=group_id,

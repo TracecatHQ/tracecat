@@ -21,6 +21,7 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.db.models import Role as DBRole
+from tracecat.exceptions import TracecatConflictError
 from tracecat.workspaces.schemas import WorkspaceMembershipCreate
 
 pytestmark = [pytest.mark.anyio, pytest.mark.usefixtures("db")]
@@ -213,6 +214,49 @@ async def test_delete_membership_removes_orphan_assignment(
     )
 
     assert assignment is None
+
+
+async def test_delete_membership_rejects_group_derived_member(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    workspace_editor_role: DBRole,
+    group: Group,
+) -> None:
+    """Removing a member whose only path is a group must conflict, not no-op.
+
+    Otherwise the delete would drop no direct assignment, the reconciler would
+    keep the membership, and the user would reappear in the workspace.
+    """
+    session.add(GroupMember(group_id=group.id, user_id=member_user.id))
+    session.add(
+        GroupRoleAssignment(
+            organization_id=organization.id,
+            group_id=group.id,
+            workspace_id=workspace.id,
+            role_id=workspace_editor_role.id,
+        )
+    )
+    session.add(Membership(user_id=member_user.id, workspace_id=workspace.id))
+    await session.commit()
+
+    with pytest.raises(TracecatConflictError):
+        await membership_service.delete_membership(
+            workspace_id=workspace.id,
+            user_id=member_user.id,
+        )
+
+    # The group path and membership are untouched by the rejected request.
+    assert await _get_membership(session, workspace, member_user) is not None
+    group_assignment = await session.scalar(
+        select(GroupRoleAssignment).where(
+            GroupRoleAssignment.group_id == group.id,
+            GroupRoleAssignment.workspace_id == workspace.id,
+        )
+    )
+    assert group_assignment is not None
 
 
 async def test_create_membership_is_idempotent_with_existing_default_assignment(
@@ -593,3 +637,45 @@ async def test_reconcile_group_members_fans_out(
 
     assert await _get_membership(session, workspace, member_user) is not None
     assert await _get_membership(session, workspace, actor_user) is not None
+
+
+async def test_list_workspace_members_flags_group_derived_role(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    actor_user: User,
+    workspace_editor_role: DBRole,
+    group: Group,
+) -> None:
+    """Group-only members report their group role with via_group; direct ones don't."""
+    # member_user: access only via a group assignment.
+    session.add(GroupMember(group_id=group.id, user_id=member_user.id))
+    session.add(
+        GroupRoleAssignment(
+            organization_id=organization.id,
+            group_id=group.id,
+            workspace_id=workspace.id,
+            role_id=workspace_editor_role.id,
+        )
+    )
+    session.add(Membership(user_id=member_user.id, workspace_id=workspace.id))
+    # actor_user: a direct workspace assignment.
+    session.add(
+        UserRoleAssignment(
+            organization_id=organization.id,
+            user_id=actor_user.id,
+            workspace_id=workspace.id,
+            role_id=workspace_editor_role.id,
+        )
+    )
+    session.add(Membership(user_id=actor_user.id, workspace_id=workspace.id))
+    await session.commit()
+
+    members = await membership_service.list_workspace_members(workspace.id)
+    by_user = {m.user_id: m for m in members}
+
+    assert by_user[member_user.id].via_group is True
+    assert by_user[member_user.id].role_name == workspace_editor_role.name
+    assert by_user[actor_user.id].via_group is False
