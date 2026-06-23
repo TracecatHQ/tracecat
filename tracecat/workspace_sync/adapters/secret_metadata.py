@@ -89,7 +89,9 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
         secrets = list((await workspace_service.session.execute(stmt)).scalars().all())
         return await self._projection_from_secrets(workspace_service, secrets)
 
-    def _projection_stmt(self, workspace_service: BaseWorkspaceService) -> sa.Select:
+    def _projection_stmt(
+        self, workspace_service: BaseWorkspaceService
+    ) -> sa.Select[tuple[Secret]]:
         """Build the base secret metadata projection query."""
         return (
             select(Secret)

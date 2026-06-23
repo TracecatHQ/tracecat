@@ -101,7 +101,9 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         presets = list((await workspace_service.session.execute(stmt)).scalars().all())
         return await self._projection_from_presets(workspace_service, presets)
 
-    def _projection_stmt(self, workspace_service: BaseWorkspaceService) -> sa.Select:
+    def _projection_stmt(
+        self, workspace_service: BaseWorkspaceService
+    ) -> sa.Select[tuple[AgentPreset]]:
         """Build the base eager-loaded preset projection query."""
         return (
             select(AgentPreset)

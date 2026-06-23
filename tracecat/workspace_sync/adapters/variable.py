@@ -101,7 +101,9 @@ class VariableAdapter(EnvironmentYamlAdapter):
         )
         return await self._projection_from_variables(workspace_service, variables)
 
-    def _projection_stmt(self, workspace_service: BaseWorkspaceService) -> sa.Select:
+    def _projection_stmt(
+        self, workspace_service: BaseWorkspaceService
+    ) -> sa.Select[tuple[WorkspaceVariable]]:
         """Build the base variable projection query."""
         return (
             select(WorkspaceVariable)

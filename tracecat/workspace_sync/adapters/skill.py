@@ -194,7 +194,9 @@ class SkillAdapter(CompoundYamlAdapter):
         skills = list((await workspace_service.session.execute(stmt)).scalars().all())
         return await self._projection_from_skills(workspace_service, skills)
 
-    def _projection_stmt(self, workspace_service: BaseWorkspaceService) -> sa.Select:
+    def _projection_stmt(
+        self, workspace_service: BaseWorkspaceService
+    ) -> sa.Select[tuple[Skill]]:
         """Build the base eager-loaded skill projection query."""
         return (
             select(Skill)

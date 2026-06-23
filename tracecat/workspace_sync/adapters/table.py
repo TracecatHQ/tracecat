@@ -95,7 +95,9 @@ class TableAdapter(CompoundYamlAdapter):
         tables = list((await workspace_service.session.execute(stmt)).scalars().all())
         return await self._projection_from_tables(workspace_service, tables)
 
-    def _projection_stmt(self, workspace_service: BaseWorkspaceService) -> sa.Select:
+    def _projection_stmt(
+        self, workspace_service: BaseWorkspaceService
+    ) -> sa.Select[tuple[Table]]:
         """Build the base eager-loaded table projection query."""
         return (
             select(Table)
