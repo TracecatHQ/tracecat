@@ -225,9 +225,11 @@ def workflow_references(definition: DSLInput) -> WorkflowReferences:
             case ActionStatement(
                 action=PlatformAction.CHILD_WORKFLOW_EXECUTE, args=args
             ):
+                # Mirror runtime resolution (see dsl/action.py): alias takes
+                # precedence over id, so collect at most one child reference.
                 if isinstance(alias := args.get("workflow_alias"), str):
                     execute_aliases.add(alias)
-                if isinstance(workflow_id := args.get("workflow_id"), str):
+                elif isinstance(workflow_id := args.get("workflow_id"), str):
                     try:
                         execute_ids.add(WorkflowUUID.new(workflow_id))
                     except ValueError:
