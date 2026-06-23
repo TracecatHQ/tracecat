@@ -132,6 +132,10 @@ def _path_is_under_roots(path: str, roots: Sequence[str]) -> bool:
     return any(path == root or path.startswith(f"{root}/") for root in roots)
 
 
+_GITHUB_BLOB_CONCURRENCY = 8
+"""Maximum concurrent GitHub blob/content calls during sync reads and writes."""
+
+
 class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
     """GitHub App transport for workspace sync."""
 
@@ -164,14 +168,20 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
                 for item in tree.tree
                 if item.type == "blob" and item.path
             }
+            blob_semaphore = asyncio.Semaphore(_GITHUB_BLOB_CONCURRENCY)
 
             async def fetch_text(path: str) -> str | None:
                 """Fetch a blob and decode it as UTF-8, or ``None`` if binary."""
-                blob = await asyncio.to_thread(repo.get_git_blob, blob_shas[path])
+                async with blob_semaphore:
+                    blob = await asyncio.to_thread(repo.get_git_blob, blob_shas[path])
                 try:
                     return base64.b64decode(blob.content).decode("utf-8")
                 except UnicodeDecodeError:
                     return None
+
+            async def fetch_path(path: str) -> tuple[str, str | None]:
+                """Fetch ``path`` and preserve its identity through gather."""
+                return path, await fetch_text(path)
 
             files: dict[str, str] = {}
             resource_roots = manifest_resource_roots(WorkspaceManifest())
@@ -185,12 +195,15 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
                     except Exception:
                         pass
 
-            for path in sorted(blob_shas):
-                if path == MANIFEST_FILENAME or not any(
-                    path.startswith(f"{root}/") for root in resource_roots
-                ):
-                    continue
-                content = await fetch_text(path)
+            resource_paths = [
+                path
+                for path in sorted(blob_shas)
+                if path != MANIFEST_FILENAME
+                and any(path.startswith(f"{root}/") for root in resource_roots)
+            ]
+            for path, content in await asyncio.gather(
+                *(fetch_path(path) for path in resource_paths)
+            ):
                 if content is not None:
                     files[path] = content
             return VcsTreeSnapshot(
@@ -248,15 +261,18 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
                 )
                 target_branch = await asyncio.to_thread(repo.get_branch, branch)
 
-            changed_files: dict[str, str] = {}
-            for path, content in files.items():
+            content_semaphore = asyncio.Semaphore(_GITHUB_BLOB_CONCURRENCY)
+
+            async def changed_file(path: str, content: str) -> tuple[str, str] | None:
+                """Return ``(path, content)`` when the branch content differs."""
                 existing_content: str | None = None
                 try:
-                    existing = await asyncio.to_thread(
-                        repo.get_contents,
-                        path,
-                        ref=branch,
-                    )
+                    async with content_semaphore:
+                        existing = await asyncio.to_thread(
+                            repo.get_contents,
+                            path,
+                            ref=branch,
+                        )
                     if not isinstance(existing, list):
                         existing_content = base64.b64decode(existing.content).decode(
                             "utf-8"
@@ -265,7 +281,21 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
                     if e.status != 404:
                         raise
                 if existing_content != content:
-                    changed_files[path] = content
+                    return path, content
+                return None
+
+            changed_file_entries = await asyncio.gather(
+                *(
+                    changed_file(path, content)
+                    for path, content in sorted(files.items())
+                )
+            )
+            changed_files = {
+                path: content
+                for entry in changed_file_entries
+                if entry is not None
+                for path, content in (entry,)
+            }
 
             stale_paths = await self._stale_paths_under_roots(
                 repo=repo,
@@ -307,17 +337,34 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
                 repo.get_git_commit,
                 target_branch.commit.sha,
             )
-            elements = []
-            for path, content in sorted(changed_files.items()):
-                blob = await asyncio.to_thread(repo.create_git_blob, content, "utf-8")
-                elements.append(
-                    InputGitTreeElement(
-                        path=path,
-                        mode="100644",
-                        type="blob",
-                        sha=blob.sha,
+            blob_create_semaphore = asyncio.Semaphore(_GITHUB_BLOB_CONCURRENCY)
+
+            async def create_blob_element(
+                path: str,
+                content: str,
+            ) -> InputGitTreeElement:
+                """Create a Git blob and return its tree element."""
+                async with blob_create_semaphore:
+                    blob = await asyncio.to_thread(
+                        repo.create_git_blob,
+                        content,
+                        "utf-8",
+                    )
+                return InputGitTreeElement(
+                    path=path,
+                    mode="100644",
+                    type="blob",
+                    sha=blob.sha,
+                )
+
+            elements = list(
+                await asyncio.gather(
+                    *(
+                        create_blob_element(path, content)
+                        for path, content in sorted(changed_files.items())
                     )
                 )
+            )
             for path in sorted(stale_paths):
                 elements.append(
                     InputGitTreeElement(
