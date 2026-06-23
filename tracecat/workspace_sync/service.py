@@ -247,6 +247,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         Schedules are intentionally opt-in so imports do not mutate or activate
         environment-specific schedule configuration unless an admin asks for it.
         """
+        # A pull always targets an explicit commit so the import is reproducible.
         if not options.commit_sha:
             return PullResult(
                 success=False,
@@ -265,6 +266,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
                 message="commit_sha is required",
             )
 
+        # Read the repository tree at that commit and parse it into a spec.
         url = await self._workspace_git_url(provider=provider)
         transport = self._transport_for_provider(
             provider,
@@ -276,6 +278,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
             tree_sha=remote_tree.tree_sha,
         )
         resource_counts = self._resource_counts_from_spec(snapshot.spec)
+        # Parse/manifest problems abort before we touch the database.
         if diagnostics:
             return PullResult(
                 success=False,
@@ -286,6 +289,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
                 message=f"Failed to validate workspace spec: {len(diagnostics)} issue(s)",
                 resource_counts=resource_counts,
             )
+        # A dry run previews the diff and validates workflows but never writes.
         if options.dry_run:
             resource_diffs = await self._resource_diffs_for_pull(
                 snapshot,
@@ -319,6 +323,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
                 resource_counts=resource_counts,
                 resource_diffs=resource_diffs,
             )
+        # Real pull: reconcile the snapshot into the database.
         return await self._import_snapshot(
             snapshot,
             sync_schedules=sync_schedules,
@@ -341,16 +346,19 @@ class WorkspaceSyncService(BaseWorkspaceService):
         mappings are minted for any newly projected resource; pass ``False`` for
         read-only previews. A ``None`` selection exports the whole workspace.
         """
+        # Normalize the two selection inputs into one per-type map (None = all).
         selection = _selection_from_workflow_ids(
             workflow_ids=workflow_ids,
             resource_ids=resource_ids,
         )
         full_workspace_export = selection is None
+        # Resolve the workflows to project, including child workflows they call.
         workflows = await self._projectable_workflow_closure(selection)
         defn_service = WorkflowDefinitionsService(session=self.session, role=self.role)
         mgmt_service = WorkflowsManagementService(session=self.session, role=self.role)
         specs: dict[str, WorkflowResourceSpec] = {}
 
+        # Project each workflow to a spec keyed by its (stable) source id.
         for workflow in workflows:
             await self.session.refresh(
                 workflow,
@@ -373,6 +381,8 @@ class WorkspaceSyncService(BaseWorkspaceService):
                 include_schedules=include_schedules,
             )
 
+        # Project every non-workflow resource, then trim to the selection's
+        # dependency closure (a full export keeps all of them).
         non_workflow_projection = await WorkspaceResourceProjector(
             session=self.session,
             role=self.role,
@@ -384,6 +394,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
             projected_resources=non_workflow_projection.resources,
             projected_spec=non_workflow_projection.spec,
         )
+        # Mint sync mappings for the surviving resources (skipped for previews).
         if create_missing_mappings:
             for resource in projected_resources:
                 await self._upsert_mapping(
@@ -393,6 +404,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
                     local_id=resource.local_id,
                 )
 
+        # Recombine workflow and non-workflow specs and serialize to files.
         manifest = WorkspaceManifest()
         spec = workspace_spec_from_maps(
             {
@@ -544,6 +556,8 @@ class WorkspaceSyncService(BaseWorkspaceService):
         diagnostic. The returned :class:`PullResult` reports found and imported
         counts per resource type.
         """
+        # Map every remote source id to a local workflow UUID up front so that
+        # child-workflow references can be rewritten to local ids in one pass.
         local_ids: dict[str, WorkflowUUID] = {}
         for source_id in sorted(snapshot.spec.workflows):
             local_id = await self._resolve_local_workflow_id(source_id)
@@ -559,6 +573,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
                 )
             )
 
+        # Validate before writing anything; bail out on the first set of errors.
         workflow_importer = WorkflowImportService(
             session=self.session,
             role=self.role,
@@ -592,6 +607,9 @@ class WorkspaceSyncService(BaseWorkspaceService):
                 resource_counts=self._resource_counts_from_spec(snapshot.spec),
             )
 
+        # Reconcile everything inside one nested transaction: non-workflow
+        # resources first (workflows may reference them), then workflows, then
+        # refresh the sync mappings. Any failure rolls the whole batch back.
         imported_resources: list[ImportedResource] = []
         try:
             async with self.session.begin_nested():
@@ -782,13 +800,16 @@ class WorkspaceSyncService(BaseWorkspaceService):
         if selection is None:
             return await self._list_projectable_workflows(workflow_ids=None)
 
+        # A selection without a workflow entry exports no workflows at all.
         if SyncResourceType.WORKFLOW not in selection:
             return []
 
+        # An empty id set means "all workflows" (select-all of the type).
         selected_workflow_ids = selection.get(SyncResourceType.WORKFLOW, set())
         if not selected_workflow_ids:
             return await self._list_projectable_workflows(workflow_ids=None)
 
+        # Build lookup tables once so closure expansion is pure in-memory work.
         all_workflows = await self._list_projectable_workflows(workflow_ids=None)
         workflows_by_id = {workflow.id: workflow for workflow in all_workflows}
         aliases = {
@@ -810,6 +831,8 @@ class WorkspaceSyncService(BaseWorkspaceService):
                 )
             return dsl_by_id[workflow.id]
 
+        # Breadth-first walk over child-workflow references, adding each newly
+        # discovered child once so cycles terminate.
         included = set(selected_workflow_ids)
         queue = deque(selected_workflow_ids)
         while queue:
@@ -819,6 +842,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
                 continue
             dsl = await dsl_for(workflow)
             references = workflow_references(dsl)
+            # Children referenced by alias must resolve to a known workflow.
             for alias in sorted(references.execute_aliases):
                 child_id = aliases.get(alias)
                 if child_id is None:
@@ -832,6 +856,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
                     continue
                 included.add(child_id)
                 queue.append(child_id)
+            # Children referenced directly by id.
             for child_id in sorted(references.execute_ids, key=str):
                 if child_id not in workflows_by_id:
                     self.logger.warning(
@@ -845,6 +870,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
                 included.add(child_id)
                 queue.append(child_id)
 
+        # Return the closure in the original global creation order.
         return [workflow for workflow in all_workflows if workflow.id in included]
 
     async def _get_workflow_dsl(
@@ -924,6 +950,8 @@ class WorkspaceSyncService(BaseWorkspaceService):
         if full_workspace_export:
             return projected_spec, projected_resources
 
+        # ``desired`` accumulates, per resource type, the source ids that must
+        # ship with this partial export. Seed it with the directly selected ids.
         direct_source_ids = _direct_source_ids_by_type(
             resource_ids=resource_ids or {},
             projected_resources=projected_resources,
@@ -936,6 +964,8 @@ class WorkspaceSyncService(BaseWorkspaceService):
             table.name: source_id for source_id, table in projected_spec.tables.items()
         }
 
+        # Add presets the workflows invoke by slug, and case tags their case
+        # triggers filter on.
         payloads: list[Any] = list(workflow_specs.values())
         desired.setdefault(SyncResourceType.AGENT_PRESET, set()).update(
             _preset_source_ids_for_slugs(
@@ -955,6 +985,10 @@ class WorkspaceSyncService(BaseWorkspaceService):
             if source_id in projected_spec.case_tags
         )
 
+        # Presets pull in further presets (subagents) and skills, which can in
+        # turn reference more presets. Iterate to a fixed point so the closure is
+        # complete. ``payloads`` is rebuilt each pass to include the new presets
+        # so the variable/secret/table scan below sees their references too.
         while True:
             added = False
             included_presets = [
@@ -966,6 +1000,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
             ]
             payloads = [*list(workflow_specs.values()), *included_presets]
             for preset in included_presets:
+                # Each subagent slug may resolve to another preset to include.
                 for subagent in preset.subagents:
                     for source_id in _preset_source_ids_for_slugs(
                         projected_spec,
@@ -978,6 +1013,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
                         if source_id not in preset_sources:
                             preset_sources.add(source_id)
                             added = True
+                # And each skill binding resolves to a skill to include.
                 skill_sources = desired.setdefault(SyncResourceType.SKILL, set())
                 for binding in preset.skills:
                     for source_id in _skill_source_ids_for_slugs(
@@ -987,9 +1023,12 @@ class WorkspaceSyncService(BaseWorkspaceService):
                         if source_id not in skill_sources:
                             skill_sources.add(source_id)
                             added = True
+            # No new presets/skills this pass means the closure is complete.
             if not added:
                 break
 
+        # Scan the included workflow + preset payloads for VARS./SECRETS./table
+        # references and pull in whichever of those resources actually exist.
         desired.setdefault(SyncResourceType.VARIABLE, set()).update(
             source_id
             for name in _variable_names(payloads)
@@ -1006,6 +1045,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
             if _payloads_reference_table(payloads, name)
         )
 
+        # Materialize the filtered spec and the matching projected resources.
         filtered = workspace_spec_from_maps(
             {
                 adapter.spec_attr: _filter_specs(
