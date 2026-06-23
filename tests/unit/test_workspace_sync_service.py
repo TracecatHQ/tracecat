@@ -506,6 +506,7 @@ async def test_selected_workflow_export_includes_workflow_id_children(
     async def get_workflow_dsl(workflow: Any, **_: Any) -> DSLInput:
         return parent_dsl if workflow.id == parent_id else sample_dsl
 
+    get_workflow_dsl_mock = AsyncMock(side_effect=get_workflow_dsl)
     with (
         patch.object(
             workspace_sync_service,
@@ -515,14 +516,16 @@ async def test_selected_workflow_export_includes_workflow_id_children(
         patch.object(
             workspace_sync_service,
             "_get_workflow_dsl",
-            AsyncMock(side_effect=get_workflow_dsl),
+            get_workflow_dsl_mock,
         ),
     ):
-        workflows = await workspace_sync_service._projectable_workflow_closure(
+        closure = await workspace_sync_service._projectable_workflow_closure(
             {SyncResourceType.WORKFLOW: {parent_id}}
         )
 
-    assert [workflow.id for workflow in workflows] == [parent_id, child_id]
+    assert [workflow.id for workflow in closure.workflows] == [parent_id, child_id]
+    assert closure.dsl_by_id == {parent_id: parent_dsl, child_id: sample_dsl}
+    assert get_workflow_dsl_mock.await_count == 2
 
 
 def test_workflow_spec_to_remote_rewrites_child_workflow_id_references() -> None:

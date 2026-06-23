@@ -6,7 +6,7 @@ import re
 import uuid
 from collections import Counter, deque
 from collections.abc import Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from difflib import unified_diff
 from typing import Any
 
@@ -106,6 +106,14 @@ _EXPORT_READ_SCOPES_BY_RESOURCE_TYPE: dict[SyncResourceType, str] = {
     SyncResourceType.SECRET_METADATA: "secret:read",
 }
 """Read scope each non-workflow resource type requires before it can be exported."""
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectableWorkflowClosure:
+    """Workflow closure plus any DSLs read while resolving that closure."""
+
+    workflows: list[Workflow]
+    dsl_by_id: dict[uuid.UUID, DSLInput]
 
 
 class WorkspaceSyncService(BaseWorkspaceService):
@@ -354,7 +362,9 @@ class WorkspaceSyncService(BaseWorkspaceService):
         )
         full_workspace_export = selection is None
         # Resolve the workflows to project, including child workflows they call.
-        workflows = await self._projectable_workflow_closure(selection)
+        workflow_closure = await self._projectable_workflow_closure(selection)
+        workflows = workflow_closure.workflows
+        dsl_by_id = workflow_closure.dsl_by_id
         defn_service = WorkflowDefinitionsService(session=self.session, role=self.role)
         mgmt_service = WorkflowsManagementService(session=self.session, role=self.role)
         specs: dict[str, WorkflowResourceSpec] = {}
@@ -365,11 +375,14 @@ class WorkspaceSyncService(BaseWorkspaceService):
                 workflow,
                 ["tags", "folder", "schedules", "webhook", "case_trigger"],
             )
-            dsl = await self._get_workflow_dsl(
-                workflow,
-                defn_service=defn_service,
-                mgmt_service=mgmt_service,
-            )
+            dsl = dsl_by_id.get(workflow.id)
+            if dsl is None:
+                dsl = await self._get_workflow_dsl(
+                    workflow,
+                    defn_service=defn_service,
+                    mgmt_service=mgmt_service,
+                )
+                dsl_by_id[workflow.id] = dsl
             source_id = await self._source_id_for_workflow(
                 workflow=workflow,
                 create=create_missing_mappings,
@@ -793,25 +806,32 @@ class WorkspaceSyncService(BaseWorkspaceService):
     async def _projectable_workflow_closure(
         self,
         selection: dict[SyncResourceType, set[uuid.UUID]] | None,
-    ) -> list[Workflow]:
+    ) -> ProjectableWorkflowClosure:
         """Resolve the workflows to project, expanding child-workflow references.
 
         A ``None`` selection projects every workflow. Otherwise the selected
         workflows are expanded transitively over their ``execute`` references
         (by alias or id) so child workflows are pulled into the export closure.
-        The result preserves the global creation order.
+        The result preserves the global creation order and includes any DSLs
+        read while resolving selected workflow dependencies.
         """
         if selection is None:
-            return await self._list_projectable_workflows(workflow_ids=None)
+            return ProjectableWorkflowClosure(
+                workflows=await self._list_projectable_workflows(workflow_ids=None),
+                dsl_by_id={},
+            )
 
         # A selection without a workflow entry exports no workflows at all.
         if SyncResourceType.WORKFLOW not in selection:
-            return []
+            return ProjectableWorkflowClosure(workflows=[], dsl_by_id={})
 
         # An empty id set means "all workflows" (select-all of the type).
         selected_workflow_ids = selection.get(SyncResourceType.WORKFLOW, set())
         if not selected_workflow_ids:
-            return await self._list_projectable_workflows(workflow_ids=None)
+            return ProjectableWorkflowClosure(
+                workflows=await self._list_projectable_workflows(workflow_ids=None),
+                dsl_by_id={},
+            )
 
         # Build lookup tables once so closure expansion is pure in-memory work.
         all_workflows = await self._list_projectable_workflows(workflow_ids=None)
@@ -875,7 +895,12 @@ class WorkspaceSyncService(BaseWorkspaceService):
                 queue.append(child_id)
 
         # Return the closure in the original global creation order.
-        return [workflow for workflow in all_workflows if workflow.id in included]
+        return ProjectableWorkflowClosure(
+            workflows=[
+                workflow for workflow in all_workflows if workflow.id in included
+            ],
+            dsl_by_id=dsl_by_id,
+        )
 
     async def _get_workflow_dsl(
         self,
