@@ -116,6 +116,16 @@ class ProjectableWorkflowClosure:
     dsl_by_id: dict[uuid.UUID, DSLInput]
 
 
+@dataclass(frozen=True, slots=True)
+class SyncMappingTarget:
+    """Desired sync mapping state for one projected or imported resource."""
+
+    resource_type: str
+    source_id: str
+    source_path: str
+    local_id: uuid.UUID
+
+
 class WorkspaceSyncService(BaseWorkspaceService):
     """Direct workspace import/export over a VCS provider."""
 
@@ -412,13 +422,17 @@ class WorkspaceSyncService(BaseWorkspaceService):
         )
         # Mint sync mappings for the surviving resources (skipped for previews).
         if create_missing_mappings:
-            for resource in projected_resources:
-                await self._upsert_mapping(
-                    resource_type=resource.resource_type.value,
-                    source_id=resource.source_id,
-                    source_path=resource.source_path,
-                    local_id=resource.local_id,
-                )
+            await self._upsert_mappings(
+                [
+                    SyncMappingTarget(
+                        resource_type=resource.resource_type.value,
+                        source_id=resource.source_id,
+                        source_path=resource.source_path,
+                        local_id=resource.local_id,
+                    )
+                    for resource in projected_resources
+                ]
+            )
 
         # Recombine workflow and non-workflow specs and serialize to files.
         manifest = WorkspaceManifest()
@@ -638,20 +652,28 @@ class WorkspaceSyncService(BaseWorkspaceService):
                     remote_workflows,
                     sync_schedules=sync_schedules,
                 )
-                for source_id in sorted(snapshot.spec.workflows):
-                    await self._upsert_mapping(
-                        resource_type=SyncResourceType.WORKFLOW.value,
-                        source_id=source_id,
-                        source_path=workflow_source_path(source_id),
-                        local_id=local_ids[source_id],
-                    )
-                for imported in imported_resources:
-                    await self._upsert_mapping(
-                        resource_type=imported.resource_type.value,
-                        source_id=imported.source_id,
-                        source_path=imported.source_path,
-                        local_id=imported.local_id,
-                    )
+                await self._upsert_mappings(
+                    [
+                        *(
+                            SyncMappingTarget(
+                                resource_type=SyncResourceType.WORKFLOW.value,
+                                source_id=source_id,
+                                source_path=workflow_source_path(source_id),
+                                local_id=local_ids[source_id],
+                            )
+                            for source_id in sorted(snapshot.spec.workflows)
+                        ),
+                        *(
+                            SyncMappingTarget(
+                                resource_type=imported.resource_type.value,
+                                source_id=imported.source_id,
+                                source_path=imported.source_path,
+                                local_id=imported.local_id,
+                            )
+                            for imported in imported_resources
+                        ),
+                    ]
+                )
             await self.session.commit()
         except Exception as e:
             await self.session.rollback()
@@ -934,6 +956,16 @@ class WorkspaceSyncService(BaseWorkspaceService):
         """
         if not resources:
             return None
+        source_ids_by_resource_type: dict[str, set[str]] = {}
+        for resource in resources:
+            if resource.source_id is None:
+                continue
+            source_ids_by_resource_type.setdefault(
+                resource.resource_type.value, set()
+            ).add(resource.source_id)
+        mappings_by_source_id = await self._mappings_by_source_ids(
+            source_ids_by_resource_type=source_ids_by_resource_type
+        )
         resource_ids: dict[SyncResourceType, set[uuid.UUID]] = {}
         for resource in resources:
             if resource.local_id is not None:
@@ -944,9 +976,8 @@ class WorkspaceSyncService(BaseWorkspaceService):
             if resource.source_id is None:
                 resource_ids.setdefault(resource.resource_type, set())
                 continue
-            mapping = await self._mapping_by_source_id(
-                resource_type=resource.resource_type.value,
-                source_id=resource.source_id,
+            mapping = mappings_by_source_id.get(
+                (resource.resource_type.value, resource.source_id)
             )
             if mapping is None:
                 raise TracecatValidationError(
@@ -1206,6 +1237,26 @@ class WorkspaceSyncService(BaseWorkspaceService):
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
+    async def _mappings_by_source_ids(
+        self,
+        *,
+        source_ids_by_resource_type: dict[str, set[str]],
+    ) -> dict[tuple[str, str], WorkspaceSyncResourceMapping]:
+        """Return sync mappings keyed by ``(resource_type, source_id)``."""
+        mappings: dict[tuple[str, str], WorkspaceSyncResourceMapping] = {}
+        for resource_type, source_ids in source_ids_by_resource_type.items():
+            if not source_ids:
+                continue
+            stmt = select(WorkspaceSyncResourceMapping).where(
+                WorkspaceSyncResourceMapping.workspace_id == self.workspace_id,
+                WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
+                WorkspaceSyncResourceMapping.resource_type == resource_type,
+                WorkspaceSyncResourceMapping.source_id.in_(source_ids),
+            )
+            for mapping in (await self.session.execute(stmt)).scalars().all():
+                mappings[(resource_type, mapping.source_id)] = mapping
+        return mappings
+
     async def _mapping_by_local_id(
         self,
         *,
@@ -1235,23 +1286,53 @@ class WorkspaceSyncService(BaseWorkspaceService):
         inserts a new one, then flushes so the row is visible within the current
         transaction.
         """
-        mapping = await self._mapping_by_source_id(
-            resource_type=resource_type,
-            source_id=source_id,
-        )
-        if mapping is None:
-            mapping = WorkspaceSyncResourceMapping(
-                workspace_id=self.workspace_id,
-                provider=VcsProvider.GITHUB.value,
-                resource_type=resource_type,
-                source_id=source_id,
-                local_id=local_id,
+        return (
+            await self._upsert_mappings(
+                [
+                    SyncMappingTarget(
+                        resource_type=resource_type,
+                        source_id=source_id,
+                        source_path=source_path,
+                        local_id=local_id,
+                    )
+                ]
             )
-        mapping.source_path = source_path
-        mapping.local_id = local_id
-        self.session.add(mapping)
+        )[0]
+
+    async def _upsert_mappings(
+        self,
+        targets: Sequence[SyncMappingTarget],
+    ) -> list[WorkspaceSyncResourceMapping]:
+        """Create or update sync mappings for ``targets``, flushing once."""
+        if not targets:
+            return []
+        source_ids_by_resource_type: dict[str, set[str]] = {}
+        for target in targets:
+            source_ids_by_resource_type.setdefault(target.resource_type, set()).add(
+                target.source_id
+            )
+        existing_mappings = await self._mappings_by_source_ids(
+            source_ids_by_resource_type=source_ids_by_resource_type
+        )
+        mappings: list[WorkspaceSyncResourceMapping] = []
+        for target in targets:
+            key = (target.resource_type, target.source_id)
+            mapping = existing_mappings.get(key)
+            if mapping is None:
+                mapping = WorkspaceSyncResourceMapping(
+                    workspace_id=self.workspace_id,
+                    provider=VcsProvider.GITHUB.value,
+                    resource_type=target.resource_type,
+                    source_id=target.source_id,
+                    local_id=target.local_id,
+                )
+                existing_mappings[key] = mapping
+            mapping.source_path = target.source_path
+            mapping.local_id = target.local_id
+            self.session.add(mapping)
+            mappings.append(mapping)
         await self.session.flush()
-        return mapping
+        return mappings
 
     def _files_from_spec(
         self,

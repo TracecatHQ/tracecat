@@ -109,7 +109,7 @@ async def test_pull_does_not_sync_schedules_by_default(
     workspace_sync_service._resolve_local_workflow_id = AsyncMock(
         return_value=WorkflowUUID.new_uuid4()
     )
-    workspace_sync_service._upsert_mapping = AsyncMock()
+    workspace_sync_service._upsert_mappings = AsyncMock()
 
     with (
         patch(
