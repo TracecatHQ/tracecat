@@ -303,6 +303,13 @@
       "icon": "https://www.google.com/s2/favicons?domain=drata.com&sz=128"
     },
     {
+      "slug": "oneleet-mcp",
+      "name": "Oneleet",
+      "description": "Manage compliance controls, evidence, policies, monitors, and pentest findings in Oneleet",
+      "category": "Compliance",
+      "icon": "https://www.google.com/s2/favicons?domain=oneleet.com&sz=128"
+    },
+    {
       "slug": "grafana-mcp",
       "name": "Grafana",
       "description": "Query dashboards, Prometheus, Loki, and alerts on Grafana",

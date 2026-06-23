@@ -2165,6 +2165,31 @@
       }
     },
     {
+      "slug": "oneleet-mcp",
+      "docs": "https://docs.oneleet.com/api-and-mcp/service-keys-and-mcp/",
+      "connection_spec": {
+        "server_type": "http",
+        "auth_type": "CUSTOM",
+        "server_uri": "https://api.oneleet.com/mcp",
+        "credentials": [
+          {
+            "key": "Authorization",
+            "label": "Oneleet service key (Authorization header)",
+            "description": "Oneleet API service key sent as the Authorization header in the form 'Bearer service_<id>_<secret>'. Create the service key in Oneleet Settings > API and grant the scopes needed by your agent.",
+            "required": true,
+            "secret": true,
+            "target": "http_header"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Oneleet documents a first-party remote MCP server at https://api.oneleet.com/mcp using Streamable HTTP transport. OAuth-based user login is not available yet, so clients authenticate with a tenant-scoped API service key. The service key is shown once at creation, uses the service_<id>_<secret> format, and is passed to MCP clients as Authorization: Bearer <your-service-key>. Service keys can be scoped to read tenant details, controls, policies, frameworks, members, integrations, evidence, monitors, pentest findings, and write evidence, integrations, or monitor reruns. No stdio, npx, uvx, pip, Docker, or OAuth option is documented for this server.",
+        "sources": [
+          "https://docs.oneleet.com/api-and-mcp/service-keys-and-mcp/"
+        ]
+      }
+    },
+    {
       "slug": "grafana-mcp",
       "docs": "https://github.com/grafana/mcp-grafana",
       "connection_spec": {
