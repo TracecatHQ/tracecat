@@ -35,10 +35,6 @@ FAILED_STATUSES = {
     WorkflowExecutionStatus.TERMINATED,
 }
 
-# Approvals are a workflow concept: only automation-initiated sessions surface
-# them in the inbox. Chat-surface approvals are handled inline in the chat UI.
-APPROVAL_ENTITY_TYPES = ("workflow", "external_channel")
-
 # Harnesses whose root sessions surface in the inbox. These are the durable
 # agent harnesses; chat-only harnesses are handled inline in the chat UI and do
 # not appear here. Add a harness to this set to make its runs inbox-eligible.
@@ -148,10 +144,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             AgentSession.entity_type != "approval",
             or_(
                 AgentSession.harness_type.in_(INBOX_HARNESS_TYPES),
-                and_(
-                    has_approvals,
-                    AgentSession.entity_type.in_(APPROVAL_ENTITY_TYPES),
-                ),
+                has_approvals,
             ),
         )
 
@@ -445,15 +438,8 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         pending_counts = await self._fetch_approval_counts(
             session_ids, ApprovalStatus.PENDING
         )
-        # Mirror `_enrich_sessions`: a session whose only signal is rejected
-        # approvals is rendered FAILED, so it must land in ERROR (not COMPLETED).
-        # Restrict to approval-entity sessions, matching the approvals enrichment
-        # query, so stray rows on other session types don't change grouping.
-        approval_session_ids = [
-            s.id for s in sessions if s.entity_type in APPROVAL_ENTITY_TYPES
-        ]
         rejected_counts = await self._fetch_approval_counts(
-            approval_session_ids, ApprovalStatus.REJECTED
+            session_ids, ApprovalStatus.REJECTED
         )
 
         if group is InboxGroup.REVIEW_REQUIRED:
@@ -538,7 +524,6 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             )
             base_stmt = base_stmt.where(
                 pending_exists,
-                AgentSession.entity_type.in_(APPROVAL_ENTITY_TYPES),
             )
         elif group is InboxGroup.RUNNING:
             # Necessary (not sufficient) condition: a live Temporal run exists
@@ -675,7 +660,6 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                 Approval.status == ApprovalStatus.PENDING,
                 AgentSession.workspace_id == self.workspace_id,
                 AgentSession.parent_session_id.is_(None),
-                AgentSession.entity_type.in_(APPROVAL_ENTITY_TYPES),
             )
         )
         count = await self.session.scalar(stmt)
@@ -689,11 +673,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         if not sessions:
             return []
 
-        # Fetch approvals for automation-initiated sessions only; chat-surface
-        # approvals are resolved inline in the chat UI and never shown here.
-        approval_session_ids = [
-            s.id for s in sessions if s.entity_type in APPROVAL_ENTITY_TYPES
-        ]
+        approval_session_ids = [s.id for s in sessions]
         approvals_by_session: dict[uuid.UUID, list[Approval]] = {}
         if approval_session_ids:
             approval_stmt = select(Approval).where(

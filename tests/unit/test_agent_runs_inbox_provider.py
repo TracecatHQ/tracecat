@@ -336,14 +336,13 @@ async def test_ungrouped_reverse_returns_rows_adjacent_to_cursor(
 
 
 @pytest.mark.anyio
-async def test_classify_rejected_only_session_lands_in_error_group(
+async def test_classify_rejected_only_non_workflow_session_lands_in_error_group(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A session whose only signal is a rejected approval groups under ERROR.
+    """Any session whose only signal is a rejected approval groups under ERROR.
 
     ``_enrich_sessions`` renders such a session FAILED, so classification must
-    place it in ERROR rather than COMPLETED to keep group membership consistent
-    with the rendered status.
+    place it in ERROR rather than COMPLETED even when it is not workflow-backed.
     """
     workspace_id = uuid.uuid4()
     provider = AgentRunsInboxProvider(
@@ -353,7 +352,7 @@ async def test_classify_rejected_only_session_lands_in_error_group(
         id=uuid.uuid4(),
         title="rejected",
         workspace_id=workspace_id,
-        entity_type="workflow",
+        entity_type="case",
         entity_id=uuid.uuid4(),
         harness_type=HarnessType.CLAUDE_CODE,
         created_at=datetime(2026, 1, 1, tzinfo=UTC),
@@ -383,6 +382,27 @@ async def test_classify_rejected_only_session_lands_in_error_group(
     )
 
     assert classifications[rejected.id] is InboxGroup.ERROR
+
+
+@pytest.mark.anyio
+async def test_review_required_group_does_not_restrict_approval_entity_type() -> None:
+    """Pending approvals are inbox-relevant regardless of session entity type."""
+    session = _RecordingSession()
+    provider = AgentRunsInboxProvider(cast(AsyncSession, session), _role())
+
+    await provider._list_items_grouped(
+        limit=10,
+        cursor=None,
+        reverse=False,
+        order_by=None,
+        sort=None,
+        search=None,
+        group=InboxGroup.REVIEW_REQUIRED,
+    )
+
+    compiled = str(session.statements[-1].compile())
+    assert "approval.status =" in compiled
+    assert "agent_session.entity_type IN" not in compiled
 
 
 @pytest.mark.anyio
