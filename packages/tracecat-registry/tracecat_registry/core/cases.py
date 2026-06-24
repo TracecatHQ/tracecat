@@ -314,6 +314,22 @@ async def get_case(
 
 
 @registry.register(
+    default_title="Get linked case rows",
+    display_group="Cases",
+    description="Get linked rows for a specific case by ID.",
+    namespace="core.cases",
+)
+async def get_linked_case_rows(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case to retrieve."),
+    ],
+) -> list[types.CaseTableRowRead]:
+    case = await get_context().cases.get_case(case_id, include_rows=True)
+    return case["rows"]
+
+
+@registry.register(
     default_title="List cases",
     display_group="Cases",
     description="List all cases.",
@@ -376,6 +392,10 @@ async def search_cases(
     search_term: Annotated[
         str | None,
         Doc("Text to search for in case summary and description."),
+    ] = None,
+    short_id: Annotated[
+        str | None,
+        Doc("Filter by case short_id."),
     ] = None,
     status: Annotated[
         StatusType | list[StatusType] | None,
@@ -456,6 +476,8 @@ async def search_cases(
         params["reverse"] = reverse
     if search_term is not None:
         params["search_term"] = search_term
+    if short_id is not None:
+        params["short_id"] = short_id
     if status is not None:
         params["status"] = _as_list_filter(status)
     if priority is not None:
