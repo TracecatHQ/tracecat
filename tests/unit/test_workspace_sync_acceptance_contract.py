@@ -37,6 +37,7 @@ from tracecat.db.models import (
     CaseTag,
     Secret,
     Skill,
+    SkillDraftFile,
     SkillVersion,
     Table,
     Workflow,
@@ -576,6 +577,19 @@ async def test_import_selected_fixture_reconciles_supported_non_workflow_resourc
     )
     assert skill_version is not None
     assert skill_version.name == "QA enrichment skill"
+    draft_paths = list(
+        (
+            await session.scalars(
+                select(SkillDraftFile.path)
+                .where(
+                    SkillDraftFile.workspace_id == workspace_id,
+                    SkillDraftFile.skill_id == skill.id,
+                )
+                .order_by(SkillDraftFile.path.asc())
+            )
+        ).all()
+    )
+    assert set(draft_paths) == {"SKILL.md", "enrich.py"}
     assert await session.scalar(
         select(Table).where(
             Table.workspace_id == workspace_id,

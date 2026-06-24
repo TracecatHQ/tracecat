@@ -540,17 +540,24 @@ class SkillAdapter(DirectoryManifestAdapter):
                 )
 
             imported_versions: dict[int, SkillVersion] = {}
+            imported_version_file_refs: dict[int, dict[str, SkillFileBlobRef]] = {}
             for version_number, version_spec in sorted(version_specs.items()):
-                imported_versions[version_number] = await self._upsert_skill_version(
+                imported_version, file_refs = await self._upsert_skill_version(
                     workspace_service,
                     skill_service,
                     skill=skill,
                     version=version_spec,
                 )
+                imported_versions[version_number] = imported_version
+                imported_version_file_refs[version_number] = file_refs
 
             if spec.current_version is not None:
                 if current := imported_versions.get(spec.current_version):
                     skill.current_version_id = current.id
+                    await skill_service._replace_draft_with_blob_map(
+                        skill=skill,
+                        path_to_blob=imported_version_file_refs[spec.current_version],
+                    )
             workspace_service.session.add(skill)
             await workspace_service.session.flush()
             imported.append(self.imported_resource(source_id, skill.id))
@@ -563,7 +570,7 @@ class SkillAdapter(DirectoryManifestAdapter):
         *,
         skill: Skill,
         version: SkillVersionResourceSpec,
-    ) -> SkillVersion:
+    ) -> tuple[SkillVersion, dict[str, SkillFileBlobRef]]:
         """Create or update one skill version and its file rows."""
         file_refs: list[tuple[str, SkillFileBlobRef]] = []
         for file_spec in version.files:
@@ -635,7 +642,7 @@ class SkillAdapter(DirectoryManifestAdapter):
                 )
             )
         await workspace_service.session.flush()
-        return existing
+        return existing, dict(file_refs)
 
     async def _skill_for_import(
         self,
