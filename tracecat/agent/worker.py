@@ -38,6 +38,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.interceptor import SentryInterceptor
     from tracecat.dsl.plugins import TracecatPydanticAIPlugin
     from tracecat.logger import logger
+    from tracecat.storage.blob import close_storage_client_cache
     from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
 
 
@@ -142,6 +143,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
             await shutdown_event.wait()
             logger.info("AgentWorker shutdown requested")
         logger.info("Temporal Worker context exited")
+    await close_storage_client_cache()
 
 
 if __name__ == "__main__":

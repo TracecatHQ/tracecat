@@ -8,7 +8,7 @@ import os
 import threading
 import weakref
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -49,73 +49,31 @@ _STORAGE_CLIENT_CONFIG = AioConfig(
 )
 
 
-@dataclass(frozen=True)
-class _StorageSessionKey:
-    endpoint: str | None
-    aws_access_key_id: str | None
-    aws_secret_access_key: str | None = field(repr=False)
+@dataclass
+class _StorageClientEntry:
+    context: AbstractAsyncContextManager[S3Client] | None = field(
+        default=None, repr=False
+    )
+    client: S3Client | None = field(default=None, repr=False)
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
 
 
-# aioboto3 / aiobotocore sessions cache credential providers. Keep one session
-# per event loop and credential configuration so high-concurrency materialization
-# does not create a fresh credential HTTP client for every blob fetch.
-_STORAGE_SESSIONS: weakref.WeakKeyDictionary[
-    asyncio.AbstractEventLoop, dict[_StorageSessionKey, aioboto3.Session]
+# aiobotocore clients own the aiohttp ClientSession/TCPConnector that opens file
+# descriptors. Keep one entered client per event loop so concurrent
+# materialization reuses the HTTP connector instead of opening and closing one
+# connector per blob fetch.
+_STORAGE_CLIENTS: weakref.WeakKeyDictionary[
+    asyncio.AbstractEventLoop, _StorageClientEntry
 ] = weakref.WeakKeyDictionary()
-_STORAGE_SESSIONS_LOCK = threading.RLock()
+_STORAGE_CLIENTS_LOCK = threading.RLock()
 
 
-def _storage_session_key() -> _StorageSessionKey:
-    endpoint = config.TRACECAT__BLOB_STORAGE_ENDPOINT
-    access_key_id = os.environ.get(
-        "AWS_ACCESS_KEY_ID", os.environ.get("MINIO_ROOT_USER")
-    )
-    secret_access_key = os.environ.get(
-        "AWS_SECRET_ACCESS_KEY",
-        os.environ.get("MINIO_ROOT_PASSWORD"),
-    )
-    return _StorageSessionKey(
-        endpoint=endpoint,
-        aws_access_key_id=access_key_id,
-        aws_secret_access_key=secret_access_key,
-    )
-
-
-def _get_storage_session() -> aioboto3.Session:
-    loop = asyncio.get_running_loop()
-    key = _storage_session_key()
-    with _STORAGE_SESSIONS_LOCK:
-        sessions = _STORAGE_SESSIONS.setdefault(loop, {})
-        session = sessions.get(key)
-        if session is None:
-            session = aioboto3.Session()
-            sessions[key] = session
-        return session
-
-
-def clear_storage_session_cache() -> None:
-    """Clear cached aioboto3 sessions.
-
-    Intended for tests and process lifecycle hooks. Production workers normally
-    keep sessions for the life of their event loop so credential providers can
-    be reused safely within that loop.
-    """
-    with _STORAGE_SESSIONS_LOCK:
-        _STORAGE_SESSIONS.clear()
-
-
-@asynccontextmanager
-async def get_storage_client() -> AsyncIterator[S3Client]:
-    """Get a configured S3 client for either AWS S3.
-
-    Yields:
-        Configured aioboto3 S3 client
-    """
-    session = _get_storage_session()
+def _create_storage_client_context() -> AbstractAsyncContextManager[S3Client]:
+    session = aioboto3.Session()
     # Configure client based on protocol
     if config.TRACECAT__BLOB_STORAGE_ENDPOINT:
         # MinIO configuration - use AWS_* or MINIO_ROOT_* credentials
-        async with session.client(
+        return session.client(
             "s3",
             endpoint_url=config.TRACECAT__BLOB_STORAGE_ENDPOINT,
             config=_STORAGE_CLIENT_CONFIG,
@@ -128,12 +86,75 @@ async def get_storage_client() -> AsyncIterator[S3Client]:
                 "AWS_SECRET_ACCESS_KEY",
                 os.environ.get("MINIO_ROOT_PASSWORD"),
             ),
-        ) as client:
-            yield client
-    else:
-        # AWS S3 configuration - use AWS credentials from environment or default credential chain
-        async with session.client("s3", config=_STORAGE_CLIENT_CONFIG) as client:
-            yield client
+        )
+    # AWS S3 configuration - use AWS credentials from environment or default credential chain
+    return session.client("s3", config=_STORAGE_CLIENT_CONFIG)
+
+
+async def _get_storage_client() -> S3Client:
+    loop = asyncio.get_running_loop()
+    with _STORAGE_CLIENTS_LOCK:
+        entry = _STORAGE_CLIENTS.get(loop)
+        if entry is None:
+            entry = _StorageClientEntry()
+            _STORAGE_CLIENTS[loop] = entry
+
+    async with entry.lock:
+        client = entry.client
+        if client is None:
+            context = _create_storage_client_context()
+            try:
+                client = await context.__aenter__()
+            except Exception:
+                entry.context = None
+                entry.client = None
+                raise
+            entry.context = context
+            entry.client = client
+        return client
+
+
+def clear_storage_session_cache() -> None:
+    """Clear cached storage clients without awaiting context shutdown.
+
+    Prefer `close_storage_client_cache()` when a cached client may have been
+    opened. This synchronous helper exists for tests that patch client creation
+    before any real HTTP connector is entered.
+    """
+    with _STORAGE_CLIENTS_LOCK:
+        _STORAGE_CLIENTS.clear()
+
+
+async def close_storage_client_cache() -> None:
+    """Close and clear cached aiobotocore clients owned by the current loop.
+
+    aiobotocore clients must be closed on the event loop that created them, so
+    only the current loop's entries are shut down here. Clients cached on other
+    loops are released when those loops are garbage collected (the cache is
+    keyed by a weak reference to the loop).
+    """
+    loop = asyncio.get_running_loop()
+    with _STORAGE_CLIENTS_LOCK:
+        entry = _STORAGE_CLIENTS.pop(loop, None)
+
+    if entry is None:
+        return
+    async with entry.lock:
+        context = entry.context
+        entry.context = None
+        entry.client = None
+        if context is not None:
+            await context.__aexit__(None, None, None)
+
+
+@asynccontextmanager
+async def get_storage_client() -> AsyncIterator[S3Client]:
+    """Get a configured S3 client for either AWS S3.
+
+    Yields:
+        Configured aioboto3 S3 client
+    """
+    yield await _get_storage_client()
 
 
 async def ensure_bucket_exists(bucket: str) -> None:

@@ -33,6 +33,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.workflow import DSLWorkflow
     from tracecat.ee.interactions.service import InteractionService
     from tracecat.logger import logger
+    from tracecat.storage.blob import close_storage_client_cache
     from tracecat.storage.collection import CollectionActivities
     from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
     from tracecat.tiers.activities import TierActivities
@@ -168,6 +169,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
             await shutdown_event.wait()
             logger.info("Worker shutdown requested")
         logger.info("Temporal Worker context exited")
+    await close_storage_client_cache()
 
 
 if __name__ == "__main__":

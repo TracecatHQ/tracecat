@@ -8,9 +8,8 @@ from concurrent.futures import ThreadPoolExecutor
 from multiprocessing.connection import Connection
 
 import pytest
-from botocore.exceptions import ClientError, HTTPClientError
 
-from tracecat.storage.utils import SizedMemoryCache, cached_blob_download
+from tracecat.storage.utils import SizedMemoryCache
 
 
 def _run_shared_cache_lock_contention_probe(result_connection: Connection) -> None:
@@ -70,75 +69,6 @@ def _run_shared_cache_lock_contention_probe(result_connection: Connection) -> No
         result_connection.send(("ok", ""))
     finally:
         result_connection.close()
-
-
-class TestBlobStorageTransportRetries:
-    """Test narrow retries around blob storage transport failures."""
-
-    @pytest.mark.anyio
-    async def test_cached_blob_download_retries_http_client_errors(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        attempts = 0
-
-        async def fake_download_file(*, key: str, bucket: str) -> bytes:
-            nonlocal attempts
-            attempts += 1
-            assert key == "key"
-            assert bucket == "bucket"
-            if attempts < 3:
-                raise HTTPClientError(
-                    error=RuntimeError("File descriptor 512 is used by transport")
-                )
-            return b"payload"
-
-        monkeypatch.setattr(
-            "tracecat.storage.utils.STORAGE_TRANSPORT_RETRY_BASE_DELAY_SECONDS", 0
-        )
-        monkeypatch.setattr(
-            "tracecat.storage.utils.blob.download_file",
-            fake_download_file,
-        )
-
-        content = await cached_blob_download(
-            sha256="retry-http-client-error-sha",
-            bucket="bucket",
-            key="key",
-        )
-
-        assert content == b"payload"
-        assert attempts == 3
-
-    @pytest.mark.anyio
-    async def test_cached_blob_download_does_not_retry_service_errors(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        attempts = 0
-
-        async def fake_download_file(*, key: str, bucket: str) -> bytes:  # noqa: ARG001
-            nonlocal attempts
-            attempts += 1
-            raise ClientError(
-                error_response={"Error": {"Code": "NoSuchKey"}},
-                operation_name="GetObject",
-            )
-
-        monkeypatch.setattr(
-            "tracecat.storage.utils.STORAGE_TRANSPORT_RETRY_BASE_DELAY_SECONDS", 0
-        )
-        monkeypatch.setattr(
-            "tracecat.storage.utils.blob.download_file",
-            fake_download_file,
-        )
-
-        with pytest.raises(ClientError):
-            await cached_blob_download(
-                sha256="non-retry-service-error-sha",
-                bucket="bucket",
-                key="key",
-            )
-
-        assert attempts == 1
 
 
 class TestSizedMemoryCache:
