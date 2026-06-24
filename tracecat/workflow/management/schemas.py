@@ -112,7 +112,7 @@ class WorkflowDefinitionRead(Schema):
     workspace_id: WorkspaceID
     version: int
     content: dict[str, Any] | None = None
-    registry_lock: RegistryLock | None = None
+    registry_lock: RegistryLock | None = Field(default=None, exclude=True)
     created_at: datetime
     updated_at: datetime
 

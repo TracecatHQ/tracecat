@@ -36,6 +36,20 @@ def test_workflow_definition_read_accepts_legacy_flat_registry_lock():
     assert definition.registry_lock_entries[1].label == (
         "tracecat_registry@2025.12.10.123456"
     )
+    serialized = definition.model_dump(mode="json")
+    assert "registry_lock" not in serialized
+    assert serialized["registry_lock_entries"] == [
+        {
+            "origin": "git+ssh://deploy@example.com/acme/actions.git",
+            "version": "abcdef1234567890",
+            "label": "acme/actions@abcdef123456",
+        },
+        {
+            "origin": "tracecat_registry",
+            "version": "2025.12.10.123456",
+            "label": "tracecat_registry@2025.12.10.123456",
+        },
+    ]
 
 
 def test_format_registry_origin_accepts_non_git_ssh_users():
