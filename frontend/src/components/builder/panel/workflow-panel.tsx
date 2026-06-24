@@ -391,6 +391,8 @@ function WorkflowVersionsHistory({
                           <Badge
                             variant="outline"
                             className="max-w-full overflow-hidden truncate whitespace-nowrap font-mono font-normal"
+                            tabIndex={0}
+                            aria-label={`Registry lock: ${registryLockSummary}`}
                           >
                             {registryLockSummary}
                           </Badge>
