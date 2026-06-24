@@ -13,7 +13,9 @@ import {
   normalizeFilterValues,
 } from "@/components/cases/case-duration-dialog"
 import {
+  type CaseDurationAnchorEventType,
   isCaseDropdownEventType,
+  isCaseDurationAnchorEventType,
   isCaseEventFilterType,
   isCaseFieldEventType,
   isCaseTagEventType,
@@ -31,14 +33,19 @@ interface UpdateCaseDurationDialogProps {
 }
 
 function extractAnchorFormValues(
-  anchor: CaseDurationDefinitionRead["start_anchor"]
+  anchor: CaseDurationDefinitionRead["start_anchor"],
+  fallbackEventType: CaseDurationAnchorEventType
 ): CaseDurationFormValues["start"] {
-  if (isCaseDropdownEventType(anchor.event_type)) {
+  const eventType = isCaseDurationAnchorEventType(anchor.event_type)
+    ? anchor.event_type
+    : fallbackEventType
+
+  if (isCaseDropdownEventType(eventType)) {
     const defId = anchor.filters?.dropdown_definition_id
     const optionIds = normalizeFilterValues(anchor.filters?.dropdown_option_ids)
     return {
       selection: anchor.selection ?? "first",
-      eventType: anchor.event_type,
+      eventType,
       filterValues: [],
       dropdownDefinitionId: typeof defId === "string" ? defId : undefined,
       dropdownOptionIds: optionIds,
@@ -48,7 +55,7 @@ function extractAnchorFormValues(
   const filterValues = normalizeFilterValues(getAnchorFilterValues(anchor))
   return {
     selection: anchor.selection ?? "first",
-    eventType: anchor.event_type,
+    eventType,
     filterValues,
     dropdownDefinitionId: undefined,
     dropdownOptionIds: [],
@@ -80,8 +87,8 @@ const getInitialValues = (
   return {
     name: duration.name,
     description: duration.description ?? "",
-    start: extractAnchorFormValues(duration.start_anchor),
-    end: extractAnchorFormValues(duration.end_anchor),
+    start: extractAnchorFormValues(duration.start_anchor, "case_created"),
+    end: extractAnchorFormValues(duration.end_anchor, "case_closed"),
   }
 }
 

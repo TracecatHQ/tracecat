@@ -201,6 +201,7 @@ TRACECAT__SERVICE_ROLES_WHITELIST = [
     "tracecat-runner",
     "tracecat-schedule-runner",
     "tracecat-case-triggers",
+    "tracecat-case-duration-sync",
     "tracecat-ui",
 ]
 TRACECAT__DEFAULT_USER_ID = uuid.UUID(int=0)
@@ -997,6 +998,46 @@ TRACECAT__CASE_TRIGGERS_LOCK_TTL_SECONDS = int(
     os.environ.get("TRACECAT__CASE_TRIGGERS_LOCK_TTL_SECONDS") or 300
 )
 """TTL for case trigger lock keys in seconds."""
+
+TRACECAT__CASE_DURATION_SYNC_ENABLED = env_bool(
+    "TRACECAT__CASE_DURATION_SYNC_ENABLED", default=True
+)
+"""Enable async case duration materialization from case event writes."""
+
+TRACECAT__CASE_DURATION_SYNC_STREAM_KEY = os.environ.get(
+    "TRACECAT__CASE_DURATION_SYNC_STREAM_KEY", "case-duration-sync"
+)
+"""Redis stream key for case duration sync jobs."""
+
+TRACECAT__CASE_DURATION_SYNC_GROUP = os.environ.get(
+    "TRACECAT__CASE_DURATION_SYNC_GROUP", "case-duration-sync"
+)
+"""Redis consumer group for case duration sync processing."""
+
+TRACECAT__CASE_DURATION_SYNC_BLOCK_MS = int(
+    os.environ.get("TRACECAT__CASE_DURATION_SYNC_BLOCK_MS") or 2000
+)
+"""XREADGROUP block timeout in milliseconds for duration sync jobs."""
+
+TRACECAT__CASE_DURATION_SYNC_BATCH = int(
+    os.environ.get("TRACECAT__CASE_DURATION_SYNC_BATCH") or 100
+)
+"""Maximum number of duration sync jobs to read per batch."""
+
+TRACECAT__CASE_DURATION_SYNC_CLAIM_IDLE_MS = int(
+    os.environ.get("TRACECAT__CASE_DURATION_SYNC_CLAIM_IDLE_MS") or 300000
+)
+"""Idle time before claiming pending duration sync jobs."""
+
+TRACECAT__CASE_DURATION_SYNC_MAXLEN = int(
+    os.environ.get("TRACECAT__CASE_DURATION_SYNC_MAXLEN") or 30000
+)
+"""Approximate max length for the case duration sync stream."""
+
+TRACECAT__CASE_DURATION_SYNC_BACKFILL_BATCH = int(
+    os.environ.get("TRACECAT__CASE_DURATION_SYNC_BACKFILL_BATCH") or 250
+)
+"""Number of cases to enqueue per duration definition backfill job."""
 
 # === File limits === #
 TRACECAT__MAX_ATTACHMENT_SIZE_BYTES = int(

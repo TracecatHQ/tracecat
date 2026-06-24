@@ -47,9 +47,19 @@ pytestmark = pytest.mark.usefixtures("db")
 
 @pytest.fixture(autouse=True)
 def stub_case_duration_sync() -> Iterator[None]:
-    with patch(
-        "tracecat.cases.service.CaseDurationService.sync_case_durations",
-        new=AsyncMock(return_value=None),
+    with (
+        patch(
+            "tracecat.cases.service.CaseDurationService.sync_case_durations",
+            new=AsyncMock(return_value=None),
+        ),
+        patch(
+            "tracecat.cases.service.enqueue_case_duration_sync_after_commit",
+            return_value=None,
+        ),
+        patch(
+            "tracecat.cases.service.publish_case_event_payload",
+            new=AsyncMock(return_value=None),
+        ),
     ):
         yield
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import Sequence
 from datetime import datetime
@@ -27,6 +28,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.cases.durations.schemas import (
     CaseDurationAnchorSelection,
@@ -40,6 +42,10 @@ from tracecat.cases.durations.schemas import (
     CaseDurationMetric,
     CaseDurationRead,
     CaseDurationUpdate,
+)
+from tracecat.cases.durations.sync_queue import (
+    CaseDurationSyncReason,
+    enqueue_case_duration_sync_after_commit,
 )
 from tracecat.cases.enums import CaseEventType
 from tracecat.concurrency import cooperative_every
@@ -101,6 +107,9 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
             **self._anchor_attributes(params.end_anchor, "end"),
         )
         self.session.add(entity)
+        await self._backfill_after_definition_change(
+            reason="duration_definition_created"
+        )
         await self.session.commit()
         await self.session.refresh(entity)
         return self._to_read_model(entity)
@@ -117,6 +126,10 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
             return self._to_read_model(entity)
 
         set_fields = params.model_fields_set
+        anchor_state_before = (
+            self._anchor_storage_snapshot(entity, "start"),
+            self._anchor_storage_snapshot(entity, "end"),
+        )
 
         if (new_name := updates.get("name")) is not None:
             await self._ensure_unique_name(new_name, exclude_id=entity.id)
@@ -142,6 +155,14 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
             self._apply_anchor(entity, end_anchor, "end")
 
         self.session.add(entity)
+        anchor_state_after = (
+            self._anchor_storage_snapshot(entity, "start"),
+            self._anchor_storage_snapshot(entity, "end"),
+        )
+        if anchor_state_after != anchor_state_before:
+            await self._backfill_after_definition_change(
+                reason="duration_definition_updated"
+            )
         await self.session.commit()
         await self.session.refresh(entity)
         return self._to_read_model(entity)
@@ -153,6 +174,36 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
         entity = await self._get_definition_entity(duration_id)
         await self.session.delete(entity)
         await self.session.commit()
+
+    async def _backfill_after_definition_change(
+        self, *, reason: CaseDurationSyncReason
+    ) -> None:
+        if config.TRACECAT__CASE_DURATION_SYNC_ENABLED:
+            enqueue_case_duration_sync_after_commit(
+                self.session,
+                workspace_id=self.workspace_id,
+                reason=reason,
+            )
+            return
+
+        await self._sync_existing_case_durations_inline()
+
+    async def _sync_existing_case_durations_inline(self) -> None:
+        await self.session.flush()
+        stmt = (
+            select(Case.id)
+            .where(Case.workspace_id == self.workspace_id)
+            .order_by(Case.surrogate_id.asc())
+        )
+        duration_service = CaseDurationService(session=self.session, role=self.role)
+        case_ids = await self.session.stream_scalars(stmt)
+        try:
+            async for batch in case_ids.partitions(8):
+                for case_id in batch:
+                    await duration_service.sync_case_durations(case_id)
+                await asyncio.sleep(0)
+        finally:
+            await case_ids.close()
 
     async def _get_definition_entity(
         self, duration_id: uuid.UUID
@@ -243,6 +294,16 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
             f"{prefix}_field_filters": filters,
             f"{prefix}_selection": anchor.selection,
         }
+
+    def _anchor_storage_snapshot(
+        self, entity: CaseDurationDefinitionDB, prefix: Literal["start", "end"]
+    ) -> tuple[CaseEventType, str, dict[str, Any], CaseDurationAnchorSelection]:
+        return (
+            getattr(entity, f"{prefix}_event_type"),
+            getattr(entity, f"{prefix}_timestamp_path") or "created_at",
+            dict(getattr(entity, f"{prefix}_field_filters") or {}),
+            getattr(entity, f"{prefix}_selection"),
+        )
 
     def _apply_anchor(
         self,

@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat import config
 from tracecat.cases.durations import (
     CaseDurationAnchorSelection,
     CaseDurationComputation,
@@ -49,6 +50,18 @@ def stub_case_duration_entitlements() -> Iterator[None]:
             "has_entitlement",
             new=AsyncMock(return_value=False),
         ),
+        patch(
+            "tracecat.cases.durations.service.enqueue_case_duration_sync_after_commit",
+            return_value=None,
+        ),
+        patch(
+            "tracecat.cases.service.enqueue_case_duration_sync_after_commit",
+            return_value=None,
+        ),
+        patch(
+            "tracecat.cases.service.publish_case_event_payload",
+            new=AsyncMock(return_value=None),
+        ),
     ):
         yield
 
@@ -71,6 +84,286 @@ def make_case_create(
             "severity": severity,
         }
     )
+
+
+@pytest.mark.anyio
+async def test_create_definition_enqueues_backfill_after_commit(
+    session: AsyncSession,
+    svc_role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_enqueue(*args, **kwargs) -> None:
+        calls.append(kwargs)
+
+    monkeypatch.setattr(
+        "tracecat.cases.durations.service.enqueue_case_duration_sync_after_commit",
+        fake_enqueue,
+    )
+
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    await definition_service.create_definition(
+        CaseDurationDefinitionCreate(
+            name="Backfilled Duration",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CREATED,
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.STATUS_CHANGED,
+                filters=CaseDurationEventFilters(
+                    new_values=[CaseStatus.RESOLVED.value]
+                ),
+            ),
+        )
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["workspace_id"] == svc_role.workspace_id
+    assert calls[0]["reason"] == "duration_definition_created"
+
+
+@pytest.mark.anyio
+async def test_create_definition_syncs_inline_when_async_duration_sync_disabled(
+    session: AsyncSession,
+    svc_role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    enqueue_calls: list[dict[str, object]] = []
+    inline_sync_calls = 0
+
+    def fake_enqueue(*args, **kwargs) -> None:
+        enqueue_calls.append(kwargs)
+
+    async def fake_inline_sync(self) -> None:
+        nonlocal inline_sync_calls
+        inline_sync_calls += 1
+
+    monkeypatch.setattr(config, "TRACECAT__CASE_DURATION_SYNC_ENABLED", False)
+    monkeypatch.setattr(
+        "tracecat.cases.durations.service.enqueue_case_duration_sync_after_commit",
+        fake_enqueue,
+    )
+    monkeypatch.setattr(
+        CaseDurationDefinitionService,
+        "_sync_existing_case_durations_inline",
+        fake_inline_sync,
+    )
+
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    await definition_service.create_definition(
+        CaseDurationDefinitionCreate(
+            name="Inline Backfilled Duration",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CREATED,
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.STATUS_CHANGED,
+                filters=CaseDurationEventFilters(
+                    new_values=[CaseStatus.RESOLVED.value]
+                ),
+            ),
+        )
+    )
+
+    assert enqueue_calls == []
+    assert inline_sync_calls == 1
+
+
+@pytest.mark.anyio
+async def test_update_definition_skips_backfill_for_metadata_only_changes(
+    session: AsyncSession,
+    svc_role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_enqueue(*args, **kwargs) -> None:
+        calls.append(kwargs)
+
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    definition = await definition_service.create_definition(
+        CaseDurationDefinitionCreate(
+            name="Backfilled Duration",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CREATED,
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.STATUS_CHANGED,
+                filters=CaseDurationEventFilters(
+                    new_values=[CaseStatus.RESOLVED.value]
+                ),
+            ),
+        )
+    )
+    calls.clear()
+    monkeypatch.setattr(
+        "tracecat.cases.durations.service.enqueue_case_duration_sync_after_commit",
+        fake_enqueue,
+    )
+
+    await definition_service.update_definition(
+        definition.id,
+        CaseDurationDefinitionUpdate(
+            name="Renamed Duration",
+            description="Updated description",
+        ),
+    )
+
+    assert calls == []
+
+
+@pytest.mark.anyio
+async def test_update_definition_enqueues_backfill_after_anchor_change(
+    session: AsyncSession,
+    svc_role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_enqueue(*args, **kwargs) -> None:
+        calls.append(kwargs)
+
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    definition = await definition_service.create_definition(
+        CaseDurationDefinitionCreate(
+            name="Backfilled Duration",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CREATED,
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.STATUS_CHANGED,
+                filters=CaseDurationEventFilters(
+                    new_values=[CaseStatus.RESOLVED.value]
+                ),
+            ),
+        )
+    )
+    monkeypatch.setattr(
+        "tracecat.cases.durations.service.enqueue_case_duration_sync_after_commit",
+        fake_enqueue,
+    )
+
+    await definition_service.update_definition(
+        definition.id,
+        CaseDurationDefinitionUpdate(
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.STATUS_CHANGED,
+                filters=CaseDurationEventFilters(new_values=[CaseStatus.CLOSED.value]),
+            ),
+        ),
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["workspace_id"] == svc_role.workspace_id
+    assert calls[0]["reason"] == "duration_definition_updated"
+
+
+@pytest.mark.anyio
+async def test_update_definition_skips_inline_sync_for_metadata_only_changes(
+    session: AsyncSession,
+    svc_role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    enqueue_calls: list[dict[str, object]] = []
+    inline_sync_calls = 0
+
+    def fake_enqueue(*args, **kwargs) -> None:
+        enqueue_calls.append(kwargs)
+
+    async def fake_inline_sync(self) -> None:
+        nonlocal inline_sync_calls
+        inline_sync_calls += 1
+
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    definition = await definition_service.create_definition(
+        CaseDurationDefinitionCreate(
+            name="Inline Updated Duration",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CREATED,
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.STATUS_CHANGED,
+                filters=CaseDurationEventFilters(
+                    new_values=[CaseStatus.RESOLVED.value]
+                ),
+            ),
+        )
+    )
+    monkeypatch.setattr(config, "TRACECAT__CASE_DURATION_SYNC_ENABLED", False)
+    monkeypatch.setattr(
+        "tracecat.cases.durations.service.enqueue_case_duration_sync_after_commit",
+        fake_enqueue,
+    )
+    monkeypatch.setattr(
+        CaseDurationDefinitionService,
+        "_sync_existing_case_durations_inline",
+        fake_inline_sync,
+    )
+
+    await definition_service.update_definition(
+        definition.id,
+        CaseDurationDefinitionUpdate(description="Updated inline description"),
+    )
+
+    assert enqueue_calls == []
+    assert inline_sync_calls == 0
+
+
+@pytest.mark.anyio
+async def test_update_definition_syncs_inline_when_async_duration_sync_disabled(
+    session: AsyncSession,
+    svc_role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    enqueue_calls: list[dict[str, object]] = []
+    inline_sync_calls = 0
+
+    def fake_enqueue(*args, **kwargs) -> None:
+        enqueue_calls.append(kwargs)
+
+    async def fake_inline_sync(self) -> None:
+        nonlocal inline_sync_calls
+        inline_sync_calls += 1
+
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    definition = await definition_service.create_definition(
+        CaseDurationDefinitionCreate(
+            name="Inline Updated Duration",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CREATED,
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.STATUS_CHANGED,
+                filters=CaseDurationEventFilters(
+                    new_values=[CaseStatus.RESOLVED.value]
+                ),
+            ),
+        )
+    )
+    monkeypatch.setattr(config, "TRACECAT__CASE_DURATION_SYNC_ENABLED", False)
+    monkeypatch.setattr(
+        "tracecat.cases.durations.service.enqueue_case_duration_sync_after_commit",
+        fake_enqueue,
+    )
+    monkeypatch.setattr(
+        CaseDurationDefinitionService,
+        "_sync_existing_case_durations_inline",
+        fake_inline_sync,
+    )
+
+    await definition_service.update_definition(
+        definition.id,
+        CaseDurationDefinitionUpdate(
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.STATUS_CHANGED,
+                filters=CaseDurationEventFilters(new_values=[CaseStatus.CLOSED.value]),
+            ),
+        ),
+    )
+
+    assert enqueue_calls == []
+    assert inline_sync_calls == 1
 
 
 @pytest.mark.anyio
@@ -130,6 +423,7 @@ async def test_compute_case_durations_from_events(
     assert value.duration is not None
     assert value.duration.total_seconds() >= 0
 
+    await duration_service.sync_case_durations(updated_case)
     duration_stmt = select(CaseDuration).where(CaseDuration.case_id == case.id)
     stored_duration = await session.execute(duration_stmt)
     record = stored_duration.scalar_one()
@@ -1048,6 +1342,11 @@ def test_duration_anchor_allows_empty_filters_for_unfiltered_events(
     anchor = CaseDurationEventAnchor(event_type=event_type)
 
     assert anchor.filters == CaseDurationEventFilters()
+
+
+def test_duration_anchor_rejects_case_viewed() -> None:
+    with pytest.raises(ValidationError):
+        CaseDurationEventAnchor(event_type=CaseEventType.CASE_VIEWED)
 
 
 @pytest.mark.anyio
