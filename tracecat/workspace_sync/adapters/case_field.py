@@ -17,10 +17,10 @@ from tracecat.db.models import CaseFields
 from tracecat.service import BaseWorkspaceService
 from tracecat.tables.enums import SqlType
 from tracecat.workspace_sync.adapters.base import (
+    FlatManifestAdapter,
     ImportedResource,
     ProjectedResource,
     ResourceProjection,
-    SingleYamlAdapter,
     sql_type,
     unique_source_id,
 )
@@ -32,7 +32,7 @@ from tracecat.workspace_sync.schemas import (
 )
 
 
-class CaseFieldAdapter(SingleYamlAdapter):
+class CaseFieldAdapter(FlatManifestAdapter):
     """Sync adapter for case field definitions held in the case fields schema.
 
     Fields live as entries in a single workspace-wide :class:`CaseFields` schema

@@ -10,10 +10,10 @@ from sqlalchemy.orm import selectinload
 from tracecat.db.models import CaseDropdownDefinition, CaseDropdownOption
 from tracecat.service import BaseWorkspaceService
 from tracecat.workspace_sync.adapters.base import (
+    FlatManifestAdapter,
     ImportedResource,
     ProjectedResource,
     ResourceProjection,
-    SingleYamlAdapter,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
@@ -23,7 +23,7 @@ from tracecat.workspace_sync.schemas import (
 )
 
 
-class CaseDropdownAdapter(SingleYamlAdapter):
+class CaseDropdownAdapter(FlatManifestAdapter):
     """Sync adapter for case dropdown definitions and their options."""
 
     resource_type = SyncResourceType.CASE_DROPDOWN

@@ -13,7 +13,7 @@ from sqlalchemy import select
 from tracecat.db.models import WorkspaceVariable
 from tracecat.service import BaseWorkspaceService
 from tracecat.workspace_sync.adapters.base import (
-    EnvironmentYamlAdapter,
+    EnvironmentScopedManifestAdapter,
     ImportedResource,
     ProjectedResource,
     ResourceDependencyRefs,
@@ -38,7 +38,7 @@ class VariableKey(NamedTuple):
     name: str
 
 
-class VariableAdapter(EnvironmentYamlAdapter):
+class VariableAdapter(EnvironmentScopedManifestAdapter):
     """Adapter for environment-scoped workspace variables.
 
     Each variable lives at ``<root>/<environment>/<name>.yml``. Only metadata

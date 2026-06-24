@@ -14,7 +14,7 @@ from tracecat.secrets.schemas import SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.service import BaseWorkspaceService
 from tracecat.workspace_sync.adapters.base import (
-    EnvironmentYamlAdapter,
+    EnvironmentScopedManifestAdapter,
     ImportedResource,
     ProjectedResource,
     ResourceDependencyRefs,
@@ -28,7 +28,7 @@ from tracecat.workspace_sync.schemas import (
 )
 
 
-class SecretMetadataAdapter(EnvironmentYamlAdapter):
+class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
     """Sync adapter for secret metadata: key names only, never secret values."""
 
     resource_type = SyncResourceType.SECRET_METADATA

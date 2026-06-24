@@ -430,8 +430,8 @@ class DirectoryManifestAdapter(ResourceAdapter):
         return parts[-2] or None
 
 
-class SingleYamlAdapter(ResourceAdapter):
-    """Layout ``<root>/<source_id>.yml``.
+class FlatManifestAdapter(ResourceAdapter):
+    """Flat layout with one manifest file per resource.
 
     One flat file per resource, with no companion files (case tags, fields,
     dropdowns, durations).
@@ -463,8 +463,8 @@ class SingleYamlAdapter(ResourceAdapter):
         return filename.removesuffix(".yml") or None
 
 
-class EnvironmentYamlAdapter(ResourceAdapter):
-    """Layout ``<root>/<environment>/<name>.yml`` (variables, secret metadata).
+class EnvironmentScopedManifestAdapter(ResourceAdapter):
+    """Environment-scoped layout with one manifest file per resource.
 
     The source id is the compound ``<environment>/<name>`` segment, so its
     single embedded ``/`` expands into the environment subdirectory on disk.

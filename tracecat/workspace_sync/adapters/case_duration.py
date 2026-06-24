@@ -10,10 +10,10 @@ from sqlalchemy import select
 from tracecat.db.models import CaseDurationDefinition
 from tracecat.service import BaseWorkspaceService
 from tracecat.workspace_sync.adapters.base import (
+    FlatManifestAdapter,
     ImportedResource,
     ProjectedResource,
     ResourceProjection,
-    SingleYamlAdapter,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
@@ -24,7 +24,7 @@ from tracecat.workspace_sync.schemas import (
 )
 
 
-class CaseDurationAdapter(SingleYamlAdapter):
+class CaseDurationAdapter(FlatManifestAdapter):
     """Sync adapter for case duration definitions and their start/end anchors."""
 
     resource_type = SyncResourceType.CASE_DURATION

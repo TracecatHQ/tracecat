@@ -11,12 +11,12 @@ from __future__ import annotations
 
 from tracecat.workspace_sync.adapters.base import (
     DirectoryManifestAdapter,
-    EnvironmentYamlAdapter,
+    EnvironmentScopedManifestAdapter,
+    FlatManifestAdapter,
     ImportedResource,
     ProjectedResource,
     ResourceAdapter,
     ResourceProjection,
-    SingleYamlAdapter,
 )
 from tracecat.workspace_sync.adapters.registry import (
     AGENT_PRESET_RESOURCE_ADAPTER,
@@ -52,11 +52,11 @@ __all__ = [
     "WORKFLOW_RESOURCE_ADAPTER",
     "WORKSPACE_RESOURCE_ADAPTERS",
     "DirectoryManifestAdapter",
-    "EnvironmentYamlAdapter",
+    "EnvironmentScopedManifestAdapter",
+    "FlatManifestAdapter",
     "ImportedResource",
     "ProjectedResource",
     "ResourceAdapter",
     "ResourceProjection",
-    "SingleYamlAdapter",
     "workspace_spec_from_maps",
 ]
