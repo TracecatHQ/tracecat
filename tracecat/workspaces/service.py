@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
 from pydantic import UUID4
-from sqlalchemy import bindparam, cast, func, select, update
+from sqlalchemy import bindparam, cast, delete, func, select, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
@@ -40,6 +40,7 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatException,
     TracecatManagementError,
     TracecatNotFoundError,
@@ -517,6 +518,48 @@ class WorkspaceService(BaseOrgService):
         now = datetime.now(UTC)
         expires_at = now + timedelta(days=7)
 
+        # Canonicalize legacy mixed-case rows before the upsert. The unique
+        # constraint on (workspace_id, email) is case-sensitive, so a
+        # pre-existing row stored as e.g. "Foo@x.com" (created by the old
+        # single-invite path before emails were normalized) would not match the
+        # ON CONFLICT target for the normalized "foo@x.com" and would let the
+        # upsert insert a second live pending invitation for the same address.
+        # Rewrite any such non-canonical rows to their lowercase form so the
+        # ON CONFLICT target reliably catches them; this preserves the row's
+        # status/expiry so the upsert's "leave live pending invites untouched"
+        # semantics still hold.
+        if to_insert:
+            # Guard against the pathological case where both a canonical row
+            # ("foo@x.com") and a non-canonical row ("Foo@x.com") already exist:
+            # lowercasing the latter would violate the unique constraint, so
+            # drop the non-canonical duplicates that already have a canonical
+            # sibling first.
+            canonical_existing = await self.session.execute(
+                select(Invitation.email).where(
+                    Invitation.workspace_id == workspace_id,
+                    Invitation.email.in_(to_insert),
+                )
+            )
+            canonical_emails = set(canonical_existing.scalars().all())
+            if canonical_emails:
+                await self.session.execute(
+                    delete(Invitation).where(
+                        Invitation.workspace_id == workspace_id,
+                        Invitation.email != func.lower(Invitation.email),
+                        func.lower(Invitation.email).in_(canonical_emails),
+                    )
+                )
+            await self.session.execute(
+                update(Invitation)
+                .where(
+                    Invitation.workspace_id == workspace_id,
+                    func.lower(Invitation.email).in_(to_insert),
+                    Invitation.email != func.lower(Invitation.email),
+                )
+                .values(email=func.lower(Invitation.email))
+            )
+            await self.session.flush()
+
         upserted: dict[str, tuple[uuid.UUID, str]] = {}
         if to_insert:
             values = [
@@ -552,10 +595,18 @@ class WorkspaceService(BaseOrgService):
                 )
                 .returning(Invitation.id, Invitation.email, Invitation.token)
             )
-            result = await self.session.execute(stmt)
-            for inv_id, email, token in result.all():
-                upserted[email] = (inv_id, token)
-            await self.session.commit()
+            try:
+                result = await self.session.execute(stmt)
+                for inv_id, email, token in result.all():
+                    upserted[email] = (inv_id, token)
+                await self.session.commit()
+            except IntegrityError as e:
+                # Translate constraint violations into a domain conflict error.
+                await self.session.rollback()
+                raise TracecatConflictError(
+                    "Could not create invitations due to a conflicting "
+                    "invitation. Please retry."
+                ) from e
 
         items: list[BatchInviteItem] = []
         for email in normalized:
@@ -663,6 +714,18 @@ class WorkspaceService(BaseOrgService):
         invitation = await self.get_invitation_by_token(token)
         if invitation is None:
             raise TracecatNotFoundError("Invitation not found")
+
+        # Verify the accepting user's email matches the invitation so a leaked
+        # token can't enroll a different account.
+        user = await self.session.scalar(
+            select(User).where(User.id == user_id)  # pyright: ignore[reportArgumentType]
+        )
+        if user is None:
+            raise TracecatAuthorizationError("User not found")
+        if user.email.lower() != invitation.email.lower():
+            raise TracecatAuthorizationError(
+                "This invitation was sent to a different email address"
+            )
 
         # Check expiry before attempting atomic update
         if invitation.expires_at < datetime.now(UTC):

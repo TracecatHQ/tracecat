@@ -21,7 +21,7 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.db.models import Role as DBRole
-from tracecat.email import build_accept_url, is_email_configured
+from tracecat.email.client import build_accept_url, is_email_configured
 from tracecat.email.templates import render_invitation_email
 from tracecat.exceptions import TracecatAuthorizationError, TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus

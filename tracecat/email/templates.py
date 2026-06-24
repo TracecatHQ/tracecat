@@ -5,7 +5,16 @@ from __future__ import annotations
 from html import escape
 from typing import Literal
 
+from tracecat import config
+
 InvitationKind = Literal["organization", "workspace"]
+
+# Neutral ink used for the wordmark, primary button, and logo tile, matching
+# the dark rounded-square app icon and the "prefer neutral" UI house style.
+_BRAND_INK = "#1a1a1a"
+# Frontend theme primary (--primary: 231 58% 64% -> hsl(231, 58%, 64%)), used
+# only as a link accent rather than a large fill.
+_BRAND_PRIMARY = "#6f76e0"
 
 
 def render_invitation_email(
@@ -29,38 +38,43 @@ def render_invitation_email(
     # markup/link injection into trusted invitation emails.
     safe_name = escape(context_name)
     safe_url = escape(accept_url, quote=True)
+    logo_url = escape(f"{config.TRACECAT__PUBLIC_APP_URL}/icon.png", quote=True)
 
-    subject = f"Invitation to join '{context_name}' on Tracecat"
+    # Strip control chars to prevent subject header injection.
+    header_safe_name = "".join(ch for ch in context_name if ch.isprintable())
+    subject = f"Join {header_safe_name} on Tracecat"
     intro = f"You've been invited to join <strong>{safe_name}</strong> on Tracecat."
     intro_text = f"You've been invited to join {context_name} on Tracecat."
-    note = (
-        "Click the button below to accept. If you don't have a Tracecat account "
-        "yet, you'll be prompted to create one."
-    )
+    hint = "If you don't have an account yet, you'll be prompted to create one."
 
     html = f"""\
 <!doctype html>
 <html>
-  <body style="margin:0;padding:0;background:#f6f6f6;font-family:Helvetica,Arial,sans-serif;color:#1a1a1a;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:32px 0;">
+  <body style="margin:0;padding:0;background:#fafafa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#3c3c43;-webkit-font-smoothing:antialiased;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:48px 16px;">
       <tr>
         <td align="center">
-          <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;padding:40px;">
-            <tr><td style="font-size:24px;font-weight:600;padding-bottom:24px;">Tracecat</td></tr>
-            <tr><td style="font-size:15px;line-height:1.6;padding-bottom:16px;">Hello,</td></tr>
-            <tr><td style="font-size:15px;line-height:1.6;padding-bottom:16px;">{intro}</td></tr>
-            <tr><td style="font-size:15px;line-height:1.6;padding-bottom:24px;">{note}</td></tr>
+          <table role="presentation" width="440" cellpadding="0" cellspacing="0" style="max-width:440px;background:#ffffff;border:1px solid #ebebeb;border-radius:12px;">
             <tr>
-              <td style="padding-bottom:24px;">
-                <a href="{safe_url}" style="display:inline-block;background:#6366f1;color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 28px;border-radius:8px;">Accept invitation</a>
+              <td style="padding:40px 40px 0 40px;">
+                <img src="{logo_url}" width="28" height="28" alt="Tracecat" style="display:block;border-radius:7px;background:{_BRAND_INK};" />
               </td>
             </tr>
-            <tr><td style="font-size:15px;line-height:1.6;padding-bottom:8px;">Regards,</td></tr>
-            <tr><td style="font-size:15px;line-height:1.6;padding-bottom:24px;">Tracecat</td></tr>
             <tr>
-              <td style="font-size:12px;line-height:1.6;color:#888888;border-top:1px solid #eeeeee;padding-top:16px;">
-                If you're having trouble clicking the button, copy and paste this URL into your browser:<br />
-                <a href="{safe_url}" style="color:#6366f1;word-break:break-all;">{safe_url}</a>
+              <td style="padding:24px 40px 0 40px;font-size:15px;line-height:1.6;color:#3c3c43;">{intro}</td>
+            </tr>
+            <tr>
+              <td style="padding:24px 40px 0 40px;">
+                <a href="{safe_url}" style="display:inline-block;background:{_BRAND_INK};color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:11px 22px;border-radius:8px;">Accept invitation</a>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:16px 40px 40px 40px;font-size:13px;line-height:1.6;color:#8a8a91;">{hint}</td>
+            </tr>
+            <tr>
+              <td style="padding:20px 40px;border-top:1px solid #f0f0f0;font-size:12px;line-height:1.6;color:#a1a1a8;">
+                Button not working? Paste this link into your browser:<br />
+                <a href="{safe_url}" style="color:{_BRAND_PRIMARY};word-break:break-all;">{safe_url}</a>
               </td>
             </tr>
           </table>
@@ -71,17 +85,12 @@ def render_invitation_email(
 </html>"""
 
     text = f"""\
-Hello,
-
 {intro_text}
-
-{note}
 
 Accept your invitation:
 {accept_url}
 
-Regards,
-Tracecat
+{hint}
 """
 
     return subject, html, text
