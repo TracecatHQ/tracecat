@@ -404,9 +404,8 @@ function WorkflowVersionsHistory({
                               <div
                                 key={entry.origin}
                                 className="break-all font-mono text-xs"
-                                title={`${entry.origin}@${entry.version}`}
                               >
-                                {entry.label}
+                                {`${entry.origin}@${entry.version}`}
                               </div>
                             ))}
                           </div>
