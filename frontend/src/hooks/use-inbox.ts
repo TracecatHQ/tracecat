@@ -199,14 +199,15 @@ const DATE_FILTER_DAYS: Record<NonNullable<DateFilterValue>, number> = {
 /**
  * Resolves a relative date filter to an absolute cutoff, relative to now.
  *
- * Call this at fetch time (inside `queryFn`), never to build a query key: the
- * returned timestamp depends on the current time, so keying on it would change
- * every render. Key on the raw `DateFilterValue` token instead — it is the
- * stable identity of the user's selection.
+ * Pin the result once per selection (e.g. in a `useMemo` keyed on the
+ * `DateFilterValue` token) — never call this inside `queryFn`. The returned
+ * timestamp depends on the current time, so recomputing it on every poll would
+ * walk the cutoff forward each tick and silently drop rows that sit just behind
+ * the boundary, even though the UI still reads "1 day ago".
  */
-function getDateFromFilter(filter: DateFilterValue): Date | null {
+function getDateFromFilter(filter: DateFilterValue): string | null {
   if (!filter) return null
-  return new Date(Date.now() - DATE_FILTER_DAYS[filter] * DAY_MS)
+  return new Date(Date.now() - DATE_FILTER_DAYS[filter] * DAY_MS).toISOString()
 }
 
 interface InboxGroupQueryOptions {
@@ -215,8 +216,10 @@ interface InboxGroupQueryOptions {
   limit: number
   search: string
   entityType: AgentSessionEntity | "all"
-  updatedAfter: DateFilterValue
-  createdAfter: DateFilterValue
+  /** ISO cutoff pinned at filter-selection time, not at fetch time. */
+  updatedAfterIso: string | null
+  /** ISO cutoff pinned at filter-selection time, not at fetch time. */
+  createdAfterIso: string | null
   orderBy: InboxOrderBy
   sort: "asc" | "desc"
   enabled: boolean
@@ -236,8 +239,8 @@ function useInboxGroupQuery({
   limit,
   search,
   entityType,
-  updatedAfter,
-  createdAfter,
+  updatedAfterIso,
+  createdAfterIso,
   orderBy,
   sort,
   enabled,
@@ -246,10 +249,10 @@ function useInboxGroupQuery({
 }: InboxGroupQueryOptions) {
   // The server applies entity-type and date filters in its keyset selection, so
   // they belong in the query key: changing a filter must restart the cursor
-  // stream rather than reuse pages chosen under the old filter. Key on the raw
-  // filter tokens (the stable identity of the user's selection); the absolute
-  // date cutoff is resolved at fetch time inside queryFn, so the key does not
-  // churn every render and there is no spurious refetch at the UTC day boundary.
+  // stream rather than reuse pages chosen under the old filter. The date cutoffs
+  // are ISO strings already pinned at selection time (see getDateFromFilter), so
+  // keying on them is stable across polls — the key only churns when the user
+  // actually changes the filter.
   const entityTypeParam = entityType === "all" ? null : entityType
   return useInfiniteQuery<
     InboxListItemsResponse,
@@ -265,8 +268,8 @@ function useInboxGroupQuery({
       limit,
       search,
       entityTypeParam,
-      updatedAfter,
-      createdAfter,
+      updatedAfterIso,
+      createdAfterIso,
       orderBy,
       sort,
     ],
@@ -278,8 +281,8 @@ function useInboxGroupQuery({
         search: search || null,
         group,
         entityType: entityTypeParam,
-        updatedAfter: getDateFromFilter(updatedAfter)?.toISOString() ?? null,
-        createdAfter: getDateFromFilter(createdAfter)?.toISOString() ?? null,
+        updatedAfter: updatedAfterIso,
+        createdAfter: createdAfterIso,
         orderBy,
         sort,
       }),
@@ -329,6 +332,19 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
   const [updatedAfter, setUpdatedAfter] = useState<DateFilterValue>(null)
   const [createdAfter, setCreatedAfter] = useState<DateFilterValue>(null)
 
+  // Pin the absolute cutoff once per selection. Recomputing it on every poll
+  // would creep the boundary forward each tick (rows just behind it would
+  // vanish); keying the memo on the token freezes the cutoff until the user
+  // changes the filter.
+  const updatedAfterIso = useMemo(
+    () => getDateFromFilter(updatedAfter),
+    [updatedAfter]
+  )
+  const createdAfterIso = useMemo(
+    () => getDateFromFilter(createdAfter),
+    [createdAfter]
+  )
+
   const baseEnabled = enabled && Boolean(workspaceId)
 
   // One independently paginated query per status group. Urgent groups poll
@@ -339,8 +355,8 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     limit,
     search: normalizedSearchQuery,
     entityType,
-    updatedAfter,
-    createdAfter,
+    updatedAfterIso,
+    createdAfterIso,
     orderBy,
     sort,
     enabled: baseEnabled,
@@ -353,8 +369,8 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     limit,
     search: normalizedSearchQuery,
     entityType,
-    updatedAfter,
-    createdAfter,
+    updatedAfterIso,
+    createdAfterIso,
     orderBy,
     sort,
     enabled: baseEnabled,
@@ -367,8 +383,8 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     limit,
     search: normalizedSearchQuery,
     entityType,
-    updatedAfter,
-    createdAfter,
+    updatedAfterIso,
+    createdAfterIso,
     orderBy,
     sort,
     enabled: baseEnabled,
@@ -381,8 +397,8 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     limit,
     search: normalizedSearchQuery,
     entityType,
-    updatedAfter,
-    createdAfter,
+    updatedAfterIso,
+    createdAfterIso,
     orderBy,
     sort,
     enabled: baseEnabled,
@@ -502,6 +518,11 @@ export function useDeleteApproval() {
       approvalsDeleteApproval({ sessionId, workspaceId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["inbox-items"] })
+      // Keep the sidebar pending-approvals badge in sync immediately rather than
+      // waiting for its independent poll/window-focus refetch.
+      queryClient.invalidateQueries({
+        queryKey: ["pending-approvals-count", workspaceId],
+      })
     },
   })
 }

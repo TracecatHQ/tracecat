@@ -520,6 +520,17 @@ export function useVercelChat({
         queryKey: ["chat", chatId, workspaceId, "vercel"],
       })
       queryClient.invalidateQueries({ queryKey: ["chats", workspaceId] })
+      // A completed turn can change a session's inbox status (e.g. an approval
+      // continuation moves a row from "Review required" to "Completed"). The
+      // inbox detail pane derives its status/approval state from these queries,
+      // so refresh them here too — otherwise the open pane keeps showing the
+      // stale "Approval required" card until a hard reload. Both are already
+      // polled, so this just makes the update prompt; it is a no-op when no
+      // inbox view is mounted to observe them.
+      queryClient.invalidateQueries({ queryKey: ["inbox-items"] })
+      queryClient.invalidateQueries({
+        queryKey: ["pending-approvals-count", workspaceId],
+      })
     },
     onData,
   })

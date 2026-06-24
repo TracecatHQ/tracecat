@@ -117,9 +117,19 @@ const STATUS_GROUPS: Record<StatusGroup, StatusGroupConfig> = {
 }
 
 // Shared column template so the global header and group rows stay aligned.
-const GRID_COLS = "grid-cols-[minmax(0,1fr)_7rem_10rem_8rem_8rem]"
+// The title column keeps a min width (rather than minmax(0,...)) so it can't be
+// crushed to nothing; combined with the fixed columns this gives the grid a
+// natural minimum width that the surrounding GRID_SCROLL wrapper scrolls
+// horizontally once the pane narrows the inset. Without this the title wraps
+// vertically and the actions column slides offscreen, leaving Delete approval
+// unreachable.
+const GRID_COLS = "grid-cols-[minmax(12rem,1fr)_7rem_10rem_8rem_8rem]"
 const GRID_COLS_WITH_ACTIONS =
-  "grid-cols-[minmax(0,1fr)_7rem_10rem_8rem_8rem_2rem]"
+  "grid-cols-[minmax(12rem,1fr)_7rem_10rem_8rem_8rem_2rem]"
+
+// Applied to the header and the scroll body so both share one horizontal
+// scroll context and stay column-aligned when the table overflows its inset.
+const GRID_SCROLL = "min-w-[48rem]"
 
 function getSourceType(entityType: string): SourceType {
   switch (entityType) {
@@ -132,6 +142,11 @@ function getSourceType(entityType: string): SourceType {
       return "test"
     case "agent_preset_builder":
       return "assistant"
+    // copilot (workspace chat) and approval (inbox continuation) are both
+    // chat-shaped sessions; the default covers them and any future entity type.
+    case "copilot":
+    case "approval":
+      return "chat"
     default:
       return "chat"
   }
@@ -168,10 +183,24 @@ function SortableHead({
     SortIcon = direction === "asc" ? ArrowUpIcon : ArrowDownIcon
   }
 
+  // Expose sort state to assistive tech. These headers are grid cells (divs),
+  // not table columnheaders, so aria-sort would be invalid on the button;
+  // aria-pressed plus a descriptive label conveys the same state and intent.
+  // aria-label replaces the visible text, so keep the column name in both
+  // states or screen-reader users lose track of which column this sorts.
+  let actionDescription = `Sort by ${label}`
+  if (isActive) {
+    const current = direction === "asc" ? "ascending" : "descending"
+    const nextDirection = direction === "asc" ? "descending" : "ascending"
+    actionDescription = `${label}, sorted ${current}. Activate to sort ${nextDirection}.`
+  }
+
   return (
     <button
       type="button"
       onClick={() => onSort(sortKey)}
+      aria-pressed={isActive}
+      aria-label={actionDescription}
       className={cn(
         "flex items-center gap-1 text-xs font-medium transition-colors hover:text-foreground",
         isActive ? "text-foreground" : "text-muted-foreground",
@@ -179,7 +208,7 @@ function SortableHead({
       )}
     >
       {label}
-      <SortIcon className="size-3" />
+      <SortIcon className="size-3" aria-hidden="true" />
     </button>
   )
 }
@@ -381,11 +410,15 @@ export function RunsTable({
   }
 
   return (
-    <div className="flex h-full flex-col">
+    // Horizontal scroll lives on the outer column so the header and the
+    // vertically-scrolling body move together; the inner min-width (GRID_SCROLL)
+    // gives them a shared overflow width once the inset is too narrow.
+    <div className="flex h-full flex-col overflow-x-auto">
       {/* Global sortable column header shared by all status groups */}
       <div
         className={cn(
           "grid shrink-0 items-center gap-2 border-b py-1.5 pl-3 pr-3",
+          GRID_SCROLL,
           showActions ? GRID_COLS_WITH_ACTIONS : GRID_COLS
         )}
       >
@@ -409,7 +442,7 @@ export function RunsTable({
         {showActions && <span />}
       </div>
 
-      <ScrollArea className="min-h-0 flex-1">
+      <ScrollArea className={cn("min-h-0 flex-1", GRID_SCROLL)}>
         {visibleGroups.length === 0 && (
           <div className="flex h-32 items-center justify-center">
             <span className="text-sm text-muted-foreground">No agent runs</span>
