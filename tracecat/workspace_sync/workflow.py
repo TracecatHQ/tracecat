@@ -57,11 +57,14 @@ def workflow_source_id_from_path(
     Inverse of :func:`workflow_source_path`. ``None`` means ``path`` is not a
     ``<workflow_root>/<source_id>/<definition>`` workflow file.
     """
-    parts = path.strip("/").split("/")
-    if len(parts) != 3:
+    parts = [part for part in path.strip("/").split("/") if part]
+    root_parts = [part for part in workflow_root.strip("/").split("/") if part]
+    if len(parts) != len(root_parts) + 2:
         return None
-    root, source_id, filename = parts
-    if root != workflow_root or filename != WORKFLOW_DEFINITION_FILENAME:
+    if parts[: len(root_parts)] != root_parts:
+        return None
+    source_id, filename = parts[-2], parts[-1]
+    if filename != WORKFLOW_DEFINITION_FILENAME:
         return None
     return source_id or None
 

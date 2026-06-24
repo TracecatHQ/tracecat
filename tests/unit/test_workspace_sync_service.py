@@ -29,6 +29,7 @@ from tracecat.workspace_sync.schemas import (
     VariableResourceSpec,
     WorkflowResourceSpec,
     WorkspaceManifest,
+    WorkspaceManifestResources,
     WorkspaceProjection,
     WorkspaceSpec,
     WorkspaceSyncExportPreviewRequest,
@@ -378,6 +379,35 @@ async def test_parse_files_accepts_legacy_string_version_manifest(
 
     assert diagnostics == []
     assert list(snapshot.spec.workflows) == [source_id]
+
+
+@pytest.mark.anyio
+async def test_parse_files_accepts_nested_workflow_manifest_root(
+    workspace_sync_service: WorkspaceSyncService,
+    sample_dsl: DSLInput,
+) -> None:
+    source_id = "qa-nested"
+    workflow_spec = WorkflowResourceSpec(
+        id=source_id,
+        alias="qa-nested",
+        definition=sample_dsl,
+    )
+    manifest = WorkspaceManifest(
+        resources=WorkspaceManifestResources(workflows="sync/workflows/")
+    )
+
+    snapshot, diagnostics = await workspace_sync_service.parse_files(
+        {
+            MANIFEST_FILENAME: canonical_json_text(manifest),
+            f"sync/workflows/{source_id}/definition.yml": serialize_workflow_spec(
+                workflow_spec
+            ),
+        }
+    )
+
+    assert diagnostics == []
+    assert list(snapshot.spec.workflows) == [source_id]
+    assert snapshot.spec.workflows[source_id].alias == "qa-nested"
 
 
 @pytest.mark.anyio
