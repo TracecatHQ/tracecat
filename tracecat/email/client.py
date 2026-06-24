@@ -11,6 +11,8 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
+import resend
+
 from tracecat import config
 from tracecat.email.templates import InvitationKind, render_invitation_email
 from tracecat.logger import logger
@@ -31,14 +33,19 @@ def is_email_configured() -> bool:
     return bool(config.TRACECAT__RESEND_API_KEY and config.TRACECAT__RESEND_FROM_EMAIL)
 
 
-def _build_params(message: InvitationEmail) -> dict[str, object]:
+def build_accept_url(token: str) -> str:
+    """Build the invitation-accept URL for an invitation token."""
+    return f"{config.TRACECAT__PUBLIC_APP_URL}/invitations/accept?token={token}"
+
+
+def _build_params(message: InvitationEmail) -> resend.Emails.SendParams:
     subject, html, text = render_invitation_email(
         accept_url=message.accept_url,
         context_name=message.context_name,
         kind=message.kind,
     )
     return {
-        "from": config.TRACECAT__RESEND_FROM_EMAIL,
+        "from": config.TRACECAT__RESEND_FROM_EMAIL or "",
         "to": [message.to],
         "subject": subject,
         "html": html,
@@ -46,16 +53,9 @@ def _build_params(message: InvitationEmail) -> dict[str, object]:
     }
 
 
-def _send_sync(params_list: list[dict[str, object]]) -> None:
-    import resend
-
+def _send_sync(messages: list[InvitationEmail]) -> None:
     resend.api_key = config.TRACECAT__RESEND_API_KEY
-    resend.Batch.send(params_list)  # type: ignore[arg-type]
-
-
-async def send_invitation_email(message: InvitationEmail) -> None:
-    """Send a single invitation email (best-effort)."""
-    await send_invitation_emails_batch([message])
+    resend.Batch.send([_build_params(m) for m in messages])
 
 
 async def send_invitation_emails_batch(messages: list[InvitationEmail]) -> None:
@@ -73,9 +73,8 @@ async def send_invitation_emails_batch(messages: list[InvitationEmail]) -> None:
         )
         return
 
-    params_list = [_build_params(m) for m in messages]
     try:
-        await asyncio.to_thread(_send_sync, params_list)
+        await asyncio.to_thread(_send_sync, messages)
     except Exception:
         logger.exception(
             "Failed to send invitation emails via Resend",

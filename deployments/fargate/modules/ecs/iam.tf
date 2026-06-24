@@ -146,7 +146,6 @@ resource "aws_iam_policy" "secrets_access" {
           var.oidc_client_id_arn,
           var.oidc_client_secret_arn,
           var.saml_idp_metadata_url_arn,
-          var.resend_api_key_arn,
           var.temporal_api_key_arn,
           aws_secretsmanager_secret.redis_url.arn,
         ])
@@ -172,6 +171,24 @@ resource "aws_iam_policy" "api_only_secrets_access" {
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
         Resource = [var.user_auth_secret_arn]
+      }
+    ]
+  })
+}
+
+# Resend API key is API-only; scope it away from worker/MCP/LiteLLM roles.
+resource "aws_iam_policy" "resend_secrets_access" {
+  count       = var.resend_api_key_arn != null ? 1 : 0
+  name        = "${var.iam_name_prefix}ResendSecretsAccessPolicy"
+  description = "Policy for accessing the Resend API key secret (API service only)"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = [var.resend_api_key_arn]
       }
     ]
   })
@@ -251,6 +268,12 @@ resource "aws_iam_role_policy_attachment" "api_execution_secrets" {
 
 resource "aws_iam_role_policy_attachment" "api_execution_api_only_secrets" {
   policy_arn = aws_iam_policy.api_only_secrets_access.arn
+  role       = aws_iam_role.api_execution.name
+}
+
+resource "aws_iam_role_policy_attachment" "api_execution_resend_secrets" {
+  count      = var.resend_api_key_arn != null ? 1 : 0
+  policy_arn = aws_iam_policy.resend_secrets_access[0].arn
   role       = aws_iam_role.api_execution.name
 }
 

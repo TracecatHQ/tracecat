@@ -121,7 +121,7 @@ from tracecat.deduplicate.internal_router import (
     router as internal_deduplicate_router,
 )
 from tracecat.editor.router import router as editor_router
-from tracecat.email import is_email_configured
+from tracecat.email.client import is_email_configured
 from tracecat.exceptions import EntitlementRequired, ScopeDeniedError, TracecatException
 from tracecat.feature_flags import FeatureFlag, FlagLike, is_feature_enabled
 from tracecat.feature_flags.router import router as feature_flags_router

@@ -396,7 +396,7 @@ function AcceptInvitationContent() {
         <div className="rounded-lg border bg-muted/50 p-4">
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Organization</span>
+              <span className="text-muted-foreground">{contextLabel}</span>
               <span className="font-medium">{invitation.contextName}</span>
             </div>
             <div className="flex justify-between">

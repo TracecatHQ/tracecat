@@ -142,7 +142,9 @@ export function BulkInviteDialog({
       if (skippedRows.length === 0) {
         handleOpenChange(false)
       } else {
-        form.reset()
+        // Clear only the emails so the admin can retry others; preserve the
+        // selected role so it doesn't have to be re-picked on each resubmit.
+        form.resetField("emails")
         setInvalidEmails([])
       }
     } catch {
@@ -203,10 +205,7 @@ export function BulkInviteDialog({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Role</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    defaultValue={field.value}
-                  >
+                  <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder="Select a role" />

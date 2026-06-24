@@ -714,6 +714,39 @@ class OrgService(BaseOrgService):
         now = datetime.now(UTC)
         expires_at = now + timedelta(days=7)
 
+        # Canonicalize legacy mixed-case rows so the case-sensitive
+        # (email, organization_id) conflict target matches them.
+        if to_insert:
+            # Drop non-canonical duplicates that already have a canonical
+            # sibling, else lowercasing them would break the unique constraint.
+            canonical_existing = await self.session.execute(
+                select(OrganizationInvitation.email).where(
+                    OrganizationInvitation.organization_id == self.organization_id,
+                    OrganizationInvitation.email.in_(to_insert),
+                )
+            )
+            canonical_emails = set(canonical_existing.scalars().all())
+            if canonical_emails:
+                await self.session.execute(
+                    delete(OrganizationInvitation).where(
+                        OrganizationInvitation.organization_id == self.organization_id,
+                        OrganizationInvitation.email
+                        != func.lower(OrganizationInvitation.email),
+                        func.lower(OrganizationInvitation.email).in_(canonical_emails),
+                    )
+                )
+            await self.session.execute(
+                update(OrganizationInvitation)
+                .where(
+                    OrganizationInvitation.organization_id == self.organization_id,
+                    func.lower(OrganizationInvitation.email).in_(to_insert),
+                    OrganizationInvitation.email
+                    != func.lower(OrganizationInvitation.email),
+                )
+                .values(email=func.lower(OrganizationInvitation.email))
+            )
+            await self.session.flush()
+
         upserted: dict[str, tuple[uuid.UUID, str]] = {}
         if to_insert:
             values = [

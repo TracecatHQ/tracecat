@@ -97,8 +97,12 @@ TRACECAT__PUBLIC_APP_URL = os.environ.get(
 
 # Email (Resend). When both are set, invitation emails are sent via Resend;
 # otherwise the platform falls back to the copy-paste invitation link flow.
-TRACECAT__RESEND_API_KEY = os.environ.get("TRACECAT__RESEND_API_KEY", "")
-TRACECAT__RESEND_FROM_EMAIL = os.environ.get("TRACECAT__RESEND_FROM_EMAIL", "")
+TRACECAT__RESEND_API_KEY = (
+    os.environ.get("TRACECAT__RESEND_API_KEY") or ""
+).strip() or None
+TRACECAT__RESEND_FROM_EMAIL = (
+    os.environ.get("TRACECAT__RESEND_FROM_EMAIL") or ""
+).strip() or None
 
 TRACECAT__LOOP_MAX_BATCH_SIZE = int(
     os.environ.get("TRACECAT__LOOP_MAX_BATCH_SIZE") or 64
