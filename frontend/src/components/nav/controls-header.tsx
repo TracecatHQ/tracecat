@@ -461,6 +461,61 @@ function normalizeAgentActionPath(rawPath: string | null): string {
     : withLeadingSlash
 }
 
+function AgentFoldersBreadcrumb({
+  workspaceId,
+  path,
+}: {
+  workspaceId: string
+  path: string | null
+}) {
+  const normalizedPath = normalizeAgentActionPath(path)
+  const segments = normalizedPath.split("/").filter(Boolean)
+  const baseHref = `/workspaces/${workspaceId}/agents`
+  const getFolderHref = (folderPath: string) => {
+    if (folderPath === "/") {
+      return `${baseHref}?view=folders&path=%2F`
+    }
+    return `${baseHref}?view=folders&path=${encodeURIComponent(folderPath)}`
+  }
+
+  return (
+    <Breadcrumb>
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-transparent pr-1">
+        <BreadcrumbItem>
+          <BreadcrumbLink asChild className="font-semibold hover:no-underline">
+            <Link href={baseHref}>Agents</Link>
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        {segments.map((segment, index) => {
+          const folderPath = `/${segments.slice(0, index + 1).join("/")}`
+          const isLast = index === segments.length - 1
+          return (
+            <Fragment key={folderPath}>
+              <BreadcrumbSeparator className="shrink-0">
+                <span className="text-muted-foreground">/</span>
+              </BreadcrumbSeparator>
+              <BreadcrumbItem>
+                {isLast ? (
+                  <BreadcrumbPage className="font-semibold">
+                    {segment}
+                  </BreadcrumbPage>
+                ) : (
+                  <BreadcrumbLink
+                    asChild
+                    className="font-semibold hover:no-underline"
+                  >
+                    <Link href={getFolderHref(folderPath)}>{segment}</Link>
+                  </BreadcrumbLink>
+                )}
+              </BreadcrumbItem>
+            </Fragment>
+          )
+        })}
+      </BreadcrumbList>
+    </Breadcrumb>
+  )
+}
+
 function AgentsActions() {
   const pathname = usePathname()
   const workspaceId = useWorkspaceId()
@@ -1926,8 +1981,16 @@ function getPageConfig(
       }
     }
 
+    const agentsView = searchParams?.get("view") === "list" ? "list" : "folders"
     return {
-      title: "Agents",
+      title: (
+        <AgentFoldersBreadcrumb
+          workspaceId={workspaceId}
+          path={
+            agentsView === "folders" ? (searchParams?.get("path") ?? "/") : "/"
+          }
+        />
+      ),
       actions: <AgentsActions />,
     }
   }
