@@ -1,8 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   type OrgInvitationBatchCreate,
-  type OrgInvitationCreate,
-  organizationCreateInvitation,
   organizationCreateInvitationsBulk,
   organizationResendInvitation,
   organizationRevokeInvitation,
@@ -27,29 +25,6 @@ export function useOrgInvitations() {
   const queryClient = useQueryClient()
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: ["org-members"] })
-
-  const {
-    mutateAsync: createInvitation,
-    isPending: createInvitationIsPending,
-  } = useMutation({
-    mutationFn: async (params: OrgInvitationCreate) =>
-      await organizationCreateInvitation({ requestBody: params }),
-    onSuccess: () => {
-      invalidate()
-      toast({
-        title: "Invitation created",
-        description: "Invitation sent successfully.",
-      })
-    },
-    onError: (error: TracecatApiError) => {
-      const detail = error.body?.detail
-      toast({
-        title: "Failed to create invitation",
-        description: typeof detail === "string" ? detail : error.message,
-        variant: "destructive",
-      })
-    },
-  })
 
   const {
     mutateAsync: createInvitationsBulk,
@@ -108,8 +83,6 @@ export function useOrgInvitations() {
   })
 
   return {
-    createInvitation,
-    createInvitationIsPending,
     createInvitationsBulk,
     createInvitationsBulkIsPending,
     resendInvitation,

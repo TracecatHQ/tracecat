@@ -23,7 +23,7 @@ from tracecat.authz.service import MembershipService
 from tracecat.db.dependencies import AsyncDBSession, AsyncDBSessionBypass
 from tracecat.db.models import Invitation, Organization, User, Workspace
 from tracecat.db.models import Role as DBRole
-from tracecat.email import (
+from tracecat.email.client import (
     InvitationEmail,
     build_accept_url,
     is_email_configured,
@@ -218,15 +218,21 @@ async def list_my_pending_workspace_invitations(
     result = await session.execute(statement)
     rows = result.tuples().all()
 
+    # Batch-fetch inviters up front to avoid N+1 per-row lookups.
+    inviter_ids = {inv.invited_by for inv, *_ in rows if inv.invited_by}
+    inviters_by_id: dict[UserID, User] = {}
+    if inviter_ids:
+        inviter_result = await session.execute(
+            select(User).where(User.id.in_(inviter_ids))  # pyright: ignore[reportAttributeAccessIssue]
+        )
+        inviters_by_id = {u.id: u for u in inviter_result.scalars().all()}
+
     pending: list[WorkspacePendingInvitationRead] = []
     for invitation, workspace, organization, role_obj in rows:
-        inviter_name: str | None = None
-        inviter_email: str | None = None
-        if invitation.invited_by:
-            inviter = await session.scalar(
-                select(User).where(User.id == invitation.invited_by)  # pyright: ignore[reportArgumentType]
-            )
-            inviter_name, inviter_email = _inviter_display_name_and_email(inviter)
+        inviter = (
+            inviters_by_id.get(invitation.invited_by) if invitation.invited_by else None
+        )
+        inviter_name, inviter_email = _inviter_display_name_and_email(inviter)
 
         pending.append(
             WorkspacePendingInvitationRead(
@@ -332,6 +338,8 @@ async def accept_workspace_invitation(
     try:
         await service.accept_invitation(params.token, role.user_id)
         return {"message": "Invitation accepted successfully"}
+    except TracecatAuthorizationError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     except TracecatValidationError as e:
@@ -687,6 +695,11 @@ async def create_workspace_invitations_bulk(
     except TracecatValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except TracecatConflictError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
             detail=str(e),
         ) from e
 

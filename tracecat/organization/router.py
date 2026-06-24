@@ -23,7 +23,7 @@ from tracecat.db.models import (
 from tracecat.db.models import (
     Role as DBRole,
 )
-from tracecat.email import (
+from tracecat.email.client import (
     InvitationEmail,
     build_accept_url,
     is_email_configured,
