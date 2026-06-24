@@ -1052,7 +1052,20 @@ async def test_agent_preset_only_export_lazily_includes_dependency_closure(
 
 
 @pytest.mark.anyio
-async def test_agent_preset_type_export_merges_seen_subagent_versions(
+@pytest.mark.parametrize(
+    "preview_request",
+    [
+        pytest.param(
+            WorkspaceSyncExportPreviewRequest(
+                resources=[ResourceRef(resource_type=SyncResourceType.AGENT_PRESET)]
+            ),
+            id="agent_preset_type_export",
+        ),
+        pytest.param(WorkspaceSyncExportPreviewRequest(), id="full_export"),
+    ],
+)
+async def test_export_merges_seen_subagent_versions(
+    preview_request: WorkspaceSyncExportPreviewRequest,
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
@@ -1067,35 +1080,7 @@ async def test_agent_preset_type_export_merges_seen_subagent_versions(
         role=svc_role,
     ).import_non_workflow_resources(snapshot.spec)
 
-    preview = await service.preview_export_workspace(
-        WorkspaceSyncExportPreviewRequest(
-            resources=[ResourceRef(resource_type=SyncResourceType.AGENT_PRESET)]
-        )
-    )
-
-    assert f"{AGENT_PRESET_ROOT}/qa-evidence-child/versions/1.yml" in preview.files
-    assert f"{AGENT_PRESET_ROOT}/qa-evidence-child/versions/2.yml" in preview.files
-
-
-@pytest.mark.anyio
-async def test_full_export_merges_seen_subagent_versions(
-    session: AsyncSession,
-    svc_role: Role,
-) -> None:
-    service = WorkspaceSyncService(session=session, role=svc_role)
-    snapshot, diagnostics = await service.parse_files(
-        _versioned_subagent_git_tree(),
-        commit_sha="2" * 40,
-    )
-    assert diagnostics == []
-    await WorkspaceResourceImportService(
-        session=session,
-        role=svc_role,
-    ).import_non_workflow_resources(snapshot.spec)
-
-    preview = await service.preview_export_workspace(
-        WorkspaceSyncExportPreviewRequest()
-    )
+    preview = await service.preview_export_workspace(preview_request)
 
     assert f"{AGENT_PRESET_ROOT}/qa-evidence-child/versions/1.yml" in preview.files
     assert f"{AGENT_PRESET_ROOT}/qa-evidence-child/versions/2.yml" in preview.files
