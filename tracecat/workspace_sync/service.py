@@ -1785,7 +1785,6 @@ def _has_dependency_refs(refs: ResourceDependencyRefs) -> bool:
         or bool(refs.slugs)
         or bool(refs.versioned_slugs)
         or bool(refs.names)
-        or bool(refs.environment_names)
     )
 
 

@@ -75,12 +75,7 @@ class VariableAdapter(EnvironmentScopedManifestAdapter):
         if refs.select_all:
             return await self.project(workspace_service)
         # No selectors of any kind means nothing to project.
-        if (
-            not refs.local_ids
-            and not refs.source_ids
-            and not refs.names
-            and not refs.environment_names
-        ):
+        if not refs.local_ids and not refs.source_ids and not refs.names:
             return ResourceProjection(specs={}, resources=[])
 
         local_ids = set(refs.local_ids)
@@ -95,20 +90,12 @@ class VariableAdapter(EnvironmentScopedManifestAdapter):
                 ).values()
             )
         # Build an OR of predicates so a variable matched by any selector
-        # (local id, bare name, or environment/name pair) is included.
+        # (local id or bare name) is included.
         predicates: list[sa.ColumnElement[bool]] = []
         if local_ids:
             predicates.append(WorkspaceVariable.id.in_(local_ids))
         if refs.names:
             predicates.append(WorkspaceVariable.name.in_(refs.names))
-        # Each environment/name pair is an AND, sorted for deterministic SQL.
-        for environment, name in sorted(refs.environment_names):
-            predicates.append(
-                sa.and_(
-                    WorkspaceVariable.environment == environment,
-                    WorkspaceVariable.name == name,
-                )
-            )
         # Selectors were present but resolved to nothing (e.g. unmapped source
         # ids), so there is no row to project.
         if not predicates:

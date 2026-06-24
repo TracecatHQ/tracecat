@@ -114,8 +114,6 @@ class ResourceDependencyRefs:
     """Slug plus version references such as ``("skill-a", 2)``."""
     names: set[str] = field(default_factory=set)
     """Name references such as table names or environment-agnostic variable names."""
-    environment_names: set[tuple[str, str]] = field(default_factory=set)
-    """Environment-qualified ``(environment, name)`` references."""
 
 
 @dataclass(slots=True)

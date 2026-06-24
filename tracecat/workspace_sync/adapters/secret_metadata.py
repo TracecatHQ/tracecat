@@ -54,12 +54,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
         if refs.select_all:
             return await self.project(workspace_service)
         # No selectors of any kind means there is nothing to project.
-        if (
-            not refs.local_ids
-            and not refs.source_ids
-            and not refs.names
-            and not refs.environment_names
-        ):
+        if not refs.local_ids and not refs.source_ids and not refs.names:
             return ResourceProjection(specs={}, resources=[])
 
         local_ids = set(refs.local_ids)
@@ -81,15 +76,6 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
             predicates.append(Secret.id.in_(local_ids))
         if refs.names:
             predicates.append(Secret.name.in_(refs.names))
-        # Environment refs are scoped pairs: a name only matches within its
-        # given environment (secrets are environment-scoped like variables).
-        for environment, name in sorted(refs.environment_names):
-            predicates.append(
-                sa.and_(
-                    Secret.environment == environment,
-                    Secret.name == name,
-                )
-            )
         # Selectors may exist yet resolve to nothing (e.g. unknown source ids).
         if not predicates:
             return ResourceProjection(specs={}, resources=[])
