@@ -8,8 +8,14 @@ from concurrent.futures import ThreadPoolExecutor
 from multiprocessing.connection import Connection
 
 import pytest
+from botocore.exceptions import ClientError, HTTPClientError
 
-from tracecat.storage.utils import SizedMemoryCache
+from tracecat.storage.utils import (
+    SizedMemoryCache,
+    cached_blob_download,
+    cached_select_item,
+    is_retryable_storage_transport_error,
+)
 
 
 def _run_shared_cache_lock_contention_probe(result_connection: Connection) -> None:
@@ -69,6 +75,130 @@ def _run_shared_cache_lock_contention_probe(result_connection: Connection) -> No
         result_connection.send(("ok", ""))
     finally:
         result_connection.close()
+
+
+class TestBlobStorageTransportRetries:
+    """Test narrow retries around blob storage transport failures."""
+
+    @pytest.mark.anyio
+    async def test_cached_blob_download_retries_http_client_errors(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        attempts = 0
+
+        async def fake_download_file(*, key: str, bucket: str) -> bytes:
+            nonlocal attempts
+            attempts += 1
+            assert key == "key"
+            assert bucket == "bucket"
+            if attempts < 3:
+                raise HTTPClientError(
+                    error=RuntimeError("File descriptor 512 is used by transport")
+                )
+            return b"payload"
+
+        monkeypatch.setattr(
+            "tracecat.storage.utils.STORAGE_TRANSPORT_RETRY_BASE_DELAY_SECONDS", 0
+        )
+        monkeypatch.setattr(
+            "tracecat.storage.utils.blob.download_file",
+            fake_download_file,
+        )
+
+        content = await cached_blob_download(
+            sha256="retry-http-client-error-sha",
+            bucket="bucket",
+            key="key",
+        )
+
+        assert content == b"payload"
+        assert attempts == 3
+
+    @pytest.mark.anyio
+    async def test_cached_blob_download_does_not_retry_service_errors(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        attempts = 0
+
+        async def fake_download_file(*, key: str, bucket: str) -> bytes:  # noqa: ARG001
+            nonlocal attempts
+            attempts += 1
+            raise ClientError(
+                error_response={"Error": {"Code": "NoSuchKey"}},
+                operation_name="GetObject",
+            )
+
+        monkeypatch.setattr(
+            "tracecat.storage.utils.STORAGE_TRANSPORT_RETRY_BASE_DELAY_SECONDS", 0
+        )
+        monkeypatch.setattr(
+            "tracecat.storage.utils.blob.download_file",
+            fake_download_file,
+        )
+
+        with pytest.raises(ClientError):
+            await cached_blob_download(
+                sha256="non-retry-service-error-sha",
+                bucket="bucket",
+                key="key",
+            )
+
+        assert attempts == 1
+
+    @pytest.mark.anyio
+    async def test_cached_select_item_retries_http_client_errors(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        attempts = 0
+
+        async def fake_select_object_content(
+            *, key: str, bucket: str, expression: str
+        ) -> bytes:
+            nonlocal attempts
+            attempts += 1
+            assert key == "key"
+            assert bucket == "bucket"
+            assert expression == "SELECT s.items[2] FROM s3object s"
+            if attempts < 3:
+                raise HTTPClientError(error=RuntimeError("Connection reset"))
+            return b'{"_1":{"ok":true}}'
+
+        monkeypatch.setattr(
+            "tracecat.storage.utils.STORAGE_TRANSPORT_RETRY_BASE_DELAY_SECONDS", 0
+        )
+        monkeypatch.setattr(
+            "tracecat.storage.utils.blob.select_object_content",
+            fake_select_object_content,
+        )
+
+        item = await cached_select_item(
+            sha256="retry-select-http-client-error-sha",
+            bucket="bucket",
+            key="key",
+            local_index=2,
+        )
+
+        assert item == {"ok": True}
+        assert attempts == 3
+
+    def test_retryable_transport_detection_checks_all_wrapped_branches(self) -> None:
+        context = HTTPClientError(error=RuntimeError("Connection reset"))
+        wrapper = RuntimeError("wrapper")
+        wrapper.__cause__ = ValueError("non-retryable cause")
+        wrapper.__context__ = context
+
+        assert is_retryable_storage_transport_error(wrapper) is True
+
+    def test_retryable_transport_detection_checks_exception_groups(self) -> None:
+        group = ExceptionGroup(
+            "group",
+            [
+                ValueError("not retryable"),
+                HTTPClientError(error=RuntimeError("Connection reset")),
+            ],
+        )
+
+        assert is_retryable_storage_transport_error(group) is True
 
 
 class TestSizedMemoryCache:
