@@ -85,15 +85,18 @@ locals {
       local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
       {
-        TRACECAT__ALLOW_ORIGINS                    = local.allow_origins
-        TRACECAT__API_ROOT_PATH                    = "/api"
-        TRACECAT__API_URL                          = local.internal_api_url
-        TRACECAT__PUBLIC_API_URL                   = local.public_api_url
-        TRACECAT__PUBLIC_APP_URL                   = local.public_app_url
-        TRACECAT__AUTH_TYPES                       = var.auth_types
-        TRACECAT__AUTH_ALLOWED_DOMAINS             = var.auth_allowed_domains
-        TRACECAT__AUTH_MIN_PASSWORD_LENGTH         = var.auth_min_password_length
-        TRACECAT__AUTH_SUPERADMIN_EMAIL            = var.auth_superadmin_email
+        TRACECAT__ALLOW_ORIGINS            = local.allow_origins
+        TRACECAT__API_ROOT_PATH            = "/api"
+        TRACECAT__API_URL                  = local.internal_api_url
+        TRACECAT__PUBLIC_API_URL           = local.public_api_url
+        TRACECAT__PUBLIC_APP_URL           = local.public_app_url
+        TRACECAT__AUTH_TYPES               = var.auth_types
+        TRACECAT__AUTH_ALLOWED_DOMAINS     = var.auth_allowed_domains
+        TRACECAT__AUTH_MIN_PASSWORD_LENGTH = var.auth_min_password_length
+        TRACECAT__AUTH_SUPERADMIN_EMAIL    = var.auth_superadmin_email
+        # Resend is enabled only when both resend_api_key_arn and resend_from_email
+        # are set (see secrets.tf); a half-configured pair leaves Resend disabled.
+        TRACECAT__RESEND_FROM_EMAIL                = var.resend_from_email
         TRACECAT__DB_ENDPOINT                      = local.core_db_hostname
         OIDC_ISSUER                                = var.oidc_issuer
         OIDC_SCOPES                                = var.oidc_scopes
