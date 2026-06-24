@@ -170,6 +170,8 @@ class TableAdapter(CompoundYamlAdapter):
                 )
             table = await self._table_by_source_id(workspace_service, source_id)
             if table is not None:
+                await workspace_service.session.refresh(table, ["columns"])
+                _ensure_no_stale_columns(table, spec)
                 if table.name != spec.name:
                     table = await table_service.update_table(
                         table,
@@ -192,6 +194,7 @@ class TableAdapter(CompoundYamlAdapter):
                     await workspace_service.session.refresh(table, ["columns"])
                 else:
                     await workspace_service.session.refresh(table, ["columns"])
+                    _ensure_no_stale_columns(table, spec)
 
             existing_columns = {column.name: column for column in table.columns}
             for column in spec.columns:
@@ -237,6 +240,21 @@ class TableAdapter(CompoundYamlAdapter):
             .options(selectinload(Table.columns))
         )
         return (await workspace_service.session.execute(stmt)).scalar_one_or_none()
+
+
+def _ensure_no_stale_columns(table: Table, spec: TableResourceSpec) -> None:
+    """Reject existing table columns that are absent from the Git spec."""
+    desired_columns = {column.name for column in spec.columns}
+    stale_columns = sorted(
+        column.name for column in table.columns if column.name not in desired_columns
+    )
+    if not stale_columns:
+        return
+
+    raise ValueError(
+        f"Table sync spec for {spec.name!r} omits existing column(s): "
+        + ", ".join(stale_columns)
+    )
 
 
 def _column_create_from_spec(column: TableColumnSpec) -> TableColumnCreate:

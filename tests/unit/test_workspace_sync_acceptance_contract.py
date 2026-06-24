@@ -3138,6 +3138,63 @@ async def test_table_import_updates_existing_column_metadata(
     assert set(await table_service.get_index(table)) == {"status"}
 
 
+@pytest.mark.anyio
+async def test_table_import_rejects_columns_removed_from_git_spec(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    first_files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{TABLE_ROOT}/qa_column_removals/table.yml": _yaml(
+            {
+                "version": 1,
+                "type": "table",
+                "id": "qa_column_removals",
+                "name": "qa_column_removals",
+                "columns": [
+                    {"name": "indicator", "type": "text"},
+                    {"name": "status", "type": "text"},
+                ],
+            }
+        ),
+    }
+    second_files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{TABLE_ROOT}/qa_column_removals/table.yml": _yaml(
+            {
+                "version": 1,
+                "type": "table",
+                "id": "qa_column_removals",
+                "name": "qa_column_removals",
+                "columns": [{"name": "indicator", "type": "text"}],
+            }
+        ),
+    }
+
+    first_snapshot, first_diagnostics = await service.parse_files(
+        first_files,
+        commit_sha="a" * 40,
+    )
+    second_snapshot, second_diagnostics = await service.parse_files(
+        second_files,
+        commit_sha="b" * 40,
+    )
+
+    assert first_diagnostics == []
+    assert second_diagnostics == []
+    importer = WorkspaceResourceImportService(session=session, role=svc_role)
+    await importer.import_non_workflow_resources(first_snapshot.spec)
+    with pytest.raises(ValueError, match="status"):
+        await importer.import_non_workflow_resources(second_snapshot.spec)
+
+    table = await BaseTablesService(session=session, role=svc_role).get_table_by_name(
+        "qa_column_removals"
+    )
+    await session.refresh(table, ["columns"])
+    assert {column.name for column in table.columns} == {"indicator", "status"}
+
+
 async def _set_workspace_git_repo_url(
     session: AsyncSession,
     *,
