@@ -276,7 +276,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       visible: canViewWorkflows === true,
     },
     {
-      title: "Approvals",
+      title: "Inbox",
       url: `${basePath}/inbox`,
       icon: ListChecksIcon,
       isActive: pathname?.startsWith(`${basePath}/inbox`),

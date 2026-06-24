@@ -435,12 +435,20 @@ export function useVercelChat({
   messages,
   modelInfo,
   onData,
+  resume = true,
 }: {
   chatId?: string
   workspaceId: string
   messages: UIMessage[]
   modelInfo: ModelInfo
   onData?: ChatOnDataCallback<UIMessage>
+  /**
+   * Reconnect to the live event stream on mount. Defaults to true. Set to
+   * false for terminal sessions whose history is already seeded from the DB:
+   * resuming there replays the last persisted turn on top of the seeded
+   * messages, duplicating the chat.
+   */
+  resume?: boolean
 }) {
   const queryClient = useQueryClient()
   const [lastError, setLastError] = useState<string | null>(null)
@@ -456,7 +464,7 @@ export function useVercelChat({
   // Use Vercel's useChat hook for streaming
   const chat = aiSdk.useChat({
     id: chatId,
-    resume: !!chatId,
+    resume: !!chatId && resume,
     messages,
     transport: new DefaultChatTransport({
       api: apiEndpoint,
@@ -512,6 +520,17 @@ export function useVercelChat({
         queryKey: ["chat", chatId, workspaceId, "vercel"],
       })
       queryClient.invalidateQueries({ queryKey: ["chats", workspaceId] })
+      // A completed turn can change a session's inbox status (e.g. an approval
+      // continuation moves a row from "Review required" to "Completed"). The
+      // inbox detail pane derives its status/approval state from these queries,
+      // so refresh them here too — otherwise the open pane keeps showing the
+      // stale "Approval required" card until a hard reload. Both are already
+      // polled, so this just makes the update prompt; it is a no-op when no
+      // inbox view is mounted to observe them.
+      queryClient.invalidateQueries({ queryKey: ["inbox-items"] })
+      queryClient.invalidateQueries({
+        queryKey: ["pending-approvals-count", workspaceId],
+      })
     },
     onData,
   })

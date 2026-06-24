@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import type { UIMessage } from "ai"
 import { StrictMode } from "react"
 import type { AgentSessionReadVercel, MCPIntegrationRead } from "@/client"
 import {
@@ -214,6 +215,7 @@ describe("ChatSessionPane", () => {
   function mockUseVercelChatStatus(status: "ready" | "submitted") {
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: [],
       status,
@@ -226,6 +228,7 @@ describe("ChatSessionPane", () => {
   it("shows the empty hero for artifact-only workspace chat messages", () => {
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: [
         {
@@ -279,6 +282,7 @@ describe("ChatSessionPane", () => {
 
     mockUseVercelChat.mockReturnValue({
       sendMessage,
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: [],
       status: "ready",
@@ -322,6 +326,7 @@ describe("ChatSessionPane", () => {
   it("renders dots indicator while status is submitted", () => {
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: [],
       status: "submitted",
@@ -515,6 +520,7 @@ describe("ChatSessionPane", () => {
 
     mockUseVercelChat.mockReturnValue({
       sendMessage,
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: [
         {
@@ -622,6 +628,7 @@ describe("ChatSessionPane", () => {
 
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: [],
       status: "ready",
@@ -701,6 +708,7 @@ describe("ChatSessionPane", () => {
 
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: [],
       status: "ready",
@@ -783,6 +791,7 @@ describe("ChatSessionPane", () => {
     const sendMessage = jest.fn().mockResolvedValue(undefined)
     mockUseVercelChat.mockReturnValue({
       sendMessage,
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: [],
       status: "ready",
@@ -846,6 +855,7 @@ describe("ChatSessionPane", () => {
     const sendMessage = jest.fn().mockResolvedValue(undefined)
     mockUseVercelChat.mockReturnValue({
       sendMessage,
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: [],
       status: "ready",
@@ -926,6 +936,7 @@ describe("ChatSessionPane", () => {
 
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: [],
       status: "ready",
@@ -1003,6 +1014,7 @@ describe("ChatSessionPane", () => {
   it("does not fetch MCP integrations for non-MCP chat surfaces", () => {
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: [],
       status: "ready",
@@ -1036,6 +1048,7 @@ describe("ChatSessionPane", () => {
   it("does not fetch MCP integrations for copilot when MCP is disabled", () => {
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: [],
       status: "ready",
@@ -1099,6 +1112,7 @@ describe("ChatSessionPane", () => {
 
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: [],
       status: "ready",
@@ -1183,6 +1197,7 @@ describe("ChatSessionPane", () => {
 
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: [],
       status: "ready",
@@ -1278,5 +1293,77 @@ describe("ChatSessionPane", () => {
     expect(
       screen.getByRole("button", { name: /remove get case/i })
     ).toBeInTheDocument()
+  })
+
+  describe("server transcript re-seeding", () => {
+    const userTurn = (id: string, text: string) => ({
+      id,
+      role: "user" as const,
+      parts: [{ type: "text" as const, text }],
+    })
+
+    function mockLiveMessages(
+      messages: UIMessage[],
+      setMessages: jest.Mock
+    ): void {
+      mockUseVercelChat.mockReturnValue({
+        sendMessage: jest.fn(),
+        setMessages,
+        regenerate: jest.fn(),
+        messages,
+        status: "ready",
+        lastError: null,
+        clearError: jest.fn(),
+        // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+      } as any)
+    }
+
+    const renderSubject = (serverMessages: UIMessage[]) => (
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture({ messages: serverMessages })}
+            workspaceId="workspace-1"
+            entityType="case"
+            entityId="case-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    // Regression: after a turn streams, status flips to ready while the
+    // invalidated chat query is still refetching, so the live list leads the
+    // stale server copy. The pane must NOT re-seed from the server then, or it
+    // drops the just-streamed response (permanently if the refetch fails).
+    it("does not clobber a streamed turn while the server copy is stale", () => {
+      const setMessages = jest.fn()
+      const streamed = [userTurn("m1", "hello"), userTurn("m2", "world")]
+      // Live list is one turn ahead of the server transcript.
+      mockLiveMessages(streamed, setMessages)
+
+      const { rerender } = render(renderSubject([userTurn("m1", "hello")]))
+      // Server still behind on a re-render (e.g. refetch in flight or failed).
+      rerender(renderSubject([userTurn("m1", "hello")]))
+
+      expect(setMessages).not.toHaveBeenCalled()
+    })
+
+    // The original fix: once the server transcript advances (refetch lands with
+    // a resolved approval / new turn), the pane adopts it.
+    it("adopts the server transcript once it advances", () => {
+      const setMessages = jest.fn()
+      mockLiveMessages([userTurn("m1", "hello")], setMessages)
+
+      const { rerender } = render(renderSubject([userTurn("m1", "hello")]))
+      expect(setMessages).not.toHaveBeenCalled()
+
+      // Server moves forward: refetch lands with an extra message.
+      const advanced = [userTurn("m1", "hello"), userTurn("m2", "resolved")]
+      rerender(renderSubject(advanced))
+
+      expect(setMessages).toHaveBeenCalledTimes(1)
+      expect(setMessages.mock.calls[0][0]).toHaveLength(2)
+    })
   })
 })

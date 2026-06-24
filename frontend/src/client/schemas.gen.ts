@@ -14114,6 +14114,16 @@ distinguish multiple files.`,
   description: "A URL to an image.",
 } as const
 
+export const $InboxGroup = {
+  type: "string",
+  enum: ["review_required", "running", "error", "completed"],
+  title: "InboxGroup",
+  description: `Display groups for inbox items.
+
+Groups are derived from approval state and live workflow execution status,
+so membership cannot be expressed as a pure SQL filter.`,
+} as const
+
 export const $InboxItemRead = {
   properties: {
     id: {
@@ -14168,6 +14178,18 @@ export const $InboxItemRead = {
       ],
       description: "Associated workflow",
     },
+    created_by: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/UserSummary",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "User who created the source entity (None for automation-initiated items)",
+    },
     source_id: {
       type: "string",
       format: "uuid",
@@ -14219,7 +14241,7 @@ export const $InboxItemStatus = {
 
 export const $InboxItemType = {
   type: "string",
-  enum: ["approval"],
+  enum: ["approval", "agent_run"],
   title: "InboxItemType",
   description: "Types of inbox items.",
 } as const
@@ -26868,6 +26890,50 @@ export const $UserScopesRead = {
   required: ["scopes"],
   title: "UserScopesRead",
   description: "Read schema for a user's effective scopes.",
+} as const
+
+export const $UserSummary = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+      description: "User ID",
+    },
+    email: {
+      type: "string",
+      title: "Email",
+      description: "User email",
+    },
+    first_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "First Name",
+      description: "User first name",
+    },
+    last_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Name",
+      description: "User last name",
+    },
+  },
+  type: "object",
+  required: ["id", "email"],
+  title: "UserSummary",
+  description: "Summary of a user for inbox item context.",
 } as const
 
 export const $UserUpdate = {

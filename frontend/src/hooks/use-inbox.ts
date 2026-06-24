@@ -1,20 +1,23 @@
 "use client"
 
 import {
-  type Query,
+  type InfiniteData,
+  keepPreviousData,
+  useInfiniteQuery,
   useMutation,
-  useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   type AgentSessionEntity,
   approvalsDeleteApproval,
+  type InboxGroup,
   type InboxItemRead,
   type InboxItemStatus,
   type InboxListItemsResponse,
   inboxListItems,
 } from "@/client"
+import { useDebounce } from "@/hooks/use-debounce"
 import {
   type AgentDerivedStatus,
   type AgentStatusTone,
@@ -24,9 +27,14 @@ import {
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
+/** Columns the inbox API can sort on globally (server-side keyset order). */
+export type InboxOrderBy = "created_at" | "updated_at"
+
 export interface UseInboxOptions {
   enabled?: boolean
   autoRefresh?: boolean
+  orderBy?: InboxOrderBy
+  sort?: "asc" | "desc"
 }
 
 export type DateFilterValue = "1d" | "3d" | "1w" | "1m" | null
@@ -39,8 +47,26 @@ export interface UseInboxFilters {
   createdAfter: DateFilterValue
 }
 
+/** Display order of inbox status groups, most urgent first. */
+export const INBOX_GROUP_ORDER: InboxGroup[] = [
+  "review_required",
+  "running",
+  "error",
+  "completed",
+]
+
+/** Paginated state of a single inbox status group. */
+export interface InboxGroupState {
+  sessions: InboxSessionItem[]
+  isLoading: boolean
+  hasMore: boolean
+  isLoadingMore: boolean
+  loadMore: () => void
+}
+
 export interface UseInboxResult {
   sessions: InboxSessionItem[]
+  groups: Record<InboxGroup, InboxGroupState>
   selectedId: string | null
   setSelectedId: (id: string | null) => void
   isLoading: boolean
@@ -151,6 +177,7 @@ function inboxItemToSessionItem(item: InboxItemRead): InboxSessionItem {
           alias: item.workflow.alias,
         }
       : null,
+    created_by: item.created_by ?? null,
 
     // Status fields derived from inbox status
     ...statusInfo,
@@ -160,28 +187,144 @@ function inboxItemToSessionItem(item: InboxItemRead): InboxSessionItem {
   }
 }
 
-function getDateFromFilter(filter: DateFilterValue): Date | null {
+const DAY_MS = 24 * 60 * 60 * 1000
+
+const DATE_FILTER_DAYS: Record<NonNullable<DateFilterValue>, number> = {
+  "1d": 1,
+  "3d": 3,
+  "1w": 7,
+  "1m": 30,
+}
+
+/**
+ * Resolves a relative date filter to an absolute cutoff, relative to now.
+ *
+ * Pin the result once per selection (e.g. in a `useMemo` keyed on the
+ * `DateFilterValue` token) — never call this inside `queryFn`. The returned
+ * timestamp depends on the current time, so recomputing it on every poll would
+ * walk the cutoff forward each tick and silently drop rows that sit just behind
+ * the boundary, even though the UI still reads "1 day ago".
+ */
+function getDateFromFilter(filter: DateFilterValue): string | null {
   if (!filter) return null
-  const now = new Date()
-  switch (filter) {
-    case "1d":
-      return new Date(now.getTime() - 24 * 60 * 60 * 1000)
-    case "3d":
-      return new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000)
-    case "1w":
-      return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-    case "1m":
-      return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-    default:
-      return null
-  }
+  return new Date(Date.now() - DATE_FILTER_DAYS[filter] * DAY_MS).toISOString()
+}
+
+interface InboxGroupQueryOptions {
+  workspaceId: string
+  group: InboxGroup
+  limit: number
+  search: string
+  entityType: AgentSessionEntity | "all"
+  /** ISO cutoff pinned at filter-selection time, not at fetch time. */
+  updatedAfterIso: string | null
+  /** ISO cutoff pinned at filter-selection time, not at fetch time. */
+  createdAfterIso: string | null
+  orderBy: InboxOrderBy
+  sort: "asc" | "desc"
+  enabled: boolean
+  autoRefresh: boolean
+  pollMs: number
+}
+
+/**
+ * Infinite query over a single inbox status group.
+ *
+ * Pages are appended ("show more") rather than replaced, and polling pauses
+ * when auto-refresh is off or the tab is hidden.
+ */
+function useInboxGroupQuery({
+  workspaceId,
+  group,
+  limit,
+  search,
+  entityType,
+  updatedAfterIso,
+  createdAfterIso,
+  orderBy,
+  sort,
+  enabled,
+  autoRefresh,
+  pollMs,
+}: InboxGroupQueryOptions) {
+  // The server applies entity-type and date filters in its keyset selection, so
+  // they belong in the query key: changing a filter must restart the cursor
+  // stream rather than reuse pages chosen under the old filter. The date cutoffs
+  // are ISO strings already pinned at selection time (see getDateFromFilter), so
+  // keying on them is stable across polls — the key only churns when the user
+  // actually changes the filter.
+  const entityTypeParam = entityType === "all" ? null : entityType
+  return useInfiniteQuery<
+    InboxListItemsResponse,
+    TracecatApiError,
+    InfiniteData<InboxListItemsResponse>,
+    readonly unknown[],
+    string | null
+  >({
+    queryKey: [
+      "inbox-items",
+      workspaceId,
+      group,
+      limit,
+      search,
+      entityTypeParam,
+      updatedAfterIso,
+      createdAfterIso,
+      orderBy,
+      sort,
+    ],
+    queryFn: ({ pageParam }) =>
+      inboxListItems({
+        workspaceId,
+        limit,
+        cursor: pageParam,
+        search: search || null,
+        group,
+        entityType: entityTypeParam,
+        updatedAfter: updatedAfterIso,
+        createdAfter: createdAfterIso,
+        orderBy,
+        sort,
+      }),
+    initialPageParam: null,
+    getNextPageParam: (lastPage) =>
+      lastPage.has_more && lastPage.next_cursor ? lastPage.next_cursor : null,
+    enabled,
+    retry: retryHandler,
+    refetchInterval: (query) => {
+      if (!autoRefresh) {
+        return false
+      }
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState === "hidden"
+      ) {
+        return false
+      }
+      // Only poll when a single page is loaded; additional pages from "show
+      // more" would each be re-fetched on every tick, causing request fan-out.
+      const pageCount = query.state.data?.pages.length ?? 0
+      if (pageCount > 1) {
+        return false
+      }
+      return pollMs
+    },
+    placeholderData: keepPreviousData,
+  })
 }
 
 export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
-  const { enabled = true, autoRefresh = true } = options
+  const {
+    enabled = true,
+    autoRefresh = true,
+    orderBy = "updated_at",
+    sort = "desc",
+  } = options
   const workspaceId = useWorkspaceId()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
+  const [debouncedSearchQuery] = useDebounce(searchQuery, 300)
+  const normalizedSearchQuery = debouncedSearchQuery.trim()
   const [entityType, setEntityType] = useState<AgentSessionEntity | "all">(
     "all"
   )
@@ -189,142 +332,137 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
   const [updatedAfter, setUpdatedAfter] = useState<DateFilterValue>(null)
   const [createdAfter, setCreatedAfter] = useState<DateFilterValue>(null)
 
-  /**
-   * Computes the refetch interval for inbox items based on current state.
-   *
-   * Returns `false` to disable polling when:
-   * - Auto-refresh is disabled
-   * - The browser tab is hidden
-   *
-   * Otherwise returns an interval in milliseconds:
-   * - 3000ms (3s): When there are pending approvals
-   * - 10000ms (10s): When no items exist or all are in terminal states
-   */
-  const computeRefetchInterval = useCallback(
-    (
-      query: Query<
-        InboxListItemsResponse,
-        TracecatApiError,
-        InboxListItemsResponse,
-        readonly unknown[]
-      >
-    ) => {
-      if (!autoRefresh) {
-        return false
-      }
-
-      if (
-        typeof document !== "undefined" &&
-        document.visibilityState === "hidden"
-      ) {
-        return false
-      }
-
-      const data = query.state.data
-
-      if (!data || data.items.length === 0) {
-        return 10000
-      }
-
-      const hasPendingApproval = data.items.some(
-        (item) => item.status === "pending"
-      )
-      const hasRunningExecution = data.items.some(
-        (item) =>
-          typeof item.metadata?.temporal_status === "string" &&
-          (item.metadata.temporal_status === "RUNNING" ||
-            item.metadata.temporal_status === "CONTINUED_AS_NEW")
-      )
-      if (hasPendingApproval || hasRunningExecution) {
-        return 3000
-      }
-
-      return 10000
-    },
-    [autoRefresh]
+  // Pin the absolute cutoff once per selection. Recomputing it on every poll
+  // would creep the boundary forward each tick (rows just behind it would
+  // vanish); keying the memo on the token freezes the cutoff until the user
+  // changes the filter.
+  const updatedAfterIso = useMemo(
+    () => getDateFromFilter(updatedAfter),
+    [updatedAfter]
+  )
+  const createdAfterIso = useMemo(
+    () => getDateFromFilter(createdAfter),
+    [createdAfter]
   )
 
-  // Fetch inbox items from the unified inbox endpoint
-  // This endpoint properly aggregates approval status from the backend
-  const {
-    data: sessions,
-    isLoading,
-    error,
-    refetch,
-  } = useQuery<InboxListItemsResponse, TracecatApiError, InboxSessionItem[]>({
-    queryKey: ["inbox-items", workspaceId, limit],
-    queryFn: () =>
-      inboxListItems({
-        workspaceId,
-        limit,
-      }),
-    select: (data) => {
-      // Convert inbox items to session format and sort by priority
-      const converted = data.items.map(inboxItemToSessionItem)
-      // Sort by status priority (pending approvals first), then by updated_at (most recent first)
-      return converted.sort((a, b) => {
-        if (a.statusPriority !== b.statusPriority) {
-          return a.statusPriority - b.statusPriority
-        }
-        return (
-          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-        )
-      })
-    },
-    enabled: enabled && Boolean(workspaceId),
-    retry: retryHandler,
-    refetchInterval: computeRefetchInterval,
+  const baseEnabled = enabled && Boolean(workspaceId)
+
+  // One independently paginated query per status group. Urgent groups poll
+  // faster; terminal groups poll slowly.
+  const reviewRequiredQuery = useInboxGroupQuery({
+    workspaceId,
+    group: "review_required",
+    limit,
+    search: normalizedSearchQuery,
+    entityType,
+    updatedAfterIso,
+    createdAfterIso,
+    orderBy,
+    sort,
+    enabled: baseEnabled,
+    autoRefresh,
+    pollMs: 3000,
+  })
+  const runningQuery = useInboxGroupQuery({
+    workspaceId,
+    group: "running",
+    limit,
+    search: normalizedSearchQuery,
+    entityType,
+    updatedAfterIso,
+    createdAfterIso,
+    orderBy,
+    sort,
+    enabled: baseEnabled,
+    autoRefresh,
+    pollMs: 3000,
+  })
+  const errorQuery = useInboxGroupQuery({
+    workspaceId,
+    group: "error",
+    limit,
+    search: normalizedSearchQuery,
+    entityType,
+    updatedAfterIso,
+    createdAfterIso,
+    orderBy,
+    sort,
+    enabled: baseEnabled,
+    autoRefresh,
+    pollMs: 10000,
+  })
+  const completedQuery = useInboxGroupQuery({
+    workspaceId,
+    group: "completed",
+    limit,
+    search: normalizedSearchQuery,
+    entityType,
+    updatedAfterIso,
+    createdAfterIso,
+    orderBy,
+    sort,
+    enabled: baseEnabled,
+    autoRefresh,
+    pollMs: 10000,
   })
 
-  // Apply client-side filtering (search, entity type, date filters)
-  const filteredSessions = useMemo(() => {
-    if (!sessions) return []
+  // Entity-type and date filters are applied server-side (in the keyset
+  // selection), so groups need no client-side post-filtering here. Doing it on
+  // the client would drop rows from an already-chosen page, making groups look
+  // short/empty and leaving hasMore tied to the unfiltered page.
+  const groupQueries = {
+    review_required: reviewRequiredQuery,
+    running: runningQuery,
+    error: errorQuery,
+    completed: completedQuery,
+  } as const
 
-    const updatedAfterDate = getDateFromFilter(updatedAfter)
-    const createdAfterDate = getDateFromFilter(createdAfter)
-    const query = searchQuery.toLowerCase().trim()
-
-    return sessions.filter((session) => {
-      // Entity type filter
-      if (entityType !== "all" && session.entity_type !== entityType) {
-        return false
+  const groups = useMemo<Record<InboxGroup, InboxGroupState>>(() => {
+    function toGroupState(
+      query: (typeof groupQueries)[InboxGroup]
+    ): InboxGroupState {
+      const items = query.data?.pages.flatMap((page) => page.items) ?? []
+      return {
+        sessions: items.map(inboxItemToSessionItem),
+        isLoading: query.isLoading,
+        hasMore: query.hasNextPage,
+        isLoadingMore: query.isFetchingNextPage,
+        loadMore: () => {
+          void query.fetchNextPage()
+        },
       }
+    }
+    return {
+      review_required: toGroupState(groupQueries.review_required),
+      running: toGroupState(groupQueries.running),
+      error: toGroupState(groupQueries.error),
+      completed: toGroupState(groupQueries.completed),
+    }
+  }, [
+    groupQueries.review_required,
+    groupQueries.running,
+    groupQueries.error,
+    groupQueries.completed,
+  ])
 
-      // Search filter
-      if (query) {
-        const title = (
-          session.parent_workflow?.alias ||
-          session.parent_workflow?.title ||
-          session.title ||
-          ""
-        ).toLowerCase()
-        const entityId = (session.entity_id || "").toLowerCase()
-        if (!title.includes(query) && !entityId.includes(query)) {
-          return false
-        }
-      }
+  const isLoading = INBOX_GROUP_ORDER.some(
+    (group) => groupQueries[group].isLoading
+  )
+  const allErrors = INBOX_GROUP_ORDER.map(
+    (group) => groupQueries[group].error
+  ).filter(Boolean)
+  const error = allErrors[0] ?? null
+  const refetch = () => {
+    for (const group of INBOX_GROUP_ORDER) {
+      void groupQueries[group].refetch()
+    }
+  }
 
-      // Updated after filter
-      if (updatedAfterDate) {
-        const sessionUpdated = new Date(session.updated_at)
-        if (sessionUpdated < updatedAfterDate) {
-          return false
-        }
-      }
-
-      // Created after filter
-      if (createdAfterDate) {
-        const sessionCreated = new Date(session.created_at)
-        if (sessionCreated < createdAfterDate) {
-          return false
-        }
-      }
-
-      return true
-    })
-  }, [sessions, searchQuery, entityType, updatedAfter, createdAfter])
-
-  const enrichedSessions = filteredSessions
+  // Flatten groups in display order for selection bookkeeping
+  const enrichedSessions = useMemo(
+    () => INBOX_GROUP_ORDER.flatMap((group) => groups[group].sessions),
+    [groups]
+  )
 
   // Auto-select first session with pending approval, or clear stale selections
   useEffect(() => {
@@ -350,6 +488,7 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
 
   return {
     sessions: enrichedSessions,
+    groups,
     selectedId,
     setSelectedId,
     isLoading,
@@ -379,6 +518,11 @@ export function useDeleteApproval() {
       approvalsDeleteApproval({ sessionId, workspaceId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["inbox-items"] })
+      // Keep the sidebar pending-approvals badge in sync immediately rather than
+      // waiting for its independent poll/window-focus refetch.
+      queryClient.invalidateQueries({
+        queryKey: ["pending-approvals-count", workspaceId],
+      })
     },
   })
 }
