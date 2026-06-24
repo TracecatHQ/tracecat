@@ -368,6 +368,26 @@ async def test_missing_skill_binding_is_dependency_diagnostic(
 
 
 @pytest.mark.anyio
+async def test_missing_pinned_skill_version_is_dependency_diagnostic(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    files = _expanded_selected_git_tree()
+    skill_path = f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml"
+    skill_spec = yaml.safe_load(files[skill_path])
+    skill_spec["current_version"] = 2
+    files[skill_path] = _yaml(skill_spec)
+
+    _, diagnostics = await workspace_sync_service.parse_files(files)
+
+    assert any(
+        diagnostic.error_type == "dependency"
+        and "qa-enrichment-skill" in diagnostic.message
+        and "@1" in diagnostic.message
+        for diagnostic in diagnostics
+    )
+
+
+@pytest.mark.anyio
 async def test_secret_values_in_git_are_rejected(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:

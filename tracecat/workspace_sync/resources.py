@@ -130,7 +130,8 @@ def validate_workspace_dependencies(spec: WorkspaceSpec) -> list[PullDiagnostic]
         workflow.alias for workflow in spec.workflows.values() if workflow.alias
     }
     preset_slugs = {preset.slug for preset in spec.agent_presets.values()}
-    skill_slugs = {skill.slug for skill in spec.skills.values()}
+    skill_specs_by_slug = {skill.slug: skill for skill in spec.skills.values()}
+    skill_slugs = set(skill_specs_by_slug)
 
     for source_id, workflow in sorted(spec.workflows.items()):
         references = workflow_references(workflow.definition)
@@ -174,6 +175,29 @@ def validate_workspace_dependencies(spec: WorkspaceSpec) -> list[PullDiagnostic]
                         error_type="dependency",
                         message=f"Agent preset references missing skill slug {skill.slug!r}",
                         details={"preset_slug": preset.slug, "skill_slug": skill.slug},
+                    )
+                )
+                continue
+            if (
+                skill.version is not None
+                and skill_specs_by_slug[skill.slug].current_version != skill.version
+            ):
+                diagnostics.append(
+                    PullDiagnostic(
+                        workflow_path=AGENT_PRESET_RESOURCE_ADAPTER.source_path(
+                            source_id
+                        ),
+                        workflow_title=preset.name,
+                        error_type="dependency",
+                        message=(
+                            "Agent preset references missing skill version "
+                            f"{skill.slug!r}@{skill.version}"
+                        ),
+                        details={
+                            "preset_slug": preset.slug,
+                            "skill_slug": skill.slug,
+                            "skill_version": skill.version,
+                        },
                     )
                 )
         for subagent in preset.subagents:

@@ -64,6 +64,7 @@ from tracecat.workspace_sync.projector import (
 from tracecat.workspace_sync.resources import (
     parse_workspace_spec_files,
     serialize_workspace_spec_files,
+    validate_workspace_dependencies,
     workflow_references,
 )
 from tracecat.workspace_sync.schemas import (
@@ -178,6 +179,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
             create_missing_mappings=True,
         )
         self._require_projected_export_scopes(projection.spec)
+        self._validate_projected_workspace_dependencies(projection.spec)
         transport = self._transport_for_provider(
             params.provider,
         )
@@ -218,6 +220,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
             create_missing_mappings=False,
         )
         self._require_projected_export_scopes(projection.spec)
+        self._validate_projected_workspace_dependencies(projection.spec)
         return WorkspaceSyncExportPreview(
             resource_counts=projection.spec.resource_count_map(),
             files=sorted(projection.files),
@@ -603,6 +606,17 @@ class WorkspaceSyncService(BaseWorkspaceService):
                 required_scopes=required_scopes,
                 missing_scopes=missing,
             )
+
+    def _validate_projected_workspace_dependencies(self, spec: WorkspaceSpec) -> None:
+        """Reject exported specs whose dependency graph cannot round-trip."""
+        diagnostics = validate_workspace_dependencies(spec)
+        if not diagnostics:
+            return
+
+        messages = "; ".join(diagnostic.message for diagnostic in diagnostics)
+        raise TracecatValidationError(
+            "Workspace sync export contains unsupported dependencies: " + messages
+        )
 
     async def _import_snapshot(
         self,

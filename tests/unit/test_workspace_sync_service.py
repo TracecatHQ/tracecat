@@ -24,8 +24,11 @@ from tracecat.workflow.store.schemas import RemoteWorkflowSchedule
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.schemas import (
     MANIFEST_FILENAME,
+    AgentPresetResourceSpec,
+    AgentPresetSkillBinding,
     ResourceRef,
     SecretMetadataResourceSpec,
+    SkillResourceSpec,
     VariableResourceSpec,
     WorkflowResourceSpec,
     WorkspaceManifest,
@@ -509,6 +512,46 @@ async def test_preview_export_requires_scopes_for_projected_sensitive_metadata()
         await service.preview_export_workspace(WorkspaceSyncExportPreviewRequest())
 
     assert set(exc_info.value.missing_scopes) == {"secret:read", "variable:read"}
+
+
+@pytest.mark.anyio
+async def test_preview_export_rejects_missing_pinned_skill_version(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    workspace_sync_service.project_workspace = AsyncMock(
+        return_value=WorkspaceProjection(
+            manifest=WorkspaceManifest(),
+            spec=WorkspaceSpec(
+                agent_presets={
+                    "qa-triage": AgentPresetResourceSpec(
+                        id="qa-triage",
+                        slug="qa-triage",
+                        name="QA triage",
+                        skills=[
+                            AgentPresetSkillBinding(
+                                slug="qa-enrichment-skill",
+                                version=1,
+                            )
+                        ],
+                    )
+                },
+                skills={
+                    "qa-enrichment-skill": SkillResourceSpec(
+                        id="qa-enrichment-skill",
+                        slug="qa-enrichment-skill",
+                        name="QA enrichment skill",
+                        current_version=2,
+                    )
+                },
+            ),
+            files={},
+        )
+    )
+
+    with pytest.raises(TracecatValidationError, match="missing skill version"):
+        await workspace_sync_service.preview_export_workspace(
+            WorkspaceSyncExportPreviewRequest()
+        )
 
 
 @pytest.mark.anyio
