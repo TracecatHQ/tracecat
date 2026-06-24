@@ -27,7 +27,7 @@ from tracecat.db.models import (
 from tracecat.exceptions import TracecatValidationError
 from tracecat.service import BaseWorkspaceService
 from tracecat.workspace_sync.adapters.base import (
-    CompoundYamlAdapter,
+    DirectoryManifestAdapter,
     ImportedResource,
     ProjectedResource,
     ResourceDependencyRefs,
@@ -47,7 +47,7 @@ DEFAULT_AGENT_MODEL_NAME = "gpt-4.1-mini"
 DEFAULT_AGENT_MODEL_PROVIDER = "openai"
 
 
-class AgentPresetAdapter(CompoundYamlAdapter):
+class AgentPresetAdapter(DirectoryManifestAdapter):
     """Adapter for agent presets, their versions, tags, and skill bindings."""
 
     resource_type = SyncResourceType.AGENT_PRESET

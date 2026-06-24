@@ -397,11 +397,12 @@ class ResourceAdapter(ABC):
         return await workspace_service.session.scalar(stmt)
 
 
-class CompoundYamlAdapter(ResourceAdapter):
-    """Layout ``<root>/<source_id>/<filename>``.
+class DirectoryManifestAdapter(ResourceAdapter):
+    """Directory layout with one primary manifest file.
 
-    Each resource owns a directory, so it can carry companion files next to its
-    primary file (agent presets, skills, tables).
+    Each resource owns ``<root>/<source_id>/``. ``<filename>`` is the primary
+    manifest file that anchors identity and parsing, while companion files can
+    live alongside it (agent presets, skills, tables).
     """
 
     root: ClassVar[str]

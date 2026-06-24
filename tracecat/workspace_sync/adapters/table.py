@@ -20,7 +20,7 @@ from tracecat.tables.schemas import (
 )
 from tracecat.tables.service import BaseTablesService
 from tracecat.workspace_sync.adapters.base import (
-    CompoundYamlAdapter,
+    DirectoryManifestAdapter,
     ImportedResource,
     ProjectedResource,
     ResourceDependencyRefs,
@@ -39,7 +39,7 @@ TABLE_FILENAME = "table.yml"
 """Primary file name inside each table's directory."""
 
 
-class TableAdapter(CompoundYamlAdapter):
+class TableAdapter(DirectoryManifestAdapter):
     """Adapter for tables, syncing table metadata and schema only."""
 
     resource_type = SyncResourceType.TABLE

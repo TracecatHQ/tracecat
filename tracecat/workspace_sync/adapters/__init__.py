@@ -10,7 +10,7 @@ projection/import because it needs DSL resolution and workflow-store services.
 from __future__ import annotations
 
 from tracecat.workspace_sync.adapters.base import (
-    CompoundYamlAdapter,
+    DirectoryManifestAdapter,
     EnvironmentYamlAdapter,
     ImportedResource,
     ProjectedResource,
@@ -51,7 +51,7 @@ __all__ = [
     "VARIABLE_RESOURCE_ADAPTER",
     "WORKFLOW_RESOURCE_ADAPTER",
     "WORKSPACE_RESOURCE_ADAPTERS",
-    "CompoundYamlAdapter",
+    "DirectoryManifestAdapter",
     "EnvironmentYamlAdapter",
     "ImportedResource",
     "ProjectedResource",

@@ -26,7 +26,7 @@ from tracecat.service import BaseWorkspaceService
 from tracecat.storage import blob
 from tracecat.sync import PullDiagnostic
 from tracecat.workspace_sync.adapters.base import (
-    CompoundYamlAdapter,
+    DirectoryManifestAdapter,
     ImportedResource,
     ProjectedResource,
     ResourceDependencyRefs,
@@ -46,7 +46,7 @@ SKILL_FILENAME = "skill.yml"
 SKILL_FILES_DIR = "files"
 
 
-class SkillAdapter(CompoundYamlAdapter):
+class SkillAdapter(DirectoryManifestAdapter):
     """Adapter for skills: a manifest file plus its versioned file blobs."""
 
     resource_type = SyncResourceType.SKILL
