@@ -65,6 +65,9 @@ class _StorageClientEntry:
 _STORAGE_CLIENTS: weakref.WeakKeyDictionary[
     asyncio.AbstractEventLoop, _StorageClientEntry
 ] = weakref.WeakKeyDictionary()
+_STORAGE_CLIENT_CLOSE_HOOK_LOOPS: weakref.WeakSet[asyncio.AbstractEventLoop] = (
+    weakref.WeakSet()
+)
 _STORAGE_CLIENTS_LOCK = threading.RLock()
 
 
@@ -98,6 +101,7 @@ async def _get_storage_client() -> S3Client:
         if entry is None:
             entry = _StorageClientEntry()
             _STORAGE_CLIENTS[loop] = entry
+            _ensure_storage_client_loop_close_hook(loop)
 
     async with entry.lock:
         client = entry.client
@@ -125,26 +129,79 @@ def clear_storage_session_cache() -> None:
         _STORAGE_CLIENTS.clear()
 
 
-async def close_storage_client_cache() -> None:
-    """Close and clear cached aiobotocore clients owned by the current loop.
-
-    aiobotocore clients must be closed on the event loop that created them, so
-    only the current loop's entries are shut down here. Clients cached on other
-    loops are released when those loops are garbage collected (the cache is
-    keyed by a weak reference to the loop).
-    """
-    loop = asyncio.get_running_loop()
+def _pop_storage_client_entries_for_loop_shutdown(
+    loop: asyncio.AbstractEventLoop,
+) -> list[_StorageClientEntry]:
     with _STORAGE_CLIENTS_LOCK:
         entry = _STORAGE_CLIENTS.pop(loop, None)
+    return [entry] if entry is not None else []
 
-    if entry is None:
-        return
+
+def _pop_storage_client_entries_for_cache_shutdown(
+    loop: asyncio.AbstractEventLoop,
+) -> list[_StorageClientEntry]:
+    entries: list[_StorageClientEntry] = []
+    with _STORAGE_CLIENTS_LOCK:
+        if current_entry := _STORAGE_CLIENTS.pop(loop, None):
+            entries.append(current_entry)
+        for cached_loop, entry in list(_STORAGE_CLIENTS.items()):
+            if cached_loop.is_closed():
+                _STORAGE_CLIENTS.pop(cached_loop, None)
+                entries.append(entry)
+    return entries
+
+
+async def _close_storage_client_entry(entry: _StorageClientEntry) -> None:
     async with entry.lock:
         context = entry.context
         entry.context = None
         entry.client = None
         if context is not None:
             await context.__aexit__(None, None, None)
+
+
+async def _close_storage_client_entries(
+    entries: list[_StorageClientEntry],
+) -> None:
+    for entry in entries:
+        await _close_storage_client_entry(entry)
+
+
+def _ensure_storage_client_loop_close_hook(loop: asyncio.AbstractEventLoop) -> None:
+    if loop in _STORAGE_CLIENT_CLOSE_HOOK_LOOPS:
+        return
+
+    original_close = loop.close
+
+    def close_with_storage_client_cache() -> None:
+        try:
+            if not loop.is_running() and not loop.is_closed():
+                entries = _pop_storage_client_entries_for_loop_shutdown(loop)
+                if entries:
+                    loop.run_until_complete(_close_storage_client_entries(entries))
+        except Exception as e:
+            logger.warning(
+                "Failed to close storage client cache before loop shutdown",
+                error=e,
+            )
+        finally:
+            original_close()
+
+    loop.close = close_with_storage_client_cache
+    _STORAGE_CLIENT_CLOSE_HOOK_LOOPS.add(loop)
+
+
+async def close_storage_client_cache() -> None:
+    """Close and clear cached aiobotocore clients for this loop and stale loops.
+
+    Temporary event loops can be kept alive by cached aiobotocore/aiohttp state,
+    so weak-key eviction alone is not enough. Do not close clients owned by other
+    running loops, but drain entries for the current loop and loops that have
+    already been closed.
+    """
+    loop = asyncio.get_running_loop()
+    entries = _pop_storage_client_entries_for_cache_shutdown(loop)
+    await _close_storage_client_entries(entries)
 
 
 @asynccontextmanager
