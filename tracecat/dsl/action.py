@@ -66,6 +66,7 @@ from tracecat.storage.object import (
     get_object_storage,
     retrieve_stored_object,
 )
+from tracecat.storage.utils import is_retryable_storage_transport_error
 from tracecat.temporal.exceptions import UserError
 from tracecat.validation.schemas import ValidationDetail
 
@@ -357,7 +358,18 @@ async def materialize_context(ctx: ExecutionContext) -> MaterializedExecutionCon
     try:
         materialized_results = await asyncio.gather(*coros)
     except Exception as e:
-        logger.warning("Error materializing context", error=e)
+        retryable = is_retryable_storage_transport_error(e)
+        logger.warning(
+            "Error materializing context",
+            error=e,
+            retryable=retryable,
+        )
+        if retryable:
+            raise ApplicationError(
+                "Failed to materialize context",
+                non_retryable=False,
+                type="StorageMaterializationError",
+            ) from e
         raise ApplicationError(
             "Failed to materialize context",
             non_retryable=True,

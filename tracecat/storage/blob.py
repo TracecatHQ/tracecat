@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import os
+import threading
+import weakref
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -45,6 +49,61 @@ _STORAGE_CLIENT_CONFIG = AioConfig(
 )
 
 
+@dataclass(frozen=True)
+class _StorageSessionKey:
+    endpoint: str | None
+    aws_access_key_id: str | None
+    aws_secret_access_key: str | None = field(repr=False)
+
+
+# aioboto3 / aiobotocore sessions cache credential providers. Keep one session
+# per event loop and credential configuration so high-concurrency materialization
+# does not create a fresh credential HTTP client for every blob fetch.
+_STORAGE_SESSIONS: weakref.WeakKeyDictionary[
+    asyncio.AbstractEventLoop, dict[_StorageSessionKey, aioboto3.Session]
+] = weakref.WeakKeyDictionary()
+_STORAGE_SESSIONS_LOCK = threading.RLock()
+
+
+def _storage_session_key() -> _StorageSessionKey:
+    endpoint = config.TRACECAT__BLOB_STORAGE_ENDPOINT
+    access_key_id = os.environ.get(
+        "AWS_ACCESS_KEY_ID", os.environ.get("MINIO_ROOT_USER")
+    )
+    secret_access_key = os.environ.get(
+        "AWS_SECRET_ACCESS_KEY",
+        os.environ.get("MINIO_ROOT_PASSWORD"),
+    )
+    return _StorageSessionKey(
+        endpoint=endpoint,
+        aws_access_key_id=access_key_id,
+        aws_secret_access_key=secret_access_key,
+    )
+
+
+def _get_storage_session() -> aioboto3.Session:
+    loop = asyncio.get_running_loop()
+    key = _storage_session_key()
+    with _STORAGE_SESSIONS_LOCK:
+        sessions = _STORAGE_SESSIONS.setdefault(loop, {})
+        session = sessions.get(key)
+        if session is None:
+            session = aioboto3.Session()
+            sessions[key] = session
+        return session
+
+
+def clear_storage_session_cache() -> None:
+    """Clear cached aioboto3 sessions.
+
+    Intended for tests and process lifecycle hooks. Production workers normally
+    keep sessions for the life of their event loop so credential providers can
+    be reused safely within that loop.
+    """
+    with _STORAGE_SESSIONS_LOCK:
+        _STORAGE_SESSIONS.clear()
+
+
 @asynccontextmanager
 async def get_storage_client() -> AsyncIterator[S3Client]:
     """Get a configured S3 client for either AWS S3.
@@ -52,7 +111,7 @@ async def get_storage_client() -> AsyncIterator[S3Client]:
     Yields:
         Configured aioboto3 S3 client
     """
-    session = aioboto3.Session()
+    session = _get_storage_session()
     # Configure client based on protocol
     if config.TRACECAT__BLOB_STORAGE_ENDPOINT:
         # MinIO configuration - use AWS_* or MINIO_ROOT_* credentials
