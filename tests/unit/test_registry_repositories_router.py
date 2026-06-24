@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from inspect import unwrap
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -19,6 +20,58 @@ from tracecat.registry.repositories.schemas import (
 )
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+@pytest.mark.anyio
+async def test_list_registry_repositories_returns_configured_custom_origin_first(
+    session: AsyncSession,
+    test_role: Role,
+) -> None:
+    """The active custom registry setting should win over stale repository rows."""
+    list_repositories = unwrap(registry_repos_router.list_registry_repositories)
+    configured_origin = "git+ssh://current@git.example.com/acme/registry.git"
+    session.add(
+        Organization(
+            id=test_role.organization_id,
+            name="Configured registry test org",
+            slug="configured-registry-test-org",
+            is_active=True,
+        )
+    )
+    await session.flush()
+    session.add_all(
+        [
+            RegistryRepository(
+                organization_id=test_role.organization_id,
+                origin="git+ssh://old@git.example.com/acme/registry.git",
+            ),
+            RegistryRepository(
+                organization_id=test_role.organization_id,
+                origin="git+ssh://older@git.example.com/acme/registry.git",
+            ),
+            RegistryRepository(
+                organization_id=test_role.organization_id,
+                origin=configured_origin,
+            ),
+        ]
+    )
+    await session.commit()
+
+    with (
+        patch.object(
+            registry_repos_router,
+            "ensure_org_repositories",
+            new=AsyncMock(),
+        ),
+        patch.object(
+            registry_repos_router,
+            "get_setting",
+            new=AsyncMock(return_value=configured_origin),
+        ),
+    ):
+        repositories = await list_repositories(role=test_role, session=session)
+
+    assert repositories[0].origin == configured_origin
 
 
 @pytest.mark.anyio
