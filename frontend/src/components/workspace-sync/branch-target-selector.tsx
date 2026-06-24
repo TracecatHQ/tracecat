@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useState } from "react"
 import type { GitBranchInfo } from "@/client"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -13,13 +13,13 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
+import { buildRandomSyncBranchName } from "@/components/workspace-sync/push-target-policy"
 
 const CREATE_NEW_BRANCH_VALUE = "__create_new_branch__"
 
 interface UseWorkspaceSyncBranchTargetOptions {
   branches: GitBranchInfo[] | undefined
-  enabled: boolean
-  newBranchName: string
+  newBranchPrefix: string
 }
 
 /**
@@ -27,47 +27,34 @@ interface UseWorkspaceSyncBranchTargetOptions {
  */
 export function useWorkspaceSyncBranchTarget({
   branches,
-  enabled,
-  newBranchName,
+  newBranchPrefix,
 }: UseWorkspaceSyncBranchTargetOptions) {
-  const [branch, setBranch] = useState("")
-  const [isCreatingBranch, setIsCreatingBranch] = useState(false)
+  const [branch, setBranch] = useState(() =>
+    buildRandomSyncBranchName(newBranchPrefix)
+  )
+  const [isCreatingBranch, setIsCreatingBranch] = useState(true)
   const hasBranches = (branches?.length ?? 0) > 0
   const defaultBranch =
     branches?.find((candidate) => candidate.is_default)?.name ??
     branches?.[0]?.name
 
-  useEffect(() => {
-    if (!enabled || !branches || branches.length === 0 || isCreatingBranch) {
-      return
-    }
-
-    const branchNames = new Set(branches.map((candidate) => candidate.name))
-    if (branch && branchNames.has(branch)) {
-      return
-    }
-
-    if (defaultBranch) {
-      setBranch(defaultBranch)
-    }
-  }, [branch, branches, defaultBranch, enabled, isCreatingBranch])
-
   const selectBranch = useCallback(
     (value: string) => {
       if (value === CREATE_NEW_BRANCH_VALUE) {
         setIsCreatingBranch(true)
-        setBranch(newBranchName)
+        setBranch(buildRandomSyncBranchName(newBranchPrefix))
         return
       }
       setIsCreatingBranch(false)
       setBranch(value)
     },
-    [newBranchName]
+    [newBranchPrefix]
   )
 
   const resetBranchCreation = useCallback(() => {
-    setIsCreatingBranch(false)
-  }, [])
+    setIsCreatingBranch(true)
+    setBranch(buildRandomSyncBranchName(newBranchPrefix))
+  }, [newBranchPrefix])
 
   return {
     branch,

@@ -7,6 +7,7 @@ import {
   ArrowUpIcon,
   CheckCircle2Icon,
   GitBranchIcon,
+  GitPullRequestIcon,
   Loader2Icon,
   PencilIcon,
   SearchIcon,
@@ -48,6 +49,14 @@ import {
   WorkspaceSyncBranchSelector,
 } from "@/components/workspace-sync/branch-target-selector"
 import { PullResourceManifest } from "@/components/workspace-sync/push-resource-manifest"
+import {
+  getWorkspaceSyncPushButtonLabel,
+  getWorkspaceSyncPushOutcome,
+  getWorkspaceSyncPushResultLabel,
+  getWorkspaceSyncPushWarning,
+  type WorkspaceSyncPushMode,
+  WorkspaceSyncPushModeTabs,
+} from "@/components/workspace-sync/push-target-policy"
 import {
   PushResourcePreview,
   ResourceDiffSection,
@@ -116,6 +125,8 @@ export function WorkspaceSyncSettings({
   // Push composer state
   const [exportMessage, setExportMessage] = useState("Export workspace config")
   const [exportPreviewRequested, setExportPreviewRequested] = useState(false)
+  const [pushMode, setPushMode] =
+    useState<WorkspaceSyncPushMode>("pull-request")
 
   // Pull composer state
   const [selectedCommitSha, setSelectedCommitSha] = useState<string | null>(
@@ -148,8 +159,7 @@ export function WorkspaceSyncSettings({
     hasBranches,
   } = useWorkspaceSyncBranchTarget({
     branches: repoBranches,
-    enabled: Boolean(persistedGitUrl),
-    newBranchName: "sync/workspace",
+    newBranchPrefix: "sync/workspace",
   })
 
   const { commits, commitsIsLoading, commitsError } = useRepositoryCommits(
@@ -183,14 +193,21 @@ export function WorkspaceSyncSettings({
   const exportPreviewErrorMessage = exportPreviewError
     ? (getApiErrorDetail(exportPreviewError) ?? "Request failed")
     : undefined
-  const targetIsDefault =
-    !isCreatingBranch &&
-    Boolean(defaultBranch) &&
-    targetBranch === defaultBranch
+  const pushOutcome = getWorkspaceSyncPushOutcome({
+    mode: pushMode,
+    targetBranch,
+    defaultBranch,
+    isCreatingBranch,
+  })
+  const pushWarning = getWorkspaceSyncPushWarning({
+    outcome: pushOutcome,
+    defaultBranch,
+  })
   const exportDisabled =
     exportWorkspaceIsPending ||
     branchesIsLoading ||
     (!hasBranches && !isCreatingBranch) ||
+    pushOutcome.isPullRequestBlocked ||
     targetBranch === "" ||
     exportMessage.trim() === ""
   const effectivePullSha = selectedCommitSha ?? commits?.[0]?.sha
@@ -311,7 +328,7 @@ export function WorkspaceSyncSettings({
       const result = await exportWorkspace({
         message: exportMessage,
         branch: targetBranch,
-        create_pr: !targetIsDefault,
+        create_pr: pushOutcome.createPr,
         include_schedules: false,
         provider: "github",
       })
@@ -574,6 +591,14 @@ export function WorkspaceSyncSettings({
             </div>
 
             <div className="space-y-2">
+              <p className="text-sm font-medium">Push mode</p>
+              <WorkspaceSyncPushModeTabs
+                value={pushMode}
+                onValueChange={setPushMode}
+              />
+            </div>
+
+            <div className="space-y-2">
               <Label htmlFor="workspace-sync-branch">Branch</Label>
               <WorkspaceSyncBranchSelector
                 id="workspace-sync-branch"
@@ -587,6 +612,17 @@ export function WorkspaceSyncSettings({
                 onSelectBranch={selectExportBranch}
                 onBranchChange={setExportBranch}
               />
+              {pushWarning ? (
+                <p
+                  className={
+                    pushOutcome.isPullRequestBlocked
+                      ? "text-[11px] text-destructive"
+                      : "text-[11px] text-amber-700"
+                  }
+                >
+                  {pushWarning}
+                </p>
+              ) : null}
             </div>
 
             <PushResourcePreview
@@ -611,6 +647,13 @@ export function WorkspaceSyncSettings({
                 <span className="font-mono text-foreground">
                   {targetBranch || "—"}
                 </span>
+                <span>·</span>
+                <span className="text-foreground">
+                  {getWorkspaceSyncPushResultLabel({
+                    outcome: pushOutcome,
+                    defaultBranch,
+                  })}
+                </span>
               </div>
               <Button
                 type="button"
@@ -621,10 +664,16 @@ export function WorkspaceSyncSettings({
               >
                 {exportWorkspaceIsPending ? (
                   <Loader2Icon className="size-4 animate-spin" />
+                ) : pushOutcome.createPr ? (
+                  <GitPullRequestIcon className="size-4" />
                 ) : (
                   <ArrowUpIcon className="size-4" />
                 )}
-                {exportWorkspaceIsPending ? "Pushing..." : "Push changes"}
+                {getWorkspaceSyncPushButtonLabel({
+                  outcome: pushOutcome,
+                  isCreatingBranch,
+                  isPending: exportWorkspaceIsPending,
+                })}
               </Button>
             </div>
           </TabsContent>

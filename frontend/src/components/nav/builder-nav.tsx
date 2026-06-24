@@ -8,6 +8,7 @@ import {
   CopyIcon,
   DownloadIcon,
   GitBranchIcon,
+  GitPullRequestIcon,
   LayersPlusIcon,
   MoreHorizontal,
   PlayIcon,
@@ -75,7 +76,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Tooltip,
@@ -83,6 +83,14 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { ValidationErrorView } from "@/components/validation-errors"
+import {
+  buildRandomSyncBranchName,
+  getWorkspaceSyncPushButtonLabel,
+  getWorkspaceSyncPushOutcome,
+  getWorkspaceSyncPushWarning,
+  type WorkspaceSyncPushMode,
+  WorkspaceSyncPushModeTabs,
+} from "@/components/workspace-sync/push-target-policy"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import type { TracecatApiError } from "@/lib/errors"
@@ -350,7 +358,6 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
 const publishFormSchema = z.object({
   message: z.string().optional(),
   branch: z.string().trim().min(1, "Target branch is required"),
-  createPr: z.boolean().default(false),
 })
 type TPublishForm = z.infer<typeof publishFormSchema>
 const CREATE_NEW_BRANCH_VALUE = "__create_new_branch__"
@@ -587,7 +594,13 @@ function WorkflowSaveActions({
   const isGitSyncEnabled = hasEntitlement("git_sync")
   const [publishOpen, setPublishOpen] = React.useState(false)
   const [isPublishing, setIsPublishing] = React.useState(false)
-  const [isCreatingBranch, setIsCreatingBranch] = React.useState(false)
+  const [isCreatingBranch, setIsCreatingBranch] = React.useState(true)
+  const [pushMode, setPushMode] =
+    React.useState<WorkspaceSyncPushMode>("pull-request")
+  const initialPublishBranch = React.useMemo(
+    () => buildRandomSyncBranchName("sync/workflow"),
+    []
+  )
   const { data: repoBranches, isLoading: branchesLoading } = useQuery<
     Array<GitBranchInfo>,
     ApiError
@@ -606,22 +619,25 @@ function WorkflowSaveActions({
     resolver: zodResolver(publishFormSchema),
     defaultValues: {
       message: "",
-      branch: workflow.git_sync_branch ?? "",
-      createPr: false,
+      branch: initialPublishBranch,
     },
   })
+
+  const resetPublishForm = React.useCallback(() => {
+    setIsCreatingBranch(true)
+    setPushMode("pull-request")
+    publishForm.reset({
+      message: "",
+      branch: buildRandomSyncBranchName("sync/workflow"),
+    })
+  }, [publishForm])
 
   React.useEffect(() => {
     if (!publishOpen) {
       return
     }
-    setIsCreatingBranch(false)
-    publishForm.reset({
-      message: "",
-      branch: workflow.git_sync_branch ?? "",
-      createPr: false,
-    })
-  }, [publishOpen, publishForm, workflow.git_sync_branch])
+    resetPublishForm()
+  }, [publishOpen, resetPublishForm])
 
   React.useEffect(() => {
     if (
@@ -658,12 +674,26 @@ function WorkflowSaveActions({
     workflow.git_sync_branch,
   ])
 
-  const selectedBranch = publishForm.watch("branch")
-  const createPrEnabled = publishForm.watch("createPr")
-  const selectedBranchInfo = repoBranches?.find(
-    (branch) => branch.name === selectedBranch
-  )
-  const isDefaultBranchSelected = selectedBranchInfo?.is_default ?? false
+  const selectedBranch = publishForm.watch("branch").trim()
+  const defaultBranch =
+    repoBranches?.find((branch) => branch.is_default)?.name ??
+    repoBranches?.[0]?.name
+  const pushOutcome = getWorkspaceSyncPushOutcome({
+    mode: pushMode,
+    targetBranch: selectedBranch,
+    defaultBranch,
+    isCreatingBranch,
+  })
+  const pushWarning = getWorkspaceSyncPushWarning({
+    outcome: pushOutcome,
+    defaultBranch,
+  })
+  const publishDisabled =
+    isPublishing ||
+    branchesLoading ||
+    (!hasBranches && !isCreatingBranch) ||
+    selectedBranch === "" ||
+    pushOutcome.isPullRequestBlocked
 
   const handlePublish = async (data: TPublishForm) => {
     setIsPublishing(true)
@@ -671,17 +701,12 @@ function WorkflowSaveActions({
       await onPublish({
         message: data.message || undefined,
         branch: data.branch,
-        create_pr: data.createPr,
+        create_pr: pushOutcome.createPr,
       })
     } finally {
       setIsPublishing(false)
       setPublishOpen(false)
-      setIsCreatingBranch(false)
-      publishForm.reset({
-        message: "",
-        branch: workflow.git_sync_branch ?? "",
-        createPr: false,
-      })
+      resetPublishForm()
     }
   }
 
@@ -757,7 +782,9 @@ function WorkflowSaveActions({
                           onValueChange={(value) => {
                             if (value === CREATE_NEW_BRANCH_VALUE) {
                               setIsCreatingBranch(true)
-                              field.onChange("")
+                              field.onChange(
+                                buildRandomSyncBranchName("sync/workflow")
+                              )
                               return
                             }
                             setIsCreatingBranch(false)
@@ -850,35 +877,27 @@ function WorkflowSaveActions({
                       </FormItem>
                     )}
                   />
-                  <FormField
-                    control={publishForm.control}
-                    name="createPr"
-                    render={({ field }) => (
-                      <FormItem className="mt-2 flex items-center justify-between rounded-md border px-3 py-2">
-                        <div className="space-y-0.5">
-                          <p className="text-xs">Create pull request</p>
-                          <p className="text-[11px] text-muted-foreground">
-                            Reuse an open PR for this branch when available.
-                          </p>
-                        </div>
-                        <FormControl>
-                          <Switch
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                            size="sm"
-                          />
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
-                  {isDefaultBranchSelected && !createPrEnabled && (
-                    <p className="mt-2 text-[11px] text-amber-700">
-                      Pushing to the default branch will create a direct commit.
+                  <div className="mt-2 space-y-1.5">
+                    <p className="text-xs text-muted-foreground">Push mode</p>
+                    <WorkspaceSyncPushModeTabs
+                      value={pushMode}
+                      onValueChange={setPushMode}
+                    />
+                  </div>
+                  {pushWarning ? (
+                    <p
+                      className={
+                        pushOutcome.isPullRequestBlocked
+                          ? "mt-2 text-[11px] text-destructive"
+                          : "mt-2 text-[11px] text-amber-700"
+                      }
+                    >
+                      {pushWarning}
                     </p>
-                  )}
+                  ) : null}
                   <Button
                     type="submit"
-                    disabled={isPublishing || branchesLoading || !hasBranches}
+                    disabled={publishDisabled}
                     className="mt-2 flex h-7 w-full items-center justify-center gap-2 bg-primary px-3 py-0 text-xs text-white hover:bg-primary/80"
                   >
                     {isPublishing ? (
@@ -888,8 +907,16 @@ function WorkflowSaveActions({
                       </>
                     ) : (
                       <>
-                        <GitBranchIcon className="size-3" />
-                        Push changes
+                        {pushOutcome.createPr ? (
+                          <GitPullRequestIcon className="size-3" />
+                        ) : (
+                          <GitBranchIcon className="size-3" />
+                        )}
+                        {getWorkspaceSyncPushButtonLabel({
+                          outcome: pushOutcome,
+                          isCreatingBranch,
+                          isPending: false,
+                        })}
                       </>
                     )}
                   </Button>

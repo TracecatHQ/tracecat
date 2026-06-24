@@ -33,6 +33,14 @@ import {
   formatResourceTotal,
   getWorkspaceSyncPreviewResourceTotal,
 } from "@/components/workspace-sync/push-resource-manifest"
+import {
+  getWorkspaceSyncPushButtonLabel,
+  getWorkspaceSyncPushOutcome,
+  getWorkspaceSyncPushResultLabel,
+  getWorkspaceSyncPushWarning,
+  type WorkspaceSyncPushMode,
+  WorkspaceSyncPushModeTabs,
+} from "@/components/workspace-sync/push-target-policy"
 import { PushResourcePreview } from "@/components/workspace-sync/resource-diff-review"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import {
@@ -63,6 +71,8 @@ export function WorkspaceResourceSyncActions({
   const { workspace } = useWorkspaceDetails()
   const [open, setOpen] = useState(false)
   const [exportMessage, setExportMessage] = useState(`Push ${label}`)
+  const [pushMode, setPushMode] =
+    useState<WorkspaceSyncPushMode>("pull-request")
   const { exportWorkspace, exportWorkspaceIsPending } =
     useWorkspaceSyncExport(workspaceId)
   const {
@@ -89,8 +99,7 @@ export function WorkspaceResourceSyncActions({
     hasBranches,
   } = useWorkspaceSyncBranchTarget({
     branches: repoBranches,
-    enabled: open,
-    newBranchName: `sync/${branchSlug}`,
+    newBranchPrefix: `sync/${branchSlug}`,
   })
 
   const repoName = getRepoDisplayName(gitRepoUrl)
@@ -112,10 +121,16 @@ export function WorkspaceResourceSyncActions({
   // types the button requested.
   const totalResourceCount =
     getWorkspaceSyncPreviewResourceTotal(visiblePreview)
-  const targetIsDefault =
-    !isCreatingBranch &&
-    Boolean(defaultBranch) &&
-    targetBranch === defaultBranch
+  const pushOutcome = getWorkspaceSyncPushOutcome({
+    mode: pushMode,
+    targetBranch,
+    defaultBranch,
+    isCreatingBranch,
+  })
+  const pushWarning = getWorkspaceSyncPushWarning({
+    outcome: pushOutcome,
+    defaultBranch,
+  })
   const previewErrorMessage = previewError
     ? (getApiErrorDetail(previewError) ?? "Request failed")
     : undefined
@@ -124,7 +139,7 @@ export function WorkspaceResourceSyncActions({
     exportWorkspaceIsPending ||
     branchesIsLoading ||
     (!hasBranches && !isCreatingBranch) ||
-    targetIsDefault ||
+    pushOutcome.isPullRequestBlocked ||
     targetBranch === "" ||
     exportMessage.trim() === ""
 
@@ -133,6 +148,7 @@ export function WorkspaceResourceSyncActions({
       return
     }
     resetBranchCreation()
+    setPushMode("pull-request")
     setExportMessage(`Push ${label}`)
     setPreviewRequested(false)
   }, [label, open, resetBranchCreation])
@@ -154,7 +170,7 @@ export function WorkspaceResourceSyncActions({
       const result = await exportWorkspace({
         message: exportMessage,
         branch: targetBranch,
-        create_pr: true,
+        create_pr: pushOutcome.createPr,
         include_schedules: false,
         provider: "github",
         resources: resourceRefs,
@@ -218,6 +234,7 @@ export function WorkspaceResourceSyncActions({
               isLoading={visiblePreviewIsLoading}
               targetBranch={targetBranch}
               defaultBranch={defaultBranch}
+              outcome={pushOutcome}
             />
 
             <PushResourcePreview
@@ -228,6 +245,14 @@ export function WorkspaceResourceSyncActions({
               hasRequestedPreview={previewRequested}
               onRequestPreview={handlePreview}
             />
+
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Push mode</p>
+              <WorkspaceSyncPushModeTabs
+                value={pushMode}
+                onValueChange={setPushMode}
+              />
+            </div>
 
             <div className="space-y-2">
               <label
@@ -264,9 +289,15 @@ export function WorkspaceResourceSyncActions({
                 onBranchChange={setExportBranch}
                 showNoBranchesMessage={Boolean(gitRepoUrl)}
               />
-              {targetIsDefault ? (
-                <p className="text-[11px] text-destructive">
-                  Select or create a non-default branch to open a pull request.
+              {pushWarning ? (
+                <p
+                  className={
+                    pushOutcome.isPullRequestBlocked
+                      ? "text-[11px] text-destructive"
+                      : "text-[11px] text-amber-700"
+                  }
+                >
+                  {pushWarning}
                 </p>
               ) : null}
             </div>
@@ -295,8 +326,14 @@ export function WorkspaceResourceSyncActions({
               disabled={exportDisabled}
               className="gap-1.5"
             >
-              <GitPullRequestIcon className="size-4" />
-              {buildPushButtonLabel({
+              {pushOutcome.createPr ? (
+                <GitPullRequestIcon className="size-4" />
+              ) : (
+                <GitBranchIcon className="size-4" />
+              )}
+              {getWorkspaceSyncPushButtonLabel({
+                outcome: pushOutcome,
+                isCreatingBranch,
                 isPending: exportWorkspaceIsPending,
               })}
             </Button>
@@ -312,6 +349,7 @@ interface PushFlowProps {
   isLoading: boolean
   targetBranch: string
   defaultBranch: string | undefined
+  outcome: ReturnType<typeof getWorkspaceSyncPushOutcome>
 }
 
 /**
@@ -324,6 +362,7 @@ function PushFlow({
   isLoading,
   targetBranch,
   defaultBranch,
+  outcome,
 }: PushFlowProps) {
   return (
     <div className="flex items-stretch gap-2 rounded-lg border bg-muted/30 p-3">
@@ -358,9 +397,15 @@ function PushFlow({
       />
       <FlowArrow />
       <FlowNode
-        icon={<GitPullRequestIcon className="size-3.5" />}
-        title="Pull request"
-        value={defaultBranch ?? "default branch"}
+        icon={
+          outcome.createPr ? (
+            <GitPullRequestIcon className="size-3.5" />
+          ) : (
+            <GitBranchIcon className="size-3.5" />
+          )
+        }
+        title="Result"
+        value={getWorkspaceSyncPushResultLabel({ outcome, defaultBranch })}
       />
     </div>
   )
@@ -406,18 +451,5 @@ function describePush({ gitRepoUrl, label }: DescribePushOptions): string {
   if (!gitRepoUrl) {
     return "Configure a Git repository in workspace settings first."
   }
-  return `Commit all ${label} in this workspace, then open a pull request for review.`
-}
-
-interface BuildPushButtonLabelOptions {
-  isPending: boolean
-}
-
-function buildPushButtonLabel({
-  isPending,
-}: BuildPushButtonLabelOptions): string {
-  if (isPending) {
-    return "Pushing..."
-  }
-  return "Push & open PR"
+  return `Commit all ${label} in this workspace to the selected Git branch.`
 }
