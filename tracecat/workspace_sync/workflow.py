@@ -27,7 +27,7 @@ from tracecat.db.models import Workflow
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.enums import PlatformAction
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.sync import PullDiagnostic
+from tracecat.sync import PullDiagnostic, serializable_validation_errors
 from tracecat.workflow.case_triggers.schemas import is_case_trigger_configured
 from tracecat.workflow.store.schemas import (
     RemoteCaseTrigger,
@@ -337,7 +337,7 @@ def parse_workflow_spec(
             workflow_title=workflow_title,
             error_type="validation",
             message=f"Validation error: {str(e)}",
-            details={"validation_errors": e.errors()},
+            details={"validation_errors": serializable_validation_errors(e.errors())},
         )
     except Exception as e:
         return None, PullDiagnostic(

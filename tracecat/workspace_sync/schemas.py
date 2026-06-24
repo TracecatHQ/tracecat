@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
 from tracecat.cases.enums import CaseEventType
 from tracecat.dsl.common import DSLInput
-from tracecat.sync import CommitInfo
+from tracecat.sync import CommitInfo, PullResourceDiff
 from tracecat.workflow.store.schemas import (
     RemoteCaseTrigger,
     RemoteWebhook,
@@ -214,6 +214,82 @@ class AgentPresetSubagentRef(BaseModel):
     )
 
 
+class AgentPresetVersionResourceSpec(BaseModel):
+    """Immutable agent preset snapshot stored under a preset's versions dir."""
+
+    model_config = ConfigDict(extra="allow")
+
+    version: Literal[1] = Field(default=1, description="Spec schema version.")
+    type: Literal["agent_preset_version"] = Field(
+        default="agent_preset_version", description="Resource type discriminator."
+    )
+    version_number: int = Field(
+        ge=1, description="Preset version number scoped to the parent preset."
+    )
+    name: str = Field(min_length=1, description="Human-readable preset name.")
+    instructions: str | None = Field(
+        default=None,
+        description="System prompt / instructions for the agent.",
+    )
+    tool_approvals: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Per-tool approval policy keyed by tool name.",
+    )
+    actions: list[str] = Field(
+        default_factory=list,
+        description="Registry action names the agent may call.",
+    )
+    skills: list[AgentPresetSkillBinding] = Field(
+        default_factory=list,
+        description="Skills bound to the preset, optionally version-pinned.",
+    )
+    subagents: list[AgentPresetSubagentRef] = Field(
+        default_factory=list,
+        description="Other presets invoked as subagents.",
+    )
+    catalog_id: uuid.UUID | None = Field(
+        default=None,
+        description="Source model catalog entry id, if model is catalog-backed.",
+    )
+    model_name: str | None = Field(
+        default=None,
+        description="Override model name, or ``None`` to inherit defaults.",
+    )
+    model_provider: str | None = Field(
+        default=None,
+        description="Override model provider, or ``None`` to inherit defaults.",
+    )
+    base_url: str | None = Field(
+        default=None,
+        description="Override provider base URL, if any.",
+    )
+    output_type: Any | None = Field(
+        default=None,
+        description="Structured output schema, if the agent returns structured data.",
+    )
+    namespaces: list[str] = Field(
+        default_factory=list,
+        description="Registry namespaces the agent's tools are drawn from.",
+    )
+    mcp_integrations: list[str] = Field(
+        default_factory=list,
+        description="MCP integration slugs available to the agent.",
+    )
+    retries: int = Field(
+        default=3,
+        ge=0,
+        description="Maximum agent run retries.",
+    )
+    enable_thinking: bool = Field(
+        default=True,
+        description="Whether extended thinking is enabled.",
+    )
+    enable_internet_access: bool = Field(
+        default=False,
+        description="Whether the agent may access the internet.",
+    )
+
+
 class AgentPresetResourceSpec(BaseModel):
     """Canonical Git-owned desired state for an agent preset."""
 
@@ -231,60 +307,95 @@ class AgentPresetResourceSpec(BaseModel):
         min_length=1, description="Unique preset slug used for cross-references."
     )
     name: str = Field(min_length=1, description="Human-readable preset name.")
+    current_version: int | None = Field(
+        default=None,
+        ge=1,
+        description="Current preset version, or ``None`` if unpublished.",
+    )
     folder_path: str | None = Field(
         default=None, description="Workspace folder the preset lives under, if any."
     )
     tags: list[str] = Field(default_factory=list, description="Free-form preset tags.")
     instructions: str | None = Field(
-        default=None, description="System prompt / instructions for the agent."
+        default=None,
+        exclude=True,
+        description="System prompt / instructions for the agent.",
     )
     tool_approvals: dict[str, Any] = Field(
         default_factory=dict,
+        exclude=True,
         description="Per-tool approval policy keyed by tool name.",
     )
     actions: list[str] = Field(
-        default_factory=list, description="Registry action names the agent may call."
+        default_factory=list,
+        exclude=True,
+        description="Registry action names the agent may call.",
     )
     skills: list[AgentPresetSkillBinding] = Field(
         default_factory=list,
+        exclude=True,
         description="Skills bound to the preset, optionally version-pinned.",
     )
     subagents: list[AgentPresetSubagentRef] = Field(
-        default_factory=list, description="Other presets invoked as subagents."
+        default_factory=list,
+        exclude=True,
+        description="Other presets invoked as subagents.",
     )
     catalog_id: uuid.UUID | None = Field(
         default=None,
+        exclude=True,
         description="Source model catalog entry id, if model is catalog-backed.",
     )
     model_name: str | None = Field(
         default=None,
+        exclude=True,
         description="Override model name, or ``None`` to inherit defaults.",
     )
     model_provider: str | None = Field(
         default=None,
+        exclude=True,
         description="Override model provider, or ``None`` to inherit defaults.",
     )
     base_url: str | None = Field(
-        default=None, description="Override provider base URL, if any."
+        default=None,
+        exclude=True,
+        description="Override provider base URL, if any.",
     )
     output_type: Any | None = Field(
         default=None,
+        exclude=True,
         description="Structured output schema, if the agent returns structured data.",
     )
     namespaces: list[str] = Field(
         default_factory=list,
+        exclude=True,
         description="Registry namespaces the agent's tools are drawn from.",
     )
     mcp_integrations: list[str] = Field(
         default_factory=list,
+        exclude=True,
         description="MCP integration slugs available to the agent.",
     )
-    retries: int = Field(default=3, ge=0, description="Maximum agent run retries.")
+    retries: int = Field(
+        default=3,
+        ge=0,
+        exclude=True,
+        description="Maximum agent run retries.",
+    )
     enable_thinking: bool = Field(
-        default=True, description="Whether extended thinking is enabled."
+        default=True,
+        exclude=True,
+        description="Whether extended thinking is enabled.",
     )
     enable_internet_access: bool = Field(
-        default=False, description="Whether the agent may access the internet."
+        default=False,
+        exclude=True,
+        description="Whether the agent may access the internet.",
+    )
+    versions: dict[int, AgentPresetVersionResourceSpec] = Field(
+        default_factory=dict,
+        exclude=True,
+        description="In-memory preset version snapshots keyed by version number.",
     )
 
 
@@ -298,6 +409,33 @@ class SkillFileSpec(BaseModel):
         min_length=64,
         max_length=64,
         description="Hex-encoded SHA-256 of the file contents.",
+    )
+
+
+class SkillVersionResourceSpec(BaseModel):
+    """Immutable skill snapshot stored under a skill's versions dir."""
+
+    model_config = ConfigDict(extra="allow")
+
+    version: Literal[1] = Field(default=1, description="Spec schema version.")
+    type: Literal["skill_version"] = Field(
+        default="skill_version", description="Resource type discriminator."
+    )
+    version_number: int = Field(
+        ge=1, description="Skill version number scoped to the parent skill."
+    )
+    name: str = Field(min_length=1, description="Human-readable skill version name.")
+    description: str | None = Field(
+        default=None, description="Optional skill version description."
+    )
+    files: list[SkillFileSpec] = Field(
+        default_factory=list,
+        description="Manifest of the version's files and their content hashes.",
+    )
+    file_contents: dict[str, str] = Field(
+        default_factory=dict,
+        exclude=True,
+        description="In-memory file contents keyed by path; excluded from serialization.",
     )
 
 
@@ -334,6 +472,11 @@ class SkillResourceSpec(BaseModel):
         default_factory=dict,
         exclude=True,
         description="In-memory file contents keyed by path; excluded from serialization.",
+    )
+    versions: dict[int, SkillVersionResourceSpec] = Field(
+        default_factory=dict,
+        exclude=True,
+        description="In-memory skill version snapshots keyed by version number.",
     )
 
 
@@ -749,6 +892,28 @@ class WorkspaceSyncExportPreviewRequest(BaseModel):
         default=False,
         description="Whether to include workflow schedules in the preview.",
     )
+    compare_ref: str | None = Field(
+        default=None,
+        description=(
+            "Repository ref to compare the projected export against. When omitted, "
+            "the preview only returns the export manifest summary."
+        ),
+    )
+    provider: VcsProvider = Field(
+        default=VcsProvider.GITHUB,
+        description="VCS provider to read the comparison ref from.",
+    )
+
+
+class WorkspaceSyncPreviewResource(BaseModel):
+    """One resource included in a workspace sync export preview."""
+
+    resource_type: SyncResourceType = Field(
+        description="Type of resource included in the preview."
+    )
+    source_id: str = Field(description="Stable Git source id for the resource.")
+    name: str = Field(description="Human-readable resource name.")
+    path: str = Field(description="Primary repository path written for the resource.")
 
 
 class WorkspaceSyncExportPreview(BaseModel):
@@ -763,6 +928,16 @@ class WorkspaceSyncExportPreview(BaseModel):
     )
     files: list[str] = Field(
         description="Repository-relative paths the export would write."
+    )
+    resources: list[WorkspaceSyncPreviewResource] = Field(
+        default_factory=list,
+        description="Displayable resources included in the export preview.",
+    )
+    resource_diffs: list[PullResourceDiff] = Field(
+        default_factory=list,
+        description=(
+            "Per-resource file diffs between the comparison ref and projected export."
+        ),
     )
 
 

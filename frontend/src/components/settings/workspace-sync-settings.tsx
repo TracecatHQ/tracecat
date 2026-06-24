@@ -6,7 +6,6 @@ import {
   ArrowDownIcon,
   ArrowUpIcon,
   CheckCircle2Icon,
-  ChevronRightIcon,
   GitBranchIcon,
   Loader2Icon,
   PencilIcon,
@@ -16,21 +15,11 @@ import {
 import { useEffect, useState } from "react"
 import { useForm, useWatch } from "react-hook-form"
 import { z } from "zod"
-import type {
-  GitHubAppRepository,
-  PullResourceDiff,
-  PullResult,
-  WorkspaceRead,
-} from "@/client"
+import type { GitHubAppRepository, PullResult, WorkspaceRead } from "@/client"
 import { CommitSelector } from "@/components/registry/commit-selector"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
 import {
   Form,
   FormControl,
@@ -58,12 +47,15 @@ import {
   useWorkspaceSyncBranchTarget,
   WorkspaceSyncBranchSelector,
 } from "@/components/workspace-sync/branch-target-selector"
-import { PushResourceManifest } from "@/components/workspace-sync/push-resource-manifest"
+import { PullResourceManifest } from "@/components/workspace-sync/push-resource-manifest"
+import {
+  PushResourcePreview,
+  ResourceDiffSection,
+} from "@/components/workspace-sync/resource-diff-review"
 import {
   getWorkspaceSyncResourceLabel,
   workspaceSyncResourceCountEntries,
 } from "@/components/workspace-sync/resource-metadata"
-import { UnifiedDiff } from "@/components/workspace-sync/unified-diff"
 import {
   useRepositoryBranches,
   useRepositoryCommits,
@@ -123,6 +115,7 @@ export function WorkspaceSyncSettings({
 
   // Push composer state
   const [exportMessage, setExportMessage] = useState("Export workspace config")
+  const [exportPreviewRequested, setExportPreviewRequested] = useState(false)
 
   // Pull composer state
   const [selectedCommitSha, setSelectedCommitSha] = useState<string | null>(
@@ -167,15 +160,29 @@ export function WorkspaceSyncSettings({
       enabled: Boolean(persistedGitUrl) && Boolean(defaultBranch),
     }
   )
-  const { preview: exportPreview, previewIsLoading: exportPreviewIsLoading } =
-    useWorkspaceSyncExportPreview(workspace.id, {
-      enabled:
-        Boolean(persistedGitUrl) && !isEditingConnection && mode === "push",
-    })
-
   const repoDisplayName = getRepoDisplayName(persistedGitUrl)
   const latestCommit = commits?.[0]
   const targetBranch = exportBranch.trim()
+  const exportCompareRef = isCreatingBranch
+    ? defaultBranch
+    : targetBranch || undefined
+  const {
+    preview: exportPreview,
+    previewIsLoading: exportPreviewIsLoading,
+    previewError: exportPreviewError,
+    refetchPreview: refetchExportPreview,
+  } = useWorkspaceSyncExportPreview(workspace.id, {
+    compareRef: exportCompareRef,
+    enabled: false,
+  })
+  const visibleExportPreview = exportPreviewRequested
+    ? exportPreview
+    : undefined
+  const visibleExportPreviewIsLoading =
+    exportPreviewRequested && exportPreviewIsLoading
+  const exportPreviewErrorMessage = exportPreviewError
+    ? (getApiErrorDetail(exportPreviewError) ?? "Request failed")
+    : undefined
   const targetIsDefault =
     !isCreatingBranch &&
     Boolean(defaultBranch) &&
@@ -269,6 +276,10 @@ export function WorkspaceSyncSettings({
     setPullResult(null)
   }, [effectivePullSha, syncSchedules])
 
+  useEffect(() => {
+    setExportPreviewRequested(false)
+  }, [exportCompareRef, persistedGitUrl])
+
   async function onSubmit(values: SyncSettingsForm) {
     const selectedRepository =
       repositoryInputMode === "select"
@@ -318,6 +329,14 @@ export function WorkspaceSyncSettings({
         variant: "destructive",
       })
     }
+  }
+
+  function handlePreviewExport() {
+    if (!exportCompareRef) {
+      return
+    }
+    setExportPreviewRequested(true)
+    void refetchExportPreview()
   }
 
   async function handlePreviewPull() {
@@ -570,9 +589,15 @@ export function WorkspaceSyncSettings({
               />
             </div>
 
-            <PushResourceManifest
-              preview={exportPreview}
-              isLoading={exportPreviewIsLoading}
+            <PushResourcePreview
+              preview={visibleExportPreview}
+              isLoading={visibleExportPreviewIsLoading}
+              compareRef={exportCompareRef}
+              errorMessage={
+                exportPreviewRequested ? exportPreviewErrorMessage : undefined
+              }
+              hasRequestedPreview={exportPreviewRequested}
+              onRequestPreview={handlePreviewExport}
             />
 
             <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
@@ -856,13 +881,9 @@ function PullPreviewSummary({ result }: { result: PullResult }) {
         <p className="text-sm text-muted-foreground">{result.message}</p>
       )}
 
-      {resourceDiffs.length > 0 ? (
-        <PullDiffReviewList diffs={resourceDiffs} />
-      ) : (
-        <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
-          No resource changes detected.
-        </p>
-      )}
+      <PullResourceManifest result={result} />
+
+      <ResourceDiffSection diffs={resourceDiffs} />
 
       {result.diagnostics.length > 0 && (
         <PullDiagnostics diagnostics={result.diagnostics} />
@@ -890,174 +911,6 @@ function SummaryMetric({
       </span>{" "}
       <span className="text-muted-foreground">{label}</span>
     </span>
-  )
-}
-
-/** Return a new Set with `key` added (when `present`) or removed. */
-function withMember(
-  set: Set<string>,
-  key: string,
-  present: boolean
-): Set<string> {
-  const next = new Set(set)
-  if (present) {
-    next.add(key)
-  } else {
-    next.delete(key)
-  }
-  return next
-}
-
-/**
- * Reviewable list of resource diffs. Each item collapses and can be marked as
- * viewed independently; the header tracks overall progress and can mark every
- * change as viewed at once.
- */
-function PullDiffReviewList({ diffs }: { diffs: PullResourceDiff[] }) {
-  const [viewed, setViewed] = useState<Set<string>>(() => new Set())
-  // Collapse state lives here so "Viewed all" can tidy every item closed, while
-  // a single item's chevron can still expand/collapse without changing its
-  // viewed flag.
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
-
-  const viewedCount = diffs.reduce(
-    (total, diff) => (viewed.has(diff.source_path) ? total + 1 : total),
-    0
-  )
-  const allViewed = viewedCount === diffs.length
-
-  function setItemViewed(sourcePath: string, value: boolean) {
-    // Marking viewed collapses the item; unmarking re-expands it.
-    setViewed((previous) => withMember(previous, sourcePath, value))
-    setCollapsed((previous) => withMember(previous, sourcePath, value))
-  }
-
-  function setItemOpen(sourcePath: string, open: boolean) {
-    setCollapsed((previous) => withMember(previous, sourcePath, !open))
-  }
-
-  function markAllViewed() {
-    const paths = diffs.map((diff) => diff.source_path)
-    setViewed(new Set(paths))
-    setCollapsed(new Set(paths))
-  }
-
-  return (
-    <div className="overflow-hidden rounded-md border">
-      <div className="flex flex-wrap items-center gap-3 border-b bg-muted/50 px-3 py-2">
-        <span className="text-xs font-medium tabular-nums">
-          {viewedCount} of {diffs.length}{" "}
-          <span className="font-normal text-muted-foreground">viewed</span>
-        </span>
-        <div className="h-1.5 min-w-[80px] flex-1 overflow-hidden rounded-full bg-border">
-          <div
-            className="h-full rounded-full bg-secondary-foreground/40 transition-all"
-            style={{ width: `${(viewedCount / diffs.length) * 100}%` }}
-          />
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-7 text-xs"
-          disabled={allViewed}
-          onClick={markAllViewed}
-        >
-          Viewed all
-        </Button>
-      </div>
-
-      <div className="divide-y">
-        {diffs.map((diff) => (
-          <PullResourceDiffItem
-            key={diff.source_path}
-            diff={diff}
-            viewed={viewed.has(diff.source_path)}
-            open={!collapsed.has(diff.source_path)}
-            onViewedChange={(value) => setItemViewed(diff.source_path, value)}
-            onOpenChange={(open) => setItemOpen(diff.source_path, open)}
-          />
-        ))}
-      </div>
-    </div>
-  )
-}
-
-/**
- * Single changed resource file in a pull preview. Expanded by default. Marking
- * it viewed collapses the item (and unmarking re-expands it); the chevron
- * toggles collapse independently without changing the viewed state.
- */
-function PullResourceDiffItem({
-  diff,
-  viewed,
-  open,
-  onViewedChange,
-  onOpenChange,
-}: {
-  diff: PullResourceDiff
-  viewed: boolean
-  open: boolean
-  onViewedChange: (value: boolean) => void
-  onOpenChange: (open: boolean) => void
-}) {
-  return (
-    <Collapsible open={open} onOpenChange={onOpenChange}>
-      <div className="flex items-center gap-2 px-3 py-2.5">
-        <CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-2 text-left">
-          <ChevronRightIcon
-            className={cn(
-              "size-3.5 shrink-0 text-muted-foreground transition-transform",
-              open && "rotate-90"
-            )}
-          />
-          <Badge variant="outline" className="shrink-0 capitalize">
-            {diff.change_type}
-          </Badge>
-          <span
-            className={cn(
-              "min-w-0 truncate text-sm font-medium",
-              viewed && "text-muted-foreground"
-            )}
-          >
-            {diff.title ?? diff.source_id}
-          </span>
-          <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
-            {getWorkspaceSyncResourceLabel(diff.resource_type)}
-          </span>
-        </CollapsibleTrigger>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <Checkbox
-            checked={viewed}
-            onCheckedChange={(value) => onViewedChange(value === true)}
-            aria-label="Mark as viewed"
-            className="border-input shadow-none data-[state=checked]:border-muted-foreground data-[state=checked]:bg-secondary data-[state=checked]:text-secondary-foreground"
-          />
-          <button
-            type="button"
-            onClick={() => onViewedChange(!viewed)}
-            className="text-xs text-muted-foreground transition-colors hover:text-foreground"
-          >
-            Viewed
-          </button>
-        </div>
-      </div>
-      <CollapsibleContent>
-        <div className="space-y-2 px-3 pb-3">
-          <div className="font-mono text-[11px] text-muted-foreground">
-            {diff.source_path}
-          </div>
-          <div className="max-h-96 min-w-0 overflow-auto rounded-md border bg-background">
-            <UnifiedDiff diff={diff.diff} />
-          </div>
-          {diff.truncated && (
-            <p className="text-[11px] text-muted-foreground">
-              Diff truncated for preview.
-            </p>
-          )}
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
   )
 }
 

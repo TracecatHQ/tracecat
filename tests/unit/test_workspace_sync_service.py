@@ -26,6 +26,7 @@ from tracecat.workspace_sync.schemas import (
     MANIFEST_FILENAME,
     AgentPresetResourceSpec,
     AgentPresetSkillBinding,
+    AgentPresetVersionResourceSpec,
     ResourceRef,
     SecretMetadataResourceSpec,
     SkillResourceSpec,
@@ -195,6 +196,11 @@ async def test_pull_dry_run_returns_resource_diffs_without_import(
     assert result.workflows_imported == 0
     assert result.resource_diffs is not None
     assert len(result.resource_diffs) == 1
+    assert result.files == sorted(incoming_files)
+    assert result.resources is not None
+    assert [(resource.name, resource.path) for resource in result.resources] == [
+        ("sync-me", workflow_source_path(source_id))
+    ]
     diff = result.resource_diffs[0]
     assert diff.change_type == "modified"
     assert diff.resource_type == SyncResourceType.WORKFLOW.value
@@ -463,6 +469,23 @@ async def test_preview_export_counts_resources_without_mutating_mappings(
     assert preview.resource_counts[SyncResourceType.AGENT_PRESET.value] == 0
     # Files come back sorted for a stable preview payload.
     assert preview.files == ["a.json", "b.json"]
+    assert [
+        (resource.resource_type, resource.source_id, resource.name, resource.path)
+        for resource in preview.resources
+    ] == [
+        (
+            SyncResourceType.WORKFLOW,
+            "wf-1",
+            "wf-1",
+            "workflows/wf-1/definition.yml",
+        ),
+        (
+            SyncResourceType.WORKFLOW,
+            "wf-2",
+            "wf-2",
+            "workflows/wf-2/definition.yml",
+        ),
+    ]
     # Preview must never create sync mappings as a side effect.
     workspace_sync_service.project_workspace.assert_awaited_once()
     await_args = workspace_sync_service.project_workspace.await_args
@@ -470,6 +493,78 @@ async def test_preview_export_counts_resources_without_mutating_mappings(
     _, kwargs = await_args
     assert kwargs["create_missing_mappings"] is False
     assert kwargs["resource_ids"] == {SyncResourceType.WORKFLOW: set()}
+
+
+@pytest.mark.anyio
+async def test_preview_export_reports_resource_diffs_against_compare_ref(
+    workspace_sync_service: WorkspaceSyncService,
+    sample_dsl: DSLInput,
+) -> None:
+    fake_vcs = FakeVcsServer()
+    git_url = GitUrl(host="github.com", org="TracecatHQ", repo="sync")
+    seed_transport = fake_vcs.transport_factory(
+        VcsProvider.GITHUB,
+        session=workspace_sync_service.session,
+        role=workspace_sync_service.role,
+    )
+    await seed_transport.write_files(
+        url=git_url,
+        files={
+            MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+            "workflows/remove/definition.yml": "version: 1\n",
+            "workflows/stale/definition.yml": "version: 1\n",
+            "README.md": "# keep me\n",
+        },
+        message="Seed sync branch",
+        branch="sync/workspace",
+        create_pr=False,
+    )
+    service = WorkspaceSyncService(
+        session=workspace_sync_service.session,
+        role=workspace_sync_service.role,
+        transport_factory=fake_vcs.transport_factory,
+    )
+    service._workspace_git_url = AsyncMock(return_value=git_url)
+    service.project_workspace = AsyncMock(
+        return_value=WorkspaceProjection(
+            manifest=WorkspaceManifest(),
+            spec=WorkspaceSpec(
+                workflows={
+                    "fresh": WorkflowResourceSpec(
+                        id="fresh",
+                        alias="fresh",
+                        definition=sample_dsl,
+                    ),
+                    "stale": WorkflowResourceSpec(
+                        id="stale",
+                        alias="stale",
+                        definition=sample_dsl,
+                    ),
+                }
+            ),
+            files={
+                MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+                "workflows/fresh/definition.yml": "version: 1\n",
+                "workflows/stale/definition.yml": "version: 2\n",
+            },
+        )
+    )
+
+    preview = await service.preview_export_workspace(
+        WorkspaceSyncExportPreviewRequest(compare_ref="sync/workspace")
+    )
+
+    assert [
+        (diff.change_type, diff.source_path, diff.title)
+        for diff in preview.resource_diffs
+    ] == [
+        ("added", "workflows/fresh/definition.yml", "Sync me"),
+        ("deleted", "workflows/remove/definition.yml", None),
+        ("modified", "workflows/stale/definition.yml", "Sync me"),
+    ]
+    assert "README.md" not in {diff.source_path for diff in preview.resource_diffs}
+    assert "+version: 2" in preview.resource_diffs[2].diff
+    assert "-version: 1" in preview.resource_diffs[1].diff
 
 
 @pytest.mark.anyio
@@ -527,12 +622,19 @@ async def test_preview_export_rejects_missing_pinned_skill_version(
                         id="qa-triage",
                         slug="qa-triage",
                         name="QA triage",
-                        skills=[
-                            AgentPresetSkillBinding(
-                                slug="qa-enrichment-skill",
-                                version=1,
+                        current_version=1,
+                        versions={
+                            1: AgentPresetVersionResourceSpec(
+                                version_number=1,
+                                name="QA triage",
+                                skills=[
+                                    AgentPresetSkillBinding(
+                                        slug="qa-enrichment-skill",
+                                        version=1,
+                                    )
+                                ],
                             )
-                        ],
+                        },
                     )
                 },
                 skills={

@@ -15,7 +15,7 @@ import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Literal, Protocol, cast
+from typing import Any, ClassVar, Literal, NamedTuple, Protocol, cast
 
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -91,6 +91,13 @@ class ResourceProjection:
     ``specs``."""
 
 
+class VersionedSlug(NamedTuple):
+    """A slug pinned to a specific resource version, e.g. ``("skill-a", 2)``."""
+
+    slug: str
+    version: int
+
+
 @dataclass(frozen=True, slots=True)
 class ResourceDependencyRefs:
     """Identifiers used to lazily project resources reached by dependency closure."""
@@ -103,6 +110,8 @@ class ResourceDependencyRefs:
     """Git-owned source ids referenced directly by another resource."""
     slugs: set[str] = field(default_factory=set)
     """Slug references such as agent preset and skill slugs."""
+    versioned_slugs: set[VersionedSlug] = field(default_factory=set)
+    """Slug plus version references such as ``("skill-a", 2)``."""
     names: set[str] = field(default_factory=set)
     """Name references such as table names or environment-agnostic variable names."""
     environment_names: set[tuple[str, str]] = field(default_factory=set)

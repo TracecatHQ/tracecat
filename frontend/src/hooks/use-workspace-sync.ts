@@ -132,6 +132,8 @@ export function useWorkspaceSyncExport(workspaceId: string) {
 interface ExportPreviewOptions {
   resources?: ResourceRef[] | null
   includeSchedules?: boolean
+  compareRef?: string
+  provider?: VcsProvider
   enabled?: boolean
 }
 
@@ -143,7 +145,13 @@ interface ExportPreviewOptions {
  */
 export function useWorkspaceSyncExportPreview(
   workspaceId: string,
-  { resources, includeSchedules = false, enabled = true }: ExportPreviewOptions
+  {
+    resources,
+    includeSchedules = false,
+    compareRef,
+    provider = "github",
+    enabled = true,
+  }: ExportPreviewOptions
 ) {
   const isFullWorkspacePreview = resources === undefined || resources === null
   const normalizedResources = resources ?? []
@@ -158,13 +166,17 @@ export function useWorkspaceSyncExportPreview(
   const {
     data: preview,
     isLoading: previewIsLoading,
+    isFetching: previewIsFetching,
     error: previewError,
+    refetch: refetchPreview,
   } = useQuery<WorkspaceSyncExportPreview, ApiError>({
     queryKey: [
       "workspace-sync-export-preview",
       workspaceId,
       resourceKey,
       includeSchedules,
+      compareRef ?? "__manifest__",
+      provider,
     ],
     queryFn: async (): Promise<WorkspaceSyncExportPreview> => {
       return await workflowsPreviewExportWorkspaceSync({
@@ -172,6 +184,8 @@ export function useWorkspaceSyncExportPreview(
         requestBody: {
           resources: isFullWorkspacePreview ? undefined : normalizedResources,
           include_schedules: includeSchedules,
+          compare_ref: compareRef,
+          provider,
         },
       })
     },
@@ -184,8 +198,9 @@ export function useWorkspaceSyncExportPreview(
 
   return {
     preview,
-    previewIsLoading,
+    previewIsLoading: previewIsLoading || previewIsFetching,
     previewError,
+    refetchPreview,
   }
 }
 

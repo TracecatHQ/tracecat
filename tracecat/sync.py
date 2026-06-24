@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Literal
@@ -91,6 +92,33 @@ class PullDiagnostic:
     """Additional error details for debugging"""
 
 
+def serializable_validation_errors(
+    errors: Sequence[Any],
+) -> list[dict[str, Any]]:
+    """Return Pydantic validation errors with non-serializable values stringified."""
+    normalized: list[dict[str, Any]] = []
+    for error in errors:
+        safe_error = _json_safe(error)
+        if isinstance(safe_error, dict):
+            normalized.append(safe_error)
+        else:
+            normalized.append({"error": safe_error})
+    return normalized
+
+
+def _json_safe(value: Any) -> Any:
+    """Convert nested diagnostic values to JSON-serializable primitives."""
+    if isinstance(value, dict):
+        return {str(key): _json_safe(inner) for key, inner in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(inner) for inner in value]
+    if isinstance(value, tuple):
+        return [_json_safe(inner) for inner in value]
+    if isinstance(value, str | int | float | bool) or value is None:
+        return value
+    return str(value)
+
+
 @dataclass(frozen=True)
 class ResourcePullCount:
     """Per-resource pull counts for workspace sync imports."""
@@ -103,8 +131,25 @@ class ResourcePullCount:
 
 
 @dataclass(frozen=True)
+class SyncPreviewResource:
+    """Displayable workspace sync resource included in a preview."""
+
+    resource_type: str
+    """Workspace sync resource type."""
+
+    source_id: str
+    """Stable Git source identifier for the resource."""
+
+    name: str
+    """Human-readable resource name."""
+
+    path: str
+    """Primary repository path for the resource."""
+
+
+@dataclass(frozen=True)
 class PullResourceDiff:
-    """Text diff for one incoming resource file during a pull preview."""
+    """Text diff for one workspace-sync resource file."""
 
     resource_type: str
     """Workspace sync resource type."""
@@ -115,8 +160,8 @@ class PullResourceDiff:
     source_path: str
     """Repository path for the changed resource file."""
 
-    change_type: Literal["added", "modified"]
-    """Whether pull would create or update a resource.
+    change_type: Literal["added", "modified", "deleted"]
+    """Whether sync would create, update, or delete a resource file.
 
     Pull is currently upsert-only: local resources absent from the incoming Git
     snapshot are left untouched, so dry-run diffs do not report deletions.
@@ -126,7 +171,7 @@ class PullResourceDiff:
     """Human-readable resource label when available."""
 
     diff: str
-    """Unified text diff from current workspace state to incoming Git state."""
+    """Unified text diff between current and target resource file content."""
 
     truncated: bool = False
     """Whether the diff was shortened for response size."""
@@ -159,3 +204,9 @@ class PullResult:
 
     resource_diffs: list[PullResourceDiff] | None = None
     """Optional changed resource file diffs for dry-run pull previews."""
+
+    files: list[str] | None = None
+    """Optional repository-relative files included in a pull preview."""
+
+    resources: list[SyncPreviewResource] | None = None
+    """Optional displayable resources included in a pull preview."""

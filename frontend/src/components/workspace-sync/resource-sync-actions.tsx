@@ -32,8 +32,8 @@ import {
 import {
   formatResourceTotal,
   getWorkspaceSyncPreviewResourceTotal,
-  PushResourceManifest,
 } from "@/components/workspace-sync/push-resource-manifest"
+import { PushResourcePreview } from "@/components/workspace-sync/resource-diff-review"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import {
   useRepositoryBranches,
@@ -79,17 +79,6 @@ export function WorkspaceResourceSyncActions({
     () => resources.map((resourceType) => ({ resource_type: resourceType })),
     [resources]
   )
-  const { preview, previewIsLoading } = useWorkspaceSyncExportPreview(
-    workspaceId,
-    {
-      resources: resourceRefs,
-      enabled: open && Boolean(gitRepoUrl),
-    }
-  )
-  // The projection pulls in the dependency closure (e.g. secrets a workflow
-  // references), so the honest "Source" total spans every type, not just the
-  // types the button requested.
-  const totalResourceCount = getWorkspaceSyncPreviewResourceTotal(preview)
   const {
     branch: exportBranch,
     setBranch: setExportBranch,
@@ -106,10 +95,30 @@ export function WorkspaceResourceSyncActions({
 
   const repoName = getRepoDisplayName(gitRepoUrl)
   const targetBranch = exportBranch.trim()
+  const compareRef = isCreatingBranch
+    ? defaultBranch
+    : targetBranch || undefined
+  const { preview, previewIsLoading, previewError, refetchPreview } =
+    useWorkspaceSyncExportPreview(workspaceId, {
+      resources: resourceRefs,
+      compareRef,
+      enabled: false,
+    })
+  const [previewRequested, setPreviewRequested] = useState(false)
+  const visiblePreview = previewRequested ? preview : undefined
+  const visiblePreviewIsLoading = previewRequested && previewIsLoading
+  // The projection pulls in the dependency closure (e.g. secrets a workflow
+  // references), so the honest "Source" total spans every type, not just the
+  // types the button requested.
+  const totalResourceCount =
+    getWorkspaceSyncPreviewResourceTotal(visiblePreview)
   const targetIsDefault =
     !isCreatingBranch &&
     Boolean(defaultBranch) &&
     targetBranch === defaultBranch
+  const previewErrorMessage = previewError
+    ? (getApiErrorDetail(previewError) ?? "Request failed")
+    : undefined
   const exportDisabled =
     !gitRepoUrl ||
     exportWorkspaceIsPending ||
@@ -125,7 +134,12 @@ export function WorkspaceResourceSyncActions({
     }
     resetBranchCreation()
     setExportMessage(`Push ${label}`)
+    setPreviewRequested(false)
   }, [label, open, resetBranchCreation])
+
+  useEffect(() => {
+    setPreviewRequested(false)
+  }, [compareRef])
 
   if (!canPushWorkspaceSync) {
     return null
@@ -168,6 +182,14 @@ export function WorkspaceResourceSyncActions({
     }
   }
 
+  function handlePreview() {
+    if (!compareRef) {
+      return
+    }
+    setPreviewRequested(true)
+    void refetchPreview()
+  }
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -176,8 +198,8 @@ export function WorkspaceResourceSyncActions({
           Push
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-xl gap-0 overflow-hidden p-0">
-        <DialogHeader className="flex-row items-start gap-3 space-y-0 border-b p-6">
+      <DialogContent className="flex max-h-[85vh] max-w-2xl flex-col gap-0 overflow-hidden p-0">
+        <DialogHeader className="shrink-0 flex-row items-start gap-3 space-y-0 border-b p-6">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary">
             <GitBranchIcon className="size-[18px]" />
           </div>
@@ -190,17 +212,21 @@ export function WorkspaceResourceSyncActions({
         </DialogHeader>
 
         {gitRepoUrl ? (
-          <div className="space-y-5 p-6">
+          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-6">
             <PushFlow
               total={totalResourceCount}
-              isLoading={previewIsLoading}
+              isLoading={visiblePreviewIsLoading}
               targetBranch={targetBranch}
               defaultBranch={defaultBranch}
             />
 
-            <PushResourceManifest
-              preview={preview}
-              isLoading={previewIsLoading}
+            <PushResourcePreview
+              preview={visiblePreview}
+              isLoading={visiblePreviewIsLoading}
+              compareRef={compareRef}
+              errorMessage={previewRequested ? previewErrorMessage : undefined}
+              hasRequestedPreview={previewRequested}
+              onRequestPreview={handlePreview}
             />
 
             <div className="space-y-2">
@@ -247,7 +273,7 @@ export function WorkspaceResourceSyncActions({
           </div>
         ) : null}
 
-        <DialogFooter className="items-center gap-3 border-t bg-muted/30 px-6 py-4 sm:justify-between">
+        <DialogFooter className="shrink-0 items-center gap-3 border-t bg-muted/30 px-6 py-4 sm:justify-between">
           <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
             {repoName ? (
               <>

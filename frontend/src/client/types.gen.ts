@@ -5669,13 +5669,13 @@ export type PullResourceDiff = {
   resource_type: string
   source_id: string
   source_path: string
-  change_type: "added" | "modified"
+  change_type: "added" | "modified" | "deleted"
   title: string | null
   diff: string
   truncated?: boolean
 }
 
-export type change_type2 = "added" | "modified"
+export type change_type2 = "added" | "modified" | "deleted"
 
 export type PullResult = {
   success: boolean
@@ -5688,6 +5688,8 @@ export type PullResult = {
     [key: string]: ResourcePullCount
   } | null
   resource_diffs?: Array<PullResourceDiff> | null
+  files?: Array<string> | null
+  resources?: Array<SyncPreviewResource> | null
 }
 
 /**
@@ -7141,6 +7143,13 @@ export type StringListFieldChange = {
   field: string
   added?: Array<string>
   removed?: Array<string>
+}
+
+export type SyncPreviewResource = {
+  resource_type: string
+  source_id: string
+  name: string
+  path: string
 }
 
 /**
@@ -9415,6 +9424,14 @@ export type WorkspaceSyncExportPreview = {
    * Repository-relative paths the export would write.
    */
   files: Array<string>
+  /**
+   * Displayable resources included in the export preview.
+   */
+  resources?: Array<WorkspaceSyncPreviewResource>
+  /**
+   * Per-resource file diffs between the comparison ref and projected export.
+   */
+  resource_diffs?: Array<PullResourceDiff>
 }
 
 /**
@@ -9429,6 +9446,14 @@ export type WorkspaceSyncExportPreviewRequest = {
    * Whether to include workflow schedules in the preview.
    */
   include_schedules?: boolean
+  /**
+   * Repository ref to compare the projected export against. When omitted, the preview only returns the export manifest summary.
+   */
+  compare_ref?: string | null
+  /**
+   * VCS provider to read the comparison ref from.
+   */
+  provider?: VcsProvider
 }
 
 /**
@@ -9477,6 +9502,28 @@ export type WorkspaceSyncExportResult = {
    * Repository-relative paths written by the export.
    */
   files: Array<string>
+}
+
+/**
+ * One resource included in a workspace sync export preview.
+ */
+export type WorkspaceSyncPreviewResource = {
+  /**
+   * Type of resource included in the preview.
+   */
+  resource_type: SyncResourceType
+  /**
+   * Stable Git source id for the resource.
+   */
+  source_id: string
+  /**
+   * Human-readable resource name.
+   */
+  name: string
+  /**
+   * Primary repository path written for the resource.
+   */
+  path: string
 }
 
 export type WorkspaceUpdate = {

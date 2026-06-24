@@ -5,7 +5,10 @@
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type {
+  GitBranchInfo,
+  GitCommitInfo,
   GitHubAppRepository,
+  PullResult,
   WorkspaceRead,
   WorkspaceSyncExportPreview,
 } from "@/client"
@@ -22,6 +25,7 @@ import { useGitHubAppRepositories, useWorkspaceSettings } from "@/lib/hooks"
 const mockUpdateWorkspace = jest.fn()
 const mockExportWorkspace = jest.fn()
 const mockPullWorkflows = jest.fn()
+const mockRefetchExportPreview = jest.fn()
 
 jest.mock("@/lib/hooks", () => ({
   useGitHubAppRepositories: jest.fn(),
@@ -104,9 +108,13 @@ const workspace = {
 function setupHooks({
   gitRepoUrl = null,
   repositoryHook = {},
+  branches = [],
+  commits = [],
 }: {
   gitRepoUrl?: string | null
   repositoryHook?: Partial<ReturnType<typeof useGitHubAppRepositories>>
+  branches?: GitBranchInfo[]
+  commits?: GitCommitInfo[]
 } = {}) {
   jest.mocked(useWorkspaceSettings).mockReturnValue({
     updateWorkspace: mockUpdateWorkspace,
@@ -122,12 +130,12 @@ function setupHooks({
     ...repositoryHook,
   } as ReturnType<typeof useGitHubAppRepositories>)
   jest.mocked(useRepositoryBranches).mockReturnValue({
-    branches: [],
+    branches,
     branchesIsLoading: false,
     branchesError: null,
   } as ReturnType<typeof useRepositoryBranches>)
   jest.mocked(useRepositoryCommits).mockReturnValue({
-    commits: [],
+    commits,
     commitsIsLoading: false,
     commitsError: null,
   } as ReturnType<typeof useRepositoryCommits>)
@@ -145,6 +153,7 @@ function setupHooks({
     preview: undefined,
     previewIsLoading: false,
     previewError: null,
+    refetchPreview: mockRefetchExportPreview,
   } as ReturnType<typeof useWorkspaceSyncExportPreview>)
 
   return {
@@ -321,7 +330,8 @@ describe("WorkspaceSyncSettings", () => {
     )
   })
 
-  it("shows the push resource preview for connected workspaces", () => {
+  it("shows the push resource preview for connected workspaces", async () => {
+    const user = userEvent.setup()
     const preview: WorkspaceSyncExportPreview = {
       resource_counts: {
         workflow: 2,
@@ -342,23 +352,159 @@ describe("WorkspaceSyncSettings", () => {
         "case_tags/escalated.yml",
         "variables/default/escalation.yml",
       ],
+      resources: [
+        {
+          resource_type: "workflow",
+          source_id: "root",
+          name: "Root workflow",
+          path: "workflows/root/definition.yml",
+        },
+        {
+          resource_type: "workflow",
+          source_id: "child",
+          name: "Child workflow",
+          path: "workflows/child/definition.yml",
+        },
+        {
+          resource_type: "table",
+          source_id: "indicators",
+          name: "Indicators",
+          path: "tables/indicators/table.yml",
+        },
+        {
+          resource_type: "case_tag",
+          source_id: "escalated",
+          name: "Escalated",
+          path: "case_tags/escalated.yml",
+        },
+        {
+          resource_type: "variable",
+          source_id: "default/escalation",
+          name: "Escalation",
+          path: "variables/default/escalation.yml",
+        },
+      ],
+      resource_diffs: [
+        {
+          resource_type: "workflow",
+          source_id: "root",
+          source_path: "workflows/root/definition.yml",
+          change_type: "modified",
+          title: "Root workflow",
+          diff: "@@ -1 +1 @@\n-old\n+new",
+        },
+      ],
     }
     const connectedWorkspace = setupHooks({
       gitRepoUrl: repositories[0].git_url,
+      branches: [{ name: "main", is_default: true }],
     })
     jest.mocked(useWorkspaceSyncExportPreview).mockReturnValue({
       preview,
       previewIsLoading: false,
       previewError: null,
+      refetchPreview: mockRefetchExportPreview,
     } as ReturnType<typeof useWorkspaceSyncExportPreview>)
 
     render(<WorkspaceSyncSettings workspace={connectedWorkspace} />)
 
+    expect(screen.getByText("Preview")).toBeInTheDocument()
+    expect(screen.getByText("changes against main")).toBeInTheDocument()
+    expect(screen.queryByText("Included in this push")).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "Preview changes" }))
+
+    expect(mockRefetchExportPreview).toHaveBeenCalledTimes(1)
     expect(screen.getByText("Included in this push")).toBeInTheDocument()
     expect(screen.getByText("5 files")).toBeInTheDocument()
-    expect(screen.getByText("Workflows")).toBeInTheDocument()
+    expect(screen.getAllByText("Workflows").length).toBeGreaterThan(0)
+    expect(
+      screen.getByText("Root workflow, Child workflow")
+    ).toBeInTheDocument()
     expect(screen.getByText("Case tags")).toBeInTheDocument()
     expect(screen.getByText("Variables")).toBeInTheDocument()
+    expect(screen.getByLabelText("Modified")).toBeInTheDocument()
+    expect(
+      screen.getByText("workflows/root/definition.yml")
+    ).toBeInTheDocument()
+  })
+
+  it("shows the pull resource manifest after previewing changes", async () => {
+    const user = userEvent.setup()
+    const commitSha = "a".repeat(40)
+    const preview: PullResult = {
+      success: true,
+      commit_sha: commitSha,
+      workflows_found: 1,
+      workflows_imported: 0,
+      diagnostics: [],
+      message: "Dry run completed - 1 resource change(s) detected",
+      resource_counts: {
+        workflow: { found: 1, imported: 0 },
+        table: { found: 1, imported: 0 },
+      },
+      files: [
+        "tracecat.json",
+        "workflows/root/definition.yml",
+        "tables/indicators/table.yml",
+      ],
+      resources: [
+        {
+          resource_type: "workflow",
+          source_id: "root",
+          name: "Root workflow",
+          path: "workflows/root/definition.yml",
+        },
+        {
+          resource_type: "table",
+          source_id: "indicators",
+          name: "Indicators",
+          path: "tables/indicators/table.yml",
+        },
+      ],
+      resource_diffs: [
+        {
+          resource_type: "workflow",
+          source_id: "root",
+          source_path: "workflows/root/definition.yml",
+          change_type: "modified",
+          title: "Root workflow",
+          diff: "@@ -1 +1 @@\n-old\n+new",
+        },
+      ],
+    }
+    const connectedWorkspace = setupHooks({
+      gitRepoUrl: repositories[0].git_url,
+      branches: [{ name: "main", is_default: true }],
+      commits: [
+        {
+          sha: commitSha,
+          message: "Update workspace resources",
+          author: "Test Author",
+          author_email: "author@example.com",
+          date: "2026-06-24T12:00:00Z",
+        },
+      ],
+    })
+    mockPullWorkflows.mockResolvedValueOnce(preview)
+
+    render(<WorkspaceSyncSettings workspace={connectedWorkspace} />)
+
+    await user.click(screen.getByRole("tab", { name: "Pull" }))
+    await user.click(screen.getByRole("button", { name: "Preview changes" }))
+
+    await waitFor(() => {
+      expect(mockPullWorkflows).toHaveBeenCalledWith({
+        commit_sha: commitSha,
+        dry_run: true,
+        sync_schedules: false,
+      })
+    })
+    expect(screen.getByText("Included in this pull")).toBeInTheDocument()
+    expect(screen.getByText("3 files")).toBeInTheDocument()
+    expect(screen.getAllByText("Root workflow").length).toBeGreaterThan(0)
+    expect(screen.getByText("Indicators")).toBeInTheDocument()
+    expect(screen.getByLabelText("Modified")).toBeInTheDocument()
   })
 
   it("disables the repository selector while repositories are loading", () => {

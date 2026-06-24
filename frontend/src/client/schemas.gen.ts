@@ -18860,7 +18860,7 @@ export const $PullResourceDiff = {
     },
     change_type: {
       type: "string",
-      enum: ["added", "modified"],
+      enum: ["added", "modified", "deleted"],
       title: "Change Type",
     },
     title: {
@@ -18952,6 +18952,34 @@ export const $PullResult = {
         },
       ],
       title: "Resource Diffs",
+    },
+    files: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Files",
+    },
+    resources: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/SyncPreviewResource",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Resources",
     },
   },
   type: "object",
@@ -23862,6 +23890,30 @@ export const $StringListFieldChange = {
   required: ["field"],
   title: "StringListFieldChange",
   description: "List diff for preset version fields.",
+} as const
+
+export const $SyncPreviewResource = {
+  properties: {
+    resource_type: {
+      type: "string",
+      title: "Resource Type",
+    },
+    source_id: {
+      type: "string",
+      title: "Source Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+  },
+  type: "object",
+  required: ["resource_type", "source_id", "name", "path"],
+  title: "SyncPreviewResource",
 } as const
 
 export const $SyncResourceType = {
@@ -31803,6 +31855,23 @@ export const $WorkspaceSyncExportPreview = {
       title: "Files",
       description: "Repository-relative paths the export would write.",
     },
+    resources: {
+      items: {
+        $ref: "#/components/schemas/WorkspaceSyncPreviewResource",
+      },
+      type: "array",
+      title: "Resources",
+      description: "Displayable resources included in the export preview.",
+    },
+    resource_diffs: {
+      items: {
+        $ref: "#/components/schemas/PullResourceDiff",
+      },
+      type: "array",
+      title: "Resource Diffs",
+      description:
+        "Per-resource file diffs between the comparison ref and projected export.",
+    },
   },
   type: "object",
   required: ["resource_counts", "files"],
@@ -31835,6 +31904,24 @@ export const $WorkspaceSyncExportPreviewRequest = {
       title: "Include Schedules",
       description: "Whether to include workflow schedules in the preview.",
       default: false,
+    },
+    compare_ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Compare Ref",
+      description:
+        "Repository ref to compare the projected export against. When omitted, the preview only returns the export manifest summary.",
+    },
+    provider: {
+      $ref: "#/components/schemas/VcsProvider",
+      description: "VCS provider to read the comparison ref from.",
+      default: "github",
     },
   },
   type: "object",
@@ -31928,6 +32015,34 @@ export const $WorkspaceSyncExportResult = {
   title: "WorkspaceSyncExportResult",
   description:
     "Outcome of a workspace export: the commit made and files written.",
+} as const
+
+export const $WorkspaceSyncPreviewResource = {
+  properties: {
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+      description: "Type of resource included in the preview.",
+    },
+    source_id: {
+      type: "string",
+      title: "Source Id",
+      description: "Stable Git source id for the resource.",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+      description: "Human-readable resource name.",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+      description: "Primary repository path written for the resource.",
+    },
+  },
+  type: "object",
+  required: ["resource_type", "source_id", "name", "path"],
+  title: "WorkspaceSyncPreviewResource",
+  description: "One resource included in a workspace sync export preview.",
 } as const
 
 export const $WorkspaceUpdate = {
