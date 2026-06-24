@@ -46,6 +46,7 @@ from tracecat.workspace_sync.schemas import (
     WorkspaceManifestResources,
     WorkspaceSpec,
 )
+from tracecat.workspace_sync.serialization import serialize_yaml_model
 
 AGENT_PRESET_FILENAME = "preset.yml"
 AGENT_PRESET_VERSIONS_DIR = "versions"
@@ -93,7 +94,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         """Serialize immutable preset versions to companion YAML files."""
         preset = cast(AgentPresetResourceSpec, spec)
         return {
-            self._version_source_path(source_id, version_number): _serialize_yaml_model(
+            self._version_source_path(source_id, version_number): serialize_yaml_model(
                 version
             )
             for version_number, version in sorted(preset.versions.items())
@@ -1159,15 +1160,6 @@ def _parse_agent_preset_version_manifest(
             )
         )
     return None
-
-
-def _serialize_yaml_model(model: BaseModel) -> str:
-    """Serialize a companion spec model to deterministic YAML."""
-    return yaml.safe_dump(
-        model.model_dump(mode="json", exclude_none=True),
-        sort_keys=False,
-        allow_unicode=True,
-    )
 
 
 def _tool_approvals(value: dict[str, Any]) -> dict[str, bool] | None:

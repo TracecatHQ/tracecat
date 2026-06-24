@@ -46,6 +46,7 @@ from tracecat.workspace_sync.schemas import (
     WorkspaceManifestResources,
     WorkspaceSpec,
 )
+from tracecat.workspace_sync.serialization import serialize_yaml_model
 
 SKILL_FILENAME = "skill.yml"
 SKILL_FILES_DIR = "files"
@@ -116,7 +117,7 @@ class SkillAdapter(DirectoryManifestAdapter):
         files: dict[str, str] = {}
         for version_number, version in sorted(skill.versions.items()):
             files[self._version_manifest_path(source_id, version_number)] = (
-                _serialize_yaml_model(version)
+                serialize_yaml_model(version)
             )
             files.update(
                 {
@@ -800,12 +801,3 @@ def _parse_skill_version_manifest(
             )
         )
     return None
-
-
-def _serialize_yaml_model(model: BaseModel) -> str:
-    """Serialize a companion spec model to deterministic YAML."""
-    return yaml.safe_dump(
-        model.model_dump(mode="json", exclude_none=True),
-        sort_keys=False,
-        allow_unicode=True,
-    )

@@ -26,6 +26,7 @@ from tracecat.workspace_sync.schemas import (
     WorkspaceManifest,
     WorkspaceSpec,
 )
+from tracecat.workspace_sync.serialization import serialize_yaml_model
 from tracecat.workspace_sync.workflow import (
     parse_workflow_spec,
     serialize_workflow_spec,
@@ -114,7 +115,7 @@ def serialize_workspace_spec_files(
         )
     for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
         for source_id, resource_spec in sorted(adapter.specs(spec).items()):
-            files[adapter.source_path(source_id)] = _serialize_yaml_model(resource_spec)
+            files[adapter.source_path(source_id)] = serialize_yaml_model(resource_spec)
             files.update(adapter.serialize_extra_files(source_id, resource_spec))
     return dict(sorted(files.items()))
 
@@ -448,15 +449,6 @@ def _resource_title(data: dict[str, Any] | None) -> str | None:
         return name
     title = data.get("title")
     return title if isinstance(title, str) else None
-
-
-def _serialize_yaml_model(model: BaseModel) -> str:
-    """Serialize a spec model to YAML, omitting null fields and keeping key order."""
-    return yaml.safe_dump(
-        model.model_dump(mode="json", exclude_none=True),
-        sort_keys=False,
-        allow_unicode=True,
-    )
 
 
 def _find_cycle(graph: dict[str, list[str]]) -> list[str]:
