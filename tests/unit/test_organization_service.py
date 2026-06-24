@@ -25,6 +25,8 @@ from tracecat.db.models import (
     Organization,
     OrganizationInvitation,
     OrganizationMembership,
+    RoleScope,
+    Scope,
     ServiceAccount,
     ServiceAccountApiKey,
     User,
@@ -200,9 +202,38 @@ async def org1_admin_role(session: AsyncSession, org1: Organization) -> DBRole:
     return role
 
 
+async def _attach_scopes(
+    session: AsyncSession,
+    role: DBRole,
+    scope_names: set[str],
+) -> None:
+    """Wire a DB role to the given scope names so escalation checks see them."""
+    from tracecat.authz.enums import ScopeSource
+
+    for scope_name in scope_names:
+        resource, _, action = scope_name.rpartition(":")
+        scope = Scope(
+            id=uuid.uuid4(),
+            name=scope_name,
+            resource=resource or scope_name,
+            action=action or "execute",
+            source=ScopeSource.CUSTOM,
+            organization_id=role.organization_id,
+        )
+        session.add(scope)
+        await session.flush()
+        session.add(RoleScope(role_id=role.id, scope_id=scope.id))
+    await session.commit()
+
+
 @pytest.fixture
 async def org1_owner_role(session: AsyncSession, org1: Organization) -> DBRole:
-    """Create an RBAC 'organization-owner' role for org1."""
+    """Create an RBAC 'organization-owner' role for org1.
+
+    Wired with owner-only scopes (e.g. ``org:owner:assign``) that an org admin
+    does not hold, so the scope-subset escalation guard blocks a non-owner from
+    inviting at this role.
+    """
     role = DBRole(
         id=uuid.uuid4(),
         name="Organization Owner",
@@ -212,6 +243,11 @@ async def org1_owner_role(session: AsyncSession, org1: Organization) -> DBRole:
     )
     session.add(role)
     await session.commit()
+    await _attach_scopes(
+        session,
+        role,
+        set(ORG_OWNER_SCOPES) - set(ORG_ADMIN_SCOPES),
+    )
     return role
 
 
@@ -1137,7 +1173,7 @@ class TestOrganizationServiceInvitations:
 
         with pytest.raises(
             TracecatAuthorizationError,
-            match="Only organization owners can create owner invitations",
+            match="Cannot invite with a role that grants more access than your own",
         ):
             await service.create_invitation(
                 email="newowner@example.com",

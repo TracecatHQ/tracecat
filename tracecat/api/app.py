@@ -120,6 +120,7 @@ from tracecat.deduplicate.internal_router import (
     router as internal_deduplicate_router,
 )
 from tracecat.editor.router import router as editor_router
+from tracecat.email import is_email_configured
 from tracecat.exceptions import EntitlementRequired, ScopeDeniedError, TracecatException
 from tracecat.feature_flags import FeatureFlag, FlagLike, is_feature_enabled
 from tracecat.feature_flags.router import router as feature_flags_router
@@ -722,6 +723,7 @@ class AppInfo(BaseModel):
     saml_enabled: bool
     saml_enforced: bool
     ee_multi_tenant: bool
+    smtp_configured: bool
 
 
 @app.get("/info", include_in_schema=False)
@@ -751,6 +753,7 @@ async def info(session: AsyncDBSessionBypass) -> AppInfo:
         saml_enabled=keyvalues["saml_enabled"],
         saml_enforced=keyvalues["saml_enforced"],
         ee_multi_tenant=config.TRACECAT__EE_MULTI_TENANT,
+        smtp_configured=is_email_configured(),
     )
 
 

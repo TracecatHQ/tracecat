@@ -125,6 +125,10 @@ module "ecs" {
   saml_idp_metadata_url_arn = var.saml_idp_metadata_url_arn
   saml_allow_unsolicited    = var.saml_allow_unsolicited
 
+  # Email (Resend)
+  resend_api_key_arn = var.resend_api_key_arn
+  resend_from_email  = var.resend_from_email
+
   # Temporal UI authentication
   temporal_auth_provider_url      = var.temporal_auth_provider_url
   temporal_auth_client_id_arn     = var.temporal_auth_client_id_arn

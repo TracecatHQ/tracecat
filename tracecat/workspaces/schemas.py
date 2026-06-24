@@ -11,6 +11,7 @@ from tracecat.git.constants import GIT_SSH_URL_REGEX
 from tracecat.identifiers import InvitationID, OrganizationID, UserID, WorkspaceID
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.workspace_sync.enums import VcsProvider
+from tracecat.invitations.types import MAX_BULK_INVITE_EMAILS, BatchInviteStatus
 
 # === Workspace === #
 
@@ -126,9 +127,16 @@ class WorkspaceReadMinimal(Schema):
 
 
 class WorkspaceMember(Schema):
+    """An active workspace member backed by a real user account.
+
+    Pending invitations are a separate concern: the members list endpoint
+    returns only active members, and the UI merges in outstanding invitations
+    (from the invitations endpoint) client-side for display.
+    """
+
     user_id: UserID
-    first_name: str | None
-    last_name: str | None
+    first_name: str | None = None
+    last_name: str | None = None
     email: EmailStr
     role_name: str
     # Access reaches the workspace through a group; the UI gates per-row
@@ -163,6 +171,87 @@ class WorkspaceInvitationCreate(Schema):
 
     email: EmailStr
     role_id: str  # UUID as string for API compatibility
+
+
+class WorkspaceInvitationBatchCreate(Schema):
+    """Request schema for creating workspace invitations in bulk."""
+
+    emails: list[EmailStr] = Field(min_length=1, max_length=MAX_BULK_INVITE_EMAILS)
+    role_id: str  # UUID as string for API compatibility
+
+
+class WorkspaceBatchInvitationItemResult(Schema):
+    """Per-email outcome of a bulk workspace invitation request."""
+
+    email: str
+    status: BatchInviteStatus
+    reason: str | None = None
+
+
+class WorkspaceInvitationBatchResult(Schema):
+    """Response schema for a bulk workspace invitation request."""
+
+    results: list[WorkspaceBatchInvitationItemResult]
+    created_count: int
+    skipped_count: int
+
+
+class WorkspaceInvitationTokenRead(Schema):
+    """Response schema for a workspace invitation token (copy-link flow)."""
+
+    token: str
+
+
+class WorkspaceInvitationReadMinimal(Schema):
+    """Minimal response for public token-based workspace invitation lookup.
+
+    Excludes sensitive fields like email, invited_by ID, and timestamps to
+    reduce information disclosure when querying by token. Mirrors the
+    organization invitation lookup so the shared accept page can render either.
+    """
+
+    workspace_id: WorkspaceID
+    workspace_name: str
+    organization_id: OrganizationID
+    organization_slug: str
+    inviter_name: str | None
+    inviter_email: str | None
+    role_name: str
+    role_slug: str | None = None
+    status: InvitationStatus
+    expires_at: datetime
+    email_matches: bool | None = None
+    """Whether the authenticated user's email matches the invitation.
+
+    - None: User is not authenticated
+    - True: User's email matches the invitation
+    - False: User's email does not match the invitation
+    """
+
+
+class WorkspacePendingInvitationRead(Schema):
+    """Pending workspace invitation visible to the invited authenticated user.
+
+    Mirrors :class:`OrgPendingInvitationRead` so a post-signup invitations
+    surface can render organization and workspace invites side by side.
+    """
+
+    token: str
+    workspace_id: WorkspaceID
+    workspace_name: str
+    organization_id: OrganizationID
+    organization_slug: str
+    inviter_name: str | None
+    inviter_email: str | None
+    role_name: str
+    role_slug: str | None = None
+    expires_at: datetime
+
+
+class WorkspaceInvitationAccept(Schema):
+    """Request body for accepting a workspace invitation via token."""
+
+    token: str
 
 
 class WorkspaceInvitationRead(Schema):

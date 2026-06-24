@@ -23,6 +23,12 @@ from tracecat.db.models import (
 from tracecat.db.models import (
     Role as DBRole,
 )
+from tracecat.email import (
+    InvitationEmail,
+    build_accept_url,
+    is_email_configured,
+    send_invitation_emails_batch,
+)
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatNotFoundError,
@@ -30,9 +36,13 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import SessionID, UserID
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.types import BatchInviteItem, BatchInviteStatus
 from tracecat.organization.schemas import (
+    BatchInvitationItemResult,
     OrgDomainRead,
     OrgInvitationAccept,
+    OrgInvitationBatchCreate,
+    OrgInvitationBatchResult,
     OrgInvitationCreate,
     OrgInvitationRead,
     OrgInvitationReadMinimal,
@@ -491,6 +501,110 @@ async def create_invitation(
         expires_at=invitation.expires_at,
         created_at=invitation.created_at,
         accepted_at=invitation.accepted_at,
+    )
+
+
+@router.post("/invitations/bulk", response_model=OrgInvitationBatchResult)
+@require_scope("org:member:invite")
+async def create_invitations_bulk(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    params: OrgInvitationBatchCreate,
+) -> OrgInvitationBatchResult:
+    """Create organization invitations in bulk.
+
+    Valid emails are invited; already-members and emails with a live pending
+    invitation are skipped and reported per-email. When email is configured,
+    invitation emails are sent (best-effort) for created invites; otherwise the
+    admin shares the copy-paste invitation links.
+    """
+    service = OrgService(session, role=role)
+    try:
+        items = await service.batch_create_invitations(
+            emails=[str(e) for e in params.emails],
+            role_id=params.role_id,
+        )
+    except TracecatAuthorizationError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+
+    created = [i for i in items if i.status == BatchInviteStatus.CREATED]
+    if created and is_email_configured():
+        org_name = await service.get_organization_name()
+        await send_invitation_emails_batch(
+            [
+                InvitationEmail(
+                    to=i.email,
+                    accept_url=build_accept_url(i.token),  # type: ignore[arg-type]
+                    context_name=org_name,
+                    kind="organization",
+                )
+                for i in created
+                if i.token
+            ]
+        )
+
+    return _build_org_batch_result(items)
+
+
+def _build_org_batch_result(
+    items: list[BatchInviteItem],
+) -> OrgInvitationBatchResult:
+    results = [
+        BatchInvitationItemResult(email=i.email, status=i.status, reason=i.reason)
+        for i in items
+    ]
+    created_count = sum(1 for i in items if i.status == BatchInviteStatus.CREATED)
+    return OrgInvitationBatchResult(
+        results=results,
+        created_count=created_count,
+        skipped_count=len(items) - created_count,
+    )
+
+
+@router.post(
+    "/invitations/{invitation_id}/resend",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+@require_scope("org:member:invite")
+async def resend_invitation(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    invitation_id: UUID,
+) -> None:
+    """Re-send the invitation email for a pending organization invitation."""
+    if not is_email_configured():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email is not configured",
+        )
+    service = OrgService(session, role=role)
+    try:
+        invitation = await service.get_pending_invitation(invitation_id)
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found"
+        ) from e
+    except TracecatAuthorizationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+
+    org_name = await service.get_organization_name()
+    await send_invitation_emails_batch(
+        [
+            InvitationEmail(
+                to=invitation.email,
+                accept_url=build_accept_url(invitation.token),
+                context_name=org_name,
+                kind="organization",
+            )
+        ]
     )
 
 
