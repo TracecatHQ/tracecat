@@ -25,7 +25,7 @@ from tracecat_ee.rbac.service import RBACService
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.dependencies import OrgActorRole
 from tracecat.auth.types import Role
-from tracecat.authz.controls import require_scope
+from tracecat.authz.controls import can_manage_role_scopes, require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Role as DBRole
 from tracecat.db.models import UserRoleAssignment
@@ -103,6 +103,13 @@ async def list_roles(
     )
     result = await session.execute(stmt)
     roles = result.scalars().all()
+
+    # Hide roles that grant more access than the requester. A user should not
+    # see (and therefore cannot assign or manage) roles whose scopes are a
+    # strict superset of their own. Superusers and holders of "*" see all roles.
+    roles = [
+        r for r in roles if can_manage_role_scopes(role, {s.name for s in r.scopes})
+    ]
 
     return RoleList(
         items=[

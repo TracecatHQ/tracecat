@@ -19,11 +19,13 @@ from tracecat.db.models import (
     Membership,
     Organization,
     OrganizationMembership,
+    RoleScope,
     Scope,
     User,
     UserRoleAssignment,
     Workspace,
 )
+from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatNotFoundError,
@@ -937,3 +939,92 @@ class TestRBACMembershipReconcile:
         await service.delete_group(group.id)
 
         assert await self._membership(session, workspace, user) is not None
+
+
+async def _role_with_scopes(
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    *,
+    name: str,
+    scope_names: set[str],
+) -> DBRole:
+    """Create a DB role wired to the given scope names."""
+    db_role = DBRole(id=uuid.uuid4(), name=name, slug=None, organization_id=org_id)
+    session.add(db_role)
+    await session.flush()
+    for scope_name in scope_names:
+        # Reuse an existing scope (unique on org_id + name) or create one.
+        existing = await session.scalar(
+            select(Scope).where(
+                Scope.organization_id == org_id, Scope.name == scope_name
+            )
+        )
+        if existing is None:
+            resource, _, action = scope_name.rpartition(":")
+            existing = Scope(
+                id=uuid.uuid4(),
+                name=scope_name,
+                resource=resource or scope_name,
+                action=action or "execute",
+                source=ScopeSource.CUSTOM,
+                organization_id=org_id,
+            )
+            session.add(existing)
+            await session.flush()
+        session.add(RoleScope(role_id=db_role.id, scope_id=existing.id))
+    await session.commit()
+    return db_role
+
+
+@pytest.mark.anyio
+class TestListRolesScopeVisibility:
+    """list_roles must hide roles that grant more access than the requester."""
+
+    async def test_superset_roles_are_hidden(
+        self, session: AsyncSession, org: Organization, user: User
+    ) -> None:
+        from tracecat.authz.rbac.router import list_roles
+
+        await _role_with_scopes(
+            session, org.id, name="Subset", scope_names={"workspace:read"}
+        )
+        await _role_with_scopes(
+            session,
+            org.id,
+            name="Superset",
+            scope_names={"workspace:read", "workspace:member:remove"},
+        )
+        requester = Role(
+            type="user",
+            user_id=user.id,
+            organization_id=org.id,
+            service_id="tracecat-api",
+            is_platform_superuser=False,
+            scopes=frozenset({"workspace:read"}),
+        )
+        result = await list_roles(role=requester, session=session)
+        names = {r.name for r in result.items}
+        assert "Subset" in names
+        assert "Superset" not in names
+
+    async def test_superuser_sees_all_roles(
+        self, session: AsyncSession, org: Organization, user: User
+    ) -> None:
+        from tracecat.authz.rbac.router import list_roles
+
+        await _role_with_scopes(
+            session,
+            org.id,
+            name="Elevated",
+            scope_names={"workspace:member:remove"},
+        )
+        superuser = Role(
+            type="user",
+            user_id=user.id,
+            organization_id=org.id,
+            service_id="tracecat-api",
+            is_platform_superuser=True,
+            scopes=frozenset({"*"}),
+        )
+        result = await list_roles(role=superuser, session=session)
+        assert "Elevated" in {r.name for r in result.items}

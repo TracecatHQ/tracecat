@@ -3,7 +3,10 @@
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useMemo, useState } from "react"
-import type { WorkspaceMember, WorkspaceRead } from "@/client"
+import {
+  type WorkspaceRead,
+  workspacesGetWorkspaceInvitationToken,
+} from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   DataTable,
@@ -51,11 +54,30 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { useWorkspaceInvitations } from "@/hooks/use-invitations"
 import {
   useWorkspaceMembers,
   useWorkspaceMutations,
 } from "@/hooks/use-workspace"
-import { useRbacRoles, useRbacUserAssignments } from "@/lib/hooks"
+import { useAppInfo, useRbacRoles, useRbacUserAssignments } from "@/lib/hooks"
+
+/**
+ * A row in the workspace members table. Active members and pending invitations
+ * come from separate endpoints and are merged client-side into this unified
+ * shape, distinguished by `status`.
+ */
+type WorkspaceMemberRow = {
+  status: "active" | "invited"
+  email: string
+  role_name: string
+  // Active-member fields
+  user_id?: string
+  first_name?: string | null
+  last_name?: string | null
+  via_group?: boolean
+  // Invitation fields
+  invitation_id?: string
+}
 
 export function WorkspaceMembersTable({
   workspace,
@@ -65,11 +87,81 @@ export function WorkspaceMembersTable({
   const queryClient = useQueryClient()
   const canUpdateMembers = useScopeCheck("workspace:member:update")
   const canRemoveMembers = useScopeCheck("workspace:member:remove")
-  const [selectedUser, setSelectedUser] = useState<WorkspaceMember | null>(null)
+  const canInviteMembers = useScopeCheck("workspace:member:invite")
+  const [selectedUser, setSelectedUser] = useState<WorkspaceMemberRow | null>(
+    null
+  )
   const [isChangeRoleOpen, setIsChangeRoleOpen] = useState(false)
   const { removeMember } = useWorkspaceMutations()
+  const { appInfo } = useAppInfo()
+  const {
+    invitations,
+    invitationsLoading,
+    invitationsError,
+    resendInvitation,
+    revokeInvitation,
+  } = useWorkspaceInvitations(workspace.id)
   const { members, membersLoading, membersError } = useWorkspaceMembers(
     workspace.id
+  )
+
+  // The table merges two independent endpoints, so reflect either source's
+  // loading/error state rather than letting an invitation failure degrade the
+  // table silently.
+  const isLoading = membersLoading || invitationsLoading
+  const error = membersError ?? invitationsError
+
+  // The members list and the invitations list come from separate endpoints (no
+  // extra DB round-trips versus a server-side merge). Combine them here into a
+  // single table: active members first, then pending non-expired invitations.
+  const rows = useMemo<WorkspaceMemberRow[]>(() => {
+    const memberRows: WorkspaceMemberRow[] = (members ?? []).map((m) => ({
+      status: "active",
+      email: m.email,
+      role_name: m.role_name,
+      user_id: m.user_id,
+      first_name: m.first_name,
+      last_name: m.last_name,
+      via_group: m.via_group,
+    }))
+    const now = Date.now()
+    const invitationRows: WorkspaceMemberRow[] = (invitations ?? [])
+      .filter(
+        (inv) =>
+          inv.status === "pending" &&
+          (!inv.expires_at || new Date(inv.expires_at).getTime() > now)
+      )
+      .map((inv) => ({
+        status: "invited",
+        email: inv.email,
+        role_name: inv.role_name,
+        invitation_id: inv.id,
+      }))
+    return [...memberRows, ...invitationRows]
+  }, [members, invitations])
+
+  const copyInvitationLink = useCallback(
+    async (invitationId: string) => {
+      try {
+        const { token } = await workspacesGetWorkspaceInvitationToken({
+          workspaceId: workspace.id,
+          invitationId,
+        })
+        const url = `${window.location.origin}/invitations/accept?token=${token}`
+        await navigator.clipboard.writeText(url)
+        toast({
+          title: "Copied",
+          description: "Invitation link copied to clipboard",
+        })
+      } catch {
+        toast({
+          title: "Error",
+          description: "Failed to copy invitation link",
+          variant: "destructive",
+        })
+      }
+    },
+    [workspace.id]
   )
   const {
     userAssignments,
@@ -86,12 +178,13 @@ export function WorkspaceMembersTable({
   const handleChangeRole = useCallback(
     async (roleId: string) => {
       try {
-        if (!selectedUser) {
+        if (!selectedUser?.user_id) {
           return toast({
             title: "No user selected",
             description: "Please select a user to change role",
           })
         }
+        const selectedUserId = selectedUser.user_id
         if (!roleId) {
           return toast({
             title: "No role selected",
@@ -106,9 +199,7 @@ export function WorkspaceMembersTable({
         }
         // Find the existing RBAC assignment for this user in this workspace
         const existingAssignment = userAssignments?.find(
-          (a) =>
-            a.user_id === selectedUser.user_id &&
-            a.workspace_id === workspace.id
+          (a) => a.user_id === selectedUserId && a.workspace_id === workspace.id
         )
         if (existingAssignment) {
           await updateUserAssignment({
@@ -118,7 +209,7 @@ export function WorkspaceMembersTable({
         } else {
           // No existing assignment — create one
           await createUserAssignment({
-            user_id: selectedUser.user_id,
+            user_id: selectedUserId,
             role_id: roleId,
             workspace_id: workspace.id,
           })
@@ -157,9 +248,9 @@ export function WorkspaceMembersTable({
         }}
       >
         <DataTable
-          data={members}
-          isLoading={membersLoading}
-          error={membersError}
+          data={rows}
+          isLoading={isLoading}
+          error={error}
           columns={[
             {
               accessorKey: "email",
@@ -171,8 +262,13 @@ export function WorkspaceMembersTable({
                 />
               ),
               cell: ({ row }) => (
-                <div className="text-xs">
-                  {row.getValue<WorkspaceMember["email"]>("email")}
+                <div className="flex items-center gap-2 text-xs">
+                  {row.getValue<WorkspaceMemberRow["email"]>("email")}
+                  {row.original.status === "invited" && (
+                    <Badge variant="secondary" className="font-normal">
+                      Invited
+                    </Badge>
+                  )}
                 </div>
               ),
               enableSorting: true,
@@ -189,8 +285,9 @@ export function WorkspaceMembersTable({
               ),
               cell: ({ row }) => (
                 <div className="text-xs">
-                  {row.getValue<WorkspaceMember["first_name"]>("first_name") ||
-                    "-"}
+                  {row.getValue<WorkspaceMemberRow["first_name"]>(
+                    "first_name"
+                  ) || "-"}
                 </div>
               ),
               enableSorting: true,
@@ -207,7 +304,7 @@ export function WorkspaceMembersTable({
               ),
               cell: ({ row }) => (
                 <div className="text-xs">
-                  {row.getValue<WorkspaceMember["last_name"]>("last_name") ||
+                  {row.getValue<WorkspaceMemberRow["last_name"]>("last_name") ||
                     "-"}
                 </div>
               ),
@@ -249,9 +346,59 @@ export function WorkspaceMembersTable({
               id: "actions",
               enableHiding: false,
               cell: ({ row }) => {
+                const member = row.original
+                const isInvited = member.status === "invited"
+
+                if (isInvited) {
+                  const invitationId = member.invitation_id
+                  // Resend/copy require invite scope; revoke requires remove
+                  // scope (the API gates them separately). Render the menu if
+                  // either action is available.
+                  if (
+                    !invitationId ||
+                    (!canInviteMembers && !canRemoveMembers)
+                  ) {
+                    return null
+                  }
+                  return (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" className="size-8 p-0">
+                          <span className="sr-only">Open menu</span>
+                          <DotsHorizontalIcon className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        {canInviteMembers && appInfo?.smtp_configured && (
+                          <DropdownMenuItem
+                            onSelect={() => resendInvitation(invitationId)}
+                          >
+                            Resend invitation
+                          </DropdownMenuItem>
+                        )}
+                        {canInviteMembers && (
+                          <DropdownMenuItem
+                            onSelect={() => copyInvitationLink(invitationId)}
+                          >
+                            Copy invitation link
+                          </DropdownMenuItem>
+                        )}
+                        {canRemoveMembers && (
+                          <DropdownMenuItem
+                            className="text-rose-500 focus:text-rose-600"
+                            onSelect={() => revokeInvitation(invitationId)}
+                          >
+                            Revoke invitation
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )
+                }
+
                 // Managed via the group, and the backend rejects these edits —
                 // disable the row actions rather than offer a guaranteed failure.
-                const viaGroup = row.original.via_group ?? false
+                const viaGroup = member.via_group ?? false
                 return (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -263,7 +410,8 @@ export function WorkspaceMembersTable({
                     <DropdownMenuContent>
                       <DropdownMenuItem
                         onClick={() =>
-                          navigator.clipboard.writeText(row.original.user_id)
+                          member.user_id &&
+                          navigator.clipboard.writeText(member.user_id)
                         }
                       >
                         Copy user ID
@@ -362,7 +510,7 @@ export function WorkspaceMembersTable({
             <AlertDialogAction
               variant="destructive"
               onClick={async () => {
-                if (selectedUser) {
+                if (selectedUser?.user_id) {
                   console.log("Removing member", selectedUser)
                   try {
                     await removeMember(selectedUser.user_id)
@@ -406,7 +554,7 @@ function ChangeUserRoleDialog({
   onConfirm,
 }: {
   open: boolean
-  selectedUser: WorkspaceMember | null
+  selectedUser: WorkspaceMemberRow | null
   isSubmitting: boolean
   setOpen: (open: boolean) => void
   onConfirm: (roleId: string) => void
@@ -467,7 +615,7 @@ function ChangeUserRoleDialog({
   )
 }
 
-const defaultToolbarProps: DataTableToolbarProps<WorkspaceMember> = {
+const defaultToolbarProps: DataTableToolbarProps<WorkspaceMemberRow> = {
   filterProps: {
     placeholder: "Filter users by email...",
     column: "email",

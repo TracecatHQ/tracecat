@@ -56,7 +56,11 @@ from tracecat.db.models import (
     OrganizationMembership,
     User,
 )
-from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.organization.domains import normalize_domain
@@ -392,6 +396,11 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     async def _accept_invitation_atomically(self, user: User) -> OrganizationID | None:
         """Accept an invitation during registration if a token was provided.
 
+        The registration token may be an organization invite or a workspace
+        invite (both share the same accept link). Resolve the org invite first
+        and fall back to the workspace invite when the token is not an org
+        token, mirroring the shared accept page's org-then-workspace lookup.
+
         Errors during invitation acceptance are logged but do NOT fail registration.
         This ensures users can still register even if the invitation is invalid/expired.
         """
@@ -406,23 +415,26 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 
         try:
             async with get_async_session_bypass_rls_context_manager() as session:
-                membership = await accept_invitation_for_user(
-                    session, user_id=user.id, token=token
-                )
-                self.logger.info(
-                    "Invitation accepted during registration",
-                    user_id=str(user.id),
-                    email=user.email,
-                    org_id=str(membership.organization_id),
-                )
-                return membership.organization_id
+                try:
+                    membership = await accept_invitation_for_user(
+                        session, user_id=user.id, token=token
+                    )
+                    self.logger.info(
+                        "Invitation accepted during registration",
+                        user_id=str(user.id),
+                        email=user.email,
+                        org_id=str(membership.organization_id),
+                    )
+                except TracecatNotFoundError:
+                    # Not an org token — try the workspace invite path.
+                    await self._accept_workspace_invitation(session, user, token)
         except TracecatNotFoundError:
             self.logger.warning(
                 "Invitation token not found during registration",
                 user_id=str(user.id),
                 email=user.email,
             )
-        except TracecatAuthorizationError as e:
+        except (TracecatAuthorizationError, TracecatValidationError) as e:
             self.logger.warning(
                 "Invitation acceptance failed during registration",
                 user_id=str(user.id),
@@ -545,6 +557,55 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                         audit_sink=audit_sink,
                         error=str(exc),
                     )
+
+    async def _accept_workspace_invitation(
+        self, session: AsyncSession, user: User, token: str
+    ) -> None:
+        """Accept a workspace invitation by token during registration.
+
+        Derives the organization from the invitation's workspace so a
+        :class:`WorkspaceService` can be constructed without prior org context,
+        mirroring the workspace accept router. Raises on a genuinely unknown
+        token so the caller logs it as not-found.
+        """
+        from tracecat.auth.types import Role
+        from tracecat.db.models import Invitation, Workspace
+        from tracecat.workspaces.service import WorkspaceService
+
+        row = (
+            await session.execute(
+                select(Invitation.email, Workspace.organization_id)
+                .join(Workspace, Invitation.workspace_id == Workspace.id)  # pyright: ignore[reportArgumentType]
+                .where(Invitation.token == token)
+            )
+        ).first()
+        if row is None:
+            raise TracecatNotFoundError("Invitation not found")
+        invitation_email, org_id = row
+
+        # The workspace accept service does not verify the invitee email, so
+        # enforce it here: registration accepts a token on the new user's behalf
+        # and must not let a token join a workspace invited to another address.
+        if user.email.lower() != invitation_email.lower():
+            raise TracecatAuthorizationError(
+                "This invitation was sent to a different email address"
+            )
+
+        accept_role = Role(
+            type="user",
+            user_id=user.id,
+            organization_id=org_id,
+            service_id="tracecat-api",
+        )
+        service = WorkspaceService(session, role=accept_role)
+        membership = await service.accept_invitation(token, user.id)
+        self.logger.info(
+            "Workspace invitation accepted during registration",
+            user_id=str(user.id),
+            email=user.email,
+            org_id=str(org_id),
+            workspace_id=str(membership.workspace_id),
+        )
 
     async def on_after_forgot_password(
         self, user: User, token: str, request: Request | None = None
