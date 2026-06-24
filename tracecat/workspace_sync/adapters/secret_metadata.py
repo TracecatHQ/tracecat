@@ -51,8 +51,10 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
         refs: ResourceDependencyRefs,
     ) -> ResourceProjection:
         """Project secret metadata selected directly or referenced by name."""
+        # "Select all" short-circuits to the full projection.
         if refs.select_all:
             return await self.project(workspace_service)
+        # No selectors of any kind means there is nothing to project.
         if (
             not refs.local_ids
             and not refs.source_ids
@@ -62,6 +64,8 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
             return ResourceProjection(specs={}, resources=[])
 
         local_ids = set(refs.local_ids)
+        # Resolve source ids to their local secret ids and fold them in, so all
+        # id-based selectors collapse into a single set of local ids.
         if refs.source_ids:
             local_ids.update(
                 (
@@ -71,11 +75,15 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
                     )
                 ).values()
             )
+        # Each selector kind contributes its own predicate; they are ORed below
+        # so a secret matching any selector is projected.
         predicates = []
         if local_ids:
             predicates.append(Secret.id.in_(local_ids))
         if refs.names:
             predicates.append(Secret.name.in_(refs.names))
+        # Environment refs are scoped pairs: a name only matches within its
+        # given environment (secrets are environment-scoped like variables).
         for environment, name in sorted(refs.environment_names):
             predicates.append(
                 sa.and_(
@@ -83,6 +91,7 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
                     Secret.name == name,
                 )
             )
+        # Selectors may exist yet resolve to nothing (e.g. unknown source ids).
         if not predicates:
             return ResourceProjection(specs={}, resources=[])
         stmt = self._projection_stmt(workspace_service).where(sa.or_(*predicates))
@@ -111,8 +120,12 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
         source_ids_by_local_id = await self.source_ids_by_local_id(workspace_service)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
+        # Seed the reserved set with already-mapped source ids so freshly minted
+        # ids below never collide with an existing mapping.
         reserved: set[str] = set(source_ids_by_local_id.values())
         for secret in secrets:
+            # Reuse the sync mapping's source id when one exists; otherwise mint
+            # a stable, collision-free id from the (environment, name) pair.
             source_id = source_ids_by_local_id.get(secret.id)
             if source_id is None:
                 source_id = unique_environment_source_id(
@@ -121,6 +134,8 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
                     reserved=reserved,
                 )
             reserved.add(source_id)
+            # Decrypt only to read the key NAMES; secret values are never read
+            # back out or serialized into the projected spec.
             keys = sorted(
                 key_value.key
                 for key_value in secret_service.decrypt_keys(secret.encrypted_keys)
@@ -159,6 +174,8 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
                 source_id=source_id,
                 spec=spec,
             )
+            # Pull the current decrypted values so existing keys keep their
+            # secret values across the sync; the spec only carries key names.
             existing_values: dict[str, SecretStr] = {}
             if secret is not None:
                 existing_values = {
@@ -166,6 +183,8 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
                     for key_value in secret_service.decrypt_keys(secret.encrypted_keys)
                 }
 
+            # Build the new key set from the spec: preserve the value of any key
+            # already present, and give keys new to the spec an empty value.
             key_values = [
                 SecretKeyValue(
                     key=key,
@@ -173,9 +192,12 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
                 )
                 for key in spec.keys
             ]
+            # Re-encrypt the reconciled key/value pairs before persisting.
             encrypted_keys = secret_service.encrypt_keys(key_values)
             secret_type = SecretType(spec.secret_type or SecretType.CUSTOM.value).value
+            # Tags are stored as a name-keyed dict with empty values.
             tags = dict.fromkeys(spec.tags, "") if spec.tags else None
+            # No matching row: create a brand-new secret from the spec.
             if secret is None:
                 secret = Secret(
                     workspace_id=workspace_service.workspace_id,
@@ -187,6 +209,7 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
                     description=spec.description,
                 )
             else:
+                # Matched an existing row: update it in place to the spec.
                 secret.name = spec.name
                 secret.environment = spec.environment
                 secret.type = secret_type
@@ -210,8 +233,12 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
         When matched by source id, verifies ``spec``'s name and environment are
         still free before reusing the row. Returns ``None`` when nothing matches.
         """
+        # Prefer the sync-mapping match: it pins the spec to the same row across
+        # renames, so a spec can move name/environment without losing identity.
         secret = await self._secret_by_source_id(workspace_service, source_id=source_id)
         if secret is not None:
+            # Guard the rename target: the spec's name/environment must not
+            # already belong to a different secret before we reuse this row.
             await self._ensure_name_environment_available(
                 workspace_service,
                 source_id=source_id,
@@ -221,6 +248,8 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
             )
             return secret
 
+        # No mapping yet: fall back to matching an existing secret by its
+        # (name, environment) identity. Returns None when nothing matches.
         return await workspace_service.session.scalar(
             select(Secret).where(
                 Secret.workspace_id == workspace_service.workspace_id,
@@ -236,10 +265,12 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
         source_id: str,
     ) -> Secret | None:
         """Load the secret mapped to ``source_id`` via the sync mapping, if any."""
+        # No mapping recorded for this source id yet.
         local_id = await self.local_id_for_source_id(workspace_service, source_id)
         if local_id is None:
             return None
 
+        # Re-load the row by local id, scoped to this workspace.
         return await workspace_service.session.scalar(
             select(Secret).where(
                 Secret.workspace_id == workspace_service.workspace_id,
@@ -257,6 +288,7 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
         secret_id: uuid.UUID,
     ) -> None:
         """Raise if another secret already owns ``name`` in ``environment``."""
+        # Look for any *other* secret holding this (name, environment) slot.
         conflict_id = await workspace_service.session.scalar(
             select(Secret.id).where(
                 Secret.workspace_id == workspace_service.workspace_id,
@@ -265,6 +297,7 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
                 Secret.id != secret_id,
             )
         )
+        # Slot is free (or only held by the secret we are reusing): all good.
         if conflict_id is None:
             return
 

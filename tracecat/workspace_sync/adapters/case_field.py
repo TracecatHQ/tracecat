@@ -48,6 +48,8 @@ class CaseFieldAdapter(SingleYamlAdapter):
         self, workspace_service: BaseWorkspaceService
     ) -> ResourceProjection:
         """Project each entry of the workspace case fields schema into a spec."""
+        # All case fields live in one workspace-wide schema row; absence means
+        # there are no fields to project.
         definition = await workspace_service.session.scalar(
             select(CaseFields).where(
                 CaseFields.workspace_id == workspace_service.workspace_id
@@ -59,6 +61,7 @@ class CaseFieldAdapter(SingleYamlAdapter):
         resources: list[ProjectedResource] = []
         reserved: set[str] = set()
         schema = definition.schema or {}
+        # Each schema key is one field; sort for deterministic source-id minting.
         for ref, field_def in sorted(schema.items()):
             if not isinstance(field_def, dict):
                 continue
@@ -72,6 +75,8 @@ class CaseFieldAdapter(SingleYamlAdapter):
                 options=field_def.get("options"),
                 required_on_closure=bool(field_def.get("required_on_closure")),
             )
+            # Fields have no row of their own, so derive a stable local id from
+            # the schema row id plus source id.
             resources.append(
                 self.projected_resource(
                     source_id,
@@ -91,6 +96,8 @@ class CaseFieldAdapter(SingleYamlAdapter):
         field_service = CaseFieldsService(
             session=workspace_service.session, role=workspace_service.role
         )
+        # Sort for deterministic processing; re-fetch the schema per field below
+        # because create_column mutates the shared CaseFields row as we go.
         for source_id, spec in sorted(fields.items()):
             definition = await workspace_service.session.scalar(
                 select(CaseFields).where(
@@ -101,6 +108,7 @@ class CaseFieldAdapter(SingleYamlAdapter):
             field_type = sql_type(spec.field_type or "text")
             field_kind = spec.kind
             field_options = _case_field_options(spec, current_schema, field_type)
+            # New field: provision an actual table column, not just a schema entry.
             if source_id not in current_schema:
                 field_params = CaseFieldCreate(
                     name=spec.name,
@@ -108,9 +116,12 @@ class CaseFieldAdapter(SingleYamlAdapter):
                     kind=_case_field_kind(field_kind),
                     options=field_options,
                 )
+                # Force nullable so adding a column to populated cases never fails.
                 field_params.nullable = True
                 await field_service._ensure_schema_ready()
                 await field_service.editor.create_column(field_params)
+                # Mirror the new column into the schema map, copying only the
+                # parts that are present so the entry stays minimal.
                 field_def: dict[str, Any] = {"type": field_params.type.value}
                 if field_params.options:
                     field_def["options"] = field_params.options
@@ -120,6 +131,8 @@ class CaseFieldAdapter(SingleYamlAdapter):
                     field_def["required_on_closure"] = True
                 await field_service._update_field_schema(field_params.name, field_def)
             else:
+                # Existing field: the column already exists, so update the schema
+                # entry in place rather than going through create_column.
                 current_schema[source_id] = {
                     "type": field_type.value,
                     **({"options": field_options} if field_options else {}),
@@ -130,15 +143,20 @@ class CaseFieldAdapter(SingleYamlAdapter):
                         else {}
                     ),
                 }
+                # Create the schema row on first import when none exists yet.
                 if definition is None:
                     definition = CaseFields(
                         workspace_id=workspace_service.workspace_id,
                         schema={},
                     )
                 definition.schema = current_schema
+                # Reassigning a JSON dict in place is not auto-tracked; flag it so
+                # SQLAlchemy persists the mutation.
                 flag_modified(definition, "schema")
                 workspace_service.session.add(definition)
                 await workspace_service.session.flush()
+            # Re-fetch to get the committed row (and its id) after either branch
+            # may have created or mutated the definition.
             definition = await workspace_service.session.scalar(
                 select(CaseFields).where(
                     CaseFields.workspace_id == workspace_service.workspace_id
@@ -161,6 +179,7 @@ def _case_field_kind(value: Any) -> CaseFieldKind | None:
     try:
         return CaseFieldKind(str(value))
     except ValueError:
+        # Unknown kind from external YAML: treat as absent rather than failing.
         return None
 
 
@@ -175,14 +194,18 @@ def _case_field_options(
     available. Prefers ``spec.options``, else the options already stored in
     ``current_schema``.
     """
+    # Only select-style fields carry options; everything else has none.
     if field_type not in (SqlType.SELECT, SqlType.MULTI_SELECT):
         return None
+    # An explicit spec value always wins over what is already stored.
     if spec.options is not None:
         return spec.options
+    # Fall back to the existing schema entry so a partial spec keeps its options.
     field_def = current_schema.get(spec.id)
     if isinstance(field_def, Mapping):
         options = field_def.get("options")
         if isinstance(options, list):
+            # Normalize stored values to str in case the schema holds non-strings.
             return [str(option) for option in options]
     return None
 
@@ -193,4 +216,5 @@ def _case_field_local_id(definition_id: uuid.UUID, source_id: str) -> uuid.UUID:
     Case fields share one :class:`CaseFields` row, so a UUIDv5 of the definition
     id and ``source_id`` gives each field a deterministic, distinct local id.
     """
+    # UUIDv5 is deterministic, so the same field always maps to the same id.
     return uuid.uuid5(definition_id, source_id)

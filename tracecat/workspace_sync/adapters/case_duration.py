@@ -49,15 +49,20 @@ class CaseDurationAdapter(SingleYamlAdapter):
         durations = list(
             (await workspace_service.session.execute(stmt)).scalars().all()
         )
+        # Existing mappings let us keep stable source ids across re-projections.
         source_ids_by_local_id = await self.source_ids_by_local_id(workspace_service)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
+        # Seed the reserved set with already-assigned ids so fresh ones avoid them.
         reserved: set[str] = set(source_ids_by_local_id.values())
         for duration in durations:
             source_id = source_ids_by_local_id.get(duration.id)
             if source_id is None:
+                # Unmapped duration: slugify its name into a fresh, collision-free id.
                 source_id = unique_source_id(duration.name, reserved=reserved)
+            # Reserve this id so later durations in the loop don't reuse it.
             reserved.add(source_id)
+            # Each duration carries both its start and end anchors as nested specs.
             specs[source_id] = CaseDurationResourceSpec(
                 id=source_id,
                 name=duration.name,
@@ -86,12 +91,15 @@ class CaseDurationAdapter(SingleYamlAdapter):
         """Reconcile duration specs, creating or updating each definition."""
         durations = workspace_spec.case_durations
         imported: list[ImportedResource] = []
+        # Sort for deterministic ordering so import results are reproducible.
         for source_id, spec in sorted(durations.items()):
+            # Find the row this spec maps to, or None if it should be created.
             duration = await self._duration_for_import(
                 workspace_service,
                 source_id=source_id,
                 spec=spec,
             )
+            # Build the column values once; reused by both the create and update paths.
             attrs = {
                 "name": spec.name,
                 "description": spec.description,
@@ -105,14 +113,17 @@ class CaseDurationAdapter(SingleYamlAdapter):
                 "end_field_filters": spec.end.field_filters,
             }
             if duration is None:
+                # No existing match: construct a new definition in this workspace.
                 duration = CaseDurationDefinition(
                     workspace_id=workspace_service.workspace_id,
                     **attrs,
                 )
             else:
+                # Existing match: overwrite each field in place to reconcile it.
                 for key, value in attrs.items():
                     setattr(duration, key, value)
             workspace_service.session.add(duration)
+            # Flush per duration so duration.id is populated before we record it.
             await workspace_service.session.flush()
             imported.append(self.imported_resource(source_id, duration.id))
         return imported
@@ -129,10 +140,12 @@ class CaseDurationAdapter(SingleYamlAdapter):
         When matched by source id, verifies ``spec``'s name is still free before
         reusing the row. Returns ``None`` when no existing duration matches.
         """
+        # Prefer the sync-mapping match: it identifies the row even if renamed.
         duration = await self._duration_by_source_id(
             workspace_service, source_id=source_id
         )
         if duration is not None:
+            # Guard against a name collision with a different row before reusing it.
             await self._ensure_name_available(
                 workspace_service,
                 source_id=source_id,
@@ -141,6 +154,7 @@ class CaseDurationAdapter(SingleYamlAdapter):
             )
             return duration
 
+        # No mapping yet: fall back to adopting any existing row with the same name.
         return await workspace_service.session.scalar(
             select(CaseDurationDefinition).where(
                 CaseDurationDefinition.workspace_id == workspace_service.workspace_id,
@@ -155,8 +169,10 @@ class CaseDurationAdapter(SingleYamlAdapter):
         source_id: str,
     ) -> CaseDurationDefinition | None:
         """Load the duration mapped to ``source_id`` via the sync mapping, if any."""
+        # Resolve the source id to a local row id through the stored mapping.
         local_id = await self.local_id_for_source_id(workspace_service, source_id)
         if local_id is None:
+            # No mapping recorded for this source id yet.
             return None
 
         return await workspace_service.session.scalar(
@@ -175,6 +191,7 @@ class CaseDurationAdapter(SingleYamlAdapter):
         duration_id: uuid.UUID,
     ) -> None:
         """Raise if another duration already owns ``name`` in this workspace."""
+        # Look for any other row holding this name (excluding the one we're updating).
         conflict_id = await workspace_service.session.scalar(
             select(CaseDurationDefinition.id).where(
                 CaseDurationDefinition.workspace_id == workspace_service.workspace_id,
@@ -183,6 +200,7 @@ class CaseDurationAdapter(SingleYamlAdapter):
             )
         )
         if conflict_id is None:
+            # Name is free for this row; nothing to enforce.
             return
 
         raise ValueError(

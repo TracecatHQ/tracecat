@@ -39,19 +39,23 @@ class CaseTagAdapter(SingleYamlAdapter):
         self, workspace_service: BaseWorkspaceService
     ) -> ResourceProjection:
         """Project case tags into specs."""
+        # Deterministic order (ref, then id) keeps the serialized output stable.
         stmt = (
             select(CaseTag)
             .where(CaseTag.workspace_id == workspace_service.workspace_id)
             .order_by(CaseTag.ref.asc(), CaseTag.id.asc())
         )
         tags = list((await workspace_service.session.execute(stmt)).scalars().all())
+        # Reuse any source id already minted for a tag so its Git path stays put.
         source_ids_by_local_id = await self.source_ids_by_local_id(workspace_service)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
+        # Seed the reserved set with known ids so freshly minted ones never collide.
         reserved: set[str] = set(source_ids_by_local_id.values())
         for tag in tags:
             source_id = source_ids_by_local_id.get(tag.id)
             if source_id is None:
+                # Unmapped tag: slugify its ref into a fresh, collision-free id.
                 source_id = unique_source_id(tag.ref, reserved=reserved)
             reserved.add(source_id)
             specs[source_id] = CaseTagResourceSpec(
@@ -77,6 +81,8 @@ class CaseTagAdapter(SingleYamlAdapter):
         if not tags:
             return []
 
+        # Fail fast: the unique-name constraint can't be satisfied if the batch
+        # itself ships two specs with the same name.
         duplicate_names = sorted(_duplicates(spec.name for spec in tags.values()))
         if duplicate_names:
             raise ValueError(
@@ -86,11 +92,14 @@ class CaseTagAdapter(SingleYamlAdapter):
 
         source_ids = set(tags)
         names = {spec.name for spec in tags.values()}
+        # Resolve which incoming source ids already map to local tag rows.
         mapped_local_ids_by_source_id = await self.local_ids_by_source_id(
             workspace_service,
             source_ids,
         )
         mapped_local_ids = set(mapped_local_ids_by_source_id.values())
+        # Load every tag that could be involved: matched by ref, by target name
+        # (potential conflict), or by a previously mapped local id.
         conditions = [
             CaseTag.ref.in_(source_ids),
             CaseTag.name.in_(names),
@@ -107,6 +116,7 @@ class CaseTagAdapter(SingleYamlAdapter):
                 )
             ).all()
         )
+        # Index the candidate tags by the various keys we resolve against.
         tags_by_id = {tag.id: tag for tag in existing_tags}
         tags_by_source_id = {
             source_id: tag
@@ -115,18 +125,25 @@ class CaseTagAdapter(SingleYamlAdapter):
         }
         tags_by_ref = {tag.ref: tag for tag in existing_tags}
         tags_by_name = {tag.name: tag for tag in existing_tags}
+        # Best-known source id for each existing tag: prefer the sync mapping,
+        # else fall back to its ref. Used to tell whether a name's current owner
+        # is itself being renamed by this batch.
         source_ids_by_tag_id: dict[uuid.UUID, str] = {
             tag.id: source_id for source_id, tag in tags_by_source_id.items()
         }
         for ref, tag in tags_by_ref.items():
             source_ids_by_tag_id.setdefault(tag.id, ref)
+        # Pair each spec with the existing tag it targets (mapping first, then
+        # ref), rejecting any name already held by an unrelated tag.
         import_targets: list[tuple[str, CaseTagResourceSpec, CaseTag | None]] = []
         for source_id, spec in sorted(tags.items()):
             tag = tags_by_source_id.get(source_id) or tags_by_ref.get(source_id)
             name_owner = tags_by_name.get(spec.name)
             if (
                 name_owner is not None
+                # The name is held by a different tag...
                 and (tag is None or name_owner.id != tag.id)
+                # ...and that holder is not vacating the name in this same batch.
                 and not _name_owner_released_by_batch(
                     name_owner,
                     specs=tags,
@@ -138,6 +155,9 @@ class CaseTagAdapter(SingleYamlAdapter):
                 )
             import_targets.append((source_id, spec, tag))
 
+        # Phase 1: park every tag whose name is changing under a unique temporary
+        # name. This clears the unique-name index before any final name is taken,
+        # so renames that swap names between two tags don't transiently collide.
         for _source_id, spec, tag in import_targets:
             if tag is not None and tag.name != spec.name:
                 tag.name = f"__tracecat_sync_tmp_{tag.id}"
@@ -149,6 +169,8 @@ class CaseTagAdapter(SingleYamlAdapter):
                 "Case tag sync encountered a duplicate tag name or ref"
             ) from e
 
+        # Phase 2: write the final name/ref/color, creating rows as needed now
+        # that the temporary names have freed up the target names.
         imported_tags: list[tuple[str, CaseTag]] = []
         for source_id, spec, tag in import_targets:
             if tag is None:

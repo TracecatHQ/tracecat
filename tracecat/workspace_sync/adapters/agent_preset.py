@@ -71,12 +71,15 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         refs: ResourceDependencyRefs,
     ) -> ResourceProjection:
         """Project presets selected directly or referenced by slug."""
+        # "Select all" short-circuits to the unfiltered projection.
         if refs.select_all:
             return await self.project(workspace_service)
+        # No selectors at all means nothing to project.
         if not refs.local_ids and not refs.source_ids and not refs.slugs:
             return ResourceProjection(specs={}, resources=[])
 
         local_ids = set(refs.local_ids)
+        # Translate any source ids back to their mapped local preset ids.
         if refs.source_ids:
             local_ids.update(
                 (
@@ -87,6 +90,9 @@ class AgentPresetAdapter(CompoundYamlAdapter):
                 ).values()
             )
         stmt = self._projection_stmt(workspace_service)
+        # Narrow the projection by whichever selectors are present: when both
+        # ids and slugs are given, match either (OR); otherwise filter on the
+        # single non-empty selector.
         if local_ids and refs.slugs:
             stmt = stmt.where(
                 sa.or_(
@@ -130,12 +136,17 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         source_ids_by_local_id = await self.source_ids_by_local_id(workspace_service)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
+        # Seed reserved ids with existing mappings so new ids never collide.
         reserved: set[str] = set(source_ids_by_local_id.values())
         for preset in presets:
+            # Reuse the preset's mapped source id when it already has one;
+            # otherwise mint a fresh, collision-free id from its slug.
             source_id = source_ids_by_local_id.get(preset.id)
             if source_id is None:
                 source_id = unique_source_id(preset.slug, reserved=reserved)
             reserved.add(source_id)
+            # Serialize skill bindings as stable (slug, version) pairs, skipping
+            # any binding whose skill or version row failed to load.
             skill_bindings = [
                 AgentPresetSkillBinding(
                     slug=binding.skill.name,
@@ -184,15 +195,21 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         in topological order and pins each preset's current version.
         """
         presets = workspace_spec.agent_presets
+        # Compute the parent-after-subagent order up front so pass 2 can resolve
+        # subagent refs once their child presets already exist.
         import_order = self._preset_import_order(presets)
         imported: list[ImportedResource] = []
         preset_by_source_id: dict[str, AgentPreset] = {}
+        # Pass 1: upsert every preset's scalar fields, folder, and tags. Slug
+        # order keeps creation deterministic; subagents/versions wait for pass 2.
         for source_id, spec in sorted(presets.items()):
             preset = await self._preset_for_import(
                 workspace_service,
                 source_id=source_id,
                 spec=spec,
             )
+            # Create a new preset with sensible model defaults when none exists;
+            # otherwise just realign the existing row's slug to the spec.
             if preset is None:
                 preset = AgentPreset(
                     workspace_id=workspace_service.workspace_id,
@@ -210,13 +227,18 @@ class AgentPresetAdapter(CompoundYamlAdapter):
             )
             preset.folder_id = folder.id if folder is not None else None
             workspace_service.session.add(preset)
+            # Flush so the preset has an id before tag links reference it.
             await workspace_service.session.flush()
             await self._replace_agent_tags(workspace_service, preset, spec.tags)
             preset_by_source_id[source_id] = preset
 
+        # Pass 2: walk presets in topological order so every subagent child has
+        # already been upserted by the time its parent resolves references.
         for source_id in import_order:
             spec = presets[source_id]
             preset = preset_by_source_id[source_id]
+            # Resolve subagent refs to concrete child preset/version ids now that
+            # all children exist.
             preset.agents = await self._resolved_subagents_config(
                 workspace_service, spec
             )
@@ -225,6 +247,9 @@ class AgentPresetAdapter(CompoundYamlAdapter):
             skill_targets = await self._skill_binding_targets_for_spec(
                 workspace_service, spec
             )
+            # Reuse the pinned current version when it already matches the
+            # preset's state and skill set; otherwise cut a fresh version so the
+            # change is captured as a new immutable snapshot.
             current_version = await self._current_version_for_preset(
                 workspace_service, preset
             )
@@ -242,9 +267,12 @@ class AgentPresetAdapter(CompoundYamlAdapter):
                 await self._replace_version_skill_bindings(
                     workspace_service, version, skill_targets
                 )
+            # Head bindings track the live preset; refresh them every pass since
+            # a reused version skips the version-binding replacement above.
             await self._replace_head_skill_bindings(
                 workspace_service, preset, skill_targets
             )
+            # Pin the preset to the resolved version as its current head.
             preset.current_version_id = version.id
             workspace_service.session.add(preset)
             await workspace_service.session.flush()
@@ -262,6 +290,8 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         :class:`TracecatValidationError` on duplicate slugs or cyclic
         references.
         """
+        # Index slug -> source id so subagent refs (which name slugs) can be
+        # mapped back to specs; duplicate slugs make the graph ambiguous.
         slug_to_source_id: dict[str, str] = {}
         for source_id, spec in sorted(presets.items()):
             if spec.slug in slug_to_source_id:
@@ -270,21 +300,28 @@ class AgentPresetAdapter(CompoundYamlAdapter):
                 )
             slug_to_source_id[spec.slug] = source_id
 
+        # `visiting` is the current DFS stack (re-entering it means a cycle);
+        # `visited` is fully-processed; `ordered` collects the final sequence.
         visiting: set[str] = set()
         visited: set[str] = set()
         ordered: list[str] = []
 
         def visit(source_id: str) -> None:
             """Depth-first visit a preset and append it after its subagents."""
+            # Already emitted: nothing more to do.
             if source_id in visited:
                 return
+            # Re-entering a node still on the stack closes a cycle.
             if source_id in visiting:
                 raise TracecatValidationError(
                     "Cyclic agent preset subagent reference detected during import"
                 )
+            # Mark on-stack, recurse into each subagent child first, then mark
+            # done and append so children always precede this parent.
             visiting.add(source_id)
             spec = presets[source_id]
             for subagent in sorted(spec.subagents, key=lambda item: item.slug):
+                # Ignore refs to slugs not present in this sync batch.
                 if child_source_id := slug_to_source_id.get(subagent.slug):
                     visit(child_source_id)
             visiting.remove(source_id)
@@ -306,12 +343,16 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         the spec explicitly set them (see :func:`_field_was_set`), so omitted
         keys preserve existing preset values.
         """
+        # Core fields are always applied from the spec.
         preset.name = spec.name
         preset.instructions = spec.instructions
         preset.actions = spec.actions or None
         preset.tool_approvals = _tool_approvals(spec.tool_approvals)
+        # Optional fields below: only overwrite when the spec explicitly set the
+        # key, so an omitted key preserves the existing preset value.
         if _field_was_set(spec, "catalog_id"):
             preset.catalog_id = spec.catalog_id
+        # Empty model name/provider fall back to the current value, never blank.
         preset.model_name = spec.model_name or preset.model_name
         preset.model_provider = spec.model_provider or preset.model_provider
         if _field_was_set(spec, "base_url"):
@@ -342,8 +383,11 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         is still free), then falls back to matching on slug. Returns ``None``
         when no preset exists and a new one must be created.
         """
+        # Prefer the preset already mapped to this source id; the mapping is the
+        # authoritative link even if the spec slug has since changed.
         preset = await self._preset_by_source_id(workspace_service, source_id=source_id)
         if preset is not None:
+            # Guard the (possibly renamed) slug isn't claimed by another preset.
             await self._ensure_slug_available(
                 workspace_service,
                 source_id=source_id,
@@ -352,6 +396,7 @@ class AgentPresetAdapter(CompoundYamlAdapter):
             )
             return preset
 
+        # No mapping yet: fall back to adopting an existing preset by slug.
         return await workspace_service.session.scalar(
             select(AgentPreset)
             .where(
@@ -394,6 +439,7 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         Raises :class:`TracecatValidationError` when another preset in the
         workspace owns ``slug``.
         """
+        # Look for any other preset in the workspace already owning this slug.
         conflict_id = await workspace_service.session.scalar(
             select(AgentPreset.id).where(
                 AgentPreset.workspace_id == workspace_service.workspace_id,
@@ -401,6 +447,7 @@ class AgentPresetAdapter(CompoundYamlAdapter):
                 AgentPreset.id != preset_id,
             )
         )
+        # No other owner: the slug is free for this preset.
         if conflict_id is None:
             return
 
@@ -422,11 +469,14 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         """
         if not folder_path:
             return None
+        # Split into clean path segments, dropping leading/trailing/empty parts.
         segments = [segment for segment in folder_path.strip("/").split("/") if segment]
         if not segments:
             return None
         current_path = "/"
         folder: AgentFolder | None = None
+        # Walk the hierarchy from the root, building each segment's absolute
+        # path and creating any missing intermediate folder along the way.
         for segment in segments:
             current_path = f"{current_path}{segment}/"
             folder = await workspace_service.session.scalar(
@@ -435,6 +485,7 @@ class AgentPresetAdapter(CompoundYamlAdapter):
                     AgentFolder.path == current_path,
                 )
             )
+            # Create the segment folder when it doesn't exist yet.
             if folder is None:
                 folder = AgentFolder(
                     workspace_id=workspace_service.workspace_id,
@@ -442,7 +493,9 @@ class AgentPresetAdapter(CompoundYamlAdapter):
                     path=current_path,
                 )
                 workspace_service.session.add(folder)
+                # Flush so the next segment can be parented under this row.
                 await workspace_service.session.flush()
+        # Loop exits with `folder` bound to the leaf folder.
         return folder
 
     async def _replace_agent_tags(
@@ -456,10 +509,13 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         Drops existing links, then upserts each tag by its slugified ref and
         re-links it, so tags are deduplicated and reused across presets.
         """
+        # Drop all current links first so the rebuilt set is exact, not additive.
         await workspace_service.session.execute(
             sa.delete(AgentTagLink).where(AgentTagLink.preset_id == preset.id)
         )
         tag_ids: list[uuid.UUID] = []
+        # Dedupe (preserving order) and upsert each tag by its slugified ref so
+        # tags are shared/reused across presets rather than duplicated.
         for name in sorted(dict.fromkeys(tag_names)):
             ref = slugify(name, separator="-") or name
             tag = await workspace_service.session.scalar(
@@ -468,6 +524,7 @@ class AgentPresetAdapter(CompoundYamlAdapter):
                     AgentTag.ref == ref,
                 )
             )
+            # Create the tag when new; otherwise refresh its display name.
             if tag is None:
                 tag = AgentTag(
                     workspace_id=workspace_service.workspace_id,
@@ -477,8 +534,10 @@ class AgentPresetAdapter(CompoundYamlAdapter):
             else:
                 tag.name = name
             workspace_service.session.add(tag)
+            # Flush to obtain the tag id needed for the link rows below.
             await workspace_service.session.flush()
             tag_ids.append(tag.id)
+        # Re-link the preset to each resolved tag.
         for tag_id in tag_ids:
             workspace_service.session.add(
                 AgentTagLink(tag_id=tag_id, preset_id=preset.id)
@@ -496,11 +555,14 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         any that are missing or unpublished. Returns the default disabled config
         when the spec declares no subagents.
         """
+        # No subagents declared: emit the default (disabled) config.
         if not spec.subagents:
             return AgentSubagentsConfig().model_dump(mode="json")
 
         subagents: list[dict[str, Any]] = []
         for subagent in spec.subagents:
+            # Skip refs whose child preset or version can't be resolved
+            # (missing or unpublished) so the config only contains live links.
             target = await self._resolved_subagent_target(workspace_service, subagent)
             if target is None:
                 continue
@@ -510,6 +572,8 @@ class AgentPresetAdapter(CompoundYamlAdapter):
                     "preset": child.slug,
                     "preset_id": str(child.id),
                     "preset_version_id": str(version.id),
+                    # Pin a concrete version only when the ref requested one;
+                    # otherwise leave it floating on the child's current version.
                     "preset_version": version.version
                     if subagent.version is not None
                     else None,
@@ -518,6 +582,7 @@ class AgentPresetAdapter(CompoundYamlAdapter):
                     "max_turns": subagent.max_turns,
                 }
             )
+        # Enabled only if at least one subagent actually resolved.
         return {"enabled": bool(subagents), "subagents": subagents}
 
     async def _resolved_subagent_target(
@@ -526,6 +591,7 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         subagent: AgentPresetSubagentRef,
     ) -> tuple[AgentPreset, AgentPresetVersion] | None:
         """Resolve a subagent ref to its child preset and desired version."""
+        # Look up the child preset by slug within the same workspace.
         child = await workspace_service.session.scalar(
             select(AgentPreset).where(
                 AgentPreset.workspace_id == workspace_service.workspace_id,
@@ -539,6 +605,8 @@ class AgentPresetAdapter(CompoundYamlAdapter):
             AgentPresetVersion.workspace_id == workspace_service.workspace_id,
             AgentPresetVersion.preset_id == child.id,
         )
+        # Pin the explicitly requested version when given; otherwise track the
+        # child's current version. Bail if the child has no published version.
         if subagent.version is not None:
             stmt = stmt.where(AgentPresetVersion.version == subagent.version)
         elif child.current_version_id is not None:
@@ -546,6 +614,8 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         else:
             return None
 
+        # Treat an unresolvable version (e.g. requested number not found) as a
+        # skip rather than an error.
         version = await workspace_service.session.scalar(stmt)
         if version is None:
             return None
@@ -580,9 +650,12 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         against the preset, so a matching version can be reused instead of
         cutting a new one.
         """
+        # Any differing versioned attribute means a new version is required.
         for key, value in self._version_attrs_from_preset(preset).items():
             if getattr(version, key) != value:
                 return False
+        # Attributes match; the skill-binding set must match too. Compare the
+        # desired (skill, version) id pairs against those stored on the version.
         desired_skill_targets = {
             (skill.id, skill_version.id) for skill, skill_version in skill_targets
         }
@@ -613,12 +686,14 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         Increments the version number past the preset's highest existing version
         and copies the current preset attributes onto the new row.
         """
+        # Find the highest existing version number for this preset.
         current_version = await workspace_service.session.scalar(
             select(sa.func.max(AgentPresetVersion.version)).where(
                 AgentPresetVersion.workspace_id == workspace_service.workspace_id,
                 AgentPresetVersion.preset_id == preset.id,
             )
         )
+        # Snapshot the preset onto the next number (1 when there is no prior).
         version = AgentPresetVersion(
             workspace_id=workspace_service.workspace_id,
             preset_id=preset.id,
@@ -655,6 +730,8 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         skill_targets: list[tuple[Skill, SkillVersion]],
     ) -> None:
         """Replace ``preset``'s head skill bindings with ``skill_targets``."""
+        # Delete existing head bindings, then re-insert the resolved set so the
+        # result is an exact replacement.
         await workspace_service.session.execute(
             sa.delete(AgentPresetSkill).where(
                 AgentPresetSkill.workspace_id == workspace_service.workspace_id,
@@ -679,6 +756,8 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         skill_targets: list[tuple[Skill, SkillVersion]],
     ) -> None:
         """Replace ``version``'s skill bindings with ``skill_targets``."""
+        # Delete then re-insert so the version's bindings exactly mirror the set
+        # captured at snapshot time.
         await workspace_service.session.execute(
             sa.delete(AgentPresetVersionSkill).where(
                 AgentPresetVersionSkill.workspace_id == workspace_service.workspace_id,
@@ -711,6 +790,8 @@ class AgentPresetAdapter(CompoundYamlAdapter):
             skill, skill_version = await self._skill_binding_targets(
                 workspace_service, binding
             )
+            # Drop bindings that don't fully resolve so callers only see live
+            # (skill, version) pairs.
             if skill is None or skill_version is None:
                 continue
             targets.append((skill, skill_version))
@@ -727,6 +808,7 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         current version when ``binding.version`` is unset). Returns
         ``(None, None)`` when the skill or version cannot be found.
         """
+        # Resolve the skill by its slug (stored as `name`) in this workspace.
         skill = await workspace_service.session.scalar(
             select(Skill).where(
                 Skill.workspace_id == workspace_service.workspace_id,
@@ -740,6 +822,8 @@ class AgentPresetAdapter(CompoundYamlAdapter):
             SkillVersion.workspace_id == workspace_service.workspace_id,
             SkillVersion.skill_id == skill.id,
         )
+        # Use the requested version when pinned; otherwise the skill's current
+        # version. A missing match returns None and the binding is dropped.
         if version_number is not None:
             stmt = stmt.where(SkillVersion.version == version_number)
         else:
@@ -753,10 +837,13 @@ def _subagent_refs(agents: dict[str, Any]) -> list[AgentPresetSubagentRef]:
 
     Returns an empty list when the config is missing or fails to validate.
     """
+    # Treat a malformed/legacy config as having no subagents rather than failing
+    # the whole projection.
     try:
         config = AgentSubagentsConfig.model_validate(agents or {"enabled": False})
     except Exception:
         return []
+    # Project to slug-keyed refs, sorted by slug for deterministic output.
     return [
         AgentPresetSubagentRef(
             slug=subagent.preset,
@@ -775,8 +862,10 @@ def _tool_approvals(value: dict[str, Any]) -> dict[str, bool] | None:
     Treats the legacy ``"manual"`` marker and ``True`` as approval-required.
     Returns ``None`` for an empty mapping so the column stays unset.
     """
+    # An empty map leaves the column unset (None) rather than storing {}.
     if not value:
         return None
+    # Legacy "manual" marker and bare True both mean approval-required.
     return {
         key: bool(raw_value == "manual" or raw_value is True)
         for key, raw_value in value.items()

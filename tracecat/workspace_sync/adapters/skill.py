@@ -72,15 +72,22 @@ class SkillAdapter(CompoundYamlAdapter):
         """
         parts = path_parts(path)
         root_parts = path_parts(roots.skills)
+        # A companion file needs at least root + <source_id> + "files" + a
+        # filename segment; anything shorter is the manifest or unrelated.
         if len(parts) < len(root_parts) + 3:
             return None
+        # The leading segments must match the configured skills root exactly.
         if parts[: len(root_parts)] != root_parts:
             return None
         source_id = parts[len(root_parts)]
         files_dir = parts[len(root_parts) + 1]
+        # Only paths nested under "<source_id>/files/" carry blob content; the
+        # sibling "skill.yml" manifest lacks the files segment and is skipped.
         if not source_id or files_dir != SKILL_FILES_DIR:
             return None
+        # Rejoin the remaining segments so nested file paths survive intact.
         file_path = "/".join(parts[len(root_parts) + 2 :])
+        # Guard against a bare "files/" directory with no actual file path.
         return (source_id, file_path) if file_path else None
 
     def serialize_extra_files(
@@ -90,6 +97,8 @@ class SkillAdapter(CompoundYamlAdapter):
     ) -> dict[str, str]:
         """Serialize a skill's file blobs to their repository paths."""
         skill = cast(SkillResourceSpec, spec)
+        # Map each file's content to its companion blob path; sort so the
+        # emitted file set is deterministic across runs.
         return {
             self._file_source_path(source_id, file_path): content
             for file_path, content in sorted(skill.file_contents.items())
@@ -107,6 +116,8 @@ class SkillAdapter(CompoundYamlAdapter):
         for any declared file that is missing or whose SHA256 does not match the
         manifest.
         """
+        # Group the flat (source_id, relpath) blob map by skill so each spec can
+        # look up only its own files below.
         contents_by_source: dict[str, dict[str, str]] = defaultdict(dict)
         for (source_id, relpath), content in extra_files.items():
             contents_by_source[source_id][relpath] = content
@@ -115,8 +126,12 @@ class SkillAdapter(CompoundYamlAdapter):
         for source_id, base_spec in specs.items():
             spec = cast(SkillResourceSpec, base_spec)
             contents = contents_by_source.get(source_id, {})
+            # Validate every file the manifest declares against the blobs that
+            # actually arrived from the repo.
             for file_spec in spec.files:
                 content = contents.get(file_spec.path)
+                # A declared file with no matching blob means the repo is
+                # missing it; flag and move on without attaching content.
                 if content is None:
                     diagnostics.append(
                         PullDiagnostic(
@@ -131,6 +146,8 @@ class SkillAdapter(CompoundYamlAdapter):
                         )
                     )
                     continue
+                # Re-hash the delivered blob and compare to the manifest's
+                # recorded digest to catch tampering or drift.
                 actual_hash = hashlib.sha256(content.encode()).hexdigest()
                 if actual_hash != file_spec.sha256:
                     diagnostics.append(
@@ -150,6 +167,8 @@ class SkillAdapter(CompoundYamlAdapter):
                             },
                         )
                     )
+            # Attach the resolved contents even when diagnostics fired so the
+            # caller has whatever did parse; diagnostics gate acceptance.
             updated[source_id] = spec.model_copy(update={"file_contents": contents})
         return updated
 
@@ -217,18 +236,26 @@ class SkillAdapter(CompoundYamlAdapter):
         source_ids_by_local_id = await self.source_ids_by_local_id(workspace_service)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
+        # Seed reserved ids with every existing mapping so freshly minted ids
+        # never collide with one already pinned to another skill.
         reserved: set[str] = set(source_ids_by_local_id.values())
         for skill in skills:
+            # Reuse the mapped source id when present; otherwise derive a fresh
+            # collision-free id from the slug.
             source_id = source_ids_by_local_id.get(skill.id)
             if source_id is None:
                 source_id = unique_source_id(skill.name, reserved=reserved)
             reserved.add(source_id)
+            # Project only the current version's files; older versions are not
+            # synced to Git.
             version = skill.current_version
             files: list[SkillFileSpec] = []
             file_contents: dict[str, str] = {}
             if version is not None:
                 rows = await self._skill_version_rows(workspace_service, version.id)
                 for version_file, blob_row in rows:
+                    # Pull the blob bytes from object storage and decode them so
+                    # the spec carries the literal file content.
                     content = await blob.download_file(
                         key=blob_row.key,
                         bucket=blob_row.bucket,
@@ -259,6 +286,8 @@ class SkillAdapter(CompoundYamlAdapter):
         version_id: uuid.UUID,
     ) -> list[tuple[SkillVersionFile, SkillBlob]]:
         """Return a version's files joined to their blobs, ordered by path."""
+        # Join each version file to its blob row so callers get content
+        # location and digest together; order by path for stable output.
         stmt = (
             select(SkillVersionFile, SkillBlob)
             .join(SkillBlob, SkillVersionFile.blob_id == SkillBlob.id)
@@ -291,7 +320,9 @@ class SkillAdapter(CompoundYamlAdapter):
         skill_service = SkillService(
             session=workspace_service.session, role=workspace_service.role
         )
+        # Sort by source id so imports apply in a deterministic order.
         for source_id, spec in sorted(skills.items()):
+            # Stage 1: locate or create the skill row this spec maps to.
             skill = await self._skill_for_import(
                 workspace_service, source_id=source_id, spec=spec
             )
@@ -303,11 +334,15 @@ class SkillAdapter(CompoundYamlAdapter):
                     draft_revision=0,
                 )
                 workspace_service.session.add(skill)
+                # Flush to assign skill.id before referencing it below.
                 await workspace_service.session.flush()
             else:
+                # Keep an existing skill's slug and description in sync.
                 skill.name = spec.slug
                 skill.description = getattr(spec, "description", None)
 
+            # Stage 2: persist each file's content as a content-addressed blob,
+            # deduplicating against blobs already stored for the workspace.
             file_refs: list[tuple[str, SkillFileBlobRef]] = []
             for file_spec in spec.files:
                 content = spec.file_contents[file_spec.path].encode()
@@ -324,6 +359,8 @@ class SkillAdapter(CompoundYamlAdapter):
                     )
                 )
 
+            # Stage 3: target the version named by the spec, defaulting to 1,
+            # and look up whether that version already exists to update in place.
             version_number = spec.current_version or 1
             version = await workspace_service.session.scalar(
                 select(SkillVersion).where(
@@ -332,6 +369,8 @@ class SkillAdapter(CompoundYamlAdapter):
                     SkillVersion.version == version_number,
                 )
             )
+            # Build the manifest from sorted file refs so the resulting hash is
+            # stable regardless of input ordering.
             manifest_payload = [
                 {
                     "path": path,
@@ -341,6 +380,7 @@ class SkillAdapter(CompoundYamlAdapter):
                 }
                 for path, file_ref in sorted(file_refs, key=lambda item: item[0])
             ]
+            # The manifest digest fingerprints the whole file set for the version.
             manifest_sha256 = skill_service._compute_sha256(
                 orjson.dumps(manifest_payload)
             )
@@ -353,6 +393,8 @@ class SkillAdapter(CompoundYamlAdapter):
                 "name": spec.name,
                 "description": spec.description,
             }
+            # Stage 4: create the version row, or update the existing one in
+            # place and clear its file rows so they can be rewritten below.
             if version is None:
                 version = SkillVersion(
                     workspace_id=workspace_service.workspace_id,
@@ -361,10 +403,12 @@ class SkillAdapter(CompoundYamlAdapter):
                     **attrs,
                 )
                 workspace_service.session.add(version)
+                # Flush to assign version.id before attaching file rows.
                 await workspace_service.session.flush()
             else:
                 for key, value in attrs.items():
                     setattr(version, key, value)
+                # Drop stale file rows; the loop below re-adds the current set.
                 await workspace_service.session.execute(
                     sa.delete(SkillVersionFile).where(
                         SkillVersionFile.workspace_id == workspace_service.workspace_id,
@@ -372,6 +416,8 @@ class SkillAdapter(CompoundYamlAdapter):
                     )
                 )
 
+            # Stage 5: write one file row per blob, sorted for deterministic
+            # insertion order.
             for path, file_ref in sorted(file_refs, key=lambda item: item[0]):
                 workspace_service.session.add(
                     SkillVersionFile(
@@ -382,6 +428,7 @@ class SkillAdapter(CompoundYamlAdapter):
                         content_type=file_ref.content_type,
                     )
                 )
+            # Stage 6: pin this version as the skill's current version.
             skill.current_version_id = version.id
             workspace_service.session.add(skill)
             await workspace_service.session.flush()
@@ -401,6 +448,8 @@ class SkillAdapter(CompoundYamlAdapter):
         is still free), then falls back to matching on slug. Returns ``None``
         when a new skill must be created.
         """
+        # Prefer the skill already mapped to this source id, but only after
+        # confirming its incoming slug does not clash with another skill.
         skill = await self._skill_by_source_id(workspace_service, source_id=source_id)
         if skill is not None:
             await self._ensure_slug_available(
@@ -411,6 +460,7 @@ class SkillAdapter(CompoundYamlAdapter):
             )
             return skill
 
+        # No mapping yet: fall back to matching an existing skill by slug.
         return await workspace_service.session.scalar(
             select(Skill).where(
                 Skill.workspace_id == workspace_service.workspace_id,
@@ -425,6 +475,8 @@ class SkillAdapter(CompoundYamlAdapter):
         source_id: str,
     ) -> Skill | None:
         """Load the skill mapped to ``source_id`` via the sync mapping, if any."""
+        # Resolve the local skill id from the sync mapping; absent means this
+        # source id has never been imported here.
         local_id = await self.local_id_for_source_id(workspace_service, source_id)
         if local_id is None:
             return None
@@ -449,6 +501,7 @@ class SkillAdapter(CompoundYamlAdapter):
         Raises :class:`TracecatValidationError` when another skill in the
         workspace owns ``slug``.
         """
+        # Look for any other skill in the workspace already holding this slug.
         conflict_id = await workspace_service.session.scalar(
             select(Skill.id).where(
                 Skill.workspace_id == workspace_service.workspace_id,
@@ -456,6 +509,7 @@ class SkillAdapter(CompoundYamlAdapter):
                 Skill.id != skill_id,
             )
         )
+        # No other owner: the slug is safe to assign.
         if conflict_id is None:
             return
 
