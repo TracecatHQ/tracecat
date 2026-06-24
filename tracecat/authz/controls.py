@@ -133,6 +133,40 @@ def has_all_scopes(user_scopes: frozenset[str], required_scopes: set[str]) -> bo
     return all(has_scope(user_scopes, scope) for scope in required_scopes)
 
 
+def has_unrestricted_scope(actor: Role | None) -> bool:
+    """Whether ``actor`` bypasses scope checks entirely.
+
+    True for superusers and holders of the ``"*"`` scope. Callers can use this to
+    short-circuit work (e.g. skip a query) before the full
+    ``can_manage_role_scopes`` comparison.
+    """
+    actor_scopes = (actor.scopes if actor else None) or frozenset()
+    return bool(actor and actor.is_superuser) or "*" in actor_scopes
+
+
+def can_manage_role_scopes(actor: Role | None, target_scopes: set[str]) -> bool:
+    """Whether ``actor`` may see, assign, or invite with a role granting ``target_scopes``.
+
+    The rule is the privilege-escalation guard shared by role listing and
+    invitation/assignment: an actor may only manage a role whose scopes are all
+    satisfied by the actor's own effective scopes. Decided by scopes (not slugs)
+    so custom roles are handled correctly, and via ``has_all_scopes`` so wildcard
+    and implication matching are respected. Superusers and holders of the ``"*"``
+    scope bypass the check.
+
+    Args:
+        actor: The role making the request (its ``scopes`` are the effective set).
+        target_scopes: The scope names granted by the role being managed.
+
+    Returns:
+        True if the actor may manage a role with those scopes.
+    """
+    if has_unrestricted_scope(actor):
+        return True
+    actor_scopes = (actor.scopes if actor else None) or frozenset()
+    return has_all_scopes(actor_scopes, target_scopes)
+
+
 def has_any_scope(user_scopes: frozenset[str], required_scopes: set[str]) -> bool:
     """Check if a user has any of the required scopes.
 

@@ -146,6 +146,7 @@ resource "aws_iam_policy" "secrets_access" {
           var.oidc_client_id_arn,
           var.oidc_client_secret_arn,
           var.saml_idp_metadata_url_arn,
+          var.resend_api_key_arn,
           var.temporal_api_key_arn,
           aws_secretsmanager_secret.redis_url.arn,
         ])

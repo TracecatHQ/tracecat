@@ -413,6 +413,20 @@ variable "saml_allow_unsolicited" {
   default     = false
 }
 
+# Email (Resend)
+
+variable "resend_api_key_arn" {
+  type        = string
+  description = "The ARN of the secret containing the Resend API key (optional). When set with resend_from_email, the API sends invitation emails via Resend."
+  default     = null
+}
+
+variable "resend_from_email" {
+  type        = string
+  description = "The 'from' email address for Resend invitation emails (optional)"
+  default     = ""
+}
+
 # Temporal UI
 
 variable "temporal_auth_provider_url" {

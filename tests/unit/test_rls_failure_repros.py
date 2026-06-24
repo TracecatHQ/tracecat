@@ -255,6 +255,38 @@ def test_get_invitation_by_token_uses_bypass_session_dependency() -> None:
     assert "session: AsyncDBSessionBypass" in source
 
 
+def test_workspace_token_routes_use_bypass_session_dependency() -> None:
+    """Public workspace invite routes have no org context, so must bypass RLS."""
+    from tracecat.workspaces.router import (
+        accept_workspace_invitation,
+        get_workspace_invitation_by_token,
+    )
+
+    assert "session: AsyncDBSessionBypass" in inspect.getsource(
+        get_workspace_invitation_by_token
+    )
+    assert "session: AsyncDBSessionBypass" in inspect.getsource(
+        accept_workspace_invitation
+    )
+
+
+def test_workspace_public_invite_routes_precede_workspace_id_route() -> None:
+    """The /invitations/* routes must be registered before /{workspace_id}.
+
+    `workspace_id` is a UUID path param; if the catch-all single-workspace route
+    is matched first, GET /workspaces/invitations/token/{token} would 422 on the
+    non-UUID 'invitations' segment instead of reaching the public route.
+    """
+    from tracecat.workspaces.router import router
+
+    paths = [r.path for r in router.routes]  # pyright: ignore[reportAttributeAccessIssue]
+    token_idx = paths.index("/workspaces/invitations/token/{token}")
+    accept_idx = paths.index("/workspaces/invitations/accept")
+    ws_id_idx = paths.index("/workspaces/{workspace_id}")
+    assert token_idx < ws_id_idx
+    assert accept_idx < ws_id_idx
+
+
 def test_resolve_auth_organization_id_uses_bypass_session_manager() -> None:
     source = inspect.getsource(resolve_auth_organization_id)
     assert "get_async_session_bypass_rls_context_manager" in source

@@ -4090,6 +4090,19 @@ wheels = [
 ]
 
 [[package]]
+name = "resend"
+version = "2.32.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/dc/d5/2c46334104cce931170d756c7478263744b3eb168179c329d90a065f9b6b/resend-2.32.2.tar.gz", hash = "sha256:448001810f32e7aea39bab27318263fdc69f5764be16b7c6241ed7714dc07ea3", size = 46202, upload-time = "2026-06-17T19:47:28.243Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c3/e9/64b7f15e4d2b9bc363e1a6e0abc518f7aea4b8dfeab8d15a25e508c31fb2/resend-2.32.2-py2.py3-none-any.whl", hash = "sha256:1a8df5ef54b3a5cb7bb18b745f85fda07f1fa8f79b83dd9a25f6e37fbd625ef2", size = 72664, upload-time = "2026-06-17T19:47:26.915Z" },
+]
+
+[[package]]
 name = "resolvelib"
 version = "1.2.1"
 source = { registry = "https://pypi.org/simple" }
@@ -4663,6 +4676,7 @@ dependencies = [
     { name = "pysaml2" },
     { name = "python-slugify" },
     { name = "redis", extra = ["hiredis"] },
+    { name = "resend" },
     { name = "sentry-sdk" },
     { name = "sqlalchemy" },
     { name = "starlette" },
@@ -4744,6 +4758,7 @@ requires-dist = [
     { name = "pysaml2", specifier = "==7.5.0" },
     { name = "python-slugify", specifier = "==8.0.4" },
     { name = "redis", extras = ["hiredis"], specifier = "==7.1.0" },
+    { name = "resend", specifier = "==2.32.2" },
     { name = "sentry-sdk", specifier = "==2.24.1" },
     { name = "sqlalchemy", specifier = "==2.0.45" },
     { name = "starlette", specifier = "==1.3.1" },

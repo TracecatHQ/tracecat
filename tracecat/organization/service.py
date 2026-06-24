@@ -24,7 +24,11 @@ from tracecat.auth.users import (
     get_user_db_context,
     get_user_manager_context,
 )
-from tracecat.authz.controls import has_scope, require_scope
+from tracecat.authz.controls import (
+    can_manage_role_scopes,
+    has_unrestricted_scope,
+    require_scope,
+)
 from tracecat.db.models import (
     AccessToken,
     Group,
@@ -35,6 +39,8 @@ from tracecat.db.models import (
     Organization,
     OrganizationInvitation,
     OrganizationMembership,
+    RoleScope,
+    Scope,
     User,
     UserRoleAssignment,
     Workspace,
@@ -47,6 +53,11 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import OrganizationID, SessionID, UserID
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.types import (
+    MAX_BULK_INVITE_EMAILS,
+    BatchInviteItem,
+    BatchInviteStatus,
+)
 from tracecat.organization.management import (
     delete_organization_with_cleanup,
     validate_organization_delete_confirmation,
@@ -502,6 +513,32 @@ class OrgService(BaseOrgService):
 
     # === Manage invitations ===
 
+    async def _check_no_role_escalation(self, role_id: uuid.UUID) -> None:
+        """Prevent inviting with a role that grants more access than the inviter.
+
+        The target role's scopes must be a subset of the inviter's effective
+        scopes. Decided by scopes (not slugs) so custom roles are handled
+        correctly. Superusers and holders of the "*" scope bypass the check.
+
+        Raises:
+            TracecatAuthorizationError: If the target role grants any scope the
+                inviter does not hold.
+        """
+        # Skip the scope query entirely for unrestricted actors.
+        if has_unrestricted_scope(self.role):
+            return
+
+        result = await self.session.execute(
+            select(Scope.name)
+            .join(RoleScope, RoleScope.scope_id == Scope.id)
+            .where(RoleScope.role_id == role_id)
+        )
+        target_scopes = set(result.scalars().all())
+        if not can_manage_role_scopes(self.role, target_scopes):
+            raise TracecatAuthorizationError(
+                "Cannot invite with a role that grants more access than your own"
+            )
+
     @require_scope("org:member:invite")
     @audit_log(resource_type="organization_invitation", action="create")
     async def create_invitation(
@@ -524,6 +561,12 @@ class OrgService(BaseOrgService):
                 "User must be authenticated to create invitation"
             )
 
+        # Normalize so persisted emails are canonical (lowercased). The unique
+        # constraint on (email, organization_id) is case-sensitive, so storing
+        # only the canonical form prevents cross-case duplicate invitations
+        # between this path and the bulk upsert.
+        email = email.strip().lower()
+
         # Validate role_id exists and belongs to this organization
         role_result = await self.session.execute(
             select(DBRole).where(
@@ -535,15 +578,10 @@ class OrgService(BaseOrgService):
         if role_obj is None:
             raise TracecatValidationError("Invalid role ID for this organization")
 
-        # Prevent privilege escalation: only owners (via scope) or superusers
-        # can assign the organization-owner role
-        if role_obj.slug == "organization-owner":
-            if not self.role.is_superuser and not has_scope(
-                self.role.scopes or frozenset(), "org:owner:assign"
-            ):
-                raise TracecatAuthorizationError(
-                    "Only organization owners can create owner invitations"
-                )
+        # Prevent privilege escalation: the target role's scopes must be a
+        # subset of the inviter's own. This covers custom roles, not just the
+        # organization-owner slug.
+        await self._check_no_role_escalation(role_id)
 
         # Check if user with this email is already a member (case-insensitive)
         existing_member_stmt = (
@@ -599,6 +637,157 @@ class OrgService(BaseOrgService):
             .options(selectinload(OrganizationInvitation.role_obj))
         )
         return result.scalar_one()
+
+    @require_scope("org:member:invite")
+    async def batch_create_invitations(
+        self,
+        *,
+        emails: list[str],
+        role_id: uuid.UUID,
+    ) -> list[BatchInviteItem]:
+        """Create organization invitations for many emails in one batched upsert.
+
+        Emails are normalized (lowercased, stripped) and deduplicated. Existing
+        active members are skipped. The upsert refreshes only stale invitations
+        (revoked/accepted/expired); a live pending invitation is left untouched.
+
+        Args:
+            emails: Raw invitee emails (any case, possibly duplicated).
+            role_id: RBAC role to assign upon acceptance.
+
+        Returns:
+            One :class:`BatchInviteItem` per distinct email, in input order.
+
+        Raises:
+            TracecatAuthorizationError: If the caller may not assign the role.
+            TracecatValidationError: If the role is invalid for this org.
+        """
+        if self.role is None or self.role.user_id is None:
+            raise TracecatAuthorizationError(
+                "User must be authenticated to create invitations"
+            )
+
+        # Defensive bound for direct (non-route) callers; the request schema
+        # enforces the same limit at the API boundary.
+        if len(emails) > MAX_BULK_INVITE_EMAILS:
+            raise TracecatValidationError(
+                f"Cannot invite more than {MAX_BULK_INVITE_EMAILS} emails at once"
+            )
+
+        # Normalize + dedup (case-insensitive, order-preserving).
+        normalized = list(dict.fromkeys(e.strip().lower() for e in emails if e.strip()))
+        if not normalized:
+            return []
+
+        # Validate role belongs to this organization.
+        role_result = await self.session.execute(
+            select(DBRole).where(
+                DBRole.id == role_id,
+                DBRole.organization_id == self.organization_id,
+            )
+        )
+        role_obj = role_result.scalar_one_or_none()
+        if role_obj is None:
+            raise TracecatValidationError("Invalid role ID for this organization")
+
+        # Prevent privilege escalation: the target role's scopes must be a
+        # subset of the inviter's own. Applies to the whole request and covers
+        # custom roles, not just the organization-owner slug.
+        await self._check_no_role_escalation(role_id)
+
+        # Pre-filter existing active members (the one case the unique constraint
+        # on (email, organization_id) does not cover).
+        member_result = await self.session.execute(
+            select(func.lower(User.email))
+            .join(
+                OrganizationMembership,
+                OrganizationMembership.user_id == User.id,
+            )
+            .where(
+                OrganizationMembership.organization_id == self.organization_id,
+                func.lower(User.email).in_(normalized),
+            )
+        )
+        existing_members = set(member_result.scalars().all())
+
+        to_insert = [e for e in normalized if e not in existing_members]
+        now = datetime.now(UTC)
+        expires_at = now + timedelta(days=7)
+
+        upserted: dict[str, tuple[uuid.UUID, str]] = {}
+        if to_insert:
+            values = [
+                {
+                    "id": uuid.uuid4(),
+                    "organization_id": self.organization_id,
+                    "email": email,
+                    "role_id": role_id,
+                    "invited_by": self.role.user_id,
+                    "token": secrets.token_urlsafe(32),
+                    "status": InvitationStatus.PENDING,
+                    "expires_at": expires_at,
+                    "created_by_platform_admin": self.role.is_platform_superuser,
+                }
+                for email in to_insert
+            ]
+            stmt = (
+                pg_insert(OrganizationInvitation)
+                .values(values)
+                .on_conflict_do_update(
+                    index_elements=["email", "organization_id"],
+                    set_={
+                        "role_id": role_id,
+                        "invited_by": self.role.user_id,
+                        "token": pg_insert(OrganizationInvitation).excluded.token,
+                        "status": InvitationStatus.PENDING,
+                        "expires_at": expires_at,
+                        "accepted_at": None,
+                    },
+                    where=(
+                        (OrganizationInvitation.status != InvitationStatus.PENDING)
+                        | (OrganizationInvitation.expires_at <= now)
+                    ),
+                )
+                .returning(
+                    OrganizationInvitation.id,
+                    OrganizationInvitation.email,
+                    OrganizationInvitation.token,
+                )
+            )
+            result = await self.session.execute(stmt)
+            for inv_id, email, token in result.all():
+                upserted[email] = (inv_id, token)
+            await self.session.commit()
+
+        items: list[BatchInviteItem] = []
+        for email in normalized:
+            if email in existing_members:
+                items.append(
+                    BatchInviteItem(
+                        email=email,
+                        status=BatchInviteStatus.SKIPPED,
+                        reason="Already a member of this organization",
+                    )
+                )
+            elif email in upserted:
+                inv_id, token = upserted[email]
+                items.append(
+                    BatchInviteItem(
+                        email=email,
+                        status=BatchInviteStatus.CREATED,
+                        invitation_id=inv_id,
+                        token=token,
+                    )
+                )
+            else:
+                items.append(
+                    BatchInviteItem(
+                        email=email,
+                        status=BatchInviteStatus.SKIPPED,
+                        reason="A pending invitation already exists",
+                    )
+                )
+        return items
 
     async def list_invitations(
         self,
@@ -828,4 +1017,31 @@ class OrgService(BaseOrgService):
         invitation.status = InvitationStatus.REVOKED
         await self.session.commit()
         await self.session.refresh(invitation)
+        return invitation
+
+    async def get_organization_name(self) -> str:
+        """Return the current organization's name."""
+        result = await self.session.execute(
+            select(Organization.name).where(Organization.id == self.organization_id)
+        )
+        name = result.scalar_one_or_none()
+        if name is None:
+            raise TracecatNotFoundError("Organization not found")
+        return name
+
+    @require_scope("org:member:invite")
+    async def get_pending_invitation(
+        self, invitation_id: uuid.UUID
+    ) -> OrganizationInvitation:
+        """Get a pending invitation by ID (for re-sending the invite email).
+
+        Raises:
+            NoResultFound: If the invitation doesn't exist or belongs to another org.
+            TracecatAuthorizationError: If the invitation is not pending.
+        """
+        invitation = await self.get_invitation(invitation_id)
+        if invitation.status != InvitationStatus.PENDING:
+            raise TracecatAuthorizationError(
+                f"Cannot resend invitation with status '{invitation.status}'"
+            )
         return invitation

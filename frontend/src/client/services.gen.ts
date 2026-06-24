@@ -474,6 +474,8 @@ import type {
   OrganizationAcceptInvitationResponse,
   OrganizationCreateInvitationData,
   OrganizationCreateInvitationResponse,
+  OrganizationCreateInvitationsBulkData,
+  OrganizationCreateInvitationsBulkResponse,
   OrganizationDeleteOrganizationData,
   OrganizationDeleteOrganizationResponse,
   OrganizationDeleteOrgMemberData,
@@ -493,6 +495,8 @@ import type {
   OrganizationListOrganizationDomainsResponse,
   OrganizationListOrgMembersResponse,
   OrganizationListSessionsResponse,
+  OrganizationResendInvitationData,
+  OrganizationResendInvitationResponse,
   OrganizationRevokeInvitationData,
   OrganizationRevokeInvitationResponse,
   OrganizationSecretsCreateOrgSecretData,
@@ -878,9 +882,13 @@ import type {
   WorkflowsUpdateWorkflowResponse,
   WorkflowsValidateWorkflowEntrypointData,
   WorkflowsValidateWorkflowEntrypointResponse,
+  WorkspacesAcceptWorkspaceInvitationData,
+  WorkspacesAcceptWorkspaceInvitationResponse,
   WorkspacesCreateWorkspaceData,
   WorkspacesCreateWorkspaceInvitationData,
   WorkspacesCreateWorkspaceInvitationResponse,
+  WorkspacesCreateWorkspaceInvitationsBulkData,
+  WorkspacesCreateWorkspaceInvitationsBulkResponse,
   WorkspacesCreateWorkspaceMembershipData,
   WorkspacesCreateWorkspaceMembershipResponse,
   WorkspacesCreateWorkspaceResponse,
@@ -889,9 +897,14 @@ import type {
   WorkspacesDeleteWorkspaceMembershipResponse,
   WorkspacesDeleteWorkspaceResponse,
   WorkspacesGetWorkspaceData,
+  WorkspacesGetWorkspaceInvitationByTokenData,
+  WorkspacesGetWorkspaceInvitationByTokenResponse,
+  WorkspacesGetWorkspaceInvitationTokenData,
+  WorkspacesGetWorkspaceInvitationTokenResponse,
   WorkspacesGetWorkspaceMembershipData,
   WorkspacesGetWorkspaceMembershipResponse,
   WorkspacesGetWorkspaceResponse,
+  WorkspacesListMyPendingWorkspaceInvitationsResponse,
   WorkspacesListWorkspaceInvitationsData,
   WorkspacesListWorkspaceInvitationsResponse,
   WorkspacesListWorkspaceMembersData,
@@ -899,6 +912,8 @@ import type {
   WorkspacesListWorkspaceMembershipsResponse,
   WorkspacesListWorkspaceMembersResponse,
   WorkspacesListWorkspacesResponse,
+  WorkspacesResendWorkspaceInvitationData,
+  WorkspacesResendWorkspaceInvitationResponse,
   WorkspacesRevokeWorkspaceInvitationData,
   WorkspacesRevokeWorkspaceInvitationResponse,
   WorkspacesSearchWorkspacesData,
@@ -1223,6 +1238,77 @@ export const workspacesSearchWorkspaces = (
 }
 
 /**
+ * List My Pending Workspace Invitations
+ * List pending, unexpired workspace invitations for the current user.
+ *
+ * Matches by the authenticated user's email so a freshly signed-up user can
+ * discover invitations without the original token link. Mirrors the
+ * organization-level ``/invitations/pending/me`` endpoint.
+ * @returns WorkspacePendingInvitationRead Successful Response
+ * @throws ApiError
+ */
+export const workspacesListMyPendingWorkspaceInvitations =
+  (): CancelablePromise<WorkspacesListMyPendingWorkspaceInvitationsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/workspaces/invitations/pending/me",
+    })
+  }
+
+/**
+ * Get Workspace Invitation By Token
+ * Get minimal workspace invitation details by token (public endpoint).
+ *
+ * Returns workspace name and inviter info for the acceptance page. If the
+ * user is authenticated, also returns whether their email matches the invite.
+ * @param data The data for the request.
+ * @param data.token
+ * @returns WorkspaceInvitationReadMinimal Successful Response
+ * @throws ApiError
+ */
+export const workspacesGetWorkspaceInvitationByToken = (
+  data: WorkspacesGetWorkspaceInvitationByTokenData
+): CancelablePromise<WorkspacesGetWorkspaceInvitationByTokenResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/invitations/token/{token}",
+    path: {
+      token: data.token,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Accept Workspace Invitation
+ * Accept a workspace invitation and join the workspace.
+ *
+ * This endpoint does not require workspace context: the user may not belong
+ * to the workspace (or its organization) yet. Acceptance auto-creates the
+ * organization membership when needed. ``AuthenticatedUserOnly`` requires only
+ * an authenticated user (``role.organization_id`` may be None).
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns string Successful Response
+ * @throws ApiError
+ */
+export const workspacesAcceptWorkspaceInvitation = (
+  data: WorkspacesAcceptWorkspaceInvitationData
+): CancelablePromise<WorkspacesAcceptWorkspaceInvitationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/invitations/accept",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Get Workspace
  * Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs.
  * @param data The data for the request.
@@ -1296,7 +1382,10 @@ export const workspacesDeleteWorkspace = (
 
 /**
  * List Workspace Members
- * List members of a workspace.
+ * List active members of a workspace.
+ *
+ * Pending invitations are served separately by the invitations endpoint; the
+ * members table merges them in client-side for display.
  * @param data The data for the request.
  * @param data.workspaceId
  * @returns WorkspaceMember Successful Response
@@ -1496,6 +1585,87 @@ export const workspacesRevokeWorkspaceInvitation = (
   return __request(OpenAPI, {
     method: "DELETE",
     url: "/workspaces/{workspace_id}/invitations/{invitation_id}",
+    path: {
+      workspace_id: data.workspaceId,
+      invitation_id: data.invitationId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Workspace Invitations Bulk
+ * Create workspace invitations in bulk.
+ *
+ * Valid emails are invited; already-members and emails with a live pending
+ * invitation are skipped and reported per-email. When email is configured,
+ * invitation emails are sent (best-effort) for created invites; otherwise the
+ * admin shares the copy-paste invitation links.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkspaceInvitationBatchResult Successful Response
+ * @throws ApiError
+ */
+export const workspacesCreateWorkspaceInvitationsBulk = (
+  data: WorkspacesCreateWorkspaceInvitationsBulkData
+): CancelablePromise<WorkspacesCreateWorkspaceInvitationsBulkResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/invitations/bulk",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Workspace Invitation Token
+ * Get the token for a pending workspace invitation (copy-link flow).
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.invitationId
+ * @returns WorkspaceInvitationTokenRead Successful Response
+ * @throws ApiError
+ */
+export const workspacesGetWorkspaceInvitationToken = (
+  data: WorkspacesGetWorkspaceInvitationTokenData
+): CancelablePromise<WorkspacesGetWorkspaceInvitationTokenResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/invitations/{invitation_id}/token",
+    path: {
+      workspace_id: data.workspaceId,
+      invitation_id: data.invitationId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Resend Workspace Invitation
+ * Re-send the invitation email for a pending workspace invitation.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.invitationId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const workspacesResendWorkspaceInvitation = (
+  data: WorkspacesResendWorkspaceInvitationData
+): CancelablePromise<WorkspacesResendWorkspaceInvitationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/invitations/{invitation_id}/resend",
     path: {
       workspace_id: data.workspaceId,
       invitation_id: data.invitationId,
@@ -4242,6 +4412,56 @@ export const organizationListInvitations = (
     url: "/organization/invitations",
     query: {
       status: data.status,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Invitations Bulk
+ * Create organization invitations in bulk.
+ *
+ * Valid emails are invited; already-members and emails with a live pending
+ * invitation are skipped and reported per-email. When email is configured,
+ * invitation emails are sent (best-effort) for created invites; otherwise the
+ * admin shares the copy-paste invitation links.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns OrgInvitationBatchResult Successful Response
+ * @throws ApiError
+ */
+export const organizationCreateInvitationsBulk = (
+  data: OrganizationCreateInvitationsBulkData
+): CancelablePromise<OrganizationCreateInvitationsBulkResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/invitations/bulk",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Resend Invitation
+ * Re-send the invitation email for a pending organization invitation.
+ * @param data The data for the request.
+ * @param data.invitationId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const organizationResendInvitation = (
+  data: OrganizationResendInvitationData
+): CancelablePromise<OrganizationResendInvitationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/invitations/{invitation_id}/resend",
+    path: {
+      invitation_id: data.invitationId,
     },
     errors: {
       422: "Validation Error",

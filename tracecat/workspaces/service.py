@@ -8,12 +8,18 @@ from datetime import UTC, datetime, timedelta
 from pydantic import UUID4
 from sqlalchemy import bindparam, cast, func, select, update
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import load_only, noload, selectinload
 
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
-from tracecat.authz.controls import has_scope, require_scope
+from tracecat.authz.controls import (
+    can_manage_role_scopes,
+    has_scope,
+    has_unrestricted_scope,
+    require_scope,
+)
 from tracecat.authz.enums import OwnerType
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.authz.service import MembershipService
@@ -23,6 +29,8 @@ from tracecat.db.models import (
     Membership,
     OrganizationMembership,
     Ownership,
+    RoleScope,
+    Scope,
     User,
     UserRoleAssignment,
     Workspace,
@@ -39,6 +47,11 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import InvitationID, UserID, WorkspaceID
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.types import (
+    MAX_BULK_INVITE_EMAILS,
+    BatchInviteItem,
+    BatchInviteStatus,
+)
 from tracecat.service import BaseOrgService
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 from tracecat.workspaces.schemas import (
@@ -289,6 +302,32 @@ class WorkspaceService(BaseOrgService):
 
     # === Invitation Management === #
 
+    async def _check_no_role_escalation(self, role_id: uuid.UUID) -> None:
+        """Prevent inviting with a role that grants more access than the inviter.
+
+        The target role's scopes must be a subset of the inviter's effective
+        scopes. Decided by scopes (not slugs) so custom roles are handled
+        correctly. Superusers and holders of the "*" scope bypass the check.
+
+        Raises:
+            TracecatAuthorizationError: If the target role grants any scope the
+                inviter does not hold.
+        """
+        # Skip the scope query entirely for unrestricted actors.
+        if has_unrestricted_scope(self.role):
+            return
+
+        result = await self.session.execute(
+            select(Scope.name)
+            .join(RoleScope, RoleScope.scope_id == Scope.id)
+            .where(RoleScope.role_id == role_id)
+        )
+        target_scopes = set(result.scalars().all())
+        if not can_manage_role_scopes(self.role, target_scopes):
+            raise TracecatAuthorizationError(
+                "Cannot invite with a role that grants more access than your own"
+            )
+
     @staticmethod
     def _generate_invitation_token() -> str:
         """Generate a unique 64-character token for invitation magic links."""
@@ -320,6 +359,12 @@ class WorkspaceService(BaseOrgService):
         except ValueError as e:
             raise TracecatValidationError("Invalid role ID format") from e
 
+        # Normalize so persisted emails are canonical (lowercased). The unique
+        # constraint on (workspace_id, email) is case-sensitive, so storing only
+        # the canonical form prevents cross-case duplicate invitations between
+        # this path and the bulk upsert.
+        email = params.email.strip().lower()
+
         # Validate role_id exists and belongs to this organization
         role_result = await self.session.execute(
             select(DBRole).where(
@@ -331,18 +376,22 @@ class WorkspaceService(BaseOrgService):
         if role_obj is None:
             raise TracecatValidationError("Invalid role ID for this organization")
 
+        # Prevent privilege escalation: cannot invite at a role granting more
+        # access than the inviter holds.
+        await self._check_no_role_escalation(role_id)
+
         # Check for existing pending invitation that hasn't expired
         now = datetime.now(UTC)
         existing_stmt = select(Invitation).where(
             Invitation.workspace_id == workspace_id,
-            Invitation.email == params.email,
+            Invitation.email == email,
             Invitation.status == InvitationStatus.PENDING,
             Invitation.expires_at > now,
         )
         existing = await self.session.execute(existing_stmt)
         if existing.scalar_one_or_none():
             raise TracecatValidationError(
-                f"A pending invitation already exists for {params.email}"
+                f"A pending invitation already exists for {email}"
             )
 
         # Default expiry: 7 days
@@ -350,7 +399,7 @@ class WorkspaceService(BaseOrgService):
 
         invitation = Invitation(
             workspace_id=workspace_id,
-            email=params.email,
+            email=email,
             role_id=role_id,
             status=InvitationStatus.PENDING,
             invited_by=self.role.user_id if self.role else None,
@@ -367,7 +416,7 @@ class WorkspaceService(BaseOrgService):
                 # Check if the existing invitation is expired - if so, delete and retry
                 existing_stmt = select(Invitation).where(
                     Invitation.workspace_id == workspace_id,
-                    Invitation.email == params.email,
+                    Invitation.email == email,
                 )
                 result = await self.session.execute(existing_stmt)
                 existing_invitation = result.scalar_one_or_none()
@@ -380,7 +429,7 @@ class WorkspaceService(BaseOrgService):
                     return await self.create_invitation(workspace_id, params)
 
                 raise TracecatValidationError(
-                    f"An invitation already exists for {params.email} in this workspace"
+                    f"An invitation already exists for {email} in this workspace"
                 ) from e
             raise
 
@@ -391,6 +440,152 @@ class WorkspaceService(BaseOrgService):
             .options(selectinload(Invitation.role_obj))
         )
         return result.scalar_one()
+
+    @require_scope("workspace:member:invite")
+    async def batch_create_invitations(
+        self,
+        workspace_id: WorkspaceID,
+        *,
+        emails: list[str],
+        role_id: str,
+    ) -> list[BatchInviteItem]:
+        """Create workspace invitations for many emails in one batched upsert.
+
+        Emails are normalized (lowercased, stripped) and deduplicated. Existing
+        workspace members are skipped. The upsert refreshes only stale
+        invitations (revoked/accepted/expired); a live pending invitation is
+        left untouched.
+
+        Args:
+            workspace_id: The workspace to invite users to.
+            emails: Raw invitee emails (any case, possibly duplicated).
+            role_id: RBAC role to assign upon acceptance.
+
+        Returns:
+            One :class:`BatchInviteItem` per distinct email, in input order.
+
+        Raises:
+            TracecatValidationError: If the role ID is invalid for this org.
+        """
+        if self.role is None:
+            raise TracecatAuthorizationError("A role is required to create invitations")
+
+        try:
+            role_uuid = uuid.UUID(role_id)
+        except ValueError as e:
+            raise TracecatValidationError("Invalid role ID format") from e
+
+        # Defensive bound for direct (non-route) callers; the request schema
+        # enforces the same limit at the API boundary.
+        if len(emails) > MAX_BULK_INVITE_EMAILS:
+            raise TracecatValidationError(
+                f"Cannot invite more than {MAX_BULK_INVITE_EMAILS} emails at once"
+            )
+
+        # Normalize + dedup (case-insensitive, order-preserving).
+        normalized = list(dict.fromkeys(e.strip().lower() for e in emails if e.strip()))
+        if not normalized:
+            return []
+
+        # Validate role belongs to this organization.
+        role_result = await self.session.execute(
+            select(DBRole).where(
+                DBRole.id == role_uuid,
+                DBRole.organization_id == self.organization_id,
+            )
+        )
+        if role_result.scalar_one_or_none() is None:
+            raise TracecatValidationError("Invalid role ID for this organization")
+
+        # Prevent privilege escalation: cannot invite at a role granting more
+        # access than the inviter holds. Applies to the whole request.
+        await self._check_no_role_escalation(role_uuid)
+
+        # Pre-filter existing workspace members (not covered by the
+        # (workspace_id, email) unique constraint on invitations).
+        member_result = await self.session.execute(
+            select(func.lower(User.email))
+            .join(Membership, Membership.user_id == User.id)
+            .where(
+                Membership.workspace_id == workspace_id,
+                func.lower(User.email).in_(normalized),
+            )
+        )
+        existing_members = set(member_result.scalars().all())
+
+        to_insert = [e for e in normalized if e not in existing_members]
+        now = datetime.now(UTC)
+        expires_at = now + timedelta(days=7)
+
+        upserted: dict[str, tuple[uuid.UUID, str]] = {}
+        if to_insert:
+            values = [
+                {
+                    "id": uuid.uuid4(),
+                    "workspace_id": workspace_id,
+                    "email": email,
+                    "role_id": role_uuid,
+                    "invited_by": self.role.user_id,
+                    "token": self._generate_invitation_token(),
+                    "status": InvitationStatus.PENDING,
+                    "expires_at": expires_at,
+                }
+                for email in to_insert
+            ]
+            stmt = (
+                pg_insert(Invitation)
+                .values(values)
+                .on_conflict_do_update(
+                    index_elements=["workspace_id", "email"],
+                    set_={
+                        "role_id": role_uuid,
+                        "invited_by": self.role.user_id,
+                        "token": pg_insert(Invitation).excluded.token,
+                        "status": InvitationStatus.PENDING,
+                        "expires_at": expires_at,
+                        "accepted_at": None,
+                    },
+                    where=(
+                        (Invitation.status != InvitationStatus.PENDING)
+                        | (Invitation.expires_at <= now)
+                    ),
+                )
+                .returning(Invitation.id, Invitation.email, Invitation.token)
+            )
+            result = await self.session.execute(stmt)
+            for inv_id, email, token in result.all():
+                upserted[email] = (inv_id, token)
+            await self.session.commit()
+
+        items: list[BatchInviteItem] = []
+        for email in normalized:
+            if email in existing_members:
+                items.append(
+                    BatchInviteItem(
+                        email=email,
+                        status=BatchInviteStatus.SKIPPED,
+                        reason="Already a member of this workspace",
+                    )
+                )
+            elif email in upserted:
+                inv_id, token = upserted[email]
+                items.append(
+                    BatchInviteItem(
+                        email=email,
+                        status=BatchInviteStatus.CREATED,
+                        invitation_id=inv_id,
+                        token=token,
+                    )
+                )
+            else:
+                items.append(
+                    BatchInviteItem(
+                        email=email,
+                        status=BatchInviteStatus.SKIPPED,
+                        reason="A pending invitation already exists",
+                    )
+                )
+        return items
 
     async def list_invitations(
         self,
@@ -609,3 +804,65 @@ class WorkspaceService(BaseOrgService):
 
         invitation.status = InvitationStatus.REVOKED
         await self.session.commit()
+
+    @require_scope("workspace:member:invite")
+    async def get_invitation_token(
+        self,
+        workspace_id: WorkspaceID,
+        invitation_id: InvitationID,
+    ) -> str:
+        """Return the token for a pending workspace invitation (copy-link flow).
+
+        Raises:
+            TracecatNotFoundError: If the invitation is not found.
+            TracecatAuthorizationError: If the invitation is not pending.
+        """
+        statement = select(Invitation).where(
+            Invitation.id == invitation_id,
+            Invitation.workspace_id == workspace_id,
+        )
+        result = await self.session.execute(statement)
+        invitation = result.scalar_one_or_none()
+        if invitation is None:
+            raise TracecatNotFoundError("Invitation not found")
+        if invitation.status != InvitationStatus.PENDING:
+            raise TracecatAuthorizationError(
+                f"Cannot get token for invitation with status '{invitation.status}'"
+            )
+        return invitation.token
+
+    @require_scope("workspace:member:invite")
+    async def get_pending_invitation(
+        self,
+        workspace_id: WorkspaceID,
+        invitation_id: InvitationID,
+    ) -> Invitation:
+        """Get a pending workspace invitation (for re-sending the invite email).
+
+        Raises:
+            TracecatNotFoundError: If the invitation is not found.
+            TracecatAuthorizationError: If the invitation is not pending.
+        """
+        statement = select(Invitation).where(
+            Invitation.id == invitation_id,
+            Invitation.workspace_id == workspace_id,
+        )
+        result = await self.session.execute(statement)
+        invitation = result.scalar_one_or_none()
+        if invitation is None:
+            raise TracecatNotFoundError("Invitation not found")
+        if invitation.status != InvitationStatus.PENDING:
+            raise TracecatAuthorizationError(
+                f"Cannot resend invitation with status '{invitation.status}'"
+            )
+        return invitation
+
+    async def get_workspace_name(self, workspace_id: WorkspaceID) -> str:
+        """Return a workspace's name."""
+        result = await self.session.execute(
+            select(Workspace.name).where(Workspace.id == workspace_id)
+        )
+        name = result.scalar_one_or_none()
+        if name is None:
+            raise TracecatNotFoundError("Workspace not found")
+        return name

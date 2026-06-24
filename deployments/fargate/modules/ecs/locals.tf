@@ -94,6 +94,7 @@ locals {
         TRACECAT__AUTH_ALLOWED_DOMAINS             = var.auth_allowed_domains
         TRACECAT__AUTH_MIN_PASSWORD_LENGTH         = var.auth_min_password_length
         TRACECAT__AUTH_SUPERADMIN_EMAIL            = var.auth_superadmin_email
+        TRACECAT__RESEND_FROM_EMAIL                = var.resend_from_email
         TRACECAT__DB_ENDPOINT                      = local.core_db_hostname
         OIDC_ISSUER                                = var.oidc_issuer
         OIDC_SCOPES                                = var.oidc_scopes
