@@ -6,6 +6,7 @@ from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import (
+    ScopeDeniedError,
     TracecatCredentialsNotFoundError,
     TracecatNotFoundError,
     TracecatSettingsError,
@@ -327,6 +328,8 @@ async def pull_workflows(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
+    except ScopeDeniedError:
+        raise
     except Exception as e:
         logger.error(
             "Error pulling workflows from repository",

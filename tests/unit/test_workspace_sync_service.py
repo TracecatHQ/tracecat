@@ -482,6 +482,112 @@ async def test_preview_export_requires_scopes_for_projected_sensitive_metadata()
 
 
 @pytest.mark.anyio
+async def test_pull_dry_run_requires_read_scopes_for_incoming_resources() -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"workflow:update", "workflow:sync"}),
+    )
+    service = WorkspaceSyncService(session=AsyncMock(), role=role)
+    incoming_spec = WorkspaceSpec(
+        variables={
+            "default/api_token": VariableResourceSpec(
+                id="default/api_token",
+                name="api_token",
+                environment="default",
+            )
+        },
+        secret_metadata={
+            "default/vendor_api": SecretMetadataResourceSpec(
+                id="default/vendor_api",
+                name="vendor_api",
+                environment="default",
+                keys=["TOKEN"],
+            )
+        },
+    )
+    transport = AsyncMock()
+    transport.read_files.return_value = VcsTreeSnapshot(
+        commit_sha="a" * 40,
+        tree_sha="tree-sha",
+        files=service._files_from_spec(
+            manifest=WorkspaceManifest(),
+            spec=incoming_spec,
+        ),
+    )
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="tracecat", repo="sync")
+    )
+    service.project_workspace = AsyncMock()
+
+    with (
+        patch(
+            "tracecat.workspace_sync.service.vcs_transport_for_provider",
+            return_value=transport,
+        ),
+        pytest.raises(ScopeDeniedError) as exc_info,
+    ):
+        await service.pull(options=PullOptions(commit_sha="a" * 40, dry_run=True))
+
+    assert set(exc_info.value.missing_scopes) == {"secret:read", "variable:read"}
+    service.project_workspace.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_pull_apply_requires_update_scopes_for_incoming_resources() -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"workflow:update", "workflow:sync"}),
+    )
+    service = WorkspaceSyncService(session=AsyncMock(), role=role)
+    incoming_spec = WorkspaceSpec(
+        variables={
+            "default/api_token": VariableResourceSpec(
+                id="default/api_token",
+                name="api_token",
+                environment="default",
+            )
+        },
+        secret_metadata={
+            "default/vendor_api": SecretMetadataResourceSpec(
+                id="default/vendor_api",
+                name="vendor_api",
+                environment="default",
+                keys=["TOKEN"],
+            )
+        },
+    )
+    transport = AsyncMock()
+    transport.read_files.return_value = VcsTreeSnapshot(
+        commit_sha="a" * 40,
+        tree_sha="tree-sha",
+        files=service._files_from_spec(
+            manifest=WorkspaceManifest(),
+            spec=incoming_spec,
+        ),
+    )
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="tracecat", repo="sync")
+    )
+
+    with (
+        patch(
+            "tracecat.workspace_sync.service.vcs_transport_for_provider",
+            return_value=transport,
+        ),
+        pytest.raises(ScopeDeniedError) as exc_info,
+    ):
+        await service.pull(options=PullOptions(commit_sha="a" * 40))
+
+    assert set(exc_info.value.missing_scopes) == {"secret:update", "variable:update"}
+
+
+@pytest.mark.anyio
 async def test_selected_workflow_export_includes_workflow_id_children(
     workspace_sync_service: WorkspaceSyncService,
     sample_dsl: DSLInput,

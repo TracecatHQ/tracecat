@@ -112,6 +112,19 @@ _EXPORT_READ_SCOPES_BY_RESOURCE_TYPE: dict[SyncResourceType, str] = {
 }
 """Read scope each non-workflow resource type requires before it can be exported."""
 
+_PULL_UPDATE_SCOPES_BY_RESOURCE_TYPE: dict[SyncResourceType, str] = {
+    SyncResourceType.AGENT_PRESET: "agent:update",
+    SyncResourceType.SKILL: "agent:update",
+    SyncResourceType.TABLE: "table:update",
+    SyncResourceType.CASE_TAG: "case:update",
+    SyncResourceType.CASE_FIELD: "case:update",
+    SyncResourceType.CASE_DROPDOWN: "case:update",
+    SyncResourceType.CASE_DURATION: "case:update",
+    SyncResourceType.VARIABLE: "variable:update",
+    SyncResourceType.SECRET_METADATA: "secret:update",
+}
+"""Update scope each non-workflow resource type requires before pull can write it."""
+
 
 @dataclass(frozen=True, slots=True)
 class ProjectableWorkflowClosure:
@@ -313,6 +326,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
                 message=f"Failed to validate workspace spec: {len(diagnostics)} issue(s)",
                 resource_counts=resource_counts,
             )
+        self._require_pull_scopes(snapshot.spec, dry_run=options.dry_run)
         # A dry run previews the diff and validates workflows but never writes.
         if options.dry_run:
             resource_diffs = await self._resource_diffs_for_pull(
@@ -555,6 +569,25 @@ class WorkspaceSyncService(BaseWorkspaceService):
         scope implied by the resource types present in ``spec``.
         """
         required_scopes = sorted(_export_read_scopes_for_spec(spec))
+        if not required_scopes:
+            return
+
+        if self.role is None or self.role.scopes is None:
+            raise ScopeDeniedError(
+                required_scopes=required_scopes,
+                missing_scopes=required_scopes,
+            )
+
+        missing = sorted(get_missing_scopes(self.role.scopes, set(required_scopes)))
+        if missing:
+            raise ScopeDeniedError(
+                required_scopes=required_scopes,
+                missing_scopes=missing,
+            )
+
+    def _require_pull_scopes(self, spec: WorkspaceSpec, *, dry_run: bool) -> None:
+        """Enforce scopes required by non-workflow resources in a parsed pull spec."""
+        required_scopes = sorted(_pull_scopes_for_spec(spec, dry_run=dry_run))
         if not required_scopes:
             return
 
@@ -1523,6 +1556,20 @@ def _export_read_scopes_for_spec(spec: WorkspaceSpec) -> set[str]:
         if adapter.specs(spec) and (
             scope := _EXPORT_READ_SCOPES_BY_RESOURCE_TYPE.get(adapter.resource_type)
         ):
+            scopes.add(scope)
+    return scopes
+
+
+def _pull_scopes_for_spec(spec: WorkspaceSpec, *, dry_run: bool) -> set[str]:
+    """Collect non-workflow scopes required by a pull spec."""
+    scopes: set[str] = set()
+    scopes_by_type = (
+        _EXPORT_READ_SCOPES_BY_RESOURCE_TYPE
+        if dry_run
+        else _PULL_UPDATE_SCOPES_BY_RESOURCE_TYPE
+    )
+    for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
+        if adapter.specs(spec) and (scope := scopes_by_type.get(adapter.resource_type)):
             scopes.add(scope)
     return scopes
 
