@@ -586,6 +586,23 @@ class SecretMetadataResourceSpec(BaseModel):
         return data
 
 
+# Resource-map fields on :class:`WorkspaceSpec`, paired with their sync resource
+# type and human label. Single source of truth for the validator and counter
+# below, so adding a resource type means editing this table plus the field.
+_RESOURCE_FIELDS: tuple[tuple[SyncResourceType, str, str], ...] = (
+    (SyncResourceType.WORKFLOW, "workflows", "Workflow"),
+    (SyncResourceType.AGENT_PRESET, "agent_presets", "Agent preset"),
+    (SyncResourceType.SKILL, "skills", "Skill"),
+    (SyncResourceType.TABLE, "tables", "Table"),
+    (SyncResourceType.CASE_TAG, "case_tags", "Case tag"),
+    (SyncResourceType.CASE_FIELD, "case_fields", "Case field"),
+    (SyncResourceType.CASE_DROPDOWN, "case_dropdowns", "Case dropdown"),
+    (SyncResourceType.CASE_DURATION, "case_durations", "Case duration"),
+    (SyncResourceType.VARIABLE, "variables", "Variable"),
+    (SyncResourceType.SECRET_METADATA, "secret_metadata", "Secret metadata"),
+)
+
+
 class WorkspaceSpec(BaseModel):
     """Full Git-owned desired state for a workspace across all resource types.
 
@@ -628,42 +645,20 @@ class WorkspaceSpec(BaseModel):
     @model_validator(mode="after")
     def validate_resource_keys(self) -> WorkspaceSpec:
         """Require each map key to equal the ``id`` of the spec it points to."""
-        resources: tuple[tuple[str, dict[str, Any]], ...] = (
-            ("Workflow", self.workflows),
-            ("Agent preset", self.agent_presets),
-            ("Skill", self.skills),
-            ("Table", self.tables),
-            ("Case tag", self.case_tags),
-            ("Case field", self.case_fields),
-            ("Case dropdown", self.case_dropdowns),
-            ("Case duration", self.case_durations),
-            ("Variable", self.variables),
-            ("Secret metadata", self.secret_metadata),
-        )
-        for resource_label, specs in resources:
-            for source_id, spec in specs.items():
-                spec_id = spec.id
-                if source_id == spec_id:
-                    continue
-                raise ValueError(
-                    f"{resource_label} map key {source_id!r} does not match "
-                    f"spec id {spec_id!r}"
-                )
+        for _resource_type, attr, label in _RESOURCE_FIELDS:
+            for source_id, spec in getattr(self, attr).items():
+                if source_id != spec.id:
+                    raise ValueError(
+                        f"{label} map key {source_id!r} does not match "
+                        f"spec id {spec.id!r}"
+                    )
         return self
 
     def resource_count_map(self) -> dict[str, int]:
         """Count specs per resource type, keyed by :class:`SyncResourceType` value."""
         return {
-            SyncResourceType.WORKFLOW.value: len(self.workflows),
-            SyncResourceType.AGENT_PRESET.value: len(self.agent_presets),
-            SyncResourceType.SKILL.value: len(self.skills),
-            SyncResourceType.TABLE.value: len(self.tables),
-            SyncResourceType.CASE_TAG.value: len(self.case_tags),
-            SyncResourceType.CASE_FIELD.value: len(self.case_fields),
-            SyncResourceType.CASE_DROPDOWN.value: len(self.case_dropdowns),
-            SyncResourceType.CASE_DURATION.value: len(self.case_durations),
-            SyncResourceType.VARIABLE.value: len(self.variables),
-            SyncResourceType.SECRET_METADATA.value: len(self.secret_metadata),
+            resource_type.value: len(getattr(self, attr))
+            for resource_type, attr, _label in _RESOURCE_FIELDS
         }
 
 

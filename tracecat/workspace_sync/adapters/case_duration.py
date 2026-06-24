@@ -14,7 +14,6 @@ from tracecat.workspace_sync.adapters.base import (
     ProjectedResource,
     ResourceProjection,
     SingleYamlAdapter,
-    unique_source_id,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
@@ -49,19 +48,11 @@ class CaseDurationAdapter(SingleYamlAdapter):
         durations = list(
             (await workspace_service.session.execute(stmt)).scalars().all()
         )
-        # Existing mappings let us keep stable source ids across re-projections.
-        source_ids_by_local_id = await self.source_ids_by_local_id(workspace_service)
+        assigner = await self.source_id_assigner(workspace_service)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
-        # Seed the reserved set with already-assigned ids so fresh ones avoid them.
-        reserved: set[str] = set(source_ids_by_local_id.values())
         for duration in durations:
-            source_id = source_ids_by_local_id.get(duration.id)
-            if source_id is None:
-                # Unmapped duration: slugify its name into a fresh, collision-free id.
-                source_id = unique_source_id(duration.name, reserved=reserved)
-            # Reserve this id so later durations in the loop don't reuse it.
-            reserved.add(source_id)
+            source_id = assigner.assign(duration.id, duration.name)
             # Each duration carries both its start and end anchors as nested specs.
             specs[source_id] = CaseDurationResourceSpec(
                 id=source_id,
@@ -169,17 +160,8 @@ class CaseDurationAdapter(SingleYamlAdapter):
         source_id: str,
     ) -> CaseDurationDefinition | None:
         """Load the duration mapped to ``source_id`` via the sync mapping, if any."""
-        # Resolve the source id to a local row id through the stored mapping.
-        local_id = await self.local_id_for_source_id(workspace_service, source_id)
-        if local_id is None:
-            # No mapping recorded for this source id yet.
-            return None
-
-        return await workspace_service.session.scalar(
-            select(CaseDurationDefinition).where(
-                CaseDurationDefinition.workspace_id == workspace_service.workspace_id,
-                CaseDurationDefinition.id == local_id,
-            )
+        return await self._row_by_source_id(
+            workspace_service, source_id=source_id, model=CaseDurationDefinition
         )
 
     async def _ensure_name_available(

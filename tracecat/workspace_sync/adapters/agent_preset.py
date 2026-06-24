@@ -32,7 +32,6 @@ from tracecat.workspace_sync.adapters.base import (
     ProjectedResource,
     ResourceDependencyRefs,
     ResourceProjection,
-    unique_source_id,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
@@ -133,18 +132,11 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         presets: list[AgentPreset],
     ) -> ResourceProjection:
         """Build sync specs from eager-loaded preset rows."""
-        source_ids_by_local_id = await self.source_ids_by_local_id(workspace_service)
+        assigner = await self.source_id_assigner(workspace_service)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
-        # Seed reserved ids with existing mappings so new ids never collide.
-        reserved: set[str] = set(source_ids_by_local_id.values())
         for preset in presets:
-            # Reuse the preset's mapped source id when it already has one;
-            # otherwise mint a fresh, collision-free id from its slug.
-            source_id = source_ids_by_local_id.get(preset.id)
-            if source_id is None:
-                source_id = unique_source_id(preset.slug, reserved=reserved)
-            reserved.add(source_id)
+            source_id = assigner.assign(preset.id, preset.slug)
             # Serialize skill bindings as stable (slug, version) pairs, skipping
             # any binding whose skill or version row failed to load.
             skill_bindings = [
@@ -413,17 +405,11 @@ class AgentPresetAdapter(CompoundYamlAdapter):
         source_id: str,
     ) -> AgentPreset | None:
         """Load the preset mapped to ``source_id`` via the sync mapping, if any."""
-        local_id = await self.local_id_for_source_id(workspace_service, source_id)
-        if local_id is None:
-            return None
-
-        return await workspace_service.session.scalar(
-            select(AgentPreset)
-            .where(
-                AgentPreset.workspace_id == workspace_service.workspace_id,
-                AgentPreset.id == local_id,
-            )
-            .options(selectinload(AgentPreset.tags))
+        return await self._row_by_source_id(
+            workspace_service,
+            source_id=source_id,
+            model=AgentPreset,
+            options=(selectinload(AgentPreset.tags),),
         )
 
     async def _ensure_slug_available(

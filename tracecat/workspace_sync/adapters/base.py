@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 import uuid
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Literal, cast
 
@@ -105,6 +105,40 @@ class ResourceDependencyRefs:
     """Name references such as table names or environment-agnostic variable names."""
     environment_names: set[tuple[str, str]] = field(default_factory=set)
     """Environment-qualified ``(environment, name)`` references."""
+
+
+@dataclass(slots=True)
+class _SourceIdAssigner:
+    """Assigns projection source ids: reuse the mapped id, or mint a fresh one.
+
+    ``reserved`` accumulates every id handed out so a freshly minted id never
+    collides with an existing mapping or another row in the same projection.
+    """
+
+    mapped: dict[uuid.UUID, str]
+    """Existing ``local_id`` -> ``source_id`` sync mappings."""
+    reserved: set[str]
+    """Source ids already taken; updated in place as ids are assigned."""
+
+    def assign(self, local_id: uuid.UUID, name: str) -> str:
+        """Reuse ``local_id``'s mapped source id, or mint one from ``name``."""
+        source_id = self.mapped.get(local_id)
+        if source_id is None:
+            source_id = unique_source_id(name, reserved=self.reserved)
+        self.reserved.add(source_id)
+        return source_id
+
+    def assign_environment(
+        self, local_id: uuid.UUID, environment: str, name: str
+    ) -> str:
+        """Like :meth:`assign`, but mint an ``<environment>/<name>`` source id."""
+        source_id = self.mapped.get(local_id)
+        if source_id is None:
+            source_id = unique_environment_source_id(
+                environment, name, reserved=self.reserved
+            )
+        self.reserved.add(source_id)
+        return source_id
 
 
 class ResourceAdapter(ABC):
@@ -325,6 +359,42 @@ class ResourceAdapter(ABC):
             WorkspaceSyncResourceMapping.source_id.in_(source_id_values),
         )
         return dict((await workspace_service.session.execute(stmt)).tuples().all())
+
+    async def source_id_assigner(
+        self, workspace_service: BaseWorkspaceService
+    ) -> _SourceIdAssigner:
+        """Build a :class:`_SourceIdAssigner` seeded with this type's mappings.
+
+        Reuses each row's already-assigned source id during projection and mints
+        fresh, collision-free ids for unmapped rows.
+        """
+        mapped = await self.source_ids_by_local_id(workspace_service)
+        return _SourceIdAssigner(mapped=mapped, reserved=set(mapped.values()))
+
+    async def _row_by_source_id(
+        self,
+        workspace_service: BaseWorkspaceService,
+        *,
+        source_id: str,
+        model: type[Any],
+        options: Sequence[Any] = (),
+    ) -> Any:
+        """Load the ``model`` row mapped to ``source_id``, or ``None`` if unmapped.
+
+        Resolves the sync mapping to a local id, then loads that workspace-scoped
+        row. ``options`` carries loader options such as ``selectinload`` for
+        adapters that need eager-loaded relationships.
+        """
+        local_id = await self.local_id_for_source_id(workspace_service, source_id)
+        if local_id is None:
+            return None
+        stmt = select(model).where(
+            model.workspace_id == workspace_service.workspace_id,
+            model.id == local_id,
+        )
+        if options:
+            stmt = stmt.options(*options)
+        return await workspace_service.session.scalar(stmt)
 
 
 class CompoundYamlAdapter(ResourceAdapter):

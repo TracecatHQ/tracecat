@@ -19,7 +19,6 @@ from tracecat.workspace_sync.adapters.base import (
     ProjectedResource,
     ResourceDependencyRefs,
     ResourceProjection,
-    unique_environment_source_id,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
@@ -117,23 +116,13 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
         secret_service = SecretsService(
             session=workspace_service.session, role=workspace_service.role
         )
-        source_ids_by_local_id = await self.source_ids_by_local_id(workspace_service)
+        assigner = await self.source_id_assigner(workspace_service)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
-        # Seed the reserved set with already-mapped source ids so freshly minted
-        # ids below never collide with an existing mapping.
-        reserved: set[str] = set(source_ids_by_local_id.values())
         for secret in secrets:
-            # Reuse the sync mapping's source id when one exists; otherwise mint
-            # a stable, collision-free id from the (environment, name) pair.
-            source_id = source_ids_by_local_id.get(secret.id)
-            if source_id is None:
-                source_id = unique_environment_source_id(
-                    secret.environment,
-                    secret.name,
-                    reserved=reserved,
-                )
-            reserved.add(source_id)
+            source_id = assigner.assign_environment(
+                secret.id, secret.environment, secret.name
+            )
             # Decrypt only to read the key NAMES; secret values are never read
             # back out or serialized into the projected spec.
             keys = sorted(
@@ -265,17 +254,8 @@ class SecretMetadataAdapter(EnvironmentYamlAdapter):
         source_id: str,
     ) -> Secret | None:
         """Load the secret mapped to ``source_id`` via the sync mapping, if any."""
-        # No mapping recorded for this source id yet.
-        local_id = await self.local_id_for_source_id(workspace_service, source_id)
-        if local_id is None:
-            return None
-
-        # Re-load the row by local id, scoped to this workspace.
-        return await workspace_service.session.scalar(
-            select(Secret).where(
-                Secret.workspace_id == workspace_service.workspace_id,
-                Secret.id == local_id,
-            )
+        return await self._row_by_source_id(
+            workspace_service, source_id=source_id, model=Secret
         )
 
     async def _ensure_name_environment_available(

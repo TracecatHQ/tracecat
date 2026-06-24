@@ -32,7 +32,6 @@ from tracecat.workspace_sync.adapters.base import (
     ResourceDependencyRefs,
     ResourceProjection,
     path_parts,
-    unique_source_id,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
@@ -233,19 +232,11 @@ class SkillAdapter(CompoundYamlAdapter):
         skills: list[Skill],
     ) -> ResourceProjection:
         """Build sync specs from eager-loaded skill rows."""
-        source_ids_by_local_id = await self.source_ids_by_local_id(workspace_service)
+        assigner = await self.source_id_assigner(workspace_service)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
-        # Seed reserved ids with every existing mapping so freshly minted ids
-        # never collide with one already pinned to another skill.
-        reserved: set[str] = set(source_ids_by_local_id.values())
         for skill in skills:
-            # Reuse the mapped source id when present; otherwise derive a fresh
-            # collision-free id from the slug.
-            source_id = source_ids_by_local_id.get(skill.id)
-            if source_id is None:
-                source_id = unique_source_id(skill.name, reserved=reserved)
-            reserved.add(source_id)
+            source_id = assigner.assign(skill.id, skill.name)
             # Project only the current version's files; older versions are not
             # synced to Git.
             version = skill.current_version
@@ -475,17 +466,8 @@ class SkillAdapter(CompoundYamlAdapter):
         source_id: str,
     ) -> Skill | None:
         """Load the skill mapped to ``source_id`` via the sync mapping, if any."""
-        # Resolve the local skill id from the sync mapping; absent means this
-        # source id has never been imported here.
-        local_id = await self.local_id_for_source_id(workspace_service, source_id)
-        if local_id is None:
-            return None
-
-        return await workspace_service.session.scalar(
-            select(Skill).where(
-                Skill.workspace_id == workspace_service.workspace_id,
-                Skill.id == local_id,
-            )
+        return await self._row_by_source_id(
+            workspace_service, source_id=source_id, model=Skill
         )
 
     async def _ensure_slug_available(

@@ -17,7 +17,6 @@ from tracecat.workspace_sync.adapters.base import (
     ProjectedResource,
     ResourceProjection,
     SingleYamlAdapter,
-    unique_source_id,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
@@ -46,18 +45,11 @@ class CaseTagAdapter(SingleYamlAdapter):
             .order_by(CaseTag.ref.asc(), CaseTag.id.asc())
         )
         tags = list((await workspace_service.session.execute(stmt)).scalars().all())
-        # Reuse any source id already minted for a tag so its Git path stays put.
-        source_ids_by_local_id = await self.source_ids_by_local_id(workspace_service)
+        assigner = await self.source_id_assigner(workspace_service)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
-        # Seed the reserved set with known ids so freshly minted ones never collide.
-        reserved: set[str] = set(source_ids_by_local_id.values())
         for tag in tags:
-            source_id = source_ids_by_local_id.get(tag.id)
-            if source_id is None:
-                # Unmapped tag: slugify its ref into a fresh, collision-free id.
-                source_id = unique_source_id(tag.ref, reserved=reserved)
-            reserved.add(source_id)
+            source_id = assigner.assign(tag.id, tag.ref)
             specs[source_id] = CaseTagResourceSpec(
                 id=source_id,
                 name=tag.name,

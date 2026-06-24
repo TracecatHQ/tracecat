@@ -14,7 +14,6 @@ from tracecat.workspace_sync.adapters.base import (
     ProjectedResource,
     ResourceProjection,
     SingleYamlAdapter,
-    unique_source_id,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
@@ -49,16 +48,11 @@ class CaseDropdownAdapter(SingleYamlAdapter):
         dropdowns = list(
             (await workspace_service.session.execute(stmt)).scalars().all()
         )
-        # Reuse existing source ids; seed reserved so new ids don't collide.
-        source_ids_by_local_id = await self.source_ids_by_local_id(workspace_service)
+        assigner = await self.source_id_assigner(workspace_service)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
-        reserved: set[str] = set(source_ids_by_local_id.values())
         for dropdown in dropdowns:
-            source_id = source_ids_by_local_id.get(dropdown.id)
-            if source_id is None:
-                source_id = unique_source_id(dropdown.ref, reserved=reserved)
-            reserved.add(source_id)
+            source_id = assigner.assign(dropdown.id, dropdown.ref)
             specs[source_id] = CaseDropdownResourceSpec(
                 id=source_id,
                 name=dropdown.name,

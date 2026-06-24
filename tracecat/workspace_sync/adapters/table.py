@@ -26,7 +26,6 @@ from tracecat.workspace_sync.adapters.base import (
     ResourceDependencyRefs,
     ResourceProjection,
     sql_type,
-    unique_source_id,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
@@ -120,18 +119,11 @@ class TableAdapter(CompoundYamlAdapter):
         table_service = BaseTablesService(
             session=workspace_service.session, role=workspace_service.role
         )
-        source_ids_by_local_id = await self.source_ids_by_local_id(workspace_service)
+        assigner = await self.source_id_assigner(workspace_service)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
-        # Seed the reserved set with already-assigned source ids so freshly
-        # minted ones cannot collide with them.
-        reserved: set[str] = set(source_ids_by_local_id.values())
         for table in tables:
-            source_id = source_ids_by_local_id.get(table.id)
-            # Unmapped table: slugify its name into a fresh, collision-free id.
-            if source_id is None:
-                source_id = unique_source_id(table.name, reserved=reserved)
-            reserved.add(source_id)
+            source_id = assigner.assign(table.id, table.name)
             # The index lookup yields the set of column names that are unique.
             unique_columns = set(await table_service.get_index(table))
             columns: list[TableColumnSpec] = []
@@ -249,19 +241,12 @@ class TableAdapter(CompoundYamlAdapter):
         source_id: str,
     ) -> Table | None:
         """Load the mapped :class:`Table` (with columns) for ``source_id``, if any."""
-        local_id = await self.local_id_for_source_id(workspace_service, source_id)
-        if local_id is None:
-            return None
-
-        stmt = (
-            select(Table)
-            .where(
-                Table.workspace_id == workspace_service.workspace_id,
-                Table.id == local_id,
-            )
-            .options(selectinload(Table.columns))
+        return await self._row_by_source_id(
+            workspace_service,
+            source_id=source_id,
+            model=Table,
+            options=(selectinload(Table.columns),),
         )
-        return (await workspace_service.session.execute(stmt)).scalar_one_or_none()
 
 
 def _ensure_no_stale_columns(table: Table, spec: TableResourceSpec) -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, NamedTuple
 
 import sqlalchemy as sa
 from pydantic import BaseModel
@@ -18,7 +18,6 @@ from tracecat.workspace_sync.adapters.base import (
     ProjectedResource,
     ResourceDependencyRefs,
     ResourceProjection,
-    unique_environment_source_id,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
@@ -26,6 +25,17 @@ from tracecat.workspace_sync.schemas import (
     VariableResourceSpec,
     WorkspaceSpec,
 )
+
+
+class VariableKey(NamedTuple):
+    """A variable's identity within a workspace: its ``(environment, name)`` pair.
+
+    This pair is the uniqueness scope for variables, so it doubles as the target
+    identity each sync source id reconciles toward.
+    """
+
+    environment: str
+    name: str
 
 
 class VariableAdapter(EnvironmentYamlAdapter):
@@ -129,24 +139,13 @@ class VariableAdapter(EnvironmentYamlAdapter):
         variables: list[WorkspaceVariable],
     ) -> ResourceProjection:
         """Build sync specs from variable rows."""
-        source_ids_by_local_id = await self.source_ids_by_local_id(workspace_service)
+        assigner = await self.source_id_assigner(workspace_service)
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
-        # Seed the reserved set with already-assigned source ids so freshly
-        # minted ones never collide with an existing mapping.
-        reserved: set[str] = set(source_ids_by_local_id.values())
         for variable in variables:
-            # Reuse the variable's existing source id when it is already mapped.
-            source_id = source_ids_by_local_id.get(variable.id)
-            if source_id is None:
-                # Unmapped variable: derive a fresh, collision-free id from its
-                # environment and name.
-                source_id = unique_environment_source_id(
-                    variable.environment,
-                    variable.name,
-                    reserved=reserved,
-                )
-            reserved.add(source_id)
+            source_id = assigner.assign_environment(
+                variable.id, variable.environment, variable.name
+            )
             # Only key NAMES and tag NAMES are projected (sorted for stable
             # diffs); the actual values are deliberately never written to Git.
             specs[source_id] = VariableResourceSpec(
@@ -296,15 +295,8 @@ class VariableAdapter(EnvironmentYamlAdapter):
         source_id: str,
     ) -> WorkspaceVariable | None:
         """Load the mapped :class:`WorkspaceVariable` for ``source_id``, if any."""
-        local_id = await self.local_id_for_source_id(workspace_service, source_id)
-        if local_id is None:
-            return None
-
-        return await workspace_service.session.scalar(
-            select(WorkspaceVariable).where(
-                WorkspaceVariable.workspace_id == workspace_service.workspace_id,
-                WorkspaceVariable.id == local_id,
-            )
+        return await self._row_by_source_id(
+            workspace_service, source_id=source_id, model=WorkspaceVariable
         )
 
     async def _ensure_name_environment_available(
@@ -316,7 +308,7 @@ class VariableAdapter(EnvironmentYamlAdapter):
         environment: str,
         variable_id: uuid.UUID,
         source_ids_by_variable_id: Mapping[uuid.UUID, str] | None = None,
-        target_keys_by_source_id: Mapping[str, tuple[str, str]] | None = None,
+        target_keys_by_source_id: Mapping[str, VariableKey] | None = None,
     ) -> None:
         """Raise if another variable blocks claiming ``environment``/``name``.
 
@@ -344,7 +336,7 @@ class VariableAdapter(EnvironmentYamlAdapter):
             conflict_source_id = source_ids_by_variable_id.get(conflict_id)
             if conflict_source_id is not None and target_keys_by_source_id[
                 conflict_source_id
-            ] != (environment, name):
+            ] != VariableKey(environment=environment, name=name):
                 return
 
         # Otherwise the name is genuinely taken by an unrelated variable.
@@ -358,7 +350,7 @@ class VariableAdapter(EnvironmentYamlAdapter):
         workspace_service: BaseWorkspaceService,
         *,
         variables_by_source_id: Mapping[str, WorkspaceVariable],
-        target_keys_by_source_id: Mapping[str, tuple[str, str]],
+        target_keys_by_source_id: Mapping[str, VariableKey],
     ) -> None:
         """Park variables whose identity is changing under temporary names.
 
@@ -374,9 +366,10 @@ class VariableAdapter(EnvironmentYamlAdapter):
         )
         for source_id, variable in variables_by_source_id.items():
             # Skip variables already at their target identity: nothing to free.
-            if (variable.environment, variable.name) == target_keys_by_source_id[
-                source_id
-            ]:
+            if (
+                VariableKey(environment=variable.environment, name=variable.name)
+                == target_keys_by_source_id[source_id]
+            ):
                 continue
             reserved_names = reserved_names_by_environment.setdefault(
                 variable.environment,
@@ -417,19 +410,19 @@ def _values_from_spec(
 
 def _target_keys_by_source_id(
     variables: Mapping[str, VariableResourceSpec],
-) -> dict[str, tuple[str, str]]:
+) -> dict[str, VariableKey]:
     """Map each ``source_id`` to its target ``(environment, name)`` pair."""
     return {
-        source_id: (spec.environment, spec.name)
+        source_id: VariableKey(environment=spec.environment, name=spec.name)
         for source_id, spec in variables.items()
     }
 
 
 def _ensure_unique_targets(
-    target_keys_by_source_id: Mapping[str, tuple[str, str]],
+    target_keys_by_source_id: Mapping[str, VariableKey],
 ) -> None:
     """Raise if two source ids target the same ``(environment, name)`` pair."""
-    source_id_by_target: dict[tuple[str, str], str] = {}
+    source_id_by_target: dict[VariableKey, str] = {}
     # Sort so the first claimant of a duplicated target is stable across runs.
     for source_id, target_key in sorted(target_keys_by_source_id.items()):
         # A second source id pointing at the same target is unresolvable.

@@ -40,6 +40,7 @@ from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.store.import_service import WorkflowImportService
 from tracecat.workflow.store.schemas import (
+    RemoteWorkflowDefinition,
     validate_short_branch_name,
 )
 from tracecat.workspace_sync.adapters import (
@@ -565,47 +566,37 @@ class WorkspaceSyncService(BaseWorkspaceService):
         except ValueError as e:
             raise TracecatValidationError(str(e)) from e
 
+    def _enforce_required_scopes(self, required_scopes: list[str]) -> None:
+        """Raise :class:`ScopeDeniedError` when the role lacks any required scope."""
+        if not required_scopes:
+            return
+
+        if self.role is None or self.role.scopes is None:
+            raise ScopeDeniedError(
+                required_scopes=required_scopes,
+                missing_scopes=required_scopes,
+            )
+
+        missing = sorted(get_missing_scopes(self.role.scopes, set(required_scopes)))
+        if missing:
+            raise ScopeDeniedError(
+                required_scopes=required_scopes,
+                missing_scopes=missing,
+            )
+
     def _require_projected_export_scopes(self, spec: WorkspaceSpec) -> None:
         """Enforce the read scopes the projected ``spec`` requires.
 
         Raises :class:`ScopeDeniedError` when the caller's role is missing any
         scope implied by the resource types present in ``spec``.
         """
-        required_scopes = sorted(_export_read_scopes_for_spec(spec))
-        if not required_scopes:
-            return
-
-        if self.role is None or self.role.scopes is None:
-            raise ScopeDeniedError(
-                required_scopes=required_scopes,
-                missing_scopes=required_scopes,
-            )
-
-        missing = sorted(get_missing_scopes(self.role.scopes, set(required_scopes)))
-        if missing:
-            raise ScopeDeniedError(
-                required_scopes=required_scopes,
-                missing_scopes=missing,
-            )
+        self._enforce_required_scopes(sorted(_export_read_scopes_for_spec(spec)))
 
     def _require_pull_scopes(self, spec: WorkspaceSpec, *, dry_run: bool) -> None:
         """Enforce scopes required by non-workflow resources in a parsed pull spec."""
-        required_scopes = sorted(_pull_scopes_for_spec(spec, dry_run=dry_run))
-        if not required_scopes:
-            return
-
-        if self.role is None or self.role.scopes is None:
-            raise ScopeDeniedError(
-                required_scopes=required_scopes,
-                missing_scopes=required_scopes,
-            )
-
-        missing = sorted(get_missing_scopes(self.role.scopes, set(required_scopes)))
-        if missing:
-            raise ScopeDeniedError(
-                required_scopes=required_scopes,
-                missing_scopes=missing,
-            )
+        self._enforce_required_scopes(
+            sorted(_pull_scopes_for_spec(spec, dry_run=dry_run))
+        )
 
     def _validate_projected_workspace_dependencies(self, spec: WorkspaceSpec) -> None:
         """Reject exported specs whose dependency graph cannot round-trip."""
@@ -617,6 +608,28 @@ class WorkspaceSyncService(BaseWorkspaceService):
         raise TracecatValidationError(
             "Workspace sync export contains unsupported dependencies: " + messages
         )
+
+    async def _remote_workflows(
+        self, snapshot: WorkspaceRemoteSnapshot
+    ) -> tuple[list[RemoteWorkflowDefinition], dict[str, WorkflowUUID]]:
+        """Resolve each workflow source id to a local id and build remote defs.
+
+        Maps every remote source id to a local workflow UUID up front so
+        child-workflow references can be rewritten to local ids in one pass.
+        Returns the remote definitions and the source-id -> local-id map.
+        """
+        local_ids: dict[str, WorkflowUUID] = {}
+        for source_id in sorted(snapshot.spec.workflows):
+            local_ids[source_id] = await self._resolve_local_workflow_id(source_id)
+        remote_workflows = [
+            workflow_spec_to_remote(
+                workflow_spec,
+                local_workflow_id=local_ids[source_id],
+                local_workflow_ids=local_ids,
+            )
+            for source_id, workflow_spec in sorted(snapshot.spec.workflows.items())
+        ]
+        return remote_workflows, local_ids
 
     async def _import_snapshot(
         self,
@@ -632,22 +645,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         diagnostic. The returned :class:`PullResult` reports found and imported
         counts per resource type.
         """
-        # Map every remote source id to a local workflow UUID up front so that
-        # child-workflow references can be rewritten to local ids in one pass.
-        local_ids: dict[str, WorkflowUUID] = {}
-        for source_id in sorted(snapshot.spec.workflows):
-            local_id = await self._resolve_local_workflow_id(source_id)
-            local_ids[source_id] = local_id
-        remote_workflows = []
-        for source_id, workflow_spec in sorted(snapshot.spec.workflows.items()):
-            local_id = local_ids[source_id]
-            remote_workflows.append(
-                workflow_spec_to_remote(
-                    workflow_spec,
-                    local_workflow_id=local_id,
-                    local_workflow_ids=local_ids,
-                )
-            )
+        remote_workflows, local_ids = await self._remote_workflows(snapshot)
 
         # Validate before writing anything; bail out on the first set of errors.
         workflow_importer = WorkflowImportService(
@@ -831,21 +829,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         Used during dry runs to surface workflow validation errors alongside the
         computed resource diffs.
         """
-        local_ids: dict[str, WorkflowUUID] = {}
-        for source_id in sorted(snapshot.spec.workflows):
-            local_id = await self._resolve_local_workflow_id(source_id)
-            local_ids[source_id] = local_id
-        remote_workflows = []
-        for source_id, workflow_spec in sorted(snapshot.spec.workflows.items()):
-            local_id = local_ids[source_id]
-            remote_workflows.append(
-                workflow_spec_to_remote(
-                    workflow_spec,
-                    local_workflow_id=local_id,
-                    local_workflow_ids=local_ids,
-                )
-            )
-
+        remote_workflows, _ = await self._remote_workflows(snapshot)
         workflow_importer = WorkflowImportService(
             session=self.session,
             role=self.role,
