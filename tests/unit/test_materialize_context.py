@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from botocore.exceptions import HTTPClientError
 from temporalio.exceptions import ApplicationError
@@ -8,6 +10,25 @@ from tracecat.dsl import action
 from tracecat.dsl.action import materialize_context
 from tracecat.dsl.schemas import ExecutionContext, TaskResult
 from tracecat.storage.object import CollectionObject, InlineObject, ObjectRef
+
+
+def test_run_sync_closes_storage_client_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    close_calls = 0
+
+    async def close_storage_client_cache() -> None:
+        nonlocal close_calls
+        close_calls += 1
+
+    monkeypatch.setattr(
+        action, "close_storage_client_cache", close_storage_client_cache
+    )
+
+    result = action.run_sync(asyncio.sleep(0, result="ok"))
+
+    assert result == "ok"
+    assert close_calls == 1
 
 
 @pytest.mark.anyio

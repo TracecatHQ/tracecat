@@ -124,26 +124,28 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         ],
     )
 
-    with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
-        workflows: list[type] = [DurableAgentWorkflow, ExecuteRegistryToolWorkflow]
+    try:
+        with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
+            workflows: list[type] = [DurableAgentWorkflow, ExecuteRegistryToolWorkflow]
 
-        async with Worker(
-            client,
-            task_queue=config.TRACECAT__AGENT_QUEUE,
-            activities=activities,
-            workflows=workflows,
-            workflow_runner=new_sandbox_runner(),
-            interceptors=interceptors,
-            max_concurrent_activities=max_concurrent,
-            disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
-            activity_executor=executor,
-            graceful_shutdown_timeout=timedelta(seconds=30),
-        ):
-            logger.info("AgentWorker started, ctrl+c to exit")
-            await shutdown_event.wait()
-            logger.info("AgentWorker shutdown requested")
-        logger.info("Temporal Worker context exited")
-    await close_storage_client_cache()
+            async with Worker(
+                client,
+                task_queue=config.TRACECAT__AGENT_QUEUE,
+                activities=activities,
+                workflows=workflows,
+                workflow_runner=new_sandbox_runner(),
+                interceptors=interceptors,
+                max_concurrent_activities=max_concurrent,
+                disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
+                activity_executor=executor,
+                graceful_shutdown_timeout=timedelta(seconds=30),
+            ):
+                logger.info("AgentWorker started, ctrl+c to exit")
+                await shutdown_event.wait()
+                logger.info("AgentWorker shutdown requested")
+            logger.info("Temporal Worker context exited")
+    finally:
+        await close_storage_client_cache()
 
 
 if __name__ == "__main__":

@@ -52,6 +52,7 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.mcp_validation import MCPValidationError
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.storage.blob import close_storage_client_cache
 from tracecat.storage.collection import (
     materialize_collection_values,
     store_collection,
@@ -248,7 +249,16 @@ def run_sync[T: Any](coro: Coroutine[Any, Any, T]) -> T:
         runner = asyncio.Runner()
         runner.__enter__()  # create & keep loop
         _thread_local.runner = runner
-    return runner.run(coro)
+    try:
+        return runner.run(coro)
+    finally:
+        try:
+            runner.run(close_storage_client_cache())
+        except Exception as e:
+            logger.warning(
+                "Failed to close thread-local storage client cache",
+                error=e,
+            )
 
 
 async def _store_collection_as_refs(prefix: str, items: list[Any]) -> CollectionObject:
