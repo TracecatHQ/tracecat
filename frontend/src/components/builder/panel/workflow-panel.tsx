@@ -18,6 +18,7 @@ import { z } from "zod"
 import {
   ApiError,
   type ExpectedField_Input,
+  type RegistryLockEntryRead,
   type WorkflowDefinitionRead,
   type WorkflowRead,
   type WorkflowUpdate,
@@ -366,9 +367,12 @@ function WorkflowVersionsHistory({
         {definitions.map((definition, index) => {
           const isCurrent = definition.version === currentVersion
           const isLatest = definition.version === latestVersion
+          const registryLockEntries = getRegistryLockEntries(definition)
+          const registryLockSummary =
+            formatRegistryLockSummary(registryLockEntries)
           return (
             <div key={definition.id}>
-              <div className="flex items-center gap-3 px-4 py-3">
+              <div className="flex items-start gap-3 px-4 py-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="font-medium">{`v${definition.version}`}</span>
@@ -379,6 +383,39 @@ function WorkflowVersionsHistory({
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">
                     {getRelativeTime(new Date(definition.created_at))}
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    {registryLockSummary ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Badge
+                            variant="outline"
+                            className="max-w-full overflow-hidden truncate whitespace-nowrap font-mono font-normal"
+                            tabIndex={0}
+                            aria-label={`Registry lock: ${registryLockSummary}`}
+                          >
+                            {registryLockSummary}
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-sm">
+                          <div className="space-y-1">
+                            <div className="font-medium">Registry lock</div>
+                            {registryLockEntries.map((entry) => (
+                              <div
+                                key={entry.origin}
+                                className="break-all font-mono text-xs"
+                              >
+                                {`${entry.origin}@${entry.version}`}
+                              </div>
+                            ))}
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        No registry lock
+                      </span>
+                    )}
                   </div>
                 </div>
                 {!isCurrent ? (
@@ -407,6 +444,25 @@ function WorkflowVersionsHistory({
       </div>
     </TooltipProvider>
   )
+}
+
+function getRegistryLockEntries(
+  definition: WorkflowDefinitionRead
+): RegistryLockEntryRead[] {
+  return definition.registry_lock_entries
+}
+
+function formatRegistryLockSummary(
+  entries: RegistryLockEntryRead[]
+): string | null {
+  if (entries.length === 0) {
+    return null
+  }
+  const [{ label }] = entries
+  if (entries.length === 1) {
+    return label
+  }
+  return `${label} +${entries.length - 1}`
 }
 
 function WorkflowSettingsPanel({
