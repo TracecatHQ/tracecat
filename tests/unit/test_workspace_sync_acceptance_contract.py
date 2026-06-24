@@ -2367,6 +2367,87 @@ async def test_agent_preset_import_resolves_parent_before_child_order(
 
 
 @pytest.mark.anyio
+async def test_agent_preset_sync_preserves_subagent_options(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{AGENT_PRESET_ROOT}/a-parent/preset.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset",
+                "id": "a-parent",
+                "slug": "a-parent",
+                "name": "A parent",
+                "subagents": [
+                    {
+                        "slug": "z-child",
+                        "version": 1,
+                        "name": "evidence-child",
+                        "description": "Collect evidence",
+                        "max_turns": 3,
+                    }
+                ],
+            }
+        ),
+        f"{AGENT_PRESET_ROOT}/z-child/preset.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset",
+                "id": "z-child",
+                "slug": "z-child",
+                "name": "Z child",
+            }
+        ),
+    }
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="j" * 40)
+
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+
+    parent = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "a-parent",
+        )
+    )
+    child = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "z-child",
+        )
+    )
+    assert parent is not None
+    assert child is not None
+    assert child.current_version_id is not None
+    imported_subagent = parent.agents["subagents"][0]
+    assert imported_subagent["preset_version_id"] == str(child.current_version_id)
+    assert imported_subagent["preset_version"] == 1
+    assert imported_subagent["name"] == "evidence-child"
+    assert imported_subagent["description"] == "Collect evidence"
+    assert imported_subagent["max_turns"] == 3
+
+    projection = await service.project_workspace(create_missing_mappings=False)
+    parent_spec = yaml.safe_load(
+        projection.files[f"{AGENT_PRESET_ROOT}/a-parent/preset.yml"]
+    )
+    assert parent_spec["subagents"] == [
+        {
+            "slug": "z-child",
+            "version": 1,
+            "name": "evidence-child",
+            "description": "Collect evidence",
+            "max_turns": 3,
+        }
+    ]
+
+
+@pytest.mark.anyio
 async def test_agent_preset_import_creates_new_version_without_mutating_history(
     session: AsyncSession,
     svc_role: Role,

@@ -501,26 +501,55 @@ class AgentPresetAdapter(CompoundYamlAdapter):
 
         subagents: list[dict[str, Any]] = []
         for subagent in spec.subagents:
-            child = await workspace_service.session.scalar(
-                select(AgentPreset).where(
-                    AgentPreset.workspace_id == workspace_service.workspace_id,
-                    AgentPreset.slug == subagent.slug,
-                )
-            )
-            if child is None or child.current_version_id is None:
+            target = await self._resolved_subagent_target(workspace_service, subagent)
+            if target is None:
                 continue
+            child, version = target
             subagents.append(
                 {
                     "preset": child.slug,
                     "preset_id": str(child.id),
-                    "preset_version_id": str(child.current_version_id),
-                    "preset_version": None,
-                    "name": None,
-                    "description": None,
-                    "max_turns": None,
+                    "preset_version_id": str(version.id),
+                    "preset_version": version.version
+                    if subagent.version is not None
+                    else None,
+                    "name": subagent.name,
+                    "description": subagent.description,
+                    "max_turns": subagent.max_turns,
                 }
             )
         return {"enabled": bool(subagents), "subagents": subagents}
+
+    async def _resolved_subagent_target(
+        self,
+        workspace_service: BaseWorkspaceService,
+        subagent: AgentPresetSubagentRef,
+    ) -> tuple[AgentPreset, AgentPresetVersion] | None:
+        """Resolve a subagent ref to its child preset and desired version."""
+        child = await workspace_service.session.scalar(
+            select(AgentPreset).where(
+                AgentPreset.workspace_id == workspace_service.workspace_id,
+                AgentPreset.slug == subagent.slug,
+            )
+        )
+        if child is None:
+            return None
+
+        stmt = select(AgentPresetVersion).where(
+            AgentPresetVersion.workspace_id == workspace_service.workspace_id,
+            AgentPresetVersion.preset_id == child.id,
+        )
+        if subagent.version is not None:
+            stmt = stmt.where(AgentPresetVersion.version == subagent.version)
+        elif child.current_version_id is not None:
+            stmt = stmt.where(AgentPresetVersion.id == child.current_version_id)
+        else:
+            return None
+
+        version = await workspace_service.session.scalar(stmt)
+        if version is None:
+            return None
+        return child, version
 
     async def _current_version_for_preset(
         self,
@@ -729,7 +758,13 @@ def _subagent_refs(agents: dict[str, Any]) -> list[AgentPresetSubagentRef]:
     except Exception:
         return []
     return [
-        AgentPresetSubagentRef(slug=subagent.preset)
+        AgentPresetSubagentRef(
+            slug=subagent.preset,
+            version=subagent.preset_version,
+            name=subagent.name,
+            description=subagent.description,
+            max_turns=subagent.max_turns,
+        )
         for subagent in sorted(config.subagents, key=lambda item: item.preset)
     ]
 

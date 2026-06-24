@@ -196,6 +196,22 @@ class AgentPresetSubagentRef(BaseModel):
     slug: str = Field(
         min_length=1, description="Slug of the preset used as a subagent."
     )
+    version: int | None = Field(
+        default=None,
+        ge=1,
+        description="Pinned child preset version, or ``None`` to track the latest.",
+    )
+    name: str | None = Field(
+        default=None, description="Optional runtime alias for the subagent."
+    )
+    description: str | None = Field(
+        default=None, description="Optional runtime description for the subagent."
+    )
+    max_turns: int | None = Field(
+        default=None,
+        ge=1,
+        description="Optional maximum turns for the subagent.",
+    )
 
 
 class AgentPresetResourceSpec(BaseModel):
