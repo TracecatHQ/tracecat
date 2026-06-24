@@ -407,6 +407,27 @@ async def test_secret_values_in_git_are_rejected(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("value_field", ["value", "values"])
+async def test_variable_values_in_git_are_rejected(
+    workspace_sync_service: WorkspaceSyncService,
+    value_field: str,
+) -> None:
+    files = _expanded_selected_git_tree()
+    variable_path = f"{VARIABLE_ROOT}/default/qa_config.yml"
+    variable_spec = yaml.safe_load(files[variable_path])
+    variable_spec[value_field] = {"mode": "do-not-export"}
+    files[variable_path] = _yaml(variable_spec)
+
+    _, diagnostics = await workspace_sync_service.parse_files(files)
+
+    assert any(
+        diagnostic.error_type == "validation"
+        and "variable value" in diagnostic.message.lower()
+        for diagnostic in diagnostics
+    )
+
+
+@pytest.mark.anyio
 async def test_cyclic_preset_subagent_references_are_dependency_diagnostics(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:

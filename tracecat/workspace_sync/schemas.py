@@ -528,17 +528,20 @@ class VariableResourceSpec(BaseModel):
     keys: list[str] | None = Field(
         default=None, description="Key names contained in the variable, if structured."
     )
-    value: Any | None = Field(
-        default=None,
-        exclude=True,
-        description="Variable material; excluded from serialization (Git tracks metadata only).",
-    )
     description: str | None = Field(
         default=None, description="Optional variable description."
     )
     tags: list[str] = Field(
         default_factory=list, description="Free-form variable tags."
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_variable_values(cls, data: Any) -> Any:
+        """Reject input carrying ``value``/``values`` so variables stay metadata-only."""
+        if isinstance(data, dict) and ({"value", "values"} & data.keys()):
+            raise ValueError("variable value material is not allowed in Git")
+        return data
 
 
 class SecretMetadataResourceSpec(BaseModel):

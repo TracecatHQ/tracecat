@@ -350,12 +350,9 @@ def _values_from_spec(
 ) -> dict[str, Any]:
     """Build a variable's stored values from its spec and current values.
 
-    An explicit ``value`` overrides everything; otherwise declared ``keys`` are
-    seeded from existing values (defaulting to ``""``). A spec with no keys
-    leaves the existing values untouched.
+    Declared ``keys`` are seeded from existing values (defaulting to ``""``). A
+    spec with no keys leaves the existing values untouched.
     """
-    if spec.value is not None:
-        return spec.value if isinstance(spec.value, dict) else {"value": spec.value}
     existing_values = existing or {}
     if spec.keys is None:
         return dict(existing_values)
