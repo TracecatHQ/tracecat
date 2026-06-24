@@ -265,15 +265,15 @@ async def test_full_expanded_fixture_parses_every_resource_type(
 
     assert diagnostics == []
     assert len(snapshot.spec.workflows) == 3
-    assert len(_future_attr(snapshot.spec, "agent_presets")) == 2
-    assert len(_future_attr(snapshot.spec, "skills")) == 1
-    assert len(_future_attr(snapshot.spec, "tables")) == 1
-    assert len(_future_attr(snapshot.spec, "case_tags")) == 1
-    assert len(_future_attr(snapshot.spec, "case_dropdowns")) == 1
-    assert len(_future_attr(snapshot.spec, "case_durations")) == 1
-    assert len(_future_attr(snapshot.spec, "case_fields")) == 1
-    assert len(_future_attr(snapshot.spec, "variables")) == 1
-    assert len(_future_attr(snapshot.spec, "secret_metadata")) == 1
+    assert len(snapshot.spec.agent_presets) == 2
+    assert len(snapshot.spec.skills) == 1
+    assert len(snapshot.spec.tables) == 1
+    assert len(snapshot.spec.case_tags) == 1
+    assert len(snapshot.spec.case_dropdowns) == 1
+    assert len(snapshot.spec.case_durations) == 1
+    assert len(snapshot.spec.case_fields) == 1
+    assert len(snapshot.spec.variables) == 1
+    assert len(snapshot.spec.secret_metadata) == 1
 
 
 @pytest.mark.anyio
@@ -308,7 +308,8 @@ async def test_pull_dry_run_reports_per_resource_counts(
         )
 
     assert result.success is True
-    resource_counts = _future_attr(result, "resource_counts")
+    resource_counts = result.resource_counts
+    assert resource_counts is not None
     assert resource_counts["workflow"].found == 2
     assert resource_counts["agent_preset"].found == 2
     assert resource_counts["skill"].found == 1
@@ -3023,6 +3024,86 @@ async def test_project_workspace_maps_case_fields_per_field(
 
 
 @pytest.mark.anyio
+async def test_case_duration_sync_preserves_anchor_fields(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Case duration anchors round-trip their timestamp and field-filter config.
+
+    The shared full-tree fixture only sets ``event``/``selection`` on each
+    anchor, so ``timestamp_path`` and ``field_filters`` are otherwise never
+    exercised. This pins both anchors' non-default config through import into the
+    database and back out through projection.
+    """
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{CASE_DURATION_ROOT}/qa_time_to_triage.yml": _yaml(
+            {
+                "version": 1,
+                "type": "case_duration",
+                "id": "qa_time_to_triage",
+                "name": "qa_time_to_triage",
+                "description": "Time from case open to triage",
+                "start": {
+                    "event": "case_created",
+                    "selection": "last",
+                    "timestamp_path": "opened_at",
+                    "field_filters": {"source": "alert"},
+                },
+                "end": {
+                    "event": "status_changed",
+                    "selection": "first",
+                    "timestamp_path": "resolved_at",
+                    "field_filters": {"status": "triaged"},
+                },
+            }
+        ),
+    }
+
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="u" * 40)
+
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+
+    duration = await session.scalar(
+        select(CaseDurationDefinition).where(
+            CaseDurationDefinition.workspace_id == svc_role.workspace_id,
+            CaseDurationDefinition.name == "qa_time_to_triage",
+        )
+    )
+    assert duration is not None
+    assert duration.start_event_type == "case_created"
+    assert duration.start_selection == "last"
+    assert duration.start_timestamp_path == "opened_at"
+    assert duration.start_field_filters == {"source": "alert"}
+    assert duration.end_event_type == "status_changed"
+    assert duration.end_selection == "first"
+    assert duration.end_timestamp_path == "resolved_at"
+    assert duration.end_field_filters == {"status": "triaged"}
+
+    projection = await service.project_workspace(create_missing_mappings=False)
+    duration_spec = yaml.safe_load(
+        projection.files[f"{CASE_DURATION_ROOT}/qa_time_to_triage.yml"]
+    )
+    assert duration_spec["start"] == {
+        "event": "case_created",
+        "selection": "last",
+        "timestamp_path": "opened_at",
+        "field_filters": {"source": "alert"},
+    }
+    assert duration_spec["end"] == {
+        "event": "status_changed",
+        "selection": "first",
+        "timestamp_path": "resolved_at",
+        "field_filters": {"status": "triaged"},
+    }
+
+
+@pytest.mark.anyio
 async def test_table_import_rejects_multiple_unique_columns(
     session: AsyncSession,
     svc_role: Role,
@@ -4090,10 +4171,6 @@ def _expected_full_paths() -> set[str]:
         f"{VARIABLE_ROOT}/default/qa_config.yml",
         f"{SECRET_METADATA_ROOT}/default/qa_threatintel.yml",
     }
-
-
-def _future_attr(obj: object, attr: str) -> Any:
-    return getattr(obj, attr)
 
 
 def _workflow_spec(
