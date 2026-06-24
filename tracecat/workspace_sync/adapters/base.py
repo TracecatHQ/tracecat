@@ -15,10 +15,12 @@ import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Literal, cast
+from typing import Any, ClassVar, Literal, Protocol, cast
 
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.orm import Mapped
+from sqlalchemy.sql.base import ExecutableOption
 
 from tracecat.db.models import WorkspaceSyncResourceMapping
 from tracecat.service import BaseWorkspaceService
@@ -139,6 +141,19 @@ class _SourceIdAssigner:
             )
         self.reserved.add(source_id)
         return source_id
+
+
+class _WorkspaceRow(Protocol):
+    """A workspace-scoped database row addressable by its public ``id``.
+
+    The bound for :meth:`ResourceAdapter._row_by_source_id`, satisfied by every
+    ``WorkspaceModel`` carrying a UUID ``id`` column (tables, variables, agent
+    presets, etc.). Declared structurally because ``id`` lives on each concrete
+    model rather than the shared base.
+    """
+
+    id: Mapped[uuid.UUID]
+    workspace_id: Mapped[uuid.UUID]
 
 
 class ResourceAdapter(ABC):
@@ -371,14 +386,14 @@ class ResourceAdapter(ABC):
         mapped = await self.source_ids_by_local_id(workspace_service)
         return _SourceIdAssigner(mapped=mapped, reserved=set(mapped.values()))
 
-    async def _row_by_source_id(
+    async def _row_by_source_id[ModelT: _WorkspaceRow](
         self,
         workspace_service: BaseWorkspaceService,
         *,
         source_id: str,
-        model: type[Any],
-        options: Sequence[Any] = (),
-    ) -> Any:
+        model: type[ModelT],
+        options: Sequence[ExecutableOption] = (),
+    ) -> ModelT | None:
         """Load the ``model`` row mapped to ``source_id``, or ``None`` if unmapped.
 
         Resolves the sync mapping to a local id, then loads that workspace-scoped

@@ -96,7 +96,7 @@ class VariableAdapter(EnvironmentScopedManifestAdapter):
             )
         # Build an OR of predicates so a variable matched by any selector
         # (local id, bare name, or environment/name pair) is included.
-        predicates = []
+        predicates: list[sa.ColumnElement[bool]] = []
         if local_ids:
             predicates.append(WorkspaceVariable.id.in_(local_ids))
         if refs.names:
