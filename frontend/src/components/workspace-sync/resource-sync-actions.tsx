@@ -43,6 +43,7 @@ import {
   WorkspaceSyncPushWarning,
 } from "@/components/workspace-sync/push-target-policy"
 import { PushResourcePreview } from "@/components/workspace-sync/resource-diff-review"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import {
   useRepositoryBranches,
@@ -65,10 +66,12 @@ export function WorkspaceResourceSyncActions({
   resources,
 }: WorkspaceResourceSyncActionsProps) {
   const workspaceId = useWorkspaceId()
+  const canSyncWorkspace = useScopeCheck("workspace_sync:sync")
+  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
   const canPushWorkspaceSync =
-    useScopeCheck(undefined, ["workflow:update", "workflow:sync"], {
-      all: true,
-    }) === true
+    canSyncWorkspace === true &&
+    !entitlementsLoading &&
+    hasEntitlement("git_sync")
   const { workspace } = useWorkspaceDetails()
   const [open, setOpen] = useState(false)
   const [exportMessage, setExportMessage] = useState(`Push ${label}`)
