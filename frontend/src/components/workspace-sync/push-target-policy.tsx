@@ -29,6 +29,7 @@ interface WorkspaceSyncPushButtonLabelOptions {
 interface WorkspaceSyncPushMessageOptions {
   outcome: WorkspaceSyncPushOutcome
   defaultBranch: string | undefined
+  allowDirectPush?: boolean
 }
 
 interface WorkspaceSyncPushModeTabsProps {
@@ -92,8 +93,12 @@ export function getWorkspaceSyncPushResultLabel({
 export function getWorkspaceSyncPushWarning({
   outcome,
   defaultBranch,
+  allowDirectPush = true,
 }: WorkspaceSyncPushMessageOptions): string | null {
   if (outcome.isPullRequestBlocked) {
+    if (!allowDirectPush) {
+      return `Select or create a non-default branch to open a pull request into ${defaultBranch ?? "the default branch"}.`
+    }
     return `Select or create a non-default branch to open a pull request into ${defaultBranch ?? "the default branch"}, or switch to direct push.`
   }
   if (!outcome.createPr && outcome.targetIsDefault) {

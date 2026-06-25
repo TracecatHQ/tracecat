@@ -16,8 +16,6 @@ import {
   getWorkspaceSyncPushOutcome,
   getWorkspaceSyncPushResultLabel,
   getWorkspaceSyncPushWarning,
-  type WorkspaceSyncPushMode,
-  WorkspaceSyncPushModeTabs,
   WorkspaceSyncPushWarning,
 } from "@/components/workspace-sync/push-target-policy"
 import { PushResourcePreview } from "@/components/workspace-sync/resource-diff-review"
@@ -53,8 +51,6 @@ export function WorkspaceSyncPushTab({
 
   const [exportMessage, setExportMessage] = useState("Export workspace config")
   const [exportPreviewRequested, setExportPreviewRequested] = useState(false)
-  const [pushMode, setPushMode] =
-    useState<WorkspaceSyncPushMode>("pull-request")
 
   const {
     branch: exportBranch,
@@ -90,7 +86,7 @@ export function WorkspaceSyncPushTab({
     ? (getApiErrorDetail(exportPreviewError) ?? "Request failed")
     : undefined
   const pushOutcome = getWorkspaceSyncPushOutcome({
-    mode: pushMode,
+    mode: "pull-request",
     targetBranch,
     defaultBranch,
     isCreatingBranch,
@@ -98,6 +94,7 @@ export function WorkspaceSyncPushTab({
   const pushWarning = getWorkspaceSyncPushWarning({
     outcome: pushOutcome,
     defaultBranch,
+    allowDirectPush: false,
   })
   const exportDisabled =
     exportWorkspaceIsPending ||
@@ -152,14 +149,6 @@ export function WorkspaceSyncPushTab({
           id="workspace-sync-message"
           value={exportMessage}
           onChange={(event) => setExportMessage(event.target.value)}
-        />
-      </div>
-
-      <div className="space-y-2">
-        <p className="text-sm font-medium">Push mode</p>
-        <WorkspaceSyncPushModeTabs
-          value={pushMode}
-          onValueChange={setPushMode}
         />
       </div>
 

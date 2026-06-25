@@ -38,8 +38,6 @@ import {
   getWorkspaceSyncPushOutcome,
   getWorkspaceSyncPushResultLabel,
   getWorkspaceSyncPushWarning,
-  type WorkspaceSyncPushMode,
-  WorkspaceSyncPushModeTabs,
   WorkspaceSyncPushWarning,
 } from "@/components/workspace-sync/push-target-policy"
 import { PushResourcePreview } from "@/components/workspace-sync/resource-diff-review"
@@ -75,8 +73,6 @@ export function WorkspaceResourceSyncActions({
   const { workspace } = useWorkspaceDetails()
   const [open, setOpen] = useState(false)
   const [exportMessage, setExportMessage] = useState(`Push ${label}`)
-  const [pushMode, setPushMode] =
-    useState<WorkspaceSyncPushMode>("pull-request")
   const { exportWorkspace, exportWorkspaceIsPending } =
     useWorkspaceSyncExport(workspaceId)
   const {
@@ -126,7 +122,7 @@ export function WorkspaceResourceSyncActions({
   const totalResourceCount =
     getWorkspaceSyncPreviewResourceTotal(visiblePreview)
   const pushOutcome = getWorkspaceSyncPushOutcome({
-    mode: pushMode,
+    mode: "pull-request",
     targetBranch,
     defaultBranch,
     isCreatingBranch,
@@ -134,6 +130,7 @@ export function WorkspaceResourceSyncActions({
   const pushWarning = getWorkspaceSyncPushWarning({
     outcome: pushOutcome,
     defaultBranch,
+    allowDirectPush: false,
   })
   const previewErrorMessage = previewError
     ? (getApiErrorDetail(previewError) ?? "Request failed")
@@ -152,7 +149,6 @@ export function WorkspaceResourceSyncActions({
       return
     }
     resetBranchCreation()
-    setPushMode("pull-request")
     setExportMessage(`Push ${label}`)
     setPreviewRequested(false)
   }, [label, open, resetBranchCreation])
@@ -249,14 +245,6 @@ export function WorkspaceResourceSyncActions({
               hasRequestedPreview={previewRequested}
               onRequestPreview={handlePreview}
             />
-
-            <div className="space-y-2">
-              <p className="text-sm font-medium">Push mode</p>
-              <WorkspaceSyncPushModeTabs
-                value={pushMode}
-                onValueChange={setPushMode}
-              />
-            </div>
 
             <div className="space-y-2">
               <label
