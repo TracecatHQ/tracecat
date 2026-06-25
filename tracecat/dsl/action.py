@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import weakref
 from collections.abc import Callable, Coroutine, Mapping
 from typing import Any, cast
 
@@ -52,7 +53,6 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.mcp_validation import MCPValidationError
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
-from tracecat.storage.blob import close_storage_client_cache
 from tracecat.storage.collection import (
     materialize_collection_values,
     store_collection,
@@ -72,6 +72,34 @@ from tracecat.temporal.exceptions import UserError
 from tracecat.validation.schemas import ValidationDetail
 
 _thread_local = threading.local()
+
+
+def _close_asyncio_runner(runner: asyncio.Runner) -> None:
+    try:
+        runner.close()
+    except Exception as e:
+        logger.warning(
+            "Failed to close thread-local asyncio runner",
+            error=e,
+        )
+
+
+# ThreadPoolExecutor clears thread locals when worker threads exit; closing the
+# runner there lets storage loop-close hooks drain clients without per-call churn.
+class _ThreadLocalRunner:
+    def __init__(self) -> None:
+        runner = asyncio.Runner()
+        runner.__enter__()  # create & keep loop
+        self._runner = runner
+        self._finalizer = weakref.finalize(self, _close_asyncio_runner, runner)
+        self._finalizer.atexit = False
+
+    def run[T: Any](self, coro: Coroutine[Any, Any, T]) -> T:
+        return self._runner.run(coro)
+
+    def close(self) -> None:
+        if self._finalizer.alive:
+            self._finalizer()
 
 
 async def _resolve_mcp_integrations(
@@ -246,19 +274,9 @@ def run_sync[T: Any](coro: Coroutine[Any, Any, T]) -> T:
     """Run a coroutine in the current thread."""
     runner = getattr(_thread_local, "runner", None)
     if runner is None:
-        runner = asyncio.Runner()
-        runner.__enter__()  # create & keep loop
+        runner = _ThreadLocalRunner()
         _thread_local.runner = runner
-    try:
-        return runner.run(coro)
-    finally:
-        try:
-            runner.run(close_storage_client_cache())
-        except Exception as e:
-            logger.warning(
-                "Failed to close thread-local storage client cache",
-                error=e,
-            )
+    return runner.run(coro)
 
 
 async def _store_collection_as_refs(prefix: str, items: list[Any]) -> CollectionObject:
