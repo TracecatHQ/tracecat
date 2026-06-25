@@ -1324,6 +1324,27 @@ export const $AgentCatalogRead = {
       ],
       title: "Model Metadata",
     },
+    deprecated: {
+      type: "boolean",
+      title: "Deprecated",
+      default: false,
+    },
+    hidden: {
+      type: "boolean",
+      title: "Hidden",
+      default: false,
+    },
+    deprecation_message: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Deprecation Message",
+    },
   },
   type: "object",
   required: [
@@ -16663,6 +16684,31 @@ export const $ModelConfig = {
       description:
         "Optional catalog row backing this model selection. Populated for v2 org-scoped cloud/custom catalog rows; left ``None`` for platform (built-in) models that resolve credentials via ``agent-{provider}-credentials``.",
     },
+    deprecated: {
+      type: "boolean",
+      title: "Deprecated",
+      description: "Whether this model is deprecated for new selections.",
+      default: false,
+    },
+    hidden: {
+      type: "boolean",
+      title: "Hidden",
+      description:
+        "Whether this model is hidden from default model pickers while remaining executable for saved configurations.",
+      default: false,
+    },
+    deprecation_message: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Deprecation Message",
+      description: "Optional deprecation guidance for this model.",
+    },
     org_secret_name: {
       type: "string",
       maxLength: 200,
@@ -27423,7 +27469,7 @@ export const $VercelChatRequest = {
       type: "string",
       title: "Model",
       description: "AI model to use",
-      default: "gpt-4o-mini",
+      default: "gpt-5-mini",
     },
     model_provider: {
       type: "string",

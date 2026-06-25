@@ -1199,6 +1199,22 @@ type EnabledModelOption = {
   sourceName: string
   sourceType: string
   baseUrl?: string | null
+  deprecated?: boolean
+  deprecationMessage?: string | null
+}
+
+const DEPRECATED_MODEL_KEYS = new Set(["openai::gpt-4o-mini"])
+
+function isDeprecatedModelSelection(
+  modelProvider?: string | null,
+  modelName?: string | null
+): boolean {
+  if (!modelProvider || !modelName) {
+    return false
+  }
+  return DEPRECATED_MODEL_KEYS.has(
+    `${modelProvider.trim().toLowerCase()}::${modelName.trim()}`
+  )
 }
 
 function getModelSelectionKey(selection: {
@@ -1218,6 +1234,7 @@ function buildEnabledModelOptions(
   )
 
   return (models ?? [])
+    .filter((model) => !model.hidden)
     .map((model) => {
       const provider = model.custom_provider_id
         ? (providersById.get(model.custom_provider_id) ?? null)
@@ -1244,6 +1261,8 @@ function buildEnabledModelOptions(
         sourceName,
         sourceType,
         baseUrl: provider?.base_url ?? null,
+        deprecated: model.deprecated,
+        deprecationMessage: model.deprecation_message,
       }
     })
     .sort((a, b) => {
@@ -2210,10 +2229,17 @@ function AgentPresetConfigurationPanel({
   )
   const hasMissingEnabledModel =
     enabledModelsLoaded && !selectedModel && Boolean(modelProvider || modelName)
+  const usesDeprecatedLegacyModel = isDeprecatedModelSelection(
+    modelProvider,
+    modelName
+  )
   const legacyModelLabel =
     hasMissingEnabledModel && modelProvider && modelName
       ? `${modelProvider} / ${modelName}`
       : null
+  const legacyStatusLabel = usesDeprecatedLegacyModel
+    ? "Legacy / deprecated"
+    : "Legacy"
   const [isModelPickerOpen, setIsModelPickerOpen] = useState(false)
 
   return (
@@ -2271,7 +2297,7 @@ function AgentPresetConfigurationPanel({
                                 {legacyModelLabel}
                               </span>
                               <span className="shrink-0 text-muted-foreground">
-                                Legacy
+                                {legacyStatusLabel}
                               </span>
                             </span>
                           ) : enabledModelOptions.length ? (
@@ -2363,6 +2389,13 @@ function AgentPresetConfigurationPanel({
                       </Command>
                     </PopoverContent>
                   </Popover>
+                  {hasMissingEnabledModel ? (
+                    <FormDescription className="text-amber-600 dark:text-amber-500">
+                      {usesDeprecatedLegacyModel
+                        ? "This agent still uses deprecated gpt-4o-mini. Existing runs keep working, but choose a supported model before saving new changes."
+                        : "This agent uses a model that is no longer available in the workspace picker. Existing runs keep their saved model until you choose a replacement."}
+                    </FormDescription>
+                  ) : null}
                 </FormItem>
               )}
             />

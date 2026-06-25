@@ -31,6 +31,7 @@ async def list_catalog(
     session: AsyncDBSession,
     provider: str | None = Query(None),
     model_name: str | None = Query(None),
+    include_hidden: bool = Query(False),
     cursor: str | None = Query(None),
     limit: int = Query(50, ge=1, le=100),
 ) -> AgentCatalogListResponse:
@@ -43,6 +44,7 @@ async def list_catalog(
             provider_filter=provider,
             model_name_filter=model_name,
             cursor_params=params,
+            include_hidden=include_hidden,
         )
         return AgentCatalogListResponse(items=items, next_cursor=next_cursor)
     except ValueError as e:

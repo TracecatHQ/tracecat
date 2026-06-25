@@ -12,6 +12,12 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 
 from tracecat.agent.catalog.schemas import AgentCatalogRead
+from tracecat.agent.model_deprecations import (
+    deprecation_message,
+    is_deprecated_model,
+    is_hidden_model,
+    iter_hidden_model_keys,
+)
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import AgentCatalog, AgentModelAccess
@@ -48,6 +54,42 @@ class AgentCatalogService(BaseService):
     """Manage model catalog entries."""
 
     service_name = "agent_catalog"
+
+    def _to_catalog_read(self, row: AgentCatalog) -> AgentCatalogRead:
+        """Project a catalog row into the public schema with model status."""
+        is_platform_model = row.custom_provider_id is None
+        deprecated = is_platform_model and is_deprecated_model(
+            row.model_provider, row.model_name
+        )
+        hidden = is_platform_model and is_hidden_model(
+            row.model_provider, row.model_name
+        )
+        return AgentCatalogRead.model_validate(row).model_copy(
+            update={
+                "deprecated": deprecated,
+                "hidden": hidden,
+                "deprecation_message": deprecation_message(
+                    row.model_provider, row.model_name
+                )
+                if deprecated
+                else None,
+            }
+        )
+
+    @staticmethod
+    def _visible_catalog_condition() -> Any:
+        """SQL predicate that hides platform-deprecated models from pickers."""
+        hidden_conditions = [
+            sa.and_(
+                AgentCatalog.custom_provider_id.is_(None),
+                AgentCatalog.model_provider == provider,
+                AgentCatalog.model_name == model_name,
+            )
+            for provider, model_name in iter_hidden_model_keys()
+        ]
+        if not hidden_conditions:
+            return sa.true()
+        return sa.not_(sa.or_(*hidden_conditions))
 
     async def upsert_platform_catalog(
         self,
@@ -250,6 +292,7 @@ class AgentCatalogService(BaseService):
         provider_filter: str | None = None,
         model_name_filter: str | None = None,
         cursor_params: CursorPaginationParams | None = None,
+        include_hidden: bool = False,
     ) -> tuple[list[AgentCatalogRead], str | None]:
         """List catalog entries with filtering and cursor pagination."""
         conditions: list[Any] = []
@@ -260,6 +303,8 @@ class AgentCatalogService(BaseService):
                     AgentCatalog.organization_id.is_(None),
                 )
             )
+        if not include_hidden:
+            conditions.append(self._visible_catalog_condition())
         return await self._list_catalog(
             conditions=conditions,
             provider_filter=provider_filter,
@@ -272,10 +317,14 @@ class AgentCatalogService(BaseService):
         provider_filter: str | None = None,
         model_name_filter: str | None = None,
         cursor_params: CursorPaginationParams | None = None,
+        include_hidden: bool = False,
     ) -> tuple[list[AgentCatalogRead], str | None]:
         """List platform-owned catalog entries."""
+        conditions: list[Any] = [AgentCatalog.organization_id.is_(None)]
+        if not include_hidden:
+            conditions.append(self._visible_catalog_condition())
         return await self._list_catalog(
-            conditions=[AgentCatalog.organization_id.is_(None)],
+            conditions=conditions,
             provider_filter=provider_filter,
             model_name_filter=model_name_filter,
             cursor_params=cursor_params,
@@ -337,7 +386,7 @@ class AgentCatalogService(BaseService):
                 sort_value=last_row.created_at,
             )
 
-        return [AgentCatalogRead.model_validate(row) for row in rows], next_cursor
+        return [self._to_catalog_read(row) for row in rows], next_cursor
 
     async def upsert_catalog_entry(
         self,
@@ -372,7 +421,7 @@ class AgentCatalogService(BaseService):
         ).returning(AgentCatalog)
         row = (await self.session.execute(stmt)).scalar_one()
         await self.session.commit()
-        return AgentCatalogRead.model_validate(row)
+        return self._to_catalog_read(row)
 
     @require_scope("agent:create")
     @audit_log(resource_type="agent_catalog", action="create")

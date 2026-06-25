@@ -125,6 +125,27 @@ async def _grant_access(
 
 
 @pytest.mark.anyio
+async def test_list_models_hides_deprecated_models_by_default(
+    session: AsyncSession,
+    role: Role,
+) -> None:
+    service = AgentManagementService(session=session, role=role)
+
+    visible_models = await service.list_models()
+
+    assert "gpt-4o-mini" not in visible_models
+    assert "gpt-5-mini" in visible_models
+
+    all_models = await service.list_models(include_hidden=True)
+    assert all_models["gpt-4o-mini"].deprecated is True
+    assert all_models["gpt-4o-mini"].hidden is True
+    assert all_models["gpt-4o-mini"].deprecation_message is not None
+
+    config = await service.get_model_config("gpt-4o-mini")
+    assert config.name == "gpt-4o-mini"
+
+
+@pytest.mark.anyio
 @pytest.mark.usefixtures("db")
 async def test_get_catalog_credentials_respects_workspace_override_access(
     session: AsyncSession,

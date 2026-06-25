@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.catalog.schemas import (
     AzureOpenAICatalogUpdate,
     BedrockCatalogUpdate,
@@ -91,6 +92,137 @@ async def test_list_catalog_filters_by_provider(
     assert next_cursor is None
     assert len(items) == 2
     assert all(item.model_provider == "openai" for item in items)
+
+
+@pytest.mark.anyio
+async def test_list_catalog_hides_deprecated_platform_models_by_default(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    service = AgentCatalogService(session=session)
+    session.add_all(
+        [
+            AgentCatalog(
+                organization_id=None,
+                custom_provider_id=None,
+                model_provider="openai",
+                model_name="gpt-4o-mini",
+                model_metadata={},
+            ),
+            AgentCatalog(
+                organization_id=None,
+                custom_provider_id=None,
+                model_provider="openai",
+                model_name="gpt-5-mini",
+                model_metadata={},
+            ),
+        ]
+    )
+    await session.commit()
+
+    visible_items, _ = await service.list_catalog(
+        org_id=svc_organization.id,
+        provider_filter="openai",
+        cursor_params=CursorPaginationParams(limit=10),
+    )
+
+    assert [item.model_name for item in visible_items] == ["gpt-5-mini"]
+
+    all_items, _ = await service.list_catalog(
+        org_id=svc_organization.id,
+        provider_filter="openai",
+        cursor_params=CursorPaginationParams(limit=10),
+        include_hidden=True,
+    )
+    deprecated_item = next(
+        item for item in all_items if item.model_name == "gpt-4o-mini"
+    )
+    assert deprecated_item.deprecated is True
+    assert deprecated_item.hidden is True
+    assert deprecated_item.deprecation_message is not None
+
+
+@pytest.mark.anyio
+async def test_list_catalog_does_not_hide_custom_provider_same_model_name(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    service = AgentCatalogService(session=session)
+    provider = AgentCustomProvider(
+        organization_id=svc_organization.id,
+        display_name="Custom OpenAI",
+        base_url="https://api.example.com",
+    )
+    session.add(provider)
+    await session.flush()
+    session.add(
+        AgentCatalog(
+            organization_id=svc_organization.id,
+            custom_provider_id=provider.id,
+            model_provider="openai",
+            model_name="gpt-4o-mini",
+            model_metadata={},
+        )
+    )
+    await session.commit()
+
+    items, _ = await service.list_catalog(
+        org_id=svc_organization.id,
+        provider_filter="openai",
+        cursor_params=CursorPaginationParams(limit=10),
+    )
+
+    assert len(items) == 1
+    assert items[0].model_name == "gpt-4o-mini"
+    assert items[0].deprecated is False
+    assert items[0].hidden is False
+    assert items[0].deprecation_message is None
+
+
+@pytest.mark.anyio
+async def test_org_model_access_hides_deprecated_but_keeps_access_enabled(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    deprecated = AgentCatalog(
+        organization_id=None,
+        custom_provider_id=None,
+        model_provider="openai",
+        model_name="gpt-4o-mini",
+        model_metadata={},
+    )
+    replacement = AgentCatalog(
+        organization_id=None,
+        custom_provider_id=None,
+        model_provider="openai",
+        model_name="gpt-5-mini",
+        model_metadata={},
+    )
+    session.add_all([deprecated, replacement])
+    await session.flush()
+    session.add_all(
+        [
+            _enable(org_id=svc_organization.id, catalog_id=deprecated.id),
+            _enable(org_id=svc_organization.id, catalog_id=replacement.id),
+        ]
+    )
+    await session.commit()
+
+    service = AgentModelAccessService(
+        session=session,
+        role=_user_role(svc_organization.id),
+    )
+
+    visible_models = await service.get_org_models()
+
+    assert [model.model_name for model in visible_models] == ["gpt-5-mini"]
+    all_models = await service.get_org_models(include_hidden=True)
+    assert [model.model_name for model in all_models] == [
+        "gpt-4o-mini",
+        "gpt-5-mini",
+    ]
+    assert all_models[0].hidden is True
+    assert await service.is_catalog_enabled(deprecated.id) is True
 
 
 @pytest.mark.anyio

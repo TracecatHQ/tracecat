@@ -132,6 +132,7 @@ import type {
   AgentGetProvidersStatusResponse,
   AgentGetWorkspaceProvidersStatusData,
   AgentGetWorkspaceProvidersStatusResponse,
+  AgentListModelsData,
   AgentListModelsResponse,
   AgentListProviderCredentialConfigsResponse,
   AgentListProvidersResponse,
@@ -4598,13 +4599,20 @@ export const serviceAccountsRevokeOrganizationServiceAccountApiKey = (
  * @returns ModelConfig Successful Response
  * @throws ApiError
  */
-export const agentListModels =
-  (): CancelablePromise<AgentListModelsResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/agent/models",
-    })
-  }
+export const agentListModels = (
+  data: AgentListModelsData = {}
+): CancelablePromise<AgentListModelsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/models",
+    query: {
+      include_hidden: data.includeHidden,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
 
 /**
  * List Providers
@@ -4839,6 +4847,7 @@ export const listCatalog = (
     query: {
       provider: data.provider,
       model_name: data.modelName,
+      include_hidden: data.includeHidden,
       cursor: data.cursor,
       limit: data.limit,
     },

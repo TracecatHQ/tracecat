@@ -349,6 +349,9 @@ export type AgentCatalogRead = {
   model_metadata: {
     [key: string]: unknown
   } | null
+  deprecated?: boolean
+  hidden?: boolean
+  deprecation_message?: string | null
 }
 
 /**
@@ -5086,6 +5089,18 @@ export type ModelConfig = {
    * Optional catalog row backing this model selection. Populated for v2 org-scoped cloud/custom catalog rows; left ``None`` for platform (built-in) models that resolve credentials via ``agent-{provider}-credentials``.
    */
   catalog_id?: string | null
+  /**
+   * Whether this model is deprecated for new selections.
+   */
+  deprecated?: boolean
+  /**
+   * Whether this model is hidden from default model pickers while remaining executable for saved configurations.
+   */
+  hidden?: boolean
+  /**
+   * Optional deprecation guidance for this model.
+   */
+  deprecation_message?: string | null
   /**
    * The name of the organization secret to use for this model. This secret must be configured in the organization settings.
    */
@@ -10618,6 +10633,10 @@ export type ServiceAccountsRevokeOrganizationServiceAccountApiKeyData = {
 
 export type ServiceAccountsRevokeOrganizationServiceAccountApiKeyResponse = void
 
+export type AgentListModelsData = {
+  includeHidden?: boolean
+}
+
 export type AgentListModelsResponse = {
   [key: string]: ModelConfig
 }
@@ -10680,6 +10699,7 @@ export type AgentSetDefaultModelSelectionResponse = DefaultModelSelection
 
 export type ListCatalogData = {
   cursor?: string | null
+  includeHidden?: boolean
   limit?: number
   modelName?: string | null
   provider?: string | null
@@ -15231,6 +15251,7 @@ export type $OpenApiTs = {
   }
   "/agent/models": {
     get: {
+      req: AgentListModelsData
       res: {
         /**
          * Successful Response
@@ -15238,6 +15259,10 @@ export type $OpenApiTs = {
         200: {
           [key: string]: ModelConfig
         }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
       }
     }
   }

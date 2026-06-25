@@ -103,6 +103,21 @@ class ModelConfig(BaseModel):
             "``agent-{provider}-credentials``."
         ),
     )
+    deprecated: bool = Field(
+        default=False,
+        description="Whether this model is deprecated for new selections.",
+    )
+    hidden: bool = Field(
+        default=False,
+        description=(
+            "Whether this model is hidden from default model pickers while "
+            "remaining executable for saved configurations."
+        ),
+    )
+    deprecation_message: str | None = Field(
+        default=None,
+        description="Optional deprecation guidance for this model.",
+    )
     org_secret_name: str = Field(
         ...,
         description="The name of the organization secret to use for this model. "

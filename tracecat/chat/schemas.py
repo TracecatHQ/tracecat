@@ -32,7 +32,7 @@ class BasicChatRequest(BaseModel):
         max_length=10000,
     )
     model_name: str = Field(
-        default="gpt-4o-mini",
+        default="gpt-5-mini",
         description="AI model to use",
         min_length=1,
         max_length=100,
@@ -60,7 +60,7 @@ class VercelChatRequest(BaseModel):
     message: vercel.UIMessage = Field(
         ..., description="User message in Vercel UI format"
     )
-    model: str = Field(default="gpt-4o-mini", description="AI model to use")
+    model: str = Field(default="gpt-5-mini", description="AI model to use")
     model_provider: str = Field(
         default="openai", description="AI model provider", min_length=1, max_length=50
     )

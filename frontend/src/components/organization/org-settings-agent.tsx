@@ -412,6 +412,8 @@ interface ModelCatalogEntry {
   metadata: Record<string, unknown> | null
   base_url: string | null
   enabled: boolean
+  deprecated?: boolean
+  deprecation_message?: string | null
   readiness_message?: string | null
   runtime_target_configured?: boolean
 }
@@ -482,6 +484,20 @@ function normalizeOptional(value: string | null | undefined): string | null {
   }
   const trimmed = value.trim()
   return trimmed.length > 0 ? trimmed : null
+}
+
+const DEPRECATED_MODEL_KEYS = new Set(["openai::gpt-4o-mini"])
+
+function isDeprecatedModelSelection(
+  modelProvider?: string | null,
+  modelName?: string | null
+): boolean {
+  if (!modelProvider || !modelName) {
+    return false
+  }
+  return DEPRECATED_MODEL_KEYS.has(
+    `${modelProvider.trim().toLowerCase()}::${modelName.trim()}`
+  )
 }
 
 function parseCustomHeaders(
@@ -1977,8 +1993,8 @@ export function OrgSettingsAgentForm() {
 
   const orgEnabledCatalogEntries = useMemo(
     () =>
-      (catalogEntries ?? []).filter((entry) =>
-        enabledCatalogIdToAccess.has(entry.id)
+      (catalogEntries ?? []).filter(
+        (entry) => enabledCatalogIdToAccess.has(entry.id) && !entry.hidden
       ),
     [catalogEntries, enabledCatalogIdToAccess]
   )
@@ -2000,6 +2016,7 @@ export function OrgSettingsAgentForm() {
             model_name: entry.model_name,
             model_provider: entry.model_provider,
             source_label: sourceLabel,
+            deprecated: entry.deprecated,
           }
         }),
     [orgEnabledCatalogEntries, customProvidersById, providerConfigsByProvider]
@@ -2007,11 +2024,28 @@ export function OrgSettingsAgentForm() {
   const currentDefaultModelOption =
     defaultModelOptions.find(
       (model) => model.catalog_id === defaultModelSelection?.catalog_id
-    ) ?? null
+    ) ??
+    (defaultModelSelection
+      ? {
+          catalog_id: defaultModelSelection.catalog_id,
+          model_name: defaultModelSelection.model_name,
+          model_provider: defaultModelSelection.model_provider,
+          source_label: isDeprecatedModelSelection(
+            defaultModelSelection.model_provider,
+            defaultModelSelection.model_name
+          )
+            ? "Legacy / deprecated"
+            : "Legacy",
+          deprecated: isDeprecatedModelSelection(
+            defaultModelSelection.model_provider,
+            defaultModelSelection.model_name
+          ),
+        }
+      : null)
   const builtInCatalogEntries = useMemo(
     () =>
       (catalogEntries ?? []).filter(
-        (entry) => entry.custom_provider_id === null
+        (entry) => entry.custom_provider_id === null && !entry.hidden
       ),
     [catalogEntries]
   )
@@ -2058,6 +2092,8 @@ export function OrgSettingsAgentForm() {
               metadata: entry.model_metadata,
               base_url: null,
               enabled: enabledCatalogIdToAccess.has(entry.id),
+              deprecated: entry.deprecated,
+              deprecation_message: entry.deprecation_message,
               enableable: credentialsConfigured,
               ready: credentialsConfigured,
               credentials_configured: credentialsConfigured,
@@ -2124,6 +2160,7 @@ export function OrgSettingsAgentForm() {
         const providerEntries = [
           ...(catalogByProviderId.get(provider.id) ?? []),
         ]
+          .filter((entry) => !entry.hidden)
           .sort((left, right) =>
             left.model_name.localeCompare(right.model_name)
           )
@@ -2138,6 +2175,8 @@ export function OrgSettingsAgentForm() {
               metadata: entry.model_metadata,
               base_url: provider.base_url,
               enabled: enabledCatalogIdToAccess.has(entry.id),
+              deprecated: entry.deprecated,
+              deprecation_message: entry.deprecation_message,
             })
           )
 
@@ -2587,6 +2626,11 @@ export function OrgSettingsAgentForm() {
                     <span className="block truncate text-xs text-muted-foreground">
                       {currentDefaultModelOption.source_label}
                     </span>
+                    {currentDefaultModelOption.deprecated ? (
+                      <span className="block truncate text-xs text-amber-600 dark:text-amber-500">
+                        Deprecated model kept for compatibility
+                      </span>
+                    ) : null}
                   </div>
                 </div>
               ) : (
@@ -2613,6 +2657,11 @@ export function OrgSettingsAgentForm() {
                           {isSelected ? (
                             <span className="shrink-0 text-xs text-muted-foreground">
                               Current default
+                            </span>
+                          ) : null}
+                          {model.deprecated ? (
+                            <span className="shrink-0 text-xs text-amber-600 dark:text-amber-500">
+                              Deprecated
                             </span>
                           ) : null}
                         </div>

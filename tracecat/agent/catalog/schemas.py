@@ -17,6 +17,9 @@ class AgentCatalogRead(BaseModel):
     model_provider: str
     model_name: str
     model_metadata: dict[str, Any] | None
+    deprecated: bool = False
+    hidden: bool = False
+    deprecation_message: str | None = None
 
 
 class AgentCatalogListResponse(BaseModel):

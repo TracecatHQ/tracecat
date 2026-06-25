@@ -22,6 +22,11 @@ from tracecat_registry._internal import secrets as registry_secrets
 from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.catalog.schemas import AgentCatalogRead
 from tracecat.agent.config import MODEL_CONFIGS, PROVIDER_CREDENTIAL_CONFIGS
+from tracecat.agent.model_deprecations import (
+    deprecation_message,
+    is_deprecated_model,
+    is_hidden_model,
+)
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.schemas import (
     DefaultModelSelection,
@@ -374,9 +379,26 @@ class AgentManagementService(BaseOrgService):
         """List all available AI model providers."""
         return sorted({c.provider for c in MODEL_CONFIGS.values()})
 
-    async def list_models(self) -> dict[str, ModelConfig]:
-        """List all available AI models."""
-        return MODEL_CONFIGS
+    async def list_models(
+        self, *, include_hidden: bool = False
+    ) -> dict[str, ModelConfig]:
+        """List available AI models for new selections."""
+        models: dict[str, ModelConfig] = {}
+        for model_name, config in MODEL_CONFIGS.items():
+            deprecated = is_deprecated_model(config.provider, config.name)
+            hidden = is_hidden_model(config.provider, config.name)
+            if hidden and not include_hidden:
+                continue
+            models[model_name] = config.model_copy(
+                update={
+                    "deprecated": deprecated,
+                    "hidden": hidden,
+                    "deprecation_message": deprecation_message(
+                        config.provider, config.name
+                    ),
+                }
+            )
+        return models
 
     async def get_model_config(self, model_name: str) -> ModelConfig:
         """Get configuration for a specific model."""
@@ -937,7 +959,7 @@ class AgentManagementService(BaseOrgService):
     async def get_default_model_selection(self) -> DefaultModelSelection | None:
         """Get the canonical default model selection, if it resolves cleanly."""
         access_svc = AgentModelAccessService(session=self.session, role=self.role)
-        enabled_models = await access_svc.get_org_models()
+        enabled_models = await access_svc.get_org_models(include_hidden=True)
 
         if catalog_id := await self._get_default_model_catalog_id_setting():
             if catalog_entry := next(
@@ -989,7 +1011,7 @@ class AgentManagementService(BaseOrgService):
                 raise TracecatNotFoundError("No default model set")
 
             access_svc = AgentModelAccessService(session=self.session, role=self.role)
-            enabled_models = await access_svc.get_org_models()
+            enabled_models = await access_svc.get_org_models(include_hidden=True)
             catalog_entry = self._resolve_legacy_default_model_entry(
                 enabled_models, model_name=legacy_name
             )

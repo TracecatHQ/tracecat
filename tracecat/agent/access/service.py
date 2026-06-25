@@ -9,6 +9,12 @@ from sqlalchemy.exc import IntegrityError
 
 from tracecat.agent.access.schemas import AgentModelAccessRead
 from tracecat.agent.catalog.schemas import AgentCatalogRead
+from tracecat.agent.model_deprecations import (
+    deprecation_message,
+    is_deprecated_model,
+    is_hidden_model,
+    iter_hidden_model_keys,
+)
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import AgentCatalog, AgentModelAccess, Workspace
@@ -21,6 +27,43 @@ class AgentModelAccessService(BaseOrgService):
     """Manage model access for organizations and workspaces."""
 
     service_name = "agent_model_access"
+
+    @staticmethod
+    def _to_catalog_read(row: AgentCatalog) -> AgentCatalogRead:
+        """Project a catalog row into the public schema with model status."""
+        is_platform_model = row.custom_provider_id is None
+        deprecated = is_platform_model and is_deprecated_model(
+            row.model_provider, row.model_name
+        )
+        hidden = is_platform_model and is_hidden_model(
+            row.model_provider, row.model_name
+        )
+        return AgentCatalogRead.model_validate(row).model_copy(
+            update={
+                "deprecated": deprecated,
+                "hidden": hidden,
+                "deprecation_message": deprecation_message(
+                    row.model_provider, row.model_name
+                )
+                if deprecated
+                else None,
+            }
+        )
+
+    @staticmethod
+    def _visible_catalog_condition() -> sa.ColumnElement[bool]:
+        """SQL predicate that hides platform-deprecated models from pickers."""
+        hidden_conditions = [
+            sa.and_(
+                AgentCatalog.custom_provider_id.is_(None),
+                AgentCatalog.model_provider == provider,
+                AgentCatalog.model_name == model_name,
+            )
+            for provider, model_name in iter_hidden_model_keys()
+        ]
+        if not hidden_conditions:
+            return sa.true()
+        return sa.not_(sa.or_(*hidden_conditions))
 
     @require_scope("agent:create")
     @audit_log(resource_type="agent_model_access", action="create")
@@ -169,8 +212,13 @@ class AgentModelAccessService(BaseOrgService):
         return [AgentModelAccessRead.model_validate(row) for row in items], next_cursor
 
     @require_scope("agent:read")
-    async def get_org_models(self) -> list[AgentCatalogRead]:
+    async def get_org_models(
+        self, *, include_hidden: bool = False
+    ) -> list[AgentCatalogRead]:
         """Return catalog rows enabled for the organization."""
+        visibility_conditions = (
+            [] if include_hidden else [self._visible_catalog_condition()]
+        )
         stmt = (
             select(AgentCatalog)
             .join(AgentModelAccess, AgentModelAccess.catalog_id == AgentCatalog.id)
@@ -181,6 +229,7 @@ class AgentModelAccessService(BaseOrgService):
                     AgentCatalog.organization_id == self.organization_id,
                     AgentCatalog.organization_id.is_(None),
                 ),
+                *visibility_conditions,
             )
             .order_by(
                 AgentCatalog.model_provider.asc(),
@@ -188,15 +237,20 @@ class AgentModelAccessService(BaseOrgService):
             )
         )
         rows = (await self.session.execute(stmt)).scalars().all()
-        return [AgentCatalogRead.model_validate(row) for row in rows]
+        return [self._to_catalog_read(row) for row in rows]
 
     @require_scope("agent:read")
-    async def get_workspace_models(self, workspace_id: UUID) -> list[AgentCatalogRead]:
+    async def get_workspace_models(
+        self, workspace_id: UUID, *, include_hidden: bool = False
+    ) -> list[AgentCatalogRead]:
         """Return the effective model set for a workspace.
 
         If the workspace has any explicit access rows, those fully override the
         org-level set. Otherwise the org-level set applies.
         """
+        visibility_conditions = (
+            [] if include_hidden else [self._visible_catalog_condition()]
+        )
         workspace_override_exists = await self.session.scalar(
             select(
                 exists().where(
@@ -225,6 +279,7 @@ class AgentModelAccessService(BaseOrgService):
                     AgentCatalog.organization_id == self.organization_id,
                     AgentCatalog.organization_id.is_(None),
                 ),
+                *visibility_conditions,
             )
             .order_by(
                 AgentCatalog.model_provider.asc(),
@@ -233,7 +288,7 @@ class AgentModelAccessService(BaseOrgService):
         )
 
         rows = (await self.session.execute(stmt)).scalars().all()
-        return [AgentCatalogRead.model_validate(row) for row in rows]
+        return [self._to_catalog_read(row) for row in rows]
 
     async def is_catalog_enabled(
         self,

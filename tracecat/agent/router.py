@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat.agent.schemas import (
     DefaultModelSelection,
@@ -24,10 +24,11 @@ async def list_models(
     *,
     role: OrgUserRole,
     session: AsyncDBSession,
+    include_hidden: bool = Query(False),
 ) -> dict[str, ModelConfig]:
     """List all available AI models."""
     service = AgentManagementService(session, role=role)
-    return await service.list_models()
+    return await service.list_models(include_hidden=include_hidden)
 
 
 @router.get("/providers")
