@@ -26,6 +26,7 @@ from tracecat.db.models import WorkspaceSyncResourceMapping
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import PullDiagnostic
 from tracecat.tables.enums import SqlType
+from tracecat.tiers.enums import Entitlement
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.schemas import WorkspaceManifestResources, WorkspaceSpec
 
@@ -178,6 +179,12 @@ class ResourceAdapter(ABC):
     """Attribute on ``WorkspaceSpec``/``WorkspaceManifestResources`` for this type."""
     model: ClassVar[type[BaseModel]]
     """Pydantic spec model the resource serializes to and from."""
+    read_scope: ClassVar[str | None] = None
+    """RBAC scope required to export or dry-run import this resource type."""
+    update_scope: ClassVar[str | None] = None
+    """RBAC scope required to apply an import for this resource type."""
+    required_entitlements: ClassVar[frozenset[Entitlement]] = frozenset()
+    """Organization entitlements required to sync this resource type."""
 
     # -- paths and serialization ------------------------------------------
     @abstractmethod

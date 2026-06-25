@@ -60,6 +60,8 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
     resource_type = SyncResourceType.AGENT_PRESET
     spec_attr = "agent_presets"
     model = AgentPresetResourceSpec
+    read_scope = "agent:read"
+    update_scope = "agent:update"
     root = AGENT_PRESET_ROOT
     filename = AGENT_PRESET_FILENAME
 

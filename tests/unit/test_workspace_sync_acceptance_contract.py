@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 import yaml
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 from pydantic_core import PydanticSerializationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,6 +48,8 @@ from tracecat.db.models import (
 from tracecat.dsl.common import DSLInput
 from tracecat.git.types import GitUrl
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.secrets.schemas import SecretKeyValue
+from tracecat.secrets.service import SecretsService
 from tracecat.sync import PullOptions, PushStatus
 from tracecat.tables.schemas import TableUpdate
 from tracecat.tables.service import BaseTablesService
@@ -2183,11 +2185,15 @@ async def test_project_workspace_preserves_mapped_source_ids_after_renames(
             Secret.environment == "default",
         )
     )
+    case_fields = await session.scalar(
+        select(CaseFields).where(CaseFields.workspace_id == svc_role.workspace_id)
+    )
     assert tag is not None
     assert dropdown is not None
     assert duration is not None
     assert variable is not None
     assert secret is not None
+    assert case_fields is not None
 
     tag.name = "QA alert renamed"
     tag.ref = "qa-alert-renamed"
@@ -2196,7 +2202,21 @@ async def test_project_workspace_preserves_mapped_source_ids_after_renames(
     duration.name = "qa_time_to_triage_renamed"
     variable.name = "qa_config_renamed"
     secret.name = "qa_threatintel_renamed"
-    session.add_all([tag, dropdown, duration, variable, secret])
+    case_schema = dict(case_fields.schema or {})
+    case_schema["qa_vendor_ref"] = case_schema.pop("qa_external_ref")
+    case_fields.schema = case_schema
+    case_field_mapping = await session.scalar(
+        select(WorkspaceSyncResourceMapping).where(
+            WorkspaceSyncResourceMapping.workspace_id == svc_role.workspace_id,
+            WorkspaceSyncResourceMapping.resource_type
+            == SyncResourceType.CASE_FIELD.value,
+            WorkspaceSyncResourceMapping.source_id == "qa_external_ref",
+        )
+    )
+    assert case_field_mapping is not None
+    case_field_mapping.local_id = uuid.uuid5(case_fields.id, "qa_vendor_ref")
+    session.add_all([tag, dropdown, duration, variable, secret, case_fields])
+    session.add(case_field_mapping)
     await session.flush()
 
     projection = await service.project_workspace(create_missing_mappings=False)
@@ -2238,6 +2258,13 @@ async def test_project_workspace_preserves_mapped_source_ids_after_renames(
     )
     assert secret_spec["id"] == "default/qa_threatintel"
     assert secret_spec["name"] == "qa_threatintel_renamed"
+
+    case_field_spec = yaml.safe_load(
+        projection.files[f"{CASE_FIELD_ROOT}/qa_external_ref.yml"]
+    )
+    assert f"{CASE_FIELD_ROOT}/qa_vendor_ref.yml" not in projection.files
+    assert case_field_spec["id"] == "qa_external_ref"
+    assert case_field_spec["name"] == "qa_vendor_ref"
 
 
 @pytest.mark.anyio
@@ -3248,6 +3275,99 @@ async def test_variable_import_allows_in_batch_name_swap(
     assert variable_a.values == {"value": "a"}
     assert variable_b.name == "Alpha"
     assert variable_b.values == {"value": "b"}
+
+
+@pytest.mark.anyio
+async def test_secret_metadata_import_allows_in_batch_name_swap(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    secret_service = SecretsService(session=session, role=svc_role)
+    secret_a = Secret(
+        workspace_id=svc_role.workspace_id,
+        name="Alpha",
+        environment="default",
+        encrypted_keys=secret_service.encrypt_keys(
+            [SecretKeyValue(key="TOKEN", value=SecretStr("a"))]
+        ),
+    )
+    secret_b = Secret(
+        workspace_id=svc_role.workspace_id,
+        name="Beta",
+        environment="default",
+        encrypted_keys=secret_service.encrypt_keys(
+            [SecretKeyValue(key="TOKEN", value=SecretStr("b"))]
+        ),
+    )
+    session.add_all([secret_a, secret_b])
+    await session.flush()
+    session.add_all(
+        [
+            WorkspaceSyncResourceMapping(
+                workspace_id=svc_role.workspace_id,
+                provider=VcsProvider.GITHUB.value,
+                resource_type=SyncResourceType.SECRET_METADATA.value,
+                source_id="default/alpha",
+                source_path=f"{SECRET_METADATA_ROOT}/default/alpha.yml",
+                local_id=secret_a.id,
+            ),
+            WorkspaceSyncResourceMapping(
+                workspace_id=svc_role.workspace_id,
+                provider=VcsProvider.GITHUB.value,
+                resource_type=SyncResourceType.SECRET_METADATA.value,
+                source_id="default/beta",
+                source_path=f"{SECRET_METADATA_ROOT}/default/beta.yml",
+                local_id=secret_b.id,
+            ),
+        ]
+    )
+    await session.flush()
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{SECRET_METADATA_ROOT}/default/alpha.yml": _yaml(
+            {
+                "version": 1,
+                "type": "secret_metadata",
+                "id": "default/alpha",
+                "name": "Beta",
+                "environment": "default",
+                "keys": ["TOKEN"],
+            }
+        ),
+        f"{SECRET_METADATA_ROOT}/default/beta.yml": _yaml(
+            {
+                "version": 1,
+                "type": "secret_metadata",
+                "id": "default/beta",
+                "name": "Alpha",
+                "environment": "default",
+                "keys": ["TOKEN"],
+            }
+        ),
+    }
+
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="s" * 40)
+
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+    await session.refresh(secret_a)
+    await session.refresh(secret_b)
+    assert secret_a.name == "Beta"
+    assert secret_b.name == "Alpha"
+    decrypted_a = {
+        key_value.key: key_value.value.get_secret_value()
+        for key_value in secret_service.decrypt_keys(secret_a.encrypted_keys)
+    }
+    decrypted_b = {
+        key_value.key: key_value.value.get_secret_value()
+        for key_value in secret_service.decrypt_keys(secret_b.encrypted_keys)
+    }
+    assert decrypted_a == {"TOKEN": "a"}
+    assert decrypted_b == {"TOKEN": "b"}
 
 
 @pytest.mark.anyio

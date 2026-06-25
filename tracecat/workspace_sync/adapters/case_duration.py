@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from tracecat.db.models import CaseDurationDefinition
 from tracecat.service import BaseWorkspaceService
+from tracecat.tiers.enums import Entitlement
 from tracecat.workspace_sync.adapters.base import (
     FlatManifestAdapter,
     ImportedResource,
@@ -30,6 +31,9 @@ class CaseDurationAdapter(FlatManifestAdapter):
     resource_type = SyncResourceType.CASE_DURATION
     spec_attr = "case_durations"
     model = CaseDurationResourceSpec
+    read_scope = "case:read"
+    update_scope = "case:update"
+    required_entitlements = frozenset({Entitlement.CASE_ADDONS})
     root = CASE_DURATION_ROOT
 
     async def project(

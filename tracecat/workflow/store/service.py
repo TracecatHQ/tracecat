@@ -14,6 +14,7 @@ from tracecat.workflow.store.schemas import (
     WorkflowDslPublishResult,
     validate_short_branch_name,
 )
+from tracecat.workspace_sync.constants import WORKSPACE_SYNC_SCOPE
 from tracecat.workspace_sync.schemas import WorkspaceSyncExportRequest
 from tracecat.workspace_sync.service import WorkspaceSyncService
 
@@ -21,7 +22,7 @@ from tracecat.workspace_sync.service import WorkspaceSyncService
 class WorkflowStoreService(BaseWorkspaceService):
     service_name = "workflow_store"
 
-    @require_scope("workflow:update", "workflow:sync")
+    @require_scope("workflow:update", WORKSPACE_SYNC_SCOPE)
     async def publish_workflow_dsl(
         self,
         *,

@@ -16,17 +16,23 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement
-from tracecat.exceptions import ScopeDeniedError, TracecatValidationError
+from tracecat.exceptions import (
+    EntitlementRequired,
+    ScopeDeniedError,
+    TracecatValidationError,
+)
 from tracecat.git.types import GitUrl
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.sync import CommitInfo, PullOptions, PushStatus
 from tracecat.workflow.store.schemas import RemoteWorkflowSchedule
+from tracecat.workspace_sync.constants import WORKSPACE_SYNC_SCOPE
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.schemas import (
     MANIFEST_FILENAME,
     AgentPresetResourceSpec,
     AgentPresetSkillBinding,
     AgentPresetVersionResourceSpec,
+    CaseDropdownResourceSpec,
     ResourceRef,
     SecretMetadataResourceSpec,
     SkillResourceSpec,
@@ -576,7 +582,7 @@ async def test_preview_export_requires_scopes_for_projected_sensitive_metadata()
         service_id="tracecat-api",
         workspace_id=uuid.uuid4(),
         organization_id=uuid.uuid4(),
-        scopes=frozenset({"workflow:update", "workflow:sync"}),
+        scopes=frozenset({WORKSPACE_SYNC_SCOPE}),
     )
     service = WorkspaceSyncService(session=AsyncMock(), role=role)
     service.project_workspace = AsyncMock(
@@ -663,7 +669,7 @@ async def test_pull_dry_run_requires_read_scopes_for_incoming_resources() -> Non
         service_id="tracecat-api",
         workspace_id=uuid.uuid4(),
         organization_id=uuid.uuid4(),
-        scopes=frozenset({"workflow:update", "workflow:sync"}),
+        scopes=frozenset({WORKSPACE_SYNC_SCOPE}),
     )
     service = WorkspaceSyncService(session=AsyncMock(), role=role)
     incoming_spec = WorkspaceSpec(
@@ -717,7 +723,7 @@ async def test_pull_apply_requires_update_scopes_for_incoming_resources() -> Non
         service_id="tracecat-api",
         workspace_id=uuid.uuid4(),
         organization_id=uuid.uuid4(),
-        scopes=frozenset({"workflow:update", "workflow:sync"}),
+        scopes=frozenset({WORKSPACE_SYNC_SCOPE}),
     )
     service = WorkspaceSyncService(session=AsyncMock(), role=role)
     incoming_spec = WorkspaceSpec(
@@ -760,6 +766,97 @@ async def test_pull_apply_requires_update_scopes_for_incoming_resources() -> Non
         await service.pull(options=PullOptions(commit_sha="a" * 40))
 
     assert set(exc_info.value.missing_scopes) == {"secret:update", "variable:update"}
+
+
+@pytest.mark.anyio
+async def test_pull_blocks_entitled_resource_without_entitlement() -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({WORKSPACE_SYNC_SCOPE, "case:update"}),
+    )
+    service = WorkspaceSyncService(session=AsyncMock(), role=role)
+    service.has_entitlement = AsyncMock(return_value=False)
+    incoming_spec = WorkspaceSpec(
+        case_dropdowns={
+            "resolution_reason": CaseDropdownResourceSpec(
+                id="resolution_reason",
+                name="Resolution reason",
+            )
+        },
+    )
+    transport = AsyncMock()
+    transport.read_files.return_value = VcsTreeSnapshot(
+        commit_sha="a" * 40,
+        tree_sha="tree-sha",
+        files=service._files_from_spec(
+            manifest=WorkspaceManifest(),
+            spec=incoming_spec,
+        ),
+    )
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="tracecat", repo="sync")
+    )
+
+    with (
+        patch(
+            "tracecat.workspace_sync.service.vcs_transport_for_provider",
+            return_value=transport,
+        ),
+        pytest.raises(EntitlementRequired) as exc_info,
+    ):
+        await service.pull(options=PullOptions(commit_sha="a" * 40))
+
+    assert exc_info.value.entitlement == "case_addons"
+
+
+@pytest.mark.anyio
+async def test_full_export_skips_unentitled_resource_types() -> None:
+    service = WorkspaceSyncService(
+        session=AsyncMock(),
+        role=Role(
+            type="service",
+            service_id="tracecat-api",
+            workspace_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+            scopes=frozenset({WORKSPACE_SYNC_SCOPE}),
+        ),
+    )
+    service.has_entitlement = AsyncMock(return_value=False)
+
+    resource_types = await service._entitled_non_workflow_types(
+        full_workspace_export=True,
+        selection=None,
+    )
+
+    assert SyncResourceType.CASE_DROPDOWN not in resource_types
+    assert SyncResourceType.CASE_DURATION not in resource_types
+    assert SyncResourceType.CASE_FIELD in resource_types
+
+
+@pytest.mark.anyio
+async def test_selected_export_blocks_unentitled_resource_type() -> None:
+    service = WorkspaceSyncService(
+        session=AsyncMock(),
+        role=Role(
+            type="service",
+            service_id="tracecat-api",
+            workspace_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+            scopes=frozenset({WORKSPACE_SYNC_SCOPE}),
+        ),
+    )
+    service.has_entitlement = AsyncMock(return_value=False)
+
+    with pytest.raises(EntitlementRequired) as exc_info:
+        await service._entitled_non_workflow_types(
+            full_workspace_export=False,
+            selection={SyncResourceType.CASE_DROPDOWN: set()},
+        )
+
+    assert exc_info.value.entitlement == "case_addons"
 
 
 @pytest.mark.anyio
@@ -962,6 +1059,70 @@ async def test_selected_export_preserves_unselected_sync_files(
     assert result.commit.status is PushStatus.NO_OP
     files = fake_vcs.repo_files(git_url, ref="sync/workspace")
     assert "workflows/stale/definition.yml" in files
+
+
+@pytest.mark.anyio
+async def test_selected_export_deletes_stale_companion_files_under_selected_resource(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    fake_vcs = FakeVcsServer()
+    git_url = GitUrl(host="github.com", org="TracecatHQ", repo="sync")
+    seed_transport = fake_vcs.transport_factory(
+        VcsProvider.GITHUB,
+        session=AsyncMock(),
+        role=AsyncMock(),
+    )
+    await seed_transport.write_files(
+        url=git_url,
+        files={
+            MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+            "skills/qa-enrichment-skill/skill.yml": "version: 1\n",
+            "skills/qa-enrichment-skill/versions/1.yml": "old version\n",
+            "skills/unselected-skill/skill.yml": "version: 1\n",
+        },
+        message="Seed sync branch",
+        branch="sync/workspace",
+        create_pr=False,
+    )
+    service = WorkspaceSyncService(
+        session=workspace_sync_service.session,
+        role=workspace_sync_service.role,
+        transport_factory=fake_vcs.transport_factory,
+    )
+    service._workspace_git_url = AsyncMock(return_value=git_url)
+    service.project_workspace = AsyncMock(
+        return_value=WorkspaceProjection(
+            manifest=WorkspaceManifest(),
+            spec=WorkspaceSpec(
+                skills={
+                    "qa-enrichment-skill": SkillResourceSpec(
+                        id="qa-enrichment-skill",
+                        slug="qa-enrichment-skill",
+                        name="QA enrichment skill",
+                    )
+                }
+            ),
+            files={
+                MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+                "skills/qa-enrichment-skill/skill.yml": "version: 1\nname: current\n",
+            },
+        )
+    )
+
+    result = await service.export_workspace(
+        WorkspaceSyncExportRequest(
+            message="Push selected skill",
+            branch="sync/workspace",
+            create_pr=False,
+            resources=[ResourceRef(resource_type=SyncResourceType.SKILL)],
+        )
+    )
+
+    assert result.commit.status is PushStatus.COMMITTED
+    assert result.commit.sha is not None
+    files = fake_vcs.repo_files(git_url, ref=result.commit.sha)
+    assert "skills/qa-enrichment-skill/versions/1.yml" not in files
+    assert "skills/unselected-skill/skill.yml" in files
 
 
 @pytest.mark.anyio

@@ -22,7 +22,6 @@ from tracecat.workspace_sync.adapters.base import (
     ProjectedResource,
     ResourceProjection,
     sql_type,
-    unique_source_id,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
@@ -42,6 +41,8 @@ class CaseFieldAdapter(FlatManifestAdapter):
     resource_type = SyncResourceType.CASE_FIELD
     spec_attr = "case_fields"
     model = CaseFieldResourceSpec
+    read_scope = "case:read"
+    update_scope = "case:update"
     root = CASE_FIELD_ROOT
 
     async def project(
@@ -59,14 +60,14 @@ class CaseFieldAdapter(FlatManifestAdapter):
             return ResourceProjection(specs={}, resources=[])
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
-        reserved: set[str] = set()
+        assigner = await self.source_id_assigner(workspace_service)
         schema = definition.schema or {}
         # Each schema key is one field; sort for deterministic source-id minting.
         for ref, field_def in sorted(schema.items()):
             if not isinstance(field_def, dict):
                 continue
-            source_id = unique_source_id(ref, reserved=reserved)
-            reserved.add(source_id)
+            local_id = _case_field_local_id(definition.id, ref)
+            source_id = assigner.assign(local_id, ref)
             specs[source_id] = CaseFieldResourceSpec(
                 id=source_id,
                 name=str(field_def.get("name") or ref),
@@ -76,13 +77,8 @@ class CaseFieldAdapter(FlatManifestAdapter):
                 required_on_closure=bool(field_def.get("required_on_closure")),
             )
             # Fields have no row of their own, so derive a stable local id from
-            # the schema row id plus source id.
-            resources.append(
-                self.projected_resource(
-                    source_id,
-                    _case_field_local_id(definition.id, source_id),
-                )
-            )
+            # the schema row id plus field ref.
+            resources.append(self.projected_resource(source_id, local_id))
         return ResourceProjection(specs=specs, resources=resources)
 
     async def import_specs(
@@ -105,11 +101,18 @@ class CaseFieldAdapter(FlatManifestAdapter):
                 )
             )
             current_schema = dict(definition.schema or {}) if definition else {}
+            field_id = await self._field_id_for_import(
+                workspace_service,
+                definition=definition,
+                current_schema=current_schema,
+                source_id=source_id,
+                spec=spec,
+            )
             field_type = sql_type(spec.field_type or "text")
             field_kind = spec.kind
             field_options = _case_field_options(spec, current_schema, field_type)
             # New field: provision an actual table column, not just a schema entry.
-            if source_id not in current_schema:
+            if field_id not in current_schema:
                 field_params = CaseFieldCreate(
                     name=spec.name,
                     type=field_type,
@@ -133,7 +136,7 @@ class CaseFieldAdapter(FlatManifestAdapter):
             else:
                 # Existing field: the column already exists, so update the schema
                 # entry in place rather than going through create_column.
-                current_schema[source_id] = {
+                current_schema[field_id] = {
                     "type": field_type.value,
                     **({"options": field_options} if field_options else {}),
                     **({"kind": field_kind} if field_kind else {}),
@@ -166,10 +169,36 @@ class CaseFieldAdapter(FlatManifestAdapter):
                 imported.append(
                     self.imported_resource(
                         source_id,
-                        _case_field_local_id(definition.id, source_id),
+                        _case_field_local_id(
+                            definition.id,
+                            spec.name if field_id not in current_schema else field_id,
+                        ),
                     )
                 )
         return imported
+
+    async def _field_id_for_import(
+        self,
+        workspace_service: BaseWorkspaceService,
+        *,
+        definition: CaseFields | None,
+        current_schema: Mapping[str, Any],
+        source_id: str,
+        spec: CaseFieldResourceSpec,
+    ) -> str:
+        """Resolve the local schema key a source id should update."""
+        if definition is not None:
+            mapped_local_id = await self.local_id_for_source_id(
+                workspace_service,
+                source_id,
+            )
+            if mapped_local_id is not None:
+                for field_id in sorted(current_schema):
+                    if _case_field_local_id(definition.id, field_id) == mapped_local_id:
+                        return field_id
+        if source_id in current_schema:
+            return source_id
+        return spec.name
 
 
 def _case_field_kind(value: Any) -> CaseFieldKind | None:

@@ -240,6 +240,12 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
         "sync",
         "Sync workflows with the configured Git repository",
     ),
+    ScopeDefinition(
+        "workspace_sync:sync",
+        "workspace_sync",
+        "sync",
+        "Sync workspace resources with the configured Git repository",
+    ),
     ScopeDefinition("workflow:create", "workflow", "create", "Create new workflows"),
     ScopeDefinition(
         "workflow:update", "workflow", "update", "Modify existing workflows"

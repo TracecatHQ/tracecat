@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from tracecat.db.models import CaseDropdownDefinition, CaseDropdownOption
 from tracecat.service import BaseWorkspaceService
+from tracecat.tiers.enums import Entitlement
 from tracecat.workspace_sync.adapters.base import (
     FlatManifestAdapter,
     ImportedResource,
@@ -29,6 +30,9 @@ class CaseDropdownAdapter(FlatManifestAdapter):
     resource_type = SyncResourceType.CASE_DROPDOWN
     spec_attr = "case_dropdowns"
     model = CaseDropdownResourceSpec
+    read_scope = "case:read"
+    update_scope = "case:update"
+    required_entitlements = frozenset({Entitlement.CASE_ADDONS})
     root = CASE_DROPDOWN_ROOT
 
     async def project(

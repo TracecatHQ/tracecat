@@ -60,6 +60,8 @@ class SkillAdapter(DirectoryManifestAdapter):
     resource_type = SyncResourceType.SKILL
     spec_attr = "skills"
     model = SkillResourceSpec
+    read_scope = "agent:read"
+    update_scope = "agent:update"
     root = SKILL_ROOT
     filename = SKILL_FILENAME
 

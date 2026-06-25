@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
+from dataclasses import dataclass
 
 import sqlalchemy as sa
 from pydantic import BaseModel, SecretStr
@@ -28,12 +30,22 @@ from tracecat.workspace_sync.schemas import (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class SecretMetadataKey:
+    """A secret metadata row's uniqueness key within a workspace."""
+
+    environment: str
+    name: str
+
+
 class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
     """Sync adapter for secret metadata: key names only, never secret values."""
 
     resource_type = SyncResourceType.SECRET_METADATA
     spec_attr = "secret_metadata"
     model = SecretMetadataResourceSpec
+    read_scope = "secret:read"
+    update_scope = "secret:update"
     root = SECRET_METADATA_ROOT
 
     async def project(
@@ -139,15 +151,52 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
         later.
         """
         secret_metadata = workspace_spec.secret_metadata
+        if not secret_metadata:
+            return []
+
         imported: list[ImportedResource] = []
         secret_service = SecretsService(
             session=workspace_service.session, role=workspace_service.role
         )
+        target_keys_by_source_id = _target_keys_by_source_id(secret_metadata)
+        _ensure_unique_targets(target_keys_by_source_id)
+        mapped_secrets = {
+            source_id: secret
+            for source_id in sorted(secret_metadata)
+            if (
+                secret := await self._secret_by_source_id(
+                    workspace_service,
+                    source_id=source_id,
+                )
+            )
+            is not None
+        }
+        source_ids_by_secret_id = {
+            secret.id: source_id for source_id, secret in mapped_secrets.items()
+        }
+        for source_id, secret in mapped_secrets.items():
+            spec = secret_metadata[source_id]
+            await self._ensure_name_environment_available(
+                workspace_service,
+                source_id=source_id,
+                name=spec.name,
+                environment=spec.environment,
+                secret_id=secret.id,
+                source_ids_by_secret_id=source_ids_by_secret_id,
+                target_keys_by_source_id=target_keys_by_source_id,
+            )
+        await self._release_changing_mapped_secrets(
+            workspace_service,
+            secrets_by_source_id=mapped_secrets,
+            target_keys_by_source_id=target_keys_by_source_id,
+        )
+
         for source_id, spec in sorted(secret_metadata.items()):
             secret = await self._secret_for_import(
                 workspace_service,
                 source_id=source_id,
                 spec=spec,
+                mapped_secret=mapped_secrets.get(source_id),
             )
             # Pull the current decrypted values so existing keys keep their
             # secret values across the sync; the spec only carries key names.
@@ -202,6 +251,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
         *,
         source_id: str,
         spec: SecretMetadataResourceSpec,
+        mapped_secret: Secret | None = None,
     ) -> Secret | None:
         """Resolve the existing secret a spec maps to, by source id then name/env.
 
@@ -210,17 +260,10 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
         """
         # Prefer the sync-mapping match: it pins the spec to the same row across
         # renames, so a spec can move name/environment without losing identity.
-        secret = await self._secret_by_source_id(workspace_service, source_id=source_id)
+        secret = mapped_secret or await self._secret_by_source_id(
+            workspace_service, source_id=source_id
+        )
         if secret is not None:
-            # Guard the rename target: the spec's name/environment must not
-            # already belong to a different secret before we reuse this row.
-            await self._ensure_name_environment_available(
-                workspace_service,
-                source_id=source_id,
-                name=spec.name,
-                environment=spec.environment,
-                secret_id=secret.id,
-            )
             return secret
 
         # No mapping yet: fall back to matching an existing secret by its
@@ -252,8 +295,10 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
         name: str,
         environment: str,
         secret_id: uuid.UUID,
+        source_ids_by_secret_id: Mapping[uuid.UUID, str] | None = None,
+        target_keys_by_source_id: Mapping[str, SecretMetadataKey] | None = None,
     ) -> None:
-        """Raise if another secret already owns ``name`` in ``environment``."""
+        """Raise if another secret blocks claiming ``environment``/``name``."""
         # Look for any *other* secret holding this (name, environment) slot.
         conflict_id = await workspace_service.session.scalar(
             select(Secret.id).where(
@@ -267,7 +312,102 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
         if conflict_id is None:
             return
 
+        if source_ids_by_secret_id and target_keys_by_source_id:
+            conflict_source_id = source_ids_by_secret_id.get(conflict_id)
+            if conflict_source_id is not None and target_keys_by_source_id[
+                conflict_source_id
+            ] != SecretMetadataKey(environment=environment, name=name):
+                return
+
         raise ValueError(
             f"Secret metadata sync source id {source_id!r} cannot use "
             f"{environment!r}/{name!r} because another secret already uses it."
         )
+
+    async def _release_changing_mapped_secrets(
+        self,
+        workspace_service: BaseWorkspaceService,
+        *,
+        secrets_by_source_id: Mapping[str, Secret],
+        target_keys_by_source_id: Mapping[str, SecretMetadataKey],
+    ) -> None:
+        """Park secrets whose identity is changing under temporary names."""
+        changed = False
+        reserved_names_by_environment = await _reserved_names_by_environment(
+            workspace_service
+        )
+        for source_id, secret in secrets_by_source_id.items():
+            if (
+                SecretMetadataKey(environment=secret.environment, name=secret.name)
+                == target_keys_by_source_id[source_id]
+            ):
+                continue
+            reserved_names = reserved_names_by_environment.setdefault(
+                secret.environment,
+                set(),
+            )
+            reserved_names.discard(secret.name)
+            secret.name = _unique_temporary_secret_name(secret, reserved_names)
+            reserved_names.add(secret.name)
+            workspace_service.session.add(secret)
+            changed = True
+        if changed:
+            await workspace_service.session.flush()
+
+
+def _target_keys_by_source_id(
+    secret_metadata: Mapping[str, SecretMetadataResourceSpec],
+) -> dict[str, SecretMetadataKey]:
+    """Return each source id's desired ``(environment, name)`` target."""
+    return {
+        source_id: SecretMetadataKey(environment=spec.environment, name=spec.name)
+        for source_id, spec in secret_metadata.items()
+    }
+
+
+def _ensure_unique_targets(
+    targets_by_source_id: Mapping[str, SecretMetadataKey],
+) -> None:
+    """Reject a sync batch that targets the same secret identity twice."""
+    seen: dict[SecretMetadataKey, str] = {}
+    duplicates: list[SecretMetadataKey] = []
+    for source_id, target in sorted(targets_by_source_id.items()):
+        if target in seen:
+            duplicates.append(target)
+            continue
+        seen[target] = source_id
+    if duplicates:
+        names = ", ".join(
+            f"{target.environment!r}/{target.name!r}" for target in duplicates
+        )
+        raise ValueError(
+            f"Secret metadata sync specs must have unique targets: {names}"
+        )
+
+
+async def _reserved_names_by_environment(
+    workspace_service: BaseWorkspaceService,
+) -> dict[str, set[str]]:
+    """Return in-use secret names grouped by environment for this workspace."""
+    rows = (
+        await workspace_service.session.execute(
+            select(Secret.environment, Secret.name).where(
+                Secret.workspace_id == workspace_service.workspace_id
+            )
+        )
+    ).tuples()
+    reserved: dict[str, set[str]] = {}
+    for environment, name in rows:
+        reserved.setdefault(environment, set()).add(name)
+    return reserved
+
+
+def _unique_temporary_secret_name(secret: Secret, reserved_names: set[str]) -> str:
+    """Mint a placeholder secret name not present in ``reserved_names``."""
+    base = f"__tracecat_sync_tmp_{secret.id.hex}"
+    candidate = base
+    suffix = 2
+    while candidate in reserved_names:
+        candidate = f"{base}_{suffix}"
+        suffix += 1
+    return candidate

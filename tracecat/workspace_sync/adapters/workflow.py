@@ -33,6 +33,8 @@ class WorkflowAdapter(ResourceAdapter):
     resource_type = SyncResourceType.WORKFLOW
     spec_attr = "workflows"
     model = WorkflowResourceSpec
+    read_scope = "workflow:read"
+    update_scope = "workflow:update"
 
     def source_path(self, source_id: str) -> str:
         """Delegate to :func:`workflow_source_path` for the workflow layout."""

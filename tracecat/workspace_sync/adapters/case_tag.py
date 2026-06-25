@@ -32,6 +32,8 @@ class CaseTagAdapter(FlatManifestAdapter):
     resource_type = SyncResourceType.CASE_TAG
     spec_attr = "case_tags"
     model = CaseTagResourceSpec
+    read_scope = "case:read"
+    update_scope = "case:update"
     root = CASE_TAG_ROOT
 
     async def project(

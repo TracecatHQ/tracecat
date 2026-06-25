@@ -19,6 +19,7 @@ from tracecat.authz.controls import get_missing_scopes
 from tracecat.db.models import Workflow, Workspace, WorkspaceSyncResourceMapping
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import (
+    EntitlementRequired,
     ScopeDeniedError,
     TracecatNotFoundError,
     TracecatSettingsError,
@@ -55,9 +56,11 @@ from tracecat.workspace_sync.adapters import (
     workspace_spec_from_maps,
 )
 from tracecat.workspace_sync.adapters.base import (
+    DirectoryManifestAdapter,
     ResourceDependencyRefs,
     VersionedSlug,
 )
+from tracecat.workspace_sync.constants import WORKSPACE_SYNC_SCOPE
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.importer import (
     ImportedResource,
@@ -93,7 +96,6 @@ from tracecat.workspace_sync.schemas import (
     WorkspaceSyncExportRequest,
     WorkspaceSyncExportResult,
     WorkspaceSyncPreviewResource,
-    manifest_resource_roots,
     workspace_manifest_from_json,
 )
 from tracecat.workspace_sync.serialization import canonical_json_text
@@ -112,32 +114,6 @@ from tracecat.workspaces.service import WorkspaceService
 
 MAX_PULL_RESOURCE_DIFF_LINES = 240
 """Maximum number of unified-diff lines kept per resource in a pull preview."""
-
-_EXPORT_READ_SCOPES_BY_RESOURCE_TYPE: dict[SyncResourceType, str] = {
-    SyncResourceType.AGENT_PRESET: "agent:read",
-    SyncResourceType.SKILL: "agent:read",
-    SyncResourceType.TABLE: "table:read",
-    SyncResourceType.CASE_TAG: "case:read",
-    SyncResourceType.CASE_FIELD: "case:read",
-    SyncResourceType.CASE_DROPDOWN: "case:read",
-    SyncResourceType.CASE_DURATION: "case:read",
-    SyncResourceType.VARIABLE: "variable:read",
-    SyncResourceType.SECRET_METADATA: "secret:read",
-}
-"""Read scope each non-workflow resource type requires before it can be exported."""
-
-_PULL_UPDATE_SCOPES_BY_RESOURCE_TYPE: dict[SyncResourceType, str] = {
-    SyncResourceType.AGENT_PRESET: "agent:update",
-    SyncResourceType.SKILL: "agent:update",
-    SyncResourceType.TABLE: "table:update",
-    SyncResourceType.CASE_TAG: "case:update",
-    SyncResourceType.CASE_FIELD: "case:update",
-    SyncResourceType.CASE_DROPDOWN: "case:update",
-    SyncResourceType.CASE_DURATION: "case:update",
-    SyncResourceType.VARIABLE: "variable:update",
-    SyncResourceType.SECRET_METADATA: "secret:update",
-}
-"""Update scope each non-workflow resource type requires before pull can write it."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,6 +159,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         params: WorkspaceSyncExportRequest,
     ) -> WorkspaceSyncExportResult:
         """Export selected or all syncable resources to a branch and optional PR."""
+        self._require_workspace_sync_scope()
         self._validate_export_params(params)
         url = await self._workspace_git_url(provider=params.provider)
         resource_ids = await self._local_ids_from_resource_refs(params.resources)
@@ -193,6 +170,10 @@ class WorkspaceSyncService(BaseWorkspaceService):
         )
         self._require_projected_export_scopes(projection.spec)
         self._validate_projected_workspace_dependencies(projection.spec)
+        delete_missing_paths_under = await self._export_delete_roots(
+            projection,
+            full_workspace_export=resource_ids is None,
+        )
         transport = self._transport_for_provider(
             params.provider,
         )
@@ -203,11 +184,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
             branch=params.branch,
             create_pr=params.create_pr,
             pr_base_branch=params.pr_base_branch,
-            delete_missing_paths_under=(
-                manifest_resource_roots(projection.manifest)
-                if resource_ids is None
-                else ()
-            ),
+            delete_missing_paths_under=delete_missing_paths_under,
         )
         await self.session.commit()
         return WorkspaceSyncExportResult(
@@ -226,6 +203,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         preview never mutates sync mappings. The returned counts include any
         resources pulled in transitively by the dependency closure.
         """
+        self._require_workspace_sync_scope()
         resource_ids = await self._local_ids_from_resource_refs(params.resources)
         projection = await self.project_workspace(
             resource_ids=resource_ids,
@@ -263,6 +241,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         Unlike :meth:`export_workspace`, this writes only the one workflow's
         files and records the resulting branch on ``workflow.git_sync_branch``.
         """
+        self._require_workspace_sync_scope()
         self._validate_export_params(params)
         url = await self._workspace_git_url(provider=params.provider)
         await self.session.refresh(
@@ -312,6 +291,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         Schedules are intentionally opt-in so imports do not mutate or activate
         environment-specific schedule configuration unless an admin asks for it.
         """
+        self._require_workspace_sync_scope()
         # A pull always targets an explicit commit so the import is reproducible.
         if not options.commit_sha:
             return PullResult(
@@ -356,6 +336,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
                 files=sorted(snapshot.files),
                 resources=_sync_preview_resources_from_spec(snapshot.spec),
             )
+        await self._require_spec_entitlements(snapshot.spec)
         self._require_pull_scopes(snapshot.spec, dry_run=options.dry_run)
         # A dry run previews the diff and validates workflows but never writes.
         if options.dry_run:
@@ -424,6 +405,10 @@ class WorkspaceSyncService(BaseWorkspaceService):
             resource_ids=resource_ids,
         )
         full_workspace_export = selection is None
+        entitled_non_workflow_types = await self._entitled_non_workflow_types(
+            full_workspace_export=full_workspace_export,
+            selection=selection,
+        )
         # Resolve the workflows to project, including child workflows they call.
         workflow_closure = await self._projectable_workflow_closure(selection)
         workflows = workflow_closure.workflows
@@ -464,6 +449,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
             full_workspace_export=full_workspace_export,
             workflow_specs=specs,
             resource_ids=selection,
+            entitled_resource_types=entitled_non_workflow_types,
         )
         non_workflow_spec = non_workflow_projection.spec
         projected_resources = non_workflow_projection.resources
@@ -560,6 +546,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         provider: VcsProvider = VcsProvider.GITHUB,
     ) -> list[GitCommitInfo]:
         """List recent commits on ``branch`` for the workspace repository."""
+        self._require_workspace_sync_scope()
         url = await self._workspace_git_url(provider=provider)
         transport = self._transport_for_provider(provider)
         return await transport.list_commits(url=url, branch=branch, limit=limit)
@@ -571,6 +558,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         provider: VcsProvider = VcsProvider.GITHUB,
     ) -> list[GitBranchInfo]:
         """List branches for the workspace repository."""
+        self._require_workspace_sync_scope()
         url = await self._workspace_git_url(provider=provider)
         transport = self._transport_for_provider(provider)
         return await transport.list_branches(url=url, limit=limit)
@@ -583,6 +571,10 @@ class WorkspaceSyncService(BaseWorkspaceService):
             session=self.session,
             role=self.role,
         )
+
+    def _require_workspace_sync_scope(self) -> None:
+        """Require the feature-level workspace sync RBAC scope."""
+        self._enforce_required_scopes([WORKSPACE_SYNC_SCOPE])
 
     def _validate_export_params(self, params: WorkspaceSyncExportRequest) -> None:
         """Validate the export branch names, raising :class:`TracecatValidationError`."""
@@ -627,6 +619,75 @@ class WorkspaceSyncService(BaseWorkspaceService):
         self._enforce_required_scopes(
             sorted(_pull_scopes_for_spec(spec, dry_run=dry_run))
         )
+
+    async def _entitled_non_workflow_types(
+        self,
+        *,
+        full_workspace_export: bool,
+        selection: dict[SyncResourceType, set[uuid.UUID]] | None,
+    ) -> set[SyncResourceType]:
+        """Return non-workflow resource types this org may sync."""
+        entitled: set[SyncResourceType] = set()
+        for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
+            if await self._adapter_entitled(adapter):
+                entitled.add(adapter.resource_type)
+                continue
+            if (
+                not full_workspace_export
+                and selection
+                and adapter.resource_type in selection
+            ):
+                self._raise_adapter_entitlement_required(adapter)
+        return entitled
+
+    async def _require_spec_entitlements(self, spec: WorkspaceSpec) -> None:
+        """Require entitlements for every resource type present in ``spec``."""
+        for adapter in WORKSPACE_RESOURCE_ADAPTERS:
+            if adapter.specs(spec) and not await self._adapter_entitled(adapter):
+                self._raise_adapter_entitlement_required(adapter)
+
+    async def _adapter_entitled(self, adapter: ResourceAdapter) -> bool:
+        """Return whether all adapter-declared entitlements are available."""
+        for entitlement in adapter.required_entitlements:
+            if not await self.has_entitlement(entitlement):
+                return False
+        return True
+
+    def _raise_adapter_entitlement_required(self, adapter: ResourceAdapter) -> None:
+        """Raise the first entitlement required by ``adapter``."""
+        entitlement = next(iter(adapter.required_entitlements), None)
+        if entitlement is None:
+            raise TracecatValidationError(
+                f"Resource type {adapter.resource_type.value!r} is not syncable"
+            )
+        raise EntitlementRequired(entitlement.value)
+
+    async def _export_delete_roots(
+        self,
+        projection: WorkspaceProjection,
+        *,
+        full_workspace_export: bool,
+    ) -> tuple[str, ...]:
+        """Return remote path roots safe for stale-file deletion during export."""
+        if full_workspace_export:
+            roots: list[str] = []
+            for adapter in WORKSPACE_RESOURCE_ADAPTERS:
+                if not await self._adapter_entitled(adapter):
+                    continue
+                root = str(getattr(projection.manifest.resources, adapter.spec_attr))
+                if cleaned := root.strip("/"):
+                    roots.append(cleaned)
+            return tuple(roots)
+
+        roots = []
+        for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
+            if not isinstance(adapter, DirectoryManifestAdapter):
+                continue
+            for source_id in adapter.specs(projection.spec):
+                source_path = adapter.source_path(source_id)
+                if "/" in source_path:
+                    roots.append(source_path.rsplit("/", maxsplit=1)[0])
+        return tuple(sorted(set(roots)))
 
     def _validate_projected_workspace_dependencies(self, spec: WorkspaceSpec) -> None:
         """Reject exported specs whose dependency graph cannot round-trip."""
@@ -1124,13 +1185,14 @@ class WorkspaceSyncService(BaseWorkspaceService):
         full_workspace_export: bool,
         workflow_specs: dict[str, WorkflowResourceSpec],
         resource_ids: dict[SyncResourceType, set[uuid.UUID]] | None,
+        entitled_resource_types: set[SyncResourceType],
     ) -> WorkspaceResourceProjection:
         """Project non-workflow resources reached by the export dependency graph."""
         if full_workspace_export:
             projection = await WorkspaceResourceProjector(
                 session=self.session,
                 role=self.role,
-            ).project_non_workflow_resources()
+            ).project_non_workflow_resources(resource_types=entitled_resource_types)
             return await self._augment_full_workspace_version_closure(
                 projection,
                 workflow_specs=workflow_specs,
@@ -1202,6 +1264,8 @@ class WorkspaceSyncService(BaseWorkspaceService):
         while queue:
             resource_type, refs = queue.popleft()
             adapter = RESOURCE_ADAPTERS_BY_TYPE[resource_type]
+            if resource_type not in entitled_resource_types:
+                self._raise_adapter_entitlement_required(adapter)
             projection = await adapter.project_dependency_refs(self, refs)
             resources_by_source_id = {
                 resource.source_id: resource for resource in projection.resources
@@ -1960,24 +2024,18 @@ def _resource_type_selection_from_spec(
 def _export_read_scopes_for_spec(spec: WorkspaceSpec) -> set[str]:
     """Collect the read scopes implied by the resource types present in ``spec``."""
     scopes: set[str] = set()
-    for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
-        if adapter.specs(spec) and (
-            scope := _EXPORT_READ_SCOPES_BY_RESOURCE_TYPE.get(adapter.resource_type)
-        ):
+    for adapter in WORKSPACE_RESOURCE_ADAPTERS:
+        if adapter.specs(spec) and (scope := adapter.read_scope):
             scopes.add(scope)
     return scopes
 
 
 def _pull_scopes_for_spec(spec: WorkspaceSpec, *, dry_run: bool) -> set[str]:
-    """Collect non-workflow scopes required by a pull spec."""
+    """Collect resource scopes required by a pull spec."""
     scopes: set[str] = set()
-    scopes_by_type = (
-        _EXPORT_READ_SCOPES_BY_RESOURCE_TYPE
-        if dry_run
-        else _PULL_UPDATE_SCOPES_BY_RESOURCE_TYPE
-    )
-    for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
-        if adapter.specs(spec) and (scope := scopes_by_type.get(adapter.resource_type)):
+    scope_attr = "read_scope" if dry_run else "update_scope"
+    for adapter in WORKSPACE_RESOURCE_ADAPTERS:
+        if adapter.specs(spec) and (scope := getattr(adapter, scope_attr)):
             scopes.add(scope)
     return scopes
 
