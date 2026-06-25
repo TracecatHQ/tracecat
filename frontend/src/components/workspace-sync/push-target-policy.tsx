@@ -45,13 +45,10 @@ export function getWorkspaceSyncPushOutcome({
   mode,
   targetBranch,
   defaultBranch,
-  isCreatingBranch,
 }: WorkspaceSyncPushOutcomeOptions): WorkspaceSyncPushOutcome {
   const normalizedTargetBranch = targetBranch.trim()
   const targetIsDefault =
-    !isCreatingBranch &&
-    Boolean(defaultBranch) &&
-    normalizedTargetBranch === defaultBranch
+    Boolean(defaultBranch) && normalizedTargetBranch === defaultBranch
   const isPullRequestBlocked = mode === "pull-request" && targetIsDefault
 
   return {
