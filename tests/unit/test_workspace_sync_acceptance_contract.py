@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import uuid
 from copy import deepcopy
 from dataclasses import dataclass
@@ -47,12 +48,14 @@ from tracecat.db.models import (
 )
 from tracecat.dsl.common import DSLInput
 from tracecat.git.types import GitUrl
+from tracecat.identifiers.workflow import WF_ID_SHORT_PATTERN, WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets.schemas import SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.sync import PullOptions, PushStatus
 from tracecat.tables.schemas import TableUpdate
 from tracecat.tables.service import BaseTablesService
+from tracecat.workflow.store.schemas import RemoteWorkflowDefinition
 from tracecat.workspace_sync.adapters import (
     TABLE_RESOURCE_ADAPTER,
     WORKSPACE_RESOURCE_ADAPTERS,
@@ -74,6 +77,7 @@ from tracecat.workspace_sync.schemas import (
     VARIABLE_ROOT,
     WORKFLOW_ROOT,
     ResourceRef,
+    WorkflowResourceSpec,
     WorkspaceManifest,
     WorkspaceProjection,
     WorkspaceSpec,
@@ -84,6 +88,7 @@ from tracecat.workspace_sync.schemas import (
 from tracecat.workspace_sync.serialization import canonical_json_text
 from tracecat.workspace_sync.service import WorkspaceSyncService
 from tracecat.workspace_sync.transport import VcsTreeSnapshot
+from tracecat.workspace_sync.workflow import serialize_workflow_spec
 
 EXPANDED_RESOURCE_TYPES = {
     "workflow",
@@ -1591,6 +1596,63 @@ async def test_legacy_string_manifest_repo_upgrades_to_expanded_workspace_sync(
     )
     # And the target DB materialised the new resource rows, not just the files.
     await _assert_workspace_has_expanded_resource_rows(session, harness.target_role)
+
+
+def test_new_workflow_file_is_readable_by_legacy_remote_model() -> None:
+    """Rollback safety: new-format workflow files stay readable by old sync code.
+
+    The reverse of the legacy-upgrade tests. Those prove the new sync code reads
+    an old repo (upgrade). This proves the inverse: a deployment rolled back to
+    *before* the expanded format can still parse what the new exporter wrote,
+    using the pre-upgrade :class:`RemoteWorkflowDefinition` model, so a rollback
+    after a push does not silently break workflow pulls.
+
+    Scope: holds for the system-minted ``wf_<short>`` source id (what
+    ``WorkspaceSyncService`` assigns on first export). The new ``type``/``version``
+    wrapper is tolerated because the legacy model already declares ``type`` and
+    ignores the unknown ``version``. Slug source ids (e.g. human-authored
+    ``workflows/my-detection/``) are the documented boundary and are *not*
+    legacy-readable; that is asserted explicitly below.
+    """
+    source_id = WorkflowUUID.new(uuid.uuid4()).short()
+    spec = WorkflowResourceSpec.model_validate(
+        _workflow_spec(
+            source_id=source_id,
+            title="qa-rollback-workflow",
+            alias="qa-rollback",
+            folder_path="QA/Rollback",
+            actions=[
+                {
+                    "ref": "reshape",
+                    "action": "core.transform.reshape",
+                    "args": {"value": "${{ TRIGGER.value }}"},
+                }
+            ],
+            webhook=True,
+            case_trigger=True,
+        )
+    )
+
+    raw = yaml.safe_load(serialize_workflow_spec(spec))
+    # New-format markers the legacy model never declared a schema for.
+    assert raw["type"] == "workflow"
+    assert raw["version"] == 1
+
+    # The actual rollback parse: the old model must accept the new-format file.
+    legacy = RemoteWorkflowDefinition.model_validate(raw)
+    assert legacy.id == source_id
+    assert legacy.alias == "qa-rollback"
+    assert legacy.folder_path == "QA/Rollback"
+    assert legacy.definition.title == "qa-rollback-workflow"
+    assert legacy.webhook is not None
+    assert legacy.case_trigger is not None
+
+    # The minted source id satisfies the legacy short-id contract...
+    assert re.fullmatch(WF_ID_SHORT_PATTERN, source_id) is not None
+    # ...but a slug source id is the rollback boundary: the legacy model rejects
+    # it, so slug-keyed files would not import after a rollback.
+    with pytest.raises(ValidationError):
+        RemoteWorkflowDefinition.model_validate({**raw, "id": "qa-rollback"})
 
 
 @pytest.mark.anyio
