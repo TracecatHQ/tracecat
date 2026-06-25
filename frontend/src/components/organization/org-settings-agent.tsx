@@ -105,7 +105,6 @@ import { getApiErrorDetail, retryHandler } from "@/lib/errors"
 import {
   useAgentDefaultModel,
   useModelProvidersStatus,
-  useOrgAgentSettings,
   useProviderCredentialConfigs,
 } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
@@ -1917,13 +1916,6 @@ export function OrgSettingsAgentForm() {
     updateDefaultModel,
     isUpdating,
   } = useAgentDefaultModel()
-  const {
-    agentSettings,
-    agentSettingsIsLoading,
-    agentSettingsError,
-    updateAgentSettings,
-    updateAgentSettingsIsPending,
-  } = useOrgAgentSettings()
 
   const {
     data: customProviders,
@@ -2171,14 +2163,12 @@ export function OrgSettingsAgentForm() {
     !customProviders &&
     !catalogEntries &&
     !enabledAccessRows &&
-    !agentSettings &&
     (providerConfigsLoading ||
       providersStatusLoading ||
       customProvidersLoading ||
       catalogEntriesLoading ||
       enabledAccessRowsLoading ||
-      defaultModelLoading ||
-      agentSettingsIsLoading)
+      defaultModelLoading)
 
   function invalidateOrganizationAgentQueries() {
     void queryClient.invalidateQueries({
@@ -2329,14 +2319,6 @@ export function OrgSettingsAgentForm() {
         variant: "destructive",
       })
     }
-  }
-
-  function handleLatestResourceVersionsChange(enabled: boolean) {
-    void updateAgentSettings({
-      requestBody: {
-        agent_use_latest_resource_versions: enabled,
-      },
-    }).catch(() => undefined)
   }
 
   async function handleModelToggle(model: ModelCatalogEntry) {
@@ -2527,8 +2509,7 @@ export function OrgSettingsAgentForm() {
     customProvidersError ??
     catalogEntriesError ??
     enabledAccessRowsError ??
-    defaultModelError ??
-    agentSettingsError
+    defaultModelError
   const providerSectionLoading =
     providerConfigsLoading ||
     providersStatusLoading ||
@@ -2649,41 +2630,6 @@ export function OrgSettingsAgentForm() {
         {isSelectionUpdating ? (
           <p className="text-xs text-muted-foreground">Saving changes…</p>
         ) : null}
-      </section>
-
-      <section className="space-y-4">
-        <div className="space-y-1">
-          <h3 className="text-lg font-semibold tracking-tight">
-            Resource versions
-          </h3>
-          <p className="text-sm text-muted-foreground">
-            Choose how agent presets resolve dependent skills and preset-backed
-            subagents during execution.
-          </p>
-        </div>
-
-        {agentSettingsIsLoading && !agentSettings ? (
-          <CenteredSpinner />
-        ) : (
-          <div className="flex items-start justify-between gap-4 rounded-lg border p-4">
-            <div className="space-y-1">
-              <p className="text-sm font-medium">Use latest preset resources</p>
-              <p className="text-sm text-muted-foreground">
-                Resolve skills and preset-backed subagents to their current
-                published versions instead of the versions saved on the preset
-                version.
-              </p>
-            </div>
-            <Switch
-              aria-label="Use latest preset resources"
-              checked={
-                agentSettings?.agent_use_latest_resource_versions ?? false
-              }
-              disabled={agentSettingsIsLoading || updateAgentSettingsIsPending}
-              onCheckedChange={handleLatestResourceVersionsChange}
-            />
-          </div>
-        )}
       </section>
 
       <section className="space-y-4">

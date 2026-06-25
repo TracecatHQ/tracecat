@@ -51,7 +51,10 @@ from tracecat.registry.versions.schemas import (
     RegistryVersionManifest,
     RegistryVersionManifestAction,
 )
-from tracecat.settings.schemas import AgentSettingsUpdate
+from tracecat.settings.schemas import (
+    AppSettingsUpdate,
+    VersionedResourceResolutionStrategy,
+)
 from tracecat.settings.service import SettingsService
 from tracecat.storage.blob import ensure_bucket_exists
 
@@ -1036,8 +1039,12 @@ class TestAgentPresetService:
         """Latest-resource mode resolves skills by current version at execution time."""
 
         settings_service = SettingsService(session=session, role=svc_admin_role)
-        await settings_service.update_agent_settings(
-            AgentSettingsUpdate(agent_use_latest_resource_versions=True)
+        await settings_service.update_app_settings(
+            AppSettingsUpdate(
+                app_versioned_resource_resolution_strategy=(
+                    VersionedResourceResolutionStrategy.LATEST
+                )
+            )
         )
         skill_service = SkillService(session=session, role=svc_role)
         created_skill = await skill_service.create_skill(
@@ -2534,8 +2541,12 @@ class TestAgentPresetService:
         """Latest-resource mode resolves preset-backed subagents by current version."""
 
         settings_service = SettingsService(session=session, role=svc_admin_role)
-        await settings_service.update_agent_settings(
-            AgentSettingsUpdate(agent_use_latest_resource_versions=True)
+        await settings_service.update_app_settings(
+            AppSettingsUpdate(
+                app_versioned_resource_resolution_strategy=(
+                    VersionedResourceResolutionStrategy.LATEST
+                )
+            )
         )
         child = await agent_preset_service.create_preset(
             agent_preset_create_params.model_copy(

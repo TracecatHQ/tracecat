@@ -4228,10 +4228,6 @@ export const $AgentSettingsRead = {
       type: "boolean",
       title: "Agent Case Chat Inject Content",
     },
-    agent_use_latest_resource_versions: {
-      type: "boolean",
-      title: "Agent Use Latest Resource Versions",
-    },
   },
   type: "object",
   required: [
@@ -4239,7 +4235,6 @@ export const $AgentSettingsRead = {
     "agent_fixed_args",
     "agent_case_chat_prompt",
     "agent_case_chat_inject_content",
-    "agent_use_latest_resource_versions",
   ],
   title: "AgentSettingsRead",
 } as const
@@ -4285,13 +4280,6 @@ export const $AgentSettingsUpdate = {
       title: "Agent Case Chat Inject Content",
       description:
         "Whether to automatically inject case content into agent prompts when a case_id is available.",
-      default: false,
-    },
-    agent_use_latest_resource_versions: {
-      type: "boolean",
-      title: "Agent Use Latest Resource Versions",
-      description:
-        "Whether agent preset execution resolves dependent skills and preset-backed subagents to their current versions instead of the versions snapshotted on the preset version.",
       default: false,
     },
   },
@@ -4447,6 +4435,9 @@ export const $AppSettingsRead = {
       type: "boolean",
       title: "App Action Form Mode Enabled",
     },
+    app_versioned_resource_resolution_strategy: {
+      $ref: "#/components/schemas/VersionedResourceResolutionStrategy",
+    },
   },
   type: "object",
   required: [
@@ -4456,6 +4447,7 @@ export const $AppSettingsRead = {
     "app_workflow_export_enabled",
     "app_create_workspace_on_register",
     "app_action_form_mode_enabled",
+    "app_versioned_resource_resolution_strategy",
   ],
   title: "AppSettingsRead",
   description: "Settings for the app.",
@@ -4501,6 +4493,12 @@ export const $AppSettingsUpdate = {
       description:
         "Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.",
       default: true,
+    },
+    app_versioned_resource_resolution_strategy: {
+      $ref: "#/components/schemas/VersionedResourceResolutionStrategy",
+      description:
+        "How versioned resource references are resolved when a feature supports both pinned and latest dependency resolution.",
+      default: "pinned",
     },
   },
   type: "object",
@@ -27521,6 +27519,12 @@ export const $VersionDiff = {
   ],
   title: "VersionDiff",
   description: "Result of comparing two registry versions.",
+} as const
+
+export const $VersionedResourceResolutionStrategy = {
+  type: "string",
+  enum: ["pinned", "latest"],
+  title: "VersionedResourceResolutionStrategy",
 } as const
 
 export const $VertexAICatalogCreate = {

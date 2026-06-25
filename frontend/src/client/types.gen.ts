@@ -981,7 +981,6 @@ export type AgentSettingsRead = {
   agent_fixed_args: string | null
   agent_case_chat_prompt: string
   agent_case_chat_inject_content: boolean
-  agent_use_latest_resource_versions: boolean
 }
 
 export type AgentSettingsUpdate = {
@@ -1001,10 +1000,6 @@ export type AgentSettingsUpdate = {
    * Whether to automatically inject case content into agent prompts when a case_id is available.
    */
   agent_case_chat_inject_content?: boolean
-  /**
-   * Whether agent preset execution resolves dependent skills and preset-backed subagents to their current versions instead of the versions snapshotted on the preset version.
-   */
-  agent_use_latest_resource_versions?: boolean
 }
 
 /**
@@ -1057,6 +1052,7 @@ export type AppSettingsRead = {
   app_workflow_export_enabled: boolean
   app_create_workspace_on_register: boolean
   app_action_form_mode_enabled: boolean
+  app_versioned_resource_resolution_strategy: VersionedResourceResolutionStrategy
 }
 
 /**
@@ -1087,6 +1083,10 @@ export type AppSettingsUpdate = {
    * Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.
    */
   app_action_form_mode_enabled?: boolean
+  /**
+   * How versioned resource references are resolved when a feature supports both pinned and latest dependency resolution.
+   */
+  app_versioned_resource_resolution_strategy?: VersionedResourceResolutionStrategy
 }
 
 /**
@@ -8237,6 +8237,8 @@ export type VersionDiff = {
   actions_modified?: Array<ActionChange>
   total_changes?: number
 }
+
+export type VersionedResourceResolutionStrategy = "pinned" | "latest"
 
 /**
  * Vertex AI catalog entry.

@@ -79,6 +79,11 @@ class SAMLSettingsUpdate(BaseSettingsGroup):
     saml_idp_metadata_url: str | None = Field(default=None)
 
 
+class VersionedResourceResolutionStrategy(StrEnum):
+    PINNED = "pinned"
+    LATEST = "latest"
+
+
 class AppSettingsRead(BaseSettingsGroup):
     """Settings for the app."""
 
@@ -88,6 +93,7 @@ class AppSettingsRead(BaseSettingsGroup):
     app_workflow_export_enabled: bool
     app_create_workspace_on_register: bool
     app_action_form_mode_enabled: bool
+    app_versioned_resource_resolution_strategy: VersionedResourceResolutionStrategy
 
 
 class AppSettingsUpdate(BaseSettingsGroup):
@@ -115,6 +121,15 @@ class AppSettingsUpdate(BaseSettingsGroup):
     app_action_form_mode_enabled: bool = Field(
         default=True,
         description="Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.",
+    )
+    app_versioned_resource_resolution_strategy: VersionedResourceResolutionStrategy = (
+        Field(
+            default=VersionedResourceResolutionStrategy.PINNED,
+            description=(
+                "How versioned resource references are resolved when a feature "
+                "supports both pinned and latest dependency resolution."
+            ),
+        )
     )
 
 
@@ -174,7 +189,6 @@ class AgentSettingsRead(BaseSettingsGroup):
     agent_fixed_args: str | None
     agent_case_chat_prompt: str
     agent_case_chat_inject_content: bool
-    agent_use_latest_resource_versions: bool
 
 
 class AgentSettingsUpdate(BaseSettingsGroup):
@@ -195,14 +209,6 @@ class AgentSettingsUpdate(BaseSettingsGroup):
     agent_case_chat_inject_content: bool = Field(
         default=False,
         description="Whether to automatically inject case content into agent prompts when a case_id is available.",
-    )
-    agent_use_latest_resource_versions: bool = Field(
-        default=False,
-        description=(
-            "Whether agent preset execution resolves dependent skills and "
-            "preset-backed subagents to their current versions instead of the "
-            "versions snapshotted on the preset version."
-        ),
     )
 
 

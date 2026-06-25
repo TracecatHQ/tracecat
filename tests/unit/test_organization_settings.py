@@ -17,14 +17,21 @@ from tracecat.settings.router import (
     check_saml_domain_prerequisites,
 )
 from tracecat.settings.schemas import (
+    AppSettingsUpdate,
     AuditSettingsUpdate,
     GitSettingsUpdate,
     SAMLSettingsUpdate,
     SettingCreate,
     SettingUpdate,
     ValueType,
+    VersionedResourceResolutionStrategy,
 )
-from tracecat.settings.service import SettingsService, get_setting, get_setting_override
+from tracecat.settings.service import (
+    SettingsService,
+    get_setting,
+    get_setting_override,
+    get_versioned_resource_resolution_strategy,
+)
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -500,6 +507,34 @@ async def test_get_setting_shorthand(
         assert nonexistent_no_default is None
     finally:
         ctx_role.reset(token)  # type: ignore
+
+
+@pytest.mark.anyio
+async def test_get_versioned_resource_resolution_strategy(
+    settings_service_with_defaults: SettingsService,
+    svc_admin_role: Role,
+) -> None:
+    service = settings_service_with_defaults
+
+    strategy = await get_versioned_resource_resolution_strategy(
+        role=svc_admin_role,
+        session=service.session,
+    )
+    assert strategy is VersionedResourceResolutionStrategy.PINNED
+
+    await service.update_app_settings(
+        AppSettingsUpdate(
+            app_versioned_resource_resolution_strategy=(
+                VersionedResourceResolutionStrategy.LATEST
+            )
+        )
+    )
+
+    strategy = await get_versioned_resource_resolution_strategy(
+        role=svc_admin_role,
+        session=service.session,
+    )
+    assert strategy is VersionedResourceResolutionStrategy.LATEST
 
 
 @pytest.mark.anyio

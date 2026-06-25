@@ -72,16 +72,14 @@ from tracecat.pagination import (
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets import secrets_manager
 from tracecat.service import BaseWorkspaceService, requires_entitlement
-from tracecat.settings.service import get_setting
+from tracecat.settings.schemas import VersionedResourceResolutionStrategy
+from tracecat.settings.service import get_versioned_resource_resolution_strategy
 from tracecat.tiers.enums import Entitlement
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from tracecat.auth.types import Role
-
-
-AGENT_USE_LATEST_RESOURCE_VERSIONS_SETTING = "agent_use_latest_resource_versions"
 
 
 class AgentPresetService(BaseWorkspaceService):
@@ -112,14 +110,11 @@ class AgentPresetService(BaseWorkspaceService):
     async def use_latest_resource_versions(self) -> bool:
         """Return whether preset dependencies should resolve to current versions."""
 
-        return bool(
-            await get_setting(
-                AGENT_USE_LATEST_RESOURCE_VERSIONS_SETTING,
-                role=self.role,
-                session=self.session,
-                default=False,
-            )
+        strategy = await get_versioned_resource_resolution_strategy(
+            role=self.role,
+            session=self.session,
         )
+        return strategy is VersionedResourceResolutionStrategy.LATEST
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_presets(self) -> Sequence[AgentPreset]:
