@@ -174,6 +174,7 @@ class AgentSettingsRead(BaseSettingsGroup):
     agent_fixed_args: str | None
     agent_case_chat_prompt: str
     agent_case_chat_inject_content: bool
+    agent_use_latest_resource_versions: bool
 
 
 class AgentSettingsUpdate(BaseSettingsGroup):
@@ -194,6 +195,14 @@ class AgentSettingsUpdate(BaseSettingsGroup):
     agent_case_chat_inject_content: bool = Field(
         default=False,
         description="Whether to automatically inject case content into agent prompts when a case_id is available.",
+    )
+    agent_use_latest_resource_versions: bool = Field(
+        default=False,
+        description=(
+            "Whether agent preset execution resolves dependent skills and "
+            "preset-backed subagents to their current versions instead of the "
+            "versions snapshotted on the preset version."
+        ),
     )
 
 

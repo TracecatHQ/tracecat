@@ -186,6 +186,7 @@ async def test_resolve_agents_config_resolves_pinned_ref_by_version_id(
                 retries=3,
             )
         ),
+        use_latest_resource_versions=AsyncMock(return_value=False),
     )
     role = Role(
         type="service",
@@ -222,6 +223,7 @@ async def test_resolve_agents_config_resolves_pinned_ref_by_version_id(
     service.resolve_agent_preset_version.assert_awaited_once_with(
         preset_version_id=preset_version_id,
     )
+    service.use_latest_resource_versions.assert_awaited_once()
     assert result.subagents[0].binding.preset_version_id == preset_version_id
     assert result.subagents[0].binding.preset_version == 4
 
@@ -239,6 +241,7 @@ async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
     )
     service = SimpleNamespace(
         resolve_agent_preset_version=AsyncMock(return_value=version),
+        use_latest_resource_versions=AsyncMock(return_value=False),
     )
     role = Role(
         type="service",
@@ -285,7 +288,9 @@ async def test_resolve_agents_config_rejects_invalid_fallback_alias(
 
     monkeypatch.setattr(
         "tracecat.agent.preset.activities.AgentPresetService.with_session",
-        lambda **_: _AsyncContext(SimpleNamespace()),
+        lambda **_: _AsyncContext(
+            SimpleNamespace(use_latest_resource_versions=AsyncMock(return_value=False))
+        ),
     )
 
     with pytest.raises(

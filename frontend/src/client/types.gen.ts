@@ -981,6 +981,7 @@ export type AgentSettingsRead = {
   agent_fixed_args: string | null
   agent_case_chat_prompt: string
   agent_case_chat_inject_content: boolean
+  agent_use_latest_resource_versions: boolean
 }
 
 export type AgentSettingsUpdate = {
@@ -1000,6 +1001,10 @@ export type AgentSettingsUpdate = {
    * Whether to automatically inject case content into agent prompts when a case_id is available.
    */
   agent_case_chat_inject_content?: boolean
+  /**
+   * Whether agent preset execution resolves dependent skills and preset-backed subagents to their current versions instead of the versions snapshotted on the preset version.
+   */
+  agent_use_latest_resource_versions?: boolean
 }
 
 /**

@@ -4228,6 +4228,10 @@ export const $AgentSettingsRead = {
       type: "boolean",
       title: "Agent Case Chat Inject Content",
     },
+    agent_use_latest_resource_versions: {
+      type: "boolean",
+      title: "Agent Use Latest Resource Versions",
+    },
   },
   type: "object",
   required: [
@@ -4235,6 +4239,7 @@ export const $AgentSettingsRead = {
     "agent_fixed_args",
     "agent_case_chat_prompt",
     "agent_case_chat_inject_content",
+    "agent_use_latest_resource_versions",
   ],
   title: "AgentSettingsRead",
 } as const
@@ -4280,6 +4285,13 @@ export const $AgentSettingsUpdate = {
       title: "Agent Case Chat Inject Content",
       description:
         "Whether to automatically inject case content into agent prompts when a case_id is available.",
+      default: false,
+    },
+    agent_use_latest_resource_versions: {
+      type: "boolean",
+      title: "Agent Use Latest Resource Versions",
+      description:
+        "Whether agent preset execution resolves dependent skills and preset-backed subagents to their current versions instead of the versions snapshotted on the preset version.",
       default: false,
     },
   },

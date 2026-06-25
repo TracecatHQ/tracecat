@@ -123,6 +123,7 @@ async def resolve_agents_config(
     parent_preset_id: uuid.UUID | None = None,
     parent_slug: str | None = None,
     include_runtime_config: bool = False,
+    follow_latest_versions: bool = False,
 ) -> ResolvedAgentsConfigResult:
     """Resolve and validate preset-backed subagent refs."""
 
@@ -144,8 +145,17 @@ async def resolve_agents_config(
             )
         aliases.add(alias)
 
+        preset_id = getattr(ref, "preset_id", None)
         preset_version_id = getattr(ref, "preset_version_id", None)
-        if preset_version_id is not None:
+        if follow_latest_versions and preset_id is not None:
+            version = await service.resolve_agent_preset_version(
+                preset_id=preset_id,
+            )
+        elif follow_latest_versions:
+            version = await service.resolve_agent_preset_version(
+                slug=ref.preset,
+            )
+        elif preset_version_id is not None:
             version = await service.resolve_agent_preset_version(
                 preset_version_id=preset_version_id,
             )
