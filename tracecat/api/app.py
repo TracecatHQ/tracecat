@@ -160,7 +160,11 @@ from tracecat.service_accounts.router import (
 )
 from tracecat.settings.router import router as org_settings_router
 from tracecat.settings.service import SettingsService, get_setting_override
-from tracecat.storage.blob import configure_bucket_lifecycle, ensure_bucket_exists
+from tracecat.storage.blob import (
+    close_storage_client_cache,
+    configure_bucket_lifecycle,
+    ensure_bucket_exists,
+)
 from tracecat.tables.internal_router import router as internal_tables_router
 from tracecat.tables.router import router as tables_router
 from tracecat.tags.router import router as tags_router
@@ -314,6 +318,8 @@ async def lifespan(app: FastAPI):
             logger.debug("Case trigger consumer task cancelled")
         except Exception as e:
             logger.warning("Case trigger consumer stopped with error", error=e)
+
+    await close_storage_client_cache()
 
 
 async def setup_org_settings(session: AsyncSession, admin_role: Role):

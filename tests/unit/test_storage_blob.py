@@ -1,5 +1,6 @@
 """Tests for the storage module."""
 
+import asyncio
 import hashlib
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -28,6 +29,12 @@ from tracecat.storage.blob import (
 
 class TestS3Operations:
     """Test S3/MinIO operations."""
+
+    @pytest.fixture(autouse=True)
+    def clear_session_cache(self):
+        blob_module.clear_storage_session_cache()
+        yield
+        blob_module.clear_storage_session_cache()
 
     @pytest.fixture
     def mock_s3_client(self):
@@ -109,6 +116,145 @@ class TestS3Operations:
             mock_session.client.assert_called_once_with(
                 "s3", config=blob_module._STORAGE_CLIENT_CONFIG
             )
+
+    @pytest.mark.anyio
+    async def test_get_storage_client_reuses_entered_client_per_event_loop(
+        self, monkeypatch
+    ):
+        """get_storage_client reuses the entered aiobotocore client in a loop."""
+        monkeypatch.setattr(
+            blob_module.config,
+            "TRACECAT__BLOB_STORAGE_ENDPOINT",
+            None,
+            raising=False,
+        )
+
+        with patch("tracecat.storage.blob.aioboto3.Session") as mock_session_cls:
+            mock_session = mock_session_cls.return_value
+            mock_client = AsyncMock()
+            mock_session.client.return_value.__aenter__.return_value = mock_client
+
+            async with get_storage_client() as client:
+                assert client is mock_client
+            async with get_storage_client() as client:
+                assert client is mock_client
+
+            mock_session_cls.assert_called_once()
+            mock_session.client.assert_called_once_with(
+                "s3", config=blob_module._STORAGE_CLIENT_CONFIG
+            )
+            mock_session.client.return_value.__aenter__.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_get_storage_client_concurrent_first_use_enters_client_once(
+        self, monkeypatch
+    ):
+        """Concurrent first use shares a single entered aiobotocore client."""
+        monkeypatch.setattr(
+            blob_module.config,
+            "TRACECAT__BLOB_STORAGE_ENDPOINT",
+            None,
+            raising=False,
+        )
+
+        with patch("tracecat.storage.blob.aioboto3.Session") as mock_session_cls:
+            mock_session = mock_session_cls.return_value
+            mock_client = AsyncMock()
+
+            async def enter_client() -> AsyncMock:
+                await asyncio.sleep(0.01)
+                return mock_client
+
+            mock_session.client.return_value.__aenter__.side_effect = enter_client
+
+            async def use_client() -> None:
+                async with get_storage_client() as client:
+                    assert client is mock_client
+
+            await asyncio.gather(*(use_client() for _ in range(50)))
+
+            mock_session_cls.assert_called_once()
+            mock_session.client.assert_called_once_with(
+                "s3", config=blob_module._STORAGE_CLIENT_CONFIG
+            )
+            mock_session.client.return_value.__aenter__.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_close_storage_client_cache_closes_entered_client_context(
+        self, monkeypatch
+    ):
+        """close_storage_client_cache exits cached aiobotocore client contexts."""
+        monkeypatch.setattr(
+            blob_module.config,
+            "TRACECAT__BLOB_STORAGE_ENDPOINT",
+            None,
+            raising=False,
+        )
+
+        with patch("tracecat.storage.blob.aioboto3.Session") as mock_session_cls:
+            mock_session = mock_session_cls.return_value
+            mock_client = AsyncMock()
+            mock_session.client.return_value.__aenter__.return_value = mock_client
+
+            async with get_storage_client() as client:
+                assert client is mock_client
+
+            mock_session.client.return_value.__aexit__.assert_not_awaited()
+
+            await blob_module.close_storage_client_cache()
+
+            mock_session.client.return_value.__aexit__.assert_awaited_once_with(
+                None, None, None
+            )
+
+    def test_get_storage_client_uses_new_session_for_new_event_loop(self, monkeypatch):
+        """get_storage_client does not reuse aioboto3 sessions across event loops."""
+        monkeypatch.setattr(
+            blob_module.config,
+            "TRACECAT__BLOB_STORAGE_ENDPOINT",
+            None,
+            raising=False,
+        )
+
+        async def use_client(expected_client: AsyncMock) -> None:
+            async with get_storage_client() as client:
+                assert client is expected_client
+
+        with patch("tracecat.storage.blob.aioboto3.Session") as mock_session_cls:
+            mock_session = mock_session_cls.return_value
+            mock_client = AsyncMock()
+            mock_session.client.return_value.__aenter__.return_value = mock_client
+
+            asyncio.run(use_client(mock_client))
+            asyncio.run(use_client(mock_client))
+
+            assert mock_session_cls.call_count == 2
+            assert mock_session.client.call_count == 2
+
+    def test_get_storage_client_closes_cache_when_event_loop_closes(self, monkeypatch):
+        """Temporary asyncio.run loops close their cached aiobotocore clients."""
+        monkeypatch.setattr(
+            blob_module.config,
+            "TRACECAT__BLOB_STORAGE_ENDPOINT",
+            None,
+            raising=False,
+        )
+
+        async def use_client(expected_client: AsyncMock) -> None:
+            async with get_storage_client() as client:
+                assert client is expected_client
+
+        with patch("tracecat.storage.blob.aioboto3.Session") as mock_session_cls:
+            mock_session = mock_session_cls.return_value
+            mock_client = AsyncMock()
+            mock_session.client.return_value.__aenter__.return_value = mock_client
+
+            asyncio.run(use_client(mock_client))
+
+            mock_session.client.return_value.__aexit__.assert_awaited_once_with(
+                None, None, None
+            )
+            assert len(blob_module._STORAGE_CLIENTS) == 0
 
     @pytest.mark.anyio
     @patch("tracecat.storage.blob.get_storage_client")
