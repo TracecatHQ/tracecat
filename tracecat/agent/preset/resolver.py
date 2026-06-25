@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
+    AttachedSubagentRef,
     ResolvedAgentsConfig,
     ResolvedAttachedSubagentRef,
     has_manual_tool_approvals,
@@ -145,25 +146,39 @@ async def resolve_agents_config(
             )
         aliases.add(alias)
 
-        preset_id = getattr(ref, "preset_id", None)
-        preset_version_id = getattr(ref, "preset_version_id", None)
-        if follow_latest_versions and preset_id is not None:
-            version = await service.resolve_agent_preset_version(
-                preset_id=preset_id,
-            )
-        elif follow_latest_versions:
-            version = await service.resolve_agent_preset_version(
-                slug=ref.preset,
-            )
-        elif preset_version_id is not None:
-            version = await service.resolve_agent_preset_version(
-                preset_version_id=preset_version_id,
-            )
-        else:
-            version = await service.resolve_agent_preset_version(
-                slug=ref.preset,
-                preset_version=ref.preset_version,
-            )
+        # Resolved refs carry immutable preset/version UUIDs; unresolved refs
+        # only carry a slug + optional version int. Matching narrows the union
+        # so we read the right identifiers without runtime getattr() lookups.
+        # Order matters: ResolvedAttachedSubagentRef subclasses
+        # AttachedSubagentRef, so the resolved case must come first or resolved
+        # refs would silently fall into the base-class branch.
+        match ref:
+            case ResolvedAttachedSubagentRef(
+                preset_id=preset_id, preset_version_id=preset_version_id
+            ):
+                # Persisted ref has stable UUIDs to resolve against.
+                if follow_latest_versions:
+                    # Pinned identity, but the caller wants the newest version.
+                    version = await service.resolve_agent_preset_version(
+                        preset_id=preset_id,
+                    )
+                else:
+                    # Resolve the exact persisted version.
+                    version = await service.resolve_agent_preset_version(
+                        preset_version_id=preset_version_id,
+                    )
+            case AttachedSubagentRef(preset=preset_slug, preset_version=preset_version):
+                # Unresolved ref has no persisted UUID; resolve by slug.
+                preset_version_id = None
+                if follow_latest_versions:
+                    version = await service.resolve_agent_preset_version(
+                        slug=preset_slug
+                    )
+                else:
+                    version = await service.resolve_agent_preset_version(
+                        slug=preset_slug,
+                        preset_version=preset_version,
+                    )
         references_parent_id = (
             parent_preset_id is not None and version.preset_id == parent_preset_id
         )
