@@ -40,6 +40,7 @@ import {
   getWorkspaceSyncPushWarning,
   type WorkspaceSyncPushMode,
   WorkspaceSyncPushModeTabs,
+  WorkspaceSyncPushWarning,
 } from "@/components/workspace-sync/push-target-policy"
 import { PushResourcePreview } from "@/components/workspace-sync/resource-diff-review"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
@@ -289,17 +290,10 @@ export function WorkspaceResourceSyncActions({
                 onBranchChange={setExportBranch}
                 showNoBranchesMessage={Boolean(gitRepoUrl)}
               />
-              {pushWarning ? (
-                <p
-                  className={
-                    pushOutcome.isPullRequestBlocked
-                      ? "text-[11px] text-destructive"
-                      : "text-[11px] text-amber-700"
-                  }
-                >
-                  {pushWarning}
-                </p>
-              ) : null}
+              <WorkspaceSyncPushWarning
+                warning={pushWarning}
+                blocked={pushOutcome.isPullRequestBlocked}
+              />
             </div>
           </div>
         ) : null}

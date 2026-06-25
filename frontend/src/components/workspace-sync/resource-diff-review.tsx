@@ -36,7 +36,6 @@ interface PushResourcePreviewProps {
   compareRef: string | undefined
   errorMessage?: string
   hasRequestedPreview: boolean
-  requestDisabled?: boolean
   onRequestPreview: () => void
 }
 
@@ -49,7 +48,6 @@ export function PushResourcePreview({
   compareRef,
   errorMessage,
   hasRequestedPreview,
-  requestDisabled = false,
   onRequestPreview,
 }: PushResourcePreviewProps) {
   const header = (
@@ -57,7 +55,6 @@ export function PushResourcePreview({
       compareRef={compareRef}
       isLoading={isLoading}
       hasRequestedPreview={hasRequestedPreview}
-      requestDisabled={requestDisabled}
       onRequestPreview={onRequestPreview}
     />
   )
@@ -116,16 +113,14 @@ function PushPreviewHeader({
   compareRef,
   isLoading,
   hasRequestedPreview,
-  requestDisabled,
   onRequestPreview,
 }: {
   compareRef: string | undefined
   isLoading: boolean
   hasRequestedPreview: boolean
-  requestDisabled: boolean
   onRequestPreview: () => void
 }) {
-  const disabled = !compareRef || isLoading || requestDisabled
+  const disabled = !compareRef || isLoading
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-2">

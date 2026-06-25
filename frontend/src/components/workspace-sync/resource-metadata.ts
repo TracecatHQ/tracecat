@@ -118,3 +118,25 @@ export function workspaceSyncResourceCountEntries(result: PullResult) {
     .filter(([, count]) => count.found > 0 || count.imported > 0)
     .sort(([left], [right]) => left.localeCompare(right))
 }
+
+/**
+ * Total resources found and imported across all resource types in a pull
+ * result, falling back to the legacy workflow-only counters when no per-resource
+ * counts are present.
+ */
+export function getPullResultTotals(result: PullResult): {
+  found: number
+  imported: number
+} {
+  const entries = workspaceSyncResourceCountEntries(result)
+  if (entries.length === 0) {
+    return {
+      found: result.workflows_found ?? 0,
+      imported: result.workflows_imported ?? 0,
+    }
+  }
+  return {
+    found: entries.reduce((total, [, count]) => total + count.found, 0),
+    imported: entries.reduce((total, [, count]) => total + count.imported, 0),
+  }
+}

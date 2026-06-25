@@ -17,6 +17,19 @@ import { buildRandomSyncBranchName } from "@/components/workspace-sync/push-targ
 
 const CREATE_NEW_BRANCH_VALUE = "__create_new_branch__"
 
+/**
+ * Resolves the repository default branch name, preferring the flagged default
+ * branch and falling back to the first available branch.
+ */
+export function getWorkspaceSyncDefaultBranch(
+  branches: GitBranchInfo[] | undefined
+): string | undefined {
+  return (
+    branches?.find((candidate) => candidate.is_default)?.name ??
+    branches?.[0]?.name
+  )
+}
+
 interface UseWorkspaceSyncBranchTargetOptions {
   branches: GitBranchInfo[] | undefined
   newBranchPrefix: string
@@ -34,9 +47,7 @@ export function useWorkspaceSyncBranchTarget({
   )
   const [isCreatingBranch, setIsCreatingBranch] = useState(true)
   const hasBranches = (branches?.length ?? 0) > 0
-  const defaultBranch =
-    branches?.find((candidate) => candidate.is_default)?.name ??
-    branches?.[0]?.name
+  const defaultBranch = getWorkspaceSyncDefaultBranch(branches)
 
   const selectBranch = useCallback(
     (value: string) => {

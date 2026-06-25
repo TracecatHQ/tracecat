@@ -90,6 +90,7 @@ import {
   getWorkspaceSyncPushWarning,
   type WorkspaceSyncPushMode,
   WorkspaceSyncPushModeTabs,
+  WorkspaceSyncPushWarning,
 } from "@/components/workspace-sync/push-target-policy"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
@@ -884,17 +885,11 @@ function WorkflowSaveActions({
                       onValueChange={setPushMode}
                     />
                   </div>
-                  {pushWarning ? (
-                    <p
-                      className={
-                        pushOutcome.isPullRequestBlocked
-                          ? "mt-2 text-[11px] text-destructive"
-                          : "mt-2 text-[11px] text-amber-700"
-                      }
-                    >
-                      {pushWarning}
-                    </p>
-                  ) : null}
+                  <WorkspaceSyncPushWarning
+                    warning={pushWarning}
+                    blocked={pushOutcome.isPullRequestBlocked}
+                    className="mt-2"
+                  />
                   <Button
                     type="submit"
                     disabled={publishDisabled}

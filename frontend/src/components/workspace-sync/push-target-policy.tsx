@@ -2,6 +2,7 @@
 
 import { GitBranchIcon, GitPullRequestIcon } from "lucide-react"
 import { ToggleTabs } from "@/components/ui/toggle-tabs"
+import { cn } from "@/lib/utils"
 
 export type WorkspaceSyncPushMode = "pull-request" | "direct"
 
@@ -105,6 +106,35 @@ export function getWorkspaceSyncPushWarning({
     return "This commits directly to the selected branch. No pull request will be created."
   }
   return null
+}
+
+/**
+ * Severity-styled advisory for the push composer. Renders nothing when there is
+ * no warning to show.
+ */
+export function WorkspaceSyncPushWarning({
+  warning,
+  blocked,
+  className,
+}: {
+  warning: string | null | undefined
+  blocked: boolean
+  className?: string
+}) {
+  if (!warning) {
+    return null
+  }
+  return (
+    <p
+      className={cn(
+        "text-[11px]",
+        blocked ? "text-destructive" : "text-amber-700",
+        className
+      )}
+    >
+      {warning}
+    </p>
+  )
 }
 
 export function WorkspaceSyncPushModeTabs({

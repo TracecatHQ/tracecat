@@ -40,10 +40,6 @@ jest.mock("@/hooks/use-workspace-sync", () => ({
   useWorkspaceSyncExportPreview: jest.fn(),
 }))
 
-jest.mock("@/components/organization/workflow-pull-dialog", () => ({
-  WorkflowPullDialog: () => null,
-}))
-
 beforeAll(() => {
   if (!HTMLElement.prototype.hasPointerCapture) {
     Object.defineProperty(HTMLElement.prototype, "hasPointerCapture", {

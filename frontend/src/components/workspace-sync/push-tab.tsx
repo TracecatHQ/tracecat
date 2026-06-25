@@ -1,0 +1,239 @@
+"use client"
+
+import { ArrowUpIcon, GitPullRequestIcon, Loader2Icon } from "lucide-react"
+import { useEffect, useState } from "react"
+import type { GitBranchInfo } from "@/client"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { toast } from "@/components/ui/use-toast"
+import {
+  useWorkspaceSyncBranchTarget,
+  WorkspaceSyncBranchSelector,
+} from "@/components/workspace-sync/branch-target-selector"
+import {
+  getWorkspaceSyncPushButtonLabel,
+  getWorkspaceSyncPushOutcome,
+  getWorkspaceSyncPushResultLabel,
+  getWorkspaceSyncPushWarning,
+  type WorkspaceSyncPushMode,
+  WorkspaceSyncPushModeTabs,
+  WorkspaceSyncPushWarning,
+} from "@/components/workspace-sync/push-target-policy"
+import { PushResourcePreview } from "@/components/workspace-sync/resource-diff-review"
+import {
+  useWorkspaceSyncExport,
+  useWorkspaceSyncExportPreview,
+} from "@/hooks/use-workspace-sync"
+import { getApiErrorDetail } from "@/lib/errors"
+
+interface WorkspaceSyncPushTabProps {
+  workspaceId: string
+  persistedGitUrl: string | undefined
+  repoDisplayName: string | null
+  repoBranches: GitBranchInfo[] | undefined
+  branchesIsLoading: boolean
+  branchesError: unknown
+}
+
+/**
+ * Push composer: commit message, push mode, branch target, an on-demand resource
+ * preview, and the push action that opens a pull request or commits directly.
+ */
+export function WorkspaceSyncPushTab({
+  workspaceId,
+  persistedGitUrl,
+  repoDisplayName,
+  repoBranches,
+  branchesIsLoading,
+  branchesError,
+}: WorkspaceSyncPushTabProps) {
+  const { exportWorkspace, exportWorkspaceIsPending } =
+    useWorkspaceSyncExport(workspaceId)
+
+  const [exportMessage, setExportMessage] = useState("Export workspace config")
+  const [exportPreviewRequested, setExportPreviewRequested] = useState(false)
+  const [pushMode, setPushMode] =
+    useState<WorkspaceSyncPushMode>("pull-request")
+
+  const {
+    branch: exportBranch,
+    setBranch: setExportBranch,
+    isCreatingBranch,
+    selectBranch: selectExportBranch,
+    defaultBranch,
+    hasBranches,
+  } = useWorkspaceSyncBranchTarget({
+    branches: repoBranches,
+    newBranchPrefix: "sync/workspace",
+  })
+
+  const targetBranch = exportBranch.trim()
+  const exportCompareRef = isCreatingBranch
+    ? defaultBranch
+    : targetBranch || undefined
+  const {
+    preview: exportPreview,
+    previewIsLoading: exportPreviewIsLoading,
+    previewError: exportPreviewError,
+    refetchPreview: refetchExportPreview,
+  } = useWorkspaceSyncExportPreview(workspaceId, {
+    compareRef: exportCompareRef,
+    enabled: false,
+  })
+  const visibleExportPreview = exportPreviewRequested
+    ? exportPreview
+    : undefined
+  const visibleExportPreviewIsLoading =
+    exportPreviewRequested && exportPreviewIsLoading
+  const exportPreviewErrorMessage = exportPreviewError
+    ? (getApiErrorDetail(exportPreviewError) ?? "Request failed")
+    : undefined
+  const pushOutcome = getWorkspaceSyncPushOutcome({
+    mode: pushMode,
+    targetBranch,
+    defaultBranch,
+    isCreatingBranch,
+  })
+  const pushWarning = getWorkspaceSyncPushWarning({
+    outcome: pushOutcome,
+    defaultBranch,
+  })
+  const exportDisabled =
+    exportWorkspaceIsPending ||
+    branchesIsLoading ||
+    (!hasBranches && !isCreatingBranch) ||
+    pushOutcome.isPullRequestBlocked ||
+    targetBranch === "" ||
+    exportMessage.trim() === ""
+
+  useEffect(() => {
+    setExportPreviewRequested(false)
+  }, [exportCompareRef, persistedGitUrl])
+
+  async function onExport() {
+    try {
+      const result = await exportWorkspace({
+        message: exportMessage,
+        branch: targetBranch,
+        create_pr: pushOutcome.createPr,
+        include_schedules: false,
+        provider: "github",
+      })
+      toast({
+        title: result.commit.pr_url
+          ? "Pull request ready"
+          : "Workspace config pushed",
+        description:
+          result.commit.pr_url ?? result.commit.sha ?? result.commit.message,
+      })
+    } catch (error) {
+      toast({
+        title: "Push failed",
+        description: getApiErrorDetail(error) ?? "Request failed",
+        variant: "destructive",
+      })
+    }
+  }
+
+  function handlePreviewExport() {
+    if (!exportCompareRef) {
+      return
+    }
+    setExportPreviewRequested(true)
+    void refetchExportPreview()
+  }
+
+  return (
+    <>
+      <div className="space-y-2">
+        <Label htmlFor="workspace-sync-message">Commit message</Label>
+        <Input
+          id="workspace-sync-message"
+          value={exportMessage}
+          onChange={(event) => setExportMessage(event.target.value)}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-sm font-medium">Push mode</p>
+        <WorkspaceSyncPushModeTabs
+          value={pushMode}
+          onValueChange={setPushMode}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="workspace-sync-branch">Branch</Label>
+        <WorkspaceSyncBranchSelector
+          id="workspace-sync-branch"
+          branches={repoBranches}
+          branch={exportBranch}
+          isCreatingBranch={isCreatingBranch}
+          branchesIsLoading={branchesIsLoading}
+          hasBranches={hasBranches}
+          branchesError={branchesError}
+          newBranchPlaceholder="sync/workspace"
+          onSelectBranch={selectExportBranch}
+          onBranchChange={setExportBranch}
+        />
+        <WorkspaceSyncPushWarning
+          warning={pushWarning}
+          blocked={pushOutcome.isPullRequestBlocked}
+        />
+      </div>
+
+      <PushResourcePreview
+        preview={visibleExportPreview}
+        isLoading={visibleExportPreviewIsLoading}
+        compareRef={exportCompareRef}
+        errorMessage={
+          exportPreviewRequested ? exportPreviewErrorMessage : undefined
+        }
+        hasRequestedPreview={exportPreviewRequested}
+        onRequestPreview={handlePreviewExport}
+      />
+
+      <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-1.5 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+          <ArrowUpIcon className="size-3.5" />
+          <span>Pushing to</span>
+          <span className="font-mono text-foreground">
+            {repoDisplayName ?? "repository"}
+          </span>
+          <span>@</span>
+          <span className="font-mono text-foreground">
+            {targetBranch || "—"}
+          </span>
+          <span>·</span>
+          <span className="text-foreground">
+            {getWorkspaceSyncPushResultLabel({
+              outcome: pushOutcome,
+              defaultBranch,
+            })}
+          </span>
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          onClick={onExport}
+          disabled={exportDisabled}
+          className="shrink-0 gap-1.5"
+        >
+          {exportWorkspaceIsPending ? (
+            <Loader2Icon className="size-4 animate-spin" />
+          ) : pushOutcome.createPr ? (
+            <GitPullRequestIcon className="size-4" />
+          ) : (
+            <ArrowUpIcon className="size-4" />
+          )}
+          {getWorkspaceSyncPushButtonLabel({
+            outcome: pushOutcome,
+            isCreatingBranch,
+            isPending: exportWorkspaceIsPending,
+          })}
+        </Button>
+      </div>
+    </>
+  )
+}
