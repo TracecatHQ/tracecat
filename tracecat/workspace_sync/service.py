@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
-from tracecat.authz.controls import get_missing_scopes
+from tracecat.authz.controls import get_missing_scopes, has_any_scope
 from tracecat.db.models import Workflow, Workspace, WorkspaceSyncResourceMapping
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import (
@@ -60,7 +60,7 @@ from tracecat.workspace_sync.adapters.base import (
     ResourceDependencyRefs,
     VersionedSlug,
 )
-from tracecat.workspace_sync.constants import WORKSPACE_SYNC_SCOPE
+from tracecat.workspace_sync.constants import WORKFLOW_SYNC_SCOPE, WORKSPACE_SYNC_SCOPE
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.importer import (
     ImportedResource,
@@ -173,6 +173,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         delete_missing_paths_under = await self._export_delete_roots(
             projection,
             full_workspace_export=resource_ids is None,
+            resource_ids=resource_ids,
         )
         transport = self._transport_for_provider(
             params.provider,
@@ -241,7 +242,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         Unlike :meth:`export_workspace`, this writes only the one workflow's
         files and records the resulting branch on ``workflow.git_sync_branch``.
         """
-        self._require_workspace_sync_scope()
+        self._require_workflow_export_scope()
         self._validate_export_params(params)
         url = await self._workspace_git_url(provider=params.provider)
         await self.session.refresh(
@@ -576,6 +577,11 @@ class WorkspaceSyncService(BaseWorkspaceService):
         """Require the feature-level workspace sync RBAC scope."""
         self._enforce_required_scopes([WORKSPACE_SYNC_SCOPE])
 
+    def _require_workflow_export_scope(self) -> None:
+        """Require grants that can publish one workflow to Git."""
+        self._enforce_required_scopes(["workflow:update"])
+        self._enforce_any_required_scope([WORKFLOW_SYNC_SCOPE, WORKSPACE_SYNC_SCOPE])
+
     def _validate_export_params(self, params: WorkspaceSyncExportRequest) -> None:
         """Validate the export branch names, raising :class:`TracecatValidationError`."""
         try:
@@ -604,6 +610,23 @@ class WorkspaceSyncService(BaseWorkspaceService):
             raise ScopeDeniedError(
                 required_scopes=required_scopes,
                 missing_scopes=missing,
+            )
+
+    def _enforce_any_required_scope(self, required_scopes: list[str]) -> None:
+        """Raise :class:`ScopeDeniedError` unless any required scope is granted."""
+        if not required_scopes:
+            return
+
+        if self.role is None or self.role.scopes is None:
+            raise ScopeDeniedError(
+                required_scopes=required_scopes,
+                missing_scopes=required_scopes,
+            )
+
+        if not has_any_scope(self.role.scopes, set(required_scopes)):
+            raise ScopeDeniedError(
+                required_scopes=required_scopes,
+                missing_scopes=required_scopes,
             )
 
     def _require_projected_export_scopes(self, spec: WorkspaceSpec) -> None:
@@ -667,6 +690,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         projection: WorkspaceProjection,
         *,
         full_workspace_export: bool,
+        resource_ids: dict[SyncResourceType, set[uuid.UUID]] | None,
     ) -> tuple[str, ...]:
         """Return remote path roots safe for stale-file deletion during export."""
         if full_workspace_export:
@@ -680,6 +704,14 @@ class WorkspaceSyncService(BaseWorkspaceService):
             return tuple(roots)
 
         roots = []
+        for resource_type, local_ids in (resource_ids or {}).items():
+            if local_ids:
+                continue
+            adapter = RESOURCE_ADAPTERS_BY_TYPE[resource_type]
+            root = str(getattr(projection.manifest.resources, adapter.spec_attr))
+            if cleaned := root.strip("/"):
+                roots.append(cleaned)
+
         for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
             if not isinstance(adapter, DirectoryManifestAdapter):
                 continue

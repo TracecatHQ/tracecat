@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
+from typing import cast
 
 import pytest
 
@@ -366,6 +367,47 @@ async def test_workflow_store_scope_guards(
     endpoint: AsyncEndpoint, required_scopes: str | Sequence[str]
 ) -> None:
     await _assert_endpoint_requires_scope(endpoint, required_scopes)
+
+
+@pytest.mark.anyio
+async def test_publish_workflow_accepts_legacy_or_workspace_sync_scope() -> None:
+    endpoint = cast(AsyncEndpoint, workflow_store_router.publish_workflow)
+
+    for denied_scopes in [
+        frozenset(),
+        frozenset({"workflow:update"}),
+        frozenset({"workflow:sync"}),
+        frozenset({"workspace_sync:sync"}),
+    ]:
+        token = ctx_role.set(
+            Role(
+                type="user",
+                service_id="tracecat-api",
+                scopes=denied_scopes,
+            )
+        )
+        try:
+            with pytest.raises(ScopeDeniedError):
+                await endpoint()
+        finally:
+            ctx_role.reset(token)
+
+    for allowed_scopes in [
+        frozenset({"workflow:update", "workflow:sync"}),
+        frozenset({"workflow:update", "workspace_sync:sync"}),
+    ]:
+        token = ctx_role.set(
+            Role(
+                type="user",
+                service_id="tracecat-api",
+                scopes=allowed_scopes,
+            )
+        )
+        try:
+            with pytest.raises(TypeError):
+                await endpoint()
+        finally:
+            ctx_role.reset(token)
 
 
 @pytest.mark.anyio

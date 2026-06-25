@@ -25,7 +25,7 @@ from tracecat.git.types import GitUrl
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.sync import CommitInfo, PullOptions, PushStatus
 from tracecat.workflow.store.schemas import RemoteWorkflowSchedule
-from tracecat.workspace_sync.constants import WORKSPACE_SYNC_SCOPE
+from tracecat.workspace_sync.constants import WORKFLOW_SYNC_SCOPE, WORKSPACE_SYNC_SCOPE
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.schemas import (
     MANIFEST_FILENAME,
@@ -615,6 +615,38 @@ async def test_preview_export_requires_scopes_for_projected_sensitive_metadata()
     assert set(exc_info.value.missing_scopes) == {"secret:read", "variable:read"}
 
 
+def test_workflow_export_scope_accepts_legacy_or_workspace_sync_grant() -> None:
+    base_role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"workflow:update", WORKFLOW_SYNC_SCOPE}),
+    )
+    service = WorkspaceSyncService(session=AsyncMock(), role=base_role)
+
+    service._require_workflow_export_scope()
+
+    service.role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=base_role.workspace_id,
+        organization_id=base_role.organization_id,
+        scopes=frozenset({"workflow:update", WORKSPACE_SYNC_SCOPE}),
+    )
+    service._require_workflow_export_scope()
+
+    service.role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=base_role.workspace_id,
+        organization_id=base_role.organization_id,
+        scopes=frozenset({"workflow:update"}),
+    )
+    with pytest.raises(ScopeDeniedError):
+        service._require_workflow_export_scope()
+
+
 @pytest.mark.anyio
 async def test_preview_export_rejects_missing_pinned_skill_version(
     workspace_sync_service: WorkspaceSyncService,
@@ -1058,6 +1090,58 @@ async def test_selected_export_preserves_unselected_sync_files(
 
     assert result.commit.status is PushStatus.NO_OP
     files = fake_vcs.repo_files(git_url, ref="sync/workspace")
+    assert "workflows/stale/definition.yml" in files
+
+
+@pytest.mark.anyio
+async def test_type_wide_export_deletes_stale_files_for_selected_resource_type(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    fake_vcs = FakeVcsServer()
+    git_url = GitUrl(host="github.com", org="TracecatHQ", repo="sync")
+    seed_transport = fake_vcs.transport_factory(
+        VcsProvider.GITHUB,
+        session=AsyncMock(),
+        role=AsyncMock(),
+    )
+    await seed_transport.write_files(
+        url=git_url,
+        files={
+            MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+            "tables/stale/table.yml": "version: 1\n",
+            "workflows/stale/definition.yml": "version: 1\n",
+        },
+        message="Seed sync branch",
+        branch="sync/workspace",
+        create_pr=False,
+    )
+    service = WorkspaceSyncService(
+        session=workspace_sync_service.session,
+        role=workspace_sync_service.role,
+        transport_factory=fake_vcs.transport_factory,
+    )
+    service._workspace_git_url = AsyncMock(return_value=git_url)
+    service.project_workspace = AsyncMock(
+        return_value=WorkspaceProjection(
+            manifest=WorkspaceManifest(),
+            spec=WorkspaceSpec(),
+            files={MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())},
+        )
+    )
+
+    result = await service.export_workspace(
+        WorkspaceSyncExportRequest(
+            message="Push selected tables",
+            branch="sync/workspace",
+            create_pr=False,
+            resources=[ResourceRef(resource_type=SyncResourceType.TABLE)],
+        )
+    )
+
+    assert result.commit.status is PushStatus.COMMITTED
+    assert result.commit.sha is not None
+    files = fake_vcs.repo_files(git_url, ref=result.commit.sha)
+    assert "tables/stale/table.yml" not in files
     assert "workflows/stale/definition.yml" in files
 
 

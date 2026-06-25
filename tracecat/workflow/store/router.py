@@ -25,7 +25,7 @@ from tracecat.workflow.store.schemas import (
     WorkflowSyncPullRequest,
 )
 from tracecat.workflow.store.service import WorkflowStoreService
-from tracecat.workspace_sync.constants import WORKSPACE_SYNC_SCOPE
+from tracecat.workspace_sync.constants import WORKFLOW_SYNC_SCOPE, WORKSPACE_SYNC_SCOPE
 from tracecat.workspace_sync.schemas import (
     WorkspaceSyncExportPreview,
     WorkspaceSyncExportPreviewRequest,
@@ -41,7 +41,8 @@ router = APIRouter(prefix="/workflows", tags=["workflows"])
     "/{workflow_id}/publish",
     response_model=WorkflowDslPublishResult,
 )
-@require_scope("workflow:update", WORKSPACE_SYNC_SCOPE)
+@require_scope("workflow:update")
+@require_scope(WORKFLOW_SYNC_SCOPE, WORKSPACE_SYNC_SCOPE, require_all=False)
 async def publish_workflow(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
