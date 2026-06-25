@@ -368,9 +368,15 @@ function PullDiagnostics({
     <div className="space-y-2">
       <h6 className="text-sm font-medium">Issues found:</h6>
       <div className="max-h-32 space-y-2 overflow-y-auto">
-        {diagnostics.map((diagnostic) => (
+        {diagnostics.map((diagnostic, index) => (
           <div
-            key={diagnostic.workflow_title || diagnostic.workflow_path}
+            key={[
+              diagnostic.workflow_path,
+              diagnostic.workflow_title,
+              diagnostic.error_type,
+              diagnostic.message,
+              index,
+            ].join(":")}
             className="flex items-start gap-2 rounded bg-muted p-2 text-xs"
           >
             <AlertTriangleIcon className="mt-0.5 size-3 shrink-0 text-amber-500" />

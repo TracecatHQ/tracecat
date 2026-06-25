@@ -9,7 +9,7 @@ import {
   type LucideIcon,
   PencilIcon,
 } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import type { PullResourceDiff, WorkspaceSyncExportPreview } from "@/client"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -225,6 +225,12 @@ export function ResourceDiffReviewList({ diffs }: ResourceDiffReviewListProps) {
   const [viewed, setViewed] = useState<Set<string>>(() => new Set())
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
 
+  useEffect(() => {
+    const currentPaths = new Set(diffs.map((diff) => diff.source_path))
+    setViewed((previous) => setIntersection(previous, currentPaths))
+    setCollapsed((previous) => setIntersection(previous, currentPaths))
+  }, [diffs])
+
   const viewedCount = diffs.reduce(
     (total, diff) => (viewed.has(diff.source_path) ? total + 1 : total),
     0
@@ -399,4 +405,14 @@ function withMember<T>(set: Set<T>, member: T, include: boolean): Set<T> {
     next.delete(member)
   }
   return next
+}
+
+function setIntersection<T>(set: Set<T>, allowed: Set<T>): Set<T> {
+  const next = new Set<T>()
+  for (const item of set) {
+    if (allowed.has(item)) {
+      next.add(item)
+    }
+  }
+  return next.size === set.size ? set : next
 }
