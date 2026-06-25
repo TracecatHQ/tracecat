@@ -25,7 +25,6 @@ from tracecat.git.types import GitUrl
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.sync import CommitInfo, PullOptions, PushStatus
 from tracecat.workflow.store.schemas import RemoteWorkflowSchedule
-from tracecat.workspace_sync.constants import WORKFLOW_SYNC_SCOPE, WORKSPACE_SYNC_SCOPE
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.schemas import (
     MANIFEST_FILENAME,
@@ -582,7 +581,7 @@ async def test_preview_export_requires_scopes_for_projected_sensitive_metadata()
         service_id="tracecat-api",
         workspace_id=uuid.uuid4(),
         organization_id=uuid.uuid4(),
-        scopes=frozenset({WORKSPACE_SYNC_SCOPE}),
+        scopes=frozenset({"workspace_sync:sync"}),
     )
     service = WorkspaceSyncService(session=AsyncMock(), role=role)
     service.project_workspace = AsyncMock(
@@ -621,7 +620,7 @@ def test_workflow_export_scope_accepts_legacy_or_workspace_sync_grant() -> None:
         service_id="tracecat-api",
         workspace_id=uuid.uuid4(),
         organization_id=uuid.uuid4(),
-        scopes=frozenset({"workflow:update", WORKFLOW_SYNC_SCOPE}),
+        scopes=frozenset({"workflow:update", "workflow:sync"}),
     )
     service = WorkspaceSyncService(session=AsyncMock(), role=base_role)
 
@@ -632,7 +631,7 @@ def test_workflow_export_scope_accepts_legacy_or_workspace_sync_grant() -> None:
         service_id="tracecat-api",
         workspace_id=base_role.workspace_id,
         organization_id=base_role.organization_id,
-        scopes=frozenset({"workflow:update", WORKSPACE_SYNC_SCOPE}),
+        scopes=frozenset({"workflow:update", "workspace_sync:sync"}),
     )
     service._require_workflow_export_scope()
 
@@ -701,7 +700,7 @@ async def test_pull_dry_run_requires_read_scopes_for_incoming_resources() -> Non
         service_id="tracecat-api",
         workspace_id=uuid.uuid4(),
         organization_id=uuid.uuid4(),
-        scopes=frozenset({WORKSPACE_SYNC_SCOPE}),
+        scopes=frozenset({"workspace_sync:sync"}),
     )
     service = WorkspaceSyncService(session=AsyncMock(), role=role)
     incoming_spec = WorkspaceSpec(
@@ -755,7 +754,7 @@ async def test_pull_apply_requires_update_scopes_for_incoming_resources() -> Non
         service_id="tracecat-api",
         workspace_id=uuid.uuid4(),
         organization_id=uuid.uuid4(),
-        scopes=frozenset({WORKSPACE_SYNC_SCOPE}),
+        scopes=frozenset({"workspace_sync:sync"}),
     )
     service = WorkspaceSyncService(session=AsyncMock(), role=role)
     incoming_spec = WorkspaceSpec(
@@ -807,7 +806,7 @@ async def test_pull_blocks_entitled_resource_without_entitlement() -> None:
         service_id="tracecat-api",
         workspace_id=uuid.uuid4(),
         organization_id=uuid.uuid4(),
-        scopes=frozenset({WORKSPACE_SYNC_SCOPE, "case:update"}),
+        scopes=frozenset({"workspace_sync:sync", "case:update"}),
     )
     service = WorkspaceSyncService(session=AsyncMock(), role=role)
     service.has_entitlement = AsyncMock(return_value=False)
@@ -853,7 +852,7 @@ async def test_full_export_skips_unentitled_resource_types() -> None:
             service_id="tracecat-api",
             workspace_id=uuid.uuid4(),
             organization_id=uuid.uuid4(),
-            scopes=frozenset({WORKSPACE_SYNC_SCOPE}),
+            scopes=frozenset({"workspace_sync:sync"}),
         ),
     )
     service.has_entitlement = AsyncMock(return_value=False)
@@ -877,7 +876,7 @@ async def test_selected_export_blocks_unentitled_resource_type() -> None:
             service_id="tracecat-api",
             workspace_id=uuid.uuid4(),
             organization_id=uuid.uuid4(),
-            scopes=frozenset({WORKSPACE_SYNC_SCOPE}),
+            scopes=frozenset({"workspace_sync:sync"}),
         ),
     )
     service.has_entitlement = AsyncMock(return_value=False)

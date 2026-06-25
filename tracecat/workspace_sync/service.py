@@ -60,7 +60,6 @@ from tracecat.workspace_sync.adapters.base import (
     ResourceDependencyRefs,
     VersionedSlug,
 )
-from tracecat.workspace_sync.constants import WORKFLOW_SYNC_SCOPE, WORKSPACE_SYNC_SCOPE
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.importer import (
     ImportedResource,
@@ -575,12 +574,12 @@ class WorkspaceSyncService(BaseWorkspaceService):
 
     def _require_workspace_sync_scope(self) -> None:
         """Require the feature-level workspace sync RBAC scope."""
-        self._enforce_required_scopes([WORKSPACE_SYNC_SCOPE])
+        self._enforce_required_scopes(["workspace_sync:sync"])
 
     def _require_workflow_export_scope(self) -> None:
         """Require grants that can publish one workflow to Git."""
         self._enforce_required_scopes(["workflow:update"])
-        self._enforce_any_required_scope([WORKFLOW_SYNC_SCOPE, WORKSPACE_SYNC_SCOPE])
+        self._enforce_any_required_scope(["workflow:sync", "workspace_sync:sync"])
 
     def _validate_export_params(self, params: WorkspaceSyncExportRequest) -> None:
         """Validate the export branch names, raising :class:`TracecatValidationError`."""

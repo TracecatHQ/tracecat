@@ -35,7 +35,6 @@ from tracecat.secrets.schemas import (
     validate_ssh_key_values,
 )
 from tracecat.service import BaseOrgService
-from tracecat.workspace_sync.constants import WORKSPACE_SYNC_SCOPE
 
 
 class SecretsService(BaseOrgService):
@@ -374,7 +373,7 @@ class SecretsService(BaseOrgService):
         """Retrieve the GitHub App organization secret for workflow sync."""
         return await self._get_org_secret_by_name("github-app-credentials")
 
-    @require_scope(WORKSPACE_SYNC_SCOPE)
+    @require_scope("workspace_sync:sync")
     async def get_github_app_org_secret(self) -> OrganizationSecret:
         """Retrieve the GitHub App organization secret for workflow sync."""
         return await self._get_github_app_org_secret()

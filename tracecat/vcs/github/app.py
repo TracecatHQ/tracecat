@@ -26,7 +26,6 @@ from tracecat.vcs.github.schemas import (
     GitHubAppCredentials,
     GitHubAppRepository,
 )
-from tracecat.workspace_sync.constants import WORKSPACE_SYNC_SCOPE
 
 
 class GitHubAppError(TracecatException):
@@ -485,7 +484,7 @@ class GitHubAppService(BaseOrgService):
         raise GitHubAppError("Failed to retrieve GitHub App credentials")
 
     @requires_entitlement(Entitlement.GIT_SYNC)
-    @require_scope(WORKSPACE_SYNC_SCOPE)
+    @require_scope("workspace_sync:sync")
     async def get_github_client_for_repo(self, repo_url: GitUrl) -> Github:
         """Get authenticated PyGithub client for a specific repository.
 
