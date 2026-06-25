@@ -2922,7 +2922,7 @@ async def test_agent_preset_sync_preserves_catalog_id(
         id=uuid.uuid4(),
         organization_id=svc_role.organization_id,
         model_provider="openai",
-        model_name="gpt-4.1-mini",
+        model_name="gpt-5.5",
     )
     session.add(catalog)
     await session.flush()
@@ -4277,7 +4277,7 @@ def _versioned_agent_skill_git_tree() -> dict[str, str]:
             "instructions": f"Use skill-a version {skill_version}.",
             "skills": [{"slug": "skill-a", "version": skill_version}],
             "subagents": [],
-            "model_name": "gpt-4.1-mini",
+            "model_name": "gpt-5.5",
             "model_provider": "openai",
         }
         return {
@@ -4331,7 +4331,7 @@ def _versioned_subagent_git_tree() -> dict[str, str]:
         "instructions": "Delegate to the evidence child.",
         "skills": [],
         "subagents": subagent_ref,
-        "model_name": "gpt-4.1-mini",
+        "model_name": "gpt-5.5",
         "model_provider": "openai",
     }
     child_head = {
@@ -4352,7 +4352,7 @@ def _versioned_subagent_git_tree() -> dict[str, str]:
             "instructions": instructions,
             "skills": [],
             "subagents": [],
-            "model_name": "gpt-4.1-mini",
+            "model_name": "gpt-5.5",
             "model_provider": "openai",
         }
 
@@ -4410,7 +4410,7 @@ def _workflow_pinned_agent_version_git_tree() -> dict[str, str]:
             "instructions": f"Use skill-a version {skill_version}.",
             "skills": [{"slug": "skill-a", "version": skill_version}],
             "subagents": [],
-            "model_name": "gpt-4.1-mini",
+            "model_name": "gpt-5.5",
             "model_provider": "openai",
         }
 
@@ -4668,7 +4668,7 @@ def _expanded_full_git_tree(*, include_schedules: bool) -> dict[str, str]:
                 "actions": ["tools.qa_enrichment.lookup"],
                 "skills": [{"slug": "qa-enrichment-skill", "version": 1}],
                 "subagents": [{"slug": "qa-evidence-child"}],
-                "model_name": "gpt-4.1-mini",
+                "model_name": "gpt-5.5",
                 "model_provider": "openai",
                 "base_url": "https://models.example.test/v1",
                 "output_type": {"type": "json_schema", "name": "qa_triage"},

@@ -50,7 +50,7 @@ from tracecat.workspace_sync.serialization import serialize_yaml_model
 
 AGENT_PRESET_FILENAME = "preset.yml"
 AGENT_PRESET_VERSIONS_DIR = "versions"
-DEFAULT_AGENT_MODEL_NAME = "gpt-4.1-mini"
+DEFAULT_AGENT_MODEL_NAME = "gpt-5.5"
 DEFAULT_AGENT_MODEL_PROVIDER = "openai"
 
 
