@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 import sqlalchemy as sa
@@ -162,6 +164,43 @@ class TableAdapter(DirectoryManifestAdapter):
         imported from Git.
         """
         tables = workspace_spec.tables
+        target_names_by_source_id = {
+            source_id: spec.name for source_id, spec in tables.items()
+        }
+        duplicate_names = sorted(_duplicates(target_names_by_source_id.values()))
+        if duplicate_names:
+            raise ValueError(
+                "Table sync specs must have unique names: "
+                + ", ".join(repr(name) for name in duplicate_names)
+            )
+        mapped_tables = {
+            source_id: table
+            for source_id in sorted(tables)
+            if (
+                table := await self._table_by_source_id(
+                    workspace_service,
+                    source_id,
+                )
+            )
+            is not None
+        }
+        source_ids_by_table_id = {
+            table.id: source_id for source_id, table in mapped_tables.items()
+        }
+        for source_id, table in mapped_tables.items():
+            await self._ensure_name_available(
+                workspace_service,
+                source_id=source_id,
+                name=target_names_by_source_id[source_id],
+                table_id=table.id,
+                source_ids_by_table_id=source_ids_by_table_id,
+                target_names_by_source_id=target_names_by_source_id,
+            )
+        await self._release_changing_mapped_tables(
+            workspace_service,
+            tables_by_source_id=mapped_tables,
+            target_names_by_source_id=target_names_by_source_id,
+        )
         imported: list[ImportedResource] = []
         table_service = BaseTablesService(
             session=workspace_service.session, role=workspace_service.role
@@ -175,7 +214,10 @@ class TableAdapter(DirectoryManifestAdapter):
                     "Table sync supports at most one unique column per table: "
                     f"{spec.name} requested {', '.join(unique_columns)}"
                 )
-            table = await self._table_by_source_id(workspace_service, source_id)
+            table = mapped_tables.get(source_id) or await self._table_by_source_id(
+                workspace_service,
+                source_id,
+            )
             if table is not None:
                 # Mapped path: refresh columns, reject any not in the spec, then
                 # rename the table in place if the spec name has changed.
@@ -250,6 +292,72 @@ class TableAdapter(DirectoryManifestAdapter):
             options=(selectinload(Table.columns),),
         )
 
+    async def _ensure_name_available(
+        self,
+        workspace_service: BaseWorkspaceService,
+        *,
+        source_id: str,
+        name: str,
+        table_id: uuid.UUID,
+        source_ids_by_table_id: Mapping[uuid.UUID, str] | None = None,
+        target_names_by_source_id: Mapping[str, str] | None = None,
+    ) -> None:
+        """Raise if another table blocks claiming ``name``."""
+        conflict_id = await workspace_service.session.scalar(
+            select(Table.id).where(
+                Table.workspace_id == workspace_service.workspace_id,
+                Table.name == name,
+                Table.id != table_id,
+            )
+        )
+        if conflict_id is None:
+            return
+        if source_ids_by_table_id and target_names_by_source_id:
+            conflict_source_id = source_ids_by_table_id.get(conflict_id)
+            if (
+                conflict_source_id is not None
+                and target_names_by_source_id[conflict_source_id] != name
+            ):
+                return
+        raise ValueError(
+            f"Table sync source id {source_id!r} cannot use name {name!r} "
+            "because another table already uses that name."
+        )
+
+    async def _release_changing_mapped_tables(
+        self,
+        workspace_service: BaseWorkspaceService,
+        *,
+        tables_by_source_id: Mapping[str, Table],
+        target_names_by_source_id: Mapping[str, str],
+    ) -> None:
+        """Park mapped tables whose names are changing under temporary names."""
+        if not tables_by_source_id:
+            return
+        reserved_names = set(
+            (
+                await workspace_service.session.scalars(
+                    select(Table.name).where(
+                        Table.workspace_id == workspace_service.workspace_id
+                    )
+                )
+            ).all()
+        ) | set(target_names_by_source_id.values())
+        table_service = BaseTablesService(
+            session=workspace_service.session, role=workspace_service.role
+        )
+        changed = False
+        for source_id, table in tables_by_source_id.items():
+            if table.name == target_names_by_source_id[source_id]:
+                continue
+            await table_service.update_table(
+                table,
+                TableUpdate(name=_unique_temporary_table_name(table, reserved_names)),
+            )
+            changed = True
+        if changed:
+            await workspace_service.session.flush()
+
 
 def _ensure_no_stale_columns(table: Table, spec: TableResourceSpec) -> None:
     """Reject existing table columns that are absent from the Git spec."""
@@ -265,6 +373,29 @@ def _ensure_no_stale_columns(table: Table, spec: TableResourceSpec) -> None:
         f"Table sync spec for {spec.name!r} omits existing column(s): "
         + ", ".join(stale_columns)
     )
+
+
+def _duplicates(values: Iterable[str]) -> set[str]:
+    """Return duplicate string values from an iterable."""
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for value in values:
+        if value in seen:
+            duplicates.add(value)
+        seen.add(value)
+    return duplicates
+
+
+def _unique_temporary_table_name(table: Table, reserved_names: set[str]) -> str:
+    """Return a temporary table name that does not collide with reserved names."""
+    base = f"__tracecat_sync_tmp_{table.id.hex}"
+    candidate = base
+    suffix = 1
+    while candidate in reserved_names:
+        suffix += 1
+        candidate = f"{base}_{suffix}"
+    reserved_names.add(candidate)
+    return candidate
 
 
 def _column_create_from_spec(column: TableColumnSpec) -> TableColumnCreate:

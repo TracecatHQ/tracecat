@@ -1341,7 +1341,11 @@ class CaseFieldsService(CustomFieldsService):
 
     @require_scope("case:update")
     async def update_field(
-        self, field_id: str, params: CaseFieldUpdate | CustomFieldUpdate
+        self,
+        field_id: str,
+        params: CaseFieldUpdate | CustomFieldUpdate,
+        *,
+        commit: bool = True,
     ) -> None:
         """Update a custom field column and update the schema if needed."""
         await self._ensure_schema_ready()
@@ -1408,7 +1412,8 @@ class CaseFieldsService(CustomFieldsService):
                     new_field_id,
                 )
 
-        await self.session.commit()
+        if commit:
+            await self.session.commit()
 
     async def _update_workspace_sync_mapping_for_field_rename(
         self,

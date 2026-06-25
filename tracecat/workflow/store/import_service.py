@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 
 from pydantic import ValidationError
 from sqlalchemy import select
@@ -152,6 +153,7 @@ class WorkflowImportService(BaseWorkspaceService):
         sync_schedules: bool,
     ) -> None:
         """Import workflows without committing the active transaction."""
+        await self._release_changing_workflow_aliases(remote_workflows)
         for remote_workflow in remote_workflows:
             await self._import_single_workflow(
                 remote_workflow,
@@ -323,6 +325,87 @@ class WorkflowImportService(BaseWorkspaceService):
                 remote_workflow,
                 sync_schedules=sync_schedules,
             )
+
+    async def _release_changing_workflow_aliases(
+        self,
+        remote_workflows: list[RemoteWorkflowDefinition],
+    ) -> None:
+        """Park existing workflows whose aliases change in this import batch."""
+        target_aliases_by_id: dict[uuid.UUID, str | None] = {
+            uuid.UUID(int=WorkflowUUID.new(remote.id).int): remote.alias
+            for remote in remote_workflows
+        }
+        duplicate_aliases = sorted(
+            _duplicates(
+                alias for alias in target_aliases_by_id.values() if alias is not None
+            )
+        )
+        if duplicate_aliases:
+            raise ValueError(
+                "Workflow import specs must have unique aliases: "
+                + ", ".join(repr(alias) for alias in duplicate_aliases)
+            )
+
+        workflow_ids = set(target_aliases_by_id)
+        workflows = list(
+            (
+                await self.session.scalars(
+                    select(Workflow).where(
+                        Workflow.workspace_id == self.workspace_id,
+                        Workflow.id.in_(workflow_ids),
+                    )
+                )
+            ).all()
+        )
+        workflows_by_id = {workflow.id: workflow for workflow in workflows}
+
+        for workflow in workflows:
+            target_alias = target_aliases_by_id[workflow.id]
+            if target_alias is None or target_alias == workflow.alias:
+                continue
+            conflict_id = await self.session.scalar(
+                select(Workflow.id).where(
+                    Workflow.workspace_id == self.workspace_id,
+                    Workflow.alias == target_alias,
+                    Workflow.id != workflow.id,
+                )
+            )
+            if conflict_id is None:
+                continue
+            if (
+                conflict_id not in workflow_ids
+                or target_aliases_by_id[conflict_id] == target_alias
+            ):
+                raise ValueError(
+                    f"Workflow alias {target_alias!r} is already used by another "
+                    "workflow."
+                )
+
+        reserved_aliases = {
+            alias
+            for alias in (
+                await self.session.scalars(
+                    select(Workflow.alias).where(
+                        Workflow.workspace_id == self.workspace_id,
+                        Workflow.alias.is_not(None),
+                    )
+                )
+            ).all()
+            if alias is not None
+        } | {alias for alias in target_aliases_by_id.values() if alias is not None}
+        changed = False
+        for workflow_id, workflow in workflows_by_id.items():
+            target_alias = target_aliases_by_id[workflow_id]
+            if workflow.alias == target_alias:
+                continue
+            workflow.alias = _unique_temporary_workflow_alias(
+                workflow,
+                reserved_aliases,
+            )
+            self.session.add(workflow)
+            changed = True
+        if changed:
+            await self.session.flush()
 
     async def _update_existing_workflow(
         self,
@@ -611,3 +694,29 @@ class WorkflowImportService(BaseWorkspaceService):
             raise ValueError(f"Failed to create or find folder at path: {folder_path}")
 
         return final_folder.id
+
+
+def _duplicates(values: Iterable[str]) -> set[str]:
+    """Return duplicate string values from an iterable."""
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for value in values:
+        if value in seen:
+            duplicates.add(value)
+        seen.add(value)
+    return duplicates
+
+
+def _unique_temporary_workflow_alias(
+    workflow: Workflow,
+    reserved_aliases: set[str],
+) -> str:
+    """Return a temporary workflow alias that does not collide."""
+    base = f"tracecat-sync-tmp-{workflow.id.hex}"
+    candidate = base
+    suffix = 1
+    while candidate in reserved_aliases:
+        suffix += 1
+        candidate = f"{base}-{suffix}"
+    reserved_aliases.add(candidate)
+    return candidate

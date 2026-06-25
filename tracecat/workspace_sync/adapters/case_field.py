@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 from pydantic import BaseModel
@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm.attributes import flag_modified
 
 from tracecat.cases.enums import CaseFieldKind
-from tracecat.cases.schemas import CaseFieldCreate
+from tracecat.cases.schemas import CaseFieldCreate, CaseFieldUpdate
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import CaseFields
 from tracecat.service import BaseWorkspaceService
@@ -92,6 +92,11 @@ class CaseFieldAdapter(FlatManifestAdapter):
         field_service = CaseFieldsService(
             session=workspace_service.session, role=workspace_service.role
         )
+        await self._release_changing_mapped_fields(
+            workspace_service,
+            field_service=field_service,
+            fields=fields,
+        )
         # Sort for deterministic processing; re-fetch the schema per field below
         # because create_column mutates the shared CaseFields row as we go.
         for source_id, spec in sorted(fields.items()):
@@ -134,30 +139,36 @@ class CaseFieldAdapter(FlatManifestAdapter):
                     field_def["required_on_closure"] = True
                 await field_service._update_field_schema(field_params.name, field_def)
             else:
-                # Existing field: the column already exists, so update the schema
-                # entry in place rather than going through create_column.
-                current_schema[field_id] = {
-                    "type": field_type.value,
-                    **({"options": field_options} if field_options else {}),
-                    **({"kind": field_kind} if field_kind else {}),
-                    **(
-                        {"required_on_closure": True}
-                        if spec.required_on_closure
-                        else {}
+                # Existing field: use the service update path so physical table
+                # columns, schema metadata, and sync mappings move together.
+                await field_service.update_field(
+                    field_id,
+                    CaseFieldUpdate(
+                        name=spec.name if spec.name != field_id else None,
+                        type=field_type,
+                        options=field_options,
+                        required_on_closure=spec.required_on_closure,
                     ),
-                }
-                # Create the schema row on first import when none exists yet.
-                if definition is None:
-                    definition = CaseFields(
-                        workspace_id=workspace_service.workspace_id,
-                        schema={},
+                    commit=False,
+                )
+                kind = _case_field_kind(field_kind)
+                definition = await workspace_service.session.scalar(
+                    select(CaseFields).where(
+                        CaseFields.workspace_id == workspace_service.workspace_id
                     )
-                definition.schema = current_schema
-                # Reassigning a JSON dict in place is not auto-tracked; flag it so
-                # SQLAlchemy persists the mutation.
-                flag_modified(definition, "schema")
-                workspace_service.session.add(definition)
-                await workspace_service.session.flush()
+                )
+                if definition is not None:
+                    updated_schema = dict(definition.schema or {})
+                    updated_field_def = dict(updated_schema.get(spec.name, {}))
+                    if kind is None:
+                        updated_field_def.pop("kind", None)
+                    else:
+                        updated_field_def["kind"] = kind.value
+                    updated_schema[spec.name] = updated_field_def
+                    definition.schema = updated_schema
+                    flag_modified(definition, "schema")
+                    workspace_service.session.add(definition)
+                    await workspace_service.session.flush()
             # Re-fetch to get the committed row (and its id) after either branch
             # may have created or mutated the definition.
             definition = await workspace_service.session.scalar(
@@ -169,10 +180,7 @@ class CaseFieldAdapter(FlatManifestAdapter):
                 imported.append(
                     self.imported_resource(
                         source_id,
-                        _case_field_local_id(
-                            definition.id,
-                            spec.name if field_id not in current_schema else field_id,
-                        ),
+                        _case_field_local_id(definition.id, spec.name),
                     )
                 )
         return imported
@@ -200,6 +208,78 @@ class CaseFieldAdapter(FlatManifestAdapter):
             return source_id
         return spec.name
 
+    async def _release_changing_mapped_fields(
+        self,
+        workspace_service: BaseWorkspaceService,
+        *,
+        field_service: CaseFieldsService,
+        fields: Mapping[str, CaseFieldResourceSpec],
+    ) -> None:
+        """Park mapped existing fields whose names change in this batch."""
+        if not fields:
+            return
+        duplicate_names = sorted(_duplicates(spec.name for spec in fields.values()))
+        if duplicate_names:
+            raise ValueError(
+                "Case field sync specs must have unique names: "
+                + ", ".join(repr(name) for name in duplicate_names)
+            )
+
+        definition = await workspace_service.session.scalar(
+            select(CaseFields).where(
+                CaseFields.workspace_id == workspace_service.workspace_id
+            )
+        )
+        if definition is None:
+            return
+
+        current_schema = dict(definition.schema or {})
+        existing_field_ids_by_source_id: dict[str, str] = {}
+        for source_id, spec in sorted(fields.items()):
+            field_id = await self._field_id_for_import(
+                workspace_service,
+                definition=definition,
+                current_schema=current_schema,
+                source_id=source_id,
+                spec=spec,
+            )
+            if field_id in current_schema:
+                existing_field_ids_by_source_id[source_id] = field_id
+
+        source_ids_by_field_id = {
+            field_id: source_id
+            for source_id, field_id in existing_field_ids_by_source_id.items()
+        }
+        for source_id, field_id in existing_field_ids_by_source_id.items():
+            target_name = fields[source_id].name
+            if target_name == field_id or target_name not in current_schema:
+                continue
+            owner_source_id = source_ids_by_field_id.get(target_name)
+            if (
+                owner_source_id is not None
+                and fields[owner_source_id].name != target_name
+            ):
+                continue
+            raise ValueError(
+                f"Case field sync source id {source_id!r} cannot use name "
+                f"{target_name!r} because another field already uses that name."
+            )
+
+        reserved_names = set(current_schema) | {spec.name for spec in fields.values()}
+        for source_id, field_id in existing_field_ids_by_source_id.items():
+            if field_id == fields[source_id].name:
+                continue
+            temp_name = _unique_temporary_case_field_name(
+                definition.id,
+                field_id,
+                reserved_names,
+            )
+            await field_service.update_field(
+                field_id,
+                CaseFieldUpdate(name=temp_name),
+                commit=False,
+            )
+
 
 def _case_field_kind(value: Any) -> CaseFieldKind | None:
     """Coerce a raw ``kind`` value into a :class:`CaseFieldKind`, or ``None``."""
@@ -210,6 +290,34 @@ def _case_field_kind(value: Any) -> CaseFieldKind | None:
     except ValueError:
         # Unknown kind from external YAML: treat as absent rather than failing.
         return None
+
+
+def _duplicates(values: Iterable[str]) -> set[str]:
+    """Return duplicate string values from an iterable."""
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for value in values:
+        if value in seen:
+            duplicates.add(value)
+        seen.add(value)
+    return duplicates
+
+
+def _unique_temporary_case_field_name(
+    definition_id: uuid.UUID,
+    field_id: str,
+    reserved_names: set[str],
+) -> str:
+    """Return a temporary case field name that does not collide."""
+    field_token = uuid.uuid5(definition_id, field_id).hex[:16]
+    base = f"tracecat_sync_tmp_{field_token}"
+    candidate = base
+    suffix = 1
+    while candidate in reserved_names:
+        suffix += 1
+        candidate = f"{base}_{suffix}"
+    reserved_names.add(candidate)
+    return candidate
 
 
 def _case_field_options(
