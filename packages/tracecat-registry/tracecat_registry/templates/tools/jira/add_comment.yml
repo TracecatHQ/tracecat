@@ -39,10 +39,10 @@ definition:
                   parsed = json.loads(comment)
               except (TypeError, ValueError):
                   parsed = None
+              if isinstance(parsed, dict):
+                  return {"body": parsed}
               return {
-                  "body": parsed
-                  if isinstance(parsed, dict)
-                  else {
+                  "body": {
                       "version": 1,
                       "type": "doc",
                       "content": [

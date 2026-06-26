@@ -39,7 +39,9 @@ definition:
                   parsed = json.loads(description)
               except (TypeError, ValueError):
                   parsed = None
-              return parsed if isinstance(parsed, dict) else {
+              if isinstance(parsed, dict):
+                  return parsed
+              return {
                   "version": 1,
                   "type": "doc",
                   "content": [
