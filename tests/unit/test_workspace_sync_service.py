@@ -574,6 +574,55 @@ async def test_preview_export_reports_resource_diffs_against_compare_ref(
 
 
 @pytest.mark.anyio
+async def test_preview_export_reports_type_wide_deletion_diffs(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    fake_vcs = FakeVcsServer()
+    git_url = GitUrl(host="github.com", org="TracecatHQ", repo="sync")
+    seed_transport = fake_vcs.transport_factory(
+        VcsProvider.GITHUB,
+        session=workspace_sync_service.session,
+        role=workspace_sync_service.role,
+    )
+    await seed_transport.write_files(
+        url=git_url,
+        files={
+            MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+            "tables/stale/table.yml": "version: 1\n",
+            "workflows/stale/definition.yml": "version: 1\n",
+        },
+        message="Seed sync branch",
+        branch="sync/workspace",
+        create_pr=False,
+    )
+    service = WorkspaceSyncService(
+        session=workspace_sync_service.session,
+        role=workspace_sync_service.role,
+        transport_factory=fake_vcs.transport_factory,
+    )
+    service._workspace_git_url = AsyncMock(return_value=git_url)
+    service.project_workspace = AsyncMock(
+        return_value=WorkspaceProjection(
+            manifest=WorkspaceManifest(),
+            spec=WorkspaceSpec(),
+            files={MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())},
+        )
+    )
+
+    preview = await service.preview_export_workspace(
+        WorkspaceSyncExportPreviewRequest(
+            resources=[ResourceRef(resource_type=SyncResourceType.TABLE)],
+            compare_ref="sync/workspace",
+        )
+    )
+
+    assert [
+        (diff.change_type, diff.source_path, diff.title)
+        for diff in preview.resource_diffs
+    ] == [("deleted", "tables/stale/table.yml", None)]
+
+
+@pytest.mark.anyio
 async def test_preview_export_requires_scopes_for_projected_sensitive_metadata() -> (
     None
 ):

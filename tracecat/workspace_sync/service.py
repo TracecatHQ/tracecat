@@ -218,10 +218,15 @@ class WorkspaceSyncService(BaseWorkspaceService):
             url = await self._workspace_git_url(provider=params.provider)
             transport = self._transport_for_provider(params.provider)
             remote_tree = await transport.read_files(url=url, ref=params.compare_ref)
+            delete_missing_paths_under = await self._export_delete_roots(
+                projection,
+                full_workspace_export=resource_ids is None,
+                resource_ids=resource_ids,
+            )
             resource_diffs = self._resource_diffs_for_export(
                 projection,
                 remote_tree,
-                include_deletions=resource_ids is None,
+                delete_missing_paths_under=delete_missing_paths_under,
             )
         return WorkspaceSyncExportPreview(
             resource_counts=projection.spec.resource_count_map(),
@@ -953,10 +958,11 @@ class WorkspaceSyncService(BaseWorkspaceService):
         projection: WorkspaceProjection,
         remote_tree: VcsTreeSnapshot,
         *,
-        include_deletions: bool,
+        delete_missing_paths_under: Sequence[str],
     ) -> list[PullResourceDiff]:
         """Compute per-resource diffs from a repository ref to an export projection."""
         roots = projection.manifest.resources
+        deletion_roots = _normalized_path_roots(delete_missing_paths_under)
         diffs: list[PullResourceDiff] = []
 
         for path, projected_content in sorted(projection.files.items()):
@@ -990,9 +996,11 @@ class WorkspaceSyncService(BaseWorkspaceService):
                 )
             )
 
-        if include_deletions:
+        if deletion_roots:
             for path, remote_content in sorted(remote_tree.files.items()):
                 if path in projection.files:
+                    continue
+                if not _path_is_under_roots(path, deletion_roots):
                     continue
                 identity = _resource_identity_from_path(path, roots=roots)
                 if identity is None:
@@ -2197,6 +2205,16 @@ def _resource_identity_from_path(
             source_id, _relative_path = extra
             return adapter, source_id
     return None
+
+
+def _normalized_path_roots(roots: Sequence[str]) -> tuple[str, ...]:
+    """Strip surrounding slashes off path roots and drop empty entries."""
+    return tuple(root.strip("/") for root in roots if root.strip("/"))
+
+
+def _path_is_under_roots(path: str, roots: Sequence[str]) -> bool:
+    """Return whether ``path`` equals or sits beneath any root."""
+    return any(path == root or path.startswith(f"{root}/") for root in roots)
 
 
 def _unified_resource_diff(
