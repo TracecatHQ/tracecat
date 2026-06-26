@@ -32,29 +32,27 @@ definition:
         script: |
           import json
 
-          def _plain_text_adf(text):
-              return {
-                  "version": 1,
-                  "type": "doc",
-                  "content": [
-                      {
-                          "type": "paragraph",
-                          "content": [{"type": "text", "text": text}],
-                      }
-                  ],
-              }
-
-          def _rich_text_adf(value):
-              if isinstance(value, dict):
-                  return value
-              try:
-                  parsed = json.loads(value)
-              except (TypeError, ValueError):
-                  return _plain_text_adf(value)
-              return parsed if isinstance(parsed, dict) else _plain_text_adf(value)
-
           def main(comment):
-              return {"body": _rich_text_adf(comment)}
+              if isinstance(comment, dict):
+                  return {"body": comment}
+              try:
+                  parsed = json.loads(comment)
+              except (TypeError, ValueError):
+                  parsed = None
+              return {
+                  "body": parsed
+                  if isinstance(parsed, dict)
+                  else {
+                      "version": 1,
+                      "type": "doc",
+                      "content": [
+                          {
+                              "type": "paragraph",
+                              "content": [{"type": "text", "text": comment}],
+                          }
+                      ],
+                  }
+              }
     - ref: add_comment
       action: core.http_request
       args:

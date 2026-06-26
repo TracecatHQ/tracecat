@@ -58,26 +58,23 @@ definition:
         script: |
           import json
 
-          def _plain_text_adf(text):
-              return {
-                  "version": 1,
-                  "type": "doc",
-                  "content": [
-                      {
-                          "type": "paragraph",
-                          "content": [{"type": "text", "text": text}],
-                      }
-                  ],
-              }
-
           def main(description):
               if isinstance(description, dict):
                   return description
               try:
                   parsed = json.loads(description)
               except (TypeError, ValueError):
-                  return _plain_text_adf(description)
-              return parsed if isinstance(parsed, dict) else _plain_text_adf(description)
+                  parsed = None
+              return parsed if isinstance(parsed, dict) else {
+                  "version": 1,
+                  "type": "doc",
+                  "content": [
+                      {
+                          "type": "paragraph",
+                          "content": [{"type": "text", "text": description}],
+                      }
+                  ],
+              }
     # Format the required fields
     - ref: required_fields
       action: core.transform.reshape
