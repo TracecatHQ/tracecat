@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Live query host
+  description: Run an ad-hoc osquery SQL statement live against a single host.
+  display_group: Fleet
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#run-live-query-against-one-host
+  namespace: tools.fleetdm
+  name: live_query_host
+  secrets:
+    - name: fleetdm
+      keys: ["FLEETDM_API_TOKEN"]
+  expects:
+    base_url:
+      type: str
+      description: Fleet server base URL (e.g. https://fleet.example.com).
+    host_id:
+      type: int
+      description: Numeric Fleet host ID to run the query against.
+    query:
+      type: str
+      description: The ad-hoc osquery SQL statement to run.
+  steps:
+    - ref: live_query_host
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v1/fleet/hosts/${{ inputs.host_id }}/query
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
+          Content-Type: application/json
+        payload:
+          query: ${{ inputs.query }}
+  returns: ${{ steps.live_query_host.result.data }}

@@ -1,0 +1,70 @@
+type: action
+definition:
+  title: List software titles
+  description: List software titles across the fleet with host counts and detected vulnerabilities.
+  display_group: Fleet
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#list-software
+  namespace: tools.fleetdm
+  name: list_software_titles
+  secrets:
+    - name: fleetdm
+      keys: ["FLEETDM_API_TOKEN"]
+  expects:
+    base_url:
+      type: str
+      description: Fleet server base URL (e.g. https://fleet.example.com).
+    query:
+      type: str | None
+      description: Search string matched against software title and CVE.
+      default: null
+    vulnerable:
+      type: bool | None
+      description: Only include software with known vulnerabilities.
+      default: null
+    exploit:
+      type: bool | None
+      description: Only include software with a CISA known-exploited vulnerability.
+      default: null
+    min_cvss_score:
+      type: float | None
+      description: Only include software with a vulnerability at or above this CVSS score.
+      default: null
+    max_cvss_score:
+      type: float | None
+      description: Only include software with a vulnerability at or below this CVSS score.
+      default: null
+    fleet_id:
+      type: int | None
+      description: Scope results to a fleet (team) ID.
+      default: null
+    platform:
+      type: str | None
+      description: Platform filter (darwin, windows, linux, chrome).
+      default: null
+    page:
+      type: int
+      description: Page number to retrieve (0-indexed).
+      default: 0
+    per_page:
+      type: int
+      description: Software titles per page (Fleet caps at 200).
+      default: 50
+  steps:
+    - ref: software_titles
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v1/fleet/software/titles
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
+        params:
+          query: ${{ inputs.query }}
+          vulnerable: ${{ inputs.vulnerable }}
+          exploit: ${{ inputs.exploit }}
+          min_cvss_score: ${{ inputs.min_cvss_score }}
+          max_cvss_score: ${{ inputs.max_cvss_score }}
+          fleet_id: ${{ inputs.fleet_id }}
+          platform: ${{ inputs.platform }}
+          page: ${{ inputs.page }}
+          per_page: ${{ inputs.per_page }}
+  returns: ${{ steps.software_titles.result.data }}

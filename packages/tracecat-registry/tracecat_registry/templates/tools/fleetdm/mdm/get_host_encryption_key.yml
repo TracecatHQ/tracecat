@@ -1,0 +1,27 @@
+type: action
+definition:
+  title: Get host encryption key
+  description: Get a host's disk encryption recovery key (FileVault or BitLocker).
+  display_group: Fleet
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#get-host-s-disk-encryption-key
+  namespace: tools.fleetdm
+  name: get_host_encryption_key
+  secrets:
+    - name: fleetdm
+      keys: ["FLEETDM_API_TOKEN"]
+  expects:
+    base_url:
+      type: str
+      description: Fleet server base URL (e.g. https://fleet.example.com).
+    host_id:
+      type: int
+      description: Numeric Fleet host ID.
+  steps:
+    - ref: encryption_key
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v1/fleet/hosts/${{ inputs.host_id }}/encryption_key
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
+  returns: ${{ steps.encryption_key.result.data }}

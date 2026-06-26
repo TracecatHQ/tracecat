@@ -1,0 +1,40 @@
+type: action
+definition:
+  title: Get host summary
+  description: Get aggregate host counts grouped by status and platform.
+  display_group: Fleet
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#get-hosts-summary
+  namespace: tools.fleetdm
+  name: get_host_summary
+  secrets:
+    - name: fleetdm
+      keys: ["FLEETDM_API_TOKEN"]
+  expects:
+    base_url:
+      type: str
+      description: Fleet server base URL (e.g. https://fleet.example.com).
+    fleet_id:
+      type: int | None
+      description: Scope the summary to a fleet (team) ID.
+      default: null
+    platform:
+      type: str | None
+      description: Platform filter (darwin, windows, linux, chrome, ios, ipados).
+      default: null
+    low_disk_space:
+      type: int | None
+      description: Count hosts with less than this many GB of disk space.
+      default: null
+  steps:
+    - ref: host_summary
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v1/fleet/host_summary
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
+        params:
+          fleet_id: ${{ inputs.fleet_id }}
+          platform: ${{ inputs.platform }}
+          low_disk_space: ${{ inputs.low_disk_space }}
+  returns: ${{ steps.host_summary.result.data }}

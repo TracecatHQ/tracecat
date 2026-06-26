@@ -1,0 +1,27 @@
+type: action
+definition:
+  title: Get host configuration profiles
+  description: Get the OS settings and configuration profiles applied to a host.
+  display_group: Fleet
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#get-configuration-profiles-assigned-to-a-host
+  namespace: tools.fleetdm
+  name: get_host_configuration_profiles
+  secrets:
+    - name: fleetdm
+      keys: ["FLEETDM_API_TOKEN"]
+  expects:
+    base_url:
+      type: str
+      description: Fleet server base URL (e.g. https://fleet.example.com).
+    host_id:
+      type: int
+      description: Numeric Fleet host ID.
+  steps:
+    - ref: host_profiles
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v1/fleet/hosts/${{ inputs.host_id }}/configuration_profiles
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
+  returns: ${{ steps.host_profiles.result.data }}

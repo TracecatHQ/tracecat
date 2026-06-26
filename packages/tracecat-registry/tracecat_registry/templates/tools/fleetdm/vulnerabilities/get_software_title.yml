@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Get software title
+  description: Get a single software title with its versions, vulnerabilities, and host counts.
+  display_group: Fleet
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#get-software
+  namespace: tools.fleetdm
+  name: get_software_title
+  secrets:
+    - name: fleetdm
+      keys: ["FLEETDM_API_TOKEN"]
+  expects:
+    base_url:
+      type: str
+      description: Fleet server base URL (e.g. https://fleet.example.com).
+    software_title_id:
+      type: int
+      description: Numeric Fleet software title ID.
+    fleet_id:
+      type: int | None
+      description: Scope host counts to a fleet (team) ID.
+      default: null
+  steps:
+    - ref: software_title
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v1/fleet/software/titles/${{ inputs.software_title_id }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
+        params:
+          fleet_id: ${{ inputs.fleet_id }}
+  returns: ${{ steps.software_title.result.data }}

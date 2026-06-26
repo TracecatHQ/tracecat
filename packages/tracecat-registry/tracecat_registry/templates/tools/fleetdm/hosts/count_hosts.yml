@@ -1,0 +1,65 @@
+type: action
+definition:
+  title: Count hosts
+  description: Count hosts matching the given filters without returning host records.
+  display_group: Fleet
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#count-hosts
+  namespace: tools.fleetdm
+  name: count_hosts
+  secrets:
+    - name: fleetdm
+      keys: ["FLEETDM_API_TOKEN"]
+  expects:
+    base_url:
+      type: str
+      description: Fleet server base URL (e.g. https://fleet.example.com).
+    status:
+      type: str | None
+      description: Host status filter (online, offline, new, mia, missing).
+      default: null
+    query:
+      type: str | None
+      description: Search string matched against hostname, IP, serial, and UUID.
+      default: null
+    fleet_id:
+      type: int | None
+      description: Scope the count to a fleet (team) ID.
+      default: null
+    platform:
+      type: str | None
+      description: Platform filter (darwin, windows, linux, chrome, ios, ipados).
+      default: null
+    label_id:
+      type: int | None
+      description: Only count hosts that are members of this label ID.
+      default: null
+    policy_id:
+      type: int | None
+      description: Filter by hosts evaluated against this policy ID (pair with policy_response).
+      default: null
+    policy_response:
+      type: str | None
+      description: Policy compliance filter for policy_id (passing or failing).
+      default: null
+    vulnerability:
+      type: str | None
+      description: Only count hosts affected by this CVE (e.g. CVE-2024-1234).
+      default: null
+  steps:
+    - ref: count_hosts
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v1/fleet/hosts/count
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
+        params:
+          status: ${{ inputs.status }}
+          query: ${{ inputs.query }}
+          fleet_id: ${{ inputs.fleet_id }}
+          platform: ${{ inputs.platform }}
+          label_id: ${{ inputs.label_id }}
+          policy_id: ${{ inputs.policy_id }}
+          policy_response: ${{ inputs.policy_response }}
+          vulnerability: ${{ inputs.vulnerability }}
+  returns: ${{ steps.count_hosts.result.data }}

@@ -1,0 +1,38 @@
+type: action
+definition:
+  title: Get host by identifier
+  description: Get full details for a single host by hostname, UUID, serial, or node key.
+  display_group: Fleet
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#get-host-by-identifier
+  namespace: tools.fleetdm
+  name: get_host_by_identifier
+  secrets:
+    - name: fleetdm
+      keys: ["FLEETDM_API_TOKEN"]
+  expects:
+    base_url:
+      type: str
+      description: Fleet server base URL (e.g. https://fleet.example.com).
+    identifier:
+      type: str
+      description: Host hostname, UUID, hardware serial, osquery host ID, or node key.
+    populate_policies:
+      type: bool | None
+      description: Include the host's policy compliance in the response.
+      default: null
+    populate_software:
+      type: bool | None
+      description: Include the host's installed software in the response.
+      default: null
+  steps:
+    - ref: get_host
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v1/fleet/hosts/identifier/${{ FN.url_encode(inputs.identifier) }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
+        params:
+          populate_policies: ${{ inputs.populate_policies }}
+          populate_software: ${{ inputs.populate_software }}
+  returns: ${{ steps.get_host.result.data }}

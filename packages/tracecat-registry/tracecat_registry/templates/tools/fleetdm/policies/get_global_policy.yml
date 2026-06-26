@@ -1,0 +1,27 @@
+type: action
+definition:
+  title: Get global policy
+  description: Get a single global policy including its pass and fail host counts.
+  display_group: Fleet
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#get-policy-by-id
+  namespace: tools.fleetdm
+  name: get_global_policy
+  secrets:
+    - name: fleetdm
+      keys: ["FLEETDM_API_TOKEN"]
+  expects:
+    base_url:
+      type: str
+      description: Fleet server base URL (e.g. https://fleet.example.com).
+    policy_id:
+      type: int
+      description: Numeric Fleet policy ID.
+  steps:
+    - ref: get_policy
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v1/fleet/global/policies/${{ inputs.policy_id }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
+  returns: ${{ steps.get_policy.result.data }}

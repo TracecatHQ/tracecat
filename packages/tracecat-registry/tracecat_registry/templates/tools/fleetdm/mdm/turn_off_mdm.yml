@@ -1,0 +1,27 @@
+type: action
+definition:
+  title: Turn off MDM
+  description: Turn off MDM for a host, unenrolling it from Fleet MDM management.
+  display_group: Fleet
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#turn-off-mdm-for-a-host
+  namespace: tools.fleetdm
+  name: turn_off_mdm
+  secrets:
+    - name: fleetdm
+      keys: ["FLEETDM_API_TOKEN"]
+  expects:
+    base_url:
+      type: str
+      description: Fleet server base URL (e.g. https://fleet.example.com).
+    host_id:
+      type: int
+      description: Numeric Fleet host ID.
+  steps:
+    - ref: turn_off_mdm
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v1/fleet/hosts/${{ inputs.host_id }}/mdm
+        method: DELETE
+        headers:
+          Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
+  returns: ${{ steps.turn_off_mdm.result.data }}
