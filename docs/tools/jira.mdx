@@ -20,9 +20,9 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="comment" type="string" required>
+<ParamField path="comment" type="string | object" required>
 
-Comment to add to the issue.
+Comment to add to the issue. Plain strings are wrapped as ADF text paragraphs. Dictionaries are sent as Jira's native comment payload shape.
 
 </ParamField>
 
@@ -132,10 +132,10 @@ Default: `null`.
 
 <ParamField path="fields" type="array[object]">
 
-List of fields to add to the issue. Each field is an object with the following keys: - `key`: The Jira custom field ID. - `value`: The field value.
-For example: ``` [
-  &#123;"key": "customfield_10000", "value": "New value"&#125;,
-  &#123;"key": "customfield_10001", "value": "Another value"&#125;
+List of fields to add to the issue. ADF values can be passed as objects.
+For example usage: ``` [
+  &#123;"customfield_10000": "New value"&#125;,
+  &#123;"customfield_10001": &#123;"version": 1, "type": "doc", "content": []&#125;&#125;
 ] ```
 
 Default: `[]`.
@@ -545,10 +545,10 @@ Required secrets:
 
 <ParamField path="fields" type="array[object]" required>
 
-List of fields to update in the issue.
+List of fields to update in the issue. ADF values can be passed as objects.
 For example usage: ``` [
   &#123;"customfield_10000": "New value"&#125;,
-  &#123;"customfield_10001": ["Another value"]&#125;
+  &#123;"customfield_10001": &#123;"version": 1, "type": "doc", "content": []&#125;&#125;
 ] ```
 
 </ParamField>

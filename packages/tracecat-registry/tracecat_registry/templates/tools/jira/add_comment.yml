@@ -14,13 +14,37 @@ definition:
       type: str
       description: ID or key of the issue to add a comment to.
     comment:
-      type: str
-      description: Comment to add to the issue.
+      type: str | dict[str, Any]
+      description: >-
+        Comment to add to the issue. Plain strings are wrapped as ADF text
+        paragraphs. Dictionaries are sent as Jira's native comment payload shape.
     base_url:
       type: str | None
       description: Jira tenant URL (e.g. https://your-domain.atlassian.net).
       default: null
   steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          comment: ${{ inputs.comment }}
+        script: |
+          def _plain_text_adf(text):
+              return {
+                  "version": 1,
+                  "type": "doc",
+                  "content": [
+                      {
+                          "type": "paragraph",
+                          "content": [{"type": "text", "text": text}],
+                      }
+                  ],
+              }
+
+          def main(comment):
+              return comment if isinstance(comment, dict) else {
+                  "body": _plain_text_adf(comment)
+              }
     - ref: add_comment
       action: core.http_request
       args:
@@ -29,13 +53,5 @@ definition:
         auth:
           username: ${{ SECRETS.jira.JIRA_USEREMAIL }}
           password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
-        payload:
-          body:
-            version: 1
-            type: doc
-            content:
-              - type: paragraph
-                content:
-                  - type: text
-                    text: ${{ inputs.comment }}
+        payload: ${{ steps.build_payload.result }}
   returns: ${{ steps.add_comment.result.data }}

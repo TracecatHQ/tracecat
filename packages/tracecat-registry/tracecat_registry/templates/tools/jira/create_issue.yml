@@ -26,16 +26,13 @@ definition:
     fields:
       type: list[dict[str, Any]]
       description: >-
-        List of fields to add to the issue.
-        Each field is an object with the following keys:
-        - `key`: The Jira custom field ID.
-        - `value`: The field value.
+        List of fields to add to the issue. ADF values can be passed as objects.
 
-        For example:
+        For example usage:
         ```
         [
-          {"key": "customfield_10000", "value": "New value"},
-          {"key": "customfield_10001", "value": "Another value"}
+          {"customfield_10000": "New value"},
+          {"customfield_10001": {"version": 1, "type": "doc", "content": []}}
         ]
         ```
       default: []
