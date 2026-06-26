@@ -2123,12 +2123,12 @@ class SkillService(BaseWorkspaceService):
     @require_scope("agent:delete")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def archive_skill(self, skill_id: uuid.UUID) -> None:
-        """Archive a skill unless any preset still references it."""
+        """Archive a skill unless any preset head still references it."""
 
         skill = await self._get_skill_for_update(skill_id)
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
-        head_binding_stmt = (
+        binding_stmt = (
             select(func.count())
             .select_from(AgentPresetSkill)
             .where(
@@ -2136,21 +2136,10 @@ class SkillService(BaseWorkspaceService):
                 AgentPresetSkill.skill_id == skill.id,
             )
         )
-        history_binding_stmt = (
-            select(func.count())
-            .select_from(AgentPresetVersionSkill)
-            .where(
-                AgentPresetVersionSkill.workspace_id == self.workspace_id,
-                AgentPresetVersionSkill.skill_id == skill.id,
-            )
+        binding_count = int(
+            (await self.session.execute(binding_stmt)).scalar_one() or 0
         )
-        head_binding_count = int(
-            (await self.session.execute(head_binding_stmt)).scalar_one() or 0
-        )
-        history_binding_count = int(
-            (await self.session.execute(history_binding_stmt)).scalar_one() or 0
-        )
-        if head_binding_count > 0 or history_binding_count > 0:
+        if binding_count > 0:
             raise TracecatValidationError(
                 "Cannot delete a skill that is still referenced by a preset",
                 detail={"code": "skill_in_use"},

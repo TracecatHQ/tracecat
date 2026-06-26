@@ -2056,16 +2056,15 @@ class TestAgentPresetService:
         assert exc_info.value.detail == {
             "code": "preset_in_use_as_subagent",
             "head_reference_count": 1,
-            "history_reference_count": 1,
         }
         assert await agent_preset_service.get_preset(child.id) is not None
 
-    async def test_delete_preset_blocks_when_referenced_as_subagent_in_history(
+    async def test_delete_preset_allows_when_only_referenced_as_subagent_in_history(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Deleting a preset is blocked while another preset version references it."""
+        """Deleting a preset only cares about active preset-head subagent refs."""
         child = await agent_preset_service.create_preset(
             agent_preset_create_params.model_copy(
                 update={"name": "Historical Child", "slug": "historical-child"}
@@ -2089,18 +2088,9 @@ class TestAgentPresetService:
             parent, AgentPresetUpdate(agents=AgentSubagentsConfig())
         )
 
-        with pytest.raises(
-            TracecatValidationError,
-            match="still referenced as a subagent",
-        ) as exc_info:
-            await agent_preset_service.delete_preset(child)
+        await agent_preset_service.delete_preset(child)
 
-        assert exc_info.value.detail == {
-            "code": "preset_in_use_as_subagent",
-            "head_reference_count": 0,
-            "history_reference_count": 1,
-        }
-        assert await agent_preset_service.get_preset(child.id) is not None
+        assert await agent_preset_service.get_preset(child.id) is None
 
     async def test_delete_preset_ignores_resolved_reference_with_reused_slug(
         self,

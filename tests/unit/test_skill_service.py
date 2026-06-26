@@ -2041,13 +2041,13 @@ class TestSkillService:
         ):
             await skill_service.archive_skill(created.id)
 
-    async def test_archive_blocks_when_preset_history_references_skill(
+    async def test_archive_allows_when_only_preset_history_references_skill(
         self,
         session: AsyncSession,
         svc_role: Role,
         skill_service: SkillService,
     ) -> None:
-        """Archiving is blocked while preset history still references the skill."""
+        """Archiving only cares about active preset-head skill bindings."""
 
         created = await skill_service.create_skill(SkillCreate(name="history-skill"))
         skill_version = await skill_service.publish_skill(created.id)
@@ -2070,10 +2070,11 @@ class TestSkillService:
         )
         await preset_service.update_preset(preset, AgentPresetUpdate(skills=None))
 
-        with pytest.raises(
-            TracecatValidationError, match="still referenced by a preset"
-        ):
-            await skill_service.archive_skill(created.id)
+        await skill_service.archive_skill(created.id)
+
+        archived = await skill_service.get_skill(created.id, include_archived=True)
+        assert archived is not None
+        assert archived.archived_at is not None
 
     async def test_archive_skill_locks_skill_row(
         self,

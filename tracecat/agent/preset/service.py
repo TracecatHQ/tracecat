@@ -457,16 +457,14 @@ class AgentPresetService(BaseWorkspaceService):
         await self.session.commit()
 
     async def _ensure_not_referenced_as_subagent(self, preset: AgentPreset) -> None:
-        """Block deletion while other presets still reference this preset."""
-        head_reference_count = await self._count_head_subagent_references(preset)
-        history_reference_count = await self._count_history_subagent_references(preset)
-        if head_reference_count > 0 or history_reference_count > 0:
+        """Block deletion while other preset heads still reference this preset."""
+        reference_count = await self._count_head_subagent_references(preset)
+        if reference_count > 0:
             raise TracecatValidationError(
                 "Cannot delete an agent preset that is still referenced as a subagent",
                 detail={
                     "code": "preset_in_use_as_subagent",
-                    "head_reference_count": head_reference_count,
-                    "history_reference_count": history_reference_count,
+                    "head_reference_count": reference_count,
                 },
             )
 
@@ -482,23 +480,6 @@ class AgentPresetService(BaseWorkspaceService):
             .where(
                 AgentPreset.workspace_id == self.workspace_id,
                 AgentPreset.id != preset.id,
-                subagent_ref_exists,
-            )
-        )
-        return (await self.session.execute(stmt)).scalar_one()
-
-    async def _count_history_subagent_references(self, preset: AgentPreset) -> int:
-        subagent_ref_exists = self._subagent_reference_exists(
-            AgentPresetVersion.agents,
-            preset_id=preset.id,
-            slug=preset.slug,
-        )
-        stmt = (
-            select(func.count())
-            .select_from(AgentPresetVersion)
-            .where(
-                AgentPresetVersion.workspace_id == self.workspace_id,
-                AgentPresetVersion.preset_id != preset.id,
                 subagent_ref_exists,
             )
         )
