@@ -22,7 +22,7 @@ Required secrets:
 
 <ParamField path="comment" type="string | object" required>
 
-Comment to add to the issue. Plain strings are wrapped as ADF text paragraphs. Dictionaries are sent as Jira's native comment payload shape.
+Comment to add to the issue. Plain strings are wrapped as ADF text paragraphs. ADF JSON strings are deserialized. Dictionaries are sent as Jira's native comment payload shape, or wrapped as `body` when they are ADF documents.
 
 </ParamField>
 
@@ -92,9 +92,9 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="description" type="string" required>
+<ParamField path="description" type="string | object" required>
 
-Detailed description of the incident.
+Detailed description of the incident. Plain strings are wrapped as ADF text paragraphs. ADF JSON strings are deserialized. ADF dictionaries are sent as provided.
 
 </ParamField>
 
@@ -507,9 +507,9 @@ Required secrets:
 
 ### Input fields
 
-<ParamField path="description" type="string" required>
+<ParamField path="description" type="string | object" required>
 
-Updated description of the incident.
+Updated description of the incident. Plain strings are wrapped as ADF text paragraphs. ADF JSON strings are deserialized. ADF dictionaries are sent as provided.
 
 </ParamField>
 
@@ -598,6 +598,38 @@ ID of the transition to perform.
 <ParamField path="base_url" type="string | null">
 
 Jira tenant URL (e.g. https://your-domain.atlassian.net).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="fields" type="array[object]">
+
+Optional list of fields to update during the transition. ADF values can be passed as objects.
+
+Default: `[]`.
+
+</ParamField>
+
+<ParamField path="history_metadata" type="object | null">
+
+Optional Jira historyMetadata object.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="properties" type="array[object] | null">
+
+Optional Jira entity properties to set during the transition.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="update" type="object | null">
+
+Optional Jira update operations object. Use this for transition comments or other Jira update operations; ADF bodies should be passed as objects.
 
 Default: `null`.
 

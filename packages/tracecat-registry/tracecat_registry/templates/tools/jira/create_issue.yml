@@ -14,8 +14,11 @@ definition:
       type: str
       description: Brief one-line summary of the incident.
     description:
-      type: str
-      description: Detailed description of the incident.
+      type: str | dict[str, Any]
+      description: >-
+        Detailed description of the incident. Plain strings are wrapped as ADF
+        text paragraphs. ADF JSON strings are deserialized. ADF dictionaries are
+        sent as provided.
     priority_id:
       type: str
       description: Priority ID. Must be one of the priorities in the priority scheme.
@@ -47,21 +50,49 @@ definition:
       description: Jira tenant URL (e.g. https://your-domain.atlassian.net).
       default: null
   steps:
+    - ref: build_description
+      action: core.script.run_python
+      args:
+        inputs:
+          description: ${{ inputs.description }}
+        script: |
+          import json
+
+          def _is_adf_doc(value):
+              return (
+                  isinstance(value, dict)
+                  and value.get("version") == 1
+                  and value.get("type") == "doc"
+                  and isinstance(value.get("content"), list)
+              )
+
+          def _plain_text_adf(text):
+              return {
+                  "version": 1,
+                  "type": "doc",
+                  "content": [
+                      {
+                          "type": "paragraph",
+                          "content": [{"type": "text", "text": text}],
+                      }
+                  ],
+              }
+
+          def main(description):
+              if isinstance(description, dict):
+                  return description
+              try:
+                  parsed = json.loads(description)
+              except (TypeError, ValueError):
+                  return _plain_text_adf(description)
+              return parsed if _is_adf_doc(parsed) else _plain_text_adf(description)
     # Format the required fields
     - ref: required_fields
       action: core.transform.reshape
       args:
         value:
           summary: ${{ inputs.summary }}
-          # See: https://developer.atlassian.com/cloud/jira/platform/apis/document/playground/
-          description:
-            version: 1
-            type: doc
-            content:
-              - type: paragraph
-                content:
-                  - type: text
-                    text: ${{ inputs.description }}
+          description: ${{ steps.build_description.result }}
           labels: ${{ inputs.tags }}
           priority:
             id: ${{ inputs.priority_id }}
