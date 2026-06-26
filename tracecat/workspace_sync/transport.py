@@ -304,9 +304,13 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
                 for path, content in (entry,)
             }
 
+            target_commit = await asyncio.to_thread(
+                repo.get_git_commit,
+                target_branch.commit.sha,
+            )
             stale_paths = await self._stale_paths_under_roots(
                 repo=repo,
-                commit_sha=target_branch.commit.sha,
+                tree_sha=target_commit.tree.sha,
                 files=files,
                 roots=delete_missing_paths_under,
             )
@@ -339,10 +343,6 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
                     message="No changes detected; nothing to commit.",
                 )
 
-            target_commit = await asyncio.to_thread(
-                repo.get_git_commit,
-                target_branch.commit.sha,
-            )
             blob_create_semaphore = asyncio.Semaphore(_GITHUB_BLOB_CONCURRENCY)
 
             async def create_blob_element(
@@ -423,11 +423,11 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
         self,
         *,
         repo: Any,
-        commit_sha: str,
+        tree_sha: str,
         files: dict[str, str],
         roots: Sequence[str],
     ) -> set[str]:
-        """Return managed blob paths at ``commit_sha`` no longer in ``files``.
+        """Return managed blob paths at ``tree_sha`` no longer in ``files``.
 
         These are the stale files under ``roots`` that an export should delete so
         the branch mirrors the projected workspace exactly.
@@ -438,7 +438,7 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
 
         tree = await asyncio.to_thread(
             repo.get_git_tree,
-            sha=commit_sha,
+            sha=tree_sha,
             recursive=True,
         )
         return {

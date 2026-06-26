@@ -1286,6 +1286,33 @@ async def test_github_write_files_rejects_pr_for_base_branch(
 
 
 @pytest.mark.anyio
+async def test_github_write_files_uses_tree_sha_for_stale_path_scan(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    files = {MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())}
+    repo = _FakeGitHubRepo(
+        files={
+            MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+            "workflows/stale/definition.yml": "version: 1\n",
+        },
+        branch_exists=True,
+        ahead_by=0,
+    )
+
+    result = await _write_files_with_fake_repo(
+        repo,
+        service=workspace_sync_service,
+        files=files,
+        create_pr=False,
+        delete_missing_paths_under=("workflows",),
+    )
+
+    assert result.status is PushStatus.COMMITTED
+    assert repo.get_git_tree_calls == [f"tree-{'a' * 40}"]
+    assert len(repo.trees) == 1
+
+
+@pytest.mark.anyio
 async def test_github_read_files_uses_commit_tree_sha(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:
@@ -1378,6 +1405,8 @@ async def _write_files_with_fake_repo(
     service: WorkspaceSyncService,
     files: dict[str, str],
     branch: str = "sync/agents-1",
+    create_pr: bool = True,
+    delete_missing_paths_under: tuple[str, ...] = (),
 ):
     gh = Mock()
     gh.get_repo.return_value = repo
@@ -1398,7 +1427,8 @@ async def _write_files_with_fake_repo(
             files=files,
             message="Push limerick agent",
             branch=branch,
-            create_pr=True,
+            create_pr=create_pr,
+            delete_missing_paths_under=delete_missing_paths_under,
         )
 
 
@@ -1428,6 +1458,7 @@ class _FakeGitHubRepo:
         self.blobs: list[tuple[str, str]] = []
         self.trees: list[object] = []
         self.commits: list[object] = []
+        self.get_git_tree_calls: list[str] = []
 
     def get_branch(self, name: str):
         if name == "main" or self._branch_exists:
@@ -1450,6 +1481,14 @@ class _FakeGitHubRepo:
 
     def get_git_commit(self, sha: str):
         return SimpleNamespace(tree=SimpleNamespace(sha=f"tree-{sha}"))
+
+    def get_git_tree(self, *, sha: str, recursive: bool):
+        self.get_git_tree_calls.append(sha)
+        return SimpleNamespace(
+            tree=[
+                SimpleNamespace(path=path, type="blob") for path in sorted(self._files)
+            ]
+        )
 
     def create_git_blob(self, content: str, encoding: str):
         self.blobs.append((content, encoding))
