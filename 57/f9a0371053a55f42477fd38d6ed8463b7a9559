@@ -1,0 +1,105 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/queries/create_query.yml
+  s_5ded49f5698a7a::t_f19cacdcce1f2a 1-70
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/mdm/get_host_configuration_profiles.yml
+  s_5ded49f5698a7a::t_d4432323e6ec2d 1-27
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/vulnerabilities/list_software_titles.yml
+  s_5ded49f5698a7a::t_3523ff45b2a520 1-70
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/hosts/list_host_software.yml
+  s_5ded49f5698a7a::t_650a89213ee34b 1-63
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/hosts/list_label_hosts.yml
+  s_5ded49f5698a7a::t_b7351e5d02e919 1-48
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/hosts/list_fleets.yml
+  s_5ded49f5698a7a::t_6df35591d5cdf1 1-40
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/mdm/get_host_mdm.yml
+  s_5ded49f5698a7a::t_6112133afc55f0 1-27
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/queries/live_query_host.yml
+  s_5ded49f5698a7a::t_681faa3c8a363a 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/policies/list_fleet_policies.yml
+  s_5ded49f5698a7a::t_2a88ee70df9ce7 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/policies/get_global_policy.yml
+  s_5ded49f5698a7a::t_1f34fdfa849449 1-27
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/mdm/wipe_host.yml
+  s_5ded49f5698a7a::t_a800a266cf1840 1-43
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/hosts/count_hosts.yml
+  s_5ded49f5698a7a::t_ce59db9cafd341 1-65
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/vulnerabilities/get_software_title.yml
+  s_5ded49f5698a7a::t_0147d414f23ca2 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/vulnerabilities/list_os_versions.yml
+  s_5ded49f5698a7a::t_4129fcce19d4f3 1-45
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/vulnerabilities/list_software_versions.yml
+  s_5ded49f5698a7a::t_e5a67c858216ba 1-65
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/hosts/refetch_host.yml
+  s_5ded49f5698a7a::t_56f77dc9375b85 1-27
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/mdm/get_host_encryption_key.yml
+  s_5ded49f5698a7a::t_6336690e57becf 1-27
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/policies/create_global_policy.yml
+  s_5ded49f5698a7a::t_3db9d1a883662e 1-70
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/vulnerabilities/list_hosts_by_vulnerability.yml
+  s_5ded49f5698a7a::t_2484746cebdf4f 1-54
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/vulnerabilities/list_vulnerabilities.yml
+  s_5ded49f5698a7a::t_9e0c7cdef884fb 1-60
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/hosts/get_host_activities.yml
+  s_5ded49f5698a7a::t_81ec19695344e9 1-38
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/hosts/list_hosts.yml
+  s_5ded49f5698a7a::t_c4a4b75b11c55d 1-105
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/mdm/list_mdm_commands.yml
+  s_5ded49f5698a7a::t_8d62a1792bd5aa 1-50
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/mdm/get_mdm_command_results.yml
+  s_5ded49f5698a7a::t_9987dc832455be 1-29
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/mdm/turn_off_mdm.yml
+  s_5ded49f5698a7a::t_8e1aad0ebb3959 1-27
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/mdm/get_os_settings_summary.yml
+  s_5ded49f5698a7a::t_ec9e062a181802 1-30
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/mdm/unlock_host.yml
+  s_5ded49f5698a7a::t_eb59a37f5d40b8 1-27
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/queries/get_query_report.yml
+  s_5ded49f5698a7a::t_f064331d904b86 1-27
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/policies/list_policy_hosts.yml
+  s_5ded49f5698a7a::t_8d9b2f566ebe5b 1-54
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/activities/list_activities.yml
+  s_5ded49f5698a7a::t_5f70a865b5e7e4 1-50
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/hosts/get_host_by_identifier.yml
+  s_5ded49f5698a7a::t_4bb254f42fd6ad 1-38
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/queries/get_query.yml
+  s_5ded49f5698a7a::t_7670893b7f9f44 1-27
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/hosts/delete_host.yml
+  s_5ded49f5698a7a::t_36bf87db0f87bb 1-27
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/mdm/list_configuration_profiles.yml
+  s_5ded49f5698a7a::t_ea38602df64633 1-40
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/queries/run_live_query.yml
+  s_5ded49f5698a7a::t_ef5557f8935412 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/hosts/get_host.yml
+  s_5ded49f5698a7a::t_3c79bbb9ed4821 1-38
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/mdm/run_mdm_command.yml
+  s_5ded49f5698a7a::t_becd4c3d91c15a 1-34
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/mdm/get_disk_encryption_summary.yml
+  s_5ded49f5698a7a::t_eea62d52303ce4 1-30
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/hosts/list_labels.yml
+  s_5ded49f5698a7a::t_a46b0535ac4a82 1-30
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/mdm/lock_host.yml
+  s_5ded49f5698a7a::t_ce68dbfa31f5c1 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/hosts/get_host_summary.yml
+  s_5ded49f5698a7a::t_4ede0ecfa3be33 1-40
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/queries/list_queries.yml
+  s_5ded49f5698a7a::t_d66a55dcb915ee 1-50
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/policies/list_global_policies.yml
+  s_5ded49f5698a7a::t_130cca90e31f52 1-40
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/vulnerabilities/get_vulnerability.yml
+  s_5ded49f5698a7a::t_41bcae9ad7c037 1-33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "57f9a0371053a55f42477fd38d6ed8463b7a9559",
+  "prompts": {},
+  "sessions": {
+    "s_5ded49f5698a7a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e2350c2e-0b46-4cca-aa45-c8acecb06d84",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
