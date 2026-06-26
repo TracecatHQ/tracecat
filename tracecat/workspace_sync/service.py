@@ -16,7 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.authz.controls import get_missing_scopes, has_any_scope
-from tracecat.db.models import Workflow, Workspace, WorkspaceSyncResourceMapping
+from tracecat.db.models import (
+    CaseTag,
+    Workflow,
+    Workspace,
+    WorkspaceSyncResourceMapping,
+)
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import (
     EntitlementRequired,
@@ -48,6 +53,7 @@ from tracecat.workflow.store.schemas import (
 )
 from tracecat.workspace_sync.adapters import (
     AGENT_PRESET_RESOURCE_ADAPTER,
+    CASE_TAG_RESOURCE_ADAPTER,
     NON_WORKFLOW_RESOURCE_ADAPTERS,
     RESOURCE_ADAPTERS_BY_TYPE,
     SKILL_RESOURCE_ADAPTER,
@@ -448,6 +454,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
                 source_id=source_id,
                 include_schedules=include_schedules,
             )
+        specs = await self._workflow_specs_with_case_tag_source_ids(specs)
 
         # Full exports project every resource. Partial exports walk dependencies
         # lazily so the selection defines roots, not the whole candidate graph.
@@ -489,6 +496,56 @@ class WorkspaceSyncService(BaseWorkspaceService):
             spec=spec,
             files=self._files_from_spec(manifest=manifest, spec=spec),
         )
+
+    async def _workflow_specs_with_case_tag_source_ids(
+        self,
+        specs: dict[str, WorkflowResourceSpec],
+    ) -> dict[str, WorkflowResourceSpec]:
+        """Rewrite workflow case-trigger tag filters to case-tag source ids."""
+        tag_refs = {
+            tag_ref
+            for spec in specs.values()
+            if spec.case_trigger is not None
+            for tag_ref in spec.case_trigger.tag_filters
+        }
+        if not tag_refs:
+            return specs
+
+        stmt = (
+            select(CaseTag)
+            .where(
+                CaseTag.workspace_id == self.workspace_id,
+                CaseTag.ref.in_(tag_refs),
+            )
+            .order_by(CaseTag.ref.asc(), CaseTag.id.asc())
+        )
+        tags = list((await self.session.scalars(stmt)).all())
+        if not tags:
+            return specs
+
+        assigner = await CASE_TAG_RESOURCE_ADAPTER.source_id_assigner(self)
+        source_ids_by_ref = {tag.ref: assigner.assign(tag.id, tag.ref) for tag in tags}
+        updated: dict[str, WorkflowResourceSpec] = {}
+        for source_id, spec in specs.items():
+            trigger = spec.case_trigger
+            if trigger is None:
+                updated[source_id] = spec
+                continue
+            tag_filters = [
+                source_ids_by_ref.get(tag_ref, tag_ref)
+                for tag_ref in trigger.tag_filters
+            ]
+            if tag_filters == trigger.tag_filters:
+                updated[source_id] = spec
+                continue
+            updated[source_id] = spec.model_copy(
+                update={
+                    "case_trigger": trigger.model_copy(
+                        update={"tag_filters": tag_filters}
+                    )
+                }
+            )
+        return updated
 
     async def parse_files(
         self,

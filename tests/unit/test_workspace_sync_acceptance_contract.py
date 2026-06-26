@@ -3879,6 +3879,65 @@ async def test_case_tag_import_reuses_source_id_mapping_after_local_rename(
 
 
 @pytest.mark.anyio
+async def test_workflow_case_trigger_tag_filters_project_case_tag_source_ids(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    tag = CaseTag(
+        workspace_id=svc_role.workspace_id,
+        name="Renamed Alert",
+        ref="renamed-alert",
+        color="#202020",
+    )
+    session.add(tag)
+    await session.flush()
+    session.add(
+        WorkspaceSyncResourceMapping(
+            workspace_id=svc_role.workspace_id,
+            provider=VcsProvider.GITHUB.value,
+            resource_type=SyncResourceType.CASE_TAG.value,
+            source_id="qa-alert",
+            source_path=f"{CASE_TAG_ROOT}/qa-alert.yml",
+            local_id=tag.id,
+        )
+    )
+    await session.flush()
+    spec = WorkflowResourceSpec.model_validate(
+        _workflow_spec(
+            source_id="qa-workflow",
+            title="qa-workflow",
+            alias="qa-workflow",
+            folder_path="QA/Workflows",
+            actions=[
+                {
+                    "ref": "reshape",
+                    "action": "core.transform.reshape",
+                    "args": {"value": "${{ TRIGGER.value }}"},
+                }
+            ],
+            case_trigger=True,
+        )
+    )
+    assert spec.case_trigger is not None
+    local_ref_spec = spec.model_copy(
+        update={
+            "case_trigger": spec.case_trigger.model_copy(
+                update={"tag_filters": ["renamed-alert"]}
+            )
+        }
+    )
+
+    rewritten = await WorkspaceSyncService(
+        session=session,
+        role=svc_role,
+    )._workflow_specs_with_case_tag_source_ids({"qa-workflow": local_ref_spec})
+
+    rewritten_trigger = rewritten["qa-workflow"].case_trigger
+    assert rewritten_trigger is not None
+    assert rewritten_trigger.tag_filters == ["qa-alert"]
+
+
+@pytest.mark.anyio
 async def test_case_dropdown_import_reuses_source_id_mapping_after_local_rename(
     session: AsyncSession,
     svc_role: Role,
