@@ -1052,7 +1052,7 @@ export type AppSettingsRead = {
   app_workflow_export_enabled: boolean
   app_create_workspace_on_register: boolean
   app_action_form_mode_enabled: boolean
-  app_versioned_resource_resolution_strategy: VersionedResourceResolutionStrategy
+  app_versioned_resource_resolution_strategy?: VersionedResourceResolutionStrategy
 }
 
 /**

@@ -93,7 +93,9 @@ class AppSettingsRead(BaseSettingsGroup):
     app_workflow_export_enabled: bool
     app_create_workspace_on_register: bool
     app_action_form_mode_enabled: bool
-    app_versioned_resource_resolution_strategy: VersionedResourceResolutionStrategy
+    app_versioned_resource_resolution_strategy: VersionedResourceResolutionStrategy = (
+        VersionedResourceResolutionStrategy.LATEST
+    )
 
 
 class AppSettingsUpdate(BaseSettingsGroup):

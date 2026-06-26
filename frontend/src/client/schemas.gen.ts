@@ -4437,6 +4437,7 @@ export const $AppSettingsRead = {
     },
     app_versioned_resource_resolution_strategy: {
       $ref: "#/components/schemas/VersionedResourceResolutionStrategy",
+      default: "latest",
     },
   },
   type: "object",
@@ -4447,7 +4448,6 @@ export const $AppSettingsRead = {
     "app_workflow_export_enabled",
     "app_create_workspace_on_register",
     "app_action_form_mode_enabled",
-    "app_versioned_resource_resolution_strategy",
   ],
   title: "AppSettingsRead",
   description: "Settings for the app.",

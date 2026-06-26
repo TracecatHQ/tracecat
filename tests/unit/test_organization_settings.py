@@ -17,6 +17,7 @@ from tracecat.settings.router import (
     check_saml_domain_prerequisites,
 )
 from tracecat.settings.schemas import (
+    AppSettingsRead,
     AppSettingsUpdate,
     AuditSettingsUpdate,
     GitSettingsUpdate,
@@ -507,6 +508,22 @@ async def test_get_setting_shorthand(
         assert nonexistent_no_default is None
     finally:
         ctx_role.reset(token)  # type: ignore
+
+
+def test_app_settings_read_defaults_versioned_resource_strategy() -> None:
+    settings = AppSettingsRead(
+        app_registry_validation_enabled=False,
+        app_executions_query_limit=100,
+        app_interactions_enabled=False,
+        app_workflow_export_enabled=True,
+        app_create_workspace_on_register=False,
+        app_action_form_mode_enabled=True,
+    )
+
+    assert (
+        settings.app_versioned_resource_resolution_strategy
+        is VersionedResourceResolutionStrategy.LATEST
+    )
 
 
 @pytest.mark.anyio
