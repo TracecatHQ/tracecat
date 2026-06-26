@@ -39,7 +39,7 @@ export const WORKSPACE_SYNC_RESOURCE_TYPE_META: Record<
     label: "Tables",
     abbr: "TB",
     root: "tables",
-    summary: "Schema columns and row data",
+    summary: "Table metadata and schema columns",
   },
   case_field: {
     label: "Case fields",
