@@ -124,7 +124,7 @@ class AppSettingsUpdate(BaseSettingsGroup):
     )
     app_versioned_resource_resolution_strategy: VersionedResourceResolutionStrategy = (
         Field(
-            default=VersionedResourceResolutionStrategy.PINNED,
+            default=VersionedResourceResolutionStrategy.LATEST,
             description=(
                 "How versioned resource references are resolved when a feature "
                 "supports both pinned and latest dependency resolution."

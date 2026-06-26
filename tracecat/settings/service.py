@@ -396,7 +396,7 @@ async def get_versioned_resource_resolution_strategy(
         VERSIONED_RESOURCE_RESOLUTION_STRATEGY_SETTING,
         role=role,
         session=session,
-        default=VersionedResourceResolutionStrategy.PINNED,
+        default=VersionedResourceResolutionStrategy.LATEST,
     )
     return VersionedResourceResolutionStrategy(value)
 

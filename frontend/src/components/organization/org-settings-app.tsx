@@ -54,7 +54,7 @@ export function OrgSettingsAppForm() {
       app_action_form_mode_enabled:
         appSettings?.app_action_form_mode_enabled ?? true,
       app_versioned_resource_resolution_strategy:
-        appSettings?.app_versioned_resource_resolution_strategy ?? "pinned",
+        appSettings?.app_versioned_resource_resolution_strategy ?? "latest",
     },
   })
 

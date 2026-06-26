@@ -520,12 +520,12 @@ async def test_get_versioned_resource_resolution_strategy(
         role=svc_admin_role,
         session=service.session,
     )
-    assert strategy is VersionedResourceResolutionStrategy.PINNED
+    assert strategy is VersionedResourceResolutionStrategy.LATEST
 
     await service.update_app_settings(
         AppSettingsUpdate(
             app_versioned_resource_resolution_strategy=(
-                VersionedResourceResolutionStrategy.LATEST
+                VersionedResourceResolutionStrategy.PINNED
             )
         )
     )
@@ -534,7 +534,7 @@ async def test_get_versioned_resource_resolution_strategy(
         role=svc_admin_role,
         session=service.session,
     )
-    assert strategy is VersionedResourceResolutionStrategy.LATEST
+    assert strategy is VersionedResourceResolutionStrategy.PINNED
 
 
 @pytest.mark.anyio

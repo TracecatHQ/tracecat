@@ -4498,7 +4498,7 @@ export const $AppSettingsUpdate = {
       $ref: "#/components/schemas/VersionedResourceResolutionStrategy",
       description:
         "How versioned resource references are resolved when a feature supports both pinned and latest dependency resolution.",
-      default: "pinned",
+      default: "latest",
     },
   },
   type: "object",
