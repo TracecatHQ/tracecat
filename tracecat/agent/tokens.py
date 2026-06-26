@@ -361,7 +361,7 @@ def mint_llm_token(
         Signed JWT string
     """
     now = datetime.now(UTC)
-    ttl = ttl_seconds or config.TRACECAT__EXECUTOR_TOKEN_TTL_SECONDS
+    ttl = ttl_seconds or config.TRACECAT__AGENT_SANDBOX_TIMEOUT + 60
 
     payload: dict[str, Any] = {
         # Standard JWT claims
