@@ -16,13 +16,13 @@ definition:
     host_id:
       type: int
       description: Numeric Fleet host ID.
-    populate_policies:
+    exclude_software:
       type: bool | None
-      description: Include the host's policy compliance in the response.
+      description: If true, omit the host's installed software from the response.
       default: null
-    populate_software:
+    exclude_fleet_maintained_policies:
       type: bool | None
-      description: Include the host's installed software in the response.
+      description: If true, omit Fleet-maintained policies from the host's policy list.
       default: null
   steps:
     - ref: build_params
@@ -30,8 +30,8 @@ definition:
       args:
         inputs:
           params:
-            populate_policies: ${{ inputs.populate_policies }}
-            populate_software: ${{ inputs.populate_software }}
+            exclude_software: ${{ inputs.exclude_software }}
+            exclude_fleet_maintained_policies: ${{ inputs.exclude_fleet_maintained_policies }}
         script: |
           def main(params):
               return {k: v for k, v in params.items() if v is not None}

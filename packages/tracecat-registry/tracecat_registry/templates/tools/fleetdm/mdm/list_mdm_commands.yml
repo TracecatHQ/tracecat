@@ -14,9 +14,8 @@ definition:
       type: str
       description: Fleet server base URL (e.g. https://fleet.example.com).
     host_identifier:
-      type: str | None
-      description: Filter commands to a host by ID, hostname, UUID, or serial.
-      default: null
+      type: str
+      description: Host hostname, UUID, or hardware serial to scope commands to (required by Fleet; omitting it is deprecated and removed in Fleet 5).
     request_type:
       type: str | None
       description: Filter by MDM command request type (e.g. DeviceLock, EraseDevice).
