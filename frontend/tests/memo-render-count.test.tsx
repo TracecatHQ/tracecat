@@ -194,6 +194,7 @@ describe("MessagePart memoization", () => {
 
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: messages1,
       status: "ready",
@@ -224,6 +225,7 @@ describe("MessagePart memoization", () => {
 
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: messages2,
       status: "ready",
@@ -270,6 +272,7 @@ describe("MessagePart memoization", () => {
 
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: pendingMessages,
       status: "streaming",
@@ -300,6 +303,7 @@ describe("MessagePart memoization", () => {
 
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: completedMessages,
       status: "streaming",

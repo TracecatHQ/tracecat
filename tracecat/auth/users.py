@@ -43,7 +43,7 @@ from tracecat.audit.service import AuditService
 from tracecat.auth.enums import AuthType
 from tracecat.auth.schemas import UserCreate, UserUpdate
 from tracecat.auth.secrets import get_user_auth_secret
-from tracecat.auth.types import PlatformRole
+from tracecat.auth.types import PlatformRole, Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import (
     get_async_session,
@@ -337,6 +337,8 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         user: User,
         request: Request | None = None,
         response: Response | None = None,
+        *,
+        organization_id: OrganizationID | None = None,
     ) -> None:
         # Update last login info
         try:
@@ -349,22 +351,22 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 user=user.email,
                 error=e,
             )
+        # Only fan out to an organization sink when the login carries explicit
+        # org context (e.g. SAML against a specific org). A context-less login
+        # (basic/OIDC) has no org scope, so it is recorded in the platform sink
+        # only and must not be attributed into org-controlled audit sinks.
+        org_ids = {organization_id} if organization_id is not None else set()
+        await self._emit_auth_success_audit(
+            user=user,
+            auth_method=self._auth_method_from_request(request),
+            org_ids=org_ids,
+        )
 
     async def on_after_register(
         self, user: User, request: Request | None = None
     ) -> None:
         self.logger.info("User registered", user_id=str(user.id), email=user.email)
-
-        # Log audit event for user registration
-        platform_role = PlatformRole(
-            type="user", user_id=user.id, service_id="tracecat-api"
-        )
-        async with AuditService.with_session(role=platform_role) as audit_svc:
-            await audit_svc.create_event(
-                resource_type="user",
-                action="create",
-                resource_id=user.id,
-            )
+        await self._emit_user_create_audit(user=user)
 
         # Promote to superuser if email matches configured superadmin email
         # No count/lock needed - email uniqueness ensures only one user can have this email
@@ -376,15 +378,18 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 
         # Accept invitation atomically if token was provided during registration
         # This eliminates race conditions in the invitation flow
+        org_ids: set[OrganizationID] = set()
         if self._pending_invitation_token:
-            await self._accept_invitation_atomically(user)
+            if invitation_org_id := await self._accept_invitation_atomically(user):
+                org_ids.add(invitation_org_id)
 
-        await ensure_single_tenant_user_defaults(
+        if default_org_id := await ensure_single_tenant_user_defaults(
             user_id=user.id,
             is_superuser=user.is_superuser,
-        )
+        ):
+            org_ids.add(default_org_id)
 
-    async def _accept_invitation_atomically(self, user: User) -> None:
+    async def _accept_invitation_atomically(self, user: User) -> OrganizationID | None:
         """Accept an invitation during registration if a token was provided.
 
         Errors during invitation acceptance are logged but do NOT fail registration.
@@ -397,7 +402,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         self._pending_invitation_token = None  # Clear to prevent reuse
 
         if not token:
-            return
+            return None
 
         try:
             async with get_async_session_bypass_rls_context_manager() as session:
@@ -410,6 +415,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                     email=user.email,
                     org_id=str(membership.organization_id),
                 )
+                return membership.organization_id
         except TracecatNotFoundError:
             self.logger.warning(
                 "Invitation token not found during registration",
@@ -423,6 +429,122 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 email=user.email,
                 error=str(e),
             )
+        return None
+
+    async def _emit_user_create_audit(self, *, user: User) -> None:
+        """Emit a platform-scoped lifecycle event for self-service registration."""
+        audit_role = PlatformRole(
+            type="user",
+            user_id=user.id,
+            service_id="tracecat-api",
+        )
+        try:
+            async with AuditService.with_session(
+                role=audit_role,
+                audit_sink="platform",
+            ) as audit_svc:
+                await audit_svc.create_event(
+                    resource_type="user",
+                    action="create",
+                    resource_id=user.id,
+                )
+        except Exception as exc:
+            self.logger.warning(
+                "Failed to emit user registration audit event",
+                user_id=str(user.id),
+                action="create",
+                audit_sink="platform",
+                error=str(exc),
+            )
+
+    def _auth_method_from_request(self, request: Request | None) -> str:
+        """Return a coarse auth method label without user-provided data."""
+        if request is None:
+            return "unknown"
+        path = request.url.path
+        if path.startswith("/auth/saml"):
+            return "saml"
+        if path.startswith("/auth/oauth"):
+            return "oidc"
+        if path.startswith("/auth/register"):
+            return "basic"
+        if path.startswith("/auth/login"):
+            return "basic"
+        return "unknown"
+
+    async def _emit_auth_success_audit(
+        self,
+        *,
+        user: User,
+        auth_method: str,
+        org_ids: set[OrganizationID] | None = None,
+    ) -> None:
+        """Emit sanitized auth success events to the relevant audit sinks.
+
+        ``org_ids`` is the set of organizations the login is explicitly scoped
+        to. It is empty (or ``None``) for context-less logins (basic/OIDC),
+        which are recorded in the platform sink only. Organization-scoped sinks
+        receive a sign-in event only for orgs in ``org_ids`` -- we never fan out
+        across all of a user's memberships for a login that carried no org
+        context, since that would attribute a non-org-specific login (including
+        platform-superuser sessions) into org-controlled audit sinks.
+        """
+        if user.is_superuser:
+            audit_role = PlatformRole(
+                type="user",
+                user_id=user.id,
+                service_id="tracecat-api",
+            )
+            try:
+                async with AuditService.with_session(
+                    role=audit_role,
+                    audit_sink="platform",
+                ) as audit_svc:
+                    await audit_svc.create_event(
+                        resource_type="auth",
+                        action="sign_in",
+                        resource_id=user.id,
+                        data={"auth_method": auth_method},
+                        include_actor_label=False,
+                    )
+            except Exception as exc:
+                self.logger.warning(
+                    "Failed to emit auth audit event",
+                    user_id=str(user.id),
+                    action="sign_in",
+                    audit_sink="platform",
+                    error=str(exc),
+                )
+
+        for org_id in org_ids or set():
+            audit_role = Role(
+                type="user",
+                user_id=user.id,
+                organization_id=org_id,
+                service_id="tracecat-api",
+            )
+            for audit_sink in ("platform", "organization"):
+                try:
+                    async with AuditService.with_session(
+                        role=audit_role,
+                        audit_sink=audit_sink,
+                    ) as audit_svc:
+                        await audit_svc.create_event(
+                            resource_type="auth",
+                            action="sign_in",
+                            resource_id=user.id,
+                            data={"auth_method": auth_method},
+                            include_actor_label=False,
+                        )
+                except Exception as exc:
+                    self.logger.warning(
+                        "Failed to emit auth audit event",
+                        user_id=str(user.id),
+                        organization_id=str(org_id),
+                        action="sign_in",
+                        audit_sink=audit_sink,
+                        error=str(exc),
+                    )
 
     async def on_after_forgot_password(
         self, user: User, token: str, request: Request | None = None

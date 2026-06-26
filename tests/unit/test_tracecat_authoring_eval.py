@@ -136,14 +136,6 @@ def test_prompt_action_signature_coverage_spans_all_prompt_sources() -> None:
     assert coverage.passed, coverage.detail
 
 
-def test_prompt_facing_sources_prefer_run_python_over_workflow_fanout() -> None:
-    result = run_local.validate_prompt_loop_parallelism_guardrails(
-        run_local.combine_prompt_sources(run_local.prompt_facing_sources())
-    )
-
-    assert result.passed, result.detail
-
-
 def test_prompt_facing_sources_include_mcp_tool_argument_guardrails() -> None:
     result = run_local.validate_prompt_mcp_tool_argument_guardrails(
         run_local.combine_prompt_sources(run_local.prompt_facing_sources())

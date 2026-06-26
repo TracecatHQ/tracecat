@@ -1,6 +1,8 @@
 import json
 import uuid
+from types import SimpleNamespace
 from typing import Any, cast
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -8,6 +10,7 @@ from tracecat.auth.types import Role
 from tracecat.db.models import Action, Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput
 from tracecat.expressions.expectations import ExpectedField
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.workflow.management import management
 from tracecat.workflow.management.management import WorkflowsManagementService
 
@@ -312,6 +315,139 @@ async def test_correlate_agent_catalog_ids_rewrites_flat_fields(
     out = await _service(_role()).correlate_agent_catalog_ids(dsl)
 
     assert out.actions[0].args["catalog_id"] == str(local_id)
+
+
+@pytest.mark.anyio
+async def test_external_import_publishes_before_online_case_trigger(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    role = _role()
+    registry_lock = {
+        "origins": {"tracecat_registry": "test-version"},
+        "actions": {"core.transform.reshape": "tracecat_registry"},
+        "origin_fingerprints": {},
+    }
+    workflow = SimpleNamespace(
+        id=uuid.uuid4(),
+        version=None,
+        alias="imported-case-trigger",
+        registry_lock=registry_lock,
+    )
+    session = SimpleNamespace(add=MagicMock(), flush=AsyncMock(), commit=AsyncMock())
+    service = WorkflowsManagementService(cast(Any, session), role=role)
+    dsl = DSLInput(
+        **{
+            "title": "online case trigger import",
+            "description": "",
+            "entrypoint": {"ref": "start", "expects": {}},
+            "actions": [
+                {
+                    "ref": "start",
+                    "action": "core.transform.reshape",
+                    "args": {"value": "ok"},
+                }
+            ],
+        }
+    )
+    definition_calls: list[dict[str, Any]] = []
+    case_trigger_calls: list[dict[str, Any]] = []
+
+    class FakeWorkflowDefinitionsService:
+        def __init__(self, session: Any, role: Role) -> None:
+            self.session = session
+            self.role = role
+
+        async def create_initial_workflow_definition(
+            self,
+            workflow_id: uuid.UUID,
+            dsl: DSLInput,
+            *,
+            alias: str | None = None,
+            registry_lock: RegistryLock | None = None,
+            commit: bool = True,
+        ) -> SimpleNamespace:
+            definition_calls.append(
+                {
+                    "workflow_id": workflow_id,
+                    "dsl": dsl,
+                    "alias": alias,
+                    "registry_lock": registry_lock,
+                    "commit": commit,
+                }
+            )
+            return SimpleNamespace(version=1)
+
+    class FakeCaseTriggersService:
+        def __init__(self, session: Any, role: Role) -> None:
+            self.session = session
+            self.role = role
+
+        async def upsert_case_trigger(
+            self,
+            workflow_id: uuid.UUID,
+            params: Any,
+            *,
+            create_missing_tags: bool = False,
+            commit: bool = True,
+        ) -> None:
+            case_trigger_calls.append(
+                {
+                    "workflow_id": workflow_id,
+                    "params": params,
+                    "create_missing_tags": create_missing_tags,
+                    "commit": commit,
+                }
+            )
+
+    monkeypatch.setattr(
+        service,
+        "create_db_workflow_from_dsl",
+        AsyncMock(return_value=workflow),
+    )
+    monkeypatch.setattr(
+        service,
+        "correlate_agent_catalog_ids",
+        AsyncMock(return_value=dsl),
+    )
+    monkeypatch.setattr(
+        management,
+        "WorkflowDefinitionsService",
+        FakeWorkflowDefinitionsService,
+    )
+    monkeypatch.setattr(management, "CaseTriggersService", FakeCaseTriggersService)
+
+    imported = await service.create_workflow_from_external_definition(
+        {
+            "definition": dsl.model_dump(mode="json"),
+            "case_trigger": {
+                "status": "online",
+                "event_types": ["case_created"],
+                "tag_filters": ["phishing"],
+            },
+        }
+    )
+
+    assert imported is workflow
+    assert workflow.version == 1
+    assert definition_calls == [
+        {
+            "workflow_id": workflow.id,
+            "dsl": dsl,
+            "alias": "imported-case-trigger",
+            "registry_lock": RegistryLock.model_validate(registry_lock),
+            "commit": False,
+        }
+    ]
+    session.add.assert_called_once_with(workflow)
+    session.flush.assert_awaited_once()
+    session.commit.assert_awaited_once()
+    assert len(case_trigger_calls) == 1
+    assert case_trigger_calls[0]["workflow_id"] == workflow.id
+    assert case_trigger_calls[0]["params"].status == "online"
+    assert case_trigger_calls[0]["params"].event_types == ["case_created"]
+    assert case_trigger_calls[0]["params"].tag_filters == ["phishing"]
+    assert case_trigger_calls[0]["create_missing_tags"] is True
+    assert case_trigger_calls[0]["commit"] is False
 
 
 @pytest.mark.anyio

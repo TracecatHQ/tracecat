@@ -4279,6 +4279,14 @@ export type ImageUrl = {
 }
 
 /**
+ * Display groups for inbox items.
+ *
+ * Groups are derived from approval state and live workflow execution status,
+ * so membership cannot be expressed as a pure SQL filter.
+ */
+export type InboxGroup = "review_required" | "running" | "error" | "completed"
+
+/**
  * Read model for inbox items.
  */
 export type InboxItemRead = {
@@ -4319,6 +4327,10 @@ export type InboxItemRead = {
    */
   workflow?: WorkflowSummary | null
   /**
+   * User who created the source entity (None for automation-initiated items)
+   */
+  created_by?: UserSummary | null
+  /**
    * ID of the source entity
    */
   source_id: string
@@ -4342,7 +4354,7 @@ export type InboxItemStatus = "pending" | "completed" | "failed"
 /**
  * Types of inbox items.
  */
-export type InboxItemType = "approval"
+export type InboxItemType = "approval" | "agent_run"
 
 /**
  * Count of pending inbox items that require attention.
@@ -4638,9 +4650,13 @@ export type MCPConfigField = {
   target: "server_uri" | "oauth_client" | "http_header" | "stdio_env"
   required?: boolean
   secret?: boolean
+  placeholder?: string | null
+  type?: "string" | "url"
 }
 
 export type target = "server_uri" | "oauth_client" | "http_header" | "stdio_env"
+
+export type type = "string" | "url"
 
 /**
  * User-supplied value needed to materialize a catalog connection.
@@ -4652,6 +4668,14 @@ export type MCPConnectionCredential = {
   required?: boolean
   secret?: boolean
   default_value?: string | null
+  /**
+   * Optional placeholder shown in the configure dialog to hint the expected value format (e.g. 'https://your-console.example.net').
+   */
+  placeholder?: string | null
+  /**
+   * Value type used for light client/server validation. 'url' requires an http(s):// scheme.
+   */
+  type?: "string" | "url"
   target: "server_uri" | "oauth_client" | "http_header" | "stdio_env"
 }
 
@@ -5420,6 +5444,55 @@ export type PayloadChangedEventRead = {
 }
 
 /**
+ * Platform audit settings response.
+ */
+export type PlatformAuditSettingsRead = {
+  audit_webhook_url: string | null
+  audit_webhook_custom_headers?: {
+    [key: string]: string
+  } | null
+  audit_webhook_custom_payload?: {
+    [key: string]: unknown
+  } | null
+  audit_webhook_payload_attribute?: string | null
+  audit_webhook_verify_ssl?: boolean
+  /**
+   * Encrypted setting keys that could not be decrypted with the current encryption key and must be reconfigured.
+   */
+  decryption_failed_keys?: Array<string>
+}
+
+/**
+ * Update platform audit settings.
+ */
+export type PlatformAuditSettingsUpdate = {
+  /**
+   * Webhook URL that receives streamed audit events. When unset, audit events are skipped.
+   */
+  audit_webhook_url?: string | null
+  /**
+   * Custom headers to include in audit webhook requests. Header names are case-insensitive.
+   */
+  audit_webhook_custom_headers?: {
+    [key: string]: string
+  } | null
+  /**
+   * Custom JSON payload merged into streamed audit event payloads. Custom keys override default audit event keys.
+   */
+  audit_webhook_custom_payload?: {
+    [key: string]: unknown
+  } | null
+  /**
+   * Optional wrapper key for audit payloads. When set to a value like 'event', payload is sent as {'event': <audit_payload>}.
+   */
+  audit_webhook_payload_attribute?: string | null
+  /**
+   * Whether TLS certificates are verified for webhook requests. Disable only for trusted on-prem/self-signed endpoints.
+   */
+  audit_webhook_verify_ssl?: boolean
+}
+
+/**
  * Cursor-paginated platform MCP catalog response.
  */
 export type PlatformMCPCatalogListResponse = {
@@ -5549,7 +5622,7 @@ export type ProviderCredentialField = {
 /**
  * Input type: 'text' or 'password'
  */
-export type type = "text" | "password"
+export type type2 = "text" | "password"
 
 /**
  * Metadata for a provider.
@@ -5724,11 +5797,6 @@ export type RateLimitInfo = {
 
 export type status6 = "allowed" | "allowed_warning" | "rejected"
 
-export type ReadinessResponse = {
-  status: string
-  registry: RegistryStatus
-}
-
 /**
  * A reasoning part of a message.
  */
@@ -5851,7 +5919,7 @@ export type RegistryActionRead = {
 /**
  * The type of the action
  */
-export type type2 = "udf" | "template"
+export type type3 = "udf" | "template"
 
 /**
  * API minimal read model for a registered action.
@@ -5971,6 +6039,15 @@ export type RegistryLock = {
 }
 
 /**
+ * Display metadata for one registry lock origin.
+ */
+export type RegistryLockEntryRead = {
+  origin: string
+  version: string
+  label: string
+}
+
+/**
  * OAuth secret for a provider.
  */
 export type RegistryOAuthSecret = {
@@ -6057,12 +6134,6 @@ export type RegistrySecret = {
 export type secret_type = "custom" | "ssh_key" | "mtls" | "ca_cert"
 
 export type RegistrySecretType = RegistrySecret | RegistryOAuthSecret
-
-export type RegistryStatus = {
-  synced: boolean
-  expected_version: string
-  current_version: string | null
-}
 
 /**
  * Registry health status.
@@ -6243,7 +6314,7 @@ export type Role = {
   [key: string]: unknown | string | boolean
 }
 
-export type type3 = "user" | "service" | "service_account"
+export type type4 = "user" | "service" | "service_account"
 
 export type service_id =
   | "tracecat-api"
@@ -7968,7 +8039,7 @@ export type Trigger = {
   }
 }
 
-export type type4 = "schedule" | "webhook"
+export type type5 = "schedule" | "webhook"
 
 /**
  * Trigger type for a workflow execution.
@@ -8142,6 +8213,28 @@ export type UserScopesRead = {
    * List of effective scope strings for the user
    */
   scopes: Array<string>
+}
+
+/**
+ * Summary of a user for inbox item context.
+ */
+export type UserSummary = {
+  /**
+   * User ID
+   */
+  id: string
+  /**
+   * User email
+   */
+  email: string
+  /**
+   * User first name
+   */
+  first_name?: string | null
+  /**
+   * User last name
+   */
+  last_name?: string | null
 }
 
 export type UserUpdate = {
@@ -8584,6 +8677,10 @@ export type WorkflowDefinitionRead = {
   } | null
   created_at: string
   updated_at: string
+  /**
+   * Registry lock origins with server-normalized display labels.
+   */
+  readonly registry_lock_entries: Array<RegistryLockEntryRead>
 }
 
 export type WorkflowDefinitionReadMinimal = {
@@ -11671,6 +11768,14 @@ export type AdminPromoteOrgRepositoryVersionData = {
 export type AdminPromoteOrgRepositoryVersionResponse =
   OrgRegistryVersionPromoteResponse
 
+export type AdminGetAuditSettingsResponse = PlatformAuditSettingsRead
+
+export type AdminUpdateAuditSettingsData = {
+  requestBody: PlatformAuditSettingsUpdate
+}
+
+export type AdminUpdateAuditSettingsResponse = PlatformAuditSettingsRead
+
 export type AdminGetRegistrySettingsResponse = PlatformRegistrySettingsRead
 
 export type AdminUpdateRegistrySettingsData = {
@@ -11838,17 +11943,37 @@ export type InboxGetPendingCountData = {
 export type InboxGetPendingCountResponse = InboxPendingCount
 
 export type InboxListItemsData = {
+  /**
+   * Only items created at or after this time (ISO 8601)
+   */
+  createdAfter?: string | null
   cursor?: string | null
+  /**
+   * Filter items to a single entity type
+   */
+  entityType?: AgentSessionEntity | null
+  /**
+   * Filter items to a single display group
+   */
+  group?: InboxGroup | null
   limit?: number
   /**
-   * Column name to order by (created_at, updated_at, status)
+   * Column name to order by (created_at, updated_at)
    */
-  orderBy?: string | null
+  orderBy?: "created_at" | "updated_at" | null
   reverse?: boolean
+  /**
+   * Case-insensitive search on item title
+   */
+  search?: string | null
   /**
    * Sort direction (asc or desc)
    */
   sort?: "asc" | "desc" | null
+  /**
+   * Only items updated at or after this time (ISO 8601)
+   */
+  updatedAfter?: string | null
   workspaceId: string
 }
 
@@ -13406,8 +13531,6 @@ export type AuthDiscoverAuthMethodData = {
 export type AuthDiscoverAuthMethodResponse = AuthDiscoverResponse
 
 export type PublicCheckHealthResponse = HealthResponse
-
-export type PublicCheckReadyResponse = ReadinessResponse
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
@@ -16978,6 +17101,29 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/admin/settings/audit": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PlatformAuditSettingsRead
+      }
+    }
+    patch: {
+      req: AdminUpdateAuditSettingsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PlatformAuditSettingsRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/admin/settings/registry": {
     get: {
       res: {
@@ -20089,20 +20235,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: HealthResponse
-      }
-    }
-  }
-  "/ready": {
-    get: {
-      res: {
-        /**
-         * Successful Response
-         */
-        200: ReadinessResponse
-        /**
-         * Platform registry sync is incomplete.
-         */
-        503: ReadinessResponse
       }
     }
   }

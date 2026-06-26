@@ -38,6 +38,7 @@ import type {
   AdminDeleteUserResponse,
   AdminDemoteFromSuperuserData,
   AdminDemoteFromSuperuserResponse,
+  AdminGetAuditSettingsResponse,
   AdminGetOrganizationData,
   AdminGetOrganizationInvitationTokenData,
   AdminGetOrganizationInvitationTokenResponse,
@@ -85,6 +86,8 @@ import type {
   AdminRevokeOrganizationInvitationResponse,
   AdminSyncOrgRepositoryData,
   AdminSyncOrgRepositoryResponse,
+  AdminUpdateAuditSettingsData,
+  AdminUpdateAuditSettingsResponse,
   AdminUpdateOrganizationData,
   AdminUpdateOrganizationDomainData,
   AdminUpdateOrganizationDomainResponse,
@@ -514,7 +517,6 @@ import type {
   ProvidersListProvidersData,
   ProvidersListProvidersResponse,
   PublicCheckHealthResponse,
-  PublicCheckReadyResponse,
   PublicHandleChannelEventData,
   PublicHandleChannelEventResponse,
   PublicHandleSlackOauthCallbackData,
@@ -7499,6 +7501,42 @@ export const adminPromoteOrgRepositoryVersion = (
 }
 
 /**
+ * Get Audit Settings
+ * Get platform audit settings.
+ * @returns PlatformAuditSettingsRead Successful Response
+ * @throws ApiError
+ */
+export const adminGetAuditSettings =
+  (): CancelablePromise<AdminGetAuditSettingsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/admin/settings/audit",
+    })
+  }
+
+/**
+ * Update Audit Settings
+ * Update platform audit settings.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns PlatformAuditSettingsRead Successful Response
+ * @throws ApiError
+ */
+export const adminUpdateAuditSettings = (
+  data: AdminUpdateAuditSettingsData
+): CancelablePromise<AdminUpdateAuditSettingsResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/admin/settings/audit",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Get Registry Settings
  * Get platform registry settings.
  * @returns PlatformRegistrySettingsRead Successful Response
@@ -8079,15 +8117,20 @@ export const inboxGetPendingCount = (
  * List Items
  * List inbox items with cursor-based pagination.
  *
- * Supports sorting by created_at, updated_at, or status.
+ * Supports sorting by created_at or updated_at.
  * Default sort is by created_at descending.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.limit
  * @param data.cursor
  * @param data.reverse
- * @param data.orderBy Column name to order by (created_at, updated_at, status)
+ * @param data.orderBy Column name to order by (created_at, updated_at)
  * @param data.sort Sort direction (asc or desc)
+ * @param data.search Case-insensitive search on item title
+ * @param data.group Filter items to a single display group
+ * @param data.entityType Filter items to a single entity type
+ * @param data.createdAfter Only items created at or after this time (ISO 8601)
+ * @param data.updatedAfter Only items updated at or after this time (ISO 8601)
  * @returns CursorPaginatedResponse_InboxItemRead_ Successful Response
  * @throws ApiError
  */
@@ -8106,6 +8149,11 @@ export const inboxListItems = (
       reverse: data.reverse,
       order_by: data.orderBy,
       sort: data.sort,
+      search: data.search,
+      group: data.group,
+      entity_type: data.entityType,
+      created_after: data.createdAfter,
+      updated_after: data.updatedAfter,
     },
     errors: {
       422: "Validation Error",
@@ -13038,27 +13086,5 @@ export const publicCheckHealth =
     return __request(OpenAPI, {
       method: "GET",
       url: "/health",
-    })
-  }
-
-/**
- * Check Ready
- * Deep readiness check for platform registry sync state.
- *
- * Container health checks should use /health so transient registry sync delays
- * do not cause orchestrators to replace otherwise healthy API tasks.
- *
- * Returns a detailed response including registry sync status.
- * @returns ReadinessResponse Successful Response
- * @throws ApiError
- */
-export const publicCheckReady =
-  (): CancelablePromise<PublicCheckReadyResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/ready",
-      errors: {
-        503: "Platform registry sync is incomplete.",
-      },
     })
   }

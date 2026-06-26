@@ -13,7 +13,7 @@ import {
   Trash2,
 } from "lucide-react"
 import React, { useState } from "react"
-import { useFieldArray, useForm } from "react-hook-form"
+import { type Resolver, useFieldArray, useForm } from "react-hook-form"
 import {
   integrationsGetIntegration,
   mcpIntegrationsConnectPlatformMcpCatalog,
@@ -35,14 +35,15 @@ import { getMcpProviderIconId, ProviderIcon } from "@/components/icons"
 import {
   ALLOWED_COMMANDS,
   AUTH_TYPES,
+  buildMcpIntegrationFormSchema,
   catalogEntryToFormValues,
   isAllowedCommand,
   MCP_INTEGRATION_FORM_DEFAULTS,
   type MCPIntegrationFormValues,
-  mcpIntegrationFormSchema,
   missingRequiredOAuthClientCredentials,
   normalizeOAuthClientKey,
   SERVER_TYPES,
+  urlTypedStdioEnvKeys,
 } from "@/components/integrations/mcp-integration-schema"
 import {
   Accordion,
@@ -421,8 +422,17 @@ export function MCPIntegrationDialog({
     }
   }, [mcpIntegrationId, controlledOpen])
 
+  // The Zod schema needs the catalog's url-typed stdio_env keys, but those come
+  // from the connection spec (state), not the form data. Hold the active
+  // resolver in a ref and read it at validation time so we can swap it when the
+  // selected catalog option changes without re-mounting useForm.
+  const resolverRef = React.useRef(zodResolver(buildMcpIntegrationFormSchema()))
+  const resolver = React.useCallback<Resolver<MCPIntegrationFormValues>>(
+    (values, context, options) => resolverRef.current(values, context, options),
+    []
+  )
   const form = useForm<MCPIntegrationFormValues>({
-    resolver: zodResolver(mcpIntegrationFormSchema),
+    resolver,
     defaultValues: MCP_INTEGRATION_FORM_DEFAULTS,
   })
   const {
@@ -520,6 +530,21 @@ export function MCPIntegrationDialog({
     catalogEntry,
     connectionOptionId
   )
+
+  // Rebuild the resolver when the selected option's url-typed env keys change,
+  // then re-validate stdio_env so any existing error clears/updates. Keyed on a
+  // sorted string so the effect is stable across re-renders.
+  const urlEnvKeysKey = Array.from(urlTypedStdioEnvKeys(selectedCatalogSpec))
+    .sort()
+    .join(",")
+  React.useEffect(() => {
+    const urlEnvKeys = new Set(urlEnvKeysKey ? urlEnvKeysKey.split(",") : [])
+    resolverRef.current = zodResolver(buildMcpIntegrationFormSchema(urlEnvKeys))
+    if (form.formState.isSubmitted) {
+      void form.trigger("stdio_env")
+    }
+  }, [urlEnvKeysKey, form])
+
   const hasCatalogOAuthClient = hasOAuthClientConfig(selectedCatalogSpec)
   const catalogOptions = catalogEntry?.connection_options ?? []
   const connectedOAuthIntegrations =

@@ -8,6 +8,9 @@ import { AppSidebar } from "@/components/sidebar/app-sidebar"
 
 const mockUseScopeCheck = jest.fn<boolean | undefined, [string]>()
 let mockScopes: Record<string, boolean | undefined> = {}
+let mockEntitlements: Record<string, boolean> = {}
+let mockEntitlementsIsLoading = false
+let mockHasEntitlementData = true
 
 jest.mock("next/navigation", () => ({
   useParams: () => ({}),
@@ -65,9 +68,24 @@ jest.mock("@/components/ui/sidebar", () => ({
   SidebarMenuBadge: ({ children }: { children: ReactNode }) => (
     <span>{children}</span>
   ),
-  SidebarMenuButton: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
+  SidebarMenuButton: ({
+    asChild,
+    children,
+    disabled,
+    type,
+  }: {
+    asChild?: boolean
+    children: ReactNode
+    disabled?: boolean
+    type?: "button" | "submit" | "reset"
+  }) =>
+    asChild ? (
+      <>{children}</>
+    ) : (
+      <button type={type ?? "button"} disabled={disabled}>
+        {children}
+      </button>
+    ),
   SidebarMenuItem: ({ children }: { children: ReactNode }) => (
     <li>{children}</li>
   ),
@@ -86,8 +104,10 @@ jest.mock("@/components/ui/sidebar", () => ({
 
 jest.mock("@/hooks/use-entitlements", () => ({
   useEntitlements: () => ({
-    hasEntitlement: () => true,
-    isLoading: false,
+    hasEntitlement: (entitlement: string) =>
+      mockEntitlements[entitlement] ?? false,
+    isLoading: mockEntitlementsIsLoading,
+    hasEntitlementData: mockHasEntitlementData,
   }),
 }))
 
@@ -103,6 +123,13 @@ describe("AppSidebar", () => {
   beforeEach(() => {
     mockUseScopeCheck.mockReset()
     mockScopes = {}
+    mockEntitlements = {
+      agent_addons: true,
+      service_accounts: true,
+      workspace_chat: true,
+    }
+    mockEntitlementsIsLoading = false
+    mockHasEntitlementData = true
     mockUseScopeCheck.mockImplementation((scope) => mockScopes[scope] ?? false)
   })
 
@@ -128,5 +155,39 @@ describe("AppSidebar", () => {
     render(<AppSidebar />)
 
     expect(screen.getByText("Chat")).toBeInTheDocument()
+  })
+
+  it("does not show entitlement locks while entitlements are loading", () => {
+    mockScopes = {
+      "agent:execute": true,
+      "agent:read": true,
+    }
+    mockEntitlements = {}
+    mockEntitlementsIsLoading = true
+    mockHasEntitlementData = false
+
+    render(<AppSidebar />)
+
+    expect(screen.getByText("Chat")).toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: /Chat/ })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /Chat/ })).toBeDisabled()
+    expect(screen.queryByText("Locked")).not.toBeInTheDocument()
+  })
+
+  it("shows entitlement locks after entitlement data confirms a feature is unavailable", () => {
+    mockScopes = {
+      "agent:execute": true,
+      "agent:read": true,
+    }
+    mockEntitlements = {
+      agent_addons: true,
+      service_accounts: true,
+      workspace_chat: false,
+    }
+
+    render(<AppSidebar />)
+
+    expect(screen.getByText("Chat")).toBeInTheDocument()
+    expect(screen.getAllByText("Locked")).toHaveLength(1)
   })
 })

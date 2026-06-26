@@ -207,6 +207,8 @@ def test_get_platform_mcp_catalog_entries_normalizes_specs_and_drops_malformed_r
                 "target": "server_uri",
                 "required": True,
                 "secret": False,
+                "placeholder": None,
+                "type": "string",
             },
             {
                 "key": "Authorization",
@@ -215,6 +217,8 @@ def test_get_platform_mcp_catalog_entries_normalizes_specs_and_drops_malformed_r
                 "target": "http_header",
                 "required": True,
                 "secret": True,
+                "placeholder": None,
+                "type": "string",
             },
         ],
         "credentials": [
@@ -225,6 +229,8 @@ def test_get_platform_mcp_catalog_entries_normalizes_specs_and_drops_malformed_r
                 "required": True,
                 "secret": False,
                 "default_value": None,
+                "placeholder": None,
+                "type": "string",
                 "target": "server_uri",
             },
             {
@@ -234,6 +240,8 @@ def test_get_platform_mcp_catalog_entries_normalizes_specs_and_drops_malformed_r
                 "required": True,
                 "secret": True,
                 "default_value": None,
+                "placeholder": None,
+                "type": "string",
                 "target": "http_header",
             },
         ],
@@ -333,6 +341,65 @@ def test_get_platform_mcp_catalog_entries_normalizes_connection_options(
         "http",
         "stdio",
     ]
+
+
+def test_get_platform_mcp_catalog_entries_propagates_credential_type_and_placeholder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catalog ``type``/``placeholder`` reach the loaded credentials/config fields."""
+    _stub_catalog_resource(
+        monkeypatch,
+        orjson.dumps(
+            {
+                "servers": [
+                    {
+                        "slug": "typed-stdio-mcp",
+                        "name": "Typed Stdio",
+                        "description": "Has a URL-typed env credential",
+                        "category": "Endpoint",
+                        "connection_spec": {
+                            "server_type": "stdio",
+                            "auth_type": "CUSTOM",
+                            "stdio_command": "uvx",
+                            "stdio_args": ["typed-mcp"],
+                            "stdio_env": ["TOKEN", "CONSOLE_BASE_URL"],
+                            "credentials": [
+                                {
+                                    "key": "TOKEN",
+                                    "secret": True,
+                                    "target": "stdio_env",
+                                },
+                                {
+                                    "key": "CONSOLE_BASE_URL",
+                                    "secret": False,
+                                    "type": "url",
+                                    "placeholder": "https://your-console.example.net",
+                                    "target": "stdio_env",
+                                },
+                            ],
+                        },
+                    },
+                ]
+            }
+        ),
+    )
+
+    entries = loader.get_platform_mcp_catalog_entries(include_private=True)
+    spec = entries[0].connection_spec
+    assert spec is not None
+
+    creds = {cred.key: cred for cred in spec.credentials}
+    # Explicit catalog values flow through.
+    assert creds["CONSOLE_BASE_URL"].type == "url"
+    assert creds["CONSOLE_BASE_URL"].placeholder == "https://your-console.example.net"
+    # Defaults apply when the catalog omits them.
+    assert creds["TOKEN"].type == "string"
+    assert creds["TOKEN"].placeholder is None
+
+    # config_fields mirror the same data for the configure dialog.
+    fields = {field.key: field for field in spec.config_fields}
+    assert fields["CONSOLE_BASE_URL"].type == "url"
+    assert fields["CONSOLE_BASE_URL"].placeholder == "https://your-console.example.net"
 
 
 def test_get_platform_mcp_catalog_entries_merges_private_mcp_catalog(

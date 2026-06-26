@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from typing import cast
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import func, select, update
@@ -13,6 +14,8 @@ from tracecat_ee.admin.users.schemas import AdminUserCreate
 from tracecat_ee.admin.users.service import AdminUserService
 
 from tracecat import config
+from tracecat.audit.enums import AuditEventStatus
+from tracecat.audit.service import AuditService
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import PlatformRole
 from tracecat.db.models import (
@@ -105,6 +108,59 @@ async def test_create_user_respects_superuser_flag(
     )
     user = user_result.scalar_one()
     assert user.is_superuser is True
+
+
+@pytest.mark.anyio
+async def test_admin_user_audit_logs_target_user_ids(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+) -> None:
+    service = AdminUserService(session, role=platform_role)
+    create_event_calls: list[dict[str, object]] = []
+
+    async def mock_create_event(*args, **kwargs):
+        create_event_calls.append(kwargs)
+
+    with patch.object(AuditService, "create_event", side_effect=mock_create_event):
+        created = await service.create_user(
+            AdminUserCreate(
+                email="audit-created-user@example.com",
+                password="this-is-a-strong-password",
+                is_superuser=False,
+            )
+        )
+        promoted = await service.create_user(
+            AdminUserCreate(
+                email="audit-promoted-user@example.com",
+                password="this-is-a-strong-password",
+                is_superuser=False,
+            )
+        )
+        await service.promote_superuser(promoted.id)
+        current_superuser = await service.create_user(
+            AdminUserCreate(
+                email="audit-current-superuser@example.com",
+                password="this-is-a-strong-password",
+                is_superuser=True,
+            )
+        )
+        demoted = await service.create_user(
+            AdminUserCreate(
+                email="audit-demoted-user@example.com",
+                password="this-is-a-strong-password",
+                is_superuser=True,
+            )
+        )
+        await service.demote_superuser(demoted.id, current_superuser.id)
+
+    success_events = {
+        (call["action"], call["resource_id"])
+        for call in create_event_calls
+        if call["status"] == AuditEventStatus.SUCCESS
+    }
+    assert ("create", created.id) in success_events
+    assert ("promote", promoted.id) in success_events
+    assert ("demote", demoted.id) in success_events
 
 
 @pytest.mark.anyio

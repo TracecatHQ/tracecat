@@ -69,6 +69,7 @@ type NavItem = {
   icon: LucideIcon
   isActive?: boolean
   isLocked?: boolean
+  isPendingEntitlement?: boolean
   onSelect?: () => void
   locked?: boolean
   visible?: boolean
@@ -130,9 +131,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     canExecuteAgents === true ||
     canViewServiceAccounts === true ||
     canViewInbox === true
-  const { hasEntitlement, isLoading: entitlementsIsLoading } = useEntitlements({
+  const {
+    hasEntitlement,
+    hasEntitlementData,
+    isLoading: entitlementsIsLoading,
+  } = useEntitlements({
     enabled: shouldLoadEntitlements,
   })
+  const entitlementsKnown = !entitlementsIsLoading && hasEntitlementData
   const agentAddonsEnabled = hasEntitlement("agent_addons")
   const workspaceChatEnabled = hasEntitlement("workspace_chat")
   const serviceAccountsEnabled = hasEntitlement("service_accounts")
@@ -153,10 +159,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         tag: "Beta",
         isActive: pathname?.startsWith(`${basePath}/chat`),
         visible: canAccessMissionControl,
-        isLocked: entitlementsIsLoading || !workspaceChatEnabled,
-        onSelect: entitlementsIsLoading
-          ? undefined
-          : () => setLockedFeatureDialogOpen(true),
+        isLocked: entitlementsKnown && !workspaceChatEnabled,
+        isPendingEntitlement: !entitlementsKnown,
+        onSelect:
+          entitlementsKnown && !workspaceChatEnabled
+            ? () => setLockedFeatureDialogOpen(true)
+            : undefined,
       },
       {
         title: "Workflows",
@@ -178,10 +186,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         icon: MousePointerClickIcon,
         isActive: pathname?.startsWith(`${basePath}/agents`),
         visible: canViewAgents === true,
-        isLocked: entitlementsIsLoading || !agentAddonsEnabled,
-        onSelect: entitlementsIsLoading
-          ? undefined
-          : () => setLockedFeatureDialogOpen(true),
+        isLocked: entitlementsKnown && !agentAddonsEnabled,
+        isPendingEntitlement: !entitlementsKnown,
+        onSelect:
+          entitlementsKnown && !agentAddonsEnabled
+            ? () => setLockedFeatureDialogOpen(true)
+            : undefined,
       },
       {
         title: "Tables",
@@ -223,10 +233,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         url: `${basePath}/skills`,
         icon: Pyramid,
         isActive: pathname?.startsWith(`${basePath}/skills`),
-        isLocked: entitlementsIsLoading || !agentAddonsEnabled,
-        onSelect: entitlementsIsLoading
-          ? undefined
-          : () => setLockedFeatureDialogOpen(true),
+        isLocked: entitlementsKnown && !agentAddonsEnabled,
+        isPendingEntitlement: !entitlementsKnown,
+        onSelect:
+          entitlementsKnown && !agentAddonsEnabled
+            ? () => setLockedFeatureDialogOpen(true)
+            : undefined,
         visible: canViewAgents === true,
       },
       {
@@ -247,7 +259,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       canViewVariables,
       canViewSecrets,
       canViewIntegrations,
-      entitlementsIsLoading,
+      entitlementsKnown,
       agentAddonsEnabled,
       workspaceChatEnabled,
       canViewAgents,
@@ -264,7 +276,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       visible: canViewWorkflows === true,
     },
     {
-      title: "Approvals",
+      title: "Inbox",
       url: `${basePath}/inbox`,
       icon: ListChecksIcon,
       isActive: pathname?.startsWith(`${basePath}/inbox`),
@@ -334,6 +346,20 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                               <item.icon />
                               <span>{item.title}</span>
                               <LockedFeatureChip className="ml-auto shrink-0" />
+                            </SidebarMenuButton>
+                          ) : item.isPendingEntitlement ? (
+                            <SidebarMenuButton
+                              type="button"
+                              isActive={item.isActive}
+                              disabled
+                            >
+                              <item.icon />
+                              <span>{item.title}</span>
+                              {item.tag ? (
+                                <span className="ml-auto shrink-0 rounded-full border px-1.5 py-px text-[10px] font-medium leading-none text-muted-foreground">
+                                  {item.tag}
+                                </span>
+                              ) : null}
                             </SidebarMenuButton>
                           ) : (
                             <SidebarMenuButton asChild isActive={item.isActive}>

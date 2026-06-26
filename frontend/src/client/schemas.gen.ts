@@ -14176,6 +14176,16 @@ distinguish multiple files.`,
   description: "A URL to an image.",
 } as const
 
+export const $InboxGroup = {
+  type: "string",
+  enum: ["review_required", "running", "error", "completed"],
+  title: "InboxGroup",
+  description: `Display groups for inbox items.
+
+Groups are derived from approval state and live workflow execution status,
+so membership cannot be expressed as a pure SQL filter.`,
+} as const
+
 export const $InboxItemRead = {
   properties: {
     id: {
@@ -14230,6 +14240,18 @@ export const $InboxItemRead = {
       ],
       description: "Associated workflow",
     },
+    created_by: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/UserSummary",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "User who created the source entity (None for automation-initiated items)",
+    },
     source_id: {
       type: "string",
       format: "uuid",
@@ -14281,7 +14303,7 @@ export const $InboxItemStatus = {
 
 export const $InboxItemType = {
   type: "string",
-  enum: ["approval"],
+  enum: ["approval", "agent_run"],
   title: "InboxItemType",
   description: "Types of inbox items.",
 } as const
@@ -15085,6 +15107,23 @@ export const $MCPConfigField = {
       title: "Secret",
       default: false,
     },
+    placeholder: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Placeholder",
+    },
+    type: {
+      type: "string",
+      enum: ["string", "url"],
+      title: "Type",
+      default: "string",
+    },
   },
   type: "object",
   required: ["key", "label", "description", "target"],
@@ -15126,6 +15165,27 @@ export const $MCPConnectionCredential = {
         },
       ],
       title: "Default Value",
+    },
+    placeholder: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Placeholder",
+      description:
+        "Optional placeholder shown in the configure dialog to hint the expected value format (e.g. 'https://your-console.example.net').",
+    },
+    type: {
+      type: "string",
+      enum: ["string", "url"],
+      title: "Type",
+      description:
+        "Value type used for light client/server validation. 'url' requires an http(s):// scheme.",
+      default: "string",
     },
     target: {
       type: "string",
@@ -18088,6 +18148,148 @@ export const $PayloadChangedEventRead = {
   description: "Event for when a case payload is changed.",
 } as const
 
+export const $PlatformAuditSettingsRead = {
+  properties: {
+    audit_webhook_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Audit Webhook Url",
+    },
+    audit_webhook_custom_headers: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Audit Webhook Custom Headers",
+    },
+    audit_webhook_custom_payload: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Audit Webhook Custom Payload",
+    },
+    audit_webhook_payload_attribute: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Audit Webhook Payload Attribute",
+    },
+    audit_webhook_verify_ssl: {
+      type: "boolean",
+      title: "Audit Webhook Verify Ssl",
+      default: true,
+    },
+    decryption_failed_keys: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Decryption Failed Keys",
+      description:
+        "Encrypted setting keys that could not be decrypted with the current encryption key and must be reconfigured.",
+    },
+  },
+  type: "object",
+  required: ["audit_webhook_url"],
+  title: "PlatformAuditSettingsRead",
+  description: "Platform audit settings response.",
+} as const
+
+export const $PlatformAuditSettingsUpdate = {
+  properties: {
+    audit_webhook_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Audit Webhook Url",
+      description:
+        "Webhook URL that receives streamed audit events. When unset, audit events are skipped.",
+    },
+    audit_webhook_custom_headers: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Audit Webhook Custom Headers",
+      description:
+        "Custom headers to include in audit webhook requests. Header names are case-insensitive.",
+    },
+    audit_webhook_custom_payload: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Audit Webhook Custom Payload",
+      description:
+        "Custom JSON payload merged into streamed audit event payloads. Custom keys override default audit event keys.",
+    },
+    audit_webhook_payload_attribute: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Audit Webhook Payload Attribute",
+      description:
+        "Optional wrapper key for audit payloads. When set to a value like 'event', payload is sent as {'event': <audit_payload>}.",
+    },
+    audit_webhook_verify_ssl: {
+      type: "boolean",
+      title: "Audit Webhook Verify Ssl",
+      description:
+        "Whether TLS certificates are verified for webhook requests. Disable only for trusted on-prem/self-signed endpoints.",
+      default: true,
+    },
+  },
+  type: "object",
+  title: "PlatformAuditSettingsUpdate",
+  description: "Update platform audit settings.",
+} as const
+
 export const $PlatformMCPCatalogListResponse = {
   properties: {
     items: {
@@ -19112,21 +19314,6 @@ export const $RateLimitInfo = {
   title: "RateLimitInfo",
 } as const
 
-export const $ReadinessResponse = {
-  properties: {
-    status: {
-      type: "string",
-      title: "Status",
-    },
-    registry: {
-      $ref: "#/components/schemas/RegistryStatus",
-    },
-  },
-  type: "object",
-  required: ["status", "registry"],
-  title: "ReadinessResponse",
-} as const
-
 export const $ReasoningUIPart = {
   properties: {
     type: {
@@ -19668,6 +19855,27 @@ Attributes:
         bundled tracecat_registry package is an exact match for the lock.`,
 } as const
 
+export const $RegistryLockEntryRead = {
+  properties: {
+    origin: {
+      type: "string",
+      title: "Origin",
+    },
+    version: {
+      type: "string",
+      title: "Version",
+    },
+    label: {
+      type: "string",
+      title: "Label",
+    },
+  },
+  type: "object",
+  required: ["origin", "version", "label"],
+  title: "RegistryLockEntryRead",
+  description: "Display metadata for one registry lock origin.",
+} as const
+
 export const $RegistryOAuthSecret = {
   properties: {
     type: {
@@ -20012,33 +20220,6 @@ export const $RegistrySecretType = {
       oauth: "#/components/schemas/RegistryOAuthSecret",
     },
   },
-} as const
-
-export const $RegistryStatus = {
-  properties: {
-    synced: {
-      type: "boolean",
-      title: "Synced",
-    },
-    expected_version: {
-      type: "string",
-      title: "Expected Version",
-    },
-    current_version: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Current Version",
-    },
-  },
-  type: "object",
-  required: ["synced", "expected_version", "current_version"],
-  title: "RegistryStatus",
 } as const
 
 export const $RegistryStatusResponse = {
@@ -27128,6 +27309,50 @@ export const $UserScopesRead = {
   description: "Read schema for a user's effective scopes.",
 } as const
 
+export const $UserSummary = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+      description: "User ID",
+    },
+    email: {
+      type: "string",
+      title: "Email",
+      description: "User email",
+    },
+    first_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "First Name",
+      description: "User first name",
+    },
+    last_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Name",
+      description: "User last name",
+    },
+  },
+  type: "object",
+  required: ["id", "email"],
+  title: "UserSummary",
+  description: "Summary of a user for inbox item context.",
+} as const
+
 export const $UserUpdate = {
   properties: {
     password: {
@@ -28972,6 +29197,16 @@ export const $WorkflowDefinitionRead = {
       format: "date-time",
       title: "Updated At",
     },
+    registry_lock_entries: {
+      items: {
+        $ref: "#/components/schemas/RegistryLockEntryRead",
+      },
+      type: "array",
+      title: "Registry Lock Entries",
+      description:
+        "Registry lock origins with server-normalized display labels.",
+      readOnly: true,
+    },
   },
   type: "object",
   required: [
@@ -28981,6 +29216,7 @@ export const $WorkflowDefinitionRead = {
     "version",
     "created_at",
     "updated_at",
+    "registry_lock_entries",
   ],
   title: "WorkflowDefinitionRead",
   description: "API response model for persisted workflow definitions.",

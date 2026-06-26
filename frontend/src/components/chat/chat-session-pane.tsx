@@ -145,6 +145,13 @@ function messageHasVisibleParts(message: UIMessage): boolean {
   return message.parts.some((part) => part.type !== ARTIFACT_DATA_PART_TYPE)
 }
 
+/** Message ids and their part types — compares two transcripts by shape. */
+function transcriptShape(messages: UIMessage[]): string {
+  return messages
+    .map((m) => `${m.id}:${m.parts.map((p) => p.type).join(",")}`)
+    .join("|")
+}
+
 function matchingUserTextPartKeys(
   messages: UIMessage[],
   text: string
@@ -280,6 +287,12 @@ export interface ChatSessionPaneProps {
   presetSelector?: ChatPresetSelector
   /** Selects the chat stream projection and surrounding UI surface. */
   surface?: ChatSurface
+  /**
+   * Reconnect to the live event stream on mount. Defaults to true. Set to
+   * false for terminal sessions whose history is already loaded, to avoid
+   * replaying the last turn on top of the seeded messages.
+   */
+  resume?: boolean
 }
 
 export function ChatSessionPane({
@@ -305,6 +318,7 @@ export function ChatSessionPane({
   inputDisabledPlaceholder,
   presetSelector,
   surface = "regular",
+  resume = true,
 }: ChatSessionPaneProps) {
   const queryClient = useQueryClient()
   const promptInputContainerRef = useRef<HTMLDivElement>(null)
@@ -355,14 +369,38 @@ export function ChatSessionPane({
   const promptInputClassName = isWorkspaceChat
     ? "[&_[data-slot=input-group]]:rounded-2xl [&_[data-slot=input-group]]:border-muted-foreground/25 [&_[data-slot=input-group]]:shadow-none"
     : undefined
-  const { sendMessage, messages, status, regenerate, lastError, clearError } =
-    useVercelChat({
-      chatId: chat?.id,
-      workspaceId,
-      messages: uiMessages,
-      modelInfo,
-      onData,
-    })
+  const {
+    sendMessage,
+    messages,
+    setMessages,
+    status,
+    regenerate,
+    lastError,
+    clearError,
+  } = useVercelChat({
+    chatId: chat?.id,
+    workspaceId,
+    messages: uiMessages,
+    modelInfo,
+    onData,
+    resume,
+  })
+
+  // useChat seeds `messages` only on mount. Re-seed when the server transcript
+  // *advances* (e.g. an approval resolves), but never on a plain mismatch — post
+  // -stream the live list legitimately leads the not-yet-refetched server copy,
+  // and adopting then would drop the just-streamed turn.
+  const lastServerShapeRef = useRef<string | null>(null)
+  useEffect(() => {
+    const serverShape = transcriptShape(uiMessages)
+    if (lastServerShapeRef.current === null) {
+      lastServerShapeRef.current = serverShape // mount seed; useChat has it
+      return
+    }
+    if (serverShape === lastServerShapeRef.current) return
+    lastServerShapeRef.current = serverShape
+    if (status === "ready") setMessages(uiMessages) // don't clobber a live stream
+  }, [status, uiMessages, setMessages])
 
   useEffect(() => {
     onStatusChange?.(status)

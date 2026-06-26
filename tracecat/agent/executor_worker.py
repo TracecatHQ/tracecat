@@ -22,6 +22,7 @@ from tracecat.agent.runtime_services import (
 from tracecat.agent.worker import new_sandbox_runner
 from tracecat.dsl.client import get_temporal_client
 from tracecat.logger import logger
+from tracecat.storage.blob import close_storage_client_cache
 from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
 
 if TYPE_CHECKING:
@@ -106,6 +107,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                 logger.info("AgentExecutorWorker shutdown requested")
             logger.info("Temporal Worker context exited")
     finally:
+        await close_storage_client_cache()
         await _stop_runtime_services()
     if runtime_failure_reason is not None:
         raise RuntimeError(runtime_failure_reason)

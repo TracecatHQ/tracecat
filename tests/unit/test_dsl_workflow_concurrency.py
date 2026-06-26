@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, cast
@@ -10,6 +11,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from temporalio.exceptions import ActivityError, ApplicationError
 
+import tracecat.dsl.workflow as dsl_workflow_module
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.dsl.action import DSLActivities, _evaluate_loop_iterations
@@ -80,6 +82,40 @@ def _build_workflow(*, limits: EffectiveLimits | None = None) -> DSLWorkflow:
     workflow.workspace_id = workflow.role.workspace_id
     workflow.wf_exec_id = workflow.run_context.wf_exec_id
     return workflow
+
+
+def _child_dsl() -> DSLInput:
+    return DSLInput(
+        title="Child",
+        description="child workflow for unit test",
+        entrypoint=DSLEntrypoint(ref="noop", expects={}),
+        actions=[
+            ActionStatement(
+                ref="noop",
+                action="core.transform.reshape",
+                args={"value": "ok"},
+            )
+        ],
+        triggers=[],
+    )
+
+
+def _prepared_subflow_stub(
+    *,
+    get_config: Callable[[int], DSLConfig] | None = None,
+    get_trigger_input_at: Callable[[int], InlineObject] | None = None,
+) -> Any:
+    return cast(
+        Any,
+        SimpleNamespace(
+            dsl=_child_dsl(),
+            wf_id=WorkflowUUID.new("wf-00000000000000000000000000000001"),
+            registry_lock=None,
+            get_config=get_config or (lambda _idx: DSLConfig()),
+            get_trigger_input_at=get_trigger_input_at
+            or (lambda idx: InlineObject(data={"index": idx})),
+        ),
+    )
 
 
 def _activity_error_from(
@@ -603,29 +639,7 @@ def test_resolve_child_loop_batch_plan_is_independent_of_concurrency_flag(
 async def test_execute_child_workflow_batch_prepared_limits_dispatch_window() -> None:
     workflow = _build_workflow()
     task = ActionStatement(ref="run_child", action="core.workflow.execute", args={})
-    dsl = DSLInput(
-        title="Child",
-        description="child workflow for unit test",
-        entrypoint=DSLEntrypoint(ref="noop", expects={}),
-        actions=[
-            ActionStatement(
-                ref="noop",
-                action="core.transform.reshape",
-                args={"value": "ok"},
-            )
-        ],
-        triggers=[],
-    )
-    prepared = cast(
-        Any,
-        SimpleNamespace(
-            dsl=dsl,
-            wf_id="wf-00000000000000000000000000000001",
-            registry_lock=None,
-            get_config=lambda _idx: DSLConfig(),
-            get_trigger_input_at=lambda idx: InlineObject(data={"index": idx}),
-        ),
-    )
+    prepared = _prepared_subflow_stub()
 
     dispatch_in_flight = 0
     max_dispatch_in_flight = 0
@@ -688,6 +702,115 @@ async def test_execute_child_workflow_batch_prepared_limits_dispatch_window() ->
     assert max_dispatch_in_flight == 2
     assert max_child_runs_in_flight > 2
     assert [cast(InlineObject, val).data["index"] for val in result] == list(range(6))
+
+
+@pytest.mark.anyio
+async def test_child_workflow_batch_constructs_trusted_run_args() -> None:
+    workflow = _build_workflow()
+    task = ActionStatement(ref="run_child", action="core.workflow.execute", args={})
+    prepared = _prepared_subflow_stub()
+
+    captured_args: list[DSLRunArgs] = []
+
+    async def dispatch_child_mock(
+        _: ActionStatement,
+        run_args: DSLRunArgs,
+        *,
+        wait_strategy: WaitStrategy,
+        loop_index: int | None = None,
+    ) -> Any:
+        del wait_strategy
+        assert loop_index is not None
+        captured_args.append(run_args)
+        return SimpleNamespace(id=f"child-{loop_index}")
+
+    with (
+        patch.object(
+            DSLRunArgs,
+            "__init__",
+            side_effect=AssertionError("prepared child args should not revalidate"),
+        ),
+        patch.object(
+            workflow,
+            "_dispatch_child_workflow",
+            new=AsyncMock(side_effect=dispatch_child_mock),
+        ),
+    ):
+        result = await workflow._execute_child_workflow_batch_prepared(
+            task=task,
+            prepared=prepared,
+            batch_start=0,
+            batch_size=2,
+            dispatch_window=8,
+            wait_strategy=WaitStrategy.DETACH,
+            fail_strategy=FailStrategy.ISOLATED,
+            child_time_anchor=datetime.now(UTC),
+        )
+
+    assert [cast(InlineObject, val).data for val in result] == ["child-0", "child-1"]
+    assert [args.trigger_inputs for args in captured_args] == [
+        InlineObject(data={"index": 0}),
+        InlineObject(data={"index": 1}),
+    ]
+
+
+@pytest.mark.anyio
+async def test_child_workflow_batch_yields_before_next_arg_prep() -> None:
+    workflow = _build_workflow()
+    task = ActionStatement(ref="run_child", action="core.workflow.execute", args={})
+    prepared_count = dsl_workflow_module._CHILD_RUN_ARG_PREP_YIELD_EVERY + 1
+    config_indices: list[int] = []
+    sleep_checkpoints: list[tuple[float, tuple[int, ...]]] = []
+
+    def get_config(index: int) -> DSLConfig:
+        config_indices.append(index)
+        return DSLConfig()
+
+    prepared = _prepared_subflow_stub(get_config=get_config)
+
+    async def dispatch_child_mock(
+        _: ActionStatement,
+        __: DSLRunArgs,
+        *,
+        wait_strategy: WaitStrategy,
+        loop_index: int | None = None,
+    ) -> Any:
+        del wait_strategy
+        assert loop_index is not None
+        return SimpleNamespace(id=f"child-{loop_index}")
+
+    original_sleep = asyncio.sleep
+
+    async def sleep_mock(delay: float) -> None:
+        sleep_checkpoints.append((delay, tuple(config_indices)))
+        await original_sleep(0)
+
+    with (
+        patch.object(dsl_workflow_module.asyncio, "sleep", new=sleep_mock),
+        patch.object(
+            workflow,
+            "_dispatch_child_workflow",
+            new=AsyncMock(side_effect=dispatch_child_mock),
+        ),
+    ):
+        result = await workflow._execute_child_workflow_batch_prepared(
+            task=task,
+            prepared=prepared,
+            batch_start=0,
+            batch_size=prepared_count,
+            dispatch_window=prepared_count + 1,
+            wait_strategy=WaitStrategy.DETACH,
+            fail_strategy=FailStrategy.ISOLATED,
+            child_time_anchor=datetime.now(UTC),
+        )
+
+    assert len(result) == prepared_count
+    assert sleep_checkpoints == [
+        (
+            0,
+            tuple(range(dsl_workflow_module._CHILD_RUN_ARG_PREP_YIELD_EVERY)),
+        )
+    ]
 
 
 @pytest.mark.anyio

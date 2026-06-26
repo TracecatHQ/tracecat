@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
-from tracecat.db.models import CaseTag, CaseTrigger, Workflow
+from tracecat.db.models import CaseTag, CaseTrigger, Workflow, WorkflowDefinition
+from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowID, WorkflowUUID
 from tracecat.service import BaseWorkspaceService, requires_entitlement
@@ -70,6 +72,37 @@ class CaseTriggersService(BaseWorkspaceService):
         if case_trigger := result.scalar_one_or_none():
             return case_trigger
         raise TracecatValidationError("Failed to ensure case trigger")
+
+    async def _ensure_workflow_has_runnable_definition(
+        self, workflow_id: WorkflowID
+    ) -> None:
+        workflow_uuid = WorkflowUUID.new(workflow_id)
+        version_stmt = select(Workflow.version).where(
+            Workflow.workspace_id == self.workspace_id,
+            Workflow.id == workflow_uuid,
+        )
+        workflow_version = await self.session.scalar(version_stmt)
+        if workflow_version is None:
+            raise TracecatValidationError(
+                "Publish the workflow before enabling case triggers"
+            )
+
+        definition_stmt = select(WorkflowDefinition.content).where(
+            WorkflowDefinition.workspace_id == self.workspace_id,
+            WorkflowDefinition.workflow_id == workflow_uuid,
+            WorkflowDefinition.version == workflow_version,
+        )
+        content = await self.session.scalar(definition_stmt)
+        if not content:
+            raise TracecatValidationError(
+                "Publish the workflow before enabling case triggers"
+            )
+        try:
+            DSLInput.model_validate(content)
+        except ValidationError as e:
+            raise TracecatValidationError(
+                "Publish the workflow before enabling case triggers"
+            ) from e
 
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def get_case_trigger(self, workflow_id: WorkflowID) -> CaseTrigger:
@@ -143,6 +176,8 @@ class CaseTriggersService(BaseWorkspaceService):
             raise TracecatValidationError(
                 "event_types must be non-empty when status is online"
             )
+        if status == "online":
+            await self._ensure_workflow_has_runnable_definition(workflow_id)
 
         tag_filters = updates.get("tag_filters", case_trigger.tag_filters)
         if tag_filters is None:

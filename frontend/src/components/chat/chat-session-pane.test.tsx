@@ -10,6 +10,7 @@ const mockUseVercelChatResult = {
   messages: [] as UIMessage[],
   regenerate: jest.fn(),
   sendMessage: jest.fn(),
+  setMessages: jest.fn(),
   status: "ready" as const,
 }
 

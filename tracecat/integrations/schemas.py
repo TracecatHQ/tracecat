@@ -22,6 +22,7 @@ from pydantic import (
     field_validator,
 )
 
+from tracecat.expressions.patterns import STANDALONE_TEMPLATE
 from tracecat.identifiers import UserID, WorkspaceID
 from tracecat.integrations.enums import IntegrationStatus, MCPAuthType, OAuthGrantType
 from tracecat.integrations.types import MCPServerType
@@ -355,6 +356,42 @@ class ProviderRead(BaseModel):
     redirect_uri: str | None = None
 
 
+# Credential/config-field value types the configure dialog can declare.
+# ``url`` opts a value into http(s)-scheme validation; ``string`` (the default)
+# means an opaque token with no extra format checks. A value is treated as a
+# URL only when the catalog row declares ``type: "url"`` by hand — there is no
+# name-based inference.
+MCPCredentialValueType = Literal["string", "url"]
+
+
+def validate_url_credential_values(values: dict[str, str], url_keys: set[str]) -> None:
+    """Require an http(s):// scheme for values whose key is declared ``type: url``.
+
+    ``url_keys`` comes from the catalog connection spec — only keys a catalog
+    row marks ``type: "url"`` are checked. Empty (not yet filled in) and
+    templated values are skipped because they are validated at run time. Keys
+    outside ``url_keys`` are left untouched.
+    """
+    for key in url_keys:
+        if key not in values:
+            continue
+        value = values.get(key)
+        if not isinstance(value, str):
+            raise ValueError(
+                f"{key!r} must be a URL starting with 'http://' or 'https://'"
+            )
+        stripped = value.strip()
+        # Empty (not yet filled in) and templated values resolve to their real
+        # value only at run time, so skip format validation here.
+        if not stripped or STANDALONE_TEMPLATE.match(stripped):
+            continue
+        parsed = urlparse(stripped)
+        if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
+            raise ValueError(
+                f"{key!r} must be a URL starting with 'http://' or 'https://'"
+            )
+
+
 class _MCPIntegrationCreateBase(BaseModel):
     """Shared request fields for creating an MCP integration."""
 
@@ -579,6 +616,20 @@ class MCPConnectionCredential(BaseModel):
     required: bool = True
     secret: bool = True
     default_value: str | None = None
+    placeholder: str | None = Field(
+        default=None,
+        description=(
+            "Optional placeholder shown in the configure dialog to hint the "
+            "expected value format (e.g. 'https://your-console.example.net')."
+        ),
+    )
+    type: MCPCredentialValueType = Field(
+        default="string",
+        description=(
+            "Value type used for light client/server validation. 'url' requires "
+            "an http(s):// scheme."
+        ),
+    )
     target: MCPConnectionTarget
 
 
@@ -600,6 +651,8 @@ class MCPConfigField(BaseModel):
     target: MCPConnectionTarget
     required: bool = True
     secret: bool = False
+    placeholder: str | None = None
+    type: MCPCredentialValueType = "string"
 
 
 class _MCPConnectionSpecBase(BaseModel):
@@ -620,6 +673,8 @@ class _MCPConnectionSpecBase(BaseModel):
                 target=credential.target,
                 required=credential.required,
                 secret=credential.secret,
+                placeholder=credential.placeholder,
+                type=credential.type,
             )
             for credential in self.credentials
         ]
