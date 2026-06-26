@@ -30,6 +30,18 @@ definition:
       description: OS versions per page (Fleet caps at 200).
       default: 50
   steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            fleet_id: ${{ inputs.fleet_id }}
+            platform: ${{ inputs.platform }}
+            page: ${{ inputs.page }}
+            per_page: ${{ inputs.per_page }}
+        script: |
+          def main(params):
+              return {k: v for k, v in params.items() if v is not None}
     - ref: os_versions
       action: core.http_request
       args:
@@ -37,9 +49,5 @@ definition:
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
-        params:
-          fleet_id: ${{ inputs.fleet_id }}
-          platform: ${{ inputs.platform }}
-          page: ${{ inputs.page }}
-          per_page: ${{ inputs.per_page }}
+        params: ${{ steps.build_params.result }}
   returns: ${{ steps.os_versions.result.data }}

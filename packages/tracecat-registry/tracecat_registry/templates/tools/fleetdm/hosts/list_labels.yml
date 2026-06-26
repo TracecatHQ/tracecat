@@ -18,6 +18,15 @@ definition:
       description: Field to order labels by (e.g. name, created_at).
       default: null
   steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            order_key: ${{ inputs.order_key }}
+        script: |
+          def main(params):
+              return {k: v for k, v in params.items() if v is not None}
     - ref: list_labels
       action: core.http_request
       args:
@@ -25,6 +34,5 @@ definition:
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
-        params:
-          order_key: ${{ inputs.order_key }}
+        params: ${{ steps.build_params.result }}
   returns: ${{ steps.list_labels.result.data }}

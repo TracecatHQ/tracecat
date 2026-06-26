@@ -18,6 +18,15 @@ definition:
       description: Scope the summary to a fleet (team) ID.
       default: null
   steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            fleet_id: ${{ inputs.fleet_id }}
+        script: |
+          def main(params):
+              return {k: v for k, v in params.items() if v is not None}
     - ref: disk_encryption
       action: core.http_request
       args:
@@ -25,6 +34,5 @@ definition:
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
-        params:
-          fleet_id: ${{ inputs.fleet_id }}
+        params: ${{ steps.build_params.result }}
   returns: ${{ steps.disk_encryption.result.data }}

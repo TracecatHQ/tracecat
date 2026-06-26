@@ -26,6 +26,17 @@ definition:
       description: Count hosts with less than this many GB of disk space.
       default: null
   steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            fleet_id: ${{ inputs.fleet_id }}
+            platform: ${{ inputs.platform }}
+            low_disk_space: ${{ inputs.low_disk_space }}
+        script: |
+          def main(params):
+              return {k: v for k, v in params.items() if v is not None}
     - ref: host_summary
       action: core.http_request
       args:
@@ -33,8 +44,5 @@ definition:
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
-        params:
-          fleet_id: ${{ inputs.fleet_id }}
-          platform: ${{ inputs.platform }}
-          low_disk_space: ${{ inputs.low_disk_space }}
+        params: ${{ steps.build_params.result }}
   returns: ${{ steps.host_summary.result.data }}

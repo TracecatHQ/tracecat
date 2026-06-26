@@ -21,6 +21,15 @@ definition:
       description: For macOS, return the six-digit unlock PIN in the response.
       default: null
   steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            view_pin: ${{ inputs.view_pin }}
+        script: |
+          def main(params):
+              return {k: v for k, v in params.items() if v is not None}
     - ref: lock_host
       action: core.http_request
       args:
@@ -28,6 +37,5 @@ definition:
         method: POST
         headers:
           Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
-        params:
-          view_pin: ${{ inputs.view_pin }}
+        params: ${{ steps.build_params.result }}
   returns: ${{ steps.lock_host.result.data }}

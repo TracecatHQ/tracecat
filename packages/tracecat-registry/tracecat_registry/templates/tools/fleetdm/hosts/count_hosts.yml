@@ -25,14 +25,6 @@ definition:
       type: int | None
       description: Scope the count to a fleet (team) ID.
       default: null
-    platform:
-      type: str | None
-      description: Platform filter (darwin, windows, linux, chrome, ios, ipados).
-      default: null
-    label_id:
-      type: int | None
-      description: Only count hosts that are members of this label ID.
-      default: null
     policy_id:
       type: int | None
       description: Filter by hosts evaluated against this policy ID (pair with policy_response).
@@ -41,11 +33,45 @@ definition:
       type: str | None
       description: Policy compliance filter for policy_id (passing or failing).
       default: null
+    software_title_id:
+      type: int | None
+      description: Only count hosts that have this software title installed.
+      default: null
     vulnerability:
       type: str | None
       description: Only count hosts affected by this CVE (e.g. CVE-2024-1234).
       default: null
+    mdm_enrollment_status:
+      type: str | None
+      description: MDM enrollment filter (manual, automatic, enrolled, pending, unenrolled).
+      default: null
+    os_settings_disk_encryption:
+      type: str | None
+      description: Disk encryption status filter (verified, verifying, action_required, enforcing, failed, removing_enforcement).
+      default: null
+    low_disk_space:
+      type: int | None
+      description: Only count hosts with less than this many GB of disk space.
+      default: null
   steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            status: ${{ inputs.status }}
+            query: ${{ inputs.query }}
+            fleet_id: ${{ inputs.fleet_id }}
+            policy_id: ${{ inputs.policy_id }}
+            policy_response: ${{ inputs.policy_response }}
+            software_title_id: ${{ inputs.software_title_id }}
+            vulnerability: ${{ inputs.vulnerability }}
+            mdm_enrollment_status: ${{ inputs.mdm_enrollment_status }}
+            os_settings_disk_encryption: ${{ inputs.os_settings_disk_encryption }}
+            low_disk_space: ${{ inputs.low_disk_space }}
+        script: |
+          def main(params):
+              return {k: v for k, v in params.items() if v is not None}
     - ref: count_hosts
       action: core.http_request
       args:
@@ -53,13 +79,5 @@ definition:
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
-        params:
-          status: ${{ inputs.status }}
-          query: ${{ inputs.query }}
-          fleet_id: ${{ inputs.fleet_id }}
-          platform: ${{ inputs.platform }}
-          label_id: ${{ inputs.label_id }}
-          policy_id: ${{ inputs.policy_id }}
-          policy_response: ${{ inputs.policy_response }}
-          vulnerability: ${{ inputs.vulnerability }}
+        params: ${{ steps.build_params.result }}
   returns: ${{ steps.count_hosts.result.data }}

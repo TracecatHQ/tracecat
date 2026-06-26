@@ -25,6 +25,16 @@ definition:
       description: Include the host's installed software in the response.
       default: null
   steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            populate_policies: ${{ inputs.populate_policies }}
+            populate_software: ${{ inputs.populate_software }}
+        script: |
+          def main(params):
+              return {k: v for k, v in params.items() if v is not None}
     - ref: get_host
       action: core.http_request
       args:
@@ -32,7 +42,5 @@ definition:
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
-        params:
-          populate_policies: ${{ inputs.populate_policies }}
-          populate_software: ${{ inputs.populate_software }}
+        params: ${{ steps.build_params.result }}
   returns: ${{ steps.get_host.result.data }}

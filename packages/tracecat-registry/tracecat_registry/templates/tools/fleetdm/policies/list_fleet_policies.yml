@@ -21,6 +21,15 @@ definition:
       description: Include global policies inherited by the fleet.
       default: null
   steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            merge_inherited: ${{ inputs.merge_inherited }}
+        script: |
+          def main(params):
+              return {k: v for k, v in params.items() if v is not None}
     - ref: fleet_policies
       action: core.http_request
       args:
@@ -28,6 +37,5 @@ definition:
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
-        params:
-          merge_inherited: ${{ inputs.merge_inherited }}
+        params: ${{ steps.build_params.result }}
   returns: ${{ steps.fleet_policies.result.data }}

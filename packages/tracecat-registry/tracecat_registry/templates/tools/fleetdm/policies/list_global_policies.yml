@@ -17,6 +17,10 @@ definition:
       type: str | None
       description: Field to order policies by (e.g. name, failing_host_count).
       default: null
+    order_direction:
+      type: str | None
+      description: Sort direction (asc or desc); requires order_key.
+      default: null
     page:
       type: int
       description: Page number to retrieve (0-indexed).
@@ -26,6 +30,18 @@ definition:
       description: Policies per page (Fleet caps at 200).
       default: 50
   steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            order_key: ${{ inputs.order_key }}
+            order_direction: ${{ inputs.order_direction }}
+            page: ${{ inputs.page }}
+            per_page: ${{ inputs.per_page }}
+        script: |
+          def main(params):
+              return {k: v for k, v in params.items() if v is not None}
     - ref: list_policies
       action: core.http_request
       args:
@@ -33,8 +49,5 @@ definition:
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
-        params:
-          order_key: ${{ inputs.order_key }}
-          page: ${{ inputs.page }}
-          per_page: ${{ inputs.per_page }}
+        params: ${{ steps.build_params.result }}
   returns: ${{ steps.list_policies.result.data }}
