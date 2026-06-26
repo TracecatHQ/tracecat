@@ -22,7 +22,7 @@ Required secrets:
 
 <ParamField path="comment" type="string | object" required>
 
-Comment to add to the issue. Plain strings are wrapped as ADF text paragraphs. ADF JSON strings are deserialized. Dictionaries are sent as Jira's native comment payload shape, or wrapped as `body` when they are ADF documents.
+Comment to add to the issue. Plain strings are wrapped as ADF text paragraphs. JSON object strings are deserialized. Dictionaries are sent as the Jira comment `body` value.
 
 </ParamField>
 
@@ -94,7 +94,7 @@ Required secrets:
 
 <ParamField path="description" type="string | object" required>
 
-Detailed description of the incident. Plain strings are wrapped as ADF text paragraphs. ADF JSON strings are deserialized. ADF dictionaries are sent as provided.
+Detailed description of the incident. Plain strings are wrapped as ADF text paragraphs. JSON object strings are deserialized. Dictionaries are sent as provided.
 
 </ParamField>
 
@@ -509,7 +509,7 @@ Required secrets:
 
 <ParamField path="description" type="string | object" required>
 
-Updated description of the incident. Plain strings are wrapped as ADF text paragraphs. ADF JSON strings are deserialized. ADF dictionaries are sent as provided.
+Updated description of the incident. Plain strings are wrapped as ADF text paragraphs. JSON object strings are deserialized. Dictionaries are sent as provided.
 
 </ParamField>
 

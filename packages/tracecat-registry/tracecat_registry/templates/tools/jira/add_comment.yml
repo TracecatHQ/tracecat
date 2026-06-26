@@ -17,9 +17,8 @@ definition:
       type: str | dict[str, Any]
       description: >-
         Comment to add to the issue. Plain strings are wrapped as ADF text
-        paragraphs. ADF JSON strings are deserialized. Dictionaries are sent as
-        Jira's native comment payload shape, or wrapped as `body` when they are
-        ADF documents.
+        paragraphs. JSON object strings are deserialized. Dictionaries are sent
+        as the Jira comment `body` value.
     base_url:
       type: str | None
       description: Jira tenant URL (e.g. https://your-domain.atlassian.net).
@@ -32,14 +31,6 @@ definition:
           comment: ${{ inputs.comment }}
         script: |
           import json
-
-          def _is_adf_doc(value):
-              return (
-                  isinstance(value, dict)
-                  and value.get("version") == 1
-                  and value.get("type") == "doc"
-                  and isinstance(value.get("content"), list)
-              )
 
           def _plain_text_adf(text):
               return {
@@ -60,11 +51,9 @@ definition:
                   parsed = json.loads(value)
               except (TypeError, ValueError):
                   return _plain_text_adf(value)
-              return parsed if _is_adf_doc(parsed) else _plain_text_adf(value)
+              return parsed if isinstance(parsed, dict) else _plain_text_adf(value)
 
           def main(comment):
-              if isinstance(comment, dict) and not _is_adf_doc(comment):
-                  return comment
               return {"body": _rich_text_adf(comment)}
     - ref: add_comment
       action: core.http_request

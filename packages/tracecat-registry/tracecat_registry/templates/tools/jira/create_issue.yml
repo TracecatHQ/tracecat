@@ -17,7 +17,7 @@ definition:
       type: str | dict[str, Any]
       description: >-
         Detailed description of the incident. Plain strings are wrapped as ADF
-        text paragraphs. ADF JSON strings are deserialized. ADF dictionaries are
+        text paragraphs. JSON object strings are deserialized. Dictionaries are
         sent as provided.
     priority_id:
       type: str
@@ -58,14 +58,6 @@ definition:
         script: |
           import json
 
-          def _is_adf_doc(value):
-              return (
-                  isinstance(value, dict)
-                  and value.get("version") == 1
-                  and value.get("type") == "doc"
-                  and isinstance(value.get("content"), list)
-              )
-
           def _plain_text_adf(text):
               return {
                   "version": 1,
@@ -85,7 +77,7 @@ definition:
                   parsed = json.loads(description)
               except (TypeError, ValueError):
                   return _plain_text_adf(description)
-              return parsed if _is_adf_doc(parsed) else _plain_text_adf(description)
+              return parsed if isinstance(parsed, dict) else _plain_text_adf(description)
     # Format the required fields
     - ref: required_fields
       action: core.transform.reshape

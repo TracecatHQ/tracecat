@@ -17,7 +17,7 @@ definition:
       type: str | dict[str, Any]
       description: >-
         Updated description of the incident. Plain strings are wrapped as ADF text
-        paragraphs. ADF JSON strings are deserialized. ADF dictionaries are sent
+        paragraphs. JSON object strings are deserialized. Dictionaries are sent
         as provided.
     base_url:
       type: str | None
@@ -31,14 +31,6 @@ definition:
           description: ${{ inputs.description }}
         script: |
           import json
-
-          def _is_adf_doc(value):
-              return (
-                  isinstance(value, dict)
-                  and value.get("version") == 1
-                  and value.get("type") == "doc"
-                  and isinstance(value.get("content"), list)
-              )
 
           def _plain_text_adf(text):
               return {
@@ -59,7 +51,7 @@ definition:
                   parsed = json.loads(description)
               except (TypeError, ValueError):
                   return _plain_text_adf(description)
-              return parsed if _is_adf_doc(parsed) else _plain_text_adf(description)
+              return parsed if isinstance(parsed, dict) else _plain_text_adf(description)
     - ref: update_issue
       action: core.http_request
       args:
