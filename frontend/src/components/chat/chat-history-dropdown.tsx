@@ -74,7 +74,25 @@ export function ChatHistoryDropdown({
         ) : error ? (
           <div className="p-3 text-sm text-red-600">Failed to load chats</div>
         ) : (
-          <Command>
+          <Command
+            filter={(value, search) => {
+              const chat = chats?.find((item) => item.id === value)
+              if (!chat) {
+                return 0
+              }
+
+              const normalizedSearch = search.trim().toLowerCase()
+              if (!normalizedSearch) {
+                return 1
+              }
+
+              return `${chat.title} ${chat.id}`
+                .toLowerCase()
+                .includes(normalizedSearch)
+                ? 1
+                : 0
+            }}
+          >
             <CommandInput
               placeholder="Search chats..."
               className="h-8 text-xs"
@@ -85,7 +103,7 @@ export function ChatHistoryDropdown({
                 {chats?.map((chat) => (
                   <CommandItem
                     key={chat.id}
-                    value={`${chat.title} ${chat.id}`}
+                    value={chat.id}
                     onSelect={() => handleSelect(chat.id)}
                     className="flex items-start justify-between gap-2 py-2 text-xs"
                   >

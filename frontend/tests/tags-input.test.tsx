@@ -36,4 +36,41 @@ describe("MultiTagCommandInput", () => {
 
     expect(handleLockedSelect).toHaveBeenCalledTimes(1)
   })
+
+  it("keeps command item values safe when suggestion values contain JSON", () => {
+    const handleChange = jest.fn()
+    const unsafeValue =
+      'mcp: {"mode": "per_app_review", "client_id": "example-client-id"}'
+
+    render(
+      <MultiTagCommandInput
+        onChange={handleChange}
+        suggestions={[
+          {
+            id: "unsafe-mcp-action",
+            label: "Unsafe MCP action",
+            value: unsafeValue,
+            description: "MCP tool",
+          },
+        ]}
+        searchKeys={["value", "label", "description", "group"]}
+      />
+    )
+
+    const input = screen.getByPlaceholderText("Add tags...")
+    fireEvent.focus(input)
+
+    expect(screen.getByText("Unsafe MCP action")).toBeInTheDocument()
+    expect(() => {
+      document.querySelector(`[cmdk-item=""][data-value="${unsafeValue}"]`)
+    }).toThrow()
+    expect(() => {
+      document.querySelector('[cmdk-item=""][data-value="0"]')
+    }).not.toThrow()
+
+    fireEvent.mouseDown(screen.getByText("Unsafe MCP action"))
+    fireEvent.click(screen.getByText("Unsafe MCP action"))
+
+    expect(handleChange).toHaveBeenCalledWith([unsafeValue])
+  })
 })
