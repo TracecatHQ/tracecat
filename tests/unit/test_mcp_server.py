@@ -70,6 +70,8 @@ try:
 finally:
     mcp_auth.create_mcp_auth = _original_create_mcp_auth
 
+from tracecat.workflow.management import draft  # noqa: E402
+
 
 def _tool(fn: Any) -> Callable[..., Coroutine[Any, Any, Any]]:
     """Cast a FastMCP-decorated tool back to a callable for test invocation.
@@ -515,14 +517,14 @@ def test_extract_layout_positions_full():
             {"ref": "step2", "x": 300, "y": 400},
         ],
     }
-    trigger, viewport, actions = mcp_server._extract_layout_positions(layout_data)
+    trigger, viewport, actions = draft.extract_layout_positions(layout_data)
     assert trigger == (10, 20)
     assert viewport == (30, 40, 1.5)
     assert actions == {"step1": (100, 200), "step2": (300, 400)}
 
 
 def test_extract_layout_positions_none():
-    trigger, viewport, actions = mcp_server._extract_layout_positions(None)
+    trigger, viewport, actions = draft.extract_layout_positions(None)
     assert trigger is None
     assert viewport is None
     assert actions is None
@@ -533,7 +535,7 @@ def test_extract_layout_positions_partial():
         "trigger": {"x": 5},
         "actions": [{"ref": "a", "y": 99}],
     }
-    trigger, viewport, actions = mcp_server._extract_layout_positions(layout_data)
+    trigger, viewport, actions = draft.extract_layout_positions(layout_data)
     assert trigger == (5, 0.0)
     assert viewport is None
     assert actions == {"a": (0.0, 99)}
@@ -544,7 +546,7 @@ def test_extract_layout_positions_nested_position_shape():
         "trigger": {"position": {"x": 10, "y": 20}},
         "actions": [{"ref": "a", "position": {"x": 30, "y": 40}}],
     }
-    trigger, viewport, actions = mcp_server._extract_layout_positions(layout_data)
+    trigger, viewport, actions = draft.extract_layout_positions(layout_data)
     assert trigger == (10, 20)
     assert viewport is None
     assert actions == {"a": (30, 40)}
@@ -557,9 +559,7 @@ def test_auto_generate_layout_round_trips_through_extract():
         {"ref": "step2", "depends_on": ["step1"]},
     ]
     layout_data = layout_module.auto_generate_layout(actions)
-    trigger, viewport, action_positions = mcp_server._extract_layout_positions(
-        layout_data
-    )
+    trigger, viewport, action_positions = draft.extract_layout_positions(layout_data)
     assert trigger == (0, 0)
     assert viewport is None
     assert action_positions is not None
@@ -731,7 +731,7 @@ async def test_apply_workflow_yaml_update_validates_definition(monkeypatch):
     monkeypatch.setattr(mcp_server, "validate_dsl", _validate_dsl)
     monkeypatch.setattr(
         mcp_server,
-        "_replace_workflow_definition_from_dsl",
+        "replace_workflow_definition_from_dsl",
         _replace_workflow_definition_from_dsl,
     )
 
@@ -810,8 +810,8 @@ async def test_get_workflow_returns_metadata_only(monkeypatch):
 def test_build_workflow_edit_document_normalizes_null_schedule_timeout() -> None:
     workflow = _workflow_stub(schedules=[_schedule_stub(timeout=None)])
 
-    document = mcp_server._build_workflow_edit_document(
-        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    document = draft.build_workflow_edit_document(
+        cast(draft._WorkflowEditDocumentSource, workflow)
     )
 
     assert document.schedules is not None
@@ -850,11 +850,11 @@ def test_build_workflow_edit_document_sorts_schedules_by_canonical_content() -> 
         ]
     )
 
-    document_one = mcp_server._build_workflow_edit_document(
-        cast(mcp_server._WorkflowEditDocumentSource, workflow_one)
+    document_one = draft.build_workflow_edit_document(
+        cast(draft._WorkflowEditDocumentSource, workflow_one)
     )
-    document_two = mcp_server._build_workflow_edit_document(
-        cast(mcp_server._WorkflowEditDocumentSource, workflow_two)
+    document_two = draft.build_workflow_edit_document(
+        cast(draft._WorkflowEditDocumentSource, workflow_two)
     )
 
     assert [schedule.cron for schedule in document_one.schedules] == [
@@ -877,8 +877,8 @@ def test_build_workflow_edit_document_omits_invalid_online_case_trigger() -> Non
         )
     )
 
-    document = mcp_server._build_workflow_edit_document(
-        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    document = draft.build_workflow_edit_document(
+        cast(draft._WorkflowEditDocumentSource, workflow)
     )
 
     assert document.case_trigger is None
@@ -890,11 +890,11 @@ def test_compute_workflow_edit_revision_normalizes_layout_position_aliases() -> 
         trigger_position_y=20.0,
         actions=[_action_stub(position_x=30.0, position_y=40.0)],
     )
-    document = mcp_server._build_workflow_edit_document(
-        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    document = draft.build_workflow_edit_document(
+        cast(draft._WorkflowEditDocumentSource, workflow)
     )
     alias_payload = json.loads(
-        json.dumps(mcp_server._workflow_edit_document_payload(document))
+        json.dumps(draft.workflow_edit_document_payload(document))
     )
     alias_payload["layout"]["trigger"] = {"position": {"x": 10.0, "y": 20.0}}
     alias_payload["layout"]["actions"][0] = {
@@ -908,16 +908,16 @@ def test_compute_workflow_edit_revision_normalizes_layout_position_aliases() -> 
     assert alias_document.layout.trigger.y == 20.0
     assert alias_document.layout.trigger.position is None
     assert alias_document.layout.actions[0].position is None
-    assert mcp_server._compute_workflow_edit_revision(
+    assert draft.compute_workflow_edit_revision(
         alias_document
-    ) == mcp_server._compute_workflow_edit_revision(document)
+    ) == draft.compute_workflow_edit_revision(document)
 
 
 def test_workflow_edit_document_rejects_null_layout_actions() -> None:
     workflow = _workflow_stub(actions=[_action_stub()])
-    payload = mcp_server._workflow_edit_document_payload(
-        mcp_server._build_workflow_edit_document(
-            cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    payload = draft.workflow_edit_document_payload(
+        draft.build_workflow_edit_document(
+            cast(draft._WorkflowEditDocumentSource, workflow)
         )
     )
     payload["layout"]["actions"] = None
@@ -939,9 +939,9 @@ async def test_replace_workflow_definition_from_dsl_uses_existing_workflow() -> 
         returns=None,
         actions=[],
     )
-    updated_payload = mcp_server._workflow_edit_document_payload(
-        mcp_server._build_workflow_edit_document(
-            cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    updated_payload = draft.workflow_edit_document_payload(
+        draft.build_workflow_edit_document(
+            cast(draft._WorkflowEditDocumentSource, workflow)
         )
     )
     updated_payload["metadata"]["title"] = "Updated workflow"
@@ -956,7 +956,7 @@ async def test_replace_workflow_definition_from_dsl_uses_existing_workflow() -> 
         }
     ]
     updated_document = mcp_server.WorkflowEditDocument.model_validate(updated_payload)
-    dsl = mcp_server._workflow_edit_document_to_dsl(updated_document)
+    dsl = draft.workflow_edit_document_to_dsl(updated_document)
 
     captured: dict[str, Any] = {}
 
@@ -987,7 +987,7 @@ async def test_replace_workflow_definition_from_dsl_uses_existing_workflow() -> 
         workspace_id=uuid.uuid4(),
         create_actions_from_dsl=_create_actions_from_dsl,
     )
-    await mcp_server._replace_workflow_definition_from_dsl(
+    await draft.replace_workflow_definition_from_dsl(
         service=cast(Any, service),
         workflow=cast(Any, workflow),
         dsl=dsl,
@@ -1056,9 +1056,9 @@ async def test_edit_workflow_updates_metadata(monkeypatch):
         lambda role: _AsyncContext(workflow_service),
     )
 
-    base_revision = mcp_server._compute_workflow_edit_revision(
-        mcp_server._build_workflow_edit_document(
-            cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    base_revision = draft.compute_workflow_edit_revision(
+        draft.build_workflow_edit_document(
+            cast(draft._WorkflowEditDocumentSource, workflow)
         )
     )
     payload = _payload(
@@ -1119,9 +1119,9 @@ async def test_edit_workflow_refreshes_related_state_before_response_revision(
         lambda role: _AsyncContext(workflow_service),
     )
 
-    base_revision = mcp_server._compute_workflow_edit_revision(
-        mcp_server._build_workflow_edit_document(
-            cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    base_revision = draft.compute_workflow_edit_revision(
+        draft.build_workflow_edit_document(
+            cast(draft._WorkflowEditDocumentSource, workflow)
         )
     )
     payload = _payload(
@@ -1190,9 +1190,9 @@ async def test_edit_workflow_validate_only_does_not_persist(monkeypatch):
         lambda role: _AsyncContext(_WorkflowService()),
     )
 
-    base_revision = mcp_server._compute_workflow_edit_revision(
-        mcp_server._build_workflow_edit_document(
-            cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    base_revision = draft.compute_workflow_edit_revision(
+        draft.build_workflow_edit_document(
+            cast(draft._WorkflowEditDocumentSource, workflow)
         )
     )
     payload = _payload(
@@ -1239,9 +1239,9 @@ async def test_edit_workflow_validate_only_rejects_invalid_schedule(monkeypatch)
         lambda role: _AsyncContext(_WorkflowService()),
     )
 
-    base_revision = mcp_server._compute_workflow_edit_revision(
-        mcp_server._build_workflow_edit_document(
-            cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    base_revision = draft.compute_workflow_edit_revision(
+        draft.build_workflow_edit_document(
+            cast(draft._WorkflowEditDocumentSource, workflow)
         )
     )
 
@@ -1296,17 +1296,17 @@ async def test_edit_workflow_validate_only_runs_full_definition_validation(monke
             return workflow
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(mcp_server, "validate_dsl", _validate_dsl)
+    monkeypatch.setattr(draft, "validate_dsl", _validate_dsl)
     monkeypatch.setattr(
         mcp_server.WorkflowsManagementService,
         "with_session",
         lambda role: _AsyncContext(_WorkflowService()),
     )
 
-    draft_document = mcp_server._build_workflow_edit_document(
-        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    draft_document = draft.build_workflow_edit_document(
+        cast(draft._WorkflowEditDocumentSource, workflow)
     )
-    base_revision = mcp_server._compute_workflow_edit_revision(draft_document)
+    base_revision = draft.compute_workflow_edit_revision(draft_document)
 
     with pytest.raises(ToolError) as exc_info:
         await _tool(mcp_server.edit_workflow)(
@@ -1386,9 +1386,9 @@ async def test_edit_workflow_updates_metadata_with_disconnected_layout_actions(
         lambda role: _AsyncContext(_WorkflowService()),
     )
 
-    base_revision = mcp_server._compute_workflow_edit_revision(
-        mcp_server._build_workflow_edit_document(
-            cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    base_revision = draft.compute_workflow_edit_revision(
+        draft.build_workflow_edit_document(
+            cast(draft._WorkflowEditDocumentSource, workflow)
         )
     )
     payload = _payload(
@@ -1433,10 +1433,10 @@ async def test_persist_workflow_edit_document_ignores_stale_layout_refs_after_de
         trigger_position_y=2.0,
         actions=[orphan_action, connected_action],
     )
-    original_document = mcp_server._build_workflow_edit_document(
-        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    original_document = draft.build_workflow_edit_document(
+        cast(draft._WorkflowEditDocumentSource, workflow)
     )
-    updated_payload = mcp_server._workflow_edit_document_payload(original_document)
+    updated_payload = draft.workflow_edit_document_payload(original_document)
     updated_payload["definition"]["returns"] = {"status": "ok"}
     updated_payload["layout"]["trigger"]["x"] = 99.0
     updated_document = mcp_server.WorkflowEditDocument.model_validate(updated_payload)
@@ -1455,13 +1455,13 @@ async def test_persist_workflow_edit_document_ignores_stale_layout_refs_after_de
         kwargs["workflow"].actions = [connected_action]
 
     monkeypatch.setattr(
-        mcp_server,
-        "_replace_workflow_definition_from_dsl",
+        draft,
+        "replace_workflow_definition_from_dsl",
         _replace_definition_from_dsl,
     )
 
     service = SimpleNamespace(session=_FakeSession(), workspace_id=uuid.uuid4())
-    await mcp_server._persist_workflow_edit_document(
+    await draft.persist_workflow_edit_document(
         role=SimpleNamespace(),
         service=cast(Any, service),
         workflow=cast(Any, workflow),
@@ -1505,10 +1505,10 @@ async def test_persist_workflow_edit_document_skips_reorder_only_changes(
             _schedule_stub(cron="0 * * * *", timeout=0.0),
         ],
     )
-    original_document = mcp_server._build_workflow_edit_document(
-        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    original_document = draft.build_workflow_edit_document(
+        cast(draft._WorkflowEditDocumentSource, workflow)
     )
-    updated_payload = mcp_server._workflow_edit_document_payload(original_document)
+    updated_payload = draft.workflow_edit_document_payload(original_document)
     updated_payload["definition"]["actions"] = list(
         reversed(updated_payload["definition"]["actions"])
     )
@@ -1535,13 +1535,13 @@ async def test_persist_workflow_edit_document_skips_reorder_only_changes(
         raise AssertionError(f"unexpected definition replacement: {kwargs!r}")
 
     monkeypatch.setattr(
-        mcp_server,
-        "_replace_workflow_definition_from_dsl",
+        draft,
+        "replace_workflow_definition_from_dsl",
         _replace_definition_from_dsl,
     )
 
     service = SimpleNamespace(session=_FakeSession(), workspace_id=uuid.uuid4())
-    await mcp_server._persist_workflow_edit_document(
+    await draft.persist_workflow_edit_document(
         role=SimpleNamespace(),
         service=cast(Any, service),
         workflow=cast(Any, workflow),
@@ -1599,10 +1599,10 @@ async def test_edit_workflow_validate_only_canonicalizes_draft_revision(monkeypa
         lambda role: _AsyncContext(_WorkflowService()),
     )
 
-    draft_document = mcp_server._build_workflow_edit_document(
-        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    draft_document = draft.build_workflow_edit_document(
+        cast(draft._WorkflowEditDocumentSource, workflow)
     )
-    base_revision = mcp_server._compute_workflow_edit_revision(draft_document)
+    base_revision = draft.compute_workflow_edit_revision(draft_document)
     reversed_definition_actions = list(
         reversed(draft_document.definition.model_dump(mode="json")["actions"])
     )
@@ -1687,18 +1687,18 @@ async def test_edit_workflow_validate_only_revision_drops_removed_action_layout(
             return workflow
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(mcp_server, "validate_dsl", _validate_dsl)
+    monkeypatch.setattr(draft, "validate_dsl", _validate_dsl)
     monkeypatch.setattr(
         mcp_server.WorkflowsManagementService,
         "with_session",
         lambda role: _AsyncContext(_WorkflowService()),
     )
 
-    draft_document = mcp_server._build_workflow_edit_document(
-        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    draft_document = draft.build_workflow_edit_document(
+        cast(draft._WorkflowEditDocumentSource, workflow)
     )
-    base_revision = mcp_server._compute_workflow_edit_revision(draft_document)
-    updated_payload = mcp_server._workflow_edit_document_payload(draft_document)
+    base_revision = draft.compute_workflow_edit_revision(draft_document)
+    updated_payload = draft.workflow_edit_document_payload(draft_document)
     updated_payload["definition"]["actions"] = [
         action
         for action in updated_payload["definition"]["actions"]
@@ -1710,7 +1710,7 @@ async def test_edit_workflow_validate_only_revision_drops_removed_action_layout(
         for action_layout in expected_payload["layout"]["actions"]
         if action_layout["ref"] == "step_a"
     ]
-    expected_revision = mcp_server._compute_workflow_edit_revision(
+    expected_revision = draft.compute_workflow_edit_revision(
         mcp_server.WorkflowEditDocument.model_validate(expected_payload)
     )
 
@@ -1733,7 +1733,7 @@ async def test_edit_workflow_validate_only_revision_drops_removed_action_layout(
     assert payload["valid"] is True
     assert payload["validate_only"] is True
     assert payload["draft_revision"] == expected_revision
-    assert payload["draft_revision"] != mcp_server._compute_workflow_edit_revision(
+    assert payload["draft_revision"] != draft.compute_workflow_edit_revision(
         mcp_server.WorkflowEditDocument.model_validate(updated_payload)
     )
 
@@ -1763,10 +1763,10 @@ async def test_edit_workflow_validate_only_revision_drops_inert_case_trigger(
         lambda role: _AsyncContext(_WorkflowService()),
     )
 
-    draft_document = mcp_server._build_workflow_edit_document(
-        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    draft_document = draft.build_workflow_edit_document(
+        cast(draft._WorkflowEditDocumentSource, workflow)
     )
-    base_revision = mcp_server._compute_workflow_edit_revision(draft_document)
+    base_revision = draft.compute_workflow_edit_revision(draft_document)
 
     payload = _payload(
         await _tool(mcp_server.edit_workflow)(
@@ -1860,8 +1860,8 @@ async def test_edit_workflow_rejects_stale_revision(monkeypatch):
     ],
 )
 def test_parse_workflow_edit_request_rejects_forbidden_paths(path, value):
-    with pytest.raises(ToolError, match="not editable via edit_workflow"):
-        mcp_server._parse_workflow_edit_request(
+    with pytest.raises(draft.WorkflowEditError, match="not editable via edit_workflow"):
+        draft.parse_workflow_edit_request(
             base_revision="revision",
             patch_ops=[{"op": "add", "path": path, "value": value}],
             validate_only=False,
@@ -1892,10 +1892,10 @@ def test_parse_workflow_edit_request_rejects_removing_schedule_status(
     expected_path,
 ):
     with pytest.raises(
-        ToolError,
+        draft.WorkflowEditError,
         match=re.escape(f"Patch path '{expected_path}' cannot be removed"),
     ):
-        mcp_server._parse_workflow_edit_request(
+        draft.parse_workflow_edit_request(
             base_revision="revision",
             patch_ops=patch_ops,
             validate_only=False,
@@ -1926,10 +1926,10 @@ def test_parse_workflow_edit_request_rejects_removing_case_trigger_status(
     expected_path,
 ):
     with pytest.raises(
-        ToolError,
+        draft.WorkflowEditError,
         match=re.escape(f"Patch path '{expected_path}' cannot be removed"),
     ):
-        mcp_server._parse_workflow_edit_request(
+        draft.parse_workflow_edit_request(
             base_revision="revision",
             patch_ops=patch_ops,
             validate_only=False,
@@ -1966,11 +1966,11 @@ async def test_edit_workflow_rejects_schedule_parent_replace_that_omits_status(
         lambda role: _AsyncContext(_WorkflowService()),
     )
 
-    draft_document = mcp_server._build_workflow_edit_document(
-        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    draft_document = draft.build_workflow_edit_document(
+        cast(draft._WorkflowEditDocumentSource, workflow)
     )
-    base_revision = mcp_server._compute_workflow_edit_revision(draft_document)
-    schedule_payload = mcp_server._workflow_edit_document_payload(draft_document)[
+    base_revision = draft.compute_workflow_edit_revision(draft_document)
+    schedule_payload = draft.workflow_edit_document_payload(draft_document)[
         "schedules"
     ][0]
     del schedule_payload["status"]
@@ -2024,11 +2024,11 @@ async def test_edit_workflow_rejects_case_trigger_parent_replace_that_omits_stat
         lambda role: _AsyncContext(_WorkflowService()),
     )
 
-    draft_document = mcp_server._build_workflow_edit_document(
-        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    draft_document = draft.build_workflow_edit_document(
+        cast(draft._WorkflowEditDocumentSource, workflow)
     )
-    base_revision = mcp_server._compute_workflow_edit_revision(draft_document)
-    case_trigger_payload = mcp_server._workflow_edit_document_payload(draft_document)[
+    base_revision = draft.compute_workflow_edit_revision(draft_document)
+    case_trigger_payload = draft.workflow_edit_document_payload(draft_document)[
         "case_trigger"
     ]
     del case_trigger_payload["status"]
@@ -2095,9 +2095,9 @@ async def test_edit_workflow_rejects_unknown_nested_fields(monkeypatch):
         lambda role: _AsyncContext(_WorkflowService()),
     )
 
-    base_revision = mcp_server._compute_workflow_edit_revision(
-        mcp_server._build_workflow_edit_document(
-            cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    base_revision = draft.compute_workflow_edit_revision(
+        draft.build_workflow_edit_document(
+            cast(draft._WorkflowEditDocumentSource, workflow)
         )
     )
 
@@ -2171,9 +2171,9 @@ async def test_edit_workflow_rejects_excluded_nested_fields_in_parent_replace(
         lambda role: _AsyncContext(_WorkflowService()),
     )
 
-    base_revision = mcp_server._compute_workflow_edit_revision(
-        mcp_server._build_workflow_edit_document(
-            cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    base_revision = draft.compute_workflow_edit_revision(
+        draft.build_workflow_edit_document(
+            cast(draft._WorkflowEditDocumentSource, workflow)
         )
     )
 
@@ -2197,10 +2197,10 @@ async def test_persist_workflow_edit_document_applies_metadata_with_definition_c
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workflow = _workflow_stub(status="offline", alias=None)
-    original_document = mcp_server._build_workflow_edit_document(
-        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    original_document = draft.build_workflow_edit_document(
+        cast(draft._WorkflowEditDocumentSource, workflow)
     )
-    updated_payload = mcp_server._workflow_edit_document_payload(original_document)
+    updated_payload = draft.workflow_edit_document_payload(original_document)
     updated_payload["metadata"]["status"] = "online"
     updated_payload["metadata"]["alias"] = "new-alias"
     updated_payload["definition"]["actions"] = [
@@ -2236,13 +2236,13 @@ async def test_persist_workflow_edit_document_applies_metadata_with_definition_c
         captured.update(kwargs)
 
     monkeypatch.setattr(
-        mcp_server,
-        "_replace_workflow_definition_from_dsl",
+        draft,
+        "replace_workflow_definition_from_dsl",
         _replace_definition_from_dsl,
     )
 
     service = SimpleNamespace(session=_FakeSession(), workspace_id=uuid.uuid4())
-    await mcp_server._persist_workflow_edit_document(
+    await draft.persist_workflow_edit_document(
         role=SimpleNamespace(),
         service=cast(Any, service),
         workflow=cast(Any, workflow),
@@ -2260,10 +2260,10 @@ async def test_persist_workflow_edit_document_preserves_offline_schedule_status_
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workflow = _workflow_stub()
-    original_document = mcp_server._build_workflow_edit_document(
-        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    original_document = draft.build_workflow_edit_document(
+        cast(draft._WorkflowEditDocumentSource, workflow)
     )
-    updated_payload = mcp_server._workflow_edit_document_payload(original_document)
+    updated_payload = draft.workflow_edit_document_payload(original_document)
     updated_payload["schedules"] = [
         {
             "cron": "0 * * * *",
@@ -2299,15 +2299,15 @@ async def test_persist_workflow_edit_document_preserves_offline_schedule_status_
         async def update_schedule(self, schedule_id: uuid.UUID, params: Any) -> None:
             updated_schedules.append((schedule_id, params))
 
-    monkeypatch.setattr(mcp_server, "_replace_workflow_schedules", _replace_schedules)
+    monkeypatch.setattr(draft, "replace_workflow_schedules", _replace_schedules)
     monkeypatch.setattr(
-        mcp_server,
+        draft,
         "WorkflowSchedulesService",
         _FakeWorkflowSchedulesService,
     )
 
     service = SimpleNamespace(session=_FakeSession(), workspace_id=uuid.uuid4())
-    await mcp_server._persist_workflow_edit_document(
+    await draft.persist_workflow_edit_document(
         role=SimpleNamespace(),
         service=cast(Any, service),
         workflow=cast(Any, workflow),
@@ -2344,17 +2344,17 @@ async def test_replace_workflow_schedules_creates_schedules_with_payload_status(
             created_params.append(params)
             return SimpleNamespace(id=uuid.uuid4())
 
-    await mcp_server._replace_workflow_schedules(
+    await draft.replace_workflow_schedules(
         service=cast(Any, _FakeWorkflowSchedulesService()),
         workflow_id=cast(Any, workflow_id),
         schedules=[
-            mcp_server.WorkflowSchedule(
+            draft.WorkflowSchedule(
                 cron="0 * * * *",
                 status="offline",
                 inputs={},
                 timeout=0,
             ),
-            mcp_server.WorkflowSchedule(
+            draft.WorkflowSchedule(
                 cron="30 * * * *",
                 status="online",
                 inputs={},
@@ -2421,7 +2421,7 @@ async def test_apply_workflow_yaml_update_replaces_schedules_without_stale_state
         update_params=mcp_server.WorkflowUpdate(),
         yaml_payload=mcp_server.WorkflowYamlPayload(
             schedules=[
-                mcp_server.WorkflowSchedule(
+                draft.WorkflowSchedule(
                     every=timedelta(hours=2),
                     status="offline",
                     inputs={},
@@ -2466,10 +2466,10 @@ async def test_persist_workflow_edit_document_resets_removed_layout_fields() -> 
         viewport_zoom=1.5,
         actions=[action],
     )
-    original_document = mcp_server._build_workflow_edit_document(
-        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    original_document = draft.build_workflow_edit_document(
+        cast(draft._WorkflowEditDocumentSource, workflow)
     )
-    updated_payload = mcp_server._workflow_edit_document_payload(original_document)
+    updated_payload = draft.workflow_edit_document_payload(original_document)
     del updated_payload["layout"]["trigger"]["x"]
     del updated_payload["layout"]["viewport"]["x"]
     del updated_payload["layout"]["actions"][0]["x"]
@@ -2486,7 +2486,7 @@ async def test_persist_workflow_edit_document_resets_removed_layout_fields() -> 
             return None
 
     service = SimpleNamespace(session=_FakeSession(), workspace_id=uuid.uuid4())
-    await mcp_server._persist_workflow_edit_document(
+    await draft.persist_workflow_edit_document(
         role=SimpleNamespace(),
         service=cast(Any, service),
         workflow=cast(Any, workflow),
@@ -2536,10 +2536,10 @@ async def test_persist_workflow_edit_document_resets_removed_layout_actions() ->
         position_y=70.0,
     )
     workflow = _workflow_stub(actions=[action_a, action_b])
-    original_document = mcp_server._build_workflow_edit_document(
-        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    original_document = draft.build_workflow_edit_document(
+        cast(draft._WorkflowEditDocumentSource, workflow)
     )
-    updated_payload = mcp_server._workflow_edit_document_payload(original_document)
+    updated_payload = draft.workflow_edit_document_payload(original_document)
     updated_payload["layout"]["actions"] = [updated_payload["layout"]["actions"][1]]
     updated_document = mcp_server.WorkflowEditDocument.model_validate(updated_payload)
 
@@ -2554,7 +2554,7 @@ async def test_persist_workflow_edit_document_resets_removed_layout_actions() ->
             return None
 
     service = SimpleNamespace(session=_FakeSession(), workspace_id=uuid.uuid4())
-    await mcp_server._persist_workflow_edit_document(
+    await draft.persist_workflow_edit_document(
         role=SimpleNamespace(),
         service=cast(Any, service),
         workflow=cast(Any, workflow),
@@ -2593,10 +2593,10 @@ async def test_persist_workflow_edit_document_resets_removed_layout_object() -> 
         viewport_zoom=1.5,
         actions=[action],
     )
-    original_document = mcp_server._build_workflow_edit_document(
-        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    original_document = draft.build_workflow_edit_document(
+        cast(draft._WorkflowEditDocumentSource, workflow)
     )
-    updated_payload = mcp_server._workflow_edit_document_payload(original_document)
+    updated_payload = draft.workflow_edit_document_payload(original_document)
     del updated_payload["layout"]
     updated_document = mcp_server.WorkflowEditDocument.model_validate(updated_payload)
 
@@ -2611,7 +2611,7 @@ async def test_persist_workflow_edit_document_resets_removed_layout_object() -> 
             return None
 
     service = SimpleNamespace(session=_FakeSession(), workspace_id=uuid.uuid4())
-    await mcp_server._persist_workflow_edit_document(
+    await draft.persist_workflow_edit_document(
         role=SimpleNamespace(),
         service=cast(Any, service),
         workflow=cast(Any, workflow),
@@ -10068,3 +10068,65 @@ async def test_collect_agent_response_surfaces_approval_requests(
             "args": {"url": "https://example.com"},
         }
     ]
+
+
+def _minimal_edit_document_payload() -> dict[str, Any]:
+    """A minimal valid WorkflowEditDocument payload: trigger -> a -> b."""
+    return {
+        "metadata": {"title": "Test workflow", "description": "", "status": "offline"},
+        "definition": {
+            "entrypoint": {"ref": "a", "expects": {}},
+            "actions": [
+                {"ref": "a", "action": "core.transform.reshape", "args": {"value": 1}},
+                {"ref": "b", "action": "core.transform.reshape", "args": {"value": 2}},
+            ],
+        },
+    }
+
+
+def test_validate_patch_payload_accepts_error_edge_dependency() -> None:
+    """`depends_on: ['<ref>.error']` is the supported on-failure branch syntax."""
+    payload = _minimal_edit_document_payload()
+    # Run a new action only when action `a` fails.
+    payload["definition"]["actions"].append(
+        {
+            "ref": "a_error_handler",
+            "action": "core.transform.reshape",
+            "args": {"value": "handled"},
+            "depends_on": ["a.error"],
+        }
+    )
+
+    document = draft.validate_workflow_patch_payload(payload)
+
+    handler = next(
+        action
+        for action in document.definition.actions
+        if action.ref == "a_error_handler"
+    )
+    assert handler.depends_on == ["a.error"]
+
+
+def test_validate_patch_payload_rejects_invented_on_error_field() -> None:
+    """An invented `on_error` action field yields a structured 400-able error.
+
+    Regression: this previously escaped as a raw pydantic ValidationError and
+    surfaced to the agent as an opaque 500. It must now be a WorkflowEditError
+    that names the offending field and points at the real error-edge syntax.
+    """
+    payload = _minimal_edit_document_payload()
+    payload["definition"]["actions"][0]["on_error"] = "a_error_handler"
+
+    with pytest.raises(draft.WorkflowEditError) as exc_info:
+        draft.validate_workflow_patch_payload(payload)
+
+    error = exc_info.value
+    assert error.code == "validation_error"
+    assert error.details is not None
+    assert error.details["type"] == "validation_error"
+    # The structured errors pinpoint the offending field.
+    locs = {tuple(item["loc"]) for item in error.details["errors"]}
+    assert ("definition", "actions", 0, "on_error") in locs
+    # The message steers the model to the real error-edge syntax.
+    assert "depends_on" in error.message
+    assert ".error" in error.message

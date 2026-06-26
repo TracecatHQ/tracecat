@@ -13,7 +13,7 @@ import hashlib
 import json
 import uuid
 from collections import defaultdict, deque
-from collections.abc import Collection, Iterator, Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from io import StringIO
 from pathlib import PurePosixPath
@@ -22,7 +22,6 @@ from typing import (
     Any,
     Literal,
     NamedTuple,
-    Protocol,
     TypedDict,
     cast,
     get_args,
@@ -46,9 +45,8 @@ from pydantic import (
 )
 from redis.asyncio import Redis as AsyncRedis
 from slugify import slugify
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
-from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import WorkflowExecutionStatus
 from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
@@ -133,19 +131,15 @@ from tracecat.cases.tags.service import CaseTagsService
 from tracecat.chat.schemas import BasicChatRequest, ChatRequest
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import (
-    Action,
     Table,
     Workflow,
     WorkflowDefinition,
 )
 from tracecat.dsl.common import (
-    DSLEntrypoint,
     DSLInput,
-    build_action_statements_from_actions,
     get_execution_type_from_search_attr,
     get_trigger_type_from_search_attr,
 )
-from tracecat.dsl.schemas import DSLConfig
 from tracecat.dsl.validation import (
     format_input_schema_validation_error,
     normalize_trigger_inputs,
@@ -184,7 +178,7 @@ from tracecat.mcp.config import (
     TRACECAT_MCP__RATE_LIMIT_BURST,
     TRACECAT_MCP__RATE_LIMIT_RPS,
 )
-from tracecat.mcp.json_patch import apply_json_patch_operations, validate_patch_paths
+from tracecat.mcp.json_patch import apply_json_patch_operations
 from tracecat.mcp.middleware import (
     MCPInputSizeLimitMiddleware,
     MCPTimeoutMiddleware,
@@ -197,13 +191,9 @@ from tracecat.mcp.schemas import (
     MCPTruncationInfo,
     MCPTruncationSummary,
     ValidationResponse,
-    WorkflowEditDefinition,
     WorkflowEditDocument,
-    WorkflowEditMetadata,
-    WorkflowEditRequest,
     WorkflowEditResponse,
     WorkflowLayout,
-    WorkflowSchedule,
     WorkflowYamlPayload,
 )
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
@@ -251,11 +241,26 @@ from tracecat.workflow.case_triggers.schemas import (
     CaseTriggerConfig,
     CaseTriggerRead,
     CaseTriggerUpdate,
-    is_case_trigger_configured,
 )
 from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
+from tracecat.workflow.management.draft import (
+    WorkflowEditError,
+    apply_layout_to_workflow,
+    build_workflow_edit_document,
+    compute_workflow_edit_revision,
+    extract_layout_positions,
+    normalize_workflow_edit_document_for_persisted_revision,
+    parse_workflow_edit_request,
+    persist_workflow_edit_document,
+    replace_workflow_definition_from_dsl,
+    replace_workflow_schedules,
+    validate_workflow_edit_document,
+    validate_workflow_patch_payload,
+    workflow_edit_document_changed_sections,
+    workflow_edit_document_payload,
+)
 from tracecat.workflow.management.folders.service import WorkflowFolderService
 from tracecat.workflow.management.layout import (
     WorkflowActionLayoutInput,
@@ -264,7 +269,6 @@ from tracecat.workflow.management.layout import (
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.schemas import WorkflowCreate, WorkflowUpdate
 from tracecat.workflow.schedules.schemas import (
-    ScheduleCreate,
     ScheduleRead,
 )
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
@@ -779,24 +783,6 @@ async def _resolve_agent_preset_model(
 _WORKFLOW_YAML_TOP_LEVEL_KEYS = frozenset(
     {"definition", "layout", "schedules", "case_trigger"}
 )
-
-
-def _schedule_create_from_payload(
-    *,
-    workflow_id: WorkflowUUID,
-    schedule: WorkflowSchedule,
-) -> ScheduleCreate:
-    return ScheduleCreate(
-        workflow_id=workflow_id,
-        inputs=schedule.inputs,
-        cron=schedule.cron,
-        every=schedule.every,
-        offset=schedule.offset,
-        start_at=schedule.start_at,
-        end_at=schedule.end_at,
-        status=schedule.status,
-        timeout=schedule.timeout,
-    )
 
 
 class MCPMessageResponse(BaseModel):
@@ -1575,589 +1561,16 @@ def _compute_sha256(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
-_WORKFLOW_EDITABLE_TOP_LEVEL_PATHS = frozenset(
-    {"metadata", "definition", "layout", "schedules", "case_trigger"}
-)
-_WORKFLOW_NONEDITABLE_PATH_PATTERNS: tuple[tuple[str, ...], ...] = (
-    ("definition", "config", "scheduler"),
-    ("definition", "actions", "*", "id"),
-)
-_WORKFLOW_NONREMOVABLE_PATH_PATTERNS: tuple[tuple[str, ...], ...] = (
-    ("schedules", "*", "status"),
-    ("case_trigger", "status"),
-)
+def _workflow_edit_error_to_tool_error(error: WorkflowEditError) -> ToolError:
+    """Map a transport-neutral edit error onto the historical ToolError payload.
 
-
-class _WorkflowEditDocumentSource(Protocol):
-    title: str
-    description: str | None
-    status: str
-    alias: str | None
-    error_handler: str | None
-    entrypoint: str | None
-    expects: dict[str, Any] | None
-    config: dict[str, Any] | None
-    returns: Any | None
-    trigger_position_x: float | None
-    trigger_position_y: float | None
-    viewport_x: float | None
-    viewport_y: float | None
-    viewport_zoom: float | None
-    actions: list[Action] | None
-    schedules: Sequence[Any] | None
-    case_trigger: Any | None
-
-
-def _workflow_schedule_sort_key(schedule: Any) -> str:
-    """Return a stable sort key for workflow schedules."""
-    payload = ScheduleRead.model_validate(schedule, from_attributes=True).model_dump(
-        mode="json",
-        exclude={
-            "id",
-            "workspace_id",
-            "workflow_id",
-            "created_at",
-            "updated_at",
-        },
-    )
-    if payload["timeout"] is None:
-        payload["timeout"] = 0
-    return json.dumps(payload, sort_keys=True)
-
-
-def _build_workflow_edit_document(
-    workflow: Workflow | _WorkflowEditDocumentSource,
-) -> WorkflowEditDocument:
-    """Build the canonical JSON document used by edit_workflow."""
-    actions = sorted(
-        workflow.actions or [],
-        key=lambda action: action.ref,
-    )
-    action_statements = build_action_statements_from_actions(actions) if actions else []
-
-    schedules = []
-    for schedule in sorted(
-        workflow.schedules or [],
-        key=_workflow_schedule_sort_key,
-    ):
-        schedule_payload = ScheduleRead.model_validate(
-            schedule, from_attributes=True
-        ).model_dump(
-            mode="json",
-            exclude={
-                "id",
-                "workspace_id",
-                "workflow_id",
-                "created_at",
-                "updated_at",
-            },
-        )
-        if schedule_payload["timeout"] is None:
-            schedule_payload["timeout"] = 0
-        schedules.append(schedule_payload)
-
-    case_trigger_payload: dict[str, Any] | None = None
-    if case_trigger := workflow.case_trigger:
-        case_trigger_read = CaseTriggerRead.model_validate(
-            case_trigger, from_attributes=True
-        )
-        if is_case_trigger_configured(
-            status=case_trigger_read.status,
-            event_types=case_trigger_read.event_types,
-            tag_filters=case_trigger_read.tag_filters,
-        ):
-            candidate_payload = case_trigger_read.model_dump(
-                mode="json", exclude={"id", "workflow_id"}
-            )
-            try:
-                case_trigger_payload = CaseTriggerConfig.model_validate(
-                    candidate_payload
-                ).model_dump(mode="json")
-            except ValidationError:
-                case_trigger_payload = None
-
-    return WorkflowEditDocument.model_validate(
-        {
-            "metadata": WorkflowEditMetadata(
-                title=workflow.title,
-                description=workflow.description or "",
-                status=cast(Literal["online", "offline"], workflow.status),
-                alias=workflow.alias,
-                error_handler=workflow.error_handler,
-            ).model_dump(mode="json"),
-            "definition": WorkflowEditDefinition(
-                entrypoint=DSLEntrypoint(
-                    ref=workflow.entrypoint,
-                    expects=workflow.expects,
-                ),
-                actions=action_statements,
-                config=DSLConfig.model_validate(workflow.config or {}),
-                returns=workflow.returns,
-            ).model_dump(mode="json", exclude_none=False),
-            "layout": {
-                "trigger": {
-                    "x": (
-                        workflow.trigger_position_x
-                        if workflow.trigger_position_x is not None
-                        else 0.0
-                    ),
-                    "y": (
-                        workflow.trigger_position_y
-                        if workflow.trigger_position_y is not None
-                        else 0.0
-                    ),
-                },
-                "viewport": {
-                    "x": workflow.viewport_x
-                    if workflow.viewport_x is not None
-                    else 0.0,
-                    "y": workflow.viewport_y
-                    if workflow.viewport_y is not None
-                    else 0.0,
-                    "zoom": (
-                        workflow.viewport_zoom
-                        if workflow.viewport_zoom is not None
-                        else 1.0
-                    ),
-                },
-                "actions": [
-                    {"ref": action.ref, "x": action.position_x, "y": action.position_y}
-                    for action in actions
-                ],
-            },
-            "schedules": schedules,
-            "case_trigger": case_trigger_payload,
-        }
-    )
-
-
-def _workflow_edit_document_payload(
-    document: WorkflowEditDocument,
-) -> dict[str, Any]:
-    """Serialize the canonical workflow edit document for patching and hashing."""
-    return document.model_dump(mode="json", exclude_none=False)
-
-
-def _workflow_schedule_payload_sort_key(schedule: dict[str, Any]) -> str:
-    """Return a stable sort key for already-serialized workflow schedules."""
-    payload = dict(schedule)
-    if payload["timeout"] is None:
-        payload["timeout"] = 0
-    return json.dumps(payload, sort_keys=True)
-
-
-def _canonicalize_workflow_edit_document(
-    document: WorkflowEditDocument,
-) -> WorkflowEditDocument:
-    """Normalize document ordering before hashing or comparison."""
-    payload = _workflow_edit_document_payload(document)
-    payload["definition"]["actions"] = sorted(
-        payload["definition"]["actions"],
-        key=lambda action: cast(str, action["ref"]),
-    )
-    payload["layout"]["actions"] = sorted(
-        payload["layout"]["actions"],
-        key=lambda action: cast(str, action["ref"]),
-    )
-    payload["schedules"] = sorted(
-        payload["schedules"],
-        key=_workflow_schedule_payload_sort_key,
-    )
-    return WorkflowEditDocument.model_validate(payload)
-
-
-def _normalize_workflow_edit_document_for_persisted_revision(
-    document: WorkflowEditDocument,
-) -> WorkflowEditDocument:
-    """Normalize transient edit state that persistence drops on refresh."""
-    payload = _workflow_edit_document_payload(document)
-    action_refs = {action.ref for action in document.definition.actions}
-    payload["layout"]["actions"] = [
-        action_layout
-        for action_layout in payload["layout"]["actions"]
-        if action_layout["ref"] in action_refs
-    ]
-    if payload["case_trigger"] is not None:
-        case_trigger = CaseTriggerConfig.model_validate(payload["case_trigger"])
-        if not case_trigger.is_configured():
-            payload["case_trigger"] = None
-    return WorkflowEditDocument.model_validate(payload)
-
-
-def _workflow_edit_document_changed_sections(
-    original_document: WorkflowEditDocument,
-    updated_document: WorkflowEditDocument,
-) -> set[str]:
-    original_payload = _workflow_edit_document_payload(
-        _canonicalize_workflow_edit_document(original_document)
-    )
-    updated_payload = _workflow_edit_document_payload(
-        _canonicalize_workflow_edit_document(updated_document)
-    )
-    return {
-        key for key in updated_payload if updated_payload[key] != original_payload[key]
-    }
-
-
-def _compute_workflow_edit_revision(document: WorkflowEditDocument) -> str:
-    """Compute a stable draft revision for the editable workflow document."""
-    payload = _workflow_edit_document_payload(
-        _canonicalize_workflow_edit_document(document)
-    )
-    serialized = orjson.dumps(payload, option=orjson.OPT_SORT_KEYS)
-    return hashlib.sha256(serialized).hexdigest()
-
-
-def _decode_patch_path(path: str) -> tuple[str, ...]:
-    """Decode a JSON pointer path into unescaped tokens."""
-    return tuple(
-        token.replace("~1", "/").replace("~0", "~") for token in path.split("/")[1:]
-    )
-
-
-def _encode_patch_path(tokens: tuple[str, ...]) -> str:
-    """Encode path tokens into a JSON pointer."""
-    return "/" + "/".join(
-        token.replace("~", "~0").replace("/", "~1") for token in tokens
-    )
-
-
-def _patch_path_matches_pattern(path: str, pattern: tuple[str, ...]) -> bool:
-    """Check whether a decoded patch path matches a non-editable pattern."""
-    tokens = _decode_patch_path(path)
-    if len(tokens) < len(pattern):
-        return False
-    return all(
-        expected in {"*", actual}
-        for actual, expected in zip(tokens, pattern, strict=False)
-    )
-
-
-def _iter_noneditable_payload_paths(
-    payload: Any,
-    pattern: tuple[str, ...],
-    *,
-    prefix: tuple[str, ...] = (),
-) -> Iterator[tuple[str, ...]]:
-    """Yield matching non-editable JSON pointer token paths present in a payload."""
-    if not pattern:
-        yield prefix
-        return
-
-    token, *rest = pattern
-    if isinstance(payload, dict):
-        if token == "*":
-            for key, value in payload.items():
-                yield from _iter_noneditable_payload_paths(
-                    value,
-                    tuple(rest),
-                    prefix=prefix + (str(key),),
-                )
-        elif token in payload:
-            yield from _iter_noneditable_payload_paths(
-                payload[token],
-                tuple(rest),
-                prefix=prefix + (token,),
-            )
-    elif isinstance(payload, list):
-        if token == "*":
-            for index, value in enumerate(payload):
-                yield from _iter_noneditable_payload_paths(
-                    value,
-                    tuple(rest),
-                    prefix=prefix + (str(index),),
-                )
-        elif token.isdigit():
-            index = int(token)
-            if 0 <= index < len(payload):
-                yield from _iter_noneditable_payload_paths(
-                    payload[index],
-                    tuple(rest),
-                    prefix=prefix + (token,),
-                )
-
-
-def _iter_missing_payload_paths(
-    payload: Any,
-    pattern: tuple[str, ...],
-    *,
-    prefix: tuple[str, ...] = (),
-) -> Iterator[tuple[str, ...]]:
-    """Yield non-removable JSON pointer token paths missing from a payload."""
-    if not pattern:
-        return
-
-    token, *rest = pattern
-    if isinstance(payload, dict):
-        if token == "*":
-            for key, value in payload.items():
-                yield from _iter_missing_payload_paths(
-                    value,
-                    tuple(rest),
-                    prefix=prefix + (str(key),),
-                )
-        elif token in payload:
-            yield from _iter_missing_payload_paths(
-                payload[token],
-                tuple(rest),
-                prefix=prefix + (token,),
-            )
-        elif not rest:
-            yield prefix + (token,)
-    elif isinstance(payload, list):
-        if token == "*":
-            for index, value in enumerate(payload):
-                yield from _iter_missing_payload_paths(
-                    value,
-                    tuple(rest),
-                    prefix=prefix + (str(index),),
-                )
-        elif token.isdigit():
-            index = int(token)
-            if 0 <= index < len(payload):
-                yield from _iter_missing_payload_paths(
-                    payload[index],
-                    tuple(rest),
-                    prefix=prefix + (token,),
-                )
-
-
-def _validate_workflow_patch_payload(payload: dict[str, Any]) -> None:
-    """Reject patched payloads that still contain non-editable nested fields."""
-    for pattern in _WORKFLOW_NONEDITABLE_PATH_PATTERNS:
-        if found_path := next(_iter_noneditable_payload_paths(payload, pattern), None):
-            raise ToolError(
-                f"Patch path '{_encode_patch_path(found_path)}' is not editable via edit_workflow"
-            )
-    for pattern in _WORKFLOW_NONREMOVABLE_PATH_PATTERNS:
-        if missing_path := next(_iter_missing_payload_paths(payload, pattern), None):
-            raise ToolError(
-                f"Patch path '{_encode_patch_path(missing_path)}' cannot be removed via edit_workflow"
-            )
-
-
-def _validate_workflow_patch_paths(patch_ops: list[JsonPatchOperation]) -> None:
-    """Reject JSON Patch paths outside the editable workflow document."""
-    validate_patch_paths(
-        patch_ops,
-        allowed_top_level_paths=_WORKFLOW_EDITABLE_TOP_LEVEL_PATHS,
-    )
-    for patch_op in patch_ops:
-        for path in (patch_op.path, patch_op.from_):
-            if path is None:
-                continue
-            if any(
-                _patch_path_matches_pattern(path, pattern)
-                for pattern in _WORKFLOW_NONEDITABLE_PATH_PATTERNS
-            ):
-                raise ToolError(
-                    f"Patch path '{path}' is not editable via edit_workflow"
-                )
-        removed_paths: tuple[str | None, ...] = (
-            (patch_op.path,)
-            if patch_op.op == "remove"
-            else (patch_op.from_,)
-            if patch_op.op == "move"
-            else ()
-        )
-        for path in removed_paths:
-            if path is None:
-                continue
-            if any(
-                _patch_path_matches_pattern(path, pattern)
-                for pattern in _WORKFLOW_NONREMOVABLE_PATH_PATTERNS
-            ):
-                raise ToolError(
-                    f"Patch path '{path}' cannot be removed via edit_workflow"
-                )
-
-
-def _workflow_edit_document_to_dsl(document: WorkflowEditDocument) -> DSLInput:
-    """Convert the editable workflow document into a DSLInput."""
-    return DSLInput(
-        title=document.metadata.title,
-        description=document.metadata.description,
-        entrypoint=document.definition.entrypoint,
-        actions=document.definition.actions,
-        config=document.definition.config,
-        returns=document.definition.returns,
-        error_handler=document.metadata.error_handler,
-    )
-
-
-async def _validate_workflow_edit_document(
-    document: WorkflowEditDocument,
-    *,
-    workflow_id: WorkflowUUID,
-    existing_layout_action_refs: set[str] | None = None,
-    validate_definition: bool = False,
-    session: AsyncSession | None = None,
-    role: Role | None = None,
-) -> None:
-    """Validate editable workflow document semantics before persistence."""
-    action_refs = {action.ref for action in document.definition.actions}
-    allowed_layout_action_refs = action_refs | (existing_layout_action_refs or set())
-    for action_layout in document.layout.actions:
-        if action_layout.ref not in allowed_layout_action_refs:
-            raise ToolError(
-                f"Unknown action ref {action_layout.ref!r} in layout.actions"
-            )
-    if document.definition.actions:
-        try:
-            dsl = _workflow_edit_document_to_dsl(document)
-        except (TracecatValidationError, ValidationError, ValueError) as exc:
-            raise ToolError(f"Invalid workflow definition: {exc}") from exc
-        if validate_definition:
-            if session is None or role is None:
-                raise RuntimeError("session and role are required for DSL validation")
-            validation_results = await validate_dsl(
-                session=session,
-                dsl=dsl,
-                role=role,
-            )
-            _raise_dsl_validation_tool_error(validation_results)
-    for schedule in document.schedules:
-        try:
-            _schedule_create_from_payload(
-                workflow_id=workflow_id,
-                schedule=schedule,
-            )
-        except ValidationError as exc:
-            raise ToolError(f"Invalid workflow schedule: {exc}") from exc
-
-
-def _parse_workflow_edit_request(
-    *,
-    base_revision: str,
-    patch_ops: list[dict[str, Any]] | list[JsonPatchOperation],
-    validate_only: bool,
-) -> WorkflowEditRequest:
-    """Parse and validate the edit_workflow request payload."""
-    request = WorkflowEditRequest.model_validate(
-        {
-            "base_revision": base_revision,
-            "patch_ops": patch_ops,
-            "validate_only": validate_only,
-        }
-    )
-    _validate_workflow_patch_paths(request.patch_ops)
-    return request
-
-
-async def _persist_workflow_edit_document(
-    *,
-    role: Any,
-    service: WorkflowsManagementService,
-    workflow: Workflow,
-    original_document: WorkflowEditDocument,
-    updated_document: WorkflowEditDocument,
-) -> None:
-    """Persist changes from the editable workflow document back to the draft."""
-    changed_sections = _workflow_edit_document_changed_sections(
-        original_document,
-        updated_document,
-    )
-    if not changed_sections:
-        return
-
-    workflow_id = WorkflowUUID.new(workflow.id)
-    layout_payload = updated_document.layout.model_dump(mode="json", exclude_none=False)
-    _, _, action_positions = _extract_layout_positions(layout_payload)
-
-    if "definition" in changed_sections:
-        if updated_document.definition.actions:
-            await _replace_workflow_definition_from_dsl(
-                service=service,
-                workflow=workflow,
-                dsl=_workflow_edit_document_to_dsl(updated_document),
-                action_positions=action_positions,
-            )
-        else:
-            workflow.title = updated_document.metadata.title
-            workflow.description = updated_document.metadata.description
-            workflow.status = updated_document.metadata.status
-            workflow.alias = updated_document.metadata.alias
-            workflow.error_handler = updated_document.metadata.error_handler
-            workflow.entrypoint = updated_document.definition.entrypoint.ref
-            entrypoint_data = updated_document.definition.entrypoint.model_dump(
-                exclude_none=True
-            )
-            workflow.expects = entrypoint_data.get("expects") or {}
-            workflow.returns = updated_document.definition.returns
-            workflow.config = updated_document.definition.config.model_dump(mode="json")
-            service.session.add(workflow)
-            await service.session.execute(
-                delete(Action).where(
-                    Action.workspace_id == service.workspace_id,
-                    Action.workflow_id == workflow.id,
-                )
-            )
-            await service.session.flush()
-            await service.session.refresh(workflow, ["actions"])
-    if "metadata" in changed_sections:
-        metadata = updated_document.metadata
-        update_params = WorkflowUpdate(
-            title=metadata.title,
-            description=metadata.description,
-            status=metadata.status,
-            alias=metadata.alias,
-            error_handler=metadata.error_handler,
-        )
-        for key, value in update_params.model_dump(exclude_unset=True).items():
-            setattr(workflow, key, value)
-        service.session.add(workflow)
-
-    if "layout" in changed_sections:
-        await service.session.refresh(workflow, ["actions"])
-        allowed_missing_layout_action_refs = {
-            layout_action.ref
-            for layout_action in original_document.layout.actions
-            if layout_action.ref
-            not in {action.ref for action in updated_document.definition.actions}
-        }
-        _apply_layout_to_workflow(
-            workflow=workflow,
-            layout=WorkflowLayout.model_validate(layout_payload),
-            clear_missing=True,
-            allowed_missing_action_refs=allowed_missing_layout_action_refs,
-        )
-        service.session.add(workflow)
-        for action in workflow.actions:
-            service.session.add(action)
-
-    if "schedules" in changed_sections:
-        schedule_service = WorkflowSchedulesService(service.session, role=role)
-        await _replace_workflow_schedules(
-            service=schedule_service,
-            workflow_id=workflow_id,
-            schedules=updated_document.schedules,
-        )
-
-    if "case_trigger" in changed_sections:
-        case_trigger_service = CaseTriggersService(service.session, role=role)
-        if updated_document.case_trigger is None:
-            await case_trigger_service.upsert_case_trigger(
-                workflow_id,
-                CaseTriggerConfig(status="offline", event_types=[], tag_filters=[]),
-                create_missing_tags=True,
-                commit=False,
-            )
-        else:
-            await case_trigger_service.upsert_case_trigger(
-                workflow_id,
-                updated_document.case_trigger,
-                create_missing_tags=True,
-                commit=False,
-            )
-
-    await service.session.commit()
-    await service.session.refresh(workflow)
-    if any(section in changed_sections for section in {"definition", "layout"}):
-        await service.session.refresh(workflow, ["actions"])
-    if "schedules" in changed_sections:
-        await service.session.refresh(workflow, ["schedules"])
-    if "case_trigger" in changed_sections:
-        await service.session.refresh(workflow, ["case_trigger"])
+    Preserves the exact ToolError content the edit/import/update tools produced
+    before the edit-document engine was extracted: structured validation errors
+    are JSON-encoded, everything else uses the plain message.
+    """
+    if error.code == "validation_error" and error.details is not None:
+        return ToolError(json.dumps(error.details, default=str))
+    return ToolError(error.message)
 
 
 def _normalize_workflow_file_relative_path(relative_path: str) -> str:
@@ -2484,168 +1897,6 @@ def _ensure_inline_workflow_yaml_size(definition_yaml: str) -> None:
         )
 
 
-async def _replace_workflow_definition_from_dsl(
-    service: WorkflowsManagementService,
-    workflow: Workflow,
-    dsl: DSLInput,
-    action_positions: dict[str, tuple[float, float]] | None = None,
-) -> None:
-    """Replace draft workflow definition from DSL (actions + metadata)."""
-    workflow.title = dsl.title
-    workflow.description = dsl.description
-    workflow.entrypoint = dsl.entrypoint.ref
-    entrypoint_data = dsl.entrypoint.model_dump()
-    workflow.expects = entrypoint_data.get("expects") or {}
-    workflow.returns = dsl.returns
-    workflow.config = dsl.config.model_dump(mode="json")
-    workflow.error_handler = dsl.error_handler
-    service.session.add(workflow)
-
-    await service.session.execute(
-        delete(Action).where(
-            Action.workspace_id == service.workspace_id,
-            Action.workflow_id == workflow.id,
-        )
-    )
-    await service.create_actions_from_dsl(dsl, workflow.id, action_positions)
-    await service.session.flush()
-    await service.session.refresh(workflow, ["actions"])
-
-
-def _extract_layout_positions(
-    layout_data: WorkflowLayout | Mapping[str, object] | None,
-) -> tuple[
-    tuple[float, float] | None,
-    tuple[float, float, float] | None,
-    dict[str, tuple[float, float]] | None,
-]:
-    """Extract layout data into position tuples for workflow/action creation.
-
-    Returns (trigger_position, viewport, action_positions).
-    """
-    if not layout_data:
-        return None, None, None
-    layout = (
-        layout_data
-        if isinstance(layout_data, WorkflowLayout)
-        else WorkflowLayout.model_validate(layout_data)
-    )
-    trigger_position: tuple[float, float] | None = None
-    if layout.trigger is not None:
-        trigger_position = (
-            layout.trigger.x if layout.trigger.x is not None else 0.0,
-            layout.trigger.y if layout.trigger.y is not None else 0.0,
-        )
-    viewport: tuple[float, float, float] | None = None
-    if layout.viewport is not None:
-        viewport = (
-            layout.viewport.x if layout.viewport.x is not None else 0.0,
-            layout.viewport.y if layout.viewport.y is not None else 0.0,
-            layout.viewport.zoom if layout.viewport.zoom is not None else 1.0,
-        )
-    action_positions: dict[str, tuple[float, float]] | None = None
-    if layout.actions:
-        action_positions = {
-            ap.ref: (
-                ap.x if ap.x is not None else 0.0,
-                ap.y if ap.y is not None else 0.0,
-            )
-            for ap in layout.actions
-        }
-    return trigger_position, viewport, action_positions
-
-
-def _apply_layout_to_workflow(
-    *,
-    workflow: Workflow,
-    layout: WorkflowLayout,
-    clear_missing: bool = False,
-    allowed_missing_action_refs: set[str] | None = None,
-) -> None:
-    """Apply optional trigger/action/viewport layout updates to a workflow."""
-    if layout.trigger is not None:
-        if clear_missing or layout.trigger.x is not None:
-            workflow.trigger_position_x = (
-                layout.trigger.x if layout.trigger.x is not None else 0.0
-            )
-        if clear_missing or layout.trigger.y is not None:
-            workflow.trigger_position_y = (
-                layout.trigger.y if layout.trigger.y is not None else 0.0
-            )
-    elif clear_missing:
-        workflow.trigger_position_x = 0.0
-        workflow.trigger_position_y = 0.0
-
-    if layout.viewport is not None:
-        if clear_missing or layout.viewport.x is not None:
-            workflow.viewport_x = (
-                layout.viewport.x if layout.viewport.x is not None else 0.0
-            )
-        if clear_missing or layout.viewport.y is not None:
-            workflow.viewport_y = (
-                layout.viewport.y if layout.viewport.y is not None else 0.0
-            )
-        if clear_missing or layout.viewport.zoom is not None:
-            workflow.viewport_zoom = (
-                layout.viewport.zoom if layout.viewport.zoom is not None else 1.0
-            )
-    elif clear_missing:
-        workflow.viewport_x = 0.0
-        workflow.viewport_y = 0.0
-        workflow.viewport_zoom = 1.0
-
-    action_by_ref = {action.ref: action for action in workflow.actions}
-    seen_action_refs: set[str] = set()
-    for action_position in layout.actions:
-        action = action_by_ref.get(action_position.ref)
-        if action is None:
-            if (
-                allowed_missing_action_refs is not None
-                and action_position.ref in allowed_missing_action_refs
-            ):
-                continue
-            raise ToolError(
-                f"Unknown action ref {action_position.ref!r} in layout.actions"
-            )
-        seen_action_refs.add(action_position.ref)
-        if clear_missing or action_position.x is not None:
-            action.position_x = (
-                action_position.x if action_position.x is not None else 0.0
-            )
-        if clear_missing or action_position.y is not None:
-            action.position_y = (
-                action_position.y if action_position.y is not None else 0.0
-            )
-
-    if clear_missing:
-        missing_action_refs = set(action_by_ref) - seen_action_refs
-        for action_ref in missing_action_refs:
-            action = action_by_ref[action_ref]
-            action.position_x = 0.0
-            action.position_y = 0.0
-
-
-async def _replace_workflow_schedules(
-    *,
-    service: WorkflowSchedulesService,
-    workflow_id: WorkflowUUID,
-    schedules: Sequence[WorkflowSchedule],
-) -> None:
-    """Replace all schedules for a workflow from YAML payload."""
-    existing = await service.list_schedules(workflow_id=workflow_id)
-    for schedule in existing:
-        await service.delete_schedule(schedule.id, commit=False)
-
-    for schedule in schedules:
-        await service.create_schedule(
-            _schedule_create_from_payload(
-                workflow_id=workflow_id,
-                schedule=schedule,
-            ),
-            commit=False,
-        )
-
-
 async def _apply_case_trigger_payload(
     *,
     service: CaseTriggersService,
@@ -2727,9 +1978,7 @@ async def _create_workflow_from_import_data(
 ) -> Workflow:
     """Create a workflow from normalized import data."""
     layout_data = import_data.get("layout")
-    trigger_position, viewport, action_positions = _extract_layout_positions(
-        layout_data
-    )
+    trigger_position, viewport, action_positions = extract_layout_positions(layout_data)
     try:
         async with WorkflowsManagementService.with_session(role=role) as svc:
             return await svc.create_workflow_from_external_definition(
@@ -2771,7 +2020,7 @@ async def _apply_workflow_yaml_update(
 
     update_action_positions: dict[str, tuple[float, float]] | None = None
     if yaml_payload is not None and yaml_payload.layout is not None:
-        _, _, update_action_positions = _extract_layout_positions(yaml_payload.layout)
+        _, _, update_action_positions = extract_layout_positions(yaml_payload.layout)
 
     if yaml_payload is not None and yaml_payload.definition is not None:
         validation_results = await validate_dsl(
@@ -2780,7 +2029,7 @@ async def _apply_workflow_yaml_update(
             role=role,
         )
         _raise_dsl_validation_tool_error(validation_results)
-        await _replace_workflow_definition_from_dsl(
+        await replace_workflow_definition_from_dsl(
             service=service,
             workflow=workflow,
             dsl=yaml_payload.definition,
@@ -2790,13 +2039,13 @@ async def _apply_workflow_yaml_update(
 
     if yaml_payload is not None and yaml_payload.layout is not None:
         await service.session.refresh(workflow, ["actions"])
-        _apply_layout_to_workflow(workflow=workflow, layout=yaml_payload.layout)
+        apply_layout_to_workflow(workflow=workflow, layout=yaml_payload.layout)
         for action in workflow.actions:
             service.session.add(action)
 
     if yaml_payload is not None and yaml_payload.schedules is not None:
         schedule_service = WorkflowSchedulesService(service.session, role=role)
-        await _replace_workflow_schedules(
+        await replace_workflow_schedules(
             service=schedule_service,
             workflow_id=workflow_id,
             schedules=yaml_payload.schedules,
@@ -4116,6 +3365,8 @@ async def create_workflow(
             description=workflow.description,
             status=workflow.status,
         )
+    except WorkflowEditError as e:
+        raise _workflow_edit_error_to_tool_error(e) from e
     except ToolError:
         raise
     except ValueError as e:
@@ -4149,7 +3400,7 @@ async def get_workflow(
             workflow = await svc.get_workflow(workflow_id)
             if not workflow:
                 raise ToolError(f"Workflow {workflow_id} not found")
-            draft_document = _build_workflow_edit_document(workflow)
+            draft_document = build_workflow_edit_document(workflow)
             payload = WorkflowMetadataResponse(
                 id=WorkflowUUID.new(workflow.id),
                 title=workflow.title,
@@ -4158,7 +3409,7 @@ async def get_workflow(
                 version=workflow.version,
                 alias=workflow.alias,
                 entrypoint=workflow.entrypoint,
-                draft_revision=_compute_workflow_edit_revision(draft_document),
+                draft_revision=compute_workflow_edit_revision(draft_document),
                 draft_document=draft_document,
             )
             if include_definition_yaml:
@@ -4173,6 +3424,8 @@ async def get_workflow(
                     update=inline.model_dump(exclude_none=True)
                 )
             return payload
+    except WorkflowEditError as e:
+        raise _workflow_edit_error_to_tool_error(e) from e
     except ToolError:
         raise
     except ValueError as e:
@@ -4195,7 +3448,7 @@ async def edit_workflow(
     try:
         _, role = await _resolve_workspace_role(workspace_id)
         wf_id = WorkflowUUID.new(workflow_id)
-        request = _parse_workflow_edit_request(
+        request = parse_workflow_edit_request(
             base_revision=base_revision,
             patch_ops=patch_ops,
             validate_only=validate_only,
@@ -4206,8 +3459,8 @@ async def edit_workflow(
             if workflow is None:
                 raise ToolError(f"Workflow {workflow_id} not found")
 
-            draft_document = _build_workflow_edit_document(workflow)
-            current_revision = _compute_workflow_edit_revision(draft_document)
+            draft_document = build_workflow_edit_document(workflow)
+            current_revision = compute_workflow_edit_revision(draft_document)
             if request.base_revision != current_revision:
                 raise ToolError(
                     {
@@ -4219,17 +3472,15 @@ async def edit_workflow(
                 )
 
             patched_payload = apply_json_patch_operations(
-                document=_workflow_edit_document_payload(draft_document),
+                document=workflow_edit_document_payload(draft_document),
                 patch_ops=request.patch_ops,
             )
-            _validate_workflow_patch_payload(patched_payload)
-
-            updated_document = WorkflowEditDocument.model_validate(patched_payload)
-            changed_sections = _workflow_edit_document_changed_sections(
+            updated_document = validate_workflow_patch_payload(patched_payload)
+            changed_sections = workflow_edit_document_changed_sections(
                 draft_document,
                 updated_document,
             )
-            await _validate_workflow_edit_document(
+            await validate_workflow_edit_document(
                 updated_document,
                 workflow_id=wf_id,
                 existing_layout_action_refs={
@@ -4246,14 +3497,14 @@ async def edit_workflow(
                     workflow_id=str(workflow.id),
                     valid=True,
                     validate_only=True,
-                    draft_revision=_compute_workflow_edit_revision(
-                        _normalize_workflow_edit_document_for_persisted_revision(
+                    draft_revision=compute_workflow_edit_revision(
+                        normalize_workflow_edit_document_for_persisted_revision(
                             updated_document
                         )
                     ),
                 )
 
-            await _persist_workflow_edit_document(
+            await persist_workflow_edit_document(
                 role=role,
                 service=svc,
                 workflow=workflow,
@@ -4264,12 +3515,14 @@ async def edit_workflow(
                 workflow,
                 ["actions", "schedules", "case_trigger"],
             )
-            refreshed_document = _build_workflow_edit_document(workflow)
+            refreshed_document = build_workflow_edit_document(workflow)
             return WorkflowEditResponse(
                 message=f"Workflow {workflow_id} updated successfully",
                 workflow_id=str(workflow.id),
-                draft_revision=_compute_workflow_edit_revision(refreshed_document),
+                draft_revision=compute_workflow_edit_revision(refreshed_document),
             )
+    except WorkflowEditError as e:
+        raise _workflow_edit_error_to_tool_error(e) from e
     except ToolError:
         raise
     except ValueError as e:
@@ -4356,6 +3609,8 @@ async def update_workflow(
                 message=f"Workflow {workflow_id} updated successfully",
                 mode=mode,
             )
+    except WorkflowEditError as e:
+        raise _workflow_edit_error_to_tool_error(e) from e
     except ToolError:
         raise
     except ValueError as e:

@@ -33,6 +33,9 @@ WORKSPACE_CHAT_BASE_DEFAULT_TOOLS = [
     "core.cases.get_case",
     "core.cases.search_cases",
     "core.workflow.create_workflow",
+    "core.workflow.get_workflow",
+    "core.workflow.edit_workflow",
+    "core.workflow.get_authoring_context",
 ]
 
 WORKSPACE_CHAT_DEFAULT_TOOLS = [

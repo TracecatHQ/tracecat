@@ -18,12 +18,23 @@ from pydantic import (
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import WorkspaceID
 
+# Reserved name prefix for built-in/platform skills. User- and preset-authored
+# skills may not use it, so platform skills (staged into the same on-disk skills
+# directory) can never collide with a user skill of the same name. Kept in sync
+# with ``tracecat_ee.workspace_chat.skills.BUILTIN_SKILL_NAME_PREFIX``.
+RESERVED_SKILL_NAME_PREFIX = "tracecat-"
+
 
 def _validate_skill_name(value: str) -> str:
     if value.startswith("-") or value.endswith("-"):
         raise ValueError("Skill name must not start or end with a hyphen")
     if "--" in value:
         raise ValueError("Skill name must not contain consecutive hyphens")
+    if value.startswith(RESERVED_SKILL_NAME_PREFIX):
+        raise ValueError(
+            f"Skill name must not start with the reserved prefix "
+            f"{RESERVED_SKILL_NAME_PREFIX!r}"
+        )
     return value
 
 

@@ -132,6 +132,14 @@ class _AgentPresetToolResult(_ArtifactProjectionModel):
     )
 
 
+class _WorkflowEditDocumentMetadata(_ArtifactProjectionModel):
+    title: str | None = None
+
+
+class _WorkflowEditDocument(_ArtifactProjectionModel):
+    metadata: _WorkflowEditDocumentMetadata | None = None
+
+
 class _WorkflowToolResult(_ArtifactProjectionModel):
     id: str = Field(
         validation_alias=AliasChoices("id", "workflow_id", "workflowId", "wf_id")
@@ -142,6 +150,17 @@ class _WorkflowToolResult(_ArtifactProjectionModel):
     is_published: bool | None = Field(
         default=None, validation_alias=AliasChoices("is_published", "isPublished")
     )
+    # ``get_workflow``/``edit_workflow`` carry the title nested under the
+    # editable draft document instead of at the top level.
+    draft_document: _WorkflowEditDocument | None = None
+
+    @property
+    def resolved_title(self) -> str | None:
+        if self.title:
+            return self.title
+        if self.draft_document and self.draft_document.metadata:
+            return self.draft_document.metadata.title
+        return None
 
 
 class _WorkflowRunToolResult(_ArtifactProjectionModel):
@@ -358,7 +377,11 @@ ARTIFACT_BINDINGS: tuple[ArtifactBinding, ...] = (
         build=_build_workflow_run_artifact,
     ),
     ArtifactBinding(
-        tool_names=("core.workflow.create_workflow",),
+        tool_names=(
+            "core.workflow.create_workflow",
+            "core.workflow.get_workflow",
+            "core.workflow.edit_workflow",
+        ),
         op="upsert",
         build=_build_workflow_artifact,
     ),
@@ -691,7 +714,7 @@ def _workflow_artifact_from_output(
     payload: WorkflowArtifactPayload = {
         "type": "workflow",
         "id": result.id,
-        "title": result.title or result.id,
+        "title": result.resolved_title or result.id,
         "color": _DEFAULT_WORKFLOW_ARTIFACT_COLOR,
     }
     if result.is_published is not None:

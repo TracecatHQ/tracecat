@@ -143,6 +143,11 @@ class AgentConfig:
     enable_thinking: bool = True
     enable_internet_access: bool = False
     resolved_skills: list[ResolvedSkillRef] | None = None
+    builtin_skills: list[str] | None = None
+    """Names of built-in platform skills to stage into the agent's skills
+    directory, independent of preset-bound ``resolved_skills``. Names only (not
+    host paths) so the value is Temporal-replay-safe; the executor resolves each
+    name to a packaged skill directory at stage time."""
 
 
 # --- Tool Types (Harness-Agnostic) ---

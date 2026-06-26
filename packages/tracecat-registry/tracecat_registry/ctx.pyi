@@ -1233,6 +1233,26 @@ class _WorkflowsAsync:
         *,
         title: str | None = ...,
         description: str | None = ...,
+        definition_yaml: str | None = ...,
+    ) -> dict[str, Any]: ...
+    async def get_workflow(
+        self,
+        *,
+        workflow_id: str,
+    ) -> dict[str, Any]: ...
+    async def edit_workflow(
+        self,
+        *,
+        workflow_id: str,
+        base_revision: str,
+        patch_ops: list[dict[str, Any]],
+        validate_only: bool = ...,
+    ) -> dict[str, Any]: ...
+    async def get_authoring_context(
+        self,
+        *,
+        action_names: list[str] | None = ...,
+        query: str | None = ...,
     ) -> dict[str, Any]: ...
 
 class _Workflows:
@@ -1259,6 +1279,26 @@ class _Workflows:
         *,
         title: str | None = ...,
         description: str | None = ...,
+        definition_yaml: str | None = ...,
+    ) -> dict[str, Any]: ...
+    def get_workflow(
+        self,
+        *,
+        workflow_id: str,
+    ) -> dict[str, Any]: ...
+    def edit_workflow(
+        self,
+        *,
+        workflow_id: str,
+        base_revision: str,
+        patch_ops: list[dict[str, Any]],
+        validate_only: bool = ...,
+    ) -> dict[str, Any]: ...
+    def get_authoring_context(
+        self,
+        *,
+        action_names: list[str] | None = ...,
+        query: str | None = ...,
     ) -> dict[str, Any]: ...
 
 agents: _Agents

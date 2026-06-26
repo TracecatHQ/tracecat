@@ -8,6 +8,7 @@ import tempfile
 import uuid
 from collections import Counter
 from dataclasses import dataclass, field
+from importlib.resources import as_file, files
 from pathlib import Path
 from time import perf_counter
 from typing import Any, cast
@@ -17,6 +18,7 @@ from temporalio import activity
 from tracecat_ee.workspace_chat.policy import (
     is_workspace_chat_entitled,
 )
+from tracecat_ee.workspace_chat.skills import BUILTIN_SKILL_NAME_PREFIX
 
 from tracecat import config as app_config
 from tracecat.agent.artifacts.working_set import ArtifactWorkingSetInput
@@ -646,6 +648,7 @@ class SandboxedAgentExecutor:
             skills_dir = job_dir / "home" / ".claude" / "skills"
             skills_dir.mkdir(parents=True, exist_ok=True)
             await self._stage_resolved_skills(skills_dir)
+            await self._stage_builtin_skills(skills_dir)
 
             # Note: The MCP socket directory is mounted directly into NSJail at /mcp-sockets
             # so we don't need to symlink it here
@@ -719,6 +722,43 @@ class SandboxedAgentExecutor:
                     shutil.copytree,
                     cached_dir,
                     skills_dir / resolved_skill.skill_name,
+                    dirs_exist_ok=True,
+                )
+
+    async def _stage_builtin_skills(self, skills_dir: Path) -> None:
+        """Stage always-on built-in (EE) platform skills into the run home dir.
+
+        Built-in skills are plain on-disk directories packaged inside
+        ``tracecat_ee``. They are identified by name only (resolved from the
+        config, which set them when the org is workspace-chat entitled), so this
+        method maps each reserved-prefix name to its packaged directory and
+        copies it into the staged skills directory. Built-in skills own the
+        ``tracecat-`` namespace, so they never collide with preset
+        ``resolved_skills`` staged just before this.
+        """
+        config = cast(Any, self.input.config)
+        names = config.builtin_skills or []
+        if not names:
+            return
+
+        skills_root = files("tracecat_ee.workspace_chat.skills")
+        for name in dict.fromkeys(names):
+            if (
+                not name.startswith(BUILTIN_SKILL_NAME_PREFIX)
+                or "/" in name
+                or name in {".", ".."}
+            ):
+                logger.warning("Skipping invalid built-in skill name", skill=name)
+                continue
+            source = skills_root / name
+            if not (source / "SKILL.md").is_file():
+                logger.warning("Built-in skill missing SKILL.md; skipping", skill=name)
+                continue
+            with as_file(source) as source_path:
+                await asyncio.to_thread(
+                    shutil.copytree,
+                    source_path,
+                    skills_dir / name,
                     dirs_exist_ok=True,
                 )
 

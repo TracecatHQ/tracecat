@@ -31,6 +31,10 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import SQLAlchemyError
 from temporalio.common import TypedSearchAttributes
+from tracecat_ee.workspace_chat.policy import is_workspace_chat_entitled
+from tracecat_ee.workspace_chat.skills import (
+    BUILTIN_WORKSPACE_CHAT_SKILLS,
+)
 from tracecat_registry._internal.exceptions import SecretNotFoundError
 
 import tracecat.agent.adapter.vercel
@@ -152,6 +156,19 @@ class AgentSessionService(BaseWorkspaceService):
             tools,
             agent_addons_enabled=await self.has_entitlement(Entitlement.AGENT_ADDONS),
         )
+
+    async def _resolve_builtin_workspace_chat_skills(self) -> list[str] | None:
+        """Always-on platform skills staged for entitled workspace-chat sessions.
+
+        Returns the reserved-prefix skill names to stage into the copilot's
+        skills directory, or ``None`` when the org is not entitled to Workspace
+        Chat or the Enterprise package is unavailable. Names only — the executor
+        resolves each to a packaged skill directory at stage time.
+        """
+
+        if not await is_workspace_chat_entitled(self.session, self.role):
+            return None
+        return list(BUILTIN_WORKSPACE_CHAT_SKILLS)
 
     async def _resolve_workspace_chat_actions(
         self,
@@ -1599,6 +1616,9 @@ class AgentSessionService(BaseWorkspaceService):
         elif session_entity is AgentSessionEntity.WORKSPACE_CHAT:
             # Copilot uses org-level credentials, not workspace credentials
             entity_instructions = await self._entity_to_prompt(agent_session)
+            # Always-on platform skills (e.g. workflow management) staged for
+            # every entitled workspace-chat session, with or without a preset.
+            builtin_skills = await self._resolve_builtin_workspace_chat_skills()
             if agent_session.agent_preset_id:
                 async with agent_svc.with_preset_config(
                     preset_id=agent_session.agent_preset_id,
@@ -1609,7 +1629,11 @@ class AgentSessionService(BaseWorkspaceService):
                         if preset_config.instructions
                         else entity_instructions
                     )
-                    config = replace(preset_config, instructions=combined_instructions)
+                    config = replace(
+                        preset_config,
+                        instructions=combined_instructions,
+                        builtin_skills=builtin_skills,
+                    )
                     yield config
             else:
                 # Copilot without preset uses org-level credentials (default).
@@ -1627,6 +1651,7 @@ class AgentSessionService(BaseWorkspaceService):
                         catalog_id=model_config.catalog_id,
                         actions=actions,
                         mcp_servers=mcp_servers,
+                        builtin_skills=builtin_skills,
                     )
         elif session_entity in (
             AgentSessionEntity.WORKFLOW,

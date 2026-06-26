@@ -38,3 +38,11 @@ workspace_chat = "tracecat_ee.agent.artifacts.mount_only_provider:build_provider
 
 [tool.hatch.version]
 path = "tracecat_ee/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+# Ship the package, including non-Python data files such as built-in skill
+# SKILL.md / reference markdown so importlib.resources can find them at runtime.
+packages = ["tracecat_ee"]
+artifacts = [
+    "tracecat_ee/workspace_chat/skills/**/*.md",
+]

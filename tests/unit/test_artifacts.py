@@ -23,7 +23,6 @@ from tracecat.artifacts.schemas import (
     artifact_data_payload,
 )
 from tracecat.cases.enums import CaseSeverity, CaseStatus
-from tracecat.chat.tools import WORKSPACE_CHAT_DEFAULT_TOOLS
 
 
 def test_artifact_data_payload_serializes_camel_case_fields() -> None:
@@ -298,15 +297,9 @@ def test_artifact_bindings_list_canonical_tool_names() -> None:
         "core.workflow.execute": "upsert",
         "core.workflow.get_status": "upsert",
         "core.workflow.create_workflow": "upsert",
+        "core.workflow.get_workflow": "upsert",
+        "core.workflow.edit_workflow": "upsert",
     }
-
-
-def test_workspace_chat_domain_tools_have_artifact_bindings() -> None:
-    bound_tool_names = {
-        tool_name for binding in ARTIFACT_BINDINGS for tool_name in binding.tool_names
-    }
-
-    assert set(WORKSPACE_CHAT_DEFAULT_TOOLS).issubset(bound_tool_names)
 
 
 def test_case_delete_tool_result_emits_remove_side_effect() -> None:

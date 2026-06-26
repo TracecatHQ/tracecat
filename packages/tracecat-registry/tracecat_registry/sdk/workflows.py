@@ -56,13 +56,21 @@ class WorkflowsClient:
         *,
         title: str | None = None,
         description: str | None = None,
+        definition_yaml: str | None = None,
     ) -> dict[str, Any]:
-        """Create a new empty workflow in the current workspace.
+        """Create a new workflow in the current workspace.
 
         Args:
-            title: Workflow title (3-100 characters). If omitted, the API assigns
-                a timestamped title.
+            title: Workflow title (3-100 characters). For an empty create
+                (no ``definition_yaml``), the API assigns a timestamped title
+                when omitted. With ``definition_yaml``, the title must come from
+                this arg or a ``title:`` in the YAML, else the create is rejected.
             description: Optional workflow description.
+            definition_yaml: Optional full workflow definition as YAML. When
+                provided, the workflow is created with these actions (and any
+                layout/case trigger) instead of being empty. Schedules are not
+                created from this YAML; add them afterwards via
+                :meth:`edit_workflow`.
 
         Returns:
             dict containing:
@@ -70,7 +78,7 @@ class WorkflowsClient:
                 - title: The workflow title.
 
         Raises:
-            TracecatValidationError: If the title is invalid.
+            TracecatValidationError: If the title or definition is invalid.
             TracecatAPIError: For other API errors.
         """
         data: dict[str, Any] = {}
@@ -78,7 +86,97 @@ class WorkflowsClient:
             data["title"] = title
         if description is not None:
             data["description"] = description
+        if definition_yaml is not None:
+            data["definition_yaml"] = definition_yaml
         return await self._client.post("/workflows", json=data)
+
+    async def get_workflow(self, *, workflow_id: str) -> dict[str, Any]:
+        """Read a workflow's editable draft document and revision.
+
+        Args:
+            workflow_id: Workflow UUID (short ``wf_...`` or full format).
+
+        Returns:
+            dict with ``workflow_id``, ``draft_revision``, and ``draft_document``
+            (the editable metadata/definition/layout/schedules/case_trigger).
+            Pass ``draft_revision`` as ``base_revision`` to :meth:`edit_workflow`.
+
+        Raises:
+            TracecatNotFoundError: If the workflow does not exist.
+            TracecatAPIError: For other API errors.
+        """
+        return await self._client.get(f"/workflows/{workflow_id}/edit-document")
+
+    async def edit_workflow(
+        self,
+        *,
+        workflow_id: str,
+        base_revision: str,
+        patch_ops: list[dict[str, Any]],
+        validate_only: bool = False,
+    ) -> dict[str, Any]:
+        """Edit a workflow draft using RFC 6902 JSON Patch operations.
+
+        Fetch the current document and revision with :meth:`get_workflow`,
+        compute the patch ops against ``draft_document``, then call this with the
+        returned ``draft_revision`` as ``base_revision``.
+
+        Args:
+            workflow_id: Workflow UUID (short ``wf_...`` or full format).
+            base_revision: The ``draft_revision`` the patch is computed against.
+            patch_ops: RFC 6902 JSON Patch operations restricted to the editable
+                sections (metadata, definition, layout, schedules, case_trigger).
+            validate_only: When True, validate the patch without persisting.
+
+        Returns:
+            dict with ``message``, ``workflow_id``, and the new ``draft_revision``.
+
+        Raises:
+            TracecatConflictError: If ``base_revision`` no longer matches the
+                current draft (concurrent edit). Re-fetch and retry.
+            TracecatValidationError: If the patch is invalid.
+            TracecatAPIError: For other API errors.
+        """
+        return await self._client.patch(
+            f"/workflows/{workflow_id}/edit-document",
+            json={
+                "base_revision": base_revision,
+                "patch_ops": patch_ops,
+                "validate_only": validate_only,
+            },
+        )
+
+    async def get_authoring_context(
+        self,
+        *,
+        action_names: list[str] | None = None,
+        query: str | None = None,
+    ) -> dict[str, Any]:
+        """Fetch authoring context (schemas, secrets, examples) for actions.
+
+        Resolve actions either by explicit ``action_names`` or, when none are
+        given, by ``query`` search. With neither, only the workspace
+        variable/secret hints are returned.
+
+        Args:
+            action_names: Fully qualified action names (e.g.
+                ``["core.http_request"]``) to fetch context for.
+            query: Search string to resolve actions by name/description when
+                ``action_names`` is omitted.
+
+        Returns:
+            dict with ``actions`` (each a schema/secrets/examples context),
+            ``variable_hints``, and ``secret_hints``.
+
+        Raises:
+            TracecatAPIError: For API errors.
+        """
+        data: dict[str, Any] = {}
+        if action_names is not None:
+            data["action_names"] = action_names
+        if query is not None:
+            data["query"] = query
+        return await self._client.post("/workflows/authoring-context", json=data)
 
     async def execute(
         self,

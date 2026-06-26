@@ -3,31 +3,71 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
+import yaml
 from fastapi import APIRouter, HTTPException
+from fastmcp.exceptions import ToolError
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from starlette.status import (
     HTTP_200_OK,
     HTTP_201_CREATED,
     HTTP_400_BAD_REQUEST,
     HTTP_404_NOT_FOUND,
+    HTTP_409_CONFLICT,
     HTTP_500_INTERNAL_SERVER_ERROR,
 )
 from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
 from temporalio.service import RPCError
 
+from tracecat.agent.authoring_context import (
+    WorkflowAuthoringContextResponse,
+    build_action_contexts,
+    build_secret_hints,
+    build_variable_hints,
+)
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.dsl.common import DSLInput
+from tracecat.exceptions import (
+    BuiltinRegistryHasNoSelectionError,
+    TracecatValidationError,
+)
 from tracecat.identifiers import WorkflowExecutionID, WorkflowID
-from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
+from tracecat.identifiers.workflow import (
+    AnyWorkflowID,
+    AnyWorkflowIDPath,
+    WorkflowUUID,
+)
 from tracecat.logger import logger
+from tracecat.mcp.json_patch import apply_json_patch_operations
+from tracecat.mcp.schemas import (
+    JsonPatchOperation,
+    WorkflowAuthoringContextRequest,
+    WorkflowEditDocument,
+    WorkflowEditResponse,
+)
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.workflow.executions.enums import TriggerType
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
+from tracecat.workflow.management.draft import (
+    WorkflowEditError,
+    build_workflow_edit_document,
+    compute_workflow_edit_revision,
+    normalize_workflow_edit_document_for_persisted_revision,
+    parse_workflow_edit_request,
+    persist_workflow_edit_document,
+    validate_workflow_edit_document,
+    validate_workflow_patch_payload,
+    workflow_edit_document_changed_sections,
+    workflow_edit_document_payload,
+)
+from tracecat.workflow.management.layout import (
+    WorkflowActionLayoutInput,
+    auto_generate_layout,
+)
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.schemas import WorkflowCreate
 
@@ -114,6 +154,13 @@ class InternalWorkflowCreateRequest(BaseModel):
     description: str | None = Field(
         default=None, description="Optional workflow description"
     )
+    definition_yaml: str | None = Field(
+        default=None,
+        description=(
+            "Optional full workflow definition as YAML. When provided, the "
+            "workflow is created with these actions instead of being empty."
+        ),
+    )
 
 
 class InternalWorkflowCreateResponse(BaseModel):
@@ -129,6 +176,80 @@ class InternalWorkflowCreateResponse(BaseModel):
         return WorkflowUUID.new(v)
 
 
+# Top-level keys that mark an already-enveloped workflow YAML payload.
+_WORKFLOW_YAML_TOP_LEVEL_KEYS = frozenset(
+    {"definition", "layout", "schedules", "case_trigger"}
+)
+
+
+def _build_import_data_from_definition_yaml(
+    *,
+    definition_yaml: str,
+    title: str | None,
+    description: str | None,
+) -> dict[str, Any]:
+    """Parse copilot-supplied workflow YAML into external import data.
+
+    Forgiving normalization so weaker models can one-shot a workflow:
+
+    - Accept either an enveloped payload (top-level ``definition``/``layout``/
+      ``schedules``/``case_trigger``) or a bare workflow definition, wrapping the
+      latter under ``definition`` (mirrors the MCP create path). A top-level
+      ``schedules`` key is tolerated for envelope detection but dropped on import
+      (no schedules field); add schedules afterwards via edit-document.
+    - Default ``title``/``description`` from the request when omitted.
+    - Inject a default ``entrypoint`` when missing. ``DSLInput`` requires the
+      key, but infers the actual entrypoint ref from actions with no
+      ``depends_on``; supplying ``{"ref": None}`` lets a model that forgets the
+      entrypoint still produce a valid workflow.
+    - Auto-generate a top-down layout when none is supplied.
+    """
+    try:
+        raw = yaml.safe_load(definition_yaml)
+    except yaml.YAMLError as exc:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=f"Invalid YAML: {exc}",
+        ) from exc
+
+    if not isinstance(raw, dict):
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail="Workflow definition YAML must decode to a mapping",
+        )
+    payload = cast(dict[str, Any], raw)
+
+    # Envelope a bare definition (no top-level definition/layout/... keys).
+    if "definition" in payload or _WORKFLOW_YAML_TOP_LEVEL_KEYS.intersection(
+        payload.keys()
+    ):
+        import_data = payload
+    else:
+        import_data = cast(dict[str, Any], {"definition": payload})
+
+    definition = import_data.get("definition")
+    if not isinstance(definition, dict):
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail="Workflow definition must be a mapping",
+        )
+    if "title" not in definition and title is not None:
+        definition["title"] = title
+    if "description" not in definition and description:
+        definition["description"] = description
+    # DSLInput requires the entrypoint key; let it infer the ref from the graph.
+    if "entrypoint" not in definition:
+        definition["entrypoint"] = {"ref": None}
+
+    if not import_data.get("layout"):
+        actions = definition.get("actions", [])
+        if actions:
+            import_data["layout"] = auto_generate_layout(
+                cast(list[WorkflowActionLayoutInput], actions)
+            )
+    return import_data
+
+
 @router.post("", status_code=HTTP_201_CREATED)
 @require_scope("workflow:create")
 async def create_workflow(
@@ -137,19 +258,254 @@ async def create_workflow(
     session: AsyncDBSession,
     params: InternalWorkflowCreateRequest,
 ) -> InternalWorkflowCreateResponse:
-    """Create a new empty workflow in the current workspace."""
+    """Create a workflow in the current workspace.
+
+    Empty by default; when ``definition_yaml`` is provided, the workflow is
+    created with the supplied actions, layout, and case trigger. Schedules are
+    not created here; add them afterwards via the edit-document endpoint.
+    """
     service = WorkflowsManagementService(session, role)
     try:
-        workflow = await service.create_workflow(
-            WorkflowCreate(title=params.title, description=params.description)
-        )
-    except (ValueError, ValidationError) as e:
+        if params.definition_yaml is not None:
+            import_data = _build_import_data_from_definition_yaml(
+                definition_yaml=params.definition_yaml,
+                title=params.title,
+                description=params.description,
+            )
+            workflow = await service.create_workflow_from_external_definition(
+                import_data
+            )
+        else:
+            workflow = await service.create_workflow(
+                WorkflowCreate(title=params.title, description=params.description)
+            )
+    except HTTPException:
+        raise
+    except (
+        BuiltinRegistryHasNoSelectionError,
+        TracecatValidationError,
+        ValueError,
+        ValidationError,
+    ) as e:
+        # Recoverable client errors -> 400, matching the import router.
+        # TracecatValidationError covers raw TracecatDSLError from DSLInput
+        # validators (not wrapped as a Pydantic ValidationError).
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
     return InternalWorkflowCreateResponse(
         id=WorkflowUUID.new(workflow.id), title=workflow.title
+    )
+
+
+class InternalWorkflowEditDocumentResponse(BaseModel):
+    """Editable draft document plus its optimistic-concurrency revision."""
+
+    workflow_id: str = Field(..., description="Workflow ID (short wf_... format)")
+    draft_revision: str = Field(
+        ..., description="Revision token to pass back as base_revision when editing"
+    )
+    draft_document: WorkflowEditDocument = Field(
+        ..., description="Editable workflow draft (metadata/definition/layout/...)"
+    )
+
+
+class InternalWorkflowEditRequest(BaseModel):
+    """Request to edit a workflow draft via RFC 6902 JSON Patch."""
+
+    base_revision: str = Field(
+        ..., description="draft_revision returned by GET /{workflow_id}/edit-document"
+    )
+    patch_ops: list[JsonPatchOperation] = Field(
+        ..., description="RFC 6902 JSON Patch operations to apply to the draft"
+    )
+    validate_only: bool = Field(
+        default=False, description="Validate the patch without persisting changes"
+    )
+
+
+def _raise_workflow_edit_http_error(error: WorkflowEditError) -> None:
+    """Map a transport-neutral edit error onto an HTTP error.
+
+    Revision conflicts become 409 (carrying ``current_revision`` so the caller
+    can refetch and retry); everything else becomes 400 with the same message
+    or structured ``details`` payload the engine produced.
+    """
+    if error.conflict:
+        raise HTTPException(
+            status_code=HTTP_409_CONFLICT,
+            detail={
+                "type": "conflict",
+                "status": "conflict",
+                "message": error.message,
+                "current_revision": error.current_revision,
+            },
+        )
+    raise HTTPException(
+        status_code=HTTP_400_BAD_REQUEST,
+        detail=error.details if error.details is not None else error.message,
+    )
+
+
+@router.get("/{workflow_id}/edit-document", status_code=HTTP_200_OK)
+@require_scope("workflow:read")
+async def get_workflow_edit_document(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    workflow_id: AnyWorkflowIDPath,
+) -> InternalWorkflowEditDocumentResponse:
+    """Return a workflow's editable draft document and its revision token."""
+    wf_id = workflow_id  # AnyWorkflowIDPath validates the id -> 422 not 500
+    service = WorkflowsManagementService(session, role)
+    workflow = await service.get_workflow(wf_id)
+    if workflow is None:
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND,
+            detail=f"Workflow {wf_id} not found",
+        )
+    try:
+        draft_document = build_workflow_edit_document(workflow)
+        draft_revision = compute_workflow_edit_revision(draft_document)
+    except WorkflowEditError as e:
+        _raise_workflow_edit_http_error(e)
+        raise  # unreachable; satisfies type checker
+    return InternalWorkflowEditDocumentResponse(
+        workflow_id=str(workflow.id),
+        draft_revision=draft_revision,
+        draft_document=draft_document,
+    )
+
+
+@router.patch("/{workflow_id}/edit-document", status_code=HTTP_200_OK)
+@require_scope("workflow:update")
+async def edit_workflow_document(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    workflow_id: AnyWorkflowIDPath,
+    params: InternalWorkflowEditRequest,
+) -> WorkflowEditResponse:
+    """Apply RFC 6902 JSON Patch operations to a workflow draft.
+
+    Mirrors the MCP ``edit_workflow`` tool, reusing the shared edit-document
+    engine so behavior matches exactly. A stale ``base_revision`` yields 409.
+    """
+    wf_id = workflow_id  # AnyWorkflowIDPath validates the id -> 422 not 500
+    service = WorkflowsManagementService(session, role)
+    try:
+        request = parse_workflow_edit_request(
+            base_revision=params.base_revision,
+            patch_ops=params.patch_ops,
+            validate_only=params.validate_only,
+        )
+
+        workflow = await service.get_workflow(wf_id, for_update=True)
+        if workflow is None:
+            raise HTTPException(
+                status_code=HTTP_404_NOT_FOUND,
+                detail=f"Workflow {wf_id} not found",
+            )
+
+        draft_document = build_workflow_edit_document(workflow)
+        current_revision = compute_workflow_edit_revision(draft_document)
+        if request.base_revision != current_revision:
+            raise WorkflowEditError(
+                "Draft revision mismatch",
+                conflict=True,
+                current_revision=current_revision,
+            )
+
+        patched_payload = apply_json_patch_operations(
+            document=workflow_edit_document_payload(draft_document),
+            patch_ops=request.patch_ops,
+        )
+        updated_document = validate_workflow_patch_payload(patched_payload)
+        changed_sections = workflow_edit_document_changed_sections(
+            draft_document,
+            updated_document,
+        )
+        await validate_workflow_edit_document(
+            updated_document,
+            workflow_id=wf_id,
+            existing_layout_action_refs={
+                action_layout.ref for action_layout in draft_document.layout.actions
+            },
+            validate_definition="definition" in changed_sections,
+            session=service.session,
+            role=role,
+        )
+
+        if request.validate_only:
+            return WorkflowEditResponse(
+                message=f"Workflow {wf_id} patch is valid",
+                workflow_id=str(workflow.id),
+                valid=True,
+                validate_only=True,
+                draft_revision=compute_workflow_edit_revision(
+                    normalize_workflow_edit_document_for_persisted_revision(
+                        updated_document
+                    )
+                ),
+            )
+
+        await persist_workflow_edit_document(
+            role=role,
+            service=service,
+            workflow=workflow,
+            original_document=draft_document,
+            updated_document=updated_document,
+        )
+        await service.session.refresh(
+            workflow,
+            ["actions", "schedules", "case_trigger"],
+        )
+        refreshed_document = build_workflow_edit_document(workflow)
+        return WorkflowEditResponse(
+            message=f"Workflow {wf_id} updated successfully",
+            workflow_id=str(workflow.id),
+            draft_revision=compute_workflow_edit_revision(refreshed_document),
+        )
+    except WorkflowEditError as e:
+        _raise_workflow_edit_http_error(e)
+        raise  # unreachable; satisfies type checker
+    except ToolError as e:
+        # apply_json_patch_operations raises ToolError on bad patch application
+        # (bad path/index, failed `test`). Mirror the MCP tool: 400 not 500.
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+
+
+@router.post("/authoring-context", status_code=HTTP_200_OK)
+@require_scope("workflow:read")
+async def get_authoring_context(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    params: WorkflowAuthoringContextRequest,
+) -> WorkflowAuthoringContextResponse:
+    """Return authoring context (action schemas, secrets, examples) for actions.
+
+    Surfaced to the chat agent via the ``core.workflow.get_authoring_context``
+    registry action so it can write workflow ``args:`` blocks against real action
+    schemas instead of guessing. Resolves actions by explicit ``action_names`` or
+    by ``query`` search; with neither, returns only the workspace
+    variable/secret hints.
+    """
+    actions = await build_action_contexts(
+        role=role,
+        action_names=params.action_names,
+        query=params.query,
+    )
+    variable_hints = await build_variable_hints(role=role)
+    secret_hints = await build_secret_hints(role=role)
+    return WorkflowAuthoringContextResponse(
+        actions=actions,
+        variable_hints=variable_hints,
+        secret_hints=secret_hints,
     )
 
 
