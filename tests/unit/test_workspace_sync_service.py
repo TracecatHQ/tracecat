@@ -1285,6 +1285,37 @@ async def test_github_write_files_rejects_pr_for_base_branch(
     repo.create_pull.assert_not_called()
 
 
+@pytest.mark.anyio
+async def test_github_read_files_uses_commit_tree_sha(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    repo = _FakeGitHubReadRepo()
+    gh = Mock()
+    gh.get_repo.return_value = repo
+    gh_service = AsyncMock()
+    gh_service.get_github_client_for_repo.return_value = gh
+
+    transport = GitHubWorkspaceSyncTransport(
+        session=workspace_sync_service.session,
+        role=workspace_sync_service.role,
+    )
+    with patch(
+        "tracecat.workspace_sync.transport.GitHubAppService",
+        return_value=gh_service,
+    ):
+        snapshot = await transport.read_files(
+            url=GitUrl(host="github.com", org="TracecatHQ", repo="sync"),
+            ref="c" * 40,
+        )
+
+    # The git/trees endpoint must receive the commit's tree SHA, not the commit
+    # SHA, or GitHub 404s the read.
+    assert repo.get_git_tree_calls == ["t" * 40]
+    assert snapshot.commit_sha == "c" * 40
+    assert snapshot.tree_sha == "t" * 40
+    assert MANIFEST_FILENAME in snapshot.files
+
+
 def test_gitlab_and_bitbucket_transports_are_explicitly_unsupported() -> None:
     for provider in (VcsProvider.GITLAB, VcsProvider.BITBUCKET):
         error = unsupported_transport(provider)
@@ -1455,3 +1486,32 @@ class _FakeGitRef:
 
     def edit(self, *, sha: str) -> None:
         self.edits.append(sha)
+
+
+class _FakeGitHubReadRepo:
+    """Minimal GitHub repo whose commit SHA and root tree SHA differ."""
+
+    def __init__(self) -> None:
+        self.get_git_tree_calls: list[str] = []
+
+    def get_commit(self, ref: str):
+        return SimpleNamespace(
+            sha="c" * 40,
+            commit=SimpleNamespace(tree=SimpleNamespace(sha="t" * 40)),
+        )
+
+    def get_git_tree(self, *, sha: str, recursive: bool):
+        self.get_git_tree_calls.append(sha)
+        return SimpleNamespace(
+            tree=[
+                SimpleNamespace(
+                    path=MANIFEST_FILENAME,
+                    sha="blob-manifest",
+                    type="blob",
+                )
+            ]
+        )
+
+    def get_git_blob(self, sha: str):
+        content = canonical_json_text(WorkspaceManifest())
+        return SimpleNamespace(content=base64.b64encode(content.encode()).decode())

@@ -579,6 +579,10 @@ class SkillAdapter(DirectoryManifestAdapter):
                         skill=skill,
                         path_to_blob=imported_version_file_refs[spec.current_version],
                     )
+            else:
+                # Git says the skill is unversioned: drop any stale head pin so an
+                # existing skill stops pointing at a version it no longer declares.
+                skill.current_version_id = None
             workspace_service.session.add(skill)
             await workspace_service.session.flush()
             imported.append(self.imported_resource(source_id, skill.id))

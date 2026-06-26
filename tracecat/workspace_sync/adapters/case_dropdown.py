@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sqlalchemy as sa
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -13,6 +12,7 @@ from tracecat.tiers.enums import Entitlement
 from tracecat.workspace_sync.adapters.base import (
     FlatManifestAdapter,
     ImportedResource,
+    NameSwapPlan,
     ProjectedResource,
     ResourceProjection,
 )
@@ -95,43 +95,26 @@ class CaseDropdownAdapter(FlatManifestAdapter):
     ) -> list[ImportedResource]:
         """Reconcile dropdown specs, syncing each definition's options in place."""
         dropdowns = workspace_spec.case_dropdowns
-        imported: list[ImportedResource] = []
-        source_ids = set(dropdowns)
-        # Resolve which incoming source ids already map to local definitions.
-        mapped_local_ids_by_source_id = await self.local_ids_by_source_id(
+        # A dropdown's ref is its source id, so a pull that swaps two refs would
+        # transiently collide on the (ref, workspace_id) unique constraint. Park
+        # mapped definitions whose ref is changing under temporary refs first.
+        swap = await self.plan_name_swap(
             workspace_service,
-            source_ids,
+            targets={source_id: source_id for source_id in dropdowns},
+            model=CaseDropdownDefinition,
+            name_column=CaseDropdownDefinition.ref,
+            noun="ref",
+            kind_label="Case dropdown",
+            owner_label="dropdown",
+            options=(selectinload(CaseDropdownDefinition.options),),
         )
-        mapped_local_ids = set(mapped_local_ids_by_source_id.values())
-        # Load candidates by ref or by previously mapped local id.
-        conditions = [CaseDropdownDefinition.ref.in_(source_ids)]
-        if mapped_local_ids:
-            conditions.append(CaseDropdownDefinition.id.in_(mapped_local_ids))
-        existing_dropdowns = list(
-            (
-                await workspace_service.session.scalars(
-                    select(CaseDropdownDefinition)
-                    .where(
-                        CaseDropdownDefinition.workspace_id
-                        == workspace_service.workspace_id,
-                        sa.or_(*conditions),
-                    )
-                    .options(selectinload(CaseDropdownDefinition.options))
-                )
-            ).all()
-        )
-        dropdowns_by_id = {dropdown.id: dropdown for dropdown in existing_dropdowns}
-        # Mapped source id -> definition, derived from the sync mapping.
-        dropdowns_by_source_id = {
-            source_id: dropdown
-            for source_id, local_id in mapped_local_ids_by_source_id.items()
-            if (dropdown := dropdowns_by_id.get(local_id)) is not None
-        }
-        dropdowns_by_ref = {dropdown.ref: dropdown for dropdown in existing_dropdowns}
+        imported: list[ImportedResource] = []
         for source_id, spec in sorted(dropdowns.items()):
             # Match the existing definition by mapping first, then by ref.
-            dropdown = dropdowns_by_source_id.get(source_id) or dropdowns_by_ref.get(
-                source_id
+            dropdown = await self._dropdown_for_import(
+                workspace_service,
+                source_id=source_id,
+                swap=swap,
             )
             if dropdown is None:
                 # New definition: insert and flush so options can reference its id.
@@ -188,3 +171,75 @@ class CaseDropdownAdapter(FlatManifestAdapter):
             await workspace_service.session.flush()
             imported.append(self.imported_resource(source_id, dropdown.id))
         return imported
+
+    async def _dropdown_for_import(
+        self,
+        workspace_service: BaseWorkspaceService,
+        *,
+        source_id: str,
+        swap: NameSwapPlan[CaseDropdownDefinition],
+    ) -> CaseDropdownDefinition | None:
+        """Resolve the existing dropdown a spec maps to, by source id then ref.
+
+        A dropdown's target ref is its source id, so a mapped row is reused only
+        after confirming that ref is still free (the swap plan tolerates another
+        mapped row that is itself vacating the ref).
+
+        Args:
+            workspace_service: Workspace-scoped sync service for this import.
+            source_id: Git-owned source id, also the dropdown's target ref.
+            swap: Name-swap plan holding the mapped rows and availability check.
+
+        Returns:
+            The existing dropdown to reconcile in place, or `None` when a new
+            definition must be created.
+        """
+        # Prefer the sync-mapping match: it identifies the row even if its ref
+        # diverged from the source id (e.g. a local rename).
+        dropdown = swap.mapped_by_source_id.get(source_id) or (
+            await self._dropdown_by_source_id(
+                workspace_service,
+                source_id=source_id,
+            )
+        )
+        if dropdown is not None:
+            await swap.ensure_available(
+                workspace_service,
+                source_id=source_id,
+                name=source_id,
+                row_id=dropdown.id,
+            )
+            return dropdown
+
+        # No mapping yet: adopt any existing dropdown already at this ref.
+        return await workspace_service.session.scalar(
+            select(CaseDropdownDefinition)
+            .where(
+                CaseDropdownDefinition.workspace_id == workspace_service.workspace_id,
+                CaseDropdownDefinition.ref == source_id,
+            )
+            .options(selectinload(CaseDropdownDefinition.options))
+        )
+
+    async def _dropdown_by_source_id(
+        self,
+        workspace_service: BaseWorkspaceService,
+        *,
+        source_id: str,
+    ) -> CaseDropdownDefinition | None:
+        """Load the dropdown mapped to `source_id` via the sync mapping.
+
+        Args:
+            workspace_service: Workspace-scoped sync service for this import.
+            source_id: Git-owned source id to resolve through the sync mapping.
+
+        Returns:
+            The mapped dropdown with its options eager-loaded, or `None` when
+            `source_id` is not mapped.
+        """
+        return await self._row_by_source_id(
+            workspace_service,
+            source_id=source_id,
+            model=CaseDropdownDefinition,
+            options=(selectinload(CaseDropdownDefinition.options),),
+        )

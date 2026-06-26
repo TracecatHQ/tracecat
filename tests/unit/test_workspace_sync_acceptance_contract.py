@@ -2592,6 +2592,66 @@ async def test_pull_unpublished_agent_preset_clears_current_version(
 
 
 @pytest.mark.anyio
+async def test_pull_unversioned_skill_clears_current_version(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    unversioned_files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml": _yaml(
+            {
+                "version": 1,
+                "type": "skill",
+                "id": "qa-enrichment-skill",
+                "slug": "qa-enrichment-skill",
+                "name": "QA enrichment skill",
+                "description": "Deterministic enrichment helper",
+                "current_version": None,
+            }
+        ),
+    }
+    transport = AsyncMock()
+    transport.read_files.side_effect = [
+        VcsTreeSnapshot(
+            commit_sha="d" * 40,
+            tree_sha="tree-1",
+            files=_skill_git_tree(
+                source_id="qa-enrichment-skill",
+                slug="qa-enrichment-skill",
+                name="QA enrichment skill",
+            ),
+        ),
+        VcsTreeSnapshot(
+            commit_sha="e" * 40,
+            tree_sha="tree-2",
+            files=unversioned_files,
+        ),
+    ]
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
+    )
+
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        first_result = await service.pull(options=PullOptions(commit_sha="d" * 40))
+        second_result = await service.pull(options=PullOptions(commit_sha="e" * 40))
+
+    assert first_result.success is True
+    assert second_result.success is True
+    skill = await session.scalar(
+        select(Skill).where(
+            Skill.workspace_id == svc_role.workspace_id,
+            Skill.name == "qa-enrichment-skill",
+        )
+    )
+    assert skill is not None
+    assert skill.current_version_id is None
+
+
+@pytest.mark.anyio
 async def test_pull_agent_preset_slug_swap_reuses_source_id_mappings(
     session: AsyncSession,
     svc_role: Role,
@@ -3084,6 +3144,101 @@ async def test_pull_case_duration_name_swap_reuses_source_id_mappings(
         ).all()
     }
     assert durations == {"alpha_duration": beta_id, "beta_duration": alpha_id}
+
+
+@pytest.mark.anyio
+async def test_pull_case_dropdown_ref_swap_reuses_source_id_mappings(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    transport = AsyncMock()
+    transport.read_files.side_effect = [
+        VcsTreeSnapshot(
+            commit_sha="h" * 40,
+            tree_sha="tree-1",
+            files=_combined_git_tree(
+                _case_dropdown_git_tree(
+                    source_id="alpha_reason",
+                    name="Alpha reason",
+                ),
+                _case_dropdown_git_tree(
+                    source_id="beta_reason",
+                    name="Beta reason",
+                ),
+            ),
+        ),
+        VcsTreeSnapshot(
+            commit_sha="i" * 40,
+            tree_sha="tree-2",
+            files=_combined_git_tree(
+                _case_dropdown_git_tree(
+                    source_id="alpha_reason",
+                    name="Alpha reason",
+                ),
+                _case_dropdown_git_tree(
+                    source_id="beta_reason",
+                    name="Beta reason",
+                ),
+            ),
+        ),
+    ]
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
+    )
+
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        first_result = await service.pull(options=PullOptions(commit_sha="h" * 40))
+        assert first_result.success is True
+        alpha = await session.scalar(
+            select(CaseDropdownDefinition).where(
+                CaseDropdownDefinition.workspace_id == svc_role.workspace_id,
+                CaseDropdownDefinition.ref == "alpha_reason",
+            )
+        )
+        beta = await session.scalar(
+            select(CaseDropdownDefinition).where(
+                CaseDropdownDefinition.workspace_id == svc_role.workspace_id,
+                CaseDropdownDefinition.ref == "beta_reason",
+            )
+        )
+        assert alpha is not None
+        assert beta is not None
+        alpha_id, beta_id = alpha.id, beta.id
+
+        # Swap the refs locally between pulls, parking one row under a temporary
+        # ref so this setup does not itself trip the unique constraint. The
+        # mappings still resolve "alpha_reason" -> alpha and "beta_reason" -> beta.
+        alpha.ref = "tmp_swap_reason"
+        session.add(alpha)
+        await session.flush()
+        beta.ref = "alpha_reason"
+        session.add(beta)
+        await session.flush()
+        alpha.ref = "beta_reason"
+        session.add(alpha)
+        await session.flush()
+
+        # The second pull restores each row to its mapped ref. Without a parking
+        # phase, writing "alpha_reason" back onto alpha collides with beta, which
+        # still owns it mid-loop.
+        second_result = await service.pull(options=PullOptions(commit_sha="i" * 40))
+
+    assert second_result.success is True
+    dropdowns = {
+        dropdown.ref: dropdown.id
+        for dropdown in (
+            await session.scalars(
+                select(CaseDropdownDefinition).where(
+                    CaseDropdownDefinition.workspace_id == svc_role.workspace_id
+                )
+            )
+        ).all()
+    }
+    assert dropdowns == {"alpha_reason": alpha_id, "beta_reason": beta_id}
 
 
 @pytest.mark.anyio
@@ -4920,6 +5075,25 @@ def _combined_git_tree(*trees: dict[str, str]) -> dict[str, str]:
             }
         )
     return files
+
+
+def _case_dropdown_git_tree(
+    *,
+    source_id: str,
+    name: str,
+) -> dict[str, str]:
+    return {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{CASE_DROPDOWN_ROOT}/{source_id}.yml": _yaml(
+            {
+                "version": 1,
+                "type": "case_dropdown",
+                "id": source_id,
+                "name": name,
+                "options": [],
+            }
+        ),
+    }
 
 
 def _table_git_tree(

@@ -158,9 +158,12 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
         try:
             repo = await asyncio.to_thread(gh.get_repo, f"{url.org}/{url.repo}")
             commit = await asyncio.to_thread(repo.get_commit, ref)
+            # GitHub's git/trees endpoint keys off the tree SHA, not the commit
+            # SHA; passing the commit SHA 404s for many repositories.
+            tree_sha = commit.commit.tree.sha
             tree = await asyncio.to_thread(
                 repo.get_git_tree,
-                sha=commit.sha,
+                sha=tree_sha,
                 recursive=True,
             )
             blob_shas = {
@@ -208,7 +211,7 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
                     files[path] = content
             return VcsTreeSnapshot(
                 commit_sha=commit.sha,
-                tree_sha=getattr(commit.commit.tree, "sha", None),
+                tree_sha=tree_sha,
                 files=files,
             )
         except GithubException as e:
