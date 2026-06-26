@@ -62,6 +62,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
     spec_attr = "agent_presets"
     model = AgentPresetResourceSpec
     read_scope = "agent:read"
+    create_scope = "agent:create"
     update_scope = "agent:update"
     root = AGENT_PRESET_ROOT
     filename = AGENT_PRESET_FILENAME

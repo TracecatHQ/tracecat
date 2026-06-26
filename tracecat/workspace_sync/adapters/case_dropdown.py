@@ -31,6 +31,7 @@ class CaseDropdownAdapter(FlatManifestAdapter):
     spec_attr = "case_dropdowns"
     model = CaseDropdownResourceSpec
     read_scope = "case:read"
+    create_scope = "case:create"
     update_scope = "case:update"
     required_entitlements = frozenset({Entitlement.CASE_ADDONS})
     root = CASE_DROPDOWN_ROOT

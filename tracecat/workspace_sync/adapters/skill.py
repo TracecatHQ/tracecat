@@ -62,6 +62,7 @@ class SkillAdapter(DirectoryManifestAdapter):
     spec_attr = "skills"
     model = SkillResourceSpec
     read_scope = "agent:read"
+    create_scope = "agent:create"
     update_scope = "agent:update"
     root = SKILL_ROOT
     filename = SKILL_FILENAME

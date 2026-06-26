@@ -323,6 +323,8 @@ class ResourceAdapter(ABC):
     """Pydantic spec model the resource serializes to and from."""
     read_scope: ClassVar[str | None] = None
     """RBAC scope required to export or dry-run import this resource type."""
+    create_scope: ClassVar[str | None] = None
+    """RBAC scope required when applying an import may create this resource type."""
     update_scope: ClassVar[str | None] = None
     """RBAC scope required to apply an import for this resource type."""
     required_entitlements: ClassVar[frozenset[Entitlement]] = frozenset()

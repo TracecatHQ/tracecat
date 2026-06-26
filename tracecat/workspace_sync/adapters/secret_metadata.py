@@ -34,6 +34,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
     spec_attr = "secret_metadata"
     model = SecretMetadataResourceSpec
     read_scope = "secret:read"
+    create_scope = "secret:create"
     update_scope = "secret:update"
     root = SECRET_METADATA_ROOT
 

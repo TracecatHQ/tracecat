@@ -33,6 +33,7 @@ class CaseTagAdapter(FlatManifestAdapter):
     spec_attr = "case_tags"
     model = CaseTagResourceSpec
     read_scope = "case:read"
+    create_scope = "case:create"
     update_scope = "case:update"
     root = CASE_TAG_ROOT
 

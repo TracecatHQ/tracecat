@@ -2064,10 +2064,16 @@ def _export_read_scopes_for_spec(spec: WorkspaceSpec) -> set[str]:
 def _pull_scopes_for_spec(spec: WorkspaceSpec, *, dry_run: bool) -> set[str]:
     """Collect resource scopes required by a pull spec."""
     scopes: set[str] = set()
-    scope_attr = "read_scope" if dry_run else "update_scope"
     for adapter in WORKSPACE_RESOURCE_ADAPTERS:
-        if adapter.specs(spec) and (scope := getattr(adapter, scope_attr)):
-            scopes.add(scope)
+        if not adapter.specs(spec):
+            continue
+        if dry_run:
+            if adapter.read_scope:
+                scopes.add(adapter.read_scope)
+            continue
+        for scope in (adapter.create_scope, adapter.update_scope):
+            if scope:
+                scopes.add(scope)
     return scopes
 
 

@@ -37,6 +37,7 @@ class VariableAdapter(EnvironmentScopedManifestAdapter):
     resource_type = SyncResourceType.VARIABLE
     """The sync resource type this adapter handles."""
     read_scope = "variable:read"
+    create_scope = "variable:create"
     update_scope = "variable:update"
     spec_attr = "variables"
     """Attribute on ``WorkspaceSpec``/``WorkspaceManifestResources`` for variables."""

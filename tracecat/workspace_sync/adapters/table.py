@@ -45,6 +45,7 @@ class TableAdapter(DirectoryManifestAdapter):
     resource_type = SyncResourceType.TABLE
     """The sync resource type this adapter handles."""
     read_scope = "table:read"
+    create_scope = "table:create"
     update_scope = "table:update"
     spec_attr = "tables"
     """Attribute on ``WorkspaceSpec``/``WorkspaceManifestResources`` for tables."""

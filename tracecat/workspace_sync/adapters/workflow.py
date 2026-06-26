@@ -34,6 +34,7 @@ class WorkflowAdapter(ResourceAdapter):
     spec_attr = "workflows"
     model = WorkflowResourceSpec
     read_scope = "workflow:read"
+    create_scope = "workflow:create"
     update_scope = "workflow:update"
 
     def source_path(self, source_id: str) -> str:

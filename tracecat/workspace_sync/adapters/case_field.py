@@ -43,6 +43,7 @@ class CaseFieldAdapter(FlatManifestAdapter):
     spec_attr = "case_fields"
     model = CaseFieldResourceSpec
     read_scope = "case:read"
+    create_scope = "case:create"
     update_scope = "case:update"
     root = CASE_FIELD_ROOT
 

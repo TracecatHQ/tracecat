@@ -748,13 +748,13 @@ async def test_pull_dry_run_requires_read_scopes_for_incoming_resources() -> Non
 
 
 @pytest.mark.anyio
-async def test_pull_apply_requires_update_scopes_for_incoming_resources() -> None:
+async def test_pull_apply_requires_create_scopes_for_incoming_resources() -> None:
     role = Role(
         type="service",
         service_id="tracecat-api",
         workspace_id=uuid.uuid4(),
         organization_id=uuid.uuid4(),
-        scopes=frozenset({"workspace_sync:sync"}),
+        scopes=frozenset({"workspace_sync:sync", "secret:update", "variable:update"}),
     )
     service = WorkspaceSyncService(session=AsyncMock(), role=role)
     incoming_spec = WorkspaceSpec(
@@ -796,7 +796,7 @@ async def test_pull_apply_requires_update_scopes_for_incoming_resources() -> Non
     ):
         await service.pull(options=PullOptions(commit_sha="a" * 40))
 
-    assert set(exc_info.value.missing_scopes) == {"secret:update", "variable:update"}
+    assert set(exc_info.value.missing_scopes) == {"secret:create", "variable:create"}
 
 
 @pytest.mark.anyio
