@@ -1,0 +1,71 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/queries/list_queries.yml
+  s_5ded49f5698a7a::t_9e80ad40cf30c1 37-49,57
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/vulnerabilities/get_software_title.yml
+  s_5ded49f5698a7a::t_f6c2c909b66257 24-32,40
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/hosts/get_host_by_identifier.yml
+  s_5ded49f5698a7a::t_5bc32c3cec7474 28-37,45
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/vulnerabilities/list_software_titles.yml
+  s_5ded49f5698a7a::t_6f35ada35b39bb 53-69,77
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/hosts/list_fleets.yml
+  s_5ded49f5698a7a::t_3086bdd2c01bda 29-39,47
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/vulnerabilities/list_os_versions.yml
+  s_5ded49f5698a7a::t_d2cfe749425764 33-44,52
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/activities/list_activities.yml
+  s_5ded49f5698a7a::t_265e58c0ac7b90 37-49,57
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/hosts/count_hosts.yml
+  s_5ded49f5698a7a::t_ca39f102256ad8 36-39,44-55,57-74,82
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/mdm/lock_host.yml
+  s_5ded49f5698a7a::t_7a6fc9aad139a6 24-32,40
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/hosts/list_host_software.yml
+  s_5ded49f5698a7a::t_77b66b8187c063 48-62,70
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/policies/list_fleet_policies.yml
+  s_5ded49f5698a7a::t_73cc825f263b22 24-32,40
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/hosts/list_label_hosts.yml
+  s_5ded49f5698a7a::t_99ef9b52a79984 36-47,55
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/policies/list_policy_hosts.yml
+  s_5ded49f5698a7a::t_099ba05148bbcd 36-48,56
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/vulnerabilities/get_vulnerability.yml
+  s_5ded49f5698a7a::t_18354c9ba96cfe 24-32,40
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/mdm/get_disk_encryption_summary.yml
+  s_5ded49f5698a7a::t_6045dcea9ed2e6 21-29,37
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/vulnerabilities/list_hosts_by_vulnerability.yml
+  s_5ded49f5698a7a::t_330172282139b9 36-48,56
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/mdm/list_configuration_profiles.yml
+  s_5ded49f5698a7a::t_2e40aa6fb2b991 29-39,47
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/mdm/list_mdm_commands.yml
+  s_5ded49f5698a7a::t_7598a6b582060b 37-49,57
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/vulnerabilities/list_vulnerabilities.yml
+  s_5ded49f5698a7a::t_6e4ad1943e1d21 45-59,67
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/hosts/get_host.yml
+  s_5ded49f5698a7a::t_d43ef5dee35874 28-37,45
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/hosts/list_hosts.yml
+  s_5ded49f5698a7a::t_8042f8ca214cc6 40-43,56-63,76-83,93-119,127
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/vulnerabilities/list_software_versions.yml
+  s_5ded49f5698a7a::t_ce8cf0367efe32 72
+  s_5ded49f5698a7a::t_e8613788411a09 49-64
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/hosts/list_labels.yml
+  s_5ded49f5698a7a::t_c6ccb61290d666 21-29,37
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/hosts/get_host_summary.yml
+  s_5ded49f5698a7a::t_50f64a759d91c2 29-39,47
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/policies/list_global_policies.yml
+  s_5ded49f5698a7a::t_5e50fcbecc6192 33-44,52
+  s_5ded49f5698a7a::t_c5f8588022819e 20-23
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/mdm/get_os_settings_summary.yml
+  s_5ded49f5698a7a::t_7a9e2ce90aa7f3 21-29,37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "404eb881858454ba91bb42b28ffbe2f6469ed8e5",
+  "prompts": {},
+  "sessions": {
+    "s_5ded49f5698a7a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e2350c2e-0b46-4cca-aa45-c8acecb06d84",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
