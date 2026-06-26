@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from typing import Any
 
 from pydantic import BaseModel
@@ -21,6 +21,7 @@ from tracecat.workspace_sync.adapters.base import (
     ImportedResource,
     ProjectedResource,
     ResourceProjection,
+    find_duplicates,
     sql_type,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
@@ -218,7 +219,7 @@ class CaseFieldAdapter(FlatManifestAdapter):
         """Park mapped existing fields whose names change in this batch."""
         if not fields:
             return
-        duplicate_names = sorted(_duplicates(spec.name for spec in fields.values()))
+        duplicate_names = find_duplicates(spec.name for spec in fields.values())
         if duplicate_names:
             raise ValueError(
                 "Case field sync specs must have unique names: "
@@ -290,17 +291,6 @@ def _case_field_kind(value: Any) -> CaseFieldKind | None:
     except ValueError:
         # Unknown kind from external YAML: treat as absent rather than failing.
         return None
-
-
-def _duplicates(values: Iterable[str]) -> set[str]:
-    """Return duplicate string values from an iterable."""
-    seen: set[str] = set()
-    duplicates: set[str] = set()
-    for value in values:
-        if value in seen:
-            duplicates.add(value)
-        seen.add(value)
-    return duplicates
 
 
 def _unique_temporary_case_field_name(

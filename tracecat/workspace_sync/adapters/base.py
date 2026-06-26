@@ -13,13 +13,13 @@ from __future__ import annotations
 import re
 import uuid
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Literal, NamedTuple, Protocol, cast
 
 from pydantic import BaseModel
 from sqlalchemy import select
-from sqlalchemy.orm import Mapped
+from sqlalchemy.orm import InstrumentedAttribute, Mapped
 from sqlalchemy.sql.base import ExecutableOption
 
 from tracecat.db.models import WorkspaceSyncResourceMapping
@@ -162,6 +162,148 @@ class _WorkspaceRow(Protocol):
 
     id: Mapped[uuid.UUID]
     workspace_id: Mapped[uuid.UUID]
+
+
+_TEMP_NAME_PREFIX = "__tracecat_sync_tmp_"
+"""Prefix for placeholder names rows are parked under during a rename swap."""
+
+
+def find_duplicates(values: Iterable[str]) -> list[str]:
+    """Return the sorted distinct values that appear more than once."""
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for value in values:
+        if value in seen:
+            duplicates.add(value)
+        seen.add(value)
+    return sorted(duplicates)
+
+
+def unique_temporary_name(
+    row_id: uuid.UUID,
+    reserved: set[str],
+    *,
+    prefix: str = _TEMP_NAME_PREFIX,
+    max_len: int | None = None,
+) -> str:
+    """Mint a placeholder name for ``row_id`` not present in ``reserved``.
+
+    Parks a row under a throwaway name during a rename swap. ``max_len`` caps the
+    base length for models with short name limits. The minted name is added to
+    ``reserved`` so repeated calls stay collision-free.
+    """
+    base = f"{prefix}{row_id.hex}"
+    if max_len is not None:
+        base = base[:max_len]
+    candidate = base
+    suffix = 1
+    while candidate in reserved:
+        suffix += 1
+        candidate = f"{base}_{suffix}"
+    reserved.add(candidate)
+    return candidate
+
+
+@dataclass(slots=True)
+class NameSwapPlan[ModelT: _WorkspaceRow]:
+    """Reconciliation plan for in-place renames within one resource type.
+
+    A single import batch can rename rows so that two of them swap names (``a``
+    becomes ``b`` while ``b`` becomes ``a``). Applying those renames one at a
+    time transiently collides on the synced name -- a DB unique constraint for
+    tables, presets, and case durations, or import-enforced uniqueness for
+    skills -- so :meth:`ResourceAdapter.plan_name_swap` parks every changing
+    mapped row under a temporary name first. The returned plan holds the mapped
+    rows and the availability check the planning pass and the main import loop
+    both reuse.
+
+    Resources whose name is unique only within a scope (workspace variables and
+    secret metadata, keyed by ``(environment, name)``) set ``scope_attr`` so the
+    collision check and parking are confined to that scope column.
+    """
+
+    model: type[ModelT]
+    """Workspace-scoped model whose synced name column is reconciled."""
+    name_attr: str
+    """Attribute on ``model`` holding the synced name (e.g. ``"slug"``)."""
+    noun: str
+    """Word for the name in messages (``"slug"`` or ``"name"``)."""
+    kind_label: str
+    """Resource label for messages, e.g. ``"Agent preset"``."""
+    owner_label: str
+    """Conflicting-resource label for messages, e.g. ``"preset"``."""
+    error_cls: type[Exception]
+    """Exception type raised on an unresolvable name conflict."""
+    targets: Mapping[str, str]
+    """Desired ``source_id`` -> name for every spec in the batch."""
+    mapped_by_source_id: dict[str, ModelT]
+    """Rows already mapped to a ``source_id`` in the batch."""
+    source_ids_by_row_id: dict[uuid.UUID, str]
+    """Reverse lookup from a mapped row id back to its ``source_id``."""
+    scope_attr: str | None = None
+    """Attribute scoping name uniqueness (e.g. ``"environment"``), if any."""
+    target_scopes: Mapping[str, str] | None = None
+    """Desired ``source_id`` -> scope value; set whenever ``scope_attr`` is."""
+
+    @property
+    def column(self) -> InstrumentedAttribute[str]:
+        """The model's synced name column, e.g. ``AgentPreset.slug``."""
+        return getattr(self.model, self.name_attr)
+
+    @property
+    def scope_column(self) -> InstrumentedAttribute[str] | None:
+        """The model's scope column, e.g. ``WorkspaceVariable.environment``."""
+        return getattr(self.model, self.scope_attr) if self.scope_attr else None
+
+    def scope_of(self, source_id: str) -> str | None:
+        """The scope value ``source_id`` reconciles toward, or ``None`` if unscoped."""
+        return None if self.target_scopes is None else self.target_scopes[source_id]
+
+    async def ensure_available(
+        self,
+        workspace_service: BaseWorkspaceService,
+        *,
+        source_id: str,
+        name: str,
+        row_id: uuid.UUID,
+        scope: str | None = None,
+    ) -> None:
+        """Raise when another row owns the target identity and is not vacating it.
+
+        ``scope`` narrows the collision to rows sharing that scope value (e.g.
+        environment) when the plan is scoped.
+        """
+        conditions = [
+            self.model.workspace_id == workspace_service.workspace_id,
+            self.column == name,
+            self.model.id != row_id,
+        ]
+        if (scope_column := self.scope_column) is not None:
+            conditions.append(scope_column == scope)
+        conflict_id = await workspace_service.session.scalar(
+            select(self.model.id).where(*conditions)
+        )
+        if conflict_id is None:
+            return
+        # Tolerate a conflict with another mapped row that is itself moving off
+        # this identity in the batch: parking frees it before we claim it.
+        owner_source_id = self.source_ids_by_row_id.get(conflict_id)
+        if owner_source_id is not None and (
+            self.scope_of(owner_source_id),
+            self.targets[owner_source_id],
+        ) != (scope, name):
+            return
+        if self.scope_attr is not None:
+            raise self.error_cls(
+                f"{self.kind_label} sync source id {source_id!r} cannot use "
+                f"{scope!r}/{name!r} because another {self.owner_label} "
+                "already uses it."
+            )
+        raise self.error_cls(
+            f"{self.kind_label} sync source id {source_id!r} cannot use "
+            f"{self.noun} {name!r} because another {self.owner_label} already "
+            f"uses that {self.noun}."
+        )
 
 
 class ResourceAdapter(ABC):
@@ -424,6 +566,193 @@ class ResourceAdapter(ABC):
         if options:
             stmt = stmt.options(*options)
         return await workspace_service.session.scalar(stmt)
+
+    async def plan_name_swap[ModelT: _WorkspaceRow](
+        self,
+        workspace_service: BaseWorkspaceService,
+        *,
+        targets: Mapping[str, str],
+        model: type[ModelT],
+        name_column: InstrumentedAttribute[str],
+        noun: str,
+        kind_label: str,
+        owner_label: str,
+        error_cls: type[Exception] = ValueError,
+        options: Sequence[ExecutableOption] = (),
+        scope_column: InstrumentedAttribute[str] | None = None,
+        target_scopes: Mapping[str, str] | None = None,
+        temp_prefix: str = _TEMP_NAME_PREFIX,
+        temp_max_len: int | None = None,
+        rename: Callable[[ModelT, str], Awaitable[None]] | None = None,
+    ) -> NameSwapPlan[ModelT]:
+        """Validate target names and park mapped rows whose names change.
+
+        Rejects duplicate targets, loads the rows already mapped to a
+        ``source_id`` in the batch, confirms each can claim its target name
+        (tolerating a mapped row that is itself vacating that name), then renames
+        every changing mapped row to a temporary placeholder so the later per-row
+        renames cannot collide on the synced name mid-swap. ``name_column`` is the
+        model's synced name column, e.g. ``AgentPreset.slug``. ``scope_column``
+        (with ``target_scopes``) confines uniqueness to a second column, e.g.
+        ``WorkspaceVariable.environment`` keyed by ``(environment, name)``.
+        ``rename`` overrides the default in-place attribute assignment for models
+        that must rename through a service.
+        """
+        scope_attr = scope_column.key if scope_column is not None else None
+        self._reject_duplicate_targets(
+            targets,
+            target_scopes=target_scopes,
+            scope_attr=scope_attr,
+            error_cls=error_cls,
+            kind_label=kind_label,
+            noun=noun,
+        )
+        mapped: dict[str, ModelT] = {}
+        for source_id in sorted(targets):
+            row = await self._row_by_source_id(
+                workspace_service, source_id=source_id, model=model, options=options
+            )
+            if row is not None:
+                mapped[source_id] = row
+        plan = NameSwapPlan(
+            model=model,
+            name_attr=name_column.key,
+            noun=noun,
+            kind_label=kind_label,
+            owner_label=owner_label,
+            error_cls=error_cls,
+            targets=targets,
+            mapped_by_source_id=mapped,
+            source_ids_by_row_id={
+                row.id: source_id for source_id, row in mapped.items()
+            },
+            scope_attr=scope_attr,
+            target_scopes=target_scopes,
+        )
+        for source_id, row in mapped.items():
+            await plan.ensure_available(
+                workspace_service,
+                source_id=source_id,
+                name=targets[source_id],
+                row_id=row.id,
+                scope=plan.scope_of(source_id),
+            )
+        await self._park_changing_names(
+            workspace_service,
+            plan,
+            temp_prefix=temp_prefix,
+            temp_max_len=temp_max_len,
+            rename=rename,
+        )
+        return plan
+
+    @staticmethod
+    def _reject_duplicate_targets(
+        targets: Mapping[str, str],
+        *,
+        target_scopes: Mapping[str, str] | None,
+        scope_attr: str | None,
+        error_cls: type[Exception],
+        kind_label: str,
+        noun: str,
+    ) -> None:
+        """Raise when two specs reconcile toward the same target identity."""
+        if scope_attr is None:
+            duplicates = find_duplicates(targets.values())
+            if duplicates:
+                raise error_cls(
+                    f"{kind_label} sync specs must have unique {noun}s: "
+                    + ", ".join(repr(value) for value in duplicates)
+                )
+            return
+        if target_scopes is None:
+            raise ValueError("plan_name_swap requires target_scopes with scope_column")
+        seen: set[tuple[str, str]] = set()
+        duplicates_scoped: set[tuple[str, str]] = set()
+        for source_id in sorted(targets):
+            identity = (target_scopes[source_id], targets[source_id])
+            if identity in seen:
+                duplicates_scoped.add(identity)
+            seen.add(identity)
+        if duplicates_scoped:
+            raise error_cls(
+                f"{kind_label} sync specs must have unique targets: "
+                + ", ".join(
+                    f"{scope!r}/{name!r}" for scope, name in sorted(duplicates_scoped)
+                )
+            )
+
+    async def _park_changing_names[ModelT: _WorkspaceRow](
+        self,
+        workspace_service: BaseWorkspaceService,
+        plan: NameSwapPlan[ModelT],
+        *,
+        temp_prefix: str,
+        temp_max_len: int | None,
+        rename: Callable[[ModelT, str], Awaitable[None]] | None,
+    ) -> None:
+        """Rename changing mapped rows to collision-free temporary placeholders."""
+        if not plan.mapped_by_source_id:
+            return
+        reserved = await self._reserved_names_by_scope(workspace_service, plan)
+        changed = False
+        for source_id, row in plan.mapped_by_source_id.items():
+            scope = getattr(row, plan.scope_attr) if plan.scope_attr else None
+            # Skip rows already at their target identity: nothing to free.
+            if (scope, getattr(row, plan.name_attr)) == (
+                plan.scope_of(source_id),
+                plan.targets[source_id],
+            ):
+                continue
+            temp_name = unique_temporary_name(
+                row.id,
+                reserved.setdefault(scope, set()),
+                prefix=temp_prefix,
+                max_len=temp_max_len,
+            )
+            if rename is not None:
+                await rename(row, temp_name)
+            else:
+                setattr(row, plan.name_attr, temp_name)
+                workspace_service.session.add(row)
+            changed = True
+        if changed:
+            await workspace_service.session.flush()
+
+    async def _reserved_names_by_scope[ModelT: _WorkspaceRow](
+        self,
+        workspace_service: BaseWorkspaceService,
+        plan: NameSwapPlan[ModelT],
+    ) -> dict[str | None, set[str]]:
+        """In-use names plus batch targets, bucketed by scope value.
+
+        The bucket key is ``None`` for unscoped plans, so a single flat namespace
+        and per-scope namespaces share one parking loop.
+        """
+        reserved: dict[str | None, set[str]] = {}
+        scope_column = plan.scope_column
+        if scope_column is None:
+            existing = (
+                await workspace_service.session.scalars(
+                    select(plan.column).where(
+                        plan.model.workspace_id == workspace_service.workspace_id
+                    )
+                )
+            ).all()
+            reserved[None] = set(existing) | set(plan.targets.values())
+            return reserved
+        rows = (
+            await workspace_service.session.execute(
+                select(scope_column, plan.column).where(
+                    plan.model.workspace_id == workspace_service.workspace_id
+                )
+            )
+        ).tuples()
+        for scope_value, name in rows:
+            reserved.setdefault(scope_value, set()).add(name)
+        for source_id, name in plan.targets.items():
+            reserved.setdefault(plan.scope_of(source_id), set()).add(name)
+        return reserved
 
 
 class DirectoryManifestAdapter(ResourceAdapter):

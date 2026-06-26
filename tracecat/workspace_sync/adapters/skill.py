@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from collections import defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from typing import cast
 
 import orjson
@@ -32,6 +32,7 @@ from tracecat.sync import PullDiagnostic, serializable_validation_errors
 from tracecat.workspace_sync.adapters.base import (
     DirectoryManifestAdapter,
     ImportedResource,
+    NameSwapPlan,
     ProjectedResource,
     ResourceDependencyRefs,
     ResourceProjection,
@@ -507,42 +508,18 @@ class SkillAdapter(DirectoryManifestAdapter):
         declared current version.
         """
         skills = workspace_spec.skills
-        target_slugs_by_source_id = {
-            source_id: spec.slug for source_id, spec in skills.items()
-        }
-        duplicate_slugs = sorted(_duplicates(target_slugs_by_source_id.values()))
-        if duplicate_slugs:
-            raise TracecatValidationError(
-                "Skill sync specs must have unique slugs: "
-                + ", ".join(repr(slug) for slug in duplicate_slugs)
-            )
-        mapped_skills = {
-            source_id: skill
-            for source_id in sorted(skills)
-            if (
-                skill := await self._skill_by_source_id(
-                    workspace_service,
-                    source_id=source_id,
-                )
-            )
-            is not None
-        }
-        source_ids_by_skill_id = {
-            skill.id: source_id for source_id, skill in mapped_skills.items()
-        }
-        for source_id, skill in mapped_skills.items():
-            await self._ensure_slug_available(
-                workspace_service,
-                source_id=source_id,
-                slug=target_slugs_by_source_id[source_id],
-                skill_id=skill.id,
-                source_ids_by_skill_id=source_ids_by_skill_id,
-                target_slugs_by_source_id=target_slugs_by_source_id,
-            )
-        await self._release_changing_mapped_skills(
+        # Skill identity lives on ``Skill.name`` but specs key off ``slug``; the
+        # shorter temp prefix keeps placeholders within the slug length budget.
+        swap = await self.plan_name_swap(
             workspace_service,
-            skills_by_source_id=mapped_skills,
-            target_slugs_by_source_id=target_slugs_by_source_id,
+            targets={source_id: spec.slug for source_id, spec in skills.items()},
+            model=Skill,
+            name_column=Skill.name,
+            noun="slug",
+            kind_label="Skill",
+            owner_label="skill",
+            error_cls=TracecatValidationError,
+            temp_prefix="__tc_sync_tmp_",
         )
         imported: list[ImportedResource] = []
         skill_service = SkillService(
@@ -555,9 +532,7 @@ class SkillAdapter(DirectoryManifestAdapter):
                 workspace_service,
                 source_id=source_id,
                 spec=spec,
-                mapped_skill=mapped_skills.get(source_id),
-                source_ids_by_skill_id=source_ids_by_skill_id,
-                target_slugs_by_source_id=target_slugs_by_source_id,
+                swap=swap,
             )
             if skill is None:
                 skill = Skill(
@@ -701,9 +676,7 @@ class SkillAdapter(DirectoryManifestAdapter):
         *,
         source_id: str,
         spec: SkillResourceSpec,
-        mapped_skill: Skill | None = None,
-        source_ids_by_skill_id: Mapping[uuid.UUID, str] | None = None,
-        target_slugs_by_source_id: Mapping[str, str] | None = None,
+        swap: NameSwapPlan[Skill],
     ) -> Skill | None:
         """Resolve the existing skill to update for ``source_id``, if any.
 
@@ -713,18 +686,18 @@ class SkillAdapter(DirectoryManifestAdapter):
         """
         # Prefer the skill already mapped to this source id, but only after
         # confirming its incoming slug does not clash with another skill.
-        skill = mapped_skill or await self._skill_by_source_id(
-            workspace_service,
-            source_id=source_id,
-        )
-        if skill is not None:
-            await self._ensure_slug_available(
+        skill = swap.mapped_by_source_id.get(source_id) or (
+            await self._skill_by_source_id(
                 workspace_service,
                 source_id=source_id,
-                slug=spec.slug,
-                skill_id=skill.id,
-                source_ids_by_skill_id=source_ids_by_skill_id,
-                target_slugs_by_source_id=target_slugs_by_source_id,
+            )
+        )
+        if skill is not None:
+            await swap.ensure_available(
+                workspace_service,
+                source_id=source_id,
+                name=spec.slug,
+                row_id=skill.id,
             )
             return skill
 
@@ -746,75 +719,6 @@ class SkillAdapter(DirectoryManifestAdapter):
         return await self._row_by_source_id(
             workspace_service, source_id=source_id, model=Skill
         )
-
-    async def _ensure_slug_available(
-        self,
-        workspace_service: BaseWorkspaceService,
-        *,
-        source_id: str,
-        slug: str,
-        skill_id: uuid.UUID,
-        source_ids_by_skill_id: Mapping[uuid.UUID, str] | None = None,
-        target_slugs_by_source_id: Mapping[str, str] | None = None,
-    ) -> None:
-        """Guard that ``slug`` is not already used by a different skill.
-
-        Raises :class:`TracecatValidationError` when another skill in the
-        workspace owns ``slug``.
-        """
-        # Look for any other skill in the workspace already holding this slug.
-        conflict_id = await workspace_service.session.scalar(
-            select(Skill.id).where(
-                Skill.workspace_id == workspace_service.workspace_id,
-                Skill.name == slug,
-                Skill.id != skill_id,
-            )
-        )
-        # No other owner: the slug is safe to assign.
-        if conflict_id is None:
-            return
-
-        if source_ids_by_skill_id and target_slugs_by_source_id:
-            conflict_source_id = source_ids_by_skill_id.get(conflict_id)
-            if (
-                conflict_source_id is not None
-                and target_slugs_by_source_id[conflict_source_id] != slug
-            ):
-                return
-
-        raise TracecatValidationError(
-            f"Skill sync source id {source_id!r} cannot use slug {slug!r} "
-            "because another skill already uses that slug."
-        )
-
-    async def _release_changing_mapped_skills(
-        self,
-        workspace_service: BaseWorkspaceService,
-        *,
-        skills_by_source_id: Mapping[str, Skill],
-        target_slugs_by_source_id: Mapping[str, str],
-    ) -> None:
-        """Park mapped skills whose slugs are changing under temporary names."""
-        if not skills_by_source_id:
-            return
-        reserved_slugs = set(
-            (
-                await workspace_service.session.scalars(
-                    select(Skill.name).where(
-                        Skill.workspace_id == workspace_service.workspace_id
-                    )
-                )
-            ).all()
-        ) | set(target_slugs_by_source_id.values())
-        changed = False
-        for source_id, skill in skills_by_source_id.items():
-            if skill.name == target_slugs_by_source_id[source_id]:
-                continue
-            skill.name = _unique_temporary_skill_slug(skill, reserved_slugs)
-            workspace_service.session.add(skill)
-            changed = True
-        if changed:
-            await workspace_service.session.flush()
 
 
 def _parse_skill_version_relpath(relpath: str) -> tuple[int, str, str | None] | None:
@@ -898,26 +802,3 @@ def _parse_skill_version_manifest(
             )
         )
     return None
-
-
-def _duplicates(values: Iterable[str]) -> set[str]:
-    """Return duplicate string values from an iterable."""
-    seen: set[str] = set()
-    duplicates: set[str] = set()
-    for value in values:
-        if value in seen:
-            duplicates.add(value)
-        seen.add(value)
-    return duplicates
-
-
-def _unique_temporary_skill_slug(skill: Skill, reserved_slugs: set[str]) -> str:
-    """Return a temporary skill slug that does not collide with reserved slugs."""
-    base = f"__tc_sync_tmp_{skill.id.hex}"
-    candidate = base
-    suffix = 1
-    while candidate in reserved_slugs:
-        suffix += 1
-        candidate = f"{base[:58]}_{suffix}"
-    reserved_slugs.add(candidate)
-    return candidate

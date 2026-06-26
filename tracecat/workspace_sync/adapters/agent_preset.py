@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from typing import Any, cast
 
 import sqlalchemy as sa
@@ -31,6 +31,7 @@ from tracecat.sync import PullDiagnostic, serializable_validation_errors
 from tracecat.workspace_sync.adapters.base import (
     DirectoryManifestAdapter,
     ImportedResource,
+    NameSwapPlan,
     ProjectedResource,
     ResourceDependencyRefs,
     ResourceProjection,
@@ -395,42 +396,16 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         # Compute the parent-after-subagent order up front so pass 2 can resolve
         # subagent refs once their child presets already exist.
         import_order = self._preset_import_order(presets)
-        target_slugs_by_source_id = {
-            source_id: spec.slug for source_id, spec in presets.items()
-        }
-        duplicate_slugs = sorted(_duplicates(target_slugs_by_source_id.values()))
-        if duplicate_slugs:
-            raise TracecatValidationError(
-                "Agent preset sync specs must have unique slugs: "
-                + ", ".join(repr(slug) for slug in duplicate_slugs)
-            )
-        mapped_presets = {
-            source_id: preset
-            for source_id in sorted(presets)
-            if (
-                preset := await self._preset_by_source_id(
-                    workspace_service,
-                    source_id=source_id,
-                )
-            )
-            is not None
-        }
-        source_ids_by_preset_id = {
-            preset.id: source_id for source_id, preset in mapped_presets.items()
-        }
-        for source_id, preset in mapped_presets.items():
-            await self._ensure_slug_available(
-                workspace_service,
-                source_id=source_id,
-                slug=target_slugs_by_source_id[source_id],
-                preset_id=preset.id,
-                source_ids_by_preset_id=source_ids_by_preset_id,
-                target_slugs_by_source_id=target_slugs_by_source_id,
-            )
-        await self._release_changing_mapped_presets(
+        swap = await self.plan_name_swap(
             workspace_service,
-            presets_by_source_id=mapped_presets,
-            target_slugs_by_source_id=target_slugs_by_source_id,
+            targets={source_id: spec.slug for source_id, spec in presets.items()},
+            model=AgentPreset,
+            name_column=AgentPreset.slug,
+            noun="slug",
+            kind_label="Agent preset",
+            owner_label="preset",
+            error_cls=TracecatValidationError,
+            options=(selectinload(AgentPreset.tags),),
         )
         imported: list[ImportedResource] = []
         preset_by_source_id: dict[str, AgentPreset] = {}
@@ -441,9 +416,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 workspace_service,
                 source_id=source_id,
                 spec=spec,
-                mapped_preset=mapped_presets.get(source_id),
-                source_ids_by_preset_id=source_ids_by_preset_id,
-                target_slugs_by_source_id=target_slugs_by_source_id,
+                swap=swap,
             )
             # Create a new preset with sensible model defaults when none exists;
             # otherwise just realign the existing row's slug to the spec.
@@ -643,9 +616,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         *,
         source_id: str,
         spec: AgentPresetResourceSpec,
-        mapped_preset: AgentPreset | None = None,
-        source_ids_by_preset_id: Mapping[uuid.UUID, str] | None = None,
-        target_slugs_by_source_id: Mapping[str, str] | None = None,
+        swap: NameSwapPlan[AgentPreset],
     ) -> AgentPreset | None:
         """Resolve the existing preset to update for ``source_id``, if any.
 
@@ -655,19 +626,19 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         """
         # Prefer the preset already mapped to this source id; the mapping is the
         # authoritative link even if the spec slug has since changed.
-        preset = mapped_preset or await self._preset_by_source_id(
-            workspace_service,
-            source_id=source_id,
+        preset = swap.mapped_by_source_id.get(source_id) or (
+            await self._preset_by_source_id(
+                workspace_service,
+                source_id=source_id,
+            )
         )
         if preset is not None:
             # Guard the (possibly renamed) slug isn't claimed by another preset.
-            await self._ensure_slug_available(
+            await swap.ensure_available(
                 workspace_service,
                 source_id=source_id,
-                slug=spec.slug,
-                preset_id=preset.id,
-                source_ids_by_preset_id=source_ids_by_preset_id,
-                target_slugs_by_source_id=target_slugs_by_source_id,
+                name=spec.slug,
+                row_id=preset.id,
             )
             return preset
 
@@ -694,75 +665,6 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             model=AgentPreset,
             options=(selectinload(AgentPreset.tags),),
         )
-
-    async def _ensure_slug_available(
-        self,
-        workspace_service: BaseWorkspaceService,
-        *,
-        source_id: str,
-        slug: str,
-        preset_id: uuid.UUID,
-        source_ids_by_preset_id: Mapping[uuid.UUID, str] | None = None,
-        target_slugs_by_source_id: Mapping[str, str] | None = None,
-    ) -> None:
-        """Guard that ``slug`` is not already used by a different preset.
-
-        Raises :class:`TracecatValidationError` when another preset in the
-        workspace owns ``slug``.
-        """
-        # Look for any other preset in the workspace already owning this slug.
-        conflict_id = await workspace_service.session.scalar(
-            select(AgentPreset.id).where(
-                AgentPreset.workspace_id == workspace_service.workspace_id,
-                AgentPreset.slug == slug,
-                AgentPreset.id != preset_id,
-            )
-        )
-        # No other owner: the slug is free for this preset.
-        if conflict_id is None:
-            return
-
-        if source_ids_by_preset_id and target_slugs_by_source_id:
-            conflict_source_id = source_ids_by_preset_id.get(conflict_id)
-            if (
-                conflict_source_id is not None
-                and target_slugs_by_source_id[conflict_source_id] != slug
-            ):
-                return
-
-        raise TracecatValidationError(
-            f"Agent preset sync source id {source_id!r} cannot use slug {slug!r} "
-            "because another preset already uses that slug."
-        )
-
-    async def _release_changing_mapped_presets(
-        self,
-        workspace_service: BaseWorkspaceService,
-        *,
-        presets_by_source_id: Mapping[str, AgentPreset],
-        target_slugs_by_source_id: Mapping[str, str],
-    ) -> None:
-        """Park mapped presets whose slugs are changing under temporary slugs."""
-        if not presets_by_source_id:
-            return
-        reserved_slugs = set(
-            (
-                await workspace_service.session.scalars(
-                    select(AgentPreset.slug).where(
-                        AgentPreset.workspace_id == workspace_service.workspace_id
-                    )
-                )
-            ).all()
-        ) | set(target_slugs_by_source_id.values())
-        changed = False
-        for source_id, preset in presets_by_source_id.items():
-            if preset.slug == target_slugs_by_source_id[source_id]:
-                continue
-            preset.slug = _unique_temporary_agent_preset_slug(preset, reserved_slugs)
-            workspace_service.session.add(preset)
-            changed = True
-        if changed:
-            await workspace_service.session.flush()
 
     async def _ensure_agent_folder(
         self,
@@ -1316,29 +1218,3 @@ def _tool_approvals(value: dict[str, Any]) -> dict[str, bool] | None:
         key: bool(raw_value == "manual" or raw_value is True)
         for key, raw_value in value.items()
     }
-
-
-def _duplicates(values: Iterable[str]) -> set[str]:
-    """Return duplicate string values from an iterable."""
-    seen: set[str] = set()
-    duplicates: set[str] = set()
-    for value in values:
-        if value in seen:
-            duplicates.add(value)
-        seen.add(value)
-    return duplicates
-
-
-def _unique_temporary_agent_preset_slug(
-    preset: AgentPreset,
-    reserved_slugs: set[str],
-) -> str:
-    """Return a temporary slug that does not collide with reserved slugs."""
-    base = f"__tracecat_sync_tmp_{preset.id.hex}"
-    candidate = base
-    suffix = 1
-    while candidate in reserved_slugs:
-        suffix += 1
-        candidate = f"{base}_{suffix}"
-    reserved_slugs.add(candidate)
-    return candidate
