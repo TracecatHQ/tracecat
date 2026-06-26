@@ -247,6 +247,10 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
         try:
             repo = await asyncio.to_thread(gh.get_repo, f"{url.org}/{url.repo}")
             base_branch_name = pr_base_branch or url.ref or repo.default_branch
+            if create_pr and branch == base_branch_name:
+                raise TracecatValidationError(
+                    "create_pr exports must target a non-base branch"
+                )
             base_branch = await asyncio.to_thread(repo.get_branch, base_branch_name)
 
             try:
@@ -307,14 +311,13 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
             pr_url: str | None = None
             pr_number: int | None = None
             pr_reused = False
-            should_create_pr = create_pr and branch != base_branch_name
             if not changed_files and not stale_paths:
                 branch_has_commits = await self._branch_has_commits_between(
                     repo=repo,
                     base_branch_name=base_branch_name,
                     branch_name=branch,
                 )
-                if should_create_pr and branch_has_commits:
+                if create_pr and branch_has_commits:
                     pr_url, pr_number, pr_reused = await self._upsert_pull_request(
                         repo=repo,
                         url=url,
@@ -389,7 +392,7 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
             ref = await asyncio.to_thread(repo.get_git_ref, f"heads/{branch}")
             await asyncio.to_thread(ref.edit, sha=commit.sha)
 
-            if should_create_pr:
+            if create_pr:
                 pr_url, pr_number, pr_reused = await self._upsert_pull_request(
                     repo=repo,
                     url=url,

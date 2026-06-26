@@ -1261,7 +1261,7 @@ async def test_github_write_files_noop_reuses_existing_pr_for_branch_with_commit
 
 
 @pytest.mark.anyio
-async def test_github_write_files_skips_pr_for_base_branch(
+async def test_github_write_files_rejects_pr_for_base_branch(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:
     files = {MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())}
@@ -1271,15 +1271,17 @@ async def test_github_write_files_skips_pr_for_base_branch(
         ahead_by=0,
     )
 
-    result = await _write_files_with_fake_repo(
-        repo,
-        service=workspace_sync_service,
-        files=files,
-        branch="main",
-    )
+    with pytest.raises(TracecatValidationError, match="non-base branch"):
+        await _write_files_with_fake_repo(
+            repo,
+            service=workspace_sync_service,
+            files=files,
+            branch="main",
+        )
 
-    assert result.status is PushStatus.COMMITTED
-    assert result.pr_url is None
+    assert repo.blobs == []
+    assert repo.trees == []
+    assert repo.commits == []
     repo.create_pull.assert_not_called()
 
 
