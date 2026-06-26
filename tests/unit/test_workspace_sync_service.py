@@ -894,7 +894,7 @@ async def test_pull_blocks_entitled_resource_without_entitlement() -> None:
 
 
 @pytest.mark.anyio
-async def test_pull_blocks_workflow_case_trigger_without_entitlement(
+async def test_pull_allows_workflow_case_trigger_without_entitlement(
     sample_dsl: DSLInput,
 ) -> None:
     role = Role(
@@ -906,6 +906,8 @@ async def test_pull_blocks_workflow_case_trigger_without_entitlement(
     )
     service = WorkspaceSyncService(session=AsyncMock(), role=role)
     service.has_entitlement = AsyncMock(return_value=False)
+    service._resource_diffs_for_pull = AsyncMock(return_value=[])
+    service._validate_workflow_import = AsyncMock(return_value=[])
     incoming_spec = WorkspaceSpec(
         workflows={
             "case-workflow": WorkflowResourceSpec(
@@ -933,16 +935,18 @@ async def test_pull_blocks_workflow_case_trigger_without_entitlement(
         return_value=GitUrl(host="github.com", org="tracecat", repo="sync")
     )
 
-    with (
-        patch(
-            "tracecat.workspace_sync.service.vcs_transport_for_provider",
-            return_value=transport,
-        ),
-        pytest.raises(EntitlementRequired) as exc_info,
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
     ):
-        await service.pull(options=PullOptions(commit_sha="a" * 40, dry_run=True))
+        result = await service.pull(
+            options=PullOptions(commit_sha="a" * 40, dry_run=True)
+        )
 
-    assert exc_info.value.entitlement == "case_addons"
+    assert result.success is True
+    assert result.resource_counts is not None
+    assert result.resource_counts[SyncResourceType.WORKFLOW].found == 1
+    assert result.resource_counts[SyncResourceType.WORKFLOW].imported == 0
 
 
 @pytest.mark.anyio

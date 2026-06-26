@@ -576,7 +576,7 @@ class WorkflowImportService(BaseWorkspaceService):
             return
         service = CaseTriggersService(session=self.session, role=self.role)
         config = CaseTriggerConfig.model_validate(remote_case_trigger.model_dump())
-        await service.upsert_case_trigger(
+        await service.sync_case_trigger(
             WorkflowUUID.new(workflow.id),
             config,
             create_missing_tags=True,
