@@ -148,12 +148,14 @@ def _build_consumer_with_mocks(
     triggers,
     role: Role,
     dispatch: AsyncMock | None = None,
+    has_case_addons: bool = True,
 ) -> CaseTriggerConsumer:
     consumer = CaseTriggerConsumer(client=client)
     consumer._load_event = AsyncMock(return_value=event)
     consumer._load_case = AsyncMock(return_value=case)
     consumer._load_triggers = AsyncMock(return_value=triggers)
     consumer._get_service_role = AsyncMock(return_value=role)
+    consumer._has_case_addons_entitlement = AsyncMock(return_value=has_case_addons)
     if dispatch is not None:
         consumer._dispatch_workflow = dispatch
     return consumer
@@ -206,6 +208,57 @@ async def test_case_trigger_consumer_lock_prevents_ack():
     should_ack = await consumer._process_message(fields)
     assert should_ack is False
     dispatch.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_case_trigger_consumer_skips_configured_triggers_without_case_addons():
+    event_id = uuid.uuid4()
+    case_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    workflow_id = uuid.uuid4()
+
+    event = SimpleNamespace(
+        id=event_id,
+        data={},
+        created_at=None,
+        type="case_created",
+        user_id=None,
+    )
+    case = SimpleNamespace(
+        id=case_id,
+        workspace_id=workspace_id,
+        tags=[],
+    )
+    trigger = SimpleNamespace(
+        workflow_id=workflow_id,
+        tag_filters=[],
+    )
+
+    client = AsyncMock()
+    dispatch = AsyncMock(return_value=True)
+    consumer = _build_consumer_with_mocks(
+        client,
+        event=event,
+        case=case,
+        triggers=[trigger],
+        role=_build_role(workspace_id),
+        dispatch=dispatch,
+        has_case_addons=False,
+    )
+
+    fields = {
+        "event_id": str(event_id),
+        "case_id": str(case_id),
+        "workspace_id": str(workspace_id),
+        "event_type": "case_created",
+    }
+    should_ack = await consumer._process_message(fields)
+
+    assert should_ack is True
+    cast(AsyncMock, consumer._load_triggers).assert_not_awaited()
+    dispatch.assert_not_called()
+    client.exists.assert_not_called()
+    client.set_if_not_exists.assert_not_called()
 
 
 @pytest.mark.anyio
