@@ -16,58 +16,11 @@ definition:
     transition_id:
       type: str
       description: ID of the transition to perform.
-    fields:
-      type: list[dict[str, Any]]
-      description: >-
-        Optional list of fields to update during the transition. ADF values can
-        be passed as objects.
-      default: []
-    update:
-      type: dict[str, Any] | None
-      description: >-
-        Optional Jira update operations object. Use this for transition comments
-        or other Jira update operations; ADF bodies should be passed as objects.
-      default: null
-    history_metadata:
-      type: dict[str, Any] | None
-      description: Optional Jira historyMetadata object.
-      default: null
-    properties:
-      type: list[dict[str, Any]] | None
-      description: Optional Jira entity properties to set during the transition.
-      default: null
     base_url:
       type: str | None
       description: Jira tenant URL (e.g. https://your-domain.atlassian.net).
       default: null
   steps:
-    - ref: build_payload
-      action: core.script.run_python
-      args:
-        inputs:
-          transition_id: ${{ inputs.transition_id }}
-          fields: ${{ inputs.fields }}
-          update: ${{ inputs.update }}
-          history_metadata: ${{ inputs.history_metadata }}
-          properties: ${{ inputs.properties }}
-        script: |
-          def main(
-              transition_id,
-              fields,
-              update=None,
-              history_metadata=None,
-              properties=None,
-          ):
-              payload = {"transition": {"id": transition_id}}
-              if fields:
-                  payload["fields"] = {k: v for item in fields for k, v in item.items()}
-              if update is not None:
-                  payload["update"] = update
-              if history_metadata is not None:
-                  payload["historyMetadata"] = history_metadata
-              if properties is not None:
-                  payload["properties"] = properties
-              return payload
     - ref: update_issue
       action: core.http_request
       args:
@@ -76,5 +29,7 @@ definition:
         auth:
           username: ${{ SECRETS.jira.JIRA_USEREMAIL }}
           password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
-        payload: ${{ steps.build_payload.result }}
+        payload:
+          transition:
+            id: ${{ inputs.transition_id }}
   returns: ${{ steps.update_issue.result.data }}
