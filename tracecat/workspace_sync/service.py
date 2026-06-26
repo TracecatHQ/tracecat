@@ -775,6 +775,8 @@ class WorkspaceSyncService(BaseWorkspaceService):
             if local_ids:
                 continue
             adapter = RESOURCE_ADAPTERS_BY_TYPE[resource_type]
+            if resource_type == SyncResourceType.SKILL:
+                continue
             root = str(getattr(projection.manifest.resources, adapter.spec_attr))
             if cleaned := root.strip("/"):
                 roots.append(cleaned)
