@@ -1,0 +1,23 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/hosts/get_host.yml
+  s_f44d0414501f07::t_b133bd14187eee 19,21,23,25,33-34
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/mdm/list_mdm_commands.yml
+  s_f44d0414501f07::t_dcade58d1fa86f 17-18
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/hosts/get_host_by_identifier.yml
+  s_f44d0414501f07::t_47be29874102e3 19,21,23,25,33-34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "d01c428ef89c1aac22e80eef6581888b9518c8aa",
+  "prompts": {},
+  "sessions": {
+    "s_f44d0414501f07": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "37f3a4a2-273c-43b4-a937-c68e12a07fc6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
