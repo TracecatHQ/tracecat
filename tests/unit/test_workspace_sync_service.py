@@ -696,6 +696,38 @@ def test_workflow_export_scope_accepts_legacy_or_workspace_sync_grant() -> None:
         service._require_workflow_export_scope()
 
 
+def test_sync_operation_scope_accepts_legacy_or_workspace_sync_grant() -> None:
+    base_role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"workflow:sync"}),
+    )
+    service = WorkspaceSyncService(session=AsyncMock(), role=base_role)
+
+    service._require_sync_operation_scope()
+
+    service.role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=base_role.workspace_id,
+        organization_id=base_role.organization_id,
+        scopes=frozenset({"workspace_sync:sync"}),
+    )
+    service._require_sync_operation_scope()
+
+    service.role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=base_role.workspace_id,
+        organization_id=base_role.organization_id,
+        scopes=frozenset(),
+    )
+    with pytest.raises(ScopeDeniedError):
+        service._require_sync_operation_scope()
+
+
 @pytest.mark.anyio
 async def test_preview_export_rejects_missing_pinned_skill_version(
     workspace_sync_service: WorkspaceSyncService,

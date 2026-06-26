@@ -484,7 +484,7 @@ class GitHubAppService(BaseOrgService):
         raise GitHubAppError("Failed to retrieve GitHub App credentials")
 
     @requires_entitlement(Entitlement.GIT_SYNC)
-    @require_scope("workspace_sync:sync")
+    @require_scope("workflow:sync", "workspace_sync:sync", require_all=False)
     async def get_github_client_for_repo(self, repo_url: GitUrl) -> Github:
         """Get authenticated PyGithub client for a specific repository.
 

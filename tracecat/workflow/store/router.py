@@ -120,7 +120,7 @@ async def list_workflow_repositories(
 
 
 @router.get("/sync/commits", response_model=list[GitCommitInfo])
-@require_scope("workspace_sync:sync")
+@require_scope("workflow:sync", "workspace_sync:sync", require_all=False)
 async def list_workflow_commits(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
@@ -179,7 +179,7 @@ async def list_workflow_commits(
 
 
 @router.get("/sync/branches", response_model=list[GitBranchInfo])
-@require_scope("workspace_sync:sync")
+@require_scope("workflow:sync", "workspace_sync:sync", require_all=False)
 async def list_workflow_branches(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
@@ -281,7 +281,7 @@ async def preview_export_workspace_sync(
 
 
 @router.post("/sync/pull", response_model=PullResult)
-@require_scope("workspace_sync:sync")
+@require_scope("workflow:sync", "workspace_sync:sync", require_all=False)
 async def pull_workflows(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,

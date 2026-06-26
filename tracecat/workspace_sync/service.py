@@ -302,7 +302,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         Schedules are intentionally opt-in so imports do not mutate or activate
         environment-specific schedule configuration unless an admin asks for it.
         """
-        self._require_workspace_sync_scope()
+        self._require_sync_operation_scope()
         # A pull always targets an explicit commit so the import is reproducible.
         if not options.commit_sha:
             return PullResult(
@@ -608,7 +608,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         provider: VcsProvider = VcsProvider.GITHUB,
     ) -> list[GitCommitInfo]:
         """List recent commits on ``branch`` for the workspace repository."""
-        self._require_workspace_sync_scope()
+        self._require_sync_operation_scope()
         url = await self._workspace_git_url(provider=provider)
         transport = self._transport_for_provider(provider)
         return await transport.list_commits(url=url, branch=branch, limit=limit)
@@ -620,7 +620,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         provider: VcsProvider = VcsProvider.GITHUB,
     ) -> list[GitBranchInfo]:
         """List branches for the workspace repository."""
-        self._require_workspace_sync_scope()
+        self._require_sync_operation_scope()
         url = await self._workspace_git_url(provider=provider)
         transport = self._transport_for_provider(provider)
         return await transport.list_branches(url=url, limit=limit)
@@ -637,6 +637,10 @@ class WorkspaceSyncService(BaseWorkspaceService):
     def _require_workspace_sync_scope(self) -> None:
         """Require the feature-level workspace sync RBAC scope."""
         self._enforce_required_scopes(["workspace_sync:sync"])
+
+    def _require_sync_operation_scope(self) -> None:
+        """Require either the legacy workflow sync or workspace sync grant."""
+        self._enforce_any_required_scope(["workflow:sync", "workspace_sync:sync"])
 
     def _require_workflow_export_scope(self) -> None:
         """Require grants that can publish one workflow to Git."""

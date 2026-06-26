@@ -358,15 +358,30 @@ async def test_organization_scope_guards(
             ("workflow:update", "workspace_sync:sync"),
         ),
         (workflow_store_router.list_workflow_repositories, "workspace:update"),
-        (workflow_store_router.list_workflow_commits, "workspace_sync:sync"),
-        (workflow_store_router.list_workflow_branches, "workspace_sync:sync"),
-        (workflow_store_router.pull_workflows, "workspace_sync:sync"),
     ],
 )
 async def test_workflow_store_scope_guards(
     endpoint: AsyncEndpoint, required_scopes: str | Sequence[str]
 ) -> None:
     await _assert_endpoint_requires_scope(endpoint, required_scopes)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        workflow_store_router.list_workflow_commits,
+        workflow_store_router.list_workflow_branches,
+        workflow_store_router.pull_workflows,
+    ],
+)
+async def test_workflow_sync_endpoints_accept_legacy_or_workspace_sync_scope(
+    endpoint: AsyncEndpoint,
+) -> None:
+    await _assert_endpoint_requires_any_scope(
+        endpoint,
+        allowed_scopes=("workflow:sync", "workspace_sync:sync"),
+    )
 
 
 @pytest.mark.anyio
