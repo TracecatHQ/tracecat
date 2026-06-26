@@ -38,6 +38,7 @@ from tracecat.sync import (
     ResourcePullCount,
     SyncPreviewResource,
 )
+from tracecat.tiers.enums import Entitlement
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.store.import_service import WorkflowImportService
@@ -667,6 +668,11 @@ class WorkspaceSyncService(BaseWorkspaceService):
         for adapter in WORKSPACE_RESOURCE_ADAPTERS:
             if adapter.specs(spec) and not await self._adapter_entitled(adapter):
                 self._raise_adapter_entitlement_required(adapter)
+        if any(
+            workflow.case_trigger is not None for workflow in spec.workflows.values()
+        ):
+            if not await self.has_entitlement(Entitlement.CASE_ADDONS):
+                raise EntitlementRequired(Entitlement.CASE_ADDONS.value)
 
     async def _adapter_entitled(self, adapter: ResourceAdapter) -> bool:
         """Return whether all adapter-declared entitlements are available."""

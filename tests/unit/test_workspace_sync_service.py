@@ -14,6 +14,7 @@ from github.GithubException import GithubException
 from tests.support.fake_vcs import FakeVcsServer
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.cases.enums import CaseEventType
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.exceptions import (
@@ -24,7 +25,7 @@ from tracecat.exceptions import (
 from tracecat.git.types import GitUrl
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.sync import CommitInfo, PullOptions, PushStatus
-from tracecat.workflow.store.schemas import RemoteWorkflowSchedule
+from tracecat.workflow.store.schemas import RemoteCaseTrigger, RemoteWorkflowSchedule
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.schemas import (
     MANIFEST_FILENAME,
@@ -839,6 +840,58 @@ async def test_pull_blocks_entitled_resource_without_entitlement() -> None:
         pytest.raises(EntitlementRequired) as exc_info,
     ):
         await service.pull(options=PullOptions(commit_sha="a" * 40))
+
+    assert exc_info.value.entitlement == "case_addons"
+
+
+@pytest.mark.anyio
+async def test_pull_blocks_workflow_case_trigger_without_entitlement(
+    sample_dsl: DSLInput,
+) -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"workspace_sync:sync", "workflow:read"}),
+    )
+    service = WorkspaceSyncService(session=AsyncMock(), role=role)
+    service.has_entitlement = AsyncMock(return_value=False)
+    incoming_spec = WorkspaceSpec(
+        workflows={
+            "case-workflow": WorkflowResourceSpec(
+                id="case-workflow",
+                alias="case-workflow",
+                case_trigger=RemoteCaseTrigger(
+                    status="online",
+                    event_types=[CaseEventType.CASE_CREATED],
+                    tag_filters=[],
+                ),
+                definition=sample_dsl,
+            )
+        },
+    )
+    transport = AsyncMock()
+    transport.read_files.return_value = VcsTreeSnapshot(
+        commit_sha="a" * 40,
+        tree_sha="tree-sha",
+        files=service._files_from_spec(
+            manifest=WorkspaceManifest(),
+            spec=incoming_spec,
+        ),
+    )
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="tracecat", repo="sync")
+    )
+
+    with (
+        patch(
+            "tracecat.workspace_sync.service.vcs_transport_for_provider",
+            return_value=transport,
+        ),
+        pytest.raises(EntitlementRequired) as exc_info,
+    ):
+        await service.pull(options=PullOptions(commit_sha="a" * 40, dry_run=True))
 
     assert exc_info.value.entitlement == "case_addons"
 
