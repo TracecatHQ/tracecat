@@ -581,8 +581,13 @@ class SkillAdapter(DirectoryManifestAdapter):
                     )
             else:
                 # Git says the skill is unversioned: drop any stale head pin so an
-                # existing skill stops pointing at a version it no longer declares.
+                # existing skill stops pointing at a version it no longer declares,
+                # and clear draft files copied from the previously pinned version.
                 skill.current_version_id = None
+                await skill_service._replace_draft_with_blob_map(
+                    skill=skill,
+                    path_to_blob={},
+                )
             workspace_service.session.add(skill)
             await workspace_service.session.flush()
             imported.append(self.imported_resource(source_id, skill.id))

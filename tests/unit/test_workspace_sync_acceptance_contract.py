@@ -2632,11 +2632,34 @@ async def test_pull_unversioned_skill_clears_current_version(
         return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
     )
 
+    async def draft_paths_for(skill_id: uuid.UUID) -> list[str]:
+        return list(
+            (
+                await session.scalars(
+                    select(SkillDraftFile.path)
+                    .where(
+                        SkillDraftFile.workspace_id == svc_role.workspace_id,
+                        SkillDraftFile.skill_id == skill_id,
+                    )
+                    .order_by(SkillDraftFile.path.asc())
+                )
+            ).all()
+        )
+
     with patch(
         "tracecat.workspace_sync.service.vcs_transport_for_provider",
         return_value=transport,
     ):
         first_result = await service.pull(options=PullOptions(commit_sha="d" * 40))
+        skill = await session.scalar(
+            select(Skill).where(
+                Skill.workspace_id == svc_role.workspace_id,
+                Skill.name == "qa-enrichment-skill",
+            )
+        )
+        assert skill is not None
+        assert skill.current_version_id is not None
+        assert await draft_paths_for(skill.id) == ["SKILL.md"]
         second_result = await service.pull(options=PullOptions(commit_sha="e" * 40))
 
     assert first_result.success is True
@@ -2649,6 +2672,7 @@ async def test_pull_unversioned_skill_clears_current_version(
     )
     assert skill is not None
     assert skill.current_version_id is None
+    assert await draft_paths_for(skill.id) == []
 
 
 @pytest.mark.anyio
