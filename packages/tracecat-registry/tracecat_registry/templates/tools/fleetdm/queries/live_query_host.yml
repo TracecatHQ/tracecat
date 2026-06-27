@@ -3,7 +3,7 @@ definition:
   title: Live query host
   description: Run an ad-hoc osquery SQL statement live against a single host.
   display_group: Fleet
-  doc_url: https://fleetdm.com/docs/rest-api/rest-api#run-live-query-on-host-ad-hoc
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#run-live-report-on-host-ad-hoc
   namespace: tools.fleetdm
   name: live_query_host
   secrets:
