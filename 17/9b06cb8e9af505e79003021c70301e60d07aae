@@ -1,0 +1,31 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/queries/live_query_host.yml
+  s_f44d0414501f07::t_09b2c9ea1344ab 6
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/queries/list_reports.yml
+  s_f44d0414501f07::t_34f8689fe5023f 1-58
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/queries/run_live_report.yml
+  s_f44d0414501f07::t_37f7d7c39f2edb 1-33
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/queries/create_report.yml
+  s_f44d0414501f07::t_a151336148ce1f 1-70
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/queries/get_report_data.yml
+  s_f44d0414501f07::t_88b4fc1abf233d 1-27
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/mdm/list_mdm_commands.yml
+  s_f44d0414501f07::t_826b910a72dc0a 4
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/queries/get_report.yml
+  s_f44d0414501f07::t_a958c500b58c8f 1-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "179b06cb8e9af505e79003021c70301e60d07aae",
+  "prompts": {},
+  "sessions": {
+    "s_f44d0414501f07": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "37f3a4a2-273c-43b4-a937-c68e12a07fc6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
