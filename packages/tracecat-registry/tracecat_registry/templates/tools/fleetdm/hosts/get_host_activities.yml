@@ -3,7 +3,7 @@ definition:
   title: Get host activities
   description: List the past activity audit trail for a single host.
   display_group: Fleet
-  doc_url: https://fleetdm.com/docs/rest-api/rest-api#get-host-past-activities
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#get-hosts-past-activity
   namespace: tools.fleetdm
   name: get_host_activities
   secrets:

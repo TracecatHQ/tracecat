@@ -3,7 +3,7 @@ definition:
   title: Get host configuration profiles
   description: Get the OS settings and configuration profiles applied to a host.
   display_group: Fleet
-  doc_url: https://fleetdm.com/docs/rest-api/rest-api#get-configuration-profiles-assigned-to-a-host
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#get-hosts-os-settings-configuration-profile
   namespace: tools.fleetdm
   name: get_host_configuration_profiles
   secrets:

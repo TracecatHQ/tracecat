@@ -3,7 +3,7 @@ definition:
   title: List global policies
   description: List global compliance policies with their passing and failing host counts.
   display_group: Fleet
-  doc_url: https://fleetdm.com/docs/rest-api/rest-api#list-global-policies
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#list-policies
   namespace: tools.fleetdm
   name: list_global_policies
   secrets:

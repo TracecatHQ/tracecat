@@ -3,7 +3,7 @@ definition:
   title: List fleet policies
   description: List the compliance policies scoped to a single fleet (team).
   display_group: Fleet
-  doc_url: https://fleetdm.com/docs/rest-api/rest-api#list-team-policies
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#list-fleet-level-policies
   namespace: tools.fleetdm
   name: list_fleet_policies
   secrets:

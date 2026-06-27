@@ -3,7 +3,7 @@ definition:
   title: Get host MDM
   description: Get the MDM enrollment status and server URL for a host.
   display_group: Fleet
-  doc_url: https://fleetdm.com/docs/rest-api/rest-api#get-host-s-mdm-information
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#get-hosts-mobile-device-management-mdm-information
   namespace: tools.fleetdm
   name: get_host_mdm
   secrets:

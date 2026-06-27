@@ -3,7 +3,7 @@ definition:
   title: Create global policy
   description: Create a global compliance policy from an osquery SQL check.
   display_group: Fleet
-  doc_url: https://fleetdm.com/docs/rest-api/rest-api#add-global-policy
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#create-policy
   namespace: tools.fleetdm
   name: create_global_policy
   secrets:

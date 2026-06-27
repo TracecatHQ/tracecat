@@ -3,7 +3,7 @@ definition:
   title: Get disk encryption summary
   description: Get aggregate disk encryption (FileVault and BitLocker) status counts by OS.
   display_group: Fleet
-  doc_url: https://fleetdm.com/docs/rest-api/rest-api#get-disk-encryption-statistics
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#get-disk-encryption-status
   namespace: tools.fleetdm
   name: get_disk_encryption_summary
   secrets:

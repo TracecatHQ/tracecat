@@ -3,7 +3,7 @@ definition:
   title: Turn off MDM
   description: Turn off MDM for a host, unenrolling it from Fleet MDM management.
   display_group: Fleet
-  doc_url: https://fleetdm.com/docs/rest-api/rest-api#turn-off-mdm-for-a-host
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#turn-off-hosts-mdm
   namespace: tools.fleetdm
   name: turn_off_mdm
   secrets:

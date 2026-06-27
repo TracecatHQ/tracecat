@@ -3,7 +3,7 @@ definition:
   title: List configuration profiles
   description: List the MDM configuration profiles defined in Fleet.
   display_group: Fleet
-  doc_url: https://fleetdm.com/docs/rest-api/rest-api#list-custom-os-settings-configuration-profiles
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#list-configuration-profiles
   namespace: tools.fleetdm
   name: list_configuration_profiles
   secrets:

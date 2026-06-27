@@ -3,7 +3,7 @@ definition:
   title: Get OS settings summary
   description: Get aggregate OS settings status counts (verified, verifying, pending, failed).
   display_group: Fleet
-  doc_url: https://fleetdm.com/docs/rest-api/rest-api#get-os-settings-status
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#get-os-settings-configuration-profiles-status
   namespace: tools.fleetdm
   name: get_os_settings_summary
   secrets:

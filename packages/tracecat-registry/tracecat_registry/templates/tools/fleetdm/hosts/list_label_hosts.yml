@@ -3,7 +3,7 @@ definition:
   title: List hosts in label
   description: List the hosts that are members of a given label.
   display_group: Fleet
-  doc_url: https://fleetdm.com/docs/rest-api/rest-api#list-hosts-in-a-label
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#list-labels-hosts
   namespace: tools.fleetdm
   name: list_label_hosts
   secrets:

@@ -3,7 +3,7 @@ definition:
   title: Get host encryption key
   description: Get a host's disk encryption recovery key (FileVault or BitLocker).
   display_group: Fleet
-  doc_url: https://fleetdm.com/docs/rest-api/rest-api#get-host-s-disk-encryption-key
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#get-hosts-disk-encryption-key
   namespace: tools.fleetdm
   name: get_host_encryption_key
   secrets:

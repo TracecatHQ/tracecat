@@ -3,7 +3,7 @@ definition:
   title: Get global policy
   description: Get a single global policy including its pass and fail host counts.
   display_group: Fleet
-  doc_url: https://fleetdm.com/docs/rest-api/rest-api#get-policy-by-id
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#get-policy
   namespace: tools.fleetdm
   name: get_global_policy
   secrets:

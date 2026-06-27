@@ -3,7 +3,7 @@ definition:
   title: List fleets
   description: List fleets (teams) used to scope hosts, policies, and queries.
   display_group: Fleet
-  doc_url: https://fleetdm.com/docs/rest-api/rest-api#list-teams
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#list-fleets
   namespace: tools.fleetdm
   name: list_fleets
   secrets:
