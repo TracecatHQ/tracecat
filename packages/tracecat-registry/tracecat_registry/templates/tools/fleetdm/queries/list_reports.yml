@@ -1,11 +1,11 @@
 type: action
 definition:
-  title: List queries
-  description: List the saved osquery queries (reports) defined in Fleet.
+  title: List reports
+  description: List the saved reports (saved queries) defined in Fleet.
   display_group: Fleet
-  doc_url: https://fleetdm.com/docs/rest-api/rest-api#list-queries
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#list-reports
   namespace: tools.fleetdm
-  name: list_queries
+  name: list_reports
   secrets:
     - name: fleetdm
       keys: ["FLEETDM_API_TOKEN"]
@@ -15,11 +15,11 @@ definition:
       description: Fleet server base URL (e.g. https://fleet.example.com).
     fleet_id:
       type: int | None
-      description: Scope queries to a fleet (team) ID.
+      description: Scope reports to a fleet (team) ID.
       default: null
     query:
       type: str | None
-      description: Search string matched against query name.
+      description: Search string matched against report name.
       default: null
     platform:
       type: str | None
@@ -31,7 +31,7 @@ definition:
       default: 0
     per_page:
       type: int
-      description: Queries per page (Fleet caps at 200).
+      description: Reports per page (Fleet caps at 200).
       default: 50
   steps:
     - ref: build_params
@@ -47,7 +47,7 @@ definition:
         script: |
           def main(params):
               return {k: v for k, v in params.items() if v is not None}
-    - ref: list_queries
+    - ref: list_reports
       action: core.http_request
       args:
         url: ${{ inputs.base_url }}/api/v1/fleet/reports
@@ -55,4 +55,4 @@ definition:
         headers:
           Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
         params: ${{ steps.build_params.result }}
-  returns: ${{ steps.list_queries.result.data }}
+  returns: ${{ steps.list_reports.result.data }}

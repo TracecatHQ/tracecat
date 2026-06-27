@@ -1,11 +1,11 @@
 type: action
 definition:
-  title: Get query
-  description: Get a single saved osquery query (report) by its ID.
+  title: Get report
+  description: Get a single saved report (saved query) by its ID.
   display_group: Fleet
-  doc_url: https://fleetdm.com/docs/rest-api/rest-api#get-query
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#get-report
   namespace: tools.fleetdm
-  name: get_query
+  name: get_report
   secrets:
     - name: fleetdm
       keys: ["FLEETDM_API_TOKEN"]
@@ -13,15 +13,15 @@ definition:
     base_url:
       type: str
       description: Fleet server base URL (e.g. https://fleet.example.com).
-    query_id:
+    report_id:
       type: int
-      description: Numeric Fleet query (report) ID.
+      description: Numeric Fleet report ID.
   steps:
-    - ref: get_query
+    - ref: get_report
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/api/v1/fleet/reports/${{ inputs.query_id }}
+        url: ${{ inputs.base_url }}/api/v1/fleet/reports/${{ inputs.report_id }}
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
-  returns: ${{ steps.get_query.result.data }}
+  returns: ${{ steps.get_report.result.data }}

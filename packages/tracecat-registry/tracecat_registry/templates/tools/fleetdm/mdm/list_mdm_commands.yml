@@ -1,7 +1,7 @@
 type: action
 definition:
   title: List MDM commands
-  description: List MDM commands that have been issued, optionally filtered by host and status.
+  description: List MDM commands issued to a host, optionally filtered by request type and status.
   display_group: Fleet
   doc_url: https://fleetdm.com/docs/rest-api/rest-api#list-mdm-commands
   namespace: tools.fleetdm

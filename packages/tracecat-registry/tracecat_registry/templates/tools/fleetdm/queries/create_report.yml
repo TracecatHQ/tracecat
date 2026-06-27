@@ -1,11 +1,11 @@
 type: action
 definition:
-  title: Create query
-  description: Create a saved osquery query (report) in Fleet.
+  title: Create report
+  description: Create a saved report (saved query) in Fleet.
   display_group: Fleet
-  doc_url: https://fleetdm.com/docs/rest-api/rest-api#create-query
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#create-report
   namespace: tools.fleetdm
-  name: create_query
+  name: create_report
   secrets:
     - name: fleetdm
       keys: ["FLEETDM_API_TOKEN"]
@@ -15,25 +15,25 @@ definition:
       description: Fleet server base URL (e.g. https://fleet.example.com).
     name:
       type: str
-      description: Name of the saved query.
+      description: Name of the saved report.
     query:
       type: str
-      description: The osquery SQL statement to save.
+      description: The SQL query the report collects data with.
     description:
       type: str | None
-      description: Human-readable description of the query.
+      description: Human-readable description of the report.
       default: null
     platform:
       type: str | None
-      description: Comma-separated platforms the query targets (e.g. darwin,windows,linux).
+      description: Comma-separated platforms the report targets (e.g. darwin,windows,linux).
       default: null
     fleet_id:
       type: int | None
-      description: Fleet (team) ID to scope the query to.
+      description: Fleet (team) ID to scope the report to.
       default: null
     interval:
       type: int | None
-      description: Schedule interval in seconds (0 or null for an unscheduled query).
+      description: Schedule interval in seconds (0 or null for an unscheduled report).
       default: null
   steps:
     - ref: build_payload
@@ -58,7 +58,7 @@ definition:
               if interval is not None:
                   payload["interval"] = interval
               return payload
-    - ref: create_query
+    - ref: create_report
       action: core.http_request
       args:
         url: ${{ inputs.base_url }}/api/v1/fleet/reports
@@ -67,4 +67,4 @@ definition:
           Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
           Content-Type: application/json
         payload: ${{ steps.build_payload.result }}
-  returns: ${{ steps.create_query.result.data }}
+  returns: ${{ steps.create_report.result.data }}

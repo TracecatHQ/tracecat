@@ -1,11 +1,11 @@
 type: action
 definition:
-  title: Get query report
-  description: Get the most recent saved (scheduled) results for a query.
+  title: Get report data
+  description: Get the most recent saved (scheduled) results for a report.
   display_group: Fleet
-  doc_url: https://fleetdm.com/docs/rest-api/rest-api#get-query-report
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#get-report-data
   namespace: tools.fleetdm
-  name: get_query_report
+  name: get_report_data
   secrets:
     - name: fleetdm
       keys: ["FLEETDM_API_TOKEN"]
@@ -13,15 +13,15 @@ definition:
     base_url:
       type: str
       description: Fleet server base URL (e.g. https://fleet.example.com).
-    query_id:
+    report_id:
       type: int
-      description: Numeric Fleet query (report) ID.
+      description: Numeric Fleet report ID.
   steps:
-    - ref: query_report
+    - ref: report_data
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/api/v1/fleet/reports/${{ inputs.query_id }}/report
+        url: ${{ inputs.base_url }}/api/v1/fleet/reports/${{ inputs.report_id }}/report
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
-  returns: ${{ steps.query_report.result.data }}
+  returns: ${{ steps.report_data.result.data }}

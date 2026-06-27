@@ -1,11 +1,11 @@
 type: action
 definition:
-  title: Run live query
-  description: Run a saved query live against target hosts and return results synchronously.
+  title: Run live report
+  description: Run a saved report live against target hosts and return results synchronously.
   display_group: Fleet
-  doc_url: https://fleetdm.com/docs/rest-api/rest-api#run-live-query
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#run-live-report
   namespace: tools.fleetdm
-  name: run_live_query
+  name: run_live_report
   secrets:
     - name: fleetdm
       keys: ["FLEETDM_API_TOKEN"]
@@ -13,21 +13,21 @@ definition:
     base_url:
       type: str
       description: Fleet server base URL (e.g. https://fleet.example.com).
-    query_id:
+    report_id:
       type: int
-      description: Numeric Fleet query (report) ID to run.
+      description: Numeric Fleet report ID to run.
     host_ids:
       type: list[int]
-      description: Numeric IDs of the hosts to run the query against.
+      description: Numeric IDs of the hosts to run the report against.
   steps:
-    - ref: run_live_query
+    - ref: run_live_report
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/api/v1/fleet/reports/${{ inputs.query_id }}/run
+        url: ${{ inputs.base_url }}/api/v1/fleet/reports/${{ inputs.report_id }}/run
         method: POST
         headers:
           Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
           Content-Type: application/json
         payload:
           host_ids: ${{ inputs.host_ids }}
-  returns: ${{ steps.run_live_query.result.data }}
+  returns: ${{ steps.run_live_report.result.data }}
