@@ -1758,6 +1758,26 @@ class WorkspaceSyncService(BaseWorkspaceService):
                 mappings[(resource_type, mapping.source_id)] = mapping
         return mappings
 
+    async def _mappings_by_local_ids(
+        self,
+        *,
+        local_ids_by_resource_type: dict[str, set[uuid.UUID]],
+    ) -> dict[tuple[str, uuid.UUID], WorkspaceSyncResourceMapping]:
+        """Return sync mappings keyed by ``(resource_type, local_id)``."""
+        mappings: dict[tuple[str, uuid.UUID], WorkspaceSyncResourceMapping] = {}
+        for resource_type, local_ids in local_ids_by_resource_type.items():
+            if not local_ids:
+                continue
+            stmt = select(WorkspaceSyncResourceMapping).where(
+                WorkspaceSyncResourceMapping.workspace_id == self.workspace_id,
+                WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
+                WorkspaceSyncResourceMapping.resource_type == resource_type,
+                WorkspaceSyncResourceMapping.local_id.in_(local_ids),
+            )
+            for mapping in (await self.session.execute(stmt)).scalars().all():
+                mappings[(resource_type, mapping.local_id)] = mapping
+        return mappings
+
     async def _mapping_by_local_id(
         self,
         *,
@@ -1808,26 +1828,38 @@ class WorkspaceSyncService(BaseWorkspaceService):
         if not targets:
             return []
         source_ids_by_resource_type: dict[str, set[str]] = {}
+        local_ids_by_resource_type: dict[str, set[uuid.UUID]] = {}
         for target in targets:
             source_ids_by_resource_type.setdefault(target.resource_type, set()).add(
                 target.source_id
             )
+            local_ids_by_resource_type.setdefault(target.resource_type, set()).add(
+                target.local_id
+            )
         existing_mappings = await self._mappings_by_source_ids(
             source_ids_by_resource_type=source_ids_by_resource_type
+        )
+        mappings_by_local_id = await self._mappings_by_local_ids(
+            local_ids_by_resource_type=local_ids_by_resource_type
         )
         mappings: list[WorkspaceSyncResourceMapping] = []
         for target in targets:
             key = (target.resource_type, target.source_id)
             mapping = existing_mappings.get(key)
             if mapping is None:
-                mapping = WorkspaceSyncResourceMapping(
-                    workspace_id=self.workspace_id,
-                    provider=VcsProvider.GITHUB.value,
-                    resource_type=target.resource_type,
-                    source_id=target.source_id,
-                    local_id=target.local_id,
-                )
+                local_key = (target.resource_type, target.local_id)
+                mapping = mappings_by_local_id.get(local_key)
+                if mapping is None:
+                    mapping = WorkspaceSyncResourceMapping(
+                        workspace_id=self.workspace_id,
+                        provider=VcsProvider.GITHUB.value,
+                        resource_type=target.resource_type,
+                        source_id=target.source_id,
+                        local_id=target.local_id,
+                    )
+                    mappings_by_local_id[local_key] = mapping
                 existing_mappings[key] = mapping
+            mapping.source_id = target.source_id
             mapping.source_path = target.source_path
             mapping.local_id = target.local_id
             self.session.add(mapping)

@@ -2405,6 +2405,82 @@ async def test_pull_table_rename_reuses_source_id_mapping(
 
 
 @pytest.mark.anyio
+async def test_pull_table_source_id_rename_reassigns_existing_local_mapping(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    transport = AsyncMock()
+    transport.read_files.side_effect = [
+        VcsTreeSnapshot(
+            commit_sha="u" * 40,
+            tree_sha="tree-1",
+            files=_table_git_tree(
+                source_id="qa_indicators",
+                name="qa_indicators",
+            ),
+        ),
+        VcsTreeSnapshot(
+            commit_sha="v" * 40,
+            tree_sha="tree-2",
+            files=_table_git_tree(
+                source_id="qa_indicators_v2",
+                name="qa_indicators",
+            ),
+        ),
+    ]
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
+    )
+
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        first_result = await service.pull(options=PullOptions(commit_sha="u" * 40))
+
+        assert first_result.success is True
+        first_table = await session.scalar(
+            select(Table).where(
+                Table.workspace_id == svc_role.workspace_id,
+                Table.name == "qa_indicators",
+            )
+        )
+        assert first_table is not None
+        first_table_id = first_table.id
+
+        second_result = await service.pull(options=PullOptions(commit_sha="v" * 40))
+
+    assert second_result.success is True
+    tables = list(
+        (
+            await session.scalars(
+                select(Table).where(
+                    Table.workspace_id == svc_role.workspace_id,
+                )
+            )
+        ).all()
+    )
+    assert len(tables) == 1
+    assert tables[0].id == first_table_id
+    mappings = list(
+        (
+            await session.scalars(
+                select(WorkspaceSyncResourceMapping).where(
+                    WorkspaceSyncResourceMapping.workspace_id == svc_role.workspace_id,
+                    WorkspaceSyncResourceMapping.resource_type
+                    == SyncResourceType.TABLE.value,
+                )
+            )
+        ).all()
+    )
+    assert len(mappings) == 1
+    assert mappings[0].source_id == "qa_indicators_v2"
+    assert mappings[0].source_path == f"{TABLE_ROOT}/qa_indicators_v2/table.yml"
+    assert mappings[0].local_id == first_table_id
+
+
+@pytest.mark.anyio
 async def test_pull_table_name_swap_reuses_source_id_mappings(
     session: AsyncSession,
     svc_role: Role,
