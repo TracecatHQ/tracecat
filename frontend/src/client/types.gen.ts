@@ -338,6 +338,19 @@ export type AgentCatalogListResponse = {
 }
 
 /**
+ * Non-sensitive custom-provider display info embedded in workspace models.
+ *
+ * Lets workspace-scoped surfaces render provider labels and resolve a base
+ * URL without calling the org-wide custom-provider list endpoint (which is
+ * restricted to organization admins).
+ */
+export type AgentCatalogProviderInfo = {
+  id: string
+  display_name: string
+  base_url: string | null
+}
+
+/**
  * Single catalog model entry.
  */
 export type AgentCatalogRead = {
@@ -9311,6 +9324,29 @@ export type WorkflowUpdate = {
   error_handler?: string | null
 }
 
+/**
+ * Workspace-visible models, each with embedded custom-provider info.
+ */
+export type WorkspaceAgentModelListResponse = {
+  items: Array<WorkspaceAgentModelRead>
+  next_cursor?: string | null
+}
+
+/**
+ * A catalog model visible to a workspace, with embedded provider info.
+ */
+export type WorkspaceAgentModelRead = {
+  id: string
+  custom_provider_id: string | null
+  organization_id: string | null
+  model_provider: string
+  model_name: string
+  model_metadata: {
+    [key: string]: unknown
+  } | null
+  custom_provider?: AgentCatalogProviderInfo | null
+}
+
 export type WorkspaceCreate = {
   name: string
   settings?: WorkspaceSettingsUpdate | null
@@ -10773,7 +10809,7 @@ export type GetWorkspaceModelsData = {
   workspaceId: string
 }
 
-export type GetWorkspaceModelsResponse = AgentCatalogListResponse
+export type GetWorkspaceModelsResponse = WorkspaceAgentModelListResponse
 
 export type EnableModelData = {
   requestBody: AgentModelAccessCreate
@@ -15516,7 +15552,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: AgentCatalogListResponse
+        200: WorkspaceAgentModelListResponse
         /**
          * Validation Error
          */

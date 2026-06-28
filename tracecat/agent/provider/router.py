@@ -39,7 +39,7 @@ async def create_custom_provider(
     "",
     response_model=AgentCustomProviderListResponse,
 )
-@require_scope("agent:read")
+@require_scope("org:settings:read")
 async def list_custom_providers(
     role: OrgUserRole,
     session: AsyncDBSession,
@@ -66,7 +66,7 @@ async def list_custom_providers(
     "/{provider_id}",
     response_model=AgentCustomProviderRead,
 )
-@require_scope("agent:read")
+@require_scope("org:settings:read")
 async def get_custom_provider(
     provider_id: UUID,
     role: OrgUserRole,

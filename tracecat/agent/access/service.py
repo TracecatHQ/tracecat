@@ -6,9 +6,13 @@ from uuid import UUID
 import sqlalchemy as sa
 from sqlalchemy import exists, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import selectinload
 
 from tracecat.agent.access.schemas import AgentModelAccessRead
-from tracecat.agent.catalog.schemas import AgentCatalogRead
+from tracecat.agent.catalog.schemas import (
+    AgentCatalogRead,
+    WorkspaceAgentModelRead,
+)
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import AgentCatalog, AgentModelAccess, Workspace
@@ -191,11 +195,17 @@ class AgentModelAccessService(BaseOrgService):
         return [AgentCatalogRead.model_validate(row) for row in rows]
 
     @require_scope("agent:read")
-    async def get_workspace_models(self, workspace_id: UUID) -> list[AgentCatalogRead]:
+    async def get_workspace_models(
+        self, workspace_id: UUID
+    ) -> list[WorkspaceAgentModelRead]:
         """Return the effective model set for a workspace.
 
         If the workspace has any explicit access rows, those fully override the
         org-level set. Otherwise the org-level set applies.
+
+        Each entry embeds non-sensitive custom-provider display info so
+        workspace-scoped callers can render provider labels and resolve base
+        URLs without the org-wide custom-provider list endpoint.
         """
         workspace_override_exists = await self.session.scalar(
             select(
@@ -226,6 +236,7 @@ class AgentModelAccessService(BaseOrgService):
                     AgentCatalog.organization_id.is_(None),
                 ),
             )
+            .options(selectinload(AgentCatalog.custom_provider))
             .order_by(
                 AgentCatalog.model_provider.asc(),
                 AgentCatalog.model_name.asc(),
@@ -233,7 +244,7 @@ class AgentModelAccessService(BaseOrgService):
         )
 
         rows = (await self.session.execute(stmt)).scalars().all()
-        return [AgentCatalogRead.model_validate(row) for row in rows]
+        return [WorkspaceAgentModelRead.model_validate(row) for row in rows]
 
     async def is_catalog_enabled(
         self,

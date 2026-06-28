@@ -10,6 +10,7 @@ from tracecat.agent.catalog.schemas import (
     AgentCatalogListResponse,
     AgentCatalogRead,
     AgentCatalogUpdate,
+    WorkspaceAgentModelListResponse,
 )
 from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.auth.dependencies import OrgUserRole, WorkspaceUserPathRole
@@ -25,7 +26,7 @@ router = APIRouter()
     "/organization/agent-catalog",
     response_model=AgentCatalogListResponse,
 )
-@require_scope("agent:read")
+@require_scope("org:settings:read")
 async def list_catalog(
     role: OrgUserRole,
     session: AsyncDBSession,
@@ -56,7 +57,7 @@ async def list_catalog(
     "/organization/agent-catalog/{catalog_id}",
     response_model=AgentCatalogRead,
 )
-@require_scope("agent:read")
+@require_scope("org:settings:read")
 async def get_catalog_entry(
     catalog_id: UUID,
     role: OrgUserRole,
@@ -193,18 +194,20 @@ async def delete_catalog_entry(
 
 @router.get(
     "/workspaces/{workspace_id}/agent-models",
-    response_model=AgentCatalogListResponse,
+    response_model=WorkspaceAgentModelListResponse,
 )
 @require_scope("agent:read")
 async def get_workspace_models(
     workspace_id: UUID,
     role: WorkspaceUserPathRole,
     session: AsyncDBSession,
-) -> AgentCatalogListResponse:
+) -> WorkspaceAgentModelListResponse:
     """Get models accessible to a workspace.
 
     Returns the full effective set; the list is bounded by org enablement
-    and is expected to be small, so pagination is not used here.
+    and is expected to be small, so pagination is not used here. Each entry
+    embeds non-sensitive custom-provider display info (id, display name, base
+    URL) so workspace-scoped surfaces don't need the org-wide provider list.
     """
     if role.workspace_id != workspace_id:
         raise HTTPException(
@@ -220,4 +223,4 @@ async def get_workspace_models(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
-    return AgentCatalogListResponse(items=models, next_cursor=None)
+    return WorkspaceAgentModelListResponse(items=models, next_cursor=None)
