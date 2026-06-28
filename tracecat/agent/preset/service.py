@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from collections import Counter
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
 import sqlalchemy as sa
@@ -111,6 +112,7 @@ class AgentPresetService(BaseWorkspaceService):
         stmt = (
             select(AgentPreset)
             .where(AgentPreset.workspace_id == self.workspace_id)
+            .where(AgentPreset.archived_at.is_(None))
             .order_by(AgentPreset.created_at.desc())
             .options(selectinload(AgentPreset.tags))
         )
@@ -446,14 +448,10 @@ class AgentPresetService(BaseWorkspaceService):
     @audit_log(resource_type="agent_preset", action="delete")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def delete_preset(self, preset: AgentPreset) -> None:
-        """Delete a preset."""
+        """Archive a preset without deleting its published versions."""
         await self._ensure_not_referenced_as_subagent(preset)
-        # Break the mutable-head pointer before deleting version rows to avoid an ORM
-        # dependency cycle between AgentPreset.current_version_id and its versions.
-        preset.current_version_id = None
+        preset.archived_at = datetime.now(UTC)
         self.session.add(preset)
-        await self.session.flush()
-        await self.session.delete(preset)
         await self.session.commit()
 
     async def _ensure_not_referenced_as_subagent(self, preset: AgentPreset) -> None:
@@ -480,6 +478,7 @@ class AgentPresetService(BaseWorkspaceService):
             .where(
                 AgentPreset.workspace_id == self.workspace_id,
                 AgentPreset.id != preset.id,
+                AgentPreset.archived_at.is_(None),
                 subagent_ref_exists,
             )
         )
@@ -1054,6 +1053,7 @@ class AgentPresetService(BaseWorkspaceService):
         stmt = select(AgentPreset).where(
             AgentPreset.workspace_id == self.workspace_id,
             AgentPreset.slug == slug,
+            AgentPreset.archived_at.is_(None),
         )
         if exclude_id is not None:
             stmt = stmt.where(AgentPreset.id != exclude_id)
@@ -1066,22 +1066,32 @@ class AgentPresetService(BaseWorkspaceService):
         return slug
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def get_preset(self, preset_id: uuid.UUID) -> AgentPreset | None:
+    async def get_preset(
+        self, preset_id: uuid.UUID, *, include_archived: bool = False
+    ) -> AgentPreset | None:
         """Get an agent preset by ID with proper error handling."""
-        stmt = select(AgentPreset).where(
+        predicates = [
             AgentPreset.workspace_id == self.workspace_id,
             AgentPreset.id == preset_id,
-        )
+        ]
+        if not include_archived:
+            predicates.append(AgentPreset.archived_at.is_(None))
+        stmt = select(AgentPreset).where(*predicates)
         result = await self.session.execute(stmt)
         return result.scalars().first()
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def get_preset_by_slug(self, slug: str) -> AgentPreset | None:
+    async def get_preset_by_slug(
+        self, slug: str, *, include_archived: bool = False
+    ) -> AgentPreset | None:
         """Get an agent preset by slug with proper error handling."""
-        stmt = select(AgentPreset).where(
+        predicates = [
             AgentPreset.workspace_id == self.workspace_id,
             AgentPreset.slug == slug,
-        )
+        ]
+        if not include_archived:
+            predicates.append(AgentPreset.archived_at.is_(None))
+        stmt = select(AgentPreset).where(*predicates)
         result = await self.session.execute(stmt)
         return result.scalars().first()
 

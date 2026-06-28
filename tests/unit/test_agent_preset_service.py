@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
+from tracecat.agent.preset.resolver import resolve_agents_config
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetSkillBindingBase,
@@ -2007,19 +2008,29 @@ class TestAgentPresetService:
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Test deleting a preset."""
+        """Deleting a preset archives it without deleting historical versions."""
         # Create preset
         created_preset = await agent_preset_service.create_preset(
             agent_preset_create_params
         )
         preset_id = created_preset.id
+        version_id = created_preset.current_version_id
+        assert version_id is not None
 
         # Delete preset
         await agent_preset_service.delete_preset(created_preset)
 
-        # Verify deletion
         deleted_preset = await agent_preset_service.get_preset(preset_id)
+        archived_preset = await agent_preset_service.get_preset(
+            preset_id,
+            include_archived=True,
+        )
+        version = await agent_preset_service.get_version(version_id)
+
         assert deleted_preset is None
+        assert archived_preset is not None
+        assert archived_preset.archived_at is not None
+        assert version is not None
 
     async def test_delete_preset_blocks_when_referenced_as_subagent_in_head(
         self,
@@ -2059,12 +2070,12 @@ class TestAgentPresetService:
         }
         assert await agent_preset_service.get_preset(child.id) is not None
 
-    async def test_delete_preset_allows_when_only_referenced_as_subagent_in_history(
+    async def test_delete_preset_archives_when_only_referenced_as_subagent_in_history(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Deleting a preset only cares about active preset-head subagent refs."""
+        """Archived child versions remain resolvable for historical parents."""
         child = await agent_preset_service.create_preset(
             agent_preset_create_params.model_copy(
                 update={"name": "Historical Child", "slug": "historical-child"}
@@ -2084,13 +2095,39 @@ class TestAgentPresetService:
                 }
             )
         )
+        parent_v1 = await agent_preset_service.get_current_version_for_preset(parent)
         await agent_preset_service.update_preset(
             parent, AgentPresetUpdate(agents=AgentSubagentsConfig())
         )
 
         await agent_preset_service.delete_preset(child)
+        resolved_agents = await resolve_agents_config(
+            agent_preset_service,
+            agents=AgentSubagentsConfig.model_validate(parent_v1.agents),
+            parent_preset_id=parent.id,
+            parent_slug=parent.slug,
+            include_runtime_config=True,
+        )
 
         assert await agent_preset_service.get_preset(child.id) is None
+        assert resolved_agents.enabled is True
+        assert resolved_agents.subagents[0].binding.preset_id == child.id
+
+        with pytest.raises(TracecatNotFoundError):
+            await agent_preset_service.create_preset(
+                agent_preset_create_params.model_copy(
+                    update={
+                        "name": "New Parent",
+                        "slug": "new-parent",
+                        "agents": AgentSubagentsConfig.model_validate(
+                            {
+                                "enabled": True,
+                                "subagents": [{"preset": child.slug}],
+                            }
+                        ),
+                    }
+                )
+            )
 
     async def test_delete_preset_ignores_resolved_reference_with_reused_slug(
         self,
@@ -2130,6 +2167,13 @@ class TestAgentPresetService:
         await agent_preset_service.delete_preset(new_child)
 
         assert await agent_preset_service.get_preset(new_child.id) is None
+        assert (
+            await agent_preset_service.get_preset(
+                new_child.id,
+                include_archived=True,
+            )
+            is not None
+        )
         with pytest.raises(
             TracecatValidationError,
             match="still referenced as a subagent",
@@ -2175,6 +2219,21 @@ class TestAgentPresetService:
             match="Agent preset slug 'test-agent-preset' is already in use",
         ):
             await agent_preset_service.create_preset(agent_preset_create_params)
+
+    async def test_archived_preset_releases_slug(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Archived presets should not reserve slugs for new presets."""
+        archived = await agent_preset_service.create_preset(agent_preset_create_params)
+        await agent_preset_service.delete_preset(archived)
+
+        recreated = await agent_preset_service.create_preset(agent_preset_create_params)
+
+        assert recreated.id != archived.id
+        assert recreated.slug == archived.slug
+        assert await agent_preset_service.get_preset(archived.id) is None
 
     async def test_slug_normalization(
         self,
