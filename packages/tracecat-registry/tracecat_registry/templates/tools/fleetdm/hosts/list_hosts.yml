@@ -33,17 +33,9 @@ definition:
       type: str | None
       description: Policy compliance filter for policy_id (passing or failing).
       default: null
-    software_title_id:
-      type: int | None
-      description: Only include hosts that have this software title installed.
-      default: null
     software_version_id:
       type: int | None
       description: Only include hosts that have this software version installed.
-      default: null
-    software_status:
-      type: str | None
-      description: Software install status filter (installed, pending_install, failed_install, pending_uninstall, failed_uninstall, pending, failed). Required by Fleet when software_title_id is set; mutually exclusive with software_version_id.
       default: null
     vulnerability:
       type: str | None
@@ -104,9 +96,7 @@ definition:
             fleet_id: ${{ inputs.fleet_id }}
             policy_id: ${{ inputs.policy_id }}
             policy_response: ${{ inputs.policy_response }}
-            software_title_id: ${{ inputs.software_title_id }}
             software_version_id: ${{ inputs.software_version_id }}
-            software_status: ${{ inputs.software_status }}
             vulnerability: ${{ inputs.vulnerability }}
             mdm_enrollment_status: ${{ inputs.mdm_enrollment_status }}
             os_settings_disk_encryption: ${{ inputs.os_settings_disk_encryption }}

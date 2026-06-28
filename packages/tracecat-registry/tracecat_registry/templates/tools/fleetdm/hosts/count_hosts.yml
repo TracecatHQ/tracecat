@@ -33,9 +33,9 @@ definition:
       type: str | None
       description: Policy compliance filter for policy_id (passing or failing).
       default: null
-    software_title_id:
+    software_version_id:
       type: int | None
-      description: Only count hosts that have this software title installed.
+      description: Only count hosts that have this software version installed.
       default: null
     vulnerability:
       type: str | None
@@ -64,7 +64,7 @@ definition:
             fleet_id: ${{ inputs.fleet_id }}
             policy_id: ${{ inputs.policy_id }}
             policy_response: ${{ inputs.policy_response }}
-            software_title_id: ${{ inputs.software_title_id }}
+            software_version_id: ${{ inputs.software_version_id }}
             vulnerability: ${{ inputs.vulnerability }}
             mdm_enrollment_status: ${{ inputs.mdm_enrollment_status }}
             os_settings_disk_encryption: ${{ inputs.os_settings_disk_encryption }}
