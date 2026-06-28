@@ -165,7 +165,7 @@ export function WorkspaceSyncPullTab({
           />
         </div>
         <p className="text-[11px] text-muted-foreground">
-          Choosing an older commit rolls the workspace back to a known-good
+          Choosing an older commit updates matching resources from that
           snapshot.
         </p>
       </div>
