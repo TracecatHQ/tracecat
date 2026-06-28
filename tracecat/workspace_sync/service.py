@@ -249,37 +249,27 @@ class WorkspaceSyncService(BaseWorkspaceService):
     ) -> WorkspaceSyncExportResult:
         """Export a single workflow to a branch and optional PR.
 
-        Unlike :meth:`export_workspace`, this writes only the one workflow's
-        files and records the resulting branch on ``workflow.git_sync_branch``.
+        Uses the same dependency projection as selected workspace exports so
+        referenced workflow and non-workflow resources are included, then records
+        the resulting branch on ``workflow.git_sync_branch``.
         """
         self._require_workflow_export_scope()
         self._validate_export_params(params)
         url = await self._workspace_git_url(provider=params.provider)
-        await self.session.refresh(
-            workflow,
-            ["tags", "folder", "schedules", "webhook", "case_trigger"],
-        )
-        source_id = await self._source_id_for_workflow(
-            workflow=workflow,
-            create=True,
-            reserved_source_ids=set(),
-        )
-        spec = workflow_spec_from_orm(
-            workflow,
-            dsl=dsl,
-            source_id=source_id,
+        projection = await self.project_workspace(
+            workflow_ids=[WorkflowUUID.new(workflow.id)],
             include_schedules=params.include_schedules,
+            create_missing_mappings=True,
+            workflow_dsl_overrides={workflow.id: dsl},
         )
-        files = self._files_from_spec(
-            manifest=WorkspaceManifest(),
-            spec=WorkspaceSpec(workflows={spec.id: spec}),
-        )
+        self._require_projected_export_scopes(projection.spec)
+        self._validate_projected_workspace_dependencies(projection.spec)
         transport = self._transport_for_provider(
             params.provider,
         )
         commit = await transport.write_files(
             url=url,
-            files=files,
+            files=projection.files,
             message=params.message,
             branch=params.branch,
             create_pr=params.create_pr,
@@ -288,7 +278,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         workflow.git_sync_branch = commit.ref
         self.session.add(workflow)
         await self.session.commit()
-        return WorkspaceSyncExportResult(commit=commit, files=sorted(files))
+        return WorkspaceSyncExportResult(commit=commit, files=sorted(projection.files))
 
     async def pull(
         self,
@@ -400,6 +390,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         resource_ids: dict[SyncResourceType, set[uuid.UUID]] | None = None,
         include_schedules: bool = False,
         create_missing_mappings: bool = True,
+        workflow_dsl_overrides: Mapping[uuid.UUID, DSLInput] | None = None,
     ) -> WorkspaceProjection:
         """Project the workspace into a manifest, spec, and serialized files.
 
@@ -421,7 +412,10 @@ class WorkspaceSyncService(BaseWorkspaceService):
             selection=selection,
         )
         # Resolve the workflows to project, including child workflows they call.
-        workflow_closure = await self._projectable_workflow_closure(selection)
+        workflow_closure = await self._projectable_workflow_closure(
+            selection,
+            dsl_by_id=workflow_dsl_overrides,
+        )
         workflows = workflow_closure.workflows
         dsl_by_id = workflow_closure.dsl_by_id
         defn_service = WorkflowDefinitionsService(session=self.session, role=self.role)
@@ -1124,6 +1118,8 @@ class WorkspaceSyncService(BaseWorkspaceService):
     async def _projectable_workflow_closure(
         self,
         selection: dict[SyncResourceType, set[uuid.UUID]] | None,
+        *,
+        dsl_by_id: Mapping[uuid.UUID, DSLInput] | None = None,
     ) -> ProjectableWorkflowClosure:
         """Resolve the workflows to project, expanding child-workflow references.
 
@@ -1161,17 +1157,17 @@ class WorkspaceSyncService(BaseWorkspaceService):
         }
         defn_service = WorkflowDefinitionsService(session=self.session, role=self.role)
         mgmt_service = WorkflowsManagementService(session=self.session, role=self.role)
-        dsl_by_id: dict[uuid.UUID, DSLInput] = {}
+        workflow_dsls: dict[uuid.UUID, DSLInput] = dict(dsl_by_id or {})
 
         async def dsl_for(workflow: Workflow) -> DSLInput:
             """Return the workflow's DSL, caching it across closure expansion."""
-            if workflow.id not in dsl_by_id:
-                dsl_by_id[workflow.id] = await self._get_workflow_dsl(
+            if workflow.id not in workflow_dsls:
+                workflow_dsls[workflow.id] = await self._get_workflow_dsl(
                     workflow,
                     defn_service=defn_service,
                     mgmt_service=mgmt_service,
                 )
-            return dsl_by_id[workflow.id]
+            return workflow_dsls[workflow.id]
 
         # Breadth-first walk over child-workflow references, adding each newly
         # discovered child once so cycles terminate.
@@ -1217,7 +1213,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
             workflows=[
                 workflow for workflow in all_workflows if workflow.id in included
             ],
-            dsl_by_id=dsl_by_id,
+            dsl_by_id=workflow_dsls,
         )
 
     async def _get_workflow_dsl(

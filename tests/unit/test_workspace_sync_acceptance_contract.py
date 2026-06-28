@@ -1321,6 +1321,86 @@ async def test_full_workspace_export_includes_workflow_pinned_version_closure(
 
 
 @pytest.mark.anyio
+async def test_single_workflow_export_includes_dependency_closure(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    repo_url = "git+ssh://git@github.com/TracecatHQ/git-sync-workflow-publish-qa.git"
+    git_url = GitUrl(
+        host="github.com",
+        org="TracecatHQ",
+        repo="git-sync-workflow-publish-qa",
+    )
+    fake_vcs = FakeVcsServer()
+    assert svc_role.workspace_id is not None
+    await _set_workspace_git_repo_url(
+        session,
+        workspace_id=svc_role.workspace_id,
+        repo_url=repo_url,
+    )
+    service = WorkspaceSyncService(
+        session=session,
+        role=svc_role,
+        transport_factory=fake_vcs.transport_factory,
+    )
+    seed_transport = fake_vcs.transport_factory(
+        VcsProvider.GITHUB,
+        session=session,
+        role=svc_role,
+    )
+    seed_commit = await seed_transport.write_files(
+        url=git_url,
+        files=_expanded_selected_git_tree(),
+        message="Seed workflow publish dependencies",
+        branch="seed/workflow-publish-dependencies",
+        create_pr=False,
+    )
+    assert seed_commit.sha is not None
+
+    with patch(
+        "tracecat.workflow.management.management.RegistryLockService.resolve_lock_with_bindings",
+        AsyncMock(return_value=RegistryLock(origins={}, actions={})),
+    ):
+        pull = await service.pull(options=PullOptions(commit_sha=seed_commit.sha))
+        assert pull.success is True
+
+        root_workflow = await session.scalar(
+            select(Workflow).where(
+                Workflow.workspace_id == svc_role.workspace_id,
+                Workflow.alias == "qa-root",
+            )
+        )
+        assert root_workflow is not None
+        root_spec = yaml.safe_load(
+            _expanded_selected_git_tree()[f"{WORKFLOW_ROOT}/qa-root/definition.yml"]
+        )
+
+        export = await service.export_workflow(
+            workflow=root_workflow,
+            dsl=DSLInput.model_validate(root_spec["definition"]),
+            params=WorkspaceSyncExportRequest(
+                message="Publish root workflow",
+                branch="sync/workflow-publish-dependencies",
+                create_pr=False,
+            ),
+        )
+
+    assert export.commit.status is PushStatus.COMMITTED
+    assert export.commit.sha is not None
+    exported_files = fake_vcs.repo_files(git_url, ref=export.commit.sha)
+    assert f"{WORKFLOW_ROOT}/qa-root/definition.yml" in exported_files
+    assert f"{WORKFLOW_ROOT}/qa-child/definition.yml" in exported_files
+    assert f"{AGENT_PRESET_ROOT}/qa-triage-parent/preset.yml" in exported_files
+    assert f"{AGENT_PRESET_ROOT}/qa-triage-parent/versions/1.yml" in exported_files
+    assert f"{AGENT_PRESET_ROOT}/qa-evidence-child/preset.yml" in exported_files
+    assert f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml" in exported_files
+    assert f"{SKILL_ROOT}/qa-enrichment-skill/versions/1/version.yml" in exported_files
+    assert f"{VARIABLE_ROOT}/default/qa_config.yml" in exported_files
+    assert f"{SECRET_METADATA_ROOT}/default/qa_threatintel.yml" in exported_files
+    assert f"{TABLE_ROOT}/qa_indicators/table.yml" in exported_files
+
+
+@pytest.mark.anyio
 async def test_legacy_workflow_only_repo_upgrades_to_expanded_workspace_sync(
     session: AsyncSession,
     svc_role: Role,
