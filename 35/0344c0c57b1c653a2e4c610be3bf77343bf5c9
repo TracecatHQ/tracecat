@@ -1,0 +1,20 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/fleetdm/hosts/count_hosts.yml
+  s_f44d0414501f07::t_3ae021ae574813 36,38
+  s_f44d0414501f07::t_f9bed2b56a701e 67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "350344c0c57b1c653a2e4c610be3bf77343bf5c9",
+  "prompts": {},
+  "sessions": {
+    "s_f44d0414501f07": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "37f3a4a2-273c-43b4-a937-c68e12a07fc6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
