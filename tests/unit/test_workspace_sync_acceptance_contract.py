@@ -3085,6 +3085,89 @@ async def test_pull_workflow_alias_rename_reuses_source_id_mapping(
 
 
 @pytest.mark.anyio
+async def test_pull_workflow_source_id_rename_reuses_alias_mapping(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    transport = AsyncMock()
+    transport.read_files.side_effect = [
+        VcsTreeSnapshot(
+            commit_sha="y" * 40,
+            tree_sha="tree-1",
+            files=_workflow_git_tree(
+                source_id="old-triage",
+                alias="triage-alert",
+                title="Triage alert",
+            ),
+        ),
+        VcsTreeSnapshot(
+            commit_sha="z" * 40,
+            tree_sha="tree-2",
+            files=_workflow_git_tree(
+                source_id="new-triage",
+                alias="triage-alert",
+                title="Triage alert",
+            ),
+        ),
+    ]
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
+    )
+
+    with (
+        patch(
+            "tracecat.workspace_sync.service.vcs_transport_for_provider",
+            return_value=transport,
+        ),
+        patch(
+            "tracecat.workflow.management.management.RegistryLockService.resolve_lock_with_bindings",
+            AsyncMock(return_value=RegistryLock(origins={}, actions={})),
+        ),
+    ):
+        first_result = await service.pull(options=PullOptions(commit_sha="y" * 40))
+        assert first_result.success is True
+        first_workflow = await session.scalar(
+            select(Workflow).where(
+                Workflow.workspace_id == svc_role.workspace_id,
+                Workflow.alias == "triage-alert",
+            )
+        )
+        assert first_workflow is not None
+        first_workflow_id = first_workflow.id
+
+        second_result = await service.pull(options=PullOptions(commit_sha="z" * 40))
+
+    assert second_result.success is True
+    workflows = list(
+        (
+            await session.scalars(
+                select(Workflow).where(Workflow.workspace_id == svc_role.workspace_id)
+            )
+        ).all()
+    )
+    assert len(workflows) == 1
+    assert workflows[0].id == first_workflow_id
+    assert workflows[0].alias == "triage-alert"
+    assert (
+        await _mapping_for(
+            session,
+            role=svc_role,
+            resource_type=SyncResourceType.WORKFLOW,
+            source_id="old-triage",
+        )
+        is None
+    )
+    await _assert_mapping_targets(
+        session,
+        role=svc_role,
+        resource_type=SyncResourceType.WORKFLOW,
+        source_id="new-triage",
+        local_id=first_workflow_id,
+    )
+
+
+@pytest.mark.anyio
 async def test_pull_workflow_alias_swap_reuses_source_id_mappings(
     session: AsyncSession,
     svc_role: Role,

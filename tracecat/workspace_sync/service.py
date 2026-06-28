@@ -809,8 +809,11 @@ class WorkspaceSyncService(BaseWorkspaceService):
         Returns the remote definitions and the source-id -> local-id map.
         """
         local_ids: dict[str, WorkflowUUID] = {}
-        for source_id in sorted(snapshot.spec.workflows):
-            local_ids[source_id] = await self._resolve_local_workflow_id(source_id)
+        for source_id, workflow_spec in sorted(snapshot.spec.workflows.items()):
+            local_ids[source_id] = await self._resolve_local_workflow_id(
+                source_id,
+                alias=workflow_spec.alias,
+            )
         remote_workflows = [
             workflow_spec_to_remote(
                 workflow_spec,
@@ -1696,12 +1699,17 @@ class WorkspaceSyncService(BaseWorkspaceService):
             is not None
         )
 
-    async def _resolve_local_workflow_id(self, source_id: str) -> WorkflowUUID:
+    async def _resolve_local_workflow_id(
+        self,
+        source_id: str,
+        *,
+        alias: str | None = None,
+    ) -> WorkflowUUID:
         """Resolve a workflow ``source_id`` to its local workflow UUID.
 
-        Prefers the sync mapping. Falls back to treating ``source_id`` as a
-        legacy workflow id and matching an existing workflow; when neither
-        resolves, a fresh UUID is minted for a brand-new import.
+        Prefers the sync mapping. Falls back to adopting an existing workflow
+        with the incoming alias, then treats ``source_id`` as a legacy workflow
+        id. When none resolves, a fresh UUID is minted for a brand-new import.
         """
         mapping = await self._mapping_by_source_id(
             resource_type=SyncResourceType.WORKFLOW.value,
@@ -1709,6 +1717,16 @@ class WorkspaceSyncService(BaseWorkspaceService):
         )
         if mapping is not None:
             return WorkflowUUID.new(mapping.local_id)
+
+        if alias:
+            workflow = await self.session.scalar(
+                select(Workflow).where(
+                    Workflow.workspace_id == self.workspace_id,
+                    Workflow.alias == alias,
+                )
+            )
+            if workflow is not None:
+                return WorkflowUUID.new(workflow.id)
 
         try:
             legacy_id = WorkflowUUID.new(source_id)
