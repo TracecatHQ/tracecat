@@ -26,6 +26,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { ToastAction } from "@/components/ui/toast"
 import { toast } from "@/components/ui/use-toast"
 import {
+  getWorkspaceSyncBaseBranch,
   useWorkspaceSyncBranchTarget,
   WorkspaceSyncBranchSelector,
 } from "@/components/workspace-sync/branch-target-selector"
@@ -95,7 +96,6 @@ export function WorkspaceResourceSyncActions({
     isCreatingBranch,
     selectBranch: selectExportBranch,
     resetBranchCreation,
-    defaultBranch,
     hasBranches,
   } = useWorkspaceSyncBranchTarget({
     branches: repoBranches,
@@ -103,10 +103,9 @@ export function WorkspaceResourceSyncActions({
   })
 
   const repoName = getRepoDisplayName(gitRepoUrl)
+  const baseBranch = getWorkspaceSyncBaseBranch(gitRepoUrl, repoBranches)
   const targetBranch = exportBranch.trim()
-  const compareRef = isCreatingBranch
-    ? defaultBranch
-    : targetBranch || undefined
+  const compareRef = isCreatingBranch ? baseBranch : targetBranch || undefined
   const { preview, previewIsLoading, previewError, refetchPreview } =
     useWorkspaceSyncExportPreview(workspaceId, {
       resources: resourceRefs,
@@ -124,12 +123,12 @@ export function WorkspaceResourceSyncActions({
   const pushOutcome = getWorkspaceSyncPushOutcome({
     mode: "pull-request",
     targetBranch,
-    defaultBranch,
+    defaultBranch: baseBranch,
     isCreatingBranch,
   })
   const pushWarning = getWorkspaceSyncPushWarning({
     outcome: pushOutcome,
-    defaultBranch,
+    defaultBranch: baseBranch,
     allowDirectPush: false,
   })
   const previewErrorMessage = previewError
@@ -233,7 +232,7 @@ export function WorkspaceResourceSyncActions({
               total={totalResourceCount}
               isLoading={visiblePreviewIsLoading}
               targetBranch={targetBranch}
-              defaultBranch={defaultBranch}
+              defaultBranch={baseBranch}
               outcome={pushOutcome}
             />
 

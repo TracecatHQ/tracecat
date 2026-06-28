@@ -12,7 +12,7 @@ import type { WorkspaceRead } from "@/client"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { getWorkspaceSyncDefaultBranch } from "@/components/workspace-sync/branch-target-selector"
+import { getWorkspaceSyncBaseBranch } from "@/components/workspace-sync/branch-target-selector"
 import { WorkspaceSyncConnectionForm } from "@/components/workspace-sync/connection-form"
 import { WorkspaceSyncPullTab } from "@/components/workspace-sync/pull-tab"
 import { WorkspaceSyncPushTab } from "@/components/workspace-sync/push-tab"
@@ -58,14 +58,14 @@ export function WorkspaceSyncSettings({
     enabled: Boolean(persistedGitUrl),
     limit: 200,
   })
-  const defaultBranch = getWorkspaceSyncDefaultBranch(repoBranches)
+  const baseBranch = getWorkspaceSyncBaseBranch(persistedGitUrl, repoBranches)
 
   const { commits, commitsIsLoading, commitsError } = useRepositoryCommits(
     workspace.id,
     {
-      branch: defaultBranch,
+      branch: baseBranch,
       limit: 20,
-      enabled: Boolean(persistedGitUrl) && Boolean(defaultBranch),
+      enabled: Boolean(persistedGitUrl) && Boolean(baseBranch),
     }
   )
   const repoDisplayName = getRepoDisplayName(persistedGitUrl)
@@ -96,7 +96,7 @@ export function WorkspaceSyncSettings({
               <ConnectionStatus
                 branchesIsLoading={branchesIsLoading}
                 hasBranchesError={Boolean(branchesError)}
-                defaultBranch={defaultBranch}
+                defaultBranch={baseBranch}
                 commitsIsLoading={commitsIsLoading}
                 latestCommitSha={latestCommit?.sha}
                 latestCommitDate={latestCommit?.date}
@@ -139,6 +139,7 @@ export function WorkspaceSyncSettings({
               persistedGitUrl={persistedGitUrl}
               repoDisplayName={repoDisplayName}
               repoBranches={repoBranches}
+              baseBranch={baseBranch}
               branchesIsLoading={branchesIsLoading}
               branchesError={branchesError}
             />

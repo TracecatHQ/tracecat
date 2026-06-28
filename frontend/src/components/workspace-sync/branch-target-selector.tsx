@@ -30,6 +30,38 @@ export function getWorkspaceSyncDefaultBranch(
   )
 }
 
+/**
+ * Returns the configured workspace sync base branch, if the Git URL pins one.
+ */
+export function getWorkspaceSyncConfiguredRef(
+  gitUrl: string | null | undefined
+): string | undefined {
+  const trimmed = gitUrl?.trim()
+  if (!trimmed) {
+    return undefined
+  }
+  const refMarker = ".git@"
+  const refIndex = trimmed.lastIndexOf(refMarker)
+  if (refIndex === -1) {
+    return undefined
+  }
+  const ref = trimmed.slice(refIndex + refMarker.length).trim()
+  return ref || undefined
+}
+
+/**
+ * Resolves the branch that workspace sync exports use as their base.
+ */
+export function getWorkspaceSyncBaseBranch(
+  gitUrl: string | null | undefined,
+  branches: GitBranchInfo[] | undefined
+): string | undefined {
+  return (
+    getWorkspaceSyncConfiguredRef(gitUrl) ??
+    getWorkspaceSyncDefaultBranch(branches)
+  )
+}
+
 interface UseWorkspaceSyncBranchTargetOptions {
   branches: GitBranchInfo[] | undefined
   newBranchPrefix: string

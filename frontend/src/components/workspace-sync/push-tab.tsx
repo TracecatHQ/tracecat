@@ -30,6 +30,7 @@ interface WorkspaceSyncPushTabProps {
   persistedGitUrl: string | undefined
   repoDisplayName: string | null
   repoBranches: GitBranchInfo[] | undefined
+  baseBranch: string | undefined
   branchesIsLoading: boolean
   branchesError: unknown
 }
@@ -43,6 +44,7 @@ export function WorkspaceSyncPushTab({
   persistedGitUrl,
   repoDisplayName,
   repoBranches,
+  baseBranch,
   branchesIsLoading,
   branchesError,
 }: WorkspaceSyncPushTabProps) {
@@ -57,7 +59,6 @@ export function WorkspaceSyncPushTab({
     setBranch: setExportBranch,
     isCreatingBranch,
     selectBranch: selectExportBranch,
-    defaultBranch,
     hasBranches,
   } = useWorkspaceSyncBranchTarget({
     branches: repoBranches,
@@ -66,7 +67,7 @@ export function WorkspaceSyncPushTab({
 
   const targetBranch = exportBranch.trim()
   const exportCompareRef = isCreatingBranch
-    ? defaultBranch
+    ? baseBranch
     : targetBranch || undefined
   const {
     preview: exportPreview,
@@ -88,12 +89,12 @@ export function WorkspaceSyncPushTab({
   const pushOutcome = getWorkspaceSyncPushOutcome({
     mode: "pull-request",
     targetBranch,
-    defaultBranch,
+    defaultBranch: baseBranch,
     isCreatingBranch,
   })
   const pushWarning = getWorkspaceSyncPushWarning({
     outcome: pushOutcome,
-    defaultBranch,
+    defaultBranch: baseBranch,
     allowDirectPush: false,
   })
   const exportDisabled =
@@ -198,7 +199,7 @@ export function WorkspaceSyncPushTab({
           <span className="text-foreground">
             {getWorkspaceSyncPushResultLabel({
               outcome: pushOutcome,
-              defaultBranch,
+              defaultBranch: baseBranch,
             })}
           </span>
         </div>
