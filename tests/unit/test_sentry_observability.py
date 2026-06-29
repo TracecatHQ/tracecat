@@ -19,6 +19,21 @@ def test_init_sentry_noops_without_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
     assert sentry_observability.init_sentry("api") is False
 
 
+def test_init_sentry_disables_local_variable_capture(
+    monkeypatch: pytest.MonkeyPatch, mocker
+) -> None:
+    monkeypatch.setenv("SENTRY_DSN", "https://public@example.com/1")
+    mocker.patch.object(
+        sentry_observability.sentry_sdk, "is_initialized", return_value=False
+    )
+    init = mocker.patch.object(sentry_observability.sentry_sdk, "init")
+    mocker.patch.object(sentry_observability.sentry_sdk, "set_tag")
+
+    assert sentry_observability.init_sentry("api") is True
+
+    assert init.call_args.kwargs["include_local_variables"] is False
+
+
 def test_sentry_scrubber_redacts_nested_sensitive_fields() -> None:
     event = {
         "request": {
