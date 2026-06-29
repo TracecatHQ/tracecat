@@ -50,7 +50,7 @@ from tracecat.workspace_sync.schemas import (
     WorkspaceSyncExportRequest,
 )
 from tracecat.workspace_sync.serialization import canonical_json_text
-from tracecat.workspace_sync.service import WorkspaceSyncService
+from tracecat.workspace_sync.service import WorkspaceSyncService, _table_names
 from tracecat.workspace_sync.transport import (
     GitHubWorkspaceSyncTransport,
     VcsTreeSnapshot,
@@ -445,6 +445,42 @@ async def test_resource_ref_without_ids_selects_resource_type(
         SyncResourceType.AGENT_PRESET: set(),
         SyncResourceType.SKILL: set(),
     }
+
+
+def test_table_names_collects_explicit_table_reference_fields() -> None:
+    payloads = [
+        {
+            "args": {
+                "table": "qa_indicators",
+                "nested": [
+                    {"table_name": "case_context"},
+                    {"table_slug": "enrichment_cache"},
+                ],
+            }
+        }
+    ]
+
+    assert _table_names(payloads) == {
+        "case_context",
+        "enrichment_cache",
+        "qa_indicators",
+    }
+
+
+def test_table_names_ignores_free_form_string_tokens() -> None:
+    payloads = [
+        {
+            "title": "Escalate customers affected by Okta alert",
+            "args": {
+                "prompt": (
+                    "Find customers mentioned in this alert and compare them "
+                    "against qa_indicators."
+                )
+            },
+        }
+    ]
+
+    assert _table_names(payloads) == set()
 
 
 @pytest.mark.anyio

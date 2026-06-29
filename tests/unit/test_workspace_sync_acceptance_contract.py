@@ -1099,7 +1099,8 @@ async def test_agent_preset_only_export_lazily_includes_dependency_closure(
     assert parent_version is not None
     parent_version.instructions = (
         "Use ${{ VARS.qa_config }} and "
-        "${{ SECRETS.qa_threatintel.BASE_URL }} with table qa_indicators."
+        "${{ SECRETS.qa_threatintel.BASE_URL }}. "
+        "Mention qa_indicators as prose only."
     )
     session.add(parent_version)
     await session.flush()
@@ -1129,7 +1130,7 @@ async def test_agent_preset_only_export_lazily_includes_dependency_closure(
     )
     assert f"{VARIABLE_ROOT}/default/qa_config.yml" in files
     assert f"{SECRET_METADATA_ROOT}/default/qa_threatintel.yml" in files
-    assert f"{TABLE_ROOT}/qa_indicators/table.yml" in files
+    assert f"{TABLE_ROOT}/qa_indicators/table.yml" not in files
     assert not any(path.startswith(f"{CASE_TAG_ROOT}/") for path in files)
     assert not any(path.startswith(f"{CASE_FIELD_ROOT}/") for path in files)
     assert not any(path.startswith(f"{CASE_DROPDOWN_ROOT}/") for path in files)
@@ -5962,9 +5963,18 @@ def _expanded_full_git_tree(*, include_schedules: bool) -> dict[str, str]:
                             "preset_slug": "qa-triage-parent",
                             "prompt": (
                                 "Review ${{ ACTIONS.execute_child.result }} "
-                                "with ${{ SECRETS.qa_threatintel.BASE_URL }} "
-                                "and table qa_indicators."
+                                "with ${{ SECRETS.qa_threatintel.BASE_URL }}."
                             ),
+                        },
+                    },
+                    {
+                        "ref": "lookup_indicator",
+                        "action": "core.table.lookup",
+                        "depends_on": ["execute_child"],
+                        "args": {
+                            "table": "qa_indicators",
+                            "column": "indicator",
+                            "value": "${{ TRIGGER.indicator }}",
                         },
                     },
                 ],

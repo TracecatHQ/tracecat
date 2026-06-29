@@ -1993,8 +1993,6 @@ _VAR_REF_RE = re.compile(r"\bVARS\.([A-Za-z_][A-Za-z0-9_-]*)")
 """Capture the ``<name>`` in a ``VARS.<name>`` expression reference."""
 _SECRET_REF_RE = re.compile(r"\bSECRETS\.([A-Za-z_][A-Za-z0-9_-]*)")
 """Capture the ``<name>`` in a ``SECRETS.<name>`` expression reference."""
-_TABLE_REF_TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]*")
-"""Candidate table-name token in a free-form payload string."""
 
 
 def _has_dependency_refs(refs: ResourceDependencyRefs) -> bool:
@@ -2222,7 +2220,7 @@ def _secret_names(payloads: list[Any]) -> set[str]:
 
 
 def _table_names(payloads: list[Any]) -> set[str]:
-    """Return candidate table names referenced anywhere in ``payloads``."""
+    """Return table names from explicit table reference fields in ``payloads``."""
     names: set[str] = set()
     for key, value in _payload_key_values(payloads):
         if (
@@ -2231,12 +2229,6 @@ def _table_names(payloads: list[Any]) -> set[str]:
             and value
         ):
             names.add(value)
-        if isinstance(value, str):
-            names.update(
-                token
-                for raw_token in _TABLE_REF_TOKEN_RE.findall(value)
-                if (token := raw_token.strip(".,;:!?()[]{}\"'"))
-            )
     return names
 
 
