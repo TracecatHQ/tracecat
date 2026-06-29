@@ -752,6 +752,12 @@ async def persist_workflow_edit_document(
     _, _, action_positions = extract_layout_positions(layout_payload)
 
     if "definition" in changed_sections:
+        # The action graph is being rewritten. Bump graph_version so a builder
+        # holding a stale base_version gets a 409 from the graph API instead of
+        # silently applying graph operations against the old action graph. The
+        # workflow row is held under FOR UPDATE for the lifetime of this session,
+        # so this increment cannot race a concurrent graph mutation.
+        workflow.graph_version += 1
         if updated_document.definition.actions:
             await replace_workflow_definition_from_dsl(
                 service=service,
@@ -819,6 +825,11 @@ async def persist_workflow_edit_document(
             workflow_id=workflow_id,
             schedules=updated_document.schedules,
         )
+        # The deleted Schedule rows are already flushed, but the eagerly-loaded
+        # workflow.schedules collection still references them; expire it so the
+        # final commit/refresh and any save-update cascade do not touch deleted
+        # instances.
+        service.session.expire(workflow, ["schedules"])
 
     if "case_trigger" in changed_sections:
         case_trigger_service = CaseTriggersService(service.session, role=role)

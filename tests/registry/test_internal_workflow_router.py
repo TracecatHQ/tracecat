@@ -247,7 +247,7 @@ class TestBuildImportDataFromDefinitionYaml:
         # A bare workflow (no top-level `definition:` key) is enveloped.
         data = _build_import_data_from_definition_yaml(
             definition_yaml=(
-                "title: T\n"
+                "title: Bare WF\n"
                 "entrypoint:\n"
                 "  ref: start\n"
                 "actions:\n"
@@ -260,14 +260,14 @@ class TestBuildImportDataFromDefinitionYaml:
             description=None,
         )
         assert "definition" in data
-        assert data["definition"]["title"] == "T"
+        assert data["definition"]["title"] == "Bare WF"
 
     def test_injects_missing_entrypoint(self):
         # Missing entrypoint is defaulted so DSLInput validation passes.
         data = _build_import_data_from_definition_yaml(
             definition_yaml=(
                 "definition:\n"
-                "  title: T\n"
+                "  title: Inferred entrypoint\n"
                 "  actions:\n"
                 "    - ref: start\n"
                 "      action: core.transform.reshape\n"
@@ -315,7 +315,7 @@ class TestBuildImportDataFromDefinitionYaml:
         # the create call doesn't 400 on a missing field.
         yaml_text = (
             "definition:\n"
-            "  title: T\n"
+            "  title: No description\n"
             "  entrypoint:\n"
             "    ref: start\n"
             "  actions:\n"
@@ -333,13 +333,58 @@ class TestBuildImportDataFromDefinitionYaml:
 
     def test_does_not_override_existing_description(self):
         # A description already present in the YAML is preserved over the caller's.
-        yaml_text = "definition:\n  title: T\n  description: from_yaml\n"
+        yaml_text = "definition:\n  title: Keep description\n  description: from_yaml\n"
         data = _build_import_data_from_definition_yaml(
             definition_yaml=yaml_text,
             title=None,
             description="from_caller",
         )
         assert data["definition"]["description"] == "from_yaml"
+
+    @pytest.mark.parametrize("depends_on", ["1", "[1]", "[true]"])
+    def test_rejects_non_string_depends_on(self, depends_on: str):
+        # A scalar or non-string-list depends_on would make auto_generate_layout
+        # raise a raw TypeError/AttributeError that escapes the 400-mapping in
+        # create_workflow (-> 500). Reject the correctable input here as a 400.
+        yaml_text = (
+            "definition:\n"
+            "  title: T\n"
+            "  entrypoint:\n"
+            "    ref: start\n"
+            "  actions:\n"
+            "    - ref: start\n"
+            "      action: core.transform.reshape\n"
+            f"      depends_on: {depends_on}\n"
+            "      args:\n"
+            "        value: hi\n"
+        )
+        with pytest.raises(HTTPException) as exc:
+            _build_import_data_from_definition_yaml(
+                definition_yaml=yaml_text, title=None, description=None
+            )
+        assert exc.value.status_code == HTTP_400_BAD_REQUEST
+
+    def test_rejects_too_short_title(self):
+        # A 1-2 char title imports via DSLInput but later breaks the edit
+        # endpoints (WorkflowEditMetadata requires min_length=3). Reject it now.
+        with pytest.raises(HTTPException) as exc:
+            _build_import_data_from_definition_yaml(
+                definition_yaml="definition:\n  title: T\n",
+                title=None,
+                description=None,
+            )
+        assert exc.value.status_code == HTTP_400_BAD_REQUEST
+
+    def test_rejects_oversized_description(self):
+        # A >1000 char description imports but breaks the edit endpoints
+        # (WorkflowEditMetadata requires max_length=1000). Reject it now.
+        with pytest.raises(HTTPException) as exc:
+            _build_import_data_from_definition_yaml(
+                definition_yaml="definition:\n  title: Valid Title\n",
+                title=None,
+                description="x" * 1001,
+            )
+        assert exc.value.status_code == HTTP_400_BAD_REQUEST
 
 
 class TestRaiseWorkflowEditHttpError:

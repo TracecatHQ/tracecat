@@ -1869,6 +1869,12 @@ async def _apply_workflow_yaml_update(
             role=role,
         )
         _raise_dsl_validation_tool_error(validation_results)
+        # The action graph is being rewritten. Bump graph_version so a builder
+        # holding a stale base_version gets a 409 from the graph API instead of
+        # silently applying graph operations against the old action graph. The
+        # workflow row is held under FOR UPDATE for the lifetime of this session,
+        # so this increment cannot race a concurrent graph mutation.
+        workflow.graph_version += 1
         await replace_workflow_definition_from_dsl(
             service=service,
             workflow=workflow,

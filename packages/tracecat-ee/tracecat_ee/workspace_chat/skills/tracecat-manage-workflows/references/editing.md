@@ -55,7 +55,7 @@ A new action value looks like:
 {
   "ref": "post_to_slack",
   "action": "core.http_request",
-  "args": { "url": "https://hooks.slack.example/...", "method": "POST", "json": { "text": "done" } },
+  "args": { "url": "https://hooks.slack.example/...", "method": "POST", "payload": { "text": "done" } },
   "depends_on": ["fetch_indicator"]
 }
 ```

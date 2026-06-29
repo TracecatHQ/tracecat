@@ -159,6 +159,7 @@ def _workflow_stub(**overrides: Any) -> SimpleNamespace:
         "actions": [],
         "schedules": [],
         "case_trigger": None,
+        "graph_version": 1,
         "trigger_position_x": 0.0,
         "trigger_position_y": 0.0,
         "viewport_x": 0.0,
@@ -2279,6 +2280,9 @@ async def test_persist_workflow_edit_document_preserves_offline_schedule_status_
         def add(self, obj: Any) -> None:
             _ = obj
 
+        def expire(self, obj: Any, attrs: list[str] | None = None) -> None:
+            _ = obj, attrs
+
         async def refresh(self, obj: Any, attrs: list[str] | None = None) -> None:
             _ = obj, attrs
 
@@ -2437,6 +2441,122 @@ async def test_apply_workflow_yaml_update_replaces_schedules_without_stale_state
     persisted = result.scalars().all()
     assert [s.every for s in persisted] == [timedelta(hours=2)]
     assert old_schedule_id not in {s.id for s in persisted}
+
+
+@pytest.mark.anyio
+async def test_apply_workflow_yaml_update_bumps_graph_version_on_definition(
+    session: AsyncSession, svc_role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression test: rewriting the action graph via the YAML update path must
+    bump graph_version so a builder holding a stale base_version gets a 409 from
+    the graph API instead of silently applying ops against the old graph.
+    """
+
+    async def _validate_dsl(*_args: Any, **_kwargs: Any) -> set[Any]:
+        return set()
+
+    monkeypatch.setattr(mcp_server, "validate_dsl", _validate_dsl)
+
+    workflow = Workflow(
+        title="Graph version workflow",
+        description="Graph version regression test",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    session.add(workflow)
+    await session.commit()
+    assert workflow.graph_version == 1
+
+    service = mcp_server.WorkflowsManagementService(session, role=svc_role)
+    workflow_id = mcp_server.WorkflowUUID.new(workflow.id)
+    loaded = await service.get_workflow(workflow_id, for_update=True)
+    assert loaded is not None
+
+    definition_yaml = (
+        "definition:\n"
+        "  title: Graph version workflow\n"
+        "  description: Graph version regression test\n"
+        "  entrypoint:\n"
+        "    ref: start\n"
+        "  actions:\n"
+        "    - ref: start\n"
+        "      action: core.transform.reshape\n"
+        "      args:\n"
+        "        value: hello\n"
+        "  config:\n"
+        "    scheduler: static\n"
+    )
+    yaml_payload = mcp_server._parse_workflow_yaml_payload(definition_yaml)
+
+    await mcp_server._apply_workflow_yaml_update(
+        role=svc_role,
+        service=service,
+        workflow=loaded,
+        workflow_id=workflow_id,
+        update_params=mcp_server.WorkflowUpdate(),
+        yaml_payload=yaml_payload,
+        definition_yaml=definition_yaml,
+        update_mode="replace",
+    )
+    await session.commit()
+
+    refreshed = (
+        await session.execute(select(Workflow).where(Workflow.id == workflow.id))
+    ).scalar_one()
+    assert refreshed.graph_version == 2
+
+
+@pytest.mark.anyio
+async def test_persist_workflow_edit_document_bumps_graph_version_on_definition(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    """Regression test: rewriting the action graph through the edit-document path
+    must bump graph_version so concurrent builder graph ops with a stale
+    base_version are rejected with a 409 instead of applied against the old graph.
+    """
+    workflow = Workflow(
+        title="Edit doc workflow",
+        description="Edit-document graph version regression test",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    session.add(workflow)
+    await session.commit()
+    assert workflow.graph_version == 1
+
+    service = mcp_server.WorkflowsManagementService(session, role=svc_role)
+    workflow_id = mcp_server.WorkflowUUID.new(workflow.id)
+    loaded = await service.get_workflow(workflow_id, for_update=True)
+    assert loaded is not None
+
+    original_document = draft.build_workflow_edit_document(
+        cast(draft._WorkflowEditDocumentSource, loaded)
+    )
+    updated_payload = draft.workflow_edit_document_payload(original_document)
+    updated_payload["definition"]["actions"] = [
+        {
+            "ref": "step_a",
+            "action": "core.transform.reshape",
+            "args": {"value": "hello"},
+            "depends_on": [],
+            "description": "",
+        }
+    ]
+    updated_payload["layout"]["actions"] = [{"ref": "step_a", "x": 0.0, "y": 0.0}]
+    updated_document = mcp_server.WorkflowEditDocument.model_validate(updated_payload)
+
+    await draft.persist_workflow_edit_document(
+        role=svc_role,
+        service=service,
+        workflow=loaded,
+        original_document=original_document,
+        updated_document=updated_document,
+    )
+
+    refreshed = (
+        await session.execute(select(Workflow).where(Workflow.id == workflow.id))
+    ).scalar_one()
+    assert refreshed.graph_version == 2
 
 
 @pytest.mark.anyio

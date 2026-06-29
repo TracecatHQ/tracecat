@@ -237,6 +237,14 @@ def _build_import_data_from_definition_yaml(
         definition["title"] = title
     if "description" not in definition:
         definition["description"] = description or ""
+    # Enforce the same title/description constraints the draft edit endpoints
+    # apply (WorkflowEditMetadata), so an imported workflow can't later 500 them.
+    try:
+        WorkflowCreate(
+            title=definition.get("title"), description=definition.get("description")
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     # DSLInput requires the entrypoint key; let it infer the ref from the graph.
     if "entrypoint" not in definition:
         definition["entrypoint"] = {"ref": None}
@@ -250,14 +258,18 @@ def _build_import_data_from_definition_yaml(
             # 400-mapping except block in create_workflow and surfaces as a 500.
             # Guard the correctable authoring mistake here as a 400.
             if not isinstance(actions, list) or not all(
-                isinstance(action, dict) and isinstance(action.get("ref"), str)
+                isinstance(action, dict)
+                and isinstance(action.get("ref"), str)
+                and isinstance(action.get("depends_on") or [], list)
+                and all(isinstance(d, str) for d in action.get("depends_on") or [])
                 for action in actions
             ):
                 raise HTTPException(
                     status_code=HTTP_400_BAD_REQUEST,
                     detail=(
                         "Workflow definition.actions must be a list of action "
-                        "objects, each with a string 'ref'"
+                        "objects, each with a string 'ref' and an optional "
+                        "'depends_on' list of strings"
                     ),
                 )
             import_data["layout"] = auto_generate_layout(
