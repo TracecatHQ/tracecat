@@ -20,7 +20,7 @@ REDACTED_VALUE = "[Filtered]"
 _MAX_SCRUB_DEPTH = 8
 _CAMEL_CASE_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _NON_ALNUM_RE = re.compile(r"[^A-Za-z0-9]+")
-_WEBHOOK_SECRET_PATH_RE = re.compile(r"^(/webhooks/[^/]+/)([^/]+)(?=/|$)")
+_WEBHOOK_SECRET_PATH_RE = re.compile(r"^(.*/webhooks/[^/]+/)([^/]+)(?=/|$)")
 _SENSITIVE_KEY_PARTS = frozenset(
     {
         "api_key",

@@ -62,17 +62,28 @@ async def test_generic_exception_handler_redacts_oauth_query_params(mocker):
 
 
 @pytest.mark.anyio
-async def test_generic_exception_handler_redacts_webhook_secret_path(mocker):
+@pytest.mark.parametrize(
+    ("path", "expected_path"),
+    [
+        (
+            "/webhooks/wf-test-webhook/super-secret/draft",
+            f"/webhooks/wf-test-webhook/{REDACTED_VALUE}/draft",
+        ),
+        (
+            "/api/webhooks/wf-test-webhook/super-secret/draft",
+            f"/api/webhooks/wf-test-webhook/{REDACTED_VALUE}/draft",
+        ),
+    ],
+)
+async def test_generic_exception_handler_redacts_webhook_secret_path(
+    mocker, path: str, expected_path: str
+):
     capture_exception = mocker.patch("tracecat.api.common.capture_exception")
     logger = mocker.patch("tracecat.api.common.logger")
-    request = _make_request(
-        b"",
-        path="/webhooks/wf-test-webhook/super-secret/draft",
-    )
+    request = _make_request(b"", path=path)
 
     await generic_exception_handler(request, RuntimeError("boom"))
 
-    expected_path = f"/webhooks/wf-test-webhook/{REDACTED_VALUE}/draft"
     assert capture_exception.call_args.kwargs["tags"]["http.route"] == expected_path
     assert (
         capture_exception.call_args.kwargs["contexts"]["tracecat.request"]["path"]
@@ -103,14 +114,28 @@ def test_tracecat_exception_handler_redacts_oauth_query_params(mocker):
     assert response.status_code == 500
 
 
-def test_tracecat_exception_handler_redacts_webhook_secret_path(mocker):
+@pytest.mark.parametrize(
+    ("path", "expected_path"),
+    [
+        (
+            "/webhooks/wf-test-webhook/super-secret",
+            f"/webhooks/wf-test-webhook/{REDACTED_VALUE}",
+        ),
+        (
+            "/api/webhooks/wf-test-webhook/super-secret",
+            f"/api/webhooks/wf-test-webhook/{REDACTED_VALUE}",
+        ),
+    ],
+)
+def test_tracecat_exception_handler_redacts_webhook_secret_path(
+    mocker, path: str, expected_path: str
+):
     capture_exception = mocker.patch("tracecat.api.common.capture_exception")
     logger = mocker.patch("tracecat.api.common.logger")
-    request = _make_request(b"", path="/webhooks/wf-test-webhook/super-secret")
+    request = _make_request(b"", path=path)
 
     response = tracecat_exception_handler(request, TracecatException("boom"))
 
-    expected_path = f"/webhooks/wf-test-webhook/{REDACTED_VALUE}"
     assert capture_exception.call_args.kwargs["tags"]["http.route"] == expected_path
     assert (
         capture_exception.call_args.kwargs["contexts"]["tracecat.request"]["path"]

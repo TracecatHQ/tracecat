@@ -163,10 +163,25 @@ def test_sentry_scrubber_removes_request_url_userinfo_and_fragments() -> None:
     assert "secret-token" not in request["url"]
 
 
-def test_sentry_scrubber_redacts_webhook_secret_url_paths() -> None:
+@pytest.mark.parametrize(
+    ("url", "expected_path"),
+    [
+        (
+            "https://api.example.com/webhooks/wf-test-webhook/super-secret/draft?foo=bar",
+            f"/webhooks/wf-test-webhook/{sentry_observability.REDACTED_VALUE}/draft",
+        ),
+        (
+            "https://api.example.com/api/webhooks/wf-test-webhook/super-secret/draft?foo=bar",
+            f"/api/webhooks/wf-test-webhook/{sentry_observability.REDACTED_VALUE}/draft",
+        ),
+    ],
+)
+def test_sentry_scrubber_redacts_webhook_secret_url_paths(
+    url: str, expected_path: str
+) -> None:
     event = {
         "request": {
-            "url": "https://api.example.com/webhooks/wf-test-webhook/super-secret/draft?foo=bar",
+            "url": url,
         }
     }
 
@@ -174,10 +189,7 @@ def test_sentry_scrubber_redacts_webhook_secret_url_paths() -> None:
     request = scrubbed["request"]
     parsed_url = urlsplit(request["url"])
 
-    assert (
-        parsed_url.path
-        == f"/webhooks/wf-test-webhook/{sentry_observability.REDACTED_VALUE}/draft"
-    )
+    assert parsed_url.path == expected_path
     assert "super-secret" not in request["url"]
 
 
