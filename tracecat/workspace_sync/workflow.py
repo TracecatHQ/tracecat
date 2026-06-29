@@ -153,6 +153,21 @@ def workflow_spec_from_orm(
     )
 
 
+def workflow_spec_with_source_workflow_ids(
+    spec: WorkflowResourceSpec,
+    *,
+    source_workflow_ids: Mapping[WorkflowUUID, str],
+) -> WorkflowResourceSpec:
+    """Rewrite child workflow local ids in ``spec`` to portable source ids."""
+    definition = _definition_with_source_workflow_ids(
+        spec.definition,
+        source_workflow_ids,
+    )
+    if definition is spec.definition:
+        return spec
+    return spec.model_copy(update={"definition": definition})
+
+
 def workflow_spec_to_remote(
     spec: WorkflowResourceSpec,
     *,
@@ -217,6 +232,37 @@ def _definition_with_local_workflow_ids(
     return definition.model_copy(update={"actions": actions})
 
 
+def _definition_with_source_workflow_ids(
+    definition: DSLInput,
+    source_workflow_ids: Mapping[WorkflowUUID, str],
+) -> DSLInput:
+    """Rewrite child-workflow local id references to portable source ids."""
+    normalized_source_ids = _normalized_source_workflow_ids(source_workflow_ids)
+    actions = []
+    changed = False
+    for action in definition.actions:
+        if action.action != PlatformAction.CHILD_WORKFLOW_EXECUTE:
+            actions.append(action)
+            continue
+        workflow_id = action.args.get("workflow_id")
+        if not isinstance(workflow_id, str):
+            actions.append(action)
+            continue
+        source_id = _source_workflow_id_for_reference(
+            workflow_id,
+            normalized_source_ids,
+        )
+        if source_id is None:
+            actions.append(action)
+            continue
+        args = {**action.args, "workflow_id": source_id}
+        actions.append(action.model_copy(update={"args": args}))
+        changed = True
+    if not changed:
+        return definition
+    return definition.model_copy(update={"actions": actions})
+
+
 def _normalized_workflow_ids(
     local_workflow_ids: Mapping[str, WorkflowUUID],
 ) -> dict[str, WorkflowUUID]:
@@ -235,6 +281,17 @@ def _normalized_workflow_ids(
     return normalized
 
 
+def _normalized_source_workflow_ids(
+    source_workflow_ids: Mapping[WorkflowUUID, str],
+) -> dict[str, str]:
+    """Index source ids by both full and short local workflow ids."""
+    normalized: dict[str, str] = {}
+    for local_id, source_id in source_workflow_ids.items():
+        normalized[str(local_id)] = source_id
+        normalized[local_id.short()] = source_id
+    return normalized
+
+
 def _local_workflow_id_for_reference(
     workflow_id: str,
     local_workflow_ids: Mapping[str, WorkflowUUID],
@@ -249,6 +306,22 @@ def _local_workflow_id_for_reference(
         return local_workflow_ids.get(WorkflowUUID.new(workflow_id).short())
     except ValueError:
         return None
+
+
+def _source_workflow_id_for_reference(
+    workflow_id: str,
+    source_workflow_ids: Mapping[str, str],
+) -> str | None:
+    """Resolve a child-workflow local id reference to its source id."""
+    if source_id := source_workflow_ids.get(workflow_id):
+        return source_id
+    try:
+        local_id = WorkflowUUID.new(workflow_id)
+    except ValueError:
+        return None
+    return source_workflow_ids.get(local_id.short()) or source_workflow_ids.get(
+        str(local_id)
+    )
 
 
 def workflow_spec_from_legacy(

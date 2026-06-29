@@ -56,6 +56,7 @@ from tracecat.workspace_sync.workflow import (
     serialize_workflow_spec,
     workflow_source_path,
     workflow_spec_to_remote,
+    workflow_spec_with_source_workflow_ids,
 )
 
 
@@ -696,6 +697,85 @@ def test_workflow_export_scope_accepts_legacy_or_workspace_sync_grant() -> None:
         service._require_workflow_export_scope()
 
 
+@pytest.mark.anyio
+async def test_workflow_export_allows_projected_dependencies_with_publish_scope(
+    sample_dsl: DSLInput,
+) -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"workflow:update", "workflow:sync"}),
+    )
+    session = AsyncMock()
+    session.add = Mock()
+    service = WorkspaceSyncService(session=session, role=role)
+    workflow_id = WorkflowUUID.new_uuid4()
+    workflow = cast(Any, SimpleNamespace(id=workflow_id, git_sync_branch=None))
+    projection = WorkspaceProjection(
+        manifest=WorkspaceManifest(),
+        spec=WorkspaceSpec(
+            workflows={
+                "parent": WorkflowResourceSpec(
+                    id="parent",
+                    alias="parent",
+                    definition=sample_dsl,
+                )
+            },
+            variables={
+                "default/api_token": VariableResourceSpec(
+                    id="default/api_token",
+                    name="api_token",
+                    environment="default",
+                )
+            },
+            secret_metadata={
+                "default/vendor_api": SecretMetadataResourceSpec(
+                    id="default/vendor_api",
+                    name="vendor_api",
+                    environment="default",
+                    keys=["TOKEN"],
+                )
+            },
+        ),
+        files={MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())},
+    )
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="tracecat", repo="sync")
+    )
+    service.project_workspace = AsyncMock(return_value=projection)
+    transport = AsyncMock()
+    transport.write_files.return_value = CommitInfo(
+        status=PushStatus.COMMITTED,
+        sha="a" * 40,
+        ref="sync/workflow",
+        base_ref="main",
+        pr_url=None,
+        pr_number=None,
+        pr_reused=False,
+        message="Committed workspace sync changes.",
+    )
+
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        result = await service.export_workflow(
+            workflow=workflow,
+            dsl=sample_dsl,
+            params=WorkspaceSyncExportRequest(
+                message="Publish workflow",
+                branch="sync/workflow",
+                create_pr=False,
+            ),
+        )
+
+    assert result.commit.status is PushStatus.COMMITTED
+    transport.write_files.assert_awaited_once()
+    assert workflow.git_sync_branch == "sync/workflow"
+
+
 def test_sync_operation_scope_accepts_legacy_or_workspace_sync_grant() -> None:
     base_role = Role(
         type="service",
@@ -1108,6 +1188,34 @@ def test_workflow_spec_to_remote_rewrites_child_workflow_id_references() -> None
 
     assert remote.definition.actions[0].args["workflow_id"] == local_child_id.short()
     assert spec.definition.actions[0].args["workflow_id"] == source_child_id.short()
+
+
+def test_workflow_spec_export_rewrites_local_child_workflow_id_references() -> None:
+    local_child_id = WorkflowUUID.new_uuid4()
+    spec = WorkflowResourceSpec(
+        id="parent",
+        alias="parent",
+        definition=DSLInput(
+            title="Parent",
+            description="Calls a child workflow by local id",
+            entrypoint=DSLEntrypoint(ref="run_child", expects={}),
+            actions=[
+                ActionStatement(
+                    ref="run_child",
+                    action="core.workflow.execute",
+                    args={"workflow_id": local_child_id.short()},
+                )
+            ],
+        ),
+    )
+
+    exported = workflow_spec_with_source_workflow_ids(
+        spec,
+        source_workflow_ids={local_child_id: "child"},
+    )
+
+    assert exported.definition.actions[0].args["workflow_id"] == "child"
+    assert spec.definition.actions[0].args["workflow_id"] == local_child_id.short()
 
 
 @pytest.mark.anyio

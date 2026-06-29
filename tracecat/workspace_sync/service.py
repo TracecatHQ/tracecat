@@ -114,6 +114,7 @@ from tracecat.workspace_sync.workflow import (
     workflow_source_path,
     workflow_spec_from_orm,
     workflow_spec_to_remote,
+    workflow_spec_with_source_workflow_ids,
 )
 from tracecat.workspaces.service import WorkspaceService
 
@@ -262,7 +263,6 @@ class WorkspaceSyncService(BaseWorkspaceService):
             create_missing_mappings=True,
             workflow_dsl_overrides={workflow.id: dsl},
         )
-        self._require_projected_export_scopes(projection.spec)
         self._validate_projected_workspace_dependencies(projection.spec)
         transport = self._transport_for_provider(
             params.provider,
@@ -421,6 +421,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         defn_service = WorkflowDefinitionsService(session=self.session, role=self.role)
         mgmt_service = WorkflowsManagementService(session=self.session, role=self.role)
         specs: dict[str, WorkflowResourceSpec] = {}
+        source_workflow_ids: dict[WorkflowUUID, str] = {}
 
         # Project each workflow to a spec keyed by its (stable) source id.
         for workflow in workflows:
@@ -447,6 +448,14 @@ class WorkspaceSyncService(BaseWorkspaceService):
                 source_id=source_id,
                 include_schedules=include_schedules,
             )
+            source_workflow_ids[WorkflowUUID.new(workflow.id)] = source_id
+        specs = {
+            source_id: workflow_spec_with_source_workflow_ids(
+                spec,
+                source_workflow_ids=source_workflow_ids,
+            )
+            for source_id, spec in specs.items()
+        }
         specs = await self._workflow_specs_with_case_tag_source_ids(specs)
 
         # Full exports project every resource. Partial exports walk dependencies
