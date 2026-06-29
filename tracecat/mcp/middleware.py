@@ -23,6 +23,16 @@ from tracecat.mcp.config import (
 from tracecat.observability.sentry import capture_exception
 
 
+class UnexpectedToolError(ToolError):
+    """ToolError wrapper for unexpected platform failures."""
+
+    def __init__(
+        self, message: str, *, original_exception: BaseException | None = None
+    ) -> None:
+        super().__init__(message)
+        self.original_exception = original_exception
+
+
 class AccessTokenClaims(TypedDict, total=False):
     email: str
     client_id: str
@@ -116,7 +126,13 @@ class SentryMCPMiddleware(Middleware):
     ) -> Any:
         try:
             return await call_next(context)
-        except ToolError:
+        except ToolError as exc:
+            if isinstance(exc, UnexpectedToolError):
+                capture_exception(
+                    exc.original_exception or exc,
+                    tags=_sentry_mcp_tags(context),
+                    contexts={"tracecat.mcp": _sentry_mcp_context(context)},
+                )
             raise
         except Exception as exc:
             capture_exception(

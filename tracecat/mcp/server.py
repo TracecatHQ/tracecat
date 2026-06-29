@@ -189,6 +189,7 @@ from tracecat.mcp.middleware import (
     MCPInputSizeLimitMiddleware,
     MCPTimeoutMiddleware,
     SentryMCPMiddleware,
+    UnexpectedToolError,
     WatchtowerMonitorMiddleware,
     get_mcp_client_id,
 )
@@ -4073,7 +4074,9 @@ async def list_workspaces(
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to list workspaces", error=str(e))
-        raise ToolError(f"Failed to list workspaces: {e}") from None
+        raise UnexpectedToolError(
+            f"Failed to list workspaces: {e}", original_exception=e
+        ) from None
 
 
 @mcp.tool()
