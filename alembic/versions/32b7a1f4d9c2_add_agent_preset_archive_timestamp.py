@@ -39,10 +39,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("uq_agent_preset_workspace_slug", table_name="agent_preset")
-    op.create_unique_constraint(
-        "uq_agent_preset_workspace_slug",
-        "agent_preset",
-        ["workspace_id", "slug"],
+    raise NotImplementedError(
+        "Downgrade is unsafe after archived preset slug reuse. Restore the database "
+        "from backup or snapshot before rolling the application back."
     )
-    op.drop_column("agent_preset", "archived_at")
