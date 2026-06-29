@@ -18,11 +18,25 @@ describe("getWorkspaceSyncConfiguredRef", () => {
     ).toBe("develop")
   })
 
+  it("extracts branch refs from Git URLs without a .git suffix", () => {
+    expect(
+      getWorkspaceSyncConfiguredRef(
+        "git+ssh://git@github.com/test-org/repo@develop"
+      )
+    ).toBe("develop")
+  })
+
   it("returns undefined when the Git URL has no branch ref", () => {
     expect(
       getWorkspaceSyncConfiguredRef(
         "git+ssh://git@github.com/test-org/repo.git"
       )
+    ).toBeUndefined()
+  })
+
+  it("returns undefined for suffixless Git URLs without a branch ref", () => {
+    expect(
+      getWorkspaceSyncConfiguredRef("git+ssh://git@github.com/test-org/repo")
     ).toBeUndefined()
   })
 })
@@ -32,6 +46,15 @@ describe("getWorkspaceSyncBaseBranch", () => {
     expect(
       getWorkspaceSyncBaseBranch(
         "git+ssh://git@github.com/test-org/repo.git@develop",
+        branches
+      )
+    ).toBe("develop")
+  })
+
+  it("prefers configured refs from Git URLs without a .git suffix", () => {
+    expect(
+      getWorkspaceSyncBaseBranch(
+        "git+ssh://git@github.com/test-org/repo@develop",
         branches
       )
     ).toBe("develop")

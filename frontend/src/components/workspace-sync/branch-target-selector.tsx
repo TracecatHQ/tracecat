@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { buildRandomSyncBranchName } from "@/components/workspace-sync/push-target-policy"
+import { GIT_SSH_URL_REGEX } from "@/lib/git"
 
 const CREATE_NEW_BRANCH_VALUE = "__create_new_branch__"
 
@@ -40,12 +41,7 @@ export function getWorkspaceSyncConfiguredRef(
   if (!trimmed) {
     return undefined
   }
-  const refMarker = ".git@"
-  const refIndex = trimmed.lastIndexOf(refMarker)
-  if (refIndex === -1) {
-    return undefined
-  }
-  const ref = trimmed.slice(refIndex + refMarker.length).trim()
+  const ref = GIT_SSH_URL_REGEX.exec(trimmed)?.groups?.ref?.trim()
   return ref || undefined
 }
 
