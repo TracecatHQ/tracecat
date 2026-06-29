@@ -119,6 +119,30 @@ def test_sentry_scrubber_redacts_request_url_query_secrets() -> None:
     }
 
 
+def test_sentry_scrubber_removes_request_url_userinfo_and_fragments() -> None:
+    event = {
+        "request": {
+            "url": "https://user:password@example.com/auth/oauth/callback?code=secret-code&safe=visible#access_token=secret-token",
+        }
+    }
+
+    scrubbed = sentry_observability._scrub(event)
+    request = scrubbed["request"]
+    parsed_url = urlsplit(request["url"])
+    params = parse_qs(parsed_url.query)
+
+    assert parsed_url.scheme == "https"
+    assert parsed_url.netloc == "example.com"
+    assert parsed_url.path == "/auth/oauth/callback"
+    assert parsed_url.fragment == ""
+    assert params == {
+        "code": [sentry_observability.REDACTED_VALUE],
+        "safe": ["visible"],
+    }
+    assert "password" not in request["url"]
+    assert "secret-token" not in request["url"]
+
+
 def test_sentry_scrubber_leaves_malformed_request_urls_unchanged() -> None:
     event = {
         "request": {

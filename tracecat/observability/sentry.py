@@ -160,9 +160,18 @@ def _scrub_url_query(value: str) -> str:
         parsed_url = urlsplit(value)
     except ValueError:
         return value
-    if not parsed_url.query:
-        return value
-    return urlunsplit(parsed_url._replace(query=_scrub_query_string(parsed_url.query)))
+    scrubbed_query = _scrub_query_string(parsed_url.query) if parsed_url.query else ""
+    return urlunsplit(
+        parsed_url._replace(
+            netloc=_strip_url_userinfo(parsed_url.netloc),
+            query=scrubbed_query,
+            fragment="",
+        )
+    )
+
+
+def _strip_url_userinfo(netloc: str) -> str:
+    return netloc.rsplit("@", maxsplit=1)[-1]
 
 
 def _scrub_query_string(value: str) -> str:
