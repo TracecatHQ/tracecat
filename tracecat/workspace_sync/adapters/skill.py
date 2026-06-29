@@ -863,7 +863,8 @@ def _skill_file_content_bytes(file_spec: SkillFileSpec, content: str) -> bytes:
     """Return original skill file bytes from repository text content."""
     if file_spec.encoding == "base64":
         try:
-            return base64.b64decode(content.encode("ascii"), validate=True)
+            normalized = b"".join(content.encode("ascii").split())
+            return base64.b64decode(normalized, validate=True)
         except (UnicodeEncodeError, binascii.Error) as e:
             raise ValueError("invalid base64 content") from e
     return content.encode()

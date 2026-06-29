@@ -3120,7 +3120,9 @@ async def test_project_workspace_preserves_binary_skill_version_file(
                                 encoding="base64",
                             )
                         ],
-                        file_contents={"assets/logo.png": encoded_content},
+                        file_contents={
+                            "assets/logo.png": f"{encoded_content[:4]}\n{encoded_content[4:]}\n"
+                        },
                     )
                 },
             )
