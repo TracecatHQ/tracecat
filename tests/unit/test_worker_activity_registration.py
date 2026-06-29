@@ -55,6 +55,79 @@ def test_agent_executor_worker_registers_only_runtime_execution_activity() -> No
 
 
 @pytest.mark.anyio
+async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat.dsl import worker
+
+    captured: dict[str, int | str | timedelta] = {}
+    shutdown_event = asyncio.Event()
+
+    class _FakeWorker:
+        def __init__(
+            self,
+            client: object,
+            *,
+            task_queue: str,
+            activities: Sequence[object],
+            workflows: Sequence[type],
+            workflow_runner: object,
+            interceptors: Sequence[object],
+            disable_eager_activity_execution: bool,
+            activity_executor: ThreadPoolExecutor,
+            max_concurrent_activities: int,
+            max_concurrent_workflow_tasks: int,
+            graceful_shutdown_timeout: timedelta,
+        ) -> None:
+            del (
+                client,
+                activities,
+                workflows,
+                workflow_runner,
+                interceptors,
+                disable_eager_activity_execution,
+            )
+            captured["task_queue"] = task_queue
+            captured["threadpool_max_workers"] = activity_executor._max_workers
+            captured["max_concurrent_activities"] = max_concurrent_activities
+            captured["max_concurrent_workflow_tasks"] = max_concurrent_workflow_tasks
+            captured["graceful_shutdown_timeout"] = graceful_shutdown_timeout
+
+        async def __aenter__(self) -> _FakeWorker:
+            shutdown_event.set()
+            return self
+
+        async def __aexit__(
+            self,
+            exc_type: object,
+            exc: object,
+            tb: object,
+        ) -> None:
+            del exc_type, exc, tb
+
+    monkeypatch.delenv("SENTRY_DSN", raising=False)
+    monkeypatch.setenv("TEMPORAL__THREADPOOL_MAX_WORKERS", "8")
+    monkeypatch.setenv("TEMPORAL__MAX_CONCURRENT_ACTIVITIES", "")
+    monkeypatch.setenv("TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS", "")
+    monkeypatch.setenv("TEMPORAL__CLUSTER_QUEUE", "test-dsl-queue")
+    monkeypatch.setattr(worker, "get_temporal_client", AsyncMock(return_value=object()))
+    monkeypatch.setattr(worker, "get_activities", lambda: [])
+    monkeypatch.setattr(worker, "Worker", _FakeWorker)
+    monkeypatch.setattr(worker, "new_sandbox_runner", lambda: object())
+    monkeypatch.setattr(worker, "close_storage_client_cache", AsyncMock())
+
+    await worker.main(shutdown_event=shutdown_event)
+
+    assert captured == {
+        "task_queue": "test-dsl-queue",
+        "threadpool_max_workers": 8,
+        "max_concurrent_activities": 100,
+        "max_concurrent_workflow_tasks": 100,
+        "graceful_shutdown_timeout": timedelta(seconds=30),
+    }
+
+
+@pytest.mark.anyio
 async def test_agent_executor_worker_cleans_up_runtime_services_on_startup_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

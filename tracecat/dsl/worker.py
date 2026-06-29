@@ -147,10 +147,10 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         os.environ.get("TEMPORAL__THREADPOOL_MAX_WORKERS", 100)
     )
     max_concurrent_activities = int(
-        os.environ.get("TEMPORAL__MAX_CONCURRENT_ACTIVITIES", 100)
+        os.environ.get("TEMPORAL__MAX_CONCURRENT_ACTIVITIES") or 100
     )
     max_concurrent_workflow_tasks = int(
-        os.environ.get("TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS", 100)
+        os.environ.get("TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS") or 100
     )
 
     try:
