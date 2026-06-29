@@ -146,6 +146,12 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
     threadpool_max_workers = int(
         os.environ.get("TEMPORAL__THREADPOOL_MAX_WORKERS", 100)
     )
+    max_concurrent_activities = int(
+        os.environ.get("TEMPORAL__MAX_CONCURRENT_ACTIVITIES", 100)
+    )
+    max_concurrent_workflow_tasks = int(
+        os.environ.get("TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS", 100)
+    )
 
     try:
         with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
@@ -162,12 +168,16 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                 interceptors=interceptors,
                 disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
                 activity_executor=executor,
+                max_concurrent_activities=max_concurrent_activities,
+                max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
                 graceful_shutdown_timeout=timedelta(seconds=30),
             ):
                 logger.info(
                     "Worker started, ctrl+c to exit",
                     disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
                     threadpool_max_workers=threadpool_max_workers,
+                    max_concurrent_activities=max_concurrent_activities,
+                    max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
                 )
                 await shutdown_event.wait()
                 logger.info("Worker shutdown requested")

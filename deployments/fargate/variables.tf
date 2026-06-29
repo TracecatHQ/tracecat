@@ -485,6 +485,24 @@ variable "worker_desired_count" {
   default     = 2
 }
 
+variable "worker_threadpool_max_workers" {
+  type        = number
+  description = "Activity thread-pool size per DSL worker task (TEMPORAL__THREADPOOL_MAX_WORKERS). Bounds concurrent CPU-bound sync activities competing for the GIL."
+  default     = 100
+}
+
+variable "worker_max_concurrent_activities" {
+  type        = number
+  description = "Max concurrent activities per DSL worker task (TEMPORAL__MAX_CONCURRENT_ACTIVITIES)."
+  default     = 100
+}
+
+variable "worker_max_concurrent_workflow_tasks" {
+  type        = number
+  description = "Max concurrent workflow tasks per DSL worker task (TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS)."
+  default     = 100
+}
+
 variable "agent_worker_cpu" {
   type    = string
   default = "2048"
