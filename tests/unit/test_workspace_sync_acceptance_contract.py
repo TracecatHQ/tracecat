@@ -389,6 +389,27 @@ async def test_missing_child_workflow_alias_is_dependency_diagnostic(
 
 
 @pytest.mark.anyio
+async def test_duplicate_workflow_alias_is_dependency_diagnostic(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    files = _expanded_selected_git_tree()
+    root_path = f"{WORKFLOW_ROOT}/qa-root/definition.yml"
+    root_workflow = yaml.safe_load(files[root_path])
+    root_workflow["alias"] = "qa-child"
+    files[root_path] = _yaml(root_workflow)
+
+    _, diagnostics = await workspace_sync_service.parse_files(files)
+
+    assert any(
+        diagnostic.error_type == "dependency"
+        and "duplicate workflow alias" in diagnostic.message.lower()
+        and "qa-child" in diagnostic.message
+        and diagnostic.details.get("workflow_source_ids") == ["qa-child", "qa-root"]
+        for diagnostic in diagnostics
+    )
+
+
+@pytest.mark.anyio
 async def test_missing_preset_slug_is_dependency_diagnostic(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:

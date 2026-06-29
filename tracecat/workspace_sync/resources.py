@@ -128,15 +128,30 @@ def validate_workspace_dependencies(spec: WorkspaceSpec) -> list[PullDiagnostic]
     subagent references. Returns one :class:`PullDiagnostic` per problem found.
     """
     diagnostics: list[PullDiagnostic] = []
-    workflow_aliases = {
-        workflow.alias for workflow in spec.workflows.values() if workflow.alias
-    }
+    workflow_source_ids_by_alias: dict[str, list[str]] = defaultdict(list)
+    for source_id, workflow in sorted(spec.workflows.items()):
+        if workflow.alias:
+            workflow_source_ids_by_alias[workflow.alias].append(source_id)
+    workflow_aliases = set(workflow_source_ids_by_alias)
     preset_specs_by_slug = {
         preset.slug: preset for preset in spec.agent_presets.values()
     }
     preset_slugs = set(preset_specs_by_slug)
     skill_specs_by_slug = {skill.slug: skill for skill in spec.skills.values()}
     skill_slugs = set(skill_specs_by_slug)
+
+    for alias, source_ids in sorted(workflow_source_ids_by_alias.items()):
+        if len(source_ids) <= 1:
+            continue
+        diagnostics.append(
+            PullDiagnostic(
+                workflow_path=WORKFLOW_RESOURCE_ADAPTER.source_path(source_ids[0]),
+                workflow_title=None,
+                error_type="dependency",
+                message=f"Duplicate workflow alias {alias!r} declared by multiple workflows",
+                details={"alias": alias, "workflow_source_ids": source_ids},
+            )
+        )
 
     for source_id, workflow in sorted(spec.workflows.items()):
         references = workflow_references(workflow.definition)
