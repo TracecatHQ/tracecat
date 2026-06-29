@@ -1033,6 +1033,7 @@ class TestLoadSessionActivity:
         )
 
         mock_agent_session = MagicMock()
+        mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
         mock_agent_session.parent_session_id = None
 
@@ -1051,6 +1052,8 @@ class TestLoadSessionActivity:
         assert result.sdk_session_id is None
         assert result.sdk_session_data is None
         assert result.is_fork is False
+        assert result.agents_binding is None
+        assert result.has_resume_state is False
 
     @pytest.mark.anyio
     @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
@@ -1064,6 +1067,10 @@ class TestLoadSessionActivity:
         )
 
         mock_agent_session = MagicMock()
+        agents_binding = ResolvedAgentsConfig.model_validate(
+            {"enabled": True, "subagents": []}
+        )
+        mock_agent_session.agents_binding = agents_binding.model_dump(mode="json")
         mock_agent_session.sdk_session_id = "sdk-session-123"
         mock_agent_session.parent_session_id = None
 
@@ -1082,6 +1089,8 @@ class TestLoadSessionActivity:
         assert result.sdk_session_id == "sdk-session-123"
         assert result.sdk_session_data is None
         assert result.is_fork is False
+        assert result.agents_binding == agents_binding
+        assert result.has_resume_state is True
 
     @pytest.mark.anyio
     @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
@@ -1096,6 +1105,7 @@ class TestLoadSessionActivity:
         )
 
         mock_agent_session = MagicMock()
+        mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
         mock_agent_session.parent_session_id = parent_session_id
         mock_parent_session = MagicMock()
@@ -1117,6 +1127,8 @@ class TestLoadSessionActivity:
         assert result.sdk_session_id == "parent-sdk-session"
         assert result.sdk_session_data is None
         assert result.is_fork is True
+        assert result.agents_binding is None
+        assert result.has_resume_state is True
 
 
 class TestLoadSessionMessagesActivity:

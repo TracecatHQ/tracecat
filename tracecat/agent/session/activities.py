@@ -104,6 +104,8 @@ class LoadSessionResult(BaseModel):
     # SDK JSONL across Temporal boundaries.
     sdk_session_data: str | None = Field(default=None, deprecated=True)
     is_fork: bool = False  # If True, runtime should use fork_session=True with SDK
+    agents_binding: ResolvedAgentsConfig | None = None
+    has_resume_state: bool = False
     error: str | None = None
 
 
@@ -275,6 +277,15 @@ async def load_session_activity(input: LoadSessionInput) -> LoadSessionResult:
 
             is_fork = False
             sdk_session_id = agent_session.sdk_session_id
+            agents_binding = (
+                ResolvedAgentsConfig.model_validate(agent_session.agents_binding)
+                if agent_session.agents_binding is not None
+                else None
+            )
+            has_resume_state = (
+                agent_session.sdk_session_id is not None
+                or agent_session.parent_session_id is not None
+            )
 
             # For forked sessions, only fork on the first turn (when child has
             # no sdk_session_id yet). Subsequent turns resume the child's own
@@ -292,7 +303,11 @@ async def load_session_activity(input: LoadSessionInput) -> LoadSessionResult:
                         session_id=input.session_id,
                         parent_session_id=agent_session.parent_session_id,
                     )
-                    return LoadSessionResult(found=True)
+                    return LoadSessionResult(
+                        found=True,
+                        agents_binding=agents_binding,
+                        has_resume_state=has_resume_state,
+                    )
                 is_fork = True
                 sdk_session_id = parent_session.sdk_session_id
 
@@ -300,6 +315,8 @@ async def load_session_activity(input: LoadSessionInput) -> LoadSessionResult:
                 found=True,
                 sdk_session_id=sdk_session_id,
                 is_fork=is_fork,
+                agents_binding=agents_binding,
+                has_resume_state=has_resume_state,
             )
 
     except Exception as e:

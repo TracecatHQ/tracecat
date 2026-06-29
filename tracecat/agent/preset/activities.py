@@ -57,6 +57,7 @@ class ResolveAgentsConfigActivityInput(BaseModel):
     agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
     parent_preset_id: uuid.UUID | None = None
     parent_slug: str | None = None
+    follow_latest_versions: bool | None = None
 
 
 @activity.defn
@@ -93,7 +94,9 @@ async def resolve_agents_config_activity(
     args: ResolveAgentsConfigActivityInput,
 ) -> ResolvedAgentsRuntimeConfig:
     async with AgentPresetService.with_session(role=args.role) as service:
-        follow_latest_versions = await service.use_latest_resource_versions()
+        follow_latest_versions = args.follow_latest_versions
+        if follow_latest_versions is None:
+            follow_latest_versions = await service.use_latest_resource_versions()
         resolved = await resolve_agents_config(
             service,
             agents=args.agents,

@@ -229,6 +229,69 @@ async def test_resolve_agents_config_resolves_pinned_ref_by_version_id(
 
 
 @pytest.mark.anyio
+async def test_resolve_agents_config_explicitly_disables_latest_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    preset_id = uuid.uuid4()
+    preset_version_id = uuid.uuid4()
+    version = SimpleNamespace(
+        id=preset_version_id,
+        preset_id=preset_id,
+        version=4,
+        agents={"enabled": False},
+        tool_approvals={},
+    )
+    service = SimpleNamespace(
+        resolve_agent_preset_version=AsyncMock(return_value=version),
+        get_preset=AsyncMock(return_value=SimpleNamespace(description="Child preset")),
+        resolve_agent_preset_config=AsyncMock(
+            return_value=AgentConfig(
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                retries=3,
+            )
+        ),
+        use_latest_resource_versions=AsyncMock(return_value=True),
+    )
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentPresetService.with_session",
+        lambda **_: _AsyncContext(service),
+    )
+
+    result = await resolve_agents_config_activity(
+        ResolveAgentsConfigActivityInput(
+            role=role,
+            agents=AgentSubagentsConfig(
+                enabled=True,
+                subagents=[
+                    ResolvedAttachedSubagentRef(
+                        preset="old-analyst-slug",
+                        preset_version=2,
+                        name="analyst",
+                        preset_id=preset_id,
+                        preset_version_id=preset_version_id,
+                    )
+                ],
+            ),
+            follow_latest_versions=False,
+        )
+    )
+
+    service.use_latest_resource_versions.assert_not_awaited()
+    service.resolve_agent_preset_version.assert_awaited_once_with(
+        preset_version_id=preset_version_id,
+    )
+    assert result.subagents[0].binding.preset_version_id == preset_version_id
+
+
+@pytest.mark.anyio
 async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
