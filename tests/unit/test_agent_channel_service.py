@@ -41,6 +41,7 @@ def set_db_encryption_key(monkeypatch: pytest.MonkeyPatch) -> None:
         "TRACECAT__DB_ENCRYPTION_KEY",
         Fernet.generate_key().decode(),
     )
+    monkeypatch.setattr(config, "TRACECAT__SIGNING_SECRET", "test-signing-secret")
 
 
 @pytest.fixture
