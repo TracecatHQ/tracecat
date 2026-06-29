@@ -25,7 +25,11 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import TracecatException
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
-from tracecat.observability.sentry import REDACTED_VALUE, capture_exception
+from tracecat.observability.sentry import (
+    REDACTED_VALUE,
+    capture_exception,
+    redact_url_path_secrets,
+)
 from tracecat.workflow.executions.enums import TemporalSearchAttr
 
 _SENSITIVE_QUERY_PARAM_KEYS = frozenset({"code", "state"})
@@ -34,15 +38,16 @@ _SENSITIVE_QUERY_PARAM_KEYS = frozenset({"code", "state"})
 async def generic_exception_handler(request: Request, exc: Exception) -> Response:
     role = ctx_role.get()
     query_params = _sanitize_query_params(request.query_params)
+    path = redact_url_path_secrets(request.url.path)
     capture_exception(
         exc,
         tags={
             "http.method": request.method,
-            "http.route": request.url.path,
+            "http.route": path,
         },
         contexts={
             "tracecat.request": {
-                "path": request.url.path,
+                "path": path,
                 "query_params": query_params,
             },
             "tracecat.role": role.model_dump(mode="json") if role else None,
@@ -53,7 +58,7 @@ async def generic_exception_handler(request: Request, exc: Exception) -> Respons
         exc=exc,
         role=ctx_role.get(),
         params=query_params,
-        path=request.url.path,
+        path=path,
     )
     return ORJSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -140,16 +145,17 @@ def tracecat_exception_handler(request: Request, exc: Exception) -> Response:
     )
     role = ctx_role.get()
     query_params = _sanitize_query_params(request.query_params)
+    path = redact_url_path_secrets(request.url.path)
     capture_exception(
         tracecat_exc,
         tags={
             "http.method": request.method,
-            "http.route": request.url.path,
+            "http.route": path,
             "tracecat.exception_type": type(exc).__name__,
         },
         contexts={
             "tracecat.request": {
-                "path": request.url.path,
+                "path": path,
                 "query_params": query_params,
             },
             "tracecat.role": role.model_dump(mode="json") if role else None,
@@ -161,7 +167,7 @@ def tracecat_exception_handler(request: Request, exc: Exception) -> Response:
         msg,
         role=ctx_role.get(),
         params=query_params,
-        path=request.url.path,
+        path=path,
         detail=tracecat_exc.detail,
     )
     return ORJSONResponse(

@@ -20,6 +20,7 @@ REDACTED_VALUE = "[Filtered]"
 _MAX_SCRUB_DEPTH = 8
 _CAMEL_CASE_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _NON_ALNUM_RE = re.compile(r"[^A-Za-z0-9]+")
+_WEBHOOK_SECRET_PATH_RE = re.compile(r"^(/webhooks/[^/]+/)([^/]+)(?=/|$)")
 _SENSITIVE_KEY_PARTS = frozenset(
     {
         "api_key",
@@ -164,10 +165,16 @@ def _scrub_url_query(value: str) -> str:
     return urlunsplit(
         parsed_url._replace(
             netloc=_strip_url_userinfo(parsed_url.netloc),
+            path=redact_url_path_secrets(parsed_url.path),
             query=scrubbed_query,
             fragment="",
         )
     )
+
+
+def redact_url_path_secrets(path: str) -> str:
+    """Redact sensitive path segments that can appear in request URLs."""
+    return _WEBHOOK_SECRET_PATH_RE.sub(rf"\1{REDACTED_VALUE}", path)
 
 
 def _strip_url_userinfo(netloc: str) -> str:

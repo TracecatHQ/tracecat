@@ -163,6 +163,24 @@ def test_sentry_scrubber_removes_request_url_userinfo_and_fragments() -> None:
     assert "secret-token" not in request["url"]
 
 
+def test_sentry_scrubber_redacts_webhook_secret_url_paths() -> None:
+    event = {
+        "request": {
+            "url": "https://api.example.com/webhooks/wf-test-webhook/super-secret/draft?foo=bar",
+        }
+    }
+
+    scrubbed = sentry_observability._scrub(event)
+    request = scrubbed["request"]
+    parsed_url = urlsplit(request["url"])
+
+    assert (
+        parsed_url.path
+        == f"/webhooks/wf-test-webhook/{sentry_observability.REDACTED_VALUE}/draft"
+    )
+    assert "super-secret" not in request["url"]
+
+
 def test_sentry_scrubber_leaves_malformed_request_urls_unchanged() -> None:
     event = {
         "request": {
