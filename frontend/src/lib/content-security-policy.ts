@@ -3,8 +3,8 @@ import { readEnvValue } from "@/lib/sentry-env"
 type ContentSecurityPolicyEnv = {
   [key: string]: string | undefined
   NEXT_PUBLIC_API_URL?: string
+  NEXT_PUBLIC_POSTHOG_KEY?: string
   NEXT_PUBLIC_SENTRY_DSN?: string
-  POSTHOG_KEY?: string
   SENTRY_DSN?: string
 }
 
@@ -44,7 +44,9 @@ function getConnectSrc(env: ContentSecurityPolicyEnv): string {
   return [
     "connect-src 'self'",
     getUrlOrigin(env.NEXT_PUBLIC_API_URL),
-    readEnvValue(env.POSTHOG_KEY) ? "https://*.posthog.com" : undefined,
+    readEnvValue(env.NEXT_PUBLIC_POSTHOG_KEY)
+      ? "https://*.posthog.com"
+      : undefined,
     ...getSentryConnectSources(readSentryDsn(env)),
   ]
     .filter(Boolean)
@@ -54,7 +56,9 @@ function getConnectSrc(env: ContentSecurityPolicyEnv): string {
 function getScriptSrc(env: ContentSecurityPolicyEnv): string {
   return [
     "script-src 'self' 'unsafe-inline'",
-    readEnvValue(env.POSTHOG_KEY) ? "https://*.posthog.com" : undefined,
+    readEnvValue(env.NEXT_PUBLIC_POSTHOG_KEY)
+      ? "https://*.posthog.com"
+      : undefined,
   ]
     .filter(Boolean)
     .join(" ")

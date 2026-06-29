@@ -22,7 +22,7 @@ describe("buildContentSecurityPolicy", () => {
 
   it("allows PostHog script and connect sources when configured", () => {
     const policy = buildContentSecurityPolicy({
-      POSTHOG_KEY: "ph_project",
+      NEXT_PUBLIC_POSTHOG_KEY: "ph_project",
     })
 
     expect(getConnectSrc(policy)).toContain("https://*.posthog.com")
