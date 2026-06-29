@@ -46,6 +46,7 @@ from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
     AgentCatalog,
+    AgentChannelToken,
     AgentPreset,
     AgentPresetSkill,
     AgentPresetVersion,
@@ -450,6 +451,16 @@ class AgentPresetService(BaseWorkspaceService):
     async def delete_preset(self, preset: AgentPreset) -> None:
         """Archive a preset without deleting its published versions."""
         await self._ensure_not_referenced_as_subagent(preset)
+        await self.session.execute(
+            sa.update(AgentChannelToken)
+            .where(
+                AgentChannelToken.workspace_id == self.workspace_id,
+                AgentChannelToken.agent_preset_id == preset.id,
+                AgentChannelToken.is_active.is_(True),
+            )
+            .values(is_active=False)
+            .execution_options(synchronize_session=False)
+        )
         preset.archived_at = datetime.now(UTC)
         self.session.add(preset)
         await self.session.commit()

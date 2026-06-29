@@ -33,6 +33,7 @@ from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.db.models import (
     AgentCatalog,
+    AgentChannelToken,
     AgentModelAccess,
     AgentPreset,
     AgentPresetVersion,
@@ -2031,6 +2032,30 @@ class TestAgentPresetService:
         assert archived_preset is not None
         assert archived_preset.archived_at is not None
         assert version is not None
+
+    async def test_delete_preset_deactivates_channel_tokens(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Archiving a preset should disable external channel ingress."""
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params
+        )
+        token = AgentChannelToken(
+            workspace_id=agent_preset_service.workspace_id,
+            agent_preset_id=created_preset.id,
+            channel_type="slack",
+            config={},
+            is_active=True,
+        )
+        agent_preset_service.session.add(token)
+        await agent_preset_service.session.commit()
+
+        await agent_preset_service.delete_preset(created_preset)
+
+        await agent_preset_service.session.refresh(token)
+        assert token.is_active is False
 
     async def test_delete_preset_blocks_when_referenced_as_subagent_in_head(
         self,

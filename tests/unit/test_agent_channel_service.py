@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from cryptography.fernet import Fernet
@@ -28,7 +29,7 @@ from tracecat.agent.channels.service import (
 )
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentPreset, Workspace
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -174,6 +175,60 @@ async def test_update_token_rejects_null_is_active(
         await agent_channel_service.update_token(
             token,
             AgentChannelTokenUpdate(is_active=None),
+        )
+
+
+@pytest.mark.anyio
+async def test_create_token_rejects_archived_preset(
+    agent_channel_service: AgentChannelService,
+    agent_preset: AgentPreset,
+) -> None:
+    agent_preset.archived_at = datetime.now(UTC)
+    agent_channel_service.session.add(agent_preset)
+    await agent_channel_service.session.commit()
+
+    with pytest.raises(TracecatNotFoundError, match="not found in workspace"):
+        await agent_channel_service.create_token(
+            AgentChannelTokenCreate(
+                agent_preset_id=agent_preset.id,
+                channel_type=ChannelType.SLACK,
+                config=SlackChannelTokenConfig(
+                    slack_bot_token="xoxb-real-secret",
+                    slack_client_id="12345.67890",
+                    slack_client_secret="client-secret",
+                    slack_signing_secret="signing-secret",
+                ),
+                is_active=True,
+            )
+        )
+
+
+@pytest.mark.anyio
+async def test_update_token_rejects_reactivating_archived_preset(
+    agent_channel_service: AgentChannelService,
+    agent_preset: AgentPreset,
+) -> None:
+    token = await agent_channel_service.create_token(
+        AgentChannelTokenCreate(
+            agent_preset_id=agent_preset.id,
+            channel_type=ChannelType.SLACK,
+            config=SlackChannelTokenConfig(
+                slack_bot_token="xoxb-real-secret",
+                slack_client_id="12345.67890",
+                slack_client_secret="client-secret",
+                slack_signing_secret="signing-secret",
+            ),
+            is_active=False,
+        )
+    )
+    agent_preset.archived_at = datetime.now(UTC)
+    agent_channel_service.session.add(agent_preset)
+    await agent_channel_service.session.commit()
+
+    with pytest.raises(TracecatNotFoundError, match="not found in workspace"):
+        await agent_channel_service.update_token(
+            token,
+            AgentChannelTokenUpdate(is_active=True),
         )
 
 

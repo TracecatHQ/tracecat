@@ -447,6 +447,7 @@ class AgentChannelService(BaseWorkspaceService):
             exists().where(
                 AgentPreset.id == preset_id,
                 AgentPreset.workspace_id == self.workspace_id,
+                AgentPreset.archived_at.is_(None),
             )
         )
         result = await self.session.execute(stmt)
@@ -564,6 +565,8 @@ class AgentChannelService(BaseWorkspaceService):
             raise TracecatValidationError(
                 "Cannot activate token without Slack bot token"
             )
+        if next_is_active:
+            await self._require_workspace_preset(token.agent_preset_id)
 
         if "is_active" in set_fields:
             token.is_active = next_is_active
