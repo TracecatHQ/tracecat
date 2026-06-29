@@ -150,6 +150,28 @@ async def test_dsl_worker_rejects_single_workflow_task_slot(
 
 
 @pytest.mark.anyio
+async def test_dsl_worker_rejects_zero_activity_slots(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat.dsl import worker
+
+    temporal_worker = Mock()
+    monkeypatch.delenv("SENTRY_DSN", raising=False)
+    monkeypatch.setenv("TEMPORAL__MAX_CONCURRENT_ACTIVITIES", "0")
+    monkeypatch.setattr(worker, "get_temporal_client", AsyncMock(return_value=object()))
+    monkeypatch.setattr(worker, "get_activities", lambda: [])
+    monkeypatch.setattr(worker, "Worker", temporal_worker)
+
+    with pytest.raises(
+        ValueError,
+        match="TEMPORAL__MAX_CONCURRENT_ACTIVITIES must be at least 1",
+    ):
+        await worker.main(shutdown_event=asyncio.Event())
+
+    temporal_worker.assert_not_called()
+
+
+@pytest.mark.anyio
 async def test_agent_executor_worker_cleans_up_runtime_services_on_startup_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
