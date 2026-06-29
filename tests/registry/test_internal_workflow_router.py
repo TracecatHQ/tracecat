@@ -309,6 +309,38 @@ class TestBuildImportDataFromDefinitionYaml:
         # Layout was auto-generated because none was supplied.
         assert "layout" in data
 
+    def test_defaults_missing_description_to_empty_string(self):
+        # When neither the YAML nor the caller supplies a description, default
+        # it to "" so the required DSLInput.description field is satisfied and
+        # the create call doesn't 400 on a missing field.
+        yaml_text = (
+            "definition:\n"
+            "  title: T\n"
+            "  entrypoint:\n"
+            "    ref: start\n"
+            "  actions:\n"
+            "    - ref: start\n"
+            "      action: core.transform.reshape\n"
+            "      args:\n"
+            "        value: hello\n"
+        )
+        data = _build_import_data_from_definition_yaml(
+            definition_yaml=yaml_text,
+            title=None,
+            description=None,
+        )
+        assert data["definition"]["description"] == ""
+
+    def test_does_not_override_existing_description(self):
+        # A description already present in the YAML is preserved over the caller's.
+        yaml_text = "definition:\n  title: T\n  description: from_yaml\n"
+        data = _build_import_data_from_definition_yaml(
+            definition_yaml=yaml_text,
+            title=None,
+            description="from_caller",
+        )
+        assert data["definition"]["description"] == "from_yaml"
+
 
 class TestRaiseWorkflowEditHttpError:
     """Tests mapping the engine error onto HTTP responses."""

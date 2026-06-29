@@ -18,6 +18,7 @@ from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
 from tracecat.agent.tools import create_tool_from_registry
 from tracecat.auth.types import Role
+from tracecat.authz.controls import has_scope
 from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
 from tracecat.integrations.schemas import ProviderKey
 from tracecat.integrations.service import IntegrationService
@@ -86,7 +87,7 @@ class WorkflowAuthoringContextResponse(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
-def _build_example_from_schema(schema: dict[str, Any]) -> dict[str, Any]:
+def build_example_from_schema(schema: dict[str, Any]) -> dict[str, Any]:
     """Build a compact example payload from JSON schema properties."""
     example: dict[str, Any] = {}
     properties = schema.get("properties", {})
@@ -111,7 +112,7 @@ def _build_example_from_schema(schema: dict[str, Any]) -> dict[str, Any]:
     return example
 
 
-def _secrets_to_requirements(
+def secrets_to_requirements(
     secrets: Sequence[RegistrySecret | RegistryOAuthSecret],
 ) -> list[ActionRequirementPayload]:
     """Convert registry secret objects to public requirement metadata.
@@ -145,7 +146,7 @@ def _secrets_to_requirements(
     return requirements
 
 
-def _optional_secret_names(
+def optional_secret_names(
     requirements: Sequence[ActionRequirementPayload],
 ) -> list[str]:
     """Names of optional secret requirements (e.g. mtls/ca_cert).
@@ -160,7 +161,7 @@ def _optional_secret_names(
     ]
 
 
-async def _load_secret_inventory(role: Role) -> dict[str, set[str]]:
+async def load_secret_inventory(role: Role) -> dict[str, set[str]]:
     """Load workspace secret key inventory for the default environment."""
     async with SecretsService.with_session(role=role) as svc:
         workspace_inventory: dict[str, set[str]] = {}
@@ -173,7 +174,7 @@ async def _load_secret_inventory(role: Role) -> dict[str, set[str]]:
         return workspace_inventory
 
 
-async def _load_oauth_inventory(role: Role) -> set[ProviderKey]:
+async def load_oauth_inventory(role: Role) -> set[ProviderKey]:
     """Load connected workspace OAuth integrations keyed by provider.
 
     Only integrations that have completed authentication (``CONNECTED`` status,
@@ -193,7 +194,7 @@ async def _load_oauth_inventory(role: Role) -> set[ProviderKey]:
     }
 
 
-def _evaluate_configuration(
+def evaluate_configuration(
     requirements: Sequence[ActionRequirementPayload],
     workspace_inventory: dict[str, set[str]],
     oauth_inventory: set[ProviderKey] | None = None,
@@ -249,8 +250,8 @@ async def build_action_contexts(
     """
     resolved_names = list(action_names) if action_names else []
 
-    workspace_inventory = await _load_secret_inventory(role)
-    oauth_inventory = await _load_oauth_inventory(role)
+    workspace_inventory = await load_secret_inventory(role)
+    oauth_inventory = await load_oauth_inventory(role)
     action_contexts: list[ActionContextResponse] = []
     async with RegistryActionsService.with_session(role=role) as registry_svc:
         if not resolved_names and query:
@@ -261,12 +262,12 @@ async def build_action_contexts(
             if indexed is None:
                 continue
             tool = await create_tool_from_registry(action_name, indexed)
-            requirements = _secrets_to_requirements(
+            requirements = secrets_to_requirements(
                 registry_svc.aggregate_secrets_from_manifest(
                     indexed.manifest, action_name
                 )
             )
-            configured, missing = _evaluate_configuration(
+            configured, missing = evaluate_configuration(
                 requirements, workspace_inventory, oauth_inventory
             )
             action_contexts.append(
@@ -277,15 +278,21 @@ async def build_action_contexts(
                     required_secrets=requirements,
                     configured=configured,
                     missing_requirements=missing,
-                    optional_secrets=_optional_secret_names(requirements),
-                    examples=[_build_example_from_schema(tool.parameters_json_schema)],
+                    optional_secrets=optional_secret_names(requirements),
+                    examples=[build_example_from_schema(tool.parameters_json_schema)],
                 )
             )
     return action_contexts
 
 
 async def build_variable_hints(*, role: Role) -> list[dict[str, Any]]:
-    """List workspace variables in the default environment as hints."""
+    """List workspace variables in the default environment as hints.
+
+    Returns ``[]`` when the caller lacks ``variable:read`` so the full set of
+    variable names+keys is not enumerated to an unauthorized author.
+    """
+    if not has_scope(role.scopes or frozenset(), "variable:read"):
+        return []
     async with VariablesService.with_session(role=role) as var_svc:
         variables = await var_svc.list_variables(
             environment=DEFAULT_SECRETS_ENVIRONMENT
@@ -301,8 +308,14 @@ async def build_variable_hints(*, role: Role) -> list[dict[str, Any]]:
 
 
 async def build_secret_hints(*, role: Role) -> list[dict[str, Any]]:
-    """List workspace secrets in the default environment as hints."""
-    workspace_inventory = await _load_secret_inventory(role)
+    """List workspace secrets in the default environment as hints.
+
+    Returns ``[]`` when the caller lacks ``secret:read`` so the full set of
+    secret names+keys is not enumerated to an unauthorized author.
+    """
+    if not has_scope(role.scopes or frozenset(), "secret:read"):
+        return []
+    workspace_inventory = await load_secret_inventory(role)
     return [
         {
             "name": secret_name,

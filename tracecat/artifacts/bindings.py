@@ -711,10 +711,18 @@ def _workflow_artifact_from_output(
     if result is None:
         return None
 
+    # ``edit_workflow`` returns no title (only message/workflow_id/draft_revision),
+    # so skip the upsert when no real title resolves. An empty side effect leaves
+    # the existing artifact untouched, preventing a title-less edit response from
+    # clobbering the title set by create_workflow/get_workflow with the workflow id.
+    title = result.resolved_title
+    if not title:
+        return None
+
     payload: WorkflowArtifactPayload = {
         "type": "workflow",
         "id": result.id,
-        "title": result.resolved_title or result.id,
+        "title": title,
         "color": _DEFAULT_WORKFLOW_ARTIFACT_COLOR,
     }
     if result.is_published is not None:

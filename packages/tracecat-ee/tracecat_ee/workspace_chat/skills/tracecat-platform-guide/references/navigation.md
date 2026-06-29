@@ -40,6 +40,7 @@ Integrations · MCP servers · Skills · Actions
 | `/agents` | Agent presets list |
 | `/agents/<preset_id>` | Preset builder: instructions, tools, model, MCP |
 | `/skills` | Reusable agent skills (entitlement-gated) |
+| `/actions` | Browse the org action registry (read-only) |
 | `/mcp-servers` | Connect/manage MCP servers |
 | `/mcp` | MCP access controls |
 
@@ -58,5 +59,4 @@ Integrations · MCP servers · Skills · Actions
 |---|---|
 | `/members`, `/members/groups`, `/members/roles` | Users, groups, roles |
 | `/service-accounts` | Service account credentials |
-| `/actions` | Browse the org action registry (read-only) |
 | `/workspaces` | Switch workspace |

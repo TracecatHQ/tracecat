@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
 import tracecat.mcp.auth as mcp_auth
+from tracecat.agent import authoring_context
 from tracecat.agent.common.stream_types import (
     StreamEventType,
     ToolCallContent,
@@ -2324,25 +2325,19 @@ async def test_replace_workflow_schedules_creates_schedules_with_payload_status(
     None
 ):
     workflow_id = uuid.uuid4()
-    existing_schedule_id = uuid.uuid4()
-    created_params: list[Any] = []
-    deleted_ids: list[uuid.UUID] = []
+    replace_calls: list[tuple[Any, list[Any], bool]] = []
 
     class _FakeWorkflowSchedulesService:
-        async def list_schedules(self, workflow_id: uuid.UUID) -> list[Any]:
-            _ = workflow_id
-            return [SimpleNamespace(id=existing_schedule_id)]
-
-        async def delete_schedule(
-            self, schedule_id: uuid.UUID, commit: bool = True
+        # The edit-document path delegates to the workflow:update-scoped
+        # replace_schedules surface (not the per-schedule create/delete scopes),
+        # so the fake mirrors that single entry point.
+        async def replace_schedules(
+            self,
+            workflow_id: uuid.UUID,
+            schedules: list[Any],
+            commit: bool = True,
         ) -> None:
-            _ = commit
-            deleted_ids.append(schedule_id)
-
-        async def create_schedule(self, params: Any, commit: bool = True) -> Any:
-            _ = commit
-            created_params.append(params)
-            return SimpleNamespace(id=uuid.uuid4())
+            replace_calls.append((workflow_id, list(schedules), commit))
 
     await draft.replace_workflow_schedules(
         service=cast(Any, _FakeWorkflowSchedulesService()),
@@ -2363,7 +2358,10 @@ async def test_replace_workflow_schedules_creates_schedules_with_payload_status(
         ],
     )
 
-    assert deleted_ids == [existing_schedule_id]
+    assert len(replace_calls) == 1
+    called_workflow_id, created_params, commit = replace_calls[0]
+    assert called_workflow_id == workflow_id
+    assert commit is False
     assert [params.status for params in created_params] == ["offline", "online"]
 
 
@@ -2881,7 +2879,7 @@ async def test_publish_workflow_builtin_registry_not_ready_returns_validation_fa
 
 
 def test_evaluate_configuration_reports_missing_workspace_secret_keys():
-    requirements: list[mcp_server.ActionRequirementPayload] = [
+    requirements: list[authoring_context.ActionRequirementPayload] = [
         {
             "type": "secret",
             "name": "slack",
@@ -2891,7 +2889,7 @@ def test_evaluate_configuration_reports_missing_workspace_secret_keys():
         }
     ]
     workspace_inventory = {"slack": set()}
-    configured, missing = mcp_server._evaluate_configuration(
+    configured, missing = authoring_context.evaluate_configuration(
         requirements,
         workspace_inventory,
     )
@@ -2901,7 +2899,7 @@ def test_evaluate_configuration_reports_missing_workspace_secret_keys():
 
 
 def test_secrets_to_requirements_represents_oauth_as_oauth():
-    requirements = mcp_server._secrets_to_requirements(
+    requirements = authoring_context.secrets_to_requirements(
         [RegistryOAuthSecret(provider_id="github", grant_type="authorization_code")]
     )
 
@@ -2917,14 +2915,14 @@ def test_secrets_to_requirements_represents_oauth_as_oauth():
 
 
 def test_evaluate_configuration_oauth_configured_when_integration_exists():
-    requirements = mcp_server._secrets_to_requirements(
+    requirements = authoring_context.secrets_to_requirements(
         [RegistryOAuthSecret(provider_id="github", grant_type="authorization_code")]
     )
     oauth_inventory = {
         ProviderKey(id="github", grant_type=OAuthGrantType.AUTHORIZATION_CODE)
     }
 
-    configured, missing = mcp_server._evaluate_configuration(
+    configured, missing = authoring_context.evaluate_configuration(
         requirements,
         {},
         oauth_inventory,
@@ -2935,11 +2933,11 @@ def test_evaluate_configuration_oauth_configured_when_integration_exists():
 
 
 def test_evaluate_configuration_reports_missing_oauth_integration():
-    requirements = mcp_server._secrets_to_requirements(
+    requirements = authoring_context.secrets_to_requirements(
         [RegistryOAuthSecret(provider_id="github", grant_type="authorization_code")]
     )
 
-    configured, missing = mcp_server._evaluate_configuration(
+    configured, missing = authoring_context.evaluate_configuration(
         requirements,
         {},
         set(),
@@ -2950,7 +2948,7 @@ def test_evaluate_configuration_reports_missing_oauth_integration():
 
 
 def test_evaluate_configuration_skips_optional_oauth_integration():
-    requirements = mcp_server._secrets_to_requirements(
+    requirements = authoring_context.secrets_to_requirements(
         [
             RegistryOAuthSecret(
                 provider_id="github",
@@ -2960,7 +2958,7 @@ def test_evaluate_configuration_skips_optional_oauth_integration():
         ]
     )
 
-    configured, missing = mcp_server._evaluate_configuration(
+    configured, missing = authoring_context.evaluate_configuration(
         requirements,
         {},
         set(),
@@ -2973,7 +2971,7 @@ def test_evaluate_configuration_skips_optional_oauth_integration():
 def test_evaluate_configuration_skips_optional_secret_with_keys():
     # Regression: a wholly-optional secret that declares keys (e.g. the mtls /
     # ca_cert secrets inherited from core.http_request) must not block readiness.
-    requirements: list[mcp_server.ActionRequirementPayload] = [
+    requirements: list[authoring_context.ActionRequirementPayload] = [
         {
             "type": "secret",
             "name": "mtls",
@@ -2983,7 +2981,7 @@ def test_evaluate_configuration_skips_optional_secret_with_keys():
         }
     ]
 
-    configured, missing = mcp_server._evaluate_configuration(requirements, {})
+    configured, missing = authoring_context.evaluate_configuration(requirements, {})
 
     assert configured is True
     assert missing == []
@@ -2992,7 +2990,7 @@ def test_evaluate_configuration_skips_optional_secret_with_keys():
 def test_evaluate_configuration_required_present_with_optional_absent():
     # An action that wraps core.http_request: required urlscan secret present,
     # optional mtls/ca_cert absent -> configured, nothing missing.
-    requirements: list[mcp_server.ActionRequirementPayload] = [
+    requirements: list[authoring_context.ActionRequirementPayload] = [
         {
             "type": "secret",
             "name": "urlscan",
@@ -3010,7 +3008,7 @@ def test_evaluate_configuration_required_present_with_optional_absent():
     ]
     workspace_inventory = {"urlscan": {"URLSCAN_API_KEY"}}
 
-    configured, missing = mcp_server._evaluate_configuration(
+    configured, missing = authoring_context.evaluate_configuration(
         requirements, workspace_inventory
     )
 
@@ -3021,7 +3019,7 @@ def test_evaluate_configuration_required_present_with_optional_absent():
 def test_evaluate_configuration_reports_required_but_not_optional():
     # Required secret absent, optional secret absent -> unconfigured, and only the
     # required secret is reported as missing.
-    requirements: list[mcp_server.ActionRequirementPayload] = [
+    requirements: list[authoring_context.ActionRequirementPayload] = [
         {
             "type": "secret",
             "name": "urlscan",
@@ -3038,7 +3036,7 @@ def test_evaluate_configuration_reports_required_but_not_optional():
         },
     ]
 
-    configured, missing = mcp_server._evaluate_configuration(requirements, {})
+    configured, missing = authoring_context.evaluate_configuration(requirements, {})
 
     assert configured is False
     assert missing == ["missing secret: urlscan"]
@@ -3074,7 +3072,9 @@ async def test_load_oauth_inventory_includes_only_connected(monkeypatch):
         lambda role: _AsyncContext(_IntegrationService()),
     )
 
-    inventory = await mcp_server._load_oauth_inventory(cast(Any, SimpleNamespace()))
+    inventory = await authoring_context.load_oauth_inventory(
+        cast(Any, SimpleNamespace())
+    )
 
     assert inventory == {
         ProviderKey(id="github", grant_type=OAuthGrantType.AUTHORIZATION_CODE)
@@ -3160,10 +3160,10 @@ async def test_get_action_context_includes_configuration(monkeypatch):
 
     monkeypatch.setattr(
         mcp_server,
-        "_load_secret_inventory",
+        "load_secret_inventory",
         _secret_inventory,
     )
-    monkeypatch.setattr(mcp_server, "_load_oauth_inventory", _oauth_inventory)
+    monkeypatch.setattr(mcp_server, "load_oauth_inventory", _oauth_inventory)
     monkeypatch.setattr(
         "tracecat.registry.actions.service.RegistryActionsService.with_session",
         lambda role: _AsyncContext(registry_service),
@@ -3224,8 +3224,8 @@ async def test_get_action_context_oauth_configured_when_integration_exists(monke
         return {ProviderKey(id="github", grant_type=OAuthGrantType.AUTHORIZATION_CODE)}
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(mcp_server, "_load_secret_inventory", _secret_inventory)
-    monkeypatch.setattr(mcp_server, "_load_oauth_inventory", _oauth_inventory)
+    monkeypatch.setattr(mcp_server, "load_secret_inventory", _secret_inventory)
+    monkeypatch.setattr(mcp_server, "load_oauth_inventory", _oauth_inventory)
     monkeypatch.setattr(
         "tracecat.registry.actions.service.RegistryActionsService.with_session",
         lambda role: _AsyncContext(_github_oauth_registry_service()),
@@ -3265,8 +3265,8 @@ async def test_get_action_context_reports_missing_oauth_integration(monkeypatch)
         return set()
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(mcp_server, "_load_secret_inventory", _secret_inventory)
-    monkeypatch.setattr(mcp_server, "_load_oauth_inventory", _oauth_inventory)
+    monkeypatch.setattr(mcp_server, "load_secret_inventory", _secret_inventory)
+    monkeypatch.setattr(mcp_server, "load_oauth_inventory", _oauth_inventory)
     monkeypatch.setattr(
         "tracecat.registry.actions.service.RegistryActionsService.with_session",
         lambda role: _AsyncContext(_github_oauth_registry_service()),
@@ -3289,7 +3289,7 @@ async def test_get_action_context_reports_missing_oauth_integration(monkeypatch)
 @pytest.mark.anyio
 async def test_list_secrets_metadata_returns_keys_not_values(monkeypatch):
     async def _resolve(_workspace_id):
-        return uuid.uuid4(), SimpleNamespace()
+        return uuid.uuid4(), SimpleNamespace(scopes=frozenset({"secret:read"}))
 
     workspace_secret = SimpleNamespace(
         id=uuid.uuid4(),
@@ -6399,8 +6399,8 @@ async def test_action_catalog_resource(monkeypatch):
             return []
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(mcp_server, "_load_secret_inventory", _secret_inventory)
-    monkeypatch.setattr(mcp_server, "_load_oauth_inventory", _empty_oauth_inventory)
+    monkeypatch.setattr(mcp_server, "load_secret_inventory", _secret_inventory)
+    monkeypatch.setattr(mcp_server, "load_oauth_inventory", _empty_oauth_inventory)
     monkeypatch.setattr(
         "tracecat.registry.actions.service.RegistryActionsService.with_session",
         lambda role: _AsyncContext(_RegistryService()),
@@ -6463,8 +6463,8 @@ async def test_list_actions_browse_without_query(monkeypatch):
             return []
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(mcp_server, "_load_secret_inventory", _secret_inventory)
-    monkeypatch.setattr(mcp_server, "_load_oauth_inventory", _empty_oauth_inventory)
+    monkeypatch.setattr(mcp_server, "load_secret_inventory", _secret_inventory)
+    monkeypatch.setattr(mcp_server, "load_oauth_inventory", _empty_oauth_inventory)
     monkeypatch.setattr(
         "tracecat.registry.actions.service.RegistryActionsService.with_session",
         lambda role: _AsyncContext(_RegistryService()),
@@ -6530,8 +6530,8 @@ async def test_list_actions_surfaces_optional_secrets(monkeypatch):
             ]
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(mcp_server, "_load_secret_inventory", _secret_inventory)
-    monkeypatch.setattr(mcp_server, "_load_oauth_inventory", _empty_oauth_inventory)
+    monkeypatch.setattr(mcp_server, "load_secret_inventory", _secret_inventory)
+    monkeypatch.setattr(mcp_server, "load_oauth_inventory", _empty_oauth_inventory)
     monkeypatch.setattr(
         "tracecat.registry.actions.service.RegistryActionsService.with_session",
         lambda role: _AsyncContext(_RegistryService()),
@@ -6587,8 +6587,8 @@ async def test_list_actions_browse_with_namespace(monkeypatch):
             return []
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(mcp_server, "_load_secret_inventory", _secret_inventory)
-    monkeypatch.setattr(mcp_server, "_load_oauth_inventory", _empty_oauth_inventory)
+    monkeypatch.setattr(mcp_server, "load_secret_inventory", _secret_inventory)
+    monkeypatch.setattr(mcp_server, "load_oauth_inventory", _empty_oauth_inventory)
     monkeypatch.setattr(
         "tracecat.registry.actions.service.RegistryActionsService.with_session",
         lambda role: _AsyncContext(_RegistryService()),
@@ -6642,8 +6642,8 @@ async def test_list_actions_paginates_and_rejects_mismatched_cursor(monkeypatch)
             return []
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(mcp_server, "_load_secret_inventory", _secret_inventory)
-    monkeypatch.setattr(mcp_server, "_load_oauth_inventory", _empty_oauth_inventory)
+    monkeypatch.setattr(mcp_server, "load_secret_inventory", _secret_inventory)
+    monkeypatch.setattr(mcp_server, "load_oauth_inventory", _empty_oauth_inventory)
     monkeypatch.setattr(
         "tracecat.registry.actions.service.RegistryActionsService.with_session",
         lambda role: _AsyncContext(_RegistryService()),
@@ -8236,7 +8236,10 @@ async def test_get_workflow_authoring_context_truncates_embedded_collections(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id)
+    role = SimpleNamespace(
+        workspace_id=workspace_id,
+        scopes=frozenset({"secret:read", "variable:read"}),
+    )
 
     async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
         return workspace_id, role
@@ -8289,8 +8292,8 @@ async def test_get_workflow_authoring_context_truncates_embedded_collections(
         return _Tool()
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(mcp_server, "_load_secret_inventory", _secret_inventory)
-    monkeypatch.setattr(mcp_server, "_load_oauth_inventory", _empty_oauth_inventory)
+    monkeypatch.setattr(mcp_server, "load_secret_inventory", _secret_inventory)
+    monkeypatch.setattr(mcp_server, "load_oauth_inventory", _empty_oauth_inventory)
     monkeypatch.setattr(mcp_server, "_MCP_EMBEDDED_COLLECTION_LIMIT", 1)
     monkeypatch.setattr(mcp_server, "create_tool_from_registry", _create_tool)
     monkeypatch.setattr(
@@ -8298,9 +8301,12 @@ async def test_get_workflow_authoring_context_truncates_embedded_collections(
         lambda role: _AsyncContext(_RegistryService()),
     )
     monkeypatch.setattr(
-        mcp_server.VariablesService,
-        "with_session",
+        "tracecat.agent.authoring_context.VariablesService.with_session",
         lambda role: _AsyncContext(_VariablesService()),
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.authoring_context.load_secret_inventory",
+        _secret_inventory,
     )
 
     payload = _payload(
@@ -8371,7 +8377,7 @@ async def test_get_agent_preset_authoring_context_includes_output_type_guidance(
             ]
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(mcp_server, "_load_secret_inventory", _secret_inventory)
+    monkeypatch.setattr(mcp_server, "load_secret_inventory", _secret_inventory)
     monkeypatch.setattr(
         mcp_server, "_build_integrations_inventory", _integrations_inventory
     )
@@ -10130,3 +10136,22 @@ def test_validate_patch_payload_rejects_invented_on_error_field() -> None:
     # The message steers the model to the real error-edge syntax.
     assert "depends_on" in error.message
     assert ".error" in error.message
+
+
+def test_validate_patch_payload_wraps_nested_tracecat_validation_error() -> None:
+    """A nested ActionStatement validator raising a raw TracecatValidationError
+    (e.g. interaction + for_each) must surface as a structured WorkflowEditError,
+    not escape as a raw exception that the edit endpoint reports as a 500.
+    """
+    payload = _minimal_edit_document_payload()
+    payload["definition"]["actions"][0]["for_each"] = "${{ for var.x in [1, 2] }}"
+    payload["definition"]["actions"][0]["interaction"] = {"type": "response"}
+
+    with pytest.raises(draft.WorkflowEditError) as exc_info:
+        draft.validate_workflow_patch_payload(payload)
+
+    error = exc_info.value
+    assert error.code == "validation_error"
+    assert error.details is not None
+    assert error.details["type"] == "validation_error"
+    assert "interaction" in error.message.lower()

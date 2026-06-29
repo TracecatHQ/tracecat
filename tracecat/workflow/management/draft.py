@@ -539,6 +539,21 @@ def validate_workflow_patch_payload(payload: dict[str, Any]) -> WorkflowEditDocu
                 "errors": ValidationDetailListTA.dump_python(details, mode="json"),
             },
         ) from exc
+    except TracecatValidationError as exc:
+        # Nested ActionStatement validators (e.g. interaction + for_each) raise
+        # a raw TracecatValidationError, not a Pydantic ValidationError, so it
+        # bypasses the branch above. Surface it as a structured WorkflowEditError
+        # too so the caller gets a 400/tool error to correct, never a 500.
+        message = str(exc) or "The patched workflow document is invalid."
+        raise WorkflowEditError(
+            message,
+            code="validation_error",
+            details={
+                "type": "validation_error",
+                "status": "error",
+                "message": message,
+            },
+        ) from exc
 
 
 def validate_workflow_patch_paths(patch_ops: list[JsonPatchOperation]) -> None:
@@ -979,16 +994,21 @@ async def replace_workflow_schedules(
     workflow_id: WorkflowUUID,
     schedules: Sequence[WorkflowSchedule],
 ) -> None:
-    """Replace all schedules for a workflow from YAML payload."""
-    existing = await service.list_schedules(workflow_id=workflow_id)
-    for schedule in existing:
-        await service.delete_schedule(schedule.id, commit=False)
+    """Replace all schedules for a workflow from YAML payload.
 
-    for schedule in schedules:
-        await service.create_schedule(
+    Delegates to the ``workflow:update``-scoped ``replace_schedules`` surface so
+    editing schedules through the edit-workflow document path is gated by the
+    workflow-edit permission rather than the standalone, admin-only
+    ``schedule:delete`` scope.
+    """
+    await service.replace_schedules(
+        workflow_id,
+        [
             schedule_create_from_payload(
                 workflow_id=workflow_id,
                 schedule=schedule,
-            ),
-            commit=False,
-        )
+            )
+            for schedule in schedules
+        ],
+        commit=False,
+    )

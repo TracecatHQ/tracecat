@@ -653,6 +653,67 @@ def test_agent_preset_list_tool_result_above_limit_emits_no_side_effects() -> No
     assert effects == []
 
 
+def test_create_workflow_tool_result_emits_upsert_side_effect() -> None:
+    effects = list(
+        artifact_side_effects_for_tool_result(
+            tool_name="core.workflow.create_workflow",
+            tool_input={"title": "Triage workflow"},
+            tool_output={
+                "id": "wf-1234",
+                "title": "Triage workflow",
+            },
+            is_error=False,
+            tool_call_id="toolu_123",
+        )
+    )
+
+    assert len(effects) == 1
+    assert effects[0].op == "upsert"
+    payload = artifact_data_payload(effects[0].op, effects[0].artifact)
+    assert payload["artifact"]["type"] == "workflow"
+    assert payload["artifact"]["id"] == "wf-1234"
+    assert payload["artifact"]["title"] == "Triage workflow"
+
+
+def test_get_workflow_tool_result_resolves_nested_draft_title() -> None:
+    effects = list(
+        artifact_side_effects_for_tool_result(
+            tool_name="core.workflow.get_workflow",
+            tool_input=None,
+            tool_output={
+                "id": "wf-1234",
+                "draft_document": {"metadata": {"title": "Triage workflow"}},
+            },
+            is_error=False,
+            tool_call_id="toolu_123",
+        )
+    )
+
+    assert len(effects) == 1
+    payload = artifact_data_payload(effects[0].op, effects[0].artifact)
+    assert payload["artifact"]["title"] == "Triage workflow"
+
+
+def test_edit_workflow_titleless_result_emits_no_side_effect() -> None:
+    """edit_workflow returns no title, so it must not upsert and clobber the
+    workflow artifact title (set by create/get) with the workflow id."""
+    effects = list(
+        artifact_side_effects_for_tool_result(
+            tool_name="core.workflow.edit_workflow",
+            tool_input={"workflow_id": "wf-1234"},
+            tool_output={
+                "message": "Workflow wf-1234 updated successfully",
+                "workflow_id": "wf-1234",
+                "draft_revision": "rev-1",
+            },
+            is_error=False,
+            tool_call_id="toolu_123",
+        )
+    )
+
+    assert effects == []
+
+
 def test_table_tool_result_mapping_content_emits_upsert_side_effect() -> None:
     effects = list(
         artifact_side_effects_for_tool_result(

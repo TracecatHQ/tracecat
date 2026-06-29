@@ -235,8 +235,8 @@ def _build_import_data_from_definition_yaml(
         )
     if "title" not in definition and title is not None:
         definition["title"] = title
-    if "description" not in definition and description:
-        definition["description"] = description
+    if "description" not in definition:
+        definition["description"] = description or ""
     # DSLInput requires the entrypoint key; let it infer the ref from the graph.
     if "entrypoint" not in definition:
         definition["entrypoint"] = {"ref": None}
@@ -244,6 +244,22 @@ def _build_import_data_from_definition_yaml(
     if not import_data.get("layout"):
         actions = definition.get("actions", [])
         if actions:
+            # auto_generate_layout indexes each action as a mapping (a["ref"]),
+            # so a malformed shape (a mapping instead of a list, or a list of
+            # scalars) would raise a raw TypeError/KeyError that escapes the
+            # 400-mapping except block in create_workflow and surfaces as a 500.
+            # Guard the correctable authoring mistake here as a 400.
+            if not isinstance(actions, list) or not all(
+                isinstance(action, dict) and isinstance(action.get("ref"), str)
+                for action in actions
+            ):
+                raise HTTPException(
+                    status_code=HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "Workflow definition.actions must be a list of action "
+                        "objects, each with a string 'ref'"
+                    ),
+                )
             import_data["layout"] = auto_generate_layout(
                 cast(list[WorkflowActionLayoutInput], actions)
             )
