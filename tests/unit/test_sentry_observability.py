@@ -174,6 +174,10 @@ def test_sentry_scrubber_removes_request_url_userinfo_and_fragments() -> None:
             "https://api.example.com/api/webhooks/wf-test-webhook/super-secret/draft?foo=bar",
             f"/api/webhooks/wf-test-webhook/{sentry_observability.REDACTED_VALUE}/draft",
         ),
+        (
+            "https://api.example.com/webhooks/wf-test-webhook/super-secret/extra/webhooks/foo/bar",
+            f"/webhooks/wf-test-webhook/{sentry_observability.REDACTED_VALUE}/extra/webhooks/foo/bar",
+        ),
     ],
 )
 def test_sentry_scrubber_redacts_webhook_secret_url_paths(
