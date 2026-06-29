@@ -40,4 +40,15 @@ describe("readPublicEnv", () => {
 
     expect(readPublicEnv("NEXT_PUBLIC_APP_ENV")).toBe("test-env")
   })
+
+  it("falls back to bundled public env values for blank runtime values", () => {
+    process.env.NEXT_PUBLIC_SENTRY_DSN = "https://bundled@example.com/1"
+    window.__ENV = {
+      NEXT_PUBLIC_SENTRY_DSN: "",
+    } as unknown as NodeJS.ProcessEnv
+
+    expect(readPublicEnv("NEXT_PUBLIC_SENTRY_DSN")).toBe(
+      "https://bundled@example.com/1"
+    )
+  })
 })

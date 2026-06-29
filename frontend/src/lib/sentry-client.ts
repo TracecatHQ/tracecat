@@ -26,7 +26,7 @@ export function initBrowserSentry(): boolean {
 
 export function readPublicEnv(key: PublicEnvKey): string | undefined {
   if (typeof window !== "undefined") {
-    return window.__ENV?.[key] ?? readBundledPublicEnv(key)
+    return readEnvValue(window.__ENV?.[key]) ?? readBundledPublicEnv(key)
   }
   return readBundledPublicEnv(key)
 }
@@ -34,8 +34,12 @@ export function readPublicEnv(key: PublicEnvKey): string | undefined {
 function readBundledPublicEnv(key: PublicEnvKey): string | undefined {
   switch (key) {
     case "NEXT_PUBLIC_SENTRY_DSN":
-      return process.env.NEXT_PUBLIC_SENTRY_DSN
+      return readEnvValue(process.env.NEXT_PUBLIC_SENTRY_DSN)
     case "NEXT_PUBLIC_APP_ENV":
-      return process.env.NEXT_PUBLIC_APP_ENV
+      return readEnvValue(process.env.NEXT_PUBLIC_APP_ENV)
   }
+}
+
+function readEnvValue(value: string | undefined): string | undefined {
+  return value?.trim() ? value : undefined
 }
