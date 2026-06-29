@@ -643,7 +643,38 @@ class AgentPresetService(BaseWorkspaceService):
             parent_preset_id=parent_preset_id,
             parent_slug=parent_slug,
         )
-        return resolved.to_agents_binding().model_dump(mode="json")
+        binding = resolved.to_agents_binding()
+        await self._lock_active_subagent_presets(binding)
+        return binding.model_dump(mode="json")
+
+    async def _lock_active_subagent_presets(self, agents: ResolvedAgentsConfig) -> None:
+        """Lock active child presets before saving head subagent bindings."""
+        preset_ids = {subagent.preset_id for subagent in agents.subagents}
+        if not preset_ids:
+            return
+
+        stmt = (
+            select(AgentPreset.id)
+            .where(
+                AgentPreset.workspace_id == self.workspace_id,
+                AgentPreset.id.in_(preset_ids),
+                AgentPreset.archived_at.is_(None),
+            )
+            .with_for_update()
+        )
+        active_ids = set((await self.session.execute(stmt)).scalars().all())
+        if missing_ids := preset_ids - active_ids:
+            missing_refs = sorted(
+                {
+                    subagent.preset
+                    for subagent in agents.subagents
+                    if subagent.preset_id in missing_ids
+                }
+            )
+            raise TracecatValidationError(
+                "Cannot save preset because it references archived or missing "
+                f"subagent presets: {missing_refs}"
+            )
 
     async def resolve_mcp_integrations(
         self, mcp_integrations: list[str] | None
@@ -1504,41 +1535,7 @@ class AgentPresetService(BaseWorkspaceService):
             parent_preset_id=preset.id,
             parent_slug=preset.slug,
         )
-        await self._validate_active_restored_subagents(
-            ResolvedAgentsConfig.model_validate(agents)
-        )
         return agents
-
-    async def _validate_active_restored_subagents(
-        self, agents: ResolvedAgentsConfig
-    ) -> None:
-        """Ensure restored subagent bindings point at active preset heads."""
-        preset_ids = {subagent.preset_id for subagent in agents.subagents}
-        if not preset_ids:
-            return
-
-        stmt = (
-            select(AgentPreset.id)
-            .where(
-                AgentPreset.workspace_id == self.workspace_id,
-                AgentPreset.id.in_(preset_ids),
-                AgentPreset.archived_at.is_(None),
-            )
-            .with_for_update()
-        )
-        active_ids = set((await self.session.execute(stmt)).scalars().all())
-        if missing_ids := preset_ids - active_ids:
-            missing_refs = sorted(
-                {
-                    subagent.preset
-                    for subagent in agents.subagents
-                    if subagent.preset_id in missing_ids
-                }
-            )
-            raise TracecatValidationError(
-                "Cannot restore version because it references archived or missing "
-                f"subagent presets: {missing_refs}"
-            )
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def compare_versions(

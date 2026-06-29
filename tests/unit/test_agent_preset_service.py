@@ -28,7 +28,11 @@ from tracecat.agent.skill.schemas import (
     SkillDraftUpsertTextFileOp,
 )
 from tracecat.agent.skill.service import SkillService
-from tracecat.agent.subagents import AgentSubagentsConfig, ResolvedAttachedSubagentRef
+from tracecat.agent.subagents import (
+    AgentSubagentsConfig,
+    ResolvedAgentsConfig,
+    ResolvedAttachedSubagentRef,
+)
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.db.models import (
@@ -2620,6 +2624,51 @@ class TestAgentPresetService:
         ):
             await agent_preset_service.create_preset(parent_params)
 
+    async def test_create_parent_rechecks_subagent_before_saving_head(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Subagent children must still be active when the parent head is saved."""
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Race Child", "slug": "race-child"}
+            )
+        )
+        original_lock = agent_preset_service._lock_active_subagent_presets
+
+        async def archive_child_then_lock(agents: ResolvedAgentsConfig) -> None:
+            child.archived_at = datetime.now(UTC)
+            agent_preset_service.session.add(child)
+            await agent_preset_service.session.flush()
+            await original_lock(agents)
+
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_lock_active_subagent_presets",
+            archive_child_then_lock,
+        )
+
+        with pytest.raises(
+            TracecatValidationError,
+            match="archived or missing subagent",
+        ):
+            await agent_preset_service.create_preset(
+                agent_preset_create_params.model_copy(
+                    update={
+                        "name": "Race Parent",
+                        "slug": "race-parent",
+                        "agents": AgentSubagentsConfig.model_validate(
+                            {
+                                "enabled": True,
+                                "subagents": [{"preset": child.slug}],
+                            }
+                        ),
+                    }
+                )
+            )
+
     async def test_create_parent_allows_pinned_subagent_with_reused_parent_slug(
         self,
         agent_preset_service: AgentPresetService,
@@ -2692,6 +2741,53 @@ class TestAgentPresetService:
                 "Subagent preset 'approval-child' uses manual approvals, "
                 "which are not supported for subagents yet."
             ),
+        ):
+            await agent_preset_service.update_preset(
+                parent,
+                AgentPresetUpdate(
+                    agents=AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": child.slug}],
+                        }
+                    )
+                ),
+            )
+
+    async def test_update_parent_rechecks_subagent_before_saving_head(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Updating a parent cannot attach a child archived after resolution."""
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Update Race Child", "slug": "update-race-child"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Update Race Parent", "slug": "update-race-parent"}
+            )
+        )
+        original_lock = agent_preset_service._lock_active_subagent_presets
+
+        async def archive_child_then_lock(agents: ResolvedAgentsConfig) -> None:
+            child.archived_at = datetime.now(UTC)
+            agent_preset_service.session.add(child)
+            await agent_preset_service.session.flush()
+            await original_lock(agents)
+
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_lock_active_subagent_presets",
+            archive_child_then_lock,
+        )
+
+        with pytest.raises(
+            TracecatValidationError,
+            match="archived or missing subagent",
         ):
             await agent_preset_service.update_preset(
                 parent,
