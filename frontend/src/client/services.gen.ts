@@ -850,6 +850,8 @@ import type {
   WorkflowsDeleteWorkflowResponse,
   WorkflowsExportWorkflowData,
   WorkflowsExportWorkflowResponse,
+  WorkflowsExportWorkspaceSyncData,
+  WorkflowsExportWorkspaceSyncResponse,
   WorkflowsGetWorkflowData,
   WorkflowsGetWorkflowDefinitionData,
   WorkflowsGetWorkflowDefinitionResponse,
@@ -868,6 +870,8 @@ import type {
   WorkflowsListWorkflowsResponse,
   WorkflowsMoveWorkflowToFolderData,
   WorkflowsMoveWorkflowToFolderResponse,
+  WorkflowsPreviewExportWorkspaceSyncData,
+  WorkflowsPreviewExportWorkspaceSyncResponse,
   WorkflowsPublishWorkflowData,
   WorkflowsPublishWorkflowResponse,
   WorkflowsPullWorkflowsData,
@@ -3308,6 +3312,58 @@ export const workflowsListWorkflowBranches = (
     query: {
       limit: data.limit,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Export Workspace Sync
+ * Export workspace workflow specs to a Git branch and optional PR.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkspaceSyncExportResult Successful Response
+ * @throws ApiError
+ */
+export const workflowsExportWorkspaceSync = (
+  data: WorkflowsExportWorkspaceSyncData
+): CancelablePromise<WorkflowsExportWorkspaceSyncResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/workflows/sync/export",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Preview Export Workspace Sync
+ * Project which resources an export would commit, without writing to Git.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkspaceSyncExportPreview Successful Response
+ * @throws ApiError
+ */
+export const workflowsPreviewExportWorkspaceSync = (
+  data: WorkflowsPreviewExportWorkspaceSyncData
+): CancelablePromise<WorkflowsPreviewExportWorkspaceSyncResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/workflows/sync/export/preview",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

@@ -373,7 +373,7 @@ class SecretsService(BaseOrgService):
         """Retrieve the GitHub App organization secret for workflow sync."""
         return await self._get_org_secret_by_name("github-app-credentials")
 
-    @require_scope("workflow:sync")
+    @require_scope("workflow:sync", "workspace_sync:sync", require_all=False)
     async def get_github_app_org_secret(self) -> OrganizationSecret:
         """Retrieve the GitHub App organization secret for workflow sync."""
         return await self._get_github_app_org_secret()

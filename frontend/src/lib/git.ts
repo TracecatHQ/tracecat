@@ -6,6 +6,24 @@ export const GIT_SSH_URL_REGEX =
 // Mirrors the backend validation in tracecat/git/constants.py but enforces at least
 // an <org>/<repo> path structure on the client.
 
+/**
+ * Extract the `<org>/<repo>` display name from a Git SSH URL.
+ *
+ * @param url - A `git+ssh://` repository URL.
+ * @returns The `<org>/<repo>` path without the `.git` suffix, or `null` if the
+ *   URL cannot be parsed.
+ */
+export function getRepoDisplayName(
+  url: string | null | undefined
+): string | null {
+  if (!url) return null
+  const match = GIT_SSH_URL_REGEX.exec(url)
+  const path = match?.groups?.path
+  if (!path) return null
+  // The `path` capture group is greedy and includes a trailing `.git`.
+  return path.replace(/\.git$/, "")
+}
+
 export function validateGitSshUrl(
   url: string | null | undefined,
   ctx: z.RefinementCtx
@@ -92,14 +110,4 @@ export function validateGitSshUrl(
     message:
       "Must be a valid Git SSH URL (e.g., git+ssh://<user>@github.com/org/repo.git)",
   })
-}
-
-/**
- * Extract the optional ref suffix from a git+ssh URL.
- */
-export function getGitSshUrlRef(url: string | null | undefined) {
-  if (!url) return null
-
-  const match = GIT_SSH_URL_REGEX.exec(url)
-  return match?.groups?.ref ?? null
 }

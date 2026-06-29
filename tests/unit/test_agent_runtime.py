@@ -626,20 +626,21 @@ class TestClaudeAgentRuntimeRun:
         )
         session_file = runtime._get_session_file_path(sdk_session_id)
 
-        read_tail_started = asyncio.Event()
-        release_read_tail = asyncio.Event()
+        background_flush_released = asyncio.Event()
         result_sent = asyncio.Event()
-        original_to_thread = asyncio.to_thread
 
-        async def controlled_to_thread(func: Any, /, *args: Any, **kwargs: Any) -> Any:
-            if getattr(func, "__name__", "") == "_read_tail":
-                # Pause the background flush after it has started, but before it has
-                # read and classified the hidden "Continue." JSONL row.
-                read_tail_started.set()
-                await release_read_tail.wait()
-            return await original_to_thread(func, *args, **kwargs)
+        async def block_background_flush(
+            *,
+            is_approval_continuation: bool,
+        ) -> None:
+            assert is_approval_continuation is True
+            await background_flush_released.wait()
 
-        monkeypatch.setattr(runtime_module.asyncio, "to_thread", controlled_to_thread)
+        monkeypatch.setattr(
+            runtime,
+            "_flush_session_lines_when_signaled",
+            block_background_flush,
+        )
 
         async def record_result(**_kwargs: Any) -> None:
             result_sent.set()
@@ -658,9 +659,6 @@ class TestClaudeAgentRuntimeRun:
                     "delta": {"type": "text_delta", "text": "continued"},
                 },
             )
-            # The stream event schedules the background flush. Yield the result only
-            # after that flush is blocked at _read_tail.
-            await asyncio.wait_for(read_tail_started.wait(), timeout=1.0)
             yield ResultMessage(
                 subtype="success",
                 duration_ms=1,
@@ -693,14 +691,13 @@ class TestClaudeAgentRuntimeRun:
         ):
             run_task = asyncio.create_task(runtime.run(payload))
             try:
-                # Hold the flush, wait for ResultMessage handling to complete, then
-                # release the flush so it classifies the row afterward.
-                await asyncio.wait_for(read_tail_started.wait(), timeout=1.0)
+                # Hold the background flush until the ResultMessage path wins.
+                # The final synchronous flush at runtime shutdown must still mark
+                # the hidden approval-continuation prompt as internal.
                 await asyncio.wait_for(result_sent.wait(), timeout=1.0)
-                release_read_tail.set()
                 await run_task
             finally:
-                release_read_tail.set()
+                background_flush_released.set()
 
         persisted = [
             (orjson.loads(call.args[1]), call.kwargs["internal"])

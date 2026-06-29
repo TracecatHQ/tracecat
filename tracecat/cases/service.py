@@ -98,6 +98,7 @@ from tracecat.db.models import (
     CaseTask,
     User,
     Workflow,
+    WorkspaceSyncResourceMapping,
 )
 from tracecat.db.session_events import add_after_commit_callback
 from tracecat.exceptions import (
@@ -133,6 +134,7 @@ from tracecat.tables.service import (
     validate_identifier,
 )
 from tracecat.tiers.enums import Entitlement
+from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 
 
 def _normalize_filter_values(values: Any) -> list[Any]:
@@ -1339,7 +1341,11 @@ class CaseFieldsService(CustomFieldsService):
 
     @require_scope("case:update")
     async def update_field(
-        self, field_id: str, params: CaseFieldUpdate | CustomFieldUpdate
+        self,
+        field_id: str,
+        params: CaseFieldUpdate | CustomFieldUpdate,
+        *,
+        commit: bool = True,
     ) -> None:
         """Update a custom field column and update the schema if needed."""
         await self._ensure_schema_ready()
@@ -1400,8 +1406,43 @@ class CaseFieldsService(CustomFieldsService):
 
             # Update/add the field definition
             await self._update_field_schema(new_field_id, new_field_def)
+            if new_field_id != field_id:
+                await self._update_workspace_sync_mapping_for_field_rename(
+                    field_id,
+                    new_field_id,
+                )
 
-        await self.session.commit()
+        if commit:
+            await self.session.commit()
+
+    async def _update_workspace_sync_mapping_for_field_rename(
+        self,
+        old_field_id: str,
+        new_field_id: str,
+    ) -> None:
+        """Move a case-field sync mapping to the renamed schema key."""
+        definition = await self.session.scalar(
+            sa.select(CaseFields).where(CaseFields.workspace_id == self.workspace_id)
+        )
+        if definition is None:
+            return
+
+        old_local_id = uuid.uuid5(definition.id, old_field_id)
+        mapping = await self.session.scalar(
+            sa.select(WorkspaceSyncResourceMapping).where(
+                WorkspaceSyncResourceMapping.workspace_id == self.workspace_id,
+                WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
+                WorkspaceSyncResourceMapping.resource_type
+                == SyncResourceType.CASE_FIELD.value,
+                WorkspaceSyncResourceMapping.local_id == old_local_id,
+            )
+        )
+        if mapping is None:
+            return
+
+        mapping.local_id = uuid.uuid5(definition.id, new_field_id)
+        self.session.add(mapping)
+        await self.session.flush()
 
     @require_scope("case:delete")
     async def delete_field(self, field_id: str) -> None:

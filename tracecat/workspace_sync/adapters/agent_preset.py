@@ -1,0 +1,1223 @@
+"""Agent preset resource adapter (presets, versions, tags, skill bindings)."""
+
+from __future__ import annotations
+
+import uuid
+from collections.abc import Mapping
+from typing import Any, cast
+
+import sqlalchemy as sa
+import yaml
+from pydantic import BaseModel, ValidationError
+from slugify import slugify
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+
+from tracecat.agent.subagents import AgentSubagentsConfig
+from tracecat.db.models import (
+    AgentFolder,
+    AgentPreset,
+    AgentPresetSkill,
+    AgentPresetVersion,
+    AgentPresetVersionSkill,
+    AgentTag,
+    AgentTagLink,
+    Skill,
+    SkillVersion,
+)
+from tracecat.exceptions import TracecatValidationError
+from tracecat.service import BaseWorkspaceService
+from tracecat.sync import PullDiagnostic, serializable_validation_errors
+from tracecat.workspace_sync.adapters.base import (
+    DirectoryManifestAdapter,
+    ImportedResource,
+    NameSwapPlan,
+    ProjectedResource,
+    ResourceDependencyRefs,
+    ResourceProjection,
+    path_parts,
+)
+from tracecat.workspace_sync.enums import SyncResourceType
+from tracecat.workspace_sync.schemas import (
+    AGENT_PRESET_ROOT,
+    AgentPresetResourceSpec,
+    AgentPresetSkillBinding,
+    AgentPresetSubagentRef,
+    AgentPresetVersionResourceSpec,
+    WorkspaceManifestResources,
+    WorkspaceSpec,
+)
+from tracecat.workspace_sync.serialization import serialize_yaml_model
+
+AGENT_PRESET_FILENAME = "preset.yml"
+AGENT_PRESET_VERSIONS_DIR = "versions"
+DEFAULT_AGENT_MODEL_NAME = "gpt-5.5"
+DEFAULT_AGENT_MODEL_PROVIDER = "openai"
+
+
+class AgentPresetAdapter(DirectoryManifestAdapter):
+    """Adapter for agent presets, their versions, tags, and skill bindings."""
+
+    resource_type = SyncResourceType.AGENT_PRESET
+    spec_attr = "agent_presets"
+    model = AgentPresetResourceSpec
+    read_scope = "agent:read"
+    create_scope = "agent:create"
+    update_scope = "agent:update"
+    root = AGENT_PRESET_ROOT
+    filename = AGENT_PRESET_FILENAME
+    import_identity_attrs = ("slug",)
+    import_identity_noun = "slug"
+
+    def _version_source_path(self, source_id: str, version: int) -> str:
+        """Return the repository path for an agent preset version manifest."""
+        return f"{self.root}/{source_id}/{AGENT_PRESET_VERSIONS_DIR}/{version}.yml"
+
+    def extra_path_from_path(
+        self,
+        path: str,
+        roots: WorkspaceManifestResources,
+    ) -> tuple[str, str] | None:
+        """Map ``versions/<n>.yml`` companion files to ``(source_id, relpath)``."""
+        parts = path_parts(path)
+        root_parts = path_parts(roots.agent_presets)
+        if len(parts) != len(root_parts) + 3:
+            return None
+        if parts[: len(root_parts)] != root_parts:
+            return None
+        source_id = parts[len(root_parts)]
+        versions_dir = parts[len(root_parts) + 1]
+        filename = parts[len(root_parts) + 2]
+        if not source_id or versions_dir != AGENT_PRESET_VERSIONS_DIR:
+            return None
+        return (source_id, f"{versions_dir}/{filename}") if filename else None
+
+    def serialize_extra_files(
+        self,
+        source_id: str,
+        spec: BaseModel,
+    ) -> dict[str, str]:
+        """Serialize immutable preset versions to companion YAML files."""
+        preset = cast(AgentPresetResourceSpec, spec)
+        return {
+            self._version_source_path(source_id, version_number): serialize_yaml_model(
+                version
+            )
+            for version_number, version in sorted(preset.versions.items())
+        }
+
+    def attach_extra_files(
+        self,
+        specs: dict[str, BaseModel],
+        extra_files: Mapping[tuple[str, str], str],
+        diagnostics: list[PullDiagnostic],
+    ) -> dict[str, BaseModel]:
+        """Fold parsed preset version YAML files back into preset specs."""
+        version_files_by_source: dict[str, dict[int, str]] = {}
+        for (source_id, relpath), content in extra_files.items():
+            version_number = _parse_preset_version_relpath(relpath)
+            if version_number is None:
+                continue
+            version_files_by_source.setdefault(source_id, {})[version_number] = content
+
+        updated: dict[str, BaseModel] = {}
+        for source_id, base_spec in specs.items():
+            spec = cast(AgentPresetResourceSpec, base_spec)
+            versions = dict(spec.versions)
+            for version_number, content in sorted(
+                version_files_by_source.get(source_id, {}).items()
+            ):
+                version = _parse_agent_preset_version_manifest(
+                    self,
+                    source_id=source_id,
+                    version_number=version_number,
+                    content=content,
+                    diagnostics=diagnostics,
+                )
+                if version is not None:
+                    versions[version_number] = version
+            if (
+                spec.current_version is not None
+                and spec.current_version not in versions
+            ):
+                diagnostics.append(
+                    PullDiagnostic(
+                        workflow_path=self.source_path(source_id),
+                        workflow_title=spec.name,
+                        error_type="dependency",
+                        message=(
+                            f"Agent preset {spec.slug!r} current version "
+                            f"{spec.current_version} is missing"
+                        ),
+                        details={
+                            "preset_slug": spec.slug,
+                            "preset_version": spec.current_version,
+                        },
+                    )
+                )
+            updated[source_id] = spec.model_copy(update={"versions": versions})
+        return updated
+
+    async def project(
+        self, workspace_service: BaseWorkspaceService
+    ) -> ResourceProjection:
+        """Project agent presets into Git specs."""
+        stmt = self._projection_stmt(workspace_service)
+        presets = list((await workspace_service.session.execute(stmt)).scalars().all())
+        return await self._projection_from_presets(workspace_service, presets)
+
+    async def project_dependency_refs(
+        self,
+        workspace_service: BaseWorkspaceService,
+        refs: ResourceDependencyRefs,
+    ) -> ResourceProjection:
+        """Project presets selected directly or referenced by slug."""
+        # "Select all" short-circuits to the unfiltered projection.
+        if refs.select_all:
+            return await self.project(workspace_service)
+        # No selectors at all means nothing to project.
+        versioned_slugs = {slug for slug, _version in refs.versioned_slugs}
+        slugs = set(refs.slugs) | versioned_slugs
+        if not refs.local_ids and not refs.source_ids and not slugs:
+            return ResourceProjection(specs={}, resources=[])
+
+        local_ids = set(refs.local_ids)
+        # Translate any source ids back to their mapped local preset ids.
+        if refs.source_ids:
+            local_ids.update(
+                (
+                    await self.local_ids_by_source_id(
+                        workspace_service,
+                        refs.source_ids,
+                    )
+                ).values()
+            )
+        stmt = self._projection_stmt(workspace_service)
+        # Narrow the projection by whichever selectors are present: when both
+        # ids and slugs are given, match either (OR); otherwise filter on the
+        # single non-empty selector.
+        if local_ids and slugs:
+            stmt = stmt.where(
+                sa.or_(
+                    AgentPreset.id.in_(local_ids),
+                    AgentPreset.slug.in_(slugs),
+                )
+            )
+        elif local_ids:
+            stmt = stmt.where(AgentPreset.id.in_(local_ids))
+        else:
+            stmt = stmt.where(AgentPreset.slug.in_(slugs))
+        presets = list((await workspace_service.session.execute(stmt)).scalars().all())
+        versions_by_slug: dict[str, set[int]] = {}
+        for slug, version in refs.versioned_slugs:
+            versions_by_slug.setdefault(slug, set()).add(version)
+        versions_by_preset_id = {
+            preset.id: versions_by_slug[preset.slug]
+            for preset in presets
+            if preset.slug in versions_by_slug
+        }
+        return await self._projection_from_presets(
+            workspace_service,
+            presets,
+            versions_by_preset_id=versions_by_preset_id,
+        )
+
+    def _projection_stmt(
+        self, workspace_service: BaseWorkspaceService
+    ) -> sa.Select[tuple[AgentPreset]]:
+        """Build the base eager-loaded preset projection query."""
+        return (
+            select(AgentPreset)
+            .where(AgentPreset.workspace_id == workspace_service.workspace_id)
+            .options(
+                selectinload(AgentPreset.folder),
+                selectinload(AgentPreset.tags),
+                selectinload(AgentPreset.current_version),
+            )
+            .order_by(AgentPreset.slug.asc(), AgentPreset.id.asc())
+        )
+
+    async def _projection_from_presets(
+        self,
+        workspace_service: BaseWorkspaceService,
+        presets: list[AgentPreset],
+        versions_by_preset_id: Mapping[uuid.UUID, set[int]] | None = None,
+    ) -> ResourceProjection:
+        """Build sync specs from eager-loaded preset rows."""
+        assigner = await self.source_id_assigner(workspace_service)
+        specs: dict[str, BaseModel] = {}
+        resources: list[ProjectedResource] = []
+        for preset in presets:
+            source_id = assigner.assign(preset.id, preset.slug)
+            current_version = preset.current_version
+            version_numbers = set((versions_by_preset_id or {}).get(preset.id, set()))
+            if current_version is not None:
+                version_numbers.add(current_version.version)
+            versions = await self._version_specs_for_preset(
+                workspace_service,
+                preset=preset,
+                version_numbers=version_numbers,
+            )
+            specs[source_id] = AgentPresetResourceSpec(
+                id=source_id,
+                slug=preset.slug,
+                name=preset.name,
+                current_version=(
+                    current_version.version if current_version is not None else None
+                ),
+                folder_path=preset.folder.path if preset.folder else None,
+                tags=sorted(tag.name for tag in preset.tags),
+                versions=versions,
+            )
+            resources.append(self.projected_resource(source_id, preset.id))
+        return ResourceProjection(specs=specs, resources=resources)
+
+    async def _version_specs_for_preset(
+        self,
+        workspace_service: BaseWorkspaceService,
+        *,
+        preset: AgentPreset,
+        version_numbers: set[int],
+    ) -> dict[int, AgentPresetVersionResourceSpec]:
+        """Build version specs for the requested preset version numbers."""
+        if not version_numbers:
+            return {}
+        stmt = (
+            select(AgentPresetVersion)
+            .where(
+                AgentPresetVersion.workspace_id == workspace_service.workspace_id,
+                AgentPresetVersion.preset_id == preset.id,
+                AgentPresetVersion.version.in_(version_numbers),
+            )
+            .order_by(AgentPresetVersion.version.asc())
+        )
+        version_rows = list((await workspace_service.session.scalars(stmt)).all())
+        skill_bindings_by_version_id = await self._skill_bindings_for_versions(
+            workspace_service,
+            [version.id for version in version_rows],
+        )
+        versions: dict[int, AgentPresetVersionResourceSpec] = {}
+        for version in version_rows:
+            versions[version.version] = AgentPresetVersionResourceSpec(
+                version_number=version.version,
+                name=preset.name,
+                instructions=version.instructions,
+                tool_approvals=version.tool_approvals or {},
+                actions=sorted(version.actions or []),
+                skills=skill_bindings_by_version_id.get(version.id, []),
+                subagents=_subagent_refs(version.agents),
+                catalog_id=version.catalog_id,
+                model_name=version.model_name,
+                model_provider=version.model_provider,
+                base_url=version.base_url,
+                output_type=version.output_type,
+                namespaces=sorted(version.namespaces or []),
+                mcp_integrations=sorted(version.mcp_integrations or []),
+                retries=version.retries,
+                enable_thinking=version.enable_thinking,
+                enable_internet_access=version.enable_internet_access,
+            )
+        return versions
+
+    async def _skill_bindings_for_versions(
+        self,
+        workspace_service: BaseWorkspaceService,
+        version_ids: list[uuid.UUID],
+    ) -> dict[uuid.UUID, list[AgentPresetSkillBinding]]:
+        """Return slug/version skill bindings grouped by preset version id."""
+        if not version_ids:
+            return {}
+        stmt = (
+            select(
+                AgentPresetVersionSkill.preset_version_id,
+                Skill.name,
+                SkillVersion.version,
+            )
+            .select_from(AgentPresetVersionSkill)
+            .join(Skill, AgentPresetVersionSkill.skill_id == Skill.id)
+            .join(
+                SkillVersion,
+                AgentPresetVersionSkill.skill_version_id == SkillVersion.id,
+            )
+            .where(
+                AgentPresetVersionSkill.workspace_id == workspace_service.workspace_id,
+                AgentPresetVersionSkill.preset_version_id.in_(version_ids),
+            )
+            .order_by(
+                AgentPresetVersionSkill.preset_version_id.asc(),
+                Skill.name.asc(),
+            )
+        )
+        bindings: dict[uuid.UUID, list[AgentPresetSkillBinding]] = {}
+        for preset_version_id, slug, version_number in (
+            await workspace_service.session.execute(stmt)
+        ).tuples():
+            bindings.setdefault(preset_version_id, []).append(
+                AgentPresetSkillBinding(slug=slug, version=version_number)
+            )
+        return bindings
+
+    async def _skill_bindings_for_version(
+        self,
+        workspace_service: BaseWorkspaceService,
+        version: AgentPresetVersion,
+    ) -> list[AgentPresetSkillBinding]:
+        """Return slug/version skill bindings for an immutable preset version."""
+        stmt = (
+            select(Skill.name, SkillVersion.version)
+            .select_from(AgentPresetVersionSkill)
+            .join(Skill, AgentPresetVersionSkill.skill_id == Skill.id)
+            .join(
+                SkillVersion,
+                AgentPresetVersionSkill.skill_version_id == SkillVersion.id,
+            )
+            .where(
+                AgentPresetVersionSkill.workspace_id == workspace_service.workspace_id,
+                AgentPresetVersionSkill.preset_version_id == version.id,
+            )
+            .order_by(Skill.name.asc())
+        )
+        return [
+            AgentPresetSkillBinding(slug=slug, version=version_number)
+            for slug, version_number in (
+                await workspace_service.session.execute(stmt)
+            ).tuples()
+        ]
+
+    async def import_specs(
+        self,
+        workspace_service: BaseWorkspaceService,
+        workspace_spec: WorkspaceSpec,
+    ) -> list[ImportedResource]:
+        """Reconcile agent preset specs into the local database.
+
+        Imports presets in two passes: the first upserts each preset, folder,
+        and tag set; the second resolves subagent references and skill bindings
+        in topological order and pins each preset's current version.
+        """
+        presets = workspace_spec.agent_presets
+        # Compute the parent-after-subagent order up front so pass 2 can resolve
+        # subagent refs once their child presets already exist.
+        import_order = self._preset_import_order(presets)
+        swap = await self.plan_name_swap(
+            workspace_service,
+            targets={source_id: spec.slug for source_id, spec in presets.items()},
+            model=AgentPreset,
+            name_column=AgentPreset.slug,
+            noun="slug",
+            kind_label="Agent preset",
+            owner_label="preset",
+            error_cls=TracecatValidationError,
+            options=(selectinload(AgentPreset.tags),),
+        )
+        imported: list[ImportedResource] = []
+        preset_by_source_id: dict[str, AgentPreset] = {}
+        # Pass 1: upsert every preset's metadata, folder, and tags. Slug order
+        # keeps creation deterministic; head config and versions wait for pass 2.
+        for source_id, spec in sorted(presets.items()):
+            preset = await self._preset_for_import(
+                workspace_service,
+                source_id=source_id,
+                spec=spec,
+                swap=swap,
+            )
+            # Create a new preset with sensible model defaults when none exists;
+            # otherwise just realign the existing row's slug to the spec.
+            if preset is None:
+                preset = AgentPreset(
+                    workspace_id=workspace_service.workspace_id,
+                    slug=spec.slug,
+                    name=spec.name,
+                    model_name=DEFAULT_AGENT_MODEL_NAME,
+                    model_provider=DEFAULT_AGENT_MODEL_PROVIDER,
+                    agents=AgentSubagentsConfig().model_dump(mode="json"),
+                )
+            else:
+                preset.slug = spec.slug
+            self._apply_preset_metadata(preset, spec)
+            folder = await self._ensure_agent_folder(
+                workspace_service, spec.folder_path
+            )
+            preset.folder_id = folder.id if folder is not None else None
+            workspace_service.session.add(preset)
+            # Flush so the preset has an id before tag links reference it.
+            await workspace_service.session.flush()
+            await self._replace_agent_tags(workspace_service, preset, spec.tags)
+            preset_by_source_id[source_id] = preset
+
+        # Pass 2: walk presets in topological order so every subagent child has
+        # already been upserted by the time its parent resolves references.
+        for source_id in import_order:
+            spec = presets[source_id]
+            preset = preset_by_source_id[source_id]
+            version_specs = dict(spec.versions)
+            head_spec = None
+            if spec.current_version is not None:
+                head_spec = version_specs.get(spec.current_version)
+                if head_spec is None:
+                    raise TracecatValidationError(
+                        f"Agent preset {spec.slug!r} current version "
+                        f"{spec.current_version} is missing from the version snapshots."
+                    )
+
+            # Resolve current-version config to the live preset head now that all
+            # child presets have already been imported.
+            if head_spec is not None:
+                self._apply_preset_version_spec(preset, head_spec)
+                preset.agents = await self._resolved_subagents_config(
+                    workspace_service, head_spec
+                )
+            else:
+                preset.agents = AgentSubagentsConfig().model_dump(mode="json")
+            workspace_service.session.add(preset)
+            await workspace_service.session.flush()
+            skill_targets = (
+                await self._skill_binding_targets_for_spec(
+                    workspace_service,
+                    head_spec,
+                )
+                if head_spec is not None
+                else []
+            )
+
+            imported_versions: dict[int, AgentPresetVersion] = {}
+            for version_number, version_spec in sorted(version_specs.items()):
+                version = await self._upsert_agent_preset_version(
+                    workspace_service,
+                    preset=preset,
+                    version=version_spec,
+                )
+                version_skill_targets = await self._skill_binding_targets_for_spec(
+                    workspace_service,
+                    version_spec,
+                )
+                await self._replace_version_skill_bindings(
+                    workspace_service,
+                    version,
+                    version_skill_targets,
+                )
+                imported_versions[version_number] = version
+
+            if spec.current_version is None:
+                await self._replace_head_skill_bindings(
+                    workspace_service,
+                    preset,
+                    [],
+                )
+                preset.current_version_id = None
+                workspace_service.session.add(preset)
+                await workspace_service.session.flush()
+                imported.append(self.imported_resource(source_id, preset.id))
+                continue
+
+            current_version = None
+            current_version = imported_versions.get(spec.current_version)
+            if current_version is None:
+                current_version = await self._current_version_for_preset(
+                    workspace_service, preset
+                )
+            if current_version is None or not await self._version_matches_preset(
+                workspace_service,
+                current_version,
+                preset,
+                skill_targets,
+            ):
+                current_version = await self._create_agent_preset_version(
+                    workspace_service, preset
+                )
+                await self._replace_version_skill_bindings(
+                    workspace_service, current_version, skill_targets
+                )
+            # Head bindings track the live preset; refresh them every pass since
+            # a reused version skips the version-binding replacement above.
+            await self._replace_head_skill_bindings(
+                workspace_service, preset, skill_targets
+            )
+            # Pin the preset to the resolved version as its current head.
+            preset.current_version_id = current_version.id
+            workspace_service.session.add(preset)
+            await workspace_service.session.flush()
+            imported.append(self.imported_resource(source_id, preset.id))
+        return imported
+
+    def _preset_import_order(
+        self,
+        presets: Mapping[str, AgentPresetResourceSpec],
+    ) -> list[str]:
+        """Return source ids ordered so each preset follows its subagents.
+
+        Topologically sorts presets by their subagent references so that a
+        parent is imported only after every subagent it depends on. Raises
+        :class:`TracecatValidationError` on duplicate slugs or cyclic
+        references.
+        """
+        # Index slug -> source id so subagent refs (which name slugs) can be
+        # mapped back to specs; duplicate slugs make the graph ambiguous.
+        slug_to_source_id: dict[str, str] = {}
+        for source_id, spec in sorted(presets.items()):
+            if spec.slug in slug_to_source_id:
+                raise TracecatValidationError(
+                    f"Agent preset sync specs must have unique slugs: {spec.slug!r}"
+                )
+            slug_to_source_id[spec.slug] = source_id
+
+        # `visiting` is the current DFS stack (re-entering it means a cycle);
+        # `visited` is fully-processed; `ordered` collects the final sequence.
+        visiting: set[str] = set()
+        visited: set[str] = set()
+        ordered: list[str] = []
+
+        def visit(source_id: str) -> None:
+            """Depth-first visit a preset and append it after its subagents."""
+            # Already emitted: nothing more to do.
+            if source_id in visited:
+                return
+            # Re-entering a node still on the stack closes a cycle.
+            if source_id in visiting:
+                raise TracecatValidationError(
+                    "Cyclic agent preset subagent reference detected during import"
+                )
+            # Mark on-stack, recurse into each subagent child first, then mark
+            # done and append so children always precede this parent.
+            visiting.add(source_id)
+            spec = presets[source_id]
+            subagents: list[AgentPresetSubagentRef] = []
+            for version in spec.versions.values():
+                subagents.extend(version.subagents)
+            for subagent in sorted(subagents, key=lambda item: item.slug):
+                # Ignore refs to slugs not present in this sync batch.
+                if child_source_id := slug_to_source_id.get(subagent.slug):
+                    visit(child_source_id)
+            visiting.remove(source_id)
+            visited.add(source_id)
+            ordered.append(source_id)
+
+        for source_id in sorted(presets):
+            visit(source_id)
+        return ordered
+
+    def _apply_preset_metadata(
+        self,
+        preset: AgentPreset,
+        spec: AgentPresetResourceSpec,
+    ) -> None:
+        """Copy non-versioned metadata fields onto ``preset``."""
+        preset.name = spec.name
+
+    def _apply_preset_version_spec(
+        self,
+        preset: AgentPreset,
+        spec: AgentPresetVersionResourceSpec,
+    ) -> None:
+        """Copy version-owned fields from ``spec`` onto the live preset head."""
+        for key, value in self._version_attrs_from_spec(spec).items():
+            setattr(preset, key, value)
+
+    async def _preset_for_import(
+        self,
+        workspace_service: BaseWorkspaceService,
+        *,
+        source_id: str,
+        spec: AgentPresetResourceSpec,
+        swap: NameSwapPlan[AgentPreset],
+    ) -> AgentPreset | None:
+        """Resolve the existing preset to update for ``source_id``, if any.
+
+        Prefers the preset already mapped to ``source_id`` (validating the slug
+        is still free), then falls back to matching on slug. Returns ``None``
+        when no preset exists and a new one must be created.
+        """
+        # Prefer the preset already mapped to this source id; the mapping is the
+        # authoritative link even if the spec slug has since changed.
+        preset = swap.mapped_by_source_id.get(source_id) or (
+            await self._preset_by_source_id(
+                workspace_service,
+                source_id=source_id,
+            )
+        )
+        if preset is not None:
+            # Guard the (possibly renamed) slug isn't claimed by another preset.
+            await swap.ensure_available(
+                workspace_service,
+                source_id=source_id,
+                name=spec.slug,
+                row_id=preset.id,
+            )
+            return preset
+
+        # No mapping yet: fall back to adopting an existing preset by slug.
+        return await workspace_service.session.scalar(
+            select(AgentPreset)
+            .where(
+                AgentPreset.workspace_id == workspace_service.workspace_id,
+                AgentPreset.slug == spec.slug,
+            )
+            .options(selectinload(AgentPreset.tags))
+        )
+
+    async def _preset_by_source_id(
+        self,
+        workspace_service: BaseWorkspaceService,
+        *,
+        source_id: str,
+    ) -> AgentPreset | None:
+        """Load the preset mapped to ``source_id`` via the sync mapping, if any."""
+        return await self._row_by_source_id(
+            workspace_service,
+            source_id=source_id,
+            model=AgentPreset,
+            options=(selectinload(AgentPreset.tags),),
+        )
+
+    async def _ensure_agent_folder(
+        self,
+        workspace_service: BaseWorkspaceService,
+        folder_path: str | None,
+    ) -> AgentFolder | None:
+        """Resolve ``folder_path`` to an :class:`AgentFolder`, creating segments.
+
+        Walks each ``/``-separated segment, creating any missing intermediate
+        folders, and returns the leaf folder. Returns ``None`` when
+        ``folder_path`` is empty.
+        """
+        if not folder_path:
+            return None
+        # Split into clean path segments, dropping leading/trailing/empty parts.
+        segments = [segment for segment in folder_path.strip("/").split("/") if segment]
+        if not segments:
+            return None
+        current_path = "/"
+        folder: AgentFolder | None = None
+        # Walk the hierarchy from the root, building each segment's absolute
+        # path and creating any missing intermediate folder along the way.
+        for segment in segments:
+            current_path = f"{current_path}{segment}/"
+            folder = await workspace_service.session.scalar(
+                select(AgentFolder).where(
+                    AgentFolder.workspace_id == workspace_service.workspace_id,
+                    AgentFolder.path == current_path,
+                )
+            )
+            # Create the segment folder when it doesn't exist yet.
+            if folder is None:
+                folder = AgentFolder(
+                    workspace_id=workspace_service.workspace_id,
+                    name=segment,
+                    path=current_path,
+                )
+                workspace_service.session.add(folder)
+                # Flush so the next segment can be parented under this row.
+                await workspace_service.session.flush()
+        # Loop exits with `folder` bound to the leaf folder.
+        return folder
+
+    async def _replace_agent_tags(
+        self,
+        workspace_service: BaseWorkspaceService,
+        preset: AgentPreset,
+        tag_names: list[str],
+    ) -> None:
+        """Replace ``preset``'s tag links to match ``tag_names`` exactly.
+
+        Drops existing links, then upserts each tag by its slugified ref and
+        re-links it, so tags are deduplicated and reused across presets.
+        """
+        # Drop all current links first so the rebuilt set is exact, not additive.
+        await workspace_service.session.execute(
+            sa.delete(AgentTagLink).where(AgentTagLink.preset_id == preset.id)
+        )
+        tag_ids: list[uuid.UUID] = []
+        # Dedupe (preserving order) and upsert each tag by its slugified ref so
+        # tags are shared/reused across presets rather than duplicated.
+        for name in sorted(dict.fromkeys(tag_names)):
+            ref = slugify(name, separator="-") or name
+            tag = await workspace_service.session.scalar(
+                select(AgentTag).where(
+                    AgentTag.workspace_id == workspace_service.workspace_id,
+                    AgentTag.ref == ref,
+                )
+            )
+            # Create the tag when new; otherwise refresh its display name.
+            if tag is None:
+                tag = AgentTag(
+                    workspace_id=workspace_service.workspace_id,
+                    name=name,
+                    ref=ref,
+                )
+            else:
+                tag.name = name
+            workspace_service.session.add(tag)
+            # Flush to obtain the tag id needed for the link rows below.
+            await workspace_service.session.flush()
+            tag_ids.append(tag.id)
+        # Re-link the preset to each resolved tag.
+        for tag_id in tag_ids:
+            workspace_service.session.add(
+                AgentTagLink(tag_id=tag_id, preset_id=preset.id)
+            )
+        await workspace_service.session.flush()
+
+    async def _resolved_subagents_config(
+        self,
+        workspace_service: BaseWorkspaceService,
+        spec: AgentPresetResourceSpec | AgentPresetVersionResourceSpec,
+    ) -> dict[str, Any]:
+        """Build the subagents config dict for ``spec``.
+
+        Resolves each subagent reference to its current preset version, skipping
+        any that are missing or unpublished. Returns the default disabled config
+        when the spec declares no subagents.
+        """
+        # No subagents declared: emit the default (disabled) config.
+        if not spec.subagents:
+            return AgentSubagentsConfig().model_dump(mode="json")
+
+        subagents: list[dict[str, Any]] = []
+        for subagent in spec.subagents:
+            # Skip refs whose child preset or version can't be resolved
+            # (missing or unpublished) so the config only contains live links.
+            target = await self._resolved_subagent_target(workspace_service, subagent)
+            if target is None:
+                continue
+            child, version = target
+            subagents.append(
+                {
+                    "preset": child.slug,
+                    "preset_id": str(child.id),
+                    "preset_version_id": str(version.id),
+                    # Pin a concrete version only when the ref requested one;
+                    # otherwise leave it floating on the child's current version.
+                    "preset_version": version.version
+                    if subagent.version is not None
+                    else None,
+                    "name": subagent.name,
+                    "description": subagent.description,
+                    "max_turns": subagent.max_turns,
+                }
+            )
+        # Enabled only if at least one subagent actually resolved.
+        return {"enabled": bool(subagents), "subagents": subagents}
+
+    async def _resolved_subagent_target(
+        self,
+        workspace_service: BaseWorkspaceService,
+        subagent: AgentPresetSubagentRef,
+    ) -> tuple[AgentPreset, AgentPresetVersion] | None:
+        """Resolve a subagent ref to its child preset and desired version."""
+        # Look up the child preset by slug within the same workspace.
+        child = await workspace_service.session.scalar(
+            select(AgentPreset).where(
+                AgentPreset.workspace_id == workspace_service.workspace_id,
+                AgentPreset.slug == subagent.slug,
+            )
+        )
+        if child is None:
+            return None
+
+        stmt = select(AgentPresetVersion).where(
+            AgentPresetVersion.workspace_id == workspace_service.workspace_id,
+            AgentPresetVersion.preset_id == child.id,
+        )
+        # Pin the explicitly requested version when given; otherwise track the
+        # child's current version. Bail if the child has no published version.
+        if subagent.version is not None:
+            stmt = stmt.where(AgentPresetVersion.version == subagent.version)
+        elif child.current_version_id is not None:
+            stmt = stmt.where(AgentPresetVersion.id == child.current_version_id)
+        else:
+            return None
+
+        # Treat an unresolvable version (e.g. requested number not found) as a
+        # skip rather than an error.
+        version = await workspace_service.session.scalar(stmt)
+        if version is None:
+            return None
+        return child, version
+
+    async def _current_version_for_preset(
+        self,
+        workspace_service: BaseWorkspaceService,
+        preset: AgentPreset,
+    ) -> AgentPresetVersion | None:
+        """Return ``preset``'s current :class:`AgentPresetVersion`, if pinned."""
+        if preset.current_version_id is None:
+            return None
+        return await workspace_service.session.scalar(
+            select(AgentPresetVersion).where(
+                AgentPresetVersion.workspace_id == workspace_service.workspace_id,
+                AgentPresetVersion.preset_id == preset.id,
+                AgentPresetVersion.id == preset.current_version_id,
+            )
+        )
+
+    async def _version_matches_preset(
+        self,
+        workspace_service: BaseWorkspaceService,
+        version: AgentPresetVersion,
+        preset: AgentPreset,
+        skill_targets: list[tuple[Skill, SkillVersion]],
+    ) -> bool:
+        """Return whether ``version`` already captures ``preset``'s state.
+
+        Compares every versioned attribute and the version's skill bindings
+        against the preset, so a matching version can be reused instead of
+        cutting a new one.
+        """
+        # Any differing versioned attribute means a new version is required.
+        for key, value in self._version_attrs_from_preset(preset).items():
+            if getattr(version, key) != value:
+                return False
+        # Attributes match; the skill-binding set must match too. Compare the
+        # desired (skill, version) id pairs against those stored on the version.
+        desired_skill_targets = {
+            (skill.id, skill_version.id) for skill, skill_version in skill_targets
+        }
+        existing_skill_targets = {
+            (skill_id, skill_version_id)
+            for skill_id, skill_version_id in (
+                await workspace_service.session.execute(
+                    select(
+                        AgentPresetVersionSkill.skill_id,
+                        AgentPresetVersionSkill.skill_version_id,
+                    ).where(
+                        AgentPresetVersionSkill.workspace_id
+                        == workspace_service.workspace_id,
+                        AgentPresetVersionSkill.preset_version_id == version.id,
+                    )
+                )
+            ).tuples()
+        }
+        return existing_skill_targets == desired_skill_targets
+
+    async def _create_agent_preset_version(
+        self,
+        workspace_service: BaseWorkspaceService,
+        preset: AgentPreset,
+    ) -> AgentPresetVersion:
+        """Create the next :class:`AgentPresetVersion` snapshotting ``preset``.
+
+        Increments the version number past the preset's highest existing version
+        and copies the current preset attributes onto the new row.
+        """
+        # Find the highest existing version number for this preset.
+        current_version = await workspace_service.session.scalar(
+            select(sa.func.max(AgentPresetVersion.version)).where(
+                AgentPresetVersion.workspace_id == workspace_service.workspace_id,
+                AgentPresetVersion.preset_id == preset.id,
+            )
+        )
+        # Snapshot the preset onto the next number (1 when there is no prior).
+        version = AgentPresetVersion(
+            workspace_id=workspace_service.workspace_id,
+            preset_id=preset.id,
+            version=(current_version or 0) + 1,
+            **self._version_attrs_from_preset(preset),
+        )
+        workspace_service.session.add(version)
+        await workspace_service.session.flush()
+        return version
+
+    async def _upsert_agent_preset_version(
+        self,
+        workspace_service: BaseWorkspaceService,
+        *,
+        preset: AgentPreset,
+        version: AgentPresetVersionResourceSpec,
+    ) -> AgentPresetVersion:
+        """Create or update one exact-number preset version."""
+        existing = await workspace_service.session.scalar(
+            select(AgentPresetVersion).where(
+                AgentPresetVersion.workspace_id == workspace_service.workspace_id,
+                AgentPresetVersion.preset_id == preset.id,
+                AgentPresetVersion.version == version.version_number,
+            )
+        )
+        attrs = self._version_attrs_from_spec(version)
+        attrs["agents"] = await self._resolved_subagents_config(
+            workspace_service,
+            version,
+        )
+        if existing is None:
+            existing = AgentPresetVersion(
+                workspace_id=workspace_service.workspace_id,
+                preset_id=preset.id,
+                version=version.version_number,
+                **attrs,
+            )
+            workspace_service.session.add(existing)
+            await workspace_service.session.flush()
+        else:
+            for key, value in attrs.items():
+                setattr(existing, key, value)
+            workspace_service.session.add(existing)
+            await workspace_service.session.flush()
+        return existing
+
+    def _version_attrs_from_preset(self, preset: AgentPreset) -> dict[str, Any]:
+        """Return the versioned preset attributes to snapshot or compare."""
+        return {
+            "instructions": preset.instructions,
+            "model_name": preset.model_name,
+            "model_provider": preset.model_provider,
+            "catalog_id": preset.catalog_id,
+            "base_url": preset.base_url,
+            "output_type": preset.output_type,
+            "actions": preset.actions,
+            "namespaces": preset.namespaces,
+            "tool_approvals": preset.tool_approvals,
+            "mcp_integrations": preset.mcp_integrations,
+            "agents": preset.agents,
+            "retries": preset.retries,
+            "enable_thinking": preset.enable_thinking,
+            "enable_internet_access": preset.enable_internet_access,
+        }
+
+    def _version_attrs_from_spec(
+        self,
+        spec: AgentPresetVersionResourceSpec,
+    ) -> dict[str, Any]:
+        """Return version row attributes from a version spec."""
+        return {
+            "instructions": spec.instructions,
+            "model_name": spec.model_name or DEFAULT_AGENT_MODEL_NAME,
+            "model_provider": spec.model_provider or DEFAULT_AGENT_MODEL_PROVIDER,
+            "catalog_id": spec.catalog_id,
+            "base_url": spec.base_url,
+            "output_type": spec.output_type,
+            "actions": spec.actions or None,
+            "namespaces": spec.namespaces or None,
+            "tool_approvals": _tool_approvals(spec.tool_approvals),
+            "mcp_integrations": spec.mcp_integrations or None,
+            "retries": spec.retries,
+            "enable_thinking": spec.enable_thinking,
+            "enable_internet_access": spec.enable_internet_access,
+        }
+
+    async def _replace_head_skill_bindings(
+        self,
+        workspace_service: BaseWorkspaceService,
+        preset: AgentPreset,
+        skill_targets: list[tuple[Skill, SkillVersion]],
+    ) -> None:
+        """Replace ``preset``'s head skill bindings with ``skill_targets``."""
+        # Delete existing head bindings, then re-insert the resolved set so the
+        # result is an exact replacement.
+        await workspace_service.session.execute(
+            sa.delete(AgentPresetSkill).where(
+                AgentPresetSkill.workspace_id == workspace_service.workspace_id,
+                AgentPresetSkill.preset_id == preset.id,
+            )
+        )
+        for skill, skill_version in skill_targets:
+            workspace_service.session.add(
+                AgentPresetSkill(
+                    workspace_id=workspace_service.workspace_id,
+                    preset_id=preset.id,
+                    skill_id=skill.id,
+                    skill_version_id=skill_version.id,
+                )
+            )
+        await workspace_service.session.flush()
+
+    async def _replace_version_skill_bindings(
+        self,
+        workspace_service: BaseWorkspaceService,
+        version: AgentPresetVersion,
+        skill_targets: list[tuple[Skill, SkillVersion]],
+    ) -> None:
+        """Replace ``version``'s skill bindings with ``skill_targets``."""
+        # Delete then re-insert so the version's bindings exactly mirror the set
+        # captured at snapshot time.
+        await workspace_service.session.execute(
+            sa.delete(AgentPresetVersionSkill).where(
+                AgentPresetVersionSkill.workspace_id == workspace_service.workspace_id,
+                AgentPresetVersionSkill.preset_version_id == version.id,
+            )
+        )
+        for skill, skill_version in skill_targets:
+            workspace_service.session.add(
+                AgentPresetVersionSkill(
+                    workspace_id=workspace_service.workspace_id,
+                    preset_version_id=version.id,
+                    skill_id=skill.id,
+                    skill_version_id=skill_version.id,
+                )
+            )
+        await workspace_service.session.flush()
+
+    async def _skill_binding_targets_for_spec(
+        self,
+        workspace_service: BaseWorkspaceService,
+        spec: AgentPresetResourceSpec | AgentPresetVersionResourceSpec,
+    ) -> list[tuple[Skill, SkillVersion]]:
+        """Resolve ``spec``'s skill bindings to ``(skill, version)`` pairs.
+
+        Skips any binding whose skill or requested version is missing from the
+        workspace.
+        """
+        targets: list[tuple[Skill, SkillVersion]] = []
+        for binding in spec.skills:
+            skill, skill_version = await self._skill_binding_targets(
+                workspace_service, binding
+            )
+            # Drop bindings that don't fully resolve so callers only see live
+            # (skill, version) pairs.
+            if skill is None or skill_version is None:
+                continue
+            targets.append((skill, skill_version))
+        return targets
+
+    async def _skill_binding_targets(
+        self,
+        workspace_service: BaseWorkspaceService,
+        binding: AgentPresetSkillBinding,
+    ) -> tuple[Skill | None, SkillVersion | None]:
+        """Resolve one skill binding to its ``(skill, version)`` pair.
+
+        Looks up the skill by slug, then the requested version (or the skill's
+        current version when ``binding.version`` is unset). Returns
+        ``(None, None)`` when the skill or version cannot be found.
+        """
+        # Resolve the skill by its slug (stored as `name`) in this workspace.
+        skill = await workspace_service.session.scalar(
+            select(Skill).where(
+                Skill.workspace_id == workspace_service.workspace_id,
+                Skill.name == binding.slug,
+            )
+        )
+        if skill is None:
+            return None, None
+        version_number = binding.version
+        stmt = select(SkillVersion).where(
+            SkillVersion.workspace_id == workspace_service.workspace_id,
+            SkillVersion.skill_id == skill.id,
+        )
+        # Use the requested version when pinned; otherwise the skill's current
+        # version. A missing match returns None and the binding is dropped.
+        if version_number is not None:
+            stmt = stmt.where(SkillVersion.version == version_number)
+        else:
+            stmt = stmt.where(SkillVersion.id == skill.current_version_id)
+        version = await workspace_service.session.scalar(stmt)
+        return skill, version
+
+
+def _subagent_refs(agents: dict[str, Any]) -> list[AgentPresetSubagentRef]:
+    """Extract slug-only subagent refs from a preset's ``agents`` config.
+
+    Returns an empty list when the config is missing or fails to validate.
+    """
+    # Treat a malformed/legacy config as having no subagents rather than failing
+    # the whole projection.
+    try:
+        config = AgentSubagentsConfig.model_validate(agents or {"enabled": False})
+    except Exception:
+        return []
+    # Project to slug-keyed refs, sorted by slug for deterministic output.
+    return [
+        AgentPresetSubagentRef(
+            slug=subagent.preset,
+            version=subagent.preset_version,
+            name=subagent.name,
+            description=subagent.description,
+            max_turns=subagent.max_turns,
+        )
+        for subagent in sorted(config.subagents, key=lambda item: item.preset)
+    ]
+
+
+def _parse_preset_version_relpath(relpath: str) -> int | None:
+    """Parse ``versions/<n>.yml`` relpaths for preset companion files."""
+    parts = path_parts(relpath)
+    if len(parts) != 2 or parts[0] != AGENT_PRESET_VERSIONS_DIR:
+        return None
+    filename = parts[1]
+    if not filename.endswith(".yml"):
+        return None
+    try:
+        version_number = int(filename.removesuffix(".yml"))
+    except ValueError:
+        return None
+    return version_number if version_number >= 1 else None
+
+
+def _parse_agent_preset_version_manifest(
+    adapter: AgentPresetAdapter,
+    *,
+    source_id: str,
+    version_number: int,
+    content: str,
+    diagnostics: list[PullDiagnostic],
+) -> AgentPresetVersionResourceSpec | None:
+    """Parse one agent preset version manifest or append a diagnostic."""
+    path = adapter._version_source_path(source_id, version_number)
+    try:
+        raw = yaml.safe_load(content)
+        if not isinstance(raw, dict) or not raw:
+            diagnostics.append(
+                PullDiagnostic(
+                    workflow_path=path,
+                    workflow_title=None,
+                    error_type="parse",
+                    message="Empty or invalid agent preset version YAML file",
+                    details={},
+                )
+            )
+            return None
+        version = AgentPresetVersionResourceSpec.model_validate(raw)
+        if version.version_number != version_number:
+            diagnostics.append(
+                PullDiagnostic(
+                    workflow_path=path,
+                    workflow_title=version.name,
+                    error_type="validation",
+                    message=(
+                        "Agent preset version number does not match its repository path"
+                    ),
+                    details={
+                        "path_version": version_number,
+                        "spec_version": version.version_number,
+                    },
+                )
+            )
+            return None
+        return version
+    except yaml.YAMLError as e:
+        diagnostics.append(
+            PullDiagnostic(
+                workflow_path=path,
+                workflow_title=None,
+                error_type="parse",
+                message=f"YAML parsing error: {str(e)}",
+                details={"yaml_error": str(e)},
+            )
+        )
+    except ValidationError as e:
+        diagnostics.append(
+            PullDiagnostic(
+                workflow_path=path,
+                workflow_title=None,
+                error_type="validation",
+                message=f"Validation error: {str(e)}",
+                details={
+                    "validation_errors": serializable_validation_errors(e.errors())
+                },
+            )
+        )
+    return None
+
+
+def _tool_approvals(value: dict[str, Any]) -> dict[str, bool] | None:
+    """Normalize tool approval values into a ``tool -> bool`` map.
+
+    Treats the legacy ``"manual"`` marker and ``True`` as approval-required.
+    Returns ``None`` for an empty mapping so the column stays unset.
+    """
+    # An empty map leaves the column unset (None) rather than storing {}.
+    if not value:
+        return None
+    # Legacy "manual" marker and bare True both mean approval-required.
+    return {
+        key: bool(raw_value == "manual" or raw_value is True)
+        for key, raw_value in value.items()
+    }
