@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 from collections.abc import Iterator, Mapping, MutableMapping
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, cast
@@ -67,6 +68,7 @@ from tracecat.registry.actions.bound import BoundRegistryAction
 from tracecat.registry.actions.schemas import TemplateActionDefinition
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
+from tracecat.registry.versions.schemas import RegistryVersionManifestAction
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.common import apply_masks_object
 from tracecat.variables.schemas import VariableSearch
@@ -397,6 +399,13 @@ async def _prepare_step_context(
     action_impl = await registry_resolver.resolve_action(
         step_action, input.registry_lock, role.organization_id
     )
+    manifest_action = await registry_resolver.resolve_manifest_action(
+        step_action, input.registry_lock, role.organization_id
+    )
+    materialized_args = _apply_manifest_arg_defaults(
+        manifest_action=manifest_action,
+        evaluated_args=evaluated_args,
+    )
 
     # Mint new executor token for step (required for SDK authentication)
     if role.workspace_id is None:
@@ -414,7 +423,7 @@ async def _prepare_step_context(
         secrets=parent_resolved.secrets,  # Reuse - already fetched recursively
         variables=parent_resolved.variables,  # Reuse
         action_impl=action_impl,
-        evaluated_args=evaluated_args,  # Already evaluated against template context
+        evaluated_args=materialized_args,
         workspace_id=parent_resolved.workspace_id,
         workflow_id=parent_resolved.workflow_id,
         run_id=parent_resolved.run_id,
@@ -614,6 +623,26 @@ class PreparedContext:
     mask_values: set[str] | None
 
 
+def _apply_manifest_arg_defaults(
+    *,
+    manifest_action: RegistryVersionManifestAction,
+    evaluated_args: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Apply defaults from the frozen manifest interface without rewriting args."""
+    expects = manifest_action.interface.get("expects")
+    properties = expects.get("properties") if isinstance(expects, dict) else None
+    if not isinstance(properties, dict):
+        return dict(evaluated_args)
+
+    materialized = dict(evaluated_args)
+    for arg_name, arg_schema in properties.items():
+        if arg_name in materialized or not isinstance(arg_schema, dict):
+            continue
+        if "default" in arg_schema:
+            materialized[arg_name] = deepcopy(arg_schema["default"])
+    return materialized
+
+
 async def _get_template_secret_projection(
     context: TemplateExecutionContext,
 ) -> SecretEnvProjection:
@@ -657,6 +686,9 @@ async def prepare_resolved_context(
 
     # Resolve action implementation and secrets via registry resolver (O(1) manifest-based lookup)
     action_impl = await registry_resolver.resolve_action(
+        action_name, input.registry_lock, role.organization_id
+    )
+    manifest_action = await registry_resolver.resolve_manifest_action(
         action_name, input.registry_lock, role.organization_id
     )
     action_secrets = await registry_resolver.collect_action_secrets_from_manifest(
@@ -711,6 +743,11 @@ async def prepare_resolved_context(
         ctx_logical_time.reset(logical_time_token)
         ctx_interaction.reset(interaction_token)
 
+    materialized_args = _apply_manifest_arg_defaults(
+        manifest_action=manifest_action,
+        evaluated_args=evaluated_args,
+    )
+
     if role.workspace_id is None:
         raise ValueError("workspace_id is required for action execution")
 
@@ -743,7 +780,7 @@ async def prepare_resolved_context(
         secrets=secrets,
         variables=workspace_variables,
         action_impl=action_impl,
-        evaluated_args=dict(evaluated_args),
+        evaluated_args=materialized_args,
         workspace_id=str(role.workspace_id),
         workflow_id=str(input.run_context.wf_id),
         run_id=str(input.run_context.wf_run_id),
