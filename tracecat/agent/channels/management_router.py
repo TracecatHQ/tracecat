@@ -104,6 +104,11 @@ async def update_channel_token(
         )
     try:
         updated = await service.update_token(token, params)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
     except TracecatValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
