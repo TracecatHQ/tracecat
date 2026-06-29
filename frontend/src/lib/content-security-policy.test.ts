@@ -29,6 +29,28 @@ describe("buildContentSecurityPolicy", () => {
     expect(getScriptSrc(policy)).toContain("https://*.posthog.com")
   })
 
+  it("allows the configured public API origin", () => {
+    const connectSrc = getConnectSrc(
+      buildContentSecurityPolicy({
+        NEXT_PUBLIC_API_URL: " https://api.example.com/v1 ",
+      })
+    )
+
+    expect(connectSrc).toContain("https://api.example.com")
+    expect(connectSrc).not.toContain("/v1")
+  })
+
+  it("ignores relative public API URLs", () => {
+    const connectSrc = getConnectSrc(
+      buildContentSecurityPolicy({
+        NEXT_PUBLIC_API_URL: "/api",
+      })
+    )
+
+    expect(connectSrc).toContain("connect-src 'self'")
+    expect(connectSrc).not.toContain("/api")
+  })
+
   it("falls back to the server Sentry DSN when the public DSN is blank", () => {
     const connectSrc = getConnectSrc(
       buildContentSecurityPolicy({

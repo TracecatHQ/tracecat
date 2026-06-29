@@ -2,6 +2,7 @@ import { readEnvValue } from "@/lib/sentry-env"
 
 type ContentSecurityPolicyEnv = {
   [key: string]: string | undefined
+  NEXT_PUBLIC_API_URL?: string
   NEXT_PUBLIC_SENTRY_DSN?: string
   POSTHOG_KEY?: string
   SENTRY_DSN?: string
@@ -42,6 +43,7 @@ export function buildContentSecurityPolicy(
 function getConnectSrc(env: ContentSecurityPolicyEnv): string {
   return [
     "connect-src 'self'",
+    getUrlOrigin(env.NEXT_PUBLIC_API_URL),
     readEnvValue(env.POSTHOG_KEY) ? "https://*.posthog.com" : undefined,
     ...getSentryConnectSources(readSentryDsn(env)),
   ]
@@ -60,7 +62,7 @@ function getScriptSrc(env: ContentSecurityPolicyEnv): string {
 
 function getSentryConnectSources(dsn: string | undefined): string[] {
   const sources = new Set(SENTRY_CONNECT_SOURCES)
-  const dsnOrigin = getDsnOrigin(dsn)
+  const dsnOrigin = getUrlOrigin(dsn)
   if (dsnOrigin) {
     sources.add(dsnOrigin)
   }
@@ -73,12 +75,13 @@ function readSentryDsn(env: ContentSecurityPolicyEnv): string | undefined {
   )
 }
 
-function getDsnOrigin(dsn: string | undefined): string | undefined {
-  if (!dsn) {
+function getUrlOrigin(value: string | undefined): string | undefined {
+  const url = readEnvValue(value)
+  if (!url) {
     return undefined
   }
   try {
-    return new URL(dsn).origin
+    return new URL(url).origin
   } catch {
     return undefined
   }
