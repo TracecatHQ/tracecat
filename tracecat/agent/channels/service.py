@@ -17,7 +17,7 @@ from cryptography.fernet import InvalidToken
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from pydantic import ValidationError
 from slack_sdk.web.async_client import AsyncWebClient
-from sqlalchemy import exists, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from tracecat import config
@@ -442,23 +442,23 @@ class AgentChannelService(BaseWorkspaceService):
             slack_signing_secret=redacted_signing_secret,
         )
 
-    async def _require_workspace_preset(self, preset_id: uuid.UUID) -> None:
-        stmt = select(
-            exists().where(
-                AgentPreset.id == preset_id,
-                AgentPreset.workspace_id == self.workspace_id,
-                AgentPreset.archived_at.is_(None),
-            )
+    async def _require_workspace_preset(
+        self, preset_id: uuid.UUID, *, lock: bool = False
+    ) -> None:
+        stmt = select(AgentPreset.id).where(
+            AgentPreset.id == preset_id,
+            AgentPreset.workspace_id == self.workspace_id,
+            AgentPreset.archived_at.is_(None),
         )
+        if lock:
+            stmt = stmt.with_for_update()
         result = await self.session.execute(stmt)
-        if not result.scalar():
+        if result.scalar_one_or_none() is None:
             raise TracecatNotFoundError(
                 f"Agent preset with ID '{preset_id}' not found in workspace"
             )
 
     async def create_token(self, params: AgentChannelTokenCreate) -> AgentChannelToken:
-        await self._require_workspace_preset(params.agent_preset_id)
-
         validated_config = self._validate_channel_config(
             params.channel_type, params.config
         )
@@ -469,6 +469,10 @@ class AgentChannelService(BaseWorkspaceService):
             raise TracecatValidationError(
                 "Cannot activate token without Slack bot token"
             )
+        await self._require_workspace_preset(
+            params.agent_preset_id,
+            lock=params.is_active,
+        )
 
         token = AgentChannelToken(
             workspace_id=self.workspace_id,
@@ -566,7 +570,7 @@ class AgentChannelService(BaseWorkspaceService):
                 "Cannot activate token without Slack bot token"
             )
         if next_is_active:
-            await self._require_workspace_preset(token.agent_preset_id)
+            await self._require_workspace_preset(token.agent_preset_id, lock=True)
 
         if "is_active" in set_fields:
             token.is_active = next_is_active
@@ -604,9 +608,14 @@ class AgentChannelService(BaseWorkspaceService):
         channel_type: ChannelType,
         require_active: bool = True,
     ) -> AgentChannelToken | None:
-        stmt = select(AgentChannelToken).where(
-            AgentChannelToken.id == token_id,
-            AgentChannelToken.channel_type == channel_type.value,
+        stmt = (
+            select(AgentChannelToken)
+            .join(AgentPreset, AgentPreset.id == AgentChannelToken.agent_preset_id)
+            .where(
+                AgentChannelToken.id == token_id,
+                AgentChannelToken.channel_type == channel_type.value,
+                AgentPreset.archived_at.is_(None),
+            )
         )
         if require_active:
             stmt = stmt.where(AgentChannelToken.is_active.is_(True))

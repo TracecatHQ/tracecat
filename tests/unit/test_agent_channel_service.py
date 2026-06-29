@@ -205,6 +205,44 @@ async def test_create_token_rejects_archived_preset(
 
 
 @pytest.mark.anyio
+async def test_create_active_token_locks_preset(
+    agent_channel_service: AgentChannelService,
+    agent_preset: AgentPreset,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_locks: list[bool] = []
+    original_require_workspace_preset = agent_channel_service._require_workspace_preset
+
+    async def instrumented_require_workspace_preset(
+        preset_id: uuid.UUID, *, lock: bool = False
+    ) -> None:
+        captured_locks.append(lock)
+        await original_require_workspace_preset(preset_id, lock=lock)
+
+    monkeypatch.setattr(
+        agent_channel_service,
+        "_require_workspace_preset",
+        instrumented_require_workspace_preset,
+    )
+
+    await agent_channel_service.create_token(
+        AgentChannelTokenCreate(
+            agent_preset_id=agent_preset.id,
+            channel_type=ChannelType.SLACK,
+            config=SlackChannelTokenConfig(
+                slack_bot_token="xoxb-real-secret",
+                slack_client_id="12345.67890",
+                slack_client_secret="client-secret",
+                slack_signing_secret="signing-secret",
+            ),
+            is_active=True,
+        )
+    )
+
+    assert captured_locks == [True]
+
+
+@pytest.mark.anyio
 async def test_update_token_rejects_reactivating_archived_preset(
     agent_channel_service: AgentChannelService,
     agent_preset: AgentPreset,
@@ -231,6 +269,79 @@ async def test_update_token_rejects_reactivating_archived_preset(
             token,
             AgentChannelTokenUpdate(is_active=True),
         )
+
+
+@pytest.mark.anyio
+async def test_update_token_locks_preset_when_reactivating(
+    agent_channel_service: AgentChannelService,
+    agent_preset: AgentPreset,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    token = await agent_channel_service.create_token(
+        AgentChannelTokenCreate(
+            agent_preset_id=agent_preset.id,
+            channel_type=ChannelType.SLACK,
+            config=SlackChannelTokenConfig(
+                slack_bot_token="xoxb-real-secret",
+                slack_client_id="12345.67890",
+                slack_client_secret="client-secret",
+                slack_signing_secret="signing-secret",
+            ),
+            is_active=False,
+        )
+    )
+    captured_locks: list[bool] = []
+    original_require_workspace_preset = agent_channel_service._require_workspace_preset
+
+    async def instrumented_require_workspace_preset(
+        preset_id: uuid.UUID, *, lock: bool = False
+    ) -> None:
+        captured_locks.append(lock)
+        await original_require_workspace_preset(preset_id, lock=lock)
+
+    monkeypatch.setattr(
+        agent_channel_service,
+        "_require_workspace_preset",
+        instrumented_require_workspace_preset,
+    )
+
+    await agent_channel_service.update_token(
+        token,
+        AgentChannelTokenUpdate(is_active=True),
+    )
+
+    assert captured_locks == [True]
+
+
+@pytest.mark.anyio
+async def test_public_token_lookup_rejects_archived_preset(
+    agent_channel_service: AgentChannelService,
+    agent_preset: AgentPreset,
+) -> None:
+    token = await agent_channel_service.create_token(
+        AgentChannelTokenCreate(
+            agent_preset_id=agent_preset.id,
+            channel_type=ChannelType.SLACK,
+            config=SlackChannelTokenConfig(
+                slack_bot_token="xoxb-real-secret",
+                slack_client_id="12345.67890",
+                slack_client_secret="client-secret",
+                slack_signing_secret="signing-secret",
+            ),
+            is_active=True,
+        )
+    )
+    agent_preset.archived_at = datetime.now(UTC)
+    agent_channel_service.session.add(agent_preset)
+    await agent_channel_service.session.commit()
+
+    token_record = await AgentChannelService.get_token_for_public_request(
+        agent_channel_service.session,
+        token_id=token.id,
+        channel_type=ChannelType.SLACK,
+    )
+
+    assert token_record is None
 
 
 @pytest.mark.anyio
