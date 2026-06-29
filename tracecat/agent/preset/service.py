@@ -406,7 +406,7 @@ class AgentPresetService(BaseWorkspaceService):
                 execution_changed = True
 
         if requested_skills is not None:
-            await self._lock_preset_for_versioning(preset.id)
+            await self._lock_preset_row(preset.id)
             preset_locked = True
             await self.skills.validate_binding_inputs(
                 requested_skills,
@@ -451,6 +451,7 @@ class AgentPresetService(BaseWorkspaceService):
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def delete_preset(self, preset: AgentPreset) -> None:
         """Archive a preset without deleting its published versions."""
+        await self._lock_preset_row(preset.id)
         await self._ensure_not_referenced_as_subagent(preset)
         await self.session.execute(
             sa.update(AgentChannelToken)
@@ -1420,8 +1421,8 @@ class AgentPresetService(BaseWorkspaceService):
             )
         return skill_changes
 
-    async def _lock_preset_for_versioning(self, preset_id: uuid.UUID) -> None:
-        """Serialize version creation for one preset using a row-level lock."""
+    async def _lock_preset_row(self, preset_id: uuid.UUID) -> None:
+        """Serialize preset mutations using a row-level lock."""
         stmt = (
             select(AgentPreset.id)
             .where(
@@ -1475,7 +1476,7 @@ class AgentPresetService(BaseWorkspaceService):
                 "Preset version does not belong to the selected preset"
             )
 
-        await self._lock_preset_for_versioning(preset.id)
+        await self._lock_preset_row(preset.id)
         restored_agents = await self._resolve_restored_agents_config(preset, version)
         self._sync_preset_head_from_version(
             preset,
@@ -1685,7 +1686,7 @@ class AgentPresetService(BaseWorkspaceService):
     ) -> AgentPresetVersion:
         """Create and flush a new immutable version from the preset head."""
         if not preset_locked:
-            await self._lock_preset_for_versioning(preset.id)
+            await self._lock_preset_row(preset.id)
         duplicate_name_stmt = (
             select(
                 SkillVersion.name,

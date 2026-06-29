@@ -1618,7 +1618,7 @@ class TestAgentPresetService:
             )
         )
 
-        original_lock = agent_preset_service._lock_preset_for_versioning
+        original_lock = agent_preset_service._lock_preset_row
         original_get_specs = agent_preset_service._get_head_skill_binding_specs
         original_replace = agent_preset_service._replace_head_skill_bindings
         call_order: list[str] = []
@@ -1642,7 +1642,7 @@ class TestAgentPresetService:
 
         monkeypatch.setattr(
             agent_preset_service,
-            "_lock_preset_for_versioning",
+            "_lock_preset_row",
             instrumented_lock,
         )
         monkeypatch.setattr(
@@ -1740,7 +1740,7 @@ class TestAgentPresetService:
             AgentPresetUpdate(skills=[]),
         )
 
-        original_lock = agent_preset_service._lock_preset_for_versioning
+        original_lock = agent_preset_service._lock_preset_row
         original_restore = (
             agent_preset_service._restore_head_skill_bindings_from_version
         )
@@ -1758,7 +1758,7 @@ class TestAgentPresetService:
 
         monkeypatch.setattr(
             agent_preset_service,
-            "_lock_preset_for_versioning",
+            "_lock_preset_row",
             instrumented_lock,
         )
         monkeypatch.setattr(
@@ -2104,6 +2104,44 @@ class TestAgentPresetService:
 
         await agent_preset_service.session.refresh(token)
         assert token.is_active is False
+
+    async def test_delete_preset_locks_target_before_subagent_reference_check(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Preset deletion serializes with restore before checking active refs."""
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params
+        )
+        call_order: list[str] = []
+        original_lock = agent_preset_service._lock_preset_row
+        original_ensure = agent_preset_service._ensure_not_referenced_as_subagent
+
+        async def instrumented_lock(preset_id: uuid.UUID) -> None:
+            call_order.append("lock")
+            await original_lock(preset_id)
+
+        async def instrumented_ensure(preset: AgentPreset) -> None:
+            call_order.append("reference_check")
+            await original_ensure(preset)
+
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_lock_preset_row",
+            instrumented_lock,
+        )
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_ensure_not_referenced_as_subagent",
+            instrumented_ensure,
+        )
+
+        await agent_preset_service.delete_preset(created_preset)
+
+        assert call_order[:2] == ["lock", "reference_check"]
+        assert call_order.count("lock") == 1
 
     async def test_delete_preset_blocks_when_referenced_as_subagent_in_head(
         self,
