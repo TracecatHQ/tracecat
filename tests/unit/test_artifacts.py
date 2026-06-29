@@ -275,6 +275,33 @@ def test_artifact_bindings_list_canonical_tool_names() -> None:
         "core.cases.list_cases": "upsert",
         "core.cases.search_cases": "upsert",
         "core.cases.delete_case": "remove",
+        "core.cases.create_comment": "upsert",
+        "core.cases.reply_to_comment": "upsert",
+        "core.cases.update_comment": "upsert",
+        "core.cases.list_case_events": "upsert",
+        "core.cases.list_comments": "upsert",
+        "core.cases.list_comment_threads": "upsert",
+        "core.cases.get_comment_thread": "upsert",
+        "core.cases.assign_user": "upsert",
+        "core.cases.assign_user_by_email": "upsert",
+        "core.cases.add_case_tag": "upsert",
+        "core.cases.remove_case_tag": "upsert",
+        "core.cases.upload_attachment": "upsert",
+        "core.cases.upload_attachment_from_url": "upsert",
+        "core.cases.list_attachments": "upsert",
+        "core.cases.download_attachment": "upsert",
+        "core.cases.get_attachment": "upsert",
+        "core.cases.delete_attachment": "upsert",
+        "core.cases.get_attachment_download_url": "upsert",
+        "core.cases.link_row": "upsert",
+        "core.cases.unlink_row": "upsert",
+        "core.cases.insert_row": "upsert",
+        "core.cases.create_task": "upsert",
+        "core.cases.get_task": "upsert",
+        "core.cases.list_tasks": "upsert",
+        "core.cases.update_task": "upsert",
+        "core.cases.delete_task": "upsert",
+        "core.cases.get_case_metrics": "upsert",
         "core.table.create_table": "upsert",
         "core.table.list_tables": "upsert",
         "core.table.get_table_metadata": "upsert",
@@ -334,6 +361,144 @@ def test_case_delete_tool_result_emits_remove_side_effect() -> None:
             "status": "unknown",
         },
     }
+
+
+def test_case_comment_create_emits_parent_case_upsert_from_input() -> None:
+    effects = list(
+        artifact_side_effects_for_tool_result(
+            tool_name="core.cases.create_comment",
+            tool_input={"case_id": "case_123", "content": "Investigating"},
+            tool_output={"id": "comment_123", "content": "Investigating"},
+            is_error=False,
+            tool_call_id="toolu_123",
+        )
+    )
+
+    assert len(effects) == 1
+    assert effects[0].op == "upsert"
+    assert effects[0].identity_ref == ArtifactIdentityRef(
+        artifact_type="case",
+        ref="case_123",
+        ref_kind="id",
+    )
+    assert artifact_data_payload(effects[0].op, effects[0].artifact) == {
+        "op": "upsert",
+        "artifact": {
+            "type": "case",
+            "id": "case_123",
+            "title": "case_123",
+            "scope": {"parentToolCallId": "toolu_123"},
+            "severity": "unknown",
+            "status": "unknown",
+        },
+    }
+
+
+def test_case_comment_update_emits_parent_case_upsert_from_comment_ref() -> None:
+    effects = list(
+        artifact_side_effects_for_tool_result(
+            tool_name="core.cases.update_comment",
+            tool_input={"comment_id": "comment_123", "content": "Updated"},
+            tool_output={"id": "comment_123", "content": "Updated"},
+            is_error=False,
+            tool_call_id="toolu_123",
+        )
+    )
+
+    assert len(effects) == 1
+    assert effects[0].op == "upsert"
+    assert effects[0].identity_ref == ArtifactIdentityRef(
+        artifact_type="case",
+        ref="comment_123",
+        ref_kind="comment_id",
+    )
+    assert effects[0].artifact.id == "comment_123"
+
+
+def test_case_task_update_emits_parent_case_upsert_from_output() -> None:
+    effects = list(
+        artifact_side_effects_for_tool_result(
+            tool_name="core.cases.update_task",
+            tool_input={"task_id": "task_123", "status": "completed"},
+            tool_output={
+                "id": "task_123",
+                "case_id": "case_123",
+                "title": "Investigate",
+                "status": "completed",
+            },
+            is_error=False,
+            tool_call_id="toolu_123",
+        )
+    )
+
+    assert len(effects) == 1
+    assert effects[0].op == "upsert"
+    assert effects[0].identity_ref == ArtifactIdentityRef(
+        artifact_type="case",
+        ref="case_123",
+        ref_kind="id",
+    )
+    assert effects[0].artifact.id == "case_123"
+
+
+def test_case_row_link_emits_parent_case_upsert_not_row_artifact() -> None:
+    effects = list(
+        artifact_side_effects_for_tool_result(
+            tool_name="core.cases.link_row",
+            tool_input={
+                "case_id": "case_123",
+                "table_id": "table_123",
+                "row_id": "row_123",
+            },
+            tool_output={
+                "id": "case_row_link_123",
+                "case_id": "case_123",
+                "table_id": "table_123",
+                "row_id": "row_123",
+            },
+            is_error=False,
+            tool_call_id="toolu_123",
+        )
+    )
+
+    assert len(effects) == 1
+    assert effects[0].artifact.type == "case"
+    assert effects[0].artifact.id == "case_123"
+
+
+def test_case_metrics_emit_one_case_upsert_per_case() -> None:
+    effects = list(
+        artifact_side_effects_for_tool_result(
+            tool_name="core.cases.get_case_metrics",
+            tool_input={"case_ids": ["case_123", "case_456"]},
+            tool_output=[
+                {
+                    "case_id": "case_123",
+                    "case_short_id": "CASE-0123",
+                    "case_severity": "high",
+                    "case_status": "new",
+                },
+                {
+                    "case_id": "case_123",
+                    "case_short_id": "CASE-0123",
+                    "case_severity": "high",
+                    "case_status": "new",
+                },
+                {
+                    "case_id": "case_456",
+                    "case_short_id": "CASE-0456",
+                    "case_severity": "medium",
+                    "case_status": "closed",
+                },
+            ],
+            is_error=False,
+            tool_call_id="toolu_123",
+        )
+    )
+
+    assert [effect.artifact.id for effect in effects] == ["case_123", "case_456"]
+    assert [effect.artifact.title for effect in effects] == ["CASE-0123", "CASE-0456"]
+    assert [effect.identity_ref for effect in effects] == [None, None]
 
 
 def test_table_tool_result_content_block_emits_upsert_side_effect() -> None:

@@ -26,7 +26,7 @@ from tracecat.artifacts.schemas import (
 from tracecat.cases.enums import CaseSeverity, CaseStatus
 
 type RunStatus = Literal["running", "success", "failed", "cancelled"]
-type ArtifactIdentityRefKind = Literal["id", "name"]
+type ArtifactIdentityRefKind = Literal["id", "name", "comment_id", "task_id"]
 
 
 class CaseArtifactPayload(TypedDict):
@@ -101,6 +101,38 @@ class _CaseToolResult(_ArtifactProjectionModel):
 
 class _CaseDeleteToolInput(_ArtifactProjectionModel):
     case_id: str = Field(validation_alias=AliasChoices("case_id", "caseId", "id"))
+
+
+class _CaseIdToolInput(_ArtifactProjectionModel):
+    case_id: str = Field(validation_alias=AliasChoices("case_id", "caseId"))
+
+
+class _CaseIdToolResult(_ArtifactProjectionModel):
+    case_id: str = Field(validation_alias=AliasChoices("case_id", "caseId"))
+
+
+class _CaseCommentToolInput(_ArtifactProjectionModel):
+    comment_id: str = Field(validation_alias=AliasChoices("comment_id", "commentId"))
+
+
+class _CaseTaskToolInput(_ArtifactProjectionModel):
+    task_id: str = Field(validation_alias=AliasChoices("task_id", "taskId"))
+
+
+class _CaseMetricToolResult(_ArtifactProjectionModel):
+    case_id: str = Field(validation_alias=AliasChoices("case_id", "caseId"))
+    title: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("case_short_id", "caseShortId", "short_id"),
+    )
+    severity: CaseSeverity = Field(
+        default=CaseSeverity.UNKNOWN,
+        validation_alias=AliasChoices("case_severity", "caseSeverity", "severity"),
+    )
+    status: CaseStatus = Field(
+        default=CaseStatus.UNKNOWN,
+        validation_alias=AliasChoices("case_status", "caseStatus", "status"),
+    )
 
 
 class _TableToolResult(_ArtifactProjectionModel):
@@ -233,6 +265,40 @@ def _build_deleted_case_artifact(ctx: ArtifactProjectionContext) -> Artifact | N
     return _deleted_case_artifact(ctx.tool_input, ctx.tool_call_id)
 
 
+def _build_case_parent_artifact(ctx: ArtifactProjectionContext) -> Artifact | None:
+    artifact = _case_artifact_from_case_id_output(
+        ctx.tool_output,
+        ctx.tool_call_id,
+    )
+    if artifact is not None:
+        return artifact
+    return _case_artifact_from_case_id_input(ctx.tool_input, ctx.tool_call_id)
+
+
+def _build_case_from_comment_artifact(
+    ctx: ArtifactProjectionContext,
+) -> Artifact | None:
+    return _case_artifact_from_comment_input(ctx.tool_input, ctx.tool_call_id)
+
+
+def _build_case_metrics_artifacts(ctx: ArtifactProjectionContext) -> Iterable[Artifact]:
+    return _case_metric_artifacts_from_output(ctx.tool_output, ctx.tool_call_id)
+
+
+def _case_identity_from_parent_ref(
+    ctx: ArtifactProjectionContext,
+) -> ArtifactIdentityRef | None:
+    if ref := _case_identity_ref_from_case_id_output(ctx.tool_output):
+        return ref
+    return _case_identity_ref_from_case_id_input(ctx.tool_input)
+
+
+def _case_identity_from_comment_input(
+    ctx: ArtifactProjectionContext,
+) -> ArtifactIdentityRef | None:
+    return _case_identity_ref_from_comment_input(ctx.tool_input)
+
+
 def _build_table_mutation_artifact(ctx: ArtifactProjectionContext) -> Artifact | None:
     artifact = _table_artifact_from_output(ctx.tool_output, ctx.tool_call_id)
     if artifact is not None:
@@ -287,6 +353,8 @@ ARTIFACT_BINDINGS: tuple[ArtifactBinding, ...] = (
             "core.cases.create_case",
             "core.cases.update_case",
             "core.cases.get_case",
+            "core.cases.assign_user",
+            "core.cases.assign_user_by_email",
         ),
         op="upsert",
         build=_build_case_artifact,
@@ -301,6 +369,49 @@ ARTIFACT_BINDINGS: tuple[ArtifactBinding, ...] = (
         tool_names=("core.cases.delete_case",),
         op="remove",
         build=_build_deleted_case_artifact,
+    ),
+    ArtifactBinding(
+        tool_names=(
+            "core.cases.create_comment",
+            "core.cases.reply_to_comment",
+            "core.cases.list_case_events",
+            "core.cases.list_comments",
+            "core.cases.list_comment_threads",
+            "core.cases.add_case_tag",
+            "core.cases.remove_case_tag",
+            "core.cases.upload_attachment",
+            "core.cases.upload_attachment_from_url",
+            "core.cases.list_attachments",
+            "core.cases.download_attachment",
+            "core.cases.get_attachment",
+            "core.cases.delete_attachment",
+            "core.cases.get_attachment_download_url",
+            "core.cases.link_row",
+            "core.cases.unlink_row",
+            "core.cases.insert_row",
+            "core.cases.create_task",
+            "core.cases.get_task",
+            "core.cases.list_tasks",
+            "core.cases.update_task",
+            "core.cases.delete_task",
+        ),
+        op="upsert",
+        build=_build_case_parent_artifact,
+        identity=_case_identity_from_parent_ref,
+    ),
+    ArtifactBinding(
+        tool_names=(
+            "core.cases.update_comment",
+            "core.cases.get_comment_thread",
+        ),
+        op="upsert",
+        build=_build_case_from_comment_artifact,
+        identity=_case_identity_from_comment_input,
+    ),
+    ArtifactBinding(
+        tool_names=("core.cases.get_case_metrics",),
+        op="upsert",
+        build=_build_case_metrics_artifacts,
     ),
     ArtifactBinding(
         tool_names=(
@@ -536,6 +647,133 @@ def _case_artifacts_from_output(
             yield ArtifactAdapter.validate_python(
                 _with_parent_scope(payload, tool_call_id)
             )
+
+
+def _case_artifact_from_case_id(
+    case_id: str,
+    tool_call_id: str | None,
+    *,
+    title: str | None = None,
+    severity: CaseSeverity = CaseSeverity.UNKNOWN,
+    status: CaseStatus = CaseStatus.UNKNOWN,
+) -> Artifact:
+    payload: CaseArtifactPayload = {
+        "type": "case",
+        "id": case_id,
+        "title": title or case_id,
+        "severity": severity,
+        "status": status,
+    }
+    return ArtifactAdapter.validate_python(_with_parent_scope(payload, tool_call_id))
+
+
+def _case_artifact_from_case_id_input(
+    value: Mapping[str, Any] | None,
+    tool_call_id: str | None,
+) -> Artifact | None:
+    if value is None:
+        return None
+
+    result = _CaseIdToolInput.try_validate(value)
+    if result is None:
+        return None
+    return _case_artifact_from_case_id(result.case_id, tool_call_id)
+
+
+def _case_artifact_from_case_id_output(
+    value: Any,
+    tool_call_id: str | None,
+) -> Artifact | None:
+    data = _mapping_from_tool_output(value)
+    if data is None:
+        return None
+
+    result = _CaseIdToolResult.try_validate(data)
+    if result is None:
+        return None
+    return _case_artifact_from_case_id(result.case_id, tool_call_id)
+
+
+def _case_artifact_from_comment_input(
+    value: Mapping[str, Any] | None,
+    tool_call_id: str | None,
+) -> Artifact | None:
+    if value is None:
+        return None
+
+    result = _CaseCommentToolInput.try_validate(value)
+    if result is None:
+        return None
+    return _case_artifact_from_case_id(result.comment_id, tool_call_id)
+
+
+def _case_metric_artifacts_from_output(
+    value: Any,
+    tool_call_id: str | None,
+) -> Iterator[Artifact]:
+    seen_case_ids: set[str] = set()
+    for data in _iter_mappings_from_tool_output(value):
+        if result := _CaseMetricToolResult.try_validate(data):
+            if result.case_id in seen_case_ids:
+                continue
+            seen_case_ids.add(result.case_id)
+            yield _case_artifact_from_case_id(
+                result.case_id,
+                tool_call_id,
+                title=result.title,
+                severity=result.severity,
+                status=result.status,
+            )
+
+
+def _case_identity_ref_from_case_id_input(
+    value: Mapping[str, Any] | None,
+) -> ArtifactIdentityRef | None:
+    if value is None:
+        return None
+
+    if result := _CaseIdToolInput.try_validate(value):
+        return ArtifactIdentityRef(
+            artifact_type="case",
+            ref=result.case_id,
+            ref_kind="id",
+        )
+    return None
+
+
+def _case_identity_ref_from_case_id_output(value: Any) -> ArtifactIdentityRef | None:
+    data = _mapping_from_tool_output(value)
+    if data is None:
+        return None
+
+    if result := _CaseIdToolResult.try_validate(data):
+        return ArtifactIdentityRef(
+            artifact_type="case",
+            ref=result.case_id,
+            ref_kind="id",
+        )
+    return None
+
+
+def _case_identity_ref_from_comment_input(
+    value: Mapping[str, Any] | None,
+) -> ArtifactIdentityRef | None:
+    if value is None:
+        return None
+
+    if result := _CaseCommentToolInput.try_validate(value):
+        return ArtifactIdentityRef(
+            artifact_type="case",
+            ref=result.comment_id,
+            ref_kind="comment_id",
+        )
+    if result := _CaseTaskToolInput.try_validate(value):
+        return ArtifactIdentityRef(
+            artifact_type="case",
+            ref=result.task_id,
+            ref_kind="task_id",
+        )
+    return None
 
 
 def _deleted_case_artifact(

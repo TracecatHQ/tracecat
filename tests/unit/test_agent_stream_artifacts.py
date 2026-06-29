@@ -32,6 +32,7 @@ from tracecat.artifacts.projection import (
 from tracecat.artifacts.resolution import resolve_artifact_side_effects
 from tracecat.artifacts.schemas import ArtifactAdapter
 from tracecat.auth.types import Role
+from tracecat.cases.enums import CaseSeverity, CaseStatus
 from tracecat.chat import tokens
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.redis.client import RedisClient
@@ -269,6 +270,158 @@ async def test_resolve_artifact_side_effects_skips_invalid_table_name_ref(
     )
 
     assert resolved == []
+
+
+@pytest.mark.anyio
+async def test_resolve_artifact_side_effects_resolves_case_comment_ref(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    comment_id = uuid.UUID("33333333-3333-4333-8333-333333333333")
+    case_id = uuid.UUID("44444444-4444-4444-8444-444444444444")
+
+    async def fake_get_comment(
+        _service: object,
+        requested_comment_id: uuid.UUID,
+    ) -> SimpleNamespace:
+        assert requested_comment_id == comment_id
+        return SimpleNamespace(case_id=case_id)
+
+    async def fake_get_case(
+        _service: object,
+        requested_case_id: uuid.UUID,
+    ) -> SimpleNamespace:
+        assert requested_case_id == case_id
+        return SimpleNamespace(
+            id=case_id,
+            summary="Suspicious login",
+            severity=CaseSeverity.HIGH,
+            status=CaseStatus.IN_PROGRESS,
+        )
+
+    monkeypatch.setattr(
+        "tracecat.artifacts.resolution.CaseCommentsService.get_comment",
+        fake_get_comment,
+    )
+    monkeypatch.setattr(
+        "tracecat.artifacts.resolution.CasesService.get_case",
+        fake_get_case,
+    )
+
+    artifact = ArtifactAdapter.validate_python(
+        {
+            "type": "case",
+            "id": str(comment_id),
+            "title": str(comment_id),
+            "severity": "unknown",
+            "status": "unknown",
+        }
+    )
+
+    resolved = await resolve_artifact_side_effects(
+        [
+            ArtifactSideEffect(
+                op="upsert",
+                artifact=artifact,
+                identity_ref=ArtifactIdentityRef(
+                    artifact_type="case",
+                    ref=str(comment_id),
+                    ref_kind="comment_id",
+                ),
+            )
+        ],
+        session=cast(AsyncSession, object()),
+        role=Role(
+            type="service",
+            service_id="tracecat-api",
+            workspace_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+        ),
+    )
+
+    assert len(resolved) == 1
+    case_artifact = resolved[0].artifact
+    assert case_artifact.type == "case"
+    assert case_artifact.id == str(case_id)
+    assert case_artifact.title == "Suspicious login"
+    assert case_artifact.severity == CaseSeverity.HIGH
+    assert case_artifact.status == CaseStatus.IN_PROGRESS
+    assert resolved[0].identity_ref is None
+
+
+@pytest.mark.anyio
+async def test_resolve_artifact_side_effects_resolves_case_task_ref(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task_id = uuid.UUID("55555555-5555-4555-8555-555555555555")
+    case_id = uuid.UUID("66666666-6666-4666-8666-666666666666")
+
+    async def fake_get_task(
+        _service: object,
+        requested_task_id: uuid.UUID,
+    ) -> SimpleNamespace:
+        assert requested_task_id == task_id
+        return SimpleNamespace(case_id=case_id)
+
+    async def fake_get_case(
+        _service: object,
+        requested_case_id: uuid.UUID,
+    ) -> SimpleNamespace:
+        assert requested_case_id == case_id
+        return SimpleNamespace(
+            id=case_id,
+            summary="Containment",
+            severity=CaseSeverity.MEDIUM,
+            status=CaseStatus.NEW,
+        )
+
+    monkeypatch.setattr(
+        "tracecat.artifacts.resolution.CaseTasksService.get_task",
+        fake_get_task,
+    )
+    monkeypatch.setattr(
+        "tracecat.artifacts.resolution.CasesService.get_case",
+        fake_get_case,
+    )
+
+    artifact = ArtifactAdapter.validate_python(
+        {
+            "type": "case",
+            "id": str(task_id),
+            "title": str(task_id),
+            "severity": "unknown",
+            "status": "unknown",
+        }
+    )
+
+    resolved = await resolve_artifact_side_effects(
+        [
+            ArtifactSideEffect(
+                op="upsert",
+                artifact=artifact,
+                identity_ref=ArtifactIdentityRef(
+                    artifact_type="case",
+                    ref=str(task_id),
+                    ref_kind="task_id",
+                ),
+            )
+        ],
+        session=cast(AsyncSession, object()),
+        role=Role(
+            type="service",
+            service_id="tracecat-api",
+            workspace_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+        ),
+    )
+
+    assert len(resolved) == 1
+    case_artifact = resolved[0].artifact
+    assert case_artifact.type == "case"
+    assert case_artifact.id == str(case_id)
+    assert case_artifact.title == "Containment"
+    assert case_artifact.severity == CaseSeverity.MEDIUM
+    assert case_artifact.status == CaseStatus.NEW
+    assert resolved[0].identity_ref is None
 
 
 @pytest.mark.anyio
