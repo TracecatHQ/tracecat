@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import parse_qs, urlsplit
+
 import pytest
 from temporalio.exceptions import ActivityError, ApplicationError
 
@@ -74,6 +76,46 @@ def test_sentry_scrubber_redacts_camel_case_sensitive_fields() -> None:
                 "safe": "kept",
             }
         }
+    }
+
+
+def test_sentry_scrubber_redacts_request_query_string_secrets() -> None:
+    event = {
+        "request": {
+            "query_string": "code=secret-code&state=secret-state&safe=visible",
+        }
+    }
+
+    scrubbed = sentry_observability._scrub(event)
+    request = scrubbed["request"]
+    params = parse_qs(request["query_string"])
+
+    assert params == {
+        "code": [sentry_observability.REDACTED_VALUE],
+        "state": [sentry_observability.REDACTED_VALUE],
+        "safe": ["visible"],
+    }
+
+
+def test_sentry_scrubber_redacts_request_url_query_secrets() -> None:
+    event = {
+        "request": {
+            "url": "https://example.com/auth/oauth/callback?code=secret-code&state=secret-state&safe=visible",
+        }
+    }
+
+    scrubbed = sentry_observability._scrub(event)
+    request = scrubbed["request"]
+    parsed_url = urlsplit(request["url"])
+    params = parse_qs(parsed_url.query)
+
+    assert parsed_url.scheme == "https"
+    assert parsed_url.netloc == "example.com"
+    assert parsed_url.path == "/auth/oauth/callback"
+    assert params == {
+        "code": [sentry_observability.REDACTED_VALUE],
+        "state": [sentry_observability.REDACTED_VALUE],
+        "safe": ["visible"],
     }
 
 

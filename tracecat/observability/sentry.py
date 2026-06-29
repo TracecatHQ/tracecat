@@ -6,6 +6,7 @@ import os
 import re
 from collections.abc import Mapping, Sequence
 from typing import Any, cast
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import sentry_sdk
 from sentry_sdk.integrations import Integration
@@ -37,6 +38,9 @@ _SENSITIVE_KEY_PARTS = frozenset(
         "token",
     }
 )
+_SENSITIVE_QUERY_KEY_PARTS = _SENSITIVE_KEY_PARTS | frozenset({"code", "state"})
+_REQUEST_URL_KEYS = frozenset({"url", "request_url"})
+_REQUEST_QUERY_KEYS = frozenset({"query_string", "querystring"})
 
 
 def init_sentry(
@@ -125,7 +129,10 @@ def _scrub(value: Any, *, depth: int = 0) -> Any:
             if _is_sensitive_key(key):
                 scrubbed[key] = REDACTED_VALUE
             else:
-                scrubbed[key] = _scrub(raw_value, depth=depth + 1)
+                scrubbed[key] = _scrub_request_value(
+                    key,
+                    _scrub(raw_value, depth=depth + 1),
+                )
         return scrubbed
     if isinstance(value, tuple):
         return tuple(_scrub(item, depth=depth + 1) for item in value)
@@ -136,9 +143,50 @@ def _scrub(value: Any, *, depth: int = 0) -> Any:
     return value
 
 
+def _scrub_request_value(key: str, value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+
+    normalized_key = _normalize_sensitive_key(key)
+    if normalized_key in _REQUEST_QUERY_KEYS:
+        return _scrub_query_string(value)
+    if normalized_key in _REQUEST_URL_KEYS:
+        return _scrub_url_query(value)
+    return value
+
+
+def _scrub_url_query(value: str) -> str:
+    parsed_url = urlsplit(value)
+    if not parsed_url.query:
+        return value
+    return urlunsplit(parsed_url._replace(query=_scrub_query_string(parsed_url.query)))
+
+
+def _scrub_query_string(value: str) -> str:
+    if not value:
+        return value
+
+    params = parse_qsl(value, keep_blank_values=True)
+    if not params:
+        return value
+
+    return urlencode(
+        [
+            (key, REDACTED_VALUE if _is_sensitive_query_key(key) else val)
+            for key, val in params
+        ],
+        doseq=True,
+    )
+
+
 def _is_sensitive_key(key: str) -> bool:
     normalized = _normalize_sensitive_key(key)
     return any(part in normalized for part in _SENSITIVE_KEY_PARTS)
+
+
+def _is_sensitive_query_key(key: str) -> bool:
+    normalized = _normalize_sensitive_key(key)
+    return any(part in normalized for part in _SENSITIVE_QUERY_KEY_PARTS)
 
 
 def _normalize_sensitive_key(key: str) -> str:
