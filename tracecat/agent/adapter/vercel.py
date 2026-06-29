@@ -72,6 +72,7 @@ from tracecat.agent.stream.events import (
     StreamMessage,
 )
 from tracecat.agent.types import UnifiedMessage
+from tracecat.artifacts.schemas import ARTIFACT_DATA_PART_TYPE
 from tracecat.chat.constants import (
     APPROVAL_DATA_PART_TYPE,
     APPROVAL_REQUEST_HEADER,
@@ -1028,6 +1029,15 @@ class VercelStreamContext:
                 yield DataEventPayload(
                     type=COMPACTION_DATA_PART_TYPE,
                     data=payload,
+                )
+
+            case StreamEventType.ARTIFACT:
+                if event.artifact_data is None:
+                    logger.warning("Skipping malformed artifact stream event")
+                    return
+                yield DataEventPayload(
+                    type=ARTIFACT_DATA_PART_TYPE,
+                    data=event.artifact_data.to_dict(),
                 )
 
             case StreamEventType.ERROR:

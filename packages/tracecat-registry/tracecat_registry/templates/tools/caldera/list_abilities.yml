@@ -3,7 +3,7 @@ definition:
   title: List abilities
   description: List all Caldera abilities.
   display_group: MITRE Caldera
-  doc_url: https://caldera.readthedocs.io/en/latest/Users/REST-api.html#abilities
+  doc_url: https://caldera.readthedocs.io/en/latest/The-REST-API.html
   namespace: tools.caldera
   name: list_abilities
   secrets:

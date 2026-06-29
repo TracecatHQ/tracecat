@@ -10,6 +10,7 @@ import pytest
 
 from tracecat.agent.session.schemas import AgentSessionRead
 from tracecat.agent.session.service import AgentSessionService
+from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 
 
@@ -38,7 +39,7 @@ def _build_service() -> tuple[AgentSessionService, SimpleNamespace, Role]:
 def _agent_session_row(
     *,
     workspace_id: uuid.UUID,
-    user_id: uuid.UUID,
+    user_id: uuid.UUID | None,
     parent_session_id: uuid.UUID | None,
 ) -> SimpleNamespace:
     now = datetime.now(UTC)
@@ -51,6 +52,7 @@ def _agent_session_row(
         entity_id=uuid.uuid4(),
         channel_context=None,
         tools=None,
+        mcp_integrations=None,
         agent_preset_id=None,
         agent_preset_version_id=None,
         harness_type=None,
@@ -84,3 +86,48 @@ async def test_list_sessions_parent_session_filter_excludes_legacy_chats() -> No
     assert results == [
         AgentSessionRead.model_validate(child_session, from_attributes=True)
     ]
+
+
+@pytest.mark.anyio
+async def test_list_sessions_filter_created_by_none_excludes_legacy_chats() -> None:
+    service, session, role = _build_service()
+    assert role.workspace_id is not None
+    session_row = _agent_session_row(
+        workspace_id=role.workspace_id,
+        user_id=None,
+        parent_session_id=None,
+    )
+    session.execute.return_value = _mock_scalar_result([session_row])
+
+    results = await service.list_sessions(
+        filter_created_by_none=True,
+        limit=1,
+    )
+
+    session.execute.assert_awaited_once()
+    executed_stmt = session.execute.await_args.args[0]
+    assert "agent_session.created_by IS NULL" in str(executed_stmt)
+    assert results == [
+        AgentSessionRead.model_validate(session_row, from_attributes=True)
+    ]
+
+
+@pytest.mark.anyio
+async def test_list_sessions_excludes_legacy_workspace_chats() -> None:
+    service, session, role = _build_service()
+    assert role.user_id is not None
+    session.execute.side_effect = [
+        _mock_scalar_result([]),
+        _mock_scalar_result([]),
+    ]
+
+    results = await service.list_sessions(
+        created_by=role.user_id,
+        exclude_entity_types=[AgentSessionEntity.WORKSPACE_CHAT],
+        limit=1,
+    )
+
+    assert results == []
+    assert session.execute.await_count == 2
+    chat_stmt = session.execute.await_args_list[1].args[0]
+    assert "chat.entity_type NOT IN" in str(chat_stmt)

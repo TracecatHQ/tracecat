@@ -127,6 +127,16 @@ output "s3_workflow_bucket_arn" {
   description = "The ARN of the S3 bucket used for workflow artifact storage"
 }
 
+output "s3_agent_bucket_name" {
+  value       = aws_s3_bucket.agent.bucket
+  description = "The name of the S3 bucket used for agent filesystem storage"
+}
+
+output "s3_agent_bucket_arn" {
+  value       = aws_s3_bucket.agent.arn
+  description = "The ARN of the S3 bucket used for agent filesystem storage"
+}
+
 # Redis outputs
 
 output "redis_endpoint" {

@@ -115,11 +115,15 @@ class ChatReadMinimal(BaseModel):
     id: UUID4 = Field(..., description="Unique chat identifier")
     title: str = Field(..., description="Human-readable title for the chat")
     user_id: UUID4 = Field(..., description="ID of the user who owns the chat")
-    entity_type: str = Field(
+    entity_type: AgentSessionEntity = Field(
         ..., description="Type of entity this chat is associated with"
     )
     entity_id: UUID4 = Field(..., description="ID of the associated entity")
     tools: list[str] = Field(..., description="Tools available to the agent")
+    mcp_integrations: list[str] = Field(
+        default_factory=list,
+        description="MCP integration IDs attached to this chat",
+    )
     agent_preset_id: uuid.UUID | None = Field(
         default=None,
         description="Agent preset used for this chat, if any",

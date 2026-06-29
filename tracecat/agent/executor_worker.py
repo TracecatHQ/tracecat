@@ -24,6 +24,7 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.interceptor import SentryInterceptor
 from tracecat.logger import logger
 from tracecat.observability.sentry import init_sentry
+from tracecat.storage.blob import close_storage_client_cache
 from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
 
 if TYPE_CHECKING:
@@ -103,13 +104,16 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                 max_concurrent_activities=max_concurrent,
                 disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
                 activity_executor=executor,
-                graceful_shutdown_timeout=timedelta(minutes=5),
+                graceful_shutdown_timeout=timedelta(
+                    seconds=config.TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT
+                ),
             ):
                 logger.info("AgentExecutorWorker started, ctrl+c to exit")
                 await shutdown_event.wait()
                 logger.info("AgentExecutorWorker shutdown requested")
             logger.info("Temporal Worker context exited")
     finally:
+        await close_storage_client_cache()
         await _stop_runtime_services()
     if runtime_failure_reason is not None:
         raise RuntimeError(runtime_failure_reason)

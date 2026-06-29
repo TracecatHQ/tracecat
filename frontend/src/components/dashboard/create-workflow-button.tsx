@@ -42,7 +42,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
-import type { TracecatApiError } from "@/lib/errors"
+import { getApiErrorDetail, type TracecatApiError } from "@/lib/errors"
 import { useFolders, useWorkflowManager } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -229,8 +229,9 @@ function CreateFolderDialog({
       onOpenChange(false)
     } catch (error) {
       console.log("Error creating folder:", error)
+      const detail = getApiErrorDetail(error)
       form.setError("name", {
-        message: "Folder already exists or another error occurred.",
+        message: detail ?? "Folder already exists or another error occurred.",
       })
     }
   }

@@ -51,6 +51,7 @@ async def _assume_role_via_irsa(
     workspace_id: str,
     run_id: str,
     role_session_name: str | None = None,
+    region_name: str | None = None,
 ) -> dict[str, str]:
     """Assume an AWS IAM role using the host IRSA identity."""
     if role_session_name:
@@ -61,7 +62,11 @@ async def _assume_role_via_irsa(
         session_name = f"tracecat-ws-{ws_short}-run-{run_short}"[:64]
 
     try:
-        session = aioboto3.Session()
+        session = (
+            aioboto3.Session(region_name=region_name)
+            if region_name
+            else aioboto3.Session()
+        )
         async with session.client("sts") as sts_client:
             response = await sts_client.assume_role(
                 RoleArn=role_arn,
@@ -152,6 +157,14 @@ class AwsAssumeRoleSecretPreprocessor:
             return None
         return aws_role_session_name
 
+    def _get_region_name(self, secret_values: dict[str, Any]) -> str | None:
+        """Return the AWS region used for host-side role assumption."""
+        if not isinstance(aws_region := secret_values.get("AWS_REGION"), str):
+            return None
+        if not (aws_region := aws_region.strip()):
+            return None
+        return aws_region
+
     def _apply_credentials(
         self, secret_values: dict[str, Any], creds: dict[str, str]
     ) -> None:
@@ -194,6 +207,7 @@ class AwsAssumeRoleSecretPreprocessor:
                 workspace_id=str(role.workspace_id),
                 run_id=str(run_context.wf_run_id),
                 role_session_name=self._get_role_session_name(secret_values),
+                region_name=self._get_region_name(secret_values),
             )
             self._apply_credentials(secret_values, creds)
 

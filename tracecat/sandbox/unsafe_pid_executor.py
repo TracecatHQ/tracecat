@@ -36,13 +36,79 @@ module_logger = logging.getLogger(__name__)
 
 SAFE_WRAPPER_SCRIPT = '''
 import asyncio
+import dataclasses
+import datetime
+import decimal
+import enum
+import importlib
 import inspect
 import json
+import os
 import sys
 import traceback
+import uuid
 from pathlib import Path
 
+def _install_action_gateway_sdk_transport():
+    socket_path = os.environ.get("TRACECAT__ACTION_GATEWAY_SOCKET")
+    if not socket_path:
+        return
+
+    try:
+        import httpx
+
+        sdk_client = importlib.import_module("tracecat_registry.sdk.client")
+    except ImportError:
+        return
+
+    tracecat_client_cls = getattr(sdk_client, "TracecatClient", None)
+    if tracecat_client_cls is None:
+        return
+
+    if hasattr(tracecat_client_cls, "_request_url_and_transport"):
+        return
+
+    if getattr(tracecat_client_cls, "_tracecat_action_gateway_transport", False):
+        return
+
+    async def request(
+        self,
+        method,
+        path,
+        *,
+        params=None,
+        json=None,
+        headers=None,
+    ):
+        request_headers = self._get_headers()
+        if headers:
+            request_headers.update(headers)
+
+        async with httpx.AsyncClient(
+            transport=httpx.AsyncHTTPTransport(uds=socket_path),
+            timeout=getattr(self, "_timeout", 120.0),
+        ) as client:
+            response = await client.request(
+                method,
+                "http://tracecat-action-gateway/internal" + path,
+                params=params,
+                json=json,
+                headers=request_headers,
+            )
+
+        if not response.is_success:
+            self._handle_error_response(response)
+
+        if not response.content:
+            return None
+
+        return response.json()
+
+    tracecat_client_cls.request = request
+    tracecat_client_cls._tracecat_action_gateway_transport = True
+
 def _init_tracecat_context():
+    _install_action_gateway_sdk_transport()
     try:
         from tracecat_registry.context import init_context_from_env
     except ImportError:
@@ -60,6 +126,33 @@ def _resolve_output(value):
         return await value
 
     return asyncio.run(await_value())
+
+def to_json_safe(value):
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    if isinstance(value, set | frozenset):
+        try:
+            return sorted(value)
+        except TypeError:
+            return sorted(value, key=repr)
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        try:
+            return dataclasses.asdict(value)
+        except RecursionError as e:
+            raise TypeError("Recursive dataclass values are not JSON-serializable") from e
+    if isinstance(value, datetime.datetime | datetime.date | datetime.time):
+        return value.isoformat()
+    if isinstance(value, datetime.timedelta):
+        return value.total_seconds()
+    if isinstance(value, decimal.Decimal):
+        return str(value)
+    if isinstance(value, enum.Enum):
+        return to_json_safe(value.value)
+    if isinstance(value, uuid.UUID | Path):
+        return str(value)
+    if isinstance(value, bytes | bytearray):
+        return value.decode("utf-8", errors="replace")
+    return repr(value)
 
 def main():
     """Execute user script and capture results."""
@@ -130,17 +223,12 @@ def main():
     # Write result to file
     result_path = Path(work_dir) / "result.json"
     try:
-        result_path.write_text(json.dumps(result))
-    except (TypeError, ValueError):
-        # Output not JSON-serializable, convert to repr
+        result_path.write_text(json.dumps(result, default=to_json_safe))
+    except (TypeError, ValueError, RecursionError) as e:
         result["output"] = repr(result["output"])
-        try:
-            result_path.write_text(json.dumps(result))
-        except Exception as e:
-            result["output"] = None
-            result["error"] = f"Output not JSON-serializable: {{type(e).__name__}}: {{e}}"
-            result["success"] = False
-            result_path.write_text(json.dumps(result))
+        result["error"] = f"Output not JSON-serializable: {{type(e).__name__}}: {{e}}"
+        result["success"] = False
+        result_path.write_text(json.dumps(result))
 
     sys.exit(0 if result["success"] else 1)
 

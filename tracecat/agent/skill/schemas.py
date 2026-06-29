@@ -116,6 +116,13 @@ class SkillUpload(Schema):
     files: list[SkillUploadFile] = Field(min_length=1)
 
 
+class SkillVersionPublish(Schema):
+    """Payload for atomically publishing a skill version from files."""
+
+    base_version_id: uuid.UUID | None = Field(default=None)
+    files: list[SkillUploadFile] = Field(min_length=1)
+
+
 class SkillDraftRead(Schema):
     """Current mutable draft state for a skill."""
 
@@ -239,6 +246,36 @@ class SkillVersionRead(Schema):
     created_at: datetime
     updated_at: datetime
     files: list[SkillFileEntry] = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SkillVersionFileContent(Schema):
+    """Published skill file content in a publish-compatible shape."""
+
+    path: str
+    content_base64: str
+    content_type: str
+    sha256: str
+    size_bytes: int
+    blob_id: uuid.UUID
+
+
+class SkillVersionSnapshotRead(Schema):
+    """Published skill version response including full file contents."""
+
+    id: uuid.UUID
+    skill_id: uuid.UUID
+    workspace_id: WorkspaceID
+    version: int
+    manifest_sha256: str
+    file_count: int
+    total_size_bytes: int
+    name: str
+    description: str | None = Field(default=None)
+    created_at: datetime
+    updated_at: datetime
+    files: list[SkillVersionFileContent] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 

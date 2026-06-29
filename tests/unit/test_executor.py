@@ -10,11 +10,13 @@ from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistryOAuthSecret, SecretNotFoundError
 
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.db.models import RegistryVersion
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.exceptions import ExecutionError, LoopExecutionError
+from tracecat.executor import service as executor_service
 from tracecat.executor.backends.test import TestBackend
 from tracecat.executor.schemas import ActionImplementation, ExecutorActionErrorInfo
 from tracecat.executor.service import (
@@ -852,6 +854,116 @@ async def test_dispatcher(
         assert e.value.loop_errors[0].info.loop_vars == {"x": None}
     finally:
         ctx_role.reset(token)
+
+
+@pytest.mark.anyio
+async def test_dispatch_action_for_each_uses_configured_worker_limit(
+    monkeypatch,
+    test_role,
+    mock_run_context,
+):
+    monkeypatch.setattr(config, "TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY", 2)
+
+    active_iterations = 0
+    max_active_iterations = 0
+
+    async def fake_invoke_once(
+        backend: TestBackend,
+        input: RunActionInput,
+        ctx: Any,
+        iteration: int | None = None,
+    ) -> int:
+        nonlocal active_iterations, max_active_iterations
+
+        assert iteration is not None
+        active_iterations += 1
+        max_active_iterations = max(max_active_iterations, active_iterations)
+        try:
+            await asyncio.sleep(0.01)
+            local_vars = input.exec_context.get("var")
+            assert local_vars is not None
+            return local_vars["x"]
+        finally:
+            active_iterations -= 1
+
+    monkeypatch.setattr(executor_service, "invoke_once", fake_invoke_once)
+
+    input = RunActionInput(
+        task=ActionStatement(
+            ref="test",
+            action="testing.add_100",
+            run_if=None,
+            args={"num": "${{ var.x }}"},
+            for_each="${{ for var.x in [1,2,3,4,5,6] }}",
+        ),
+        exec_context=create_default_execution_context(),
+        run_context=mock_run_context,
+        registry_lock=make_registry_lock("testing.add_100"),
+    )
+
+    result = await dispatch_action(TestBackend(), input)
+
+    assert result == [1, 2, 3, 4, 5, 6]
+    assert max_active_iterations == 2
+
+
+@pytest.mark.anyio
+async def test_dispatch_action_for_each_finishes_after_iteration_error(
+    monkeypatch,
+    test_role,
+    mock_run_context,
+):
+    monkeypatch.setattr(config, "TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY", 1)
+
+    seen: list[int] = []
+
+    async def fake_invoke_once(
+        backend: TestBackend,
+        input: RunActionInput,
+        ctx: Any,
+        iteration: int | None = None,
+    ) -> int:
+        assert iteration is not None
+        local_vars = input.exec_context.get("var")
+        assert local_vars is not None
+        value = local_vars["x"]
+        seen.append(value)
+        if value == 2:
+            raise ExecutionError(
+                info=ExecutorActionErrorInfo(
+                    action_name=input.task.action,
+                    type="ValueError",
+                    message="bad loop item",
+                    filename=__file__,
+                    function="fake_invoke_once",
+                    loop_iteration=iteration,
+                    loop_vars=local_vars,
+                )
+            )
+        return value
+
+    monkeypatch.setattr(executor_service, "invoke_once", fake_invoke_once)
+
+    input = RunActionInput(
+        task=ActionStatement(
+            ref="test",
+            action="testing.add_100",
+            run_if=None,
+            args={"num": "${{ var.x }}"},
+            for_each="${{ for var.x in [1,2,3] }}",
+        ),
+        exec_context=create_default_execution_context(),
+        run_context=mock_run_context,
+        registry_lock=make_registry_lock("testing.add_100"),
+    )
+
+    with pytest.raises(LoopExecutionError) as e:
+        await dispatch_action(TestBackend(), input)
+
+    assert seen == [1, 2, 3]
+    assert len(e.value.loop_errors) == 1
+    assert e.value.loop_errors[0].info.loop_iteration == 1
+    assert e.value.loop_errors[0].info.loop_vars == {"x": 2}
 
 
 @pytest.fixture

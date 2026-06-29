@@ -65,6 +65,66 @@ _CAPTURED_OUTPUT_CHAR_LIMIT = 8192
 _SUPPRESSED_OUTPUT_PREVIEW_CHAR_LIMIT = 500
 
 
+def _install_action_gateway_sdk_transport() -> None:
+    """Patch legacy registry SDK clients to use the executor gateway socket."""
+    if _ACTION_GATEWAY_SOCKET is None:
+        return
+    socket_path = _ACTION_GATEWAY_SOCKET
+
+    try:
+        import httpx
+
+        sdk_client = importlib.import_module("tracecat_registry.sdk.client")
+    except ImportError:
+        return
+
+    tracecat_client_cls = getattr(sdk_client, "TracecatClient", None)
+    if tracecat_client_cls is None:
+        return
+
+    if hasattr(tracecat_client_cls, "_request_url_and_transport"):
+        return
+
+    if getattr(tracecat_client_cls, "_tracecat_action_gateway_transport", False):
+        return
+
+    async def request(
+        self: Any,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        json: Any | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> Any:
+        request_headers = self._get_headers()
+        if headers:
+            request_headers.update(headers)
+
+        async with httpx.AsyncClient(
+            transport=httpx.AsyncHTTPTransport(uds=socket_path),
+            timeout=getattr(self, "_timeout", 120.0),
+        ) as client:
+            response = await client.request(
+                method,
+                f"http://tracecat-action-gateway/internal{path}",
+                params=params,
+                json=json,
+                headers=request_headers,
+            )
+
+        if not response.is_success:
+            self._handle_error_response(response)
+
+        if not response.content:
+            return None
+
+        return response.json()
+
+    tracecat_client_cls.request = request
+    tracecat_client_cls._tracecat_action_gateway_transport = True
+
+
 class _CappedTextBuffer:
     """Lightweight text buffer with a hard character cap."""
 
@@ -232,12 +292,12 @@ async def _run_udf_async(
     try:
         from tracecat_registry.context import RegistryContext, set_context
 
+        _install_action_gateway_sdk_transport()
         registry_ctx = RegistryContext(
             workspace_id=workspace_id,
             workflow_id=workflow_id,
             run_id=run_id,
             api_url=_API_URL,  # Static, immutable
-            action_gateway_socket=_ACTION_GATEWAY_SOCKET,
             token=executor_token,
         )
         set_context(registry_ctx)
@@ -298,12 +358,12 @@ def _run_udf(
     try:
         from tracecat_registry.context import RegistryContext, set_context
 
+        _install_action_gateway_sdk_transport()
         registry_ctx = RegistryContext(
             workspace_id=os.environ.get("TRACECAT__WORKSPACE_ID", ""),
             workflow_id=os.environ.get("TRACECAT__WORKFLOW_ID", ""),
             run_id=os.environ.get("TRACECAT__RUN_ID", ""),
             api_url=_API_URL,
-            action_gateway_socket=_ACTION_GATEWAY_SOCKET,
             token=os.environ.get("TRACECAT__EXECUTOR_TOKEN", ""),
         )
         set_context(registry_ctx)

@@ -34,8 +34,11 @@ import type {
   AdminDeleteOrganizationResponse,
   AdminDeleteTierData,
   AdminDeleteTierResponse,
+  AdminDeleteUserData,
+  AdminDeleteUserResponse,
   AdminDemoteFromSuperuserData,
   AdminDemoteFromSuperuserResponse,
+  AdminGetAuditSettingsResponse,
   AdminGetOrganizationData,
   AdminGetOrganizationInvitationTokenData,
   AdminGetOrganizationInvitationTokenResponse,
@@ -73,6 +76,8 @@ import type {
   AdminRegistryListRegistryVersionsResponse,
   AdminRegistryPromoteRegistryVersionData,
   AdminRegistryPromoteRegistryVersionResponse,
+  AdminRegistryStartRegistryArtifactsBackfillData,
+  AdminRegistryStartRegistryArtifactsBackfillResponse,
   AdminRegistrySyncAllRepositoriesData,
   AdminRegistrySyncAllRepositoriesResponse,
   AdminRegistrySyncRepositoryData,
@@ -81,6 +86,8 @@ import type {
   AdminRevokeOrganizationInvitationResponse,
   AdminSyncOrgRepositoryData,
   AdminSyncOrgRepositoryResponse,
+  AdminUpdateAuditSettingsData,
+  AdminUpdateAuditSettingsResponse,
   AdminUpdateOrganizationData,
   AdminUpdateOrganizationDomainData,
   AdminUpdateOrganizationDomainResponse,
@@ -171,6 +178,8 @@ import type {
   AgentSessionsGetSessionVercelResponse,
   AgentSessionsListSessionsData,
   AgentSessionsListSessionsResponse,
+  AgentSessionsRemoveSessionArtifactData,
+  AgentSessionsRemoveSessionArtifactResponse,
   AgentSessionsSendMessageData,
   AgentSessionsSendMessageResponse,
   AgentSessionsStreamSessionEventsData,
@@ -221,6 +230,8 @@ import type {
   AgentTagsUpdateAgentTagResponse,
   AgentUpdateProviderCredentialsData,
   AgentUpdateProviderCredentialsResponse,
+  ApprovalsDeleteApprovalData,
+  ApprovalsDeleteApprovalResponse,
   ApprovalsSubmitApprovalsData,
   ApprovalsSubmitApprovalsResponse,
   AuthAuthDatabaseLoginData,
@@ -432,16 +443,30 @@ import type {
   ListCustomProvidersResponse,
   ListEnabledModelsData,
   ListEnabledModelsResponse,
+  McpIntegrationsConnectMcpIntegrationData,
+  McpIntegrationsConnectMcpIntegrationResponse,
+  McpIntegrationsConnectPlatformMcpCatalogData,
+  McpIntegrationsConnectPlatformMcpCatalogResponse,
   McpIntegrationsCreateMcpIntegrationData,
   McpIntegrationsCreateMcpIntegrationResponse,
   McpIntegrationsDeleteMcpIntegrationData,
   McpIntegrationsDeleteMcpIntegrationResponse,
+  McpIntegrationsDisconnectMcpIntegrationData,
+  McpIntegrationsDisconnectMcpIntegrationResponse,
   McpIntegrationsGetMcpIntegrationData,
   McpIntegrationsGetMcpIntegrationResponse,
   McpIntegrationsListMcpIntegrationsData,
   McpIntegrationsListMcpIntegrationsResponse,
+  McpIntegrationsListPlatformMcpCatalogData,
+  McpIntegrationsListPlatformMcpCatalogResponse,
+  McpIntegrationsTestMcpConnectionConfigData,
+  McpIntegrationsTestMcpConnectionConfigResponse,
+  McpIntegrationsTestMcpIntegrationConnectionData,
+  McpIntegrationsTestMcpIntegrationConnectionResponse,
   McpIntegrationsUpdateMcpIntegrationData,
   McpIntegrationsUpdateMcpIntegrationResponse,
+  McpIntegrationsUpdateMcpIntegrationToolPoliciesData,
+  McpIntegrationsUpdateMcpIntegrationToolPoliciesResponse,
   McpPersonalAccessTokensCreateMcpPersonalAccessTokenData,
   McpPersonalAccessTokensCreateMcpPersonalAccessTokenResponse,
   McpPersonalAccessTokensListMcpPersonalAccessTokensData,
@@ -492,7 +517,6 @@ import type {
   ProvidersListProvidersData,
   ProvidersListProvidersResponse,
   PublicCheckHealthResponse,
-  PublicCheckReadyResponse,
   PublicHandleChannelEventData,
   PublicHandleChannelEventResponse,
   PublicHandleSlackOauthCallbackData,
@@ -838,6 +862,8 @@ import type {
   WorkflowsListWorkflowCommitsResponse,
   WorkflowsListWorkflowDefinitionsData,
   WorkflowsListWorkflowDefinitionsResponse,
+  WorkflowsListWorkflowRepositoriesData,
+  WorkflowsListWorkflowRepositoriesResponse,
   WorkflowsListWorkflowsData,
   WorkflowsListWorkflowsResponse,
   WorkflowsMoveWorkflowToFolderData,
@@ -2739,7 +2765,7 @@ export const workflowExecutionsGetWorkflowExecution = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.executionId
- * @returns WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_ Successful Response
+ * @returns WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_ Successful Response
  * @throws ApiError
  */
 export const workflowExecutionsGetWorkflowExecutionCompact = (
@@ -3200,6 +3226,29 @@ export const workflowsPublishWorkflow = (
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Workflow Repositories
+ * List repositories granted to the configured GitHub App installation.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns GitHubAppRepository Successful Response
+ * @throws ApiError
+ */
+export const workflowsListWorkflowRepositories = (
+  data: WorkflowsListWorkflowRepositoriesData
+): CancelablePromise<WorkflowsListWorkflowRepositoriesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/workflows/sync/repositories",
+    path: {
+      workspace_id: data.workspaceId,
+    },
     errors: {
       422: "Validation Error",
     },
@@ -6608,6 +6657,35 @@ export const agentSessionsGetSessionVercel = (
 }
 
 /**
+ * Remove Session Artifact
+ * Remove one artifact from a session's persisted artifact projection.
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.artifactType
+ * @param data.artifactId
+ * @param data.workspaceId
+ * @returns AgentSessionArtifactsRead Successful Response
+ * @throws ApiError
+ */
+export const agentSessionsRemoveSessionArtifact = (
+  data: AgentSessionsRemoveSessionArtifactData
+): CancelablePromise<AgentSessionsRemoveSessionArtifactResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/workspaces/{workspace_id}/agent/sessions/{session_id}/artifacts/{artifact_type}/{artifact_id}",
+    path: {
+      session_id: data.sessionId,
+      artifact_type: data.artifactType,
+      artifact_id: data.artifactId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Send Message
  * Send a message to the agent session with streaming response.
  *
@@ -6743,6 +6821,35 @@ export const approvalsSubmitApprovals = (
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Approval
+ * Dismiss all pending approvals for a session.
+ *
+ * If the Temporal workflow is alive, deny the approvals so it fails at the
+ * agent step. If the workflow is already gone, delete the approval records
+ * directly. The session itself is left intact in both cases.
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const approvalsDeleteApproval = (
+  data: ApprovalsDeleteApprovalData
+): CancelablePromise<ApprovalsDeleteApprovalResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/workspaces/{workspace_id}/approvals/{session_id}",
+    path: {
+      session_id: data.sessionId,
+      workspace_id: data.workspaceId,
+    },
     errors: {
       422: "Validation Error",
     },
@@ -7338,6 +7445,42 @@ export const adminPromoteOrgRepositoryVersion = (
 }
 
 /**
+ * Get Audit Settings
+ * Get platform audit settings.
+ * @returns PlatformAuditSettingsRead Successful Response
+ * @throws ApiError
+ */
+export const adminGetAuditSettings =
+  (): CancelablePromise<AdminGetAuditSettingsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/admin/settings/audit",
+    })
+  }
+
+/**
+ * Update Audit Settings
+ * Update platform audit settings.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns PlatformAuditSettingsRead Successful Response
+ * @throws ApiError
+ */
+export const adminUpdateAuditSettings = (
+  data: AdminUpdateAuditSettingsData
+): CancelablePromise<AdminUpdateAuditSettingsResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/admin/settings/audit",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Get Registry Settings
  * Get platform registry settings.
  * @returns PlatformRegistrySettingsRead Successful Response
@@ -7621,6 +7764,29 @@ export const adminGetUser = (
 }
 
 /**
+ * Delete User
+ * Delete a platform user globally, clearing sessions and dependencies first.
+ * @param data The data for the request.
+ * @param data.userId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const adminDeleteUser = (
+  data: AdminDeleteUserData
+): CancelablePromise<AdminDeleteUserResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/admin/users/{user_id}",
+    path: {
+      user_id: data.userId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Promote To Superuser
  * Promote a user to superuser status.
  * @param data The data for the request.
@@ -7822,6 +7988,28 @@ export const adminRegistryListRegistryVersions = (
 }
 
 /**
+ * Start Registry Artifacts Backfill
+ * Start a workflow to backfill artifacts for selected versions.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns RegistryArtifactsBackfillStartResponse Successful Response
+ * @throws ApiError
+ */
+export const adminRegistryStartRegistryArtifactsBackfill = (
+  data: AdminRegistryStartRegistryArtifactsBackfillData
+): CancelablePromise<AdminRegistryStartRegistryArtifactsBackfillResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/registry/versions/artifacts/backfill",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Promote Registry Version
  * Promote a registry version to be the current version for a repository.
  * @param data The data for the request.
@@ -7873,15 +8061,20 @@ export const inboxGetPendingCount = (
  * List Items
  * List inbox items with cursor-based pagination.
  *
- * Supports sorting by created_at, updated_at, or status.
+ * Supports sorting by created_at or updated_at.
  * Default sort is by created_at descending.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.limit
  * @param data.cursor
  * @param data.reverse
- * @param data.orderBy Column name to order by (created_at, updated_at, status)
+ * @param data.orderBy Column name to order by (created_at, updated_at)
  * @param data.sort Sort direction (asc or desc)
+ * @param data.search Case-insensitive search on item title
+ * @param data.group Filter items to a single display group
+ * @param data.entityType Filter items to a single entity type
+ * @param data.createdAfter Only items created at or after this time (ISO 8601)
+ * @param data.updatedAfter Only items updated at or after this time (ISO 8601)
  * @returns CursorPaginatedResponse_InboxItemRead_ Successful Response
  * @throws ApiError
  */
@@ -7900,6 +8093,11 @@ export const inboxListItems = (
       reverse: data.reverse,
       order_by: data.orderBy,
       sort: data.sort,
+      search: data.search,
+      group: data.group,
+      entity_type: data.entityType,
+      created_after: data.createdAfter,
+      updated_after: data.updatedAfter,
     },
     errors: {
       422: "Validation Error",
@@ -11336,9 +11534,10 @@ export const mcpIntegrationsCreateMcpIntegration = (
 
 /**
  * List Mcp Integrations
- * List all MCP integrations for the workspace.
+ * List MCP integrations for the workspace, optionally filtered by source.
  * @param data The data for the request.
  * @param data.workspaceId
+ * @param data.source Restrict results to platform-managed or workspace-authored MCP integrations. Defaults to all rows.
  * @returns MCPIntegrationRead Successful Response
  * @throws ApiError
  */
@@ -11351,6 +11550,95 @@ export const mcpIntegrationsListMcpIntegrations = (
     path: {
       workspace_id: data.workspaceId,
     },
+    query: {
+      source: data.source,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Platform Mcp Catalog
+ * List platform MCP catalog rows with workspace connection state.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.q Search name, slug, description
+ * @param data.category Filter by category
+ * @param data.status Filter by catalog status
+ * @param data.cursor Cursor for pagination
+ * @param data.limit
+ * @returns PlatformMCPCatalogListResponse Successful Response
+ * @throws ApiError
+ */
+export const mcpIntegrationsListPlatformMcpCatalog = (
+  data: McpIntegrationsListPlatformMcpCatalogData
+): CancelablePromise<McpIntegrationsListPlatformMcpCatalogResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/mcp-integrations/catalog",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      q: data.q,
+      category: data.category,
+      status: data.status,
+      cursor: data.cursor,
+      limit: data.limit,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Connect Platform Mcp Catalog
+ * Create or return a workspace MCP integration from catalog defaults.
+ * @param data The data for the request.
+ * @param data.catalogSlug
+ * @param data.workspaceId
+ * @returns MCPCatalogConnectResponse Successful Response
+ * @throws ApiError
+ */
+export const mcpIntegrationsConnectPlatformMcpCatalog = (
+  data: McpIntegrationsConnectPlatformMcpCatalogData
+): CancelablePromise<McpIntegrationsConnectPlatformMcpCatalogResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/mcp-integrations/catalog/{catalog_slug}/connect",
+    path: {
+      catalog_slug: data.catalogSlug,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Connect Mcp Integration
+ * Create an MCP integration or start generic MCP OAuth discovery.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns MCPCatalogConnectResponse Successful Response
+ * @throws ApiError
+ */
+export const mcpIntegrationsConnectMcpIntegration = (
+  data: McpIntegrationsConnectMcpIntegrationData
+): CancelablePromise<McpIntegrationsConnectMcpIntegrationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/mcp-integrations/connect",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },
@@ -11425,6 +11713,113 @@ export const mcpIntegrationsDeleteMcpIntegration = (
   return __request(OpenAPI, {
     method: "DELETE",
     url: "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}",
+    path: {
+      mcp_integration_id: data.mcpIntegrationId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Mcp Integration Tool Policies
+ * Update MCP integration tool availability and approval policy.
+ * @param data The data for the request.
+ * @param data.mcpIntegrationId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns MCPIntegrationRead Successful Response
+ * @throws ApiError
+ */
+export const mcpIntegrationsUpdateMcpIntegrationToolPolicies = (
+  data: McpIntegrationsUpdateMcpIntegrationToolPoliciesData
+): CancelablePromise<McpIntegrationsUpdateMcpIntegrationToolPoliciesResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}/tools",
+    path: {
+      mcp_integration_id: data.mcpIntegrationId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Test Mcp Connection Config
+ * Test connectivity against an unsaved HTTP MCP configuration.
+ *
+ * Ephemeral: nothing is persisted and stored verification state is never
+ * touched — use this for testing edited form values before saving.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns MCPIntegrationTestConnectionResponse Successful Response
+ * @throws ApiError
+ */
+export const mcpIntegrationsTestMcpConnectionConfig = (
+  data: McpIntegrationsTestMcpConnectionConfigData
+): CancelablePromise<McpIntegrationsTestMcpConnectionConfigResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/mcp-integrations/test",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Test Mcp Integration Connection
+ * Test connectivity to an HTTP MCP server and refresh its tool listing.
+ * @param data The data for the request.
+ * @param data.mcpIntegrationId
+ * @param data.workspaceId
+ * @returns MCPIntegrationTestConnectionResponse Successful Response
+ * @throws ApiError
+ */
+export const mcpIntegrationsTestMcpIntegrationConnection = (
+  data: McpIntegrationsTestMcpIntegrationConnectionData
+): CancelablePromise<McpIntegrationsTestMcpIntegrationConnectionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}/test",
+    path: {
+      mcp_integration_id: data.mcpIntegrationId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Disconnect Mcp Integration
+ * Disconnect an MCP integration by deleting the workspace MCP row.
+ * @param data The data for the request.
+ * @param data.mcpIntegrationId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const mcpIntegrationsDisconnectMcpIntegration = (
+  data: McpIntegrationsDisconnectMcpIntegrationData
+): CancelablePromise<McpIntegrationsDisconnectMcpIntegrationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}/disconnect",
     path: {
       mcp_integration_id: data.mcpIntegrationId,
       workspace_id: data.workspaceId,
@@ -12635,27 +13030,5 @@ export const publicCheckHealth =
     return __request(OpenAPI, {
       method: "GET",
       url: "/health",
-    })
-  }
-
-/**
- * Check Ready
- * Readiness check - returns 200 only after startup and registry sync complete.
- *
- * Use this endpoint for Docker healthchecks to ensure the API has finished
- * initializing and the platform registry is synced before accepting traffic.
- *
- * Returns a detailed response including registry sync status.
- * @returns ReadinessResponse Successful Response
- * @throws ApiError
- */
-export const publicCheckReady =
-  (): CancelablePromise<PublicCheckReadyResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/ready",
-      errors: {
-        503: "API startup or platform registry sync is incomplete.",
-      },
     })
   }

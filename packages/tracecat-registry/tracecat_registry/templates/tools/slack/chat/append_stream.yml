@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: Append stream
+  description: Append text or chunks to an existing Slack streaming message.
+  display_group: Slack
+  doc_url: https://docs.slack.dev/reference/methods/chat.appendStream/
+  namespace: tools.slack
+  name: append_stream
+  expects:
+    channel:
+      type: str
+      description: ID of the channel containing the streaming message.
+    ts:
+      type: str
+      description: Timestamp of the streaming message.
+    markdown_text:
+      type: str | None
+      description: Markdown-formatted text to append to the stream.
+      default: null
+    chunks:
+      type: list[dict[str, Any]] | None
+      description: Streaming chunks, such as markdown_text, task_update, plan_update, or blocks chunks.
+      default: null
+  steps:
+    - ref: append_stream
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: chat_appendStream
+        params:
+          channel: ${{ inputs.channel }}
+          ts: ${{ inputs.ts }}
+          markdown_text: ${{ inputs.markdown_text }}
+          chunks: ${{ inputs.chunks }}
+  returns: ${{ steps.append_stream.result }}

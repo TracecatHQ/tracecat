@@ -335,7 +335,7 @@ async def create_workflow(
 @router.get("/{workflow_id}", tags=["workflows"])
 @require_scope("workflow:read")
 async def get_workflow(
-    role: WorkspaceUserRouteRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
 ) -> WorkflowRead:
@@ -829,6 +829,7 @@ async def create_webhook(
         workflow_id=workflow_id,
         status=params.status,
         allowlisted_cidrs=params.allowlisted_cidrs,
+        include_headers=params.include_headers,
     )
     session.add(webhook)
     await session.commit()

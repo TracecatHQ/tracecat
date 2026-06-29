@@ -8,10 +8,22 @@ from pydantic import BaseModel, Field
 
 from tracecat.audit.enums import AuditEventActor, AuditEventStatus
 
-AuditAction = Literal["create", "update", "delete", "accept", "revoke"]
+AuditSink = Literal["organization", "platform"]
+AuditAction = Literal[
+    "create",
+    "update",
+    "delete",
+    "accept",
+    "revoke",
+    "sign_in",
+    "sync",
+    "promote",
+    "demote",
+]
 AuditResourceType = Literal[
     "user",
     "organization",
+    "auth",
     "workspace",
     "workflow",
     "workflow_execution",
@@ -33,6 +45,7 @@ AuditResourceType = Literal[
     "organization_member",
     "organization_session",
     "organization_invitation",
+    "organization_tier",
     "workspace_invitation",
     "service_account",
     "service_account_api_key",
@@ -44,6 +57,12 @@ AuditResourceType = Literal[
     "rbac_group_member",
     "rbac_assignment",
     "rbac_user_assignment",
+    # Platform resources
+    "platform_setting",
+    "platform_registry",
+    "platform_registry_repository",
+    "platform_registry_version",
+    "tier",
 ]
 
 

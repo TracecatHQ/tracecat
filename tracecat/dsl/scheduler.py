@@ -13,6 +13,9 @@ from temporalio.exceptions import ActivityError
 from tracecat.auth.types import Role
 from tracecat.dsl.action import ScatterActionInput
 
+_SCHEDULER_TASK_SPAWN_YIELD_EVERY = 16
+"""Yield while spawning ready task coroutines to avoid long workflow activations."""
+
 with workflow.unsafe.imports_passed_through():
     from pydantic_core import to_json
     from temporalio.exceptions import ApplicationError
@@ -774,6 +777,10 @@ class DSLScheduler:
 
         pending_tasks: set[asyncio.Task[None]] = set()
 
+        def discard_done_tasks() -> None:
+            done_tasks = {task for task in pending_tasks if task.done()}
+            pending_tasks.difference_update(done_tasks)
+
         while not self.task_exceptions and (not self.queue.empty() or pending_tasks):
             self.logger.trace(
                 "Waiting for tasks",
@@ -782,16 +789,28 @@ class DSLScheduler:
             )
 
             # Clean up completed tasks
-            done_tasks = {t for t in pending_tasks if t.done()}
-            pending_tasks.difference_update(done_tasks)
+            discard_done_tasks()
 
+            spawned_since_yield = 0
             while (
-                not self.queue.empty() and len(pending_tasks) < self.max_pending_tasks
+                not self.task_exceptions
+                and not self.queue.empty()
+                and len(pending_tasks) < self.max_pending_tasks
             ):
                 task_instance = await self.queue.get()
                 self.logger.debug("Scheduling task", task=task_instance)
                 task = asyncio.create_task(self._schedule_task(task_instance))
                 pending_tasks.add(task)
+                spawned_since_yield += 1
+                if spawned_since_yield % _SCHEDULER_TASK_SPAWN_YIELD_EVERY == 0:
+                    # High-fanout scatters can enqueue many ready tasks at once.
+                    # Checkpoint while spawning them so workflow activations do not
+                    # monopolize the event loop long enough to trip Temporal's
+                    # deadlock detector.
+                    await asyncio.sleep(0)
+                    discard_done_tasks()
+            if self.task_exceptions:
+                break
             if not self.queue.empty() and len(pending_tasks) >= self.max_pending_tasks:
                 self.logger.debug(
                     "Scheduler throttled by max pending task cap",

@@ -282,6 +282,15 @@ class WorkflowImportService(BaseWorkspaceService):
 
         Existing workflows will be overwritten with new definitions.
         """
+        # `ai.agent` model selections carry a per-environment ``catalog_id``.
+        # Best-effort re-map it to the equivalent local model so synced
+        # workflows resolve credentials in this environment. Running it here
+        # (the single create/update chokepoint) means existing git-synced
+        # workflows self-heal on the next pull.
+        remote_workflow.definition = await self.wf_mgmt.correlate_agent_catalog_ids(
+            remote_workflow.definition
+        )
+
         wf_id = WorkflowUUID.new(remote_workflow.id)
         if existing_workflow := await self.wf_mgmt.get_workflow(wf_id):
             await self._update_existing_workflow(existing_workflow, remote_workflow)
@@ -429,6 +438,7 @@ class WorkflowImportService(BaseWorkspaceService):
         # The webhook ID doesn't matter
         webhook.methods = remote_webhook.methods
         webhook.status = remote_webhook.status
+        webhook.include_headers = remote_webhook.include_headers
 
     async def _update_case_trigger(
         self, workflow: Workflow, remote_case_trigger: RemoteCaseTrigger | None

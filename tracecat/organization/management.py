@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from typing import Any
+from typing import cast as type_cast
 
 from pydantic import UUID4
 from sqlalchemy import delete, func, select
@@ -17,6 +19,8 @@ from tracecat.authz.seeding import seed_system_roles_for_org
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
+    AccessToken,
+    MCPRefreshToken,
     Membership,
     Organization,
     OrganizationMembership,
@@ -27,6 +31,9 @@ from tracecat.db.models import (
     RegistryRepository,
     RegistryVersion,
     UserRoleAssignment,
+    WatchtowerAgent,
+    WatchtowerAgentSession,
+    WatchtowerAgentToolCall,
     Workspace,
 )
 from tracecat.db.models import Role as DBRole
@@ -188,7 +195,20 @@ async def delete_organization_with_cleanup(
 
     This handles explicit cleanup for resources guarded by RESTRICT organization FKs
     and runs workspace teardown logic that isn't represented by FK cascades.
+
+    Global user rows are intentionally preserved. Because app sessions are not
+    organization-scoped today, sessions for users linked to the deleted
+    organization are revoked before the org membership rows are removed.
     """
+    org_member_user_ids = select(OrganizationMembership.user_id).where(
+        OrganizationMembership.organization_id == organization.id
+    )
+    await session.execute(
+        delete(AccessToken).where(
+            type_cast(Any, AccessToken.user_id).in_(org_member_user_ids)
+        )
+    )
+
     result = await session.execute(
         select(Workspace).where(Workspace.organization_id == organization.id)
     )
@@ -245,6 +265,26 @@ async def delete_organization_with_cleanup(
     await session.execute(
         delete(RegistryRepository).where(
             RegistryRepository.organization_id == organization.id
+        )
+    )
+    await session.execute(
+        delete(MCPRefreshToken).where(
+            MCPRefreshToken.organization_id == organization.id
+        )
+    )
+    await session.execute(
+        delete(WatchtowerAgentToolCall).where(
+            WatchtowerAgentToolCall.organization_id == organization.id
+        )
+    )
+    await session.execute(
+        delete(WatchtowerAgentSession).where(
+            WatchtowerAgentSession.organization_id == organization.id
+        )
+    )
+    await session.execute(
+        delete(WatchtowerAgent).where(
+            WatchtowerAgent.organization_id == organization.id
         )
     )
 
@@ -437,8 +477,8 @@ async def ensure_single_tenant_user_defaults_in_session(
 
     assignment = assignment_row[0] if assignment_row is not None else None
     if assignment is None:
-        # There can only be one org-wide assignment per user. For superusers, a
-        # conflict means another request created or found a stale org-wide
+        # There can only be one org-wide assignment per user per organization.
+        # For superusers, a conflict means another request created the same-org
         # assignment, so upgrade it to owner. Regular users do not update on
         # insert conflict; existing rows observed by this session are handled by
         # the normalization branch below.
@@ -449,16 +489,16 @@ async def ensure_single_tenant_user_defaults_in_session(
             role_id=role.id,
         )
         conflict_target = {
-            "index_elements": [UserRoleAssignment.user_id],
+            "index_elements": [
+                UserRoleAssignment.organization_id,
+                UserRoleAssignment.user_id,
+            ],
             "index_where": UserRoleAssignment.workspace_id.is_(None),
         }
         if is_superuser:
             assignment_insert = assignment_insert.on_conflict_do_update(
                 **conflict_target,
-                set_={
-                    "organization_id": organization_id,
-                    "role_id": role.id,
-                },
+                set_={"role_id": role.id},
             )
         else:
             assignment_insert = assignment_insert.on_conflict_do_nothing(

@@ -1,20 +1,26 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
 import { ActivityLayout } from "@/components/inbox"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { useEntitlements } from "@/hooks/use-entitlements"
-import { useInbox } from "@/hooks/use-inbox"
+import { type InboxOrderBy, useInbox } from "@/hooks/use-inbox"
 
 export default function InboxPage() {
   const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
   const agentAddonsEnabled = hasEntitlement("agent_addons")
   const canReadInbox = useScopeCheck("inbox:read")
 
+  // Sort is applied server-side so it orders every page of a group globally,
+  // not just the rows already loaded in the browser.
+  const [orderBy, setOrderBy] = useState<InboxOrderBy>("updated_at")
+  const [sort, setSort] = useState<"asc" | "desc">("desc")
+
   const {
     sessions,
+    groups,
     selectedId,
     setSelectedId,
     isLoading: inboxIsLoading,
@@ -25,7 +31,20 @@ export default function InboxPage() {
     setLimit,
     setUpdatedAfter,
     setCreatedAfter,
-  } = useInbox({ enabled: agentAddonsEnabled && canReadInbox })
+  } = useInbox({
+    enabled: agentAddonsEnabled && canReadInbox,
+    orderBy,
+    sort,
+  })
+
+  const handleSort = (key: InboxOrderBy) => {
+    if (key === orderBy) {
+      setSort((prev) => (prev === "asc" ? "desc" : "asc"))
+    } else {
+      setOrderBy(key)
+      setSort("desc")
+    }
+  }
 
   useEffect(() => {
     document.title = "Inbox"
@@ -55,6 +74,7 @@ export default function InboxPage() {
   return (
     <ActivityLayout
       sessions={sessions}
+      groups={groups}
       selectedId={selectedId}
       onSelect={setSelectedId}
       isLoading={inboxIsLoading}
@@ -65,6 +85,9 @@ export default function InboxPage() {
       onLimitChange={setLimit}
       onUpdatedAfterChange={setUpdatedAfter}
       onCreatedAfterChange={setCreatedAfter}
+      orderBy={orderBy}
+      sort={sort}
+      onSort={handleSort}
     />
   )
 }

@@ -15,7 +15,7 @@ import { TableSidePanelContent } from "@/components/tables/table-side-panel"
 import { Button } from "@/components/ui/button"
 import { ResizableSidebar } from "@/components/ui/resizable-sidebar"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
-import { WorkspaceCopilotSidebar } from "@/components/workspaces/workspace-copilot-sidebar"
+import { WorkspaceChatSidebar } from "@/components/workspaces/workspace-chat-sidebar"
 import { useEntitlements } from "@/hooks/use-entitlements"
 
 const PANEL_TITLES: Record<string, string> = {
@@ -31,9 +31,9 @@ export default function TableDetailLayout({
 }) {
   const canExecuteAgents = useScopeCheck("agent:execute")
   const { hasEntitlement } = useEntitlements()
-  const agentAddonsEnabled = hasEntitlement("agent_addons")
+  const workspaceChatEnabled = hasEntitlement("workspace_chat")
   const [chatOpen, setChatOpen] = useState(true)
-  const canShowChat = canExecuteAgents === true && agentAddonsEnabled
+  const canShowChat = canExecuteAgents === true && workspaceChatEnabled
 
   return (
     <TableSelectionProvider>
@@ -51,7 +51,7 @@ export default function TableDetailLayout({
             </div>
           </SidebarInset>
           <TableSidePanel />
-          {canShowChat && chatOpen && <WorkspaceCopilotSidebar />}
+          {canShowChat && chatOpen && <WorkspaceChatSidebar />}
         </SidebarProvider>
       </TablePanelProvider>
     </TableSelectionProvider>

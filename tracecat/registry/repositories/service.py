@@ -229,7 +229,7 @@ class RegistryReposService(BaseOrgService):
 
         Guardrails:
         - Version must exist and belong to this repository
-        - Version must have a valid tarball_uri
+        - Version must have a valid execution artifact URI
 
         Args:
             repository: The repository to promote a version for
@@ -239,7 +239,7 @@ class RegistryReposService(BaseOrgService):
             Updated repository with new current_version_id
 
         Raises:
-            RegistryError: If version not found, doesn't belong to repo, or missing tarball
+            RegistryError: If version not found, doesn't belong to repo, or missing artifact
         """
         # Fetch the version and verify it belongs to this repository
         statement = select(RegistryVersion).where(
@@ -259,7 +259,7 @@ class RegistryReposService(BaseOrgService):
 
         if not version.tarball_uri:
             raise RegistryError(
-                f"Version '{version.version}' has no tarball artifact. "
+                f"Version '{version.version}' has no execution artifact. "
                 "Cannot promote a version without execution artifacts."
             )
 

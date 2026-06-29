@@ -17,12 +17,16 @@ from pydantic import (
     Field,
     SecretStr,
     Tag,
+    ValidationError,
+    computed_field,
     field_validator,
 )
 
+from tracecat.expressions.patterns import STANDALONE_TEMPLATE
 from tracecat.identifiers import UserID, WorkspaceID
 from tracecat.integrations.enums import IntegrationStatus, MCPAuthType, OAuthGrantType
 from tracecat.integrations.types import MCPServerType
+from tracecat.logger import logger
 
 
 # Pydantic models for API responses
@@ -352,6 +356,42 @@ class ProviderRead(BaseModel):
     redirect_uri: str | None = None
 
 
+# Credential/config-field value types the configure dialog can declare.
+# ``url`` opts a value into http(s)-scheme validation; ``string`` (the default)
+# means an opaque token with no extra format checks. A value is treated as a
+# URL only when the catalog row declares ``type: "url"`` by hand — there is no
+# name-based inference.
+MCPCredentialValueType = Literal["string", "url"]
+
+
+def validate_url_credential_values(values: dict[str, str], url_keys: set[str]) -> None:
+    """Require an http(s):// scheme for values whose key is declared ``type: url``.
+
+    ``url_keys`` comes from the catalog connection spec — only keys a catalog
+    row marks ``type: "url"`` are checked. Empty (not yet filled in) and
+    templated values are skipped because they are validated at run time. Keys
+    outside ``url_keys`` are left untouched.
+    """
+    for key in url_keys:
+        if key not in values:
+            continue
+        value = values.get(key)
+        if not isinstance(value, str):
+            raise ValueError(
+                f"{key!r} must be a URL starting with 'http://' or 'https://'"
+            )
+        stripped = value.strip()
+        # Empty (not yet filled in) and templated values resolve to their real
+        # value only at run time, so skip format validation here.
+        if not stripped or STANDALONE_TEMPLATE.match(stripped):
+            continue
+        parsed = urlparse(stripped)
+        if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
+            raise ValueError(
+                f"{key!r} must be a URL starting with 'http://' or 'https://'"
+            )
+
+
 class _MCPIntegrationCreateBase(BaseModel):
     """Shared request fields for creating an MCP integration."""
 
@@ -366,6 +406,11 @@ class _MCPIntegrationCreateBase(BaseModel):
         ge=1,
         le=300,
         description="Timeout in seconds",
+    )
+    catalog_slug: str | None = Field(
+        default=None,
+        max_length=255,
+        description="Platform MCP catalog slug this workspace config is created from",
     )
 
 
@@ -469,7 +514,10 @@ class MCPIntegrationUpdate(BaseModel):
 
     name: str | None = Field(default=None, min_length=3, max_length=255)
     description: str | None = Field(default=None, max_length=512)
-    # Server type cannot be changed after creation (would require migrating fields)
+    server_type: MCPServerType | None = Field(
+        default=None,
+        description="MCP server type. Changing this clears fields from the previous type.",
+    )
     # HTTP-type server fields
     server_uri: str | None = None
     auth_type: MCPAuthType | None = None
@@ -524,6 +572,282 @@ class MCPIntegrationUpdate(BaseModel):
         return value
 
 
+MCPIntegrationSource = Literal["platform", "workspace"]
+"""Provenance of an MCP integration.
+
+- ``platform``: auto-created by a platform-shipped MCP auth provider (the
+  lifecycle is owned by the OAuth flow for an ``MCPAuthProvider``).
+- ``workspace``: explicitly created by a workspace user via the MCP servers
+  page or API.
+"""
+
+
+MCPConnectionTarget = Literal[
+    "server_uri",
+    "oauth_client",
+    "http_header",
+    "stdio_env",
+]
+# No stdio_oauth2: MCP OAuth is defined for HTTP transports only; stdio
+# servers receive credentials via environment variables.
+MCPConnectionKind = Literal[
+    "http_oauth2",
+    "http_custom",
+    "http_none",
+    "stdio_custom",
+    "stdio_none",
+]
+PlatformMCPCatalogStatus = Literal["available", "coming_soon", "deprecated", "hidden"]
+PlatformMCPCatalogState = Literal[
+    "not_configured",
+    "configured",
+    "connected",
+    "error",
+]
+MCPToolStatus = Literal["available", "missing"]
+
+
+class MCPConnectionCredential(BaseModel):
+    """User-supplied value needed to materialize a catalog connection."""
+
+    key: str
+    label: str
+    description: str
+    required: bool = True
+    secret: bool = True
+    default_value: str | None = None
+    placeholder: str | None = Field(
+        default=None,
+        description=(
+            "Optional placeholder shown in the configure dialog to hint the "
+            "expected value format (e.g. 'https://your-console.example.net')."
+        ),
+    )
+    type: MCPCredentialValueType = Field(
+        default="string",
+        description=(
+            "Value type used for light client/server validation. 'url' requires "
+            "an http(s):// scheme."
+        ),
+    )
+    target: MCPConnectionTarget
+
+
+class MCPPackageOption(BaseModel):
+    """Supported stdio package launch option."""
+
+    manager: str
+    command: str
+    args: list[str] = Field(default_factory=list)
+    package: str | None = None
+
+
+class MCPConfigField(BaseModel):
+    """Typed configure-dialog field declared by a catalog spec."""
+
+    key: str
+    label: str
+    description: str
+    target: MCPConnectionTarget
+    required: bool = True
+    secret: bool = False
+    placeholder: str | None = None
+    type: MCPCredentialValueType = "string"
+
+
+class _MCPConnectionSpecBase(BaseModel):
+    """Base fields shared by all catalog connection spec variants."""
+
+    requires_config: bool = False
+    credentials: list[MCPConnectionCredential] = Field(default_factory=list)
+
+    @computed_field
+    @property
+    def config_fields(self) -> list[MCPConfigField]:
+        """Configure-dialog view of ``credentials``; same data, UI field shape."""
+        return [
+            MCPConfigField(
+                key=credential.key,
+                label=credential.label,
+                description=credential.description,
+                target=credential.target,
+                required=credential.required,
+                secret=credential.secret,
+                placeholder=credential.placeholder,
+                type=credential.type,
+            )
+            for credential in self.credentials
+        ]
+
+
+class MCPHTTPOAuth2ConnectionSpec(_MCPConnectionSpecBase):
+    """HTTP MCP server using MCP OAuth."""
+
+    kind: Literal["http_oauth2"] = "http_oauth2"
+    server_type: Literal["http"] = "http"
+    auth_type: Literal[MCPAuthType.OAUTH2] = MCPAuthType.OAUTH2
+    server_uri: str
+    scopes: list[str] = Field(default_factory=list)
+    oauth_authorization_endpoint: str | None = None
+    """Known OAuth authorization endpoint pinned by the repo-owned catalog row.
+
+    Some providers serve OAuth endpoints on a sibling host of the MCP server
+    (e.g. incident.io's mcp.* metadata advertises app.* endpoints). Pinning
+    the endpoint here marks its host as trusted during MCP OAuth discovery
+    without relaxing same-host validation globally.
+    """
+    oauth_token_endpoint: str | None = None
+
+
+class MCPHTTPCustomConnectionSpec(_MCPConnectionSpecBase):
+    """HTTP MCP server using user-provided headers or API keys."""
+
+    kind: Literal["http_custom"] = "http_custom"
+    server_type: Literal["http"] = "http"
+    auth_type: Literal[MCPAuthType.CUSTOM] = MCPAuthType.CUSTOM
+    server_uri: str
+
+
+class MCPHTTPNoneConnectionSpec(_MCPConnectionSpecBase):
+    """HTTP MCP server with no authentication."""
+
+    kind: Literal["http_none"] = "http_none"
+    server_type: Literal["http"] = "http"
+    auth_type: Literal[MCPAuthType.NONE] = MCPAuthType.NONE
+    server_uri: str
+
+
+class MCPStdioCustomConnectionSpec(_MCPConnectionSpecBase):
+    """Stdio MCP server using user-provided env vars."""
+
+    kind: Literal["stdio_custom"] = "stdio_custom"
+    server_type: Literal["stdio"] = "stdio"
+    auth_type: Literal[MCPAuthType.CUSTOM] = MCPAuthType.CUSTOM
+    stdio_command: str | None = None
+    stdio_args: list[str] = Field(default_factory=list)
+    stdio_env: list[str] = Field(default_factory=list)
+    packages: list[MCPPackageOption] = Field(default_factory=list)
+
+
+class MCPStdioNoneConnectionSpec(_MCPConnectionSpecBase):
+    """Stdio MCP server with no authentication."""
+
+    kind: Literal["stdio_none"] = "stdio_none"
+    server_type: Literal["stdio"] = "stdio"
+    auth_type: Literal[MCPAuthType.NONE] = MCPAuthType.NONE
+    stdio_command: str | None = None
+    stdio_args: list[str] = Field(default_factory=list)
+    stdio_env: list[str] = Field(default_factory=list)
+    packages: list[MCPPackageOption] = Field(default_factory=list)
+
+
+type MCPConnectionSpec = Annotated[
+    MCPHTTPOAuth2ConnectionSpec
+    | MCPHTTPCustomConnectionSpec
+    | MCPHTTPNoneConnectionSpec
+    | MCPStdioCustomConnectionSpec
+    | MCPStdioNoneConnectionSpec,
+    Field(discriminator="kind"),
+]
+
+
+class MCPToolSummary(BaseModel):
+    """Summary of a tool discovered on a remote MCP server."""
+
+    name: str
+    description: str | None = None
+    enabled: bool = True
+    """Whether the tool is available to agents that use this MCP integration."""
+    requires_approval: bool = False
+    """Whether this tool requires HITL approval before execution."""
+    status: MCPToolStatus = "available"
+    """Whether the tool was present in the latest successful discovery."""
+
+    @classmethod
+    def validate_stored(
+        cls, tools: list[Any] | None, *, mcp_integration_id: object | None = None
+    ) -> list[Self] | None:
+        """Validate stored tool entries, skipping any malformed records.
+
+        Stored tool JSON is best-effort: a single corrupt entry (manual DB
+        edit, future schema drift) must not crash listing or read responses,
+        so invalid records are dropped with a warning instead of raising.
+        """
+        if tools is None:
+            return None
+        validated: list[Self] = []
+        for tool in tools:
+            try:
+                validated.append(cls.model_validate(tool))
+            except ValidationError:
+                logger.warning(
+                    "Skipping malformed MCP tool entry",
+                    mcp_integration_id=str(mcp_integration_id)
+                    if mcp_integration_id is not None
+                    else None,
+                )
+        return validated
+
+
+class MCPToolPolicyUpdate(BaseModel):
+    """Per-tool policy update for a stored MCP integration tool."""
+
+    name: str = Field(..., min_length=1)
+    enabled: bool | None = None
+    requires_approval: bool | None = None
+
+
+class MCPToolPolicyUpdateRequest(BaseModel):
+    """Request to update per-tool MCP integration policy."""
+
+    tools: list[MCPToolPolicyUpdate] = Field(..., min_length=1)
+
+
+class MCPConnectionOption(BaseModel):
+    """A connectable transport/auth option for one catalog provider."""
+
+    id: str = Field(..., min_length=1, max_length=80)
+    label: str = Field(..., min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=512)
+    docs_url: str | None = None
+    connection_spec: MCPConnectionSpec
+
+
+class PlatformMCPCatalogRead(BaseModel):
+    """Catalog row joined with workspace-specific MCP state."""
+
+    id: uuid.UUID
+    slug: str
+    name: str
+    description: str
+    category: str
+    status: PlatformMCPCatalogStatus
+    icon_url: str | None
+    docs_url: str | None
+    provider_id: str | None
+    connection_spec: MCPConnectionSpec | None
+    connection_options: list[MCPConnectionOption] = Field(default_factory=list)
+    locked: bool = Field(
+        description="Whether this platform MCP catalog row is locked by entitlement.",
+    )
+    state: PlatformMCPCatalogState
+    mcp_integration_id: UUID4 | None
+    mcp_server_type: MCPServerType | None = None
+    mcp_auth_type: MCPAuthType | None = None
+    tools: list[MCPToolSummary] | None = None
+    """Tools discovered at the last successful verification; null means unverified."""
+    created_at: datetime
+    updated_at: datetime
+    last_refreshed_at: datetime | None
+
+
+class PlatformMCPCatalogListResponse(BaseModel):
+    """Cursor-paginated platform MCP catalog response."""
+
+    items: list[PlatformMCPCatalogRead]
+    next_cursor: str | None = None
+
+
 class MCPIntegrationRead(BaseModel):
     """Response model for MCP integration."""
 
@@ -538,6 +862,7 @@ class MCPIntegrationRead(BaseModel):
     server_uri: str | None
     auth_type: MCPAuthType
     oauth_integration_id: UUID4 | None
+    state: PlatformMCPCatalogState
     # Stdio-type server fields
     stdio_command: str | None
     stdio_args: list[str] | None
@@ -546,5 +871,69 @@ class MCPIntegrationRead(BaseModel):
     """Whether stdio_env is configured (actual values are not exposed)."""
     # General fields
     timeout: int | None
+    tools: list[MCPToolSummary] | None = None
+    """Tools discovered at the last successful verification; null means unverified."""
     created_at: datetime
     updated_at: datetime
+
+
+class MCPIntegrationTestConnectionRequest(BaseModel):
+    """Request to test connectivity against an unsaved HTTP MCP configuration.
+
+    Carries the (possibly edited, not yet persisted) form values. When
+    ``mcp_integration_id`` is set, stored secrets from that row are used as a
+    fallback for fields the caller leaves blank (e.g. unchanged credentials).
+    """
+
+    mcp_integration_id: UUID4 | None = None
+    server_uri: str = Field(..., min_length=1, max_length=2048)
+    auth_type: MCPAuthType = MCPAuthType.NONE
+    oauth_integration_id: UUID4 | None = None
+    custom_credentials: SecretStr | None = Field(
+        default=None,
+        description="JSON object of custom headers; falls back to stored headers when omitted",
+    )
+    timeout: int | None = Field(default=None, ge=1, le=300)
+
+    @field_validator("server_uri", mode="before")
+    @classmethod
+    def _validate_server_uri(cls, value: str | None) -> str:
+        """Validate and sanitize the MCP server URI.
+
+        Input-only validation that mirrors ``MCPHttpIntegrationCreate``. It does
+        NOT perform DNS resolution; the runtime SSRF block at probe time is the
+        real defense against private/loopback/link-local targets.
+        """
+        if value is None:
+            raise ValueError("server_uri is required")
+        if isinstance(value, str):
+            value = value.strip()
+        if not value:
+            raise ValueError("server_uri is required")
+
+        parsed = urlparse(value)
+        if not parsed.netloc:
+            raise ValueError("Server URI must include a hostname")
+        if parsed.scheme.lower() not in ("http", "https"):
+            raise ValueError("Server URI must use HTTP or HTTPS")
+
+        return value
+
+
+class MCPIntegrationTestConnectionResponse(BaseModel):
+    """Response for testing connectivity to an MCP server."""
+
+    success: bool
+    mcp_integration_id: UUID4 | None = None
+    tools: list[MCPToolSummary] | None = None
+    message: str
+    error: str | None = None
+
+
+class MCPCatalogConnectResponse(BaseModel):
+    """Response for connecting a platform MCP catalog entry."""
+
+    status: Literal["connected", "oauth_redirect"]
+    mcp_integration: MCPIntegrationRead | None = None
+    auth_url: str | None = None
+    provider_id: str | None = None

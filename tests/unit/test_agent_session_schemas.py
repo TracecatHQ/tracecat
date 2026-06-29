@@ -67,6 +67,7 @@ def test_agent_session_read_defaults_missing_agents_binding() -> None:
             entity_id=uuid.uuid4(),
             channel_context=None,
             tools=None,
+            mcp_integrations=None,
             agent_preset_id=None,
             agent_preset_version_id=None,
             harness_type=None,

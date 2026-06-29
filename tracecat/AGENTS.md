@@ -39,6 +39,10 @@ Keep type layers separate to avoid circular imports and make reviews easier.
   role fallback, and `with_session()` lifecycle handling.
 - Request-scoped state lives in `tracecat/contexts.py`; use existing context
   variables instead of threading ad hoc state through unrelated layers.
+- Never inspect exception or error-message strings to decide API behavior,
+  status codes, retries, or control flow. Use explicit exception types,
+  `StrEnum`/`Literal` error codes in exception details, or typed structured
+  errors instead.
 - Keep router, service, schema, and type responsibilities separate:
   router for transport, service for business logic, schema for API contracts,
   and `types.py` for domain typing.
@@ -106,8 +110,12 @@ Common role types:
 - Required secret accessors live in `tracecat/auth/secrets.py`. Call the helper
   at the point of use instead of reading raw config values directly.
 - Do not default secrets to empty strings.
-- In `tracecat/config.py`, prefer `int(os.environ.get("VAR") or default)` so
-  empty environment variables do not break parsing.
+- Treat blank environment values as unset when a default exists; use the shared
+  helpers in `tracecat/config.py` so defaults stay defined in code.
+- Keep security-sensitive defaults in config code instead of relying on Compose,
+  `.env.example`, or deployment templates to provide them.
+- In `tracecat/config.py`, prefer `int(os.environ.get("VAR") or default)` for
+  numeric config so empty environment variables do not break parsing.
 - Prefer `orjson` over stdlib `json` when the dependency is available.
 
 ## Readability rules

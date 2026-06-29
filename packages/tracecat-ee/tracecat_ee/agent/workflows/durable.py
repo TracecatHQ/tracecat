@@ -36,7 +36,12 @@ with workflow.unsafe.imports_passed_through():
         build_tracecat_mcp_role,
     )
     from tracecat.agent.mcp.metadata import strip_proxy_tool_metadata
-    from tracecat.agent.mcp.utils import normalize_mcp_tool_name
+    from tracecat.agent.mcp.utils import (
+        LEGACY_REGISTRY_MCP_SERVER_NAME,
+        REGISTRY_MCP_SERVER_NAME,
+        action_name_to_mcp_tool_name,
+        normalize_mcp_tool_name,
+    )
     from tracecat.agent.parsers import try_parse_json
     from tracecat.agent.preset.activities import (
         ResolveAgentPresetConfigActivityInput,
@@ -93,16 +98,22 @@ with workflow.unsafe.imports_passed_through():
         BuildToolDefsArgs,
         BuildToolDefsResult,
         EmitSessionErrorInputs,
+        ExecuteRemoteMCPToolArgs,
     )
     from tracecat_ee.agent.approvals.service import ApprovalManager, ApprovalMap
     from tracecat_ee.agent.context import AgentContext
     from tracecat_ee.agent.types import AgentWorkflowID
 
 
-AGENT_TOOL_DEFINITION_ERROR = "AgentToolDefinitionError"
 ROOT_AGENT_SCOPE = "root"
+AGENT_TOOL_DEFINITION_ERROR = "AgentToolDefinitionError"
+AGENT_EXECUTOR_PRE_STREAM_ERROR = "AgentExecutorPreStreamError"
+AGENT_RUNTIME_EXECUTION_ERROR = "AgentRuntimeExecutionError"
 BUILD_AGENT_TOOL_DEFINITIONS_PATCH = (
     "tracecat_ee.agent.workflows.durable.build_agent_tool_definitions"
+)
+EMIT_PRE_STREAM_SESSION_ERRORS_PATCH = (
+    "tracecat_ee.agent.workflows.durable.emit_pre_stream_session_errors"
 )
 
 
@@ -137,6 +148,106 @@ def _build_approved_tool_run_input(
         run_id=run_id,
         execution_id=execution_id,
         logical_time=logical_time,
+    )
+
+
+def _approved_user_mcp_tool_name(tool_name: str) -> str | None:
+    """Resolve an approved tool call to the tool name on its user MCP server.
+
+    Approved user MCP tool calls arrive in one of two shapes: the normalized
+    approval key (``mcp.{server}.{tool}``) or the raw proxy-routed runtime name
+    (``mcp__tracecat-registry__mcp__{server}__{tool}``). Both map to the
+    ``mcp__{server}__{tool}`` name expected by the trusted MCP router. Returns
+    None for registry actions, which execute through the executor instead.
+    """
+    server, _, remote_tool = tool_name.removeprefix("mcp.").partition(".")
+    is_normalized_user_mcp = (
+        tool_name.startswith("mcp.")
+        and bool(server and remote_tool)
+        and server not in (REGISTRY_MCP_SERVER_NAME, LEGACY_REGISTRY_MCP_SERVER_NAME)
+    )
+    if not is_normalized_user_mcp:
+        action_name = normalize_mcp_tool_name(tool_name)
+        if not action_name.startswith("mcp."):
+            return None
+        server, _, remote_tool = action_name.removeprefix("mcp.").partition(".")
+        if not server or not remote_tool:
+            return None
+        tool_name = action_name
+    return action_name_to_mcp_tool_name(tool_name)
+
+
+def _apply_tool_approvals(
+    spec: AgentScopeSpec, build_result: BuildToolDefsResult
+) -> None:
+    """Adopt the effective approval policy computed during tool compilation."""
+    if build_result.tool_approvals is not None:
+        spec.config.tool_approvals = build_result.tool_approvals
+
+
+async def _execute_remote_mcp_tool_call(
+    tool_call: ApprovedToolCall,
+    *,
+    remote_tool_name: str,
+    mcp_auth_token: str,
+) -> PendingToolResult:
+    """Route an approved user MCP tool call through the trusted MCP router."""
+    raw_result = await workflow.execute_activity_method(
+        AgentActivities.execute_remote_mcp_tool,
+        arg=ExecuteRemoteMCPToolArgs(
+            mcp_auth_token=mcp_auth_token,
+            tool_name=remote_tool_name,
+            args=tool_call.args,
+        ),
+        start_to_close_timeout=timedelta(
+            seconds=int(config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT)
+        ),
+        retry_policy=RETRY_POLICIES["activity:fail_fast"],
+    )
+    return PendingToolResult(
+        tool_call_id=tool_call.tool_call_id,
+        tool_name=tool_call.tool_name,
+        tool_input=tool_call.args,
+        raw_result=raw_result,
+    )
+
+
+async def _execute_registry_tool_call(
+    tool_call: ApprovedToolCall,
+    *,
+    registry_lock: RegistryLock,
+    service_role: Role,
+    logical_time: datetime,
+) -> PendingToolResult:
+    """Execute an approved registry action on the executor task queue."""
+    stored = await workflow.execute_activity(
+        ExecutorActivities.execute_action_activity,
+        args=[
+            _build_approved_tool_run_input(
+                tool_call=tool_call,
+                registry_lock=registry_lock,
+                workflow_id=workflow.uuid4(),
+                run_id=workflow.uuid4(),
+                execution_id=workflow.uuid4(),
+                logical_time=logical_time,
+            ),
+            service_role,
+        ],
+        task_queue=config.TRACECAT__EXECUTOR_QUEUE,
+        start_to_close_timeout=timedelta(
+            seconds=int(config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT)
+        ),
+        heartbeat_timeout=timedelta(seconds=config.TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT)
+        if config.TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT > 0
+        else None,
+        retry_policy=RETRY_POLICIES["activity:fail_fast"],
+        priority=AGENT_TOOL_PRIORITY,
+    )
+    return PendingToolResult(
+        tool_call_id=tool_call.tool_call_id,
+        tool_name=tool_call.tool_name,
+        tool_input=tool_call.args,
+        stored_result=stored,
     )
 
 
@@ -539,6 +650,7 @@ class DurableAgentWorkflow:
                     raise e.cause from e
                 raise
 
+            _apply_tool_approvals(root_spec, legacy_build_result)
             root_scope = CompiledAgentScope(
                 spec=root_spec,
                 build_result=legacy_build_result,
@@ -602,6 +714,7 @@ class DurableAgentWorkflow:
                 non_retryable=True,
             )
 
+        _apply_tool_approvals(root_spec, root_build_result)
         root_scope = CompiledAgentScope(
             spec=root_spec,
             build_result=root_build_result,
@@ -621,6 +734,13 @@ class DurableAgentWorkflow:
                     f"Batched agent tool compilation did not return scope '{scope_spec.name}'",
                     non_retryable=True,
                 )
+            if has_manual_tool_approvals(child_build_result.tool_approvals):
+                raise ApplicationError(
+                    f"Subagent preset '{subagent_spec.resolved.binding.preset}' uses manual approvals, "
+                    "which are not supported for subagents yet.",
+                    non_retryable=True,
+                )
+            _apply_tool_approvals(scope_spec, child_build_result)
             route_resolution = _llm_route_for_config(
                 scope_spec.config,
             )
@@ -668,26 +788,36 @@ class DurableAgentWorkflow:
         try:
             cfg = await self._build_config(args)
             return await self._run_with_agent_executor(args, cfg)
-        except ApplicationError as e:
-            if e.type == AGENT_TOOL_DEFINITION_ERROR:
-                try:
-                    await workflow.execute_activity_method(
-                        AgentActivities.emit_session_error,
-                        EmitSessionErrorInputs(
-                            session_id=self.session_id,
-                            workspace_id=self.workspace_id,
-                            message=e.message,
-                        ),
-                        start_to_close_timeout=timedelta(seconds=10),
-                        retry_policy=RETRY_POLICIES["activity:fail_fast"],
-                    )
-                except ActivityError as emit_error:
-                    logger.warning(
-                        "Failed to emit terminal agent session error",
-                        session_id=self.session_id,
-                        error=str(emit_error),
-                    )
+        except ActivityError as e:
+            if workflow.patched(EMIT_PRE_STREAM_SESSION_ERRORS_PATCH):
+                await self._emit_session_error(_activity_error_message(e))
             raise
+        except ApplicationError as e:
+            if e.type == AGENT_TOOL_DEFINITION_ERROR or (
+                e.type != AGENT_RUNTIME_EXECUTION_ERROR
+                and workflow.patched(EMIT_PRE_STREAM_SESSION_ERRORS_PATCH)
+            ):
+                await self._emit_session_error(e.message)
+            raise
+
+    async def _emit_session_error(self, message: str) -> None:
+        try:
+            await workflow.execute_activity_method(
+                AgentActivities.emit_session_error,
+                EmitSessionErrorInputs(
+                    session_id=self.session_id,
+                    workspace_id=self.workspace_id,
+                    message=message,
+                ),
+                start_to_close_timeout=timedelta(seconds=10),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+        except ActivityError as emit_error:
+            logger.warning(
+                "Failed to emit terminal agent session error",
+                session_id=self.session_id,
+                error=str(emit_error),
+            )
 
     @workflow.update
     def set_approvals(self, submission: WorkflowApprovalSubmission) -> None:
@@ -862,8 +992,16 @@ class DurableAgentWorkflow:
             )
 
             if not result.success:
+                # Missing means a legacy activity result from before the flag
+                # existed; preserve the old no-fallback behavior on replay.
+                terminal_stream_error_emitted = (
+                    result.terminal_stream_error_emitted is not False
+                )
                 raise ApplicationError(
                     f"Agent execution failed: {result.error}",
+                    type=AGENT_RUNTIME_EXECUTION_ERROR
+                    if terminal_stream_error_emitted
+                    else AGENT_EXECUTOR_PRE_STREAM_ERROR,
                     non_retryable=True,
                 )
 
@@ -905,6 +1043,7 @@ class DurableAgentWorkflow:
                         approved_tools=approved_tools,
                         denied_tools=denied_tools,
                         registry_lock=root_registry_lock,
+                        mcp_auth_token=compiled_run.root.mcp_auth_token,
                     )
                     logger.info(
                         "Tool execution completed",
@@ -1084,6 +1223,7 @@ class DurableAgentWorkflow:
         approved_tools: list[ApprovedToolCall],
         denied_tools: list[DeniedToolCall],
         registry_lock: RegistryLock,
+        mcp_auth_token: str,
     ) -> list:
         logical_time = workflow.now()
         service_role = build_tracecat_mcp_role(
@@ -1093,44 +1233,28 @@ class DurableAgentWorkflow:
         )
         pending_results: list[PendingToolResult] = []
         for tool_call in approved_tools:
+            remote_mcp_tool_name = _approved_user_mcp_tool_name(tool_call.tool_name)
             try:
-                stored = await workflow.execute_activity(
-                    ExecutorActivities.execute_action_activity,
-                    args=[
-                        _build_approved_tool_run_input(
-                            tool_call=tool_call,
-                            registry_lock=registry_lock,
-                            workflow_id=workflow.uuid4(),
-                            run_id=workflow.uuid4(),
-                            execution_id=workflow.uuid4(),
-                            logical_time=logical_time,
-                        ),
-                        service_role,
-                    ],
-                    task_queue=config.TRACECAT__EXECUTOR_QUEUE,
-                    start_to_close_timeout=timedelta(
-                        seconds=int(config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT)
-                    ),
-                    heartbeat_timeout=timedelta(
-                        seconds=config.TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT
+                if remote_mcp_tool_name is not None:
+                    result = await _execute_remote_mcp_tool_call(
+                        tool_call,
+                        remote_tool_name=remote_mcp_tool_name,
+                        mcp_auth_token=mcp_auth_token,
                     )
-                    if config.TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT > 0
-                    else None,
-                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
-                    priority=AGENT_TOOL_PRIORITY,
-                )
-                pending_results.append(
-                    PendingToolResult(
-                        tool_call_id=tool_call.tool_call_id,
-                        tool_name=tool_call.tool_name,
-                        stored_result=stored,
+                else:
+                    result = await _execute_registry_tool_call(
+                        tool_call,
+                        registry_lock=registry_lock,
+                        service_role=service_role,
+                        logical_time=logical_time,
                     )
-                )
+                pending_results.append(result)
             except ActivityError as e:
                 pending_results.append(
                     PendingToolResult(
                         tool_call_id=tool_call.tool_call_id,
                         tool_name=tool_call.tool_name,
+                        tool_input=tool_call.args,
                         raw_result=f"Tool execution failed: {_activity_error_message(e)}",
                         is_error=True,
                     )

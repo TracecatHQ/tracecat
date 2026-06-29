@@ -505,8 +505,8 @@ class TestServicePrincipalScopes:
     """Tests for service principal scope definitions.
 
     Regression: the LLM gateway needs org:secret:read to fetch provider
-    credentials for copilot chat via SecretsService.get_org_secret_by_name().
-    Without it, copilot chat fails with ScopeDeniedError for all users.
+    credentials for Workspace Chat via SecretsService.get_org_secret_by_name().
+    Without it, Workspace Chat fails with ScopeDeniedError for all users.
     """
 
     def test_llm_gateway_has_org_secret_read(self):

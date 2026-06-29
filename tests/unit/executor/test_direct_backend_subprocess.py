@@ -96,7 +96,7 @@ async def test_direct_backend_uses_subprocess_runner(
         "tracecat.executor.backends.direct.get_action_runner",
         lambda: mock_runner,
     )
-    monkeypatch.setattr(backend, "_get_tarball_uris", _get_tarballs)
+    monkeypatch.setattr(backend, "_get_artifact_uris", _get_tarballs)
 
     result = await backend.execute(
         input=input_data,
@@ -110,7 +110,7 @@ async def test_direct_backend_uses_subprocess_runner(
     mock_runner.execute_action.assert_awaited_once()
     call = mock_runner.execute_action.await_args.kwargs
     assert call["force_sandbox"] is False
-    assert call["tarball_uris"] == ["s3://tracecat-registry/test/site-packages.tar.gz"]
+    assert call["artifact_uris"] == ["s3://tracecat-registry/test/site-packages.tar.gz"]
 
 
 @pytest.mark.anyio
@@ -129,7 +129,7 @@ async def test_direct_backend_fails_without_tarballs(
         "tracecat.executor.backends.direct.config.TRACECAT__LOCAL_REPOSITORY_ENABLED",
         False,
     )
-    monkeypatch.setattr(backend, "_get_tarball_uris", _get_tarballs)
+    monkeypatch.setattr(backend, "_get_artifact_uris", _get_tarballs)
 
     result = await backend.execute(
         input=input_data,
@@ -169,7 +169,7 @@ async def test_direct_backend_maps_runner_error(
         "tracecat.executor.backends.direct.get_action_runner",
         lambda: mock_runner,
     )
-    monkeypatch.setattr(backend, "_get_tarball_uris", _get_tarballs)
+    monkeypatch.setattr(backend, "_get_artifact_uris", _get_tarballs)
 
     result = await backend.execute(
         input=input_data,

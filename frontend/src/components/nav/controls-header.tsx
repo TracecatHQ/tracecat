@@ -12,14 +12,14 @@ import {
   Flag,
   Flame,
   FolderIcon,
+  KeyRound,
   ListIcon,
-  Lock,
+  LockKeyhole,
   MessageSquare,
   MousePointerClickIcon,
   PanelRight,
   PenLine,
   Plus,
-  Sparkles,
   TagsIcon,
   Trash2,
   User,
@@ -75,7 +75,6 @@ import {
 } from "@/components/dashboard/workflows-catalog-view-toggle"
 import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
 import { CreateCustomProviderDialog } from "@/components/integrations/create-custom-provider-dialog"
-import { MCPIntegrationDialog } from "@/components/integrations/mcp-integration-dialog"
 import { Spinner } from "@/components/loading/spinner"
 import {
   MembersViewMode,
@@ -132,6 +131,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuSub,
@@ -141,6 +141,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Kbd } from "@/components/ui/kbd"
 import { SidebarTrigger } from "@/components/ui/sidebar"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Tooltip,
   TooltipContent,
@@ -342,7 +343,9 @@ function TablesActions() {
 }
 
 function IntegrationsActions() {
-  const [activeDialog, setActiveDialog] = useState<"oauth" | "mcp" | null>(null)
+  const [oauthDialogOpen, setOauthDialogOpen] = useState(false)
+  const [credentialDialogOpen, setCredentialDialogOpen] = useState(false)
+  const canCreateSecrets = useScopeCheck("secret:create") === true
 
   return (
     <>
@@ -362,34 +365,37 @@ function IntegrationsActions() {
             [&_[data-radix-collection-item]]:gap-2
           "
         >
-          <DropdownMenuItem onSelect={() => setActiveDialog("oauth")}>
-            <Lock className="size-4 text-foreground/80" />
-            <div className="flex flex-col text-xs">
-              <span>OAuth provider</span>
-              <span className="text-xs text-muted-foreground">
-                Add a custom OAuth 2.0 provider
-              </span>
-            </div>
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setActiveDialog("mcp")}>
-            <Sparkles className="size-4 text-foreground/80" />
-            <div className="flex flex-col text-xs">
-              <span>MCP integration</span>
-              <span className="text-xs text-muted-foreground">
-                Connect to an MCP server
-              </span>
-            </div>
-          </DropdownMenuItem>
+          <DropdownMenuGroup>
+            {canCreateSecrets ? (
+              <DropdownMenuItem onSelect={() => setCredentialDialogOpen(true)}>
+                <KeyRound className="size-4 text-foreground/80" />
+                <div className="flex flex-col text-xs">
+                  <span>Key-value credentials</span>
+                  <span className="text-xs text-muted-foreground">
+                    Store API keys and tokens
+                  </span>
+                </div>
+              </DropdownMenuItem>
+            ) : null}
+            <DropdownMenuItem onSelect={() => setOauthDialogOpen(true)}>
+              <LockKeyhole className="size-4 text-foreground/80" />
+              <div className="flex flex-col text-xs">
+                <span>Custom OAuth provider</span>
+                <span className="text-xs text-muted-foreground">
+                  Configure OAuth app credentials
+                </span>
+              </div>
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
-      <CreateCustomProviderDialog
-        open={activeDialog === "oauth"}
-        onOpenChange={(open) => setActiveDialog(open ? "oauth" : null)}
-        hideTrigger
+      <CreateCredentialDialog
+        open={credentialDialogOpen}
+        onOpenChange={setCredentialDialogOpen}
       />
-      <MCPIntegrationDialog
-        open={activeDialog === "mcp"}
-        onOpenChange={(open) => setActiveDialog(open ? "mcp" : null)}
+      <CreateCustomProviderDialog
+        open={oauthDialogOpen}
+        onOpenChange={setOauthDialogOpen}
         hideTrigger
       />
     </>
@@ -398,6 +404,20 @@ function IntegrationsActions() {
 
 function SkillsActions() {
   return <CreateSkillButton />
+}
+
+function BreadcrumbEntityPage({
+  label,
+  skeletonClassName,
+}: {
+  label?: string | null
+  skeletonClassName: string
+}) {
+  if (!label) {
+    return <Skeleton className={skeletonClassName} />
+  }
+
+  return <BreadcrumbPage className="font-semibold">{label}</BreadcrumbPage>
 }
 
 function SkillsBreadcrumb({
@@ -421,9 +441,10 @@ function SkillsBreadcrumb({
           <span className="text-muted-foreground">/</span>
         </BreadcrumbSeparator>
         <BreadcrumbItem>
-          <BreadcrumbPage className="font-semibold">
-            {skill?.name || skillId}
-          </BreadcrumbPage>
+          <BreadcrumbEntityPage
+            label={skill?.name}
+            skeletonClassName="h-4 w-28"
+          />
         </BreadcrumbItem>
       </BreadcrumbList>
     </Breadcrumb>
@@ -438,6 +459,61 @@ function normalizeAgentActionPath(rawPath: string | null): string {
   return withLeadingSlash.endsWith("/") && withLeadingSlash !== "/"
     ? withLeadingSlash.slice(0, -1)
     : withLeadingSlash
+}
+
+function AgentFoldersBreadcrumb({
+  workspaceId,
+  path,
+}: {
+  workspaceId: string
+  path: string | null
+}) {
+  const normalizedPath = normalizeAgentActionPath(path)
+  const segments = normalizedPath.split("/").filter(Boolean)
+  const baseHref = `/workspaces/${workspaceId}/agents`
+  const getFolderHref = (folderPath: string) => {
+    if (folderPath === "/") {
+      return `${baseHref}?view=folders&path=%2F`
+    }
+    return `${baseHref}?view=folders&path=${encodeURIComponent(folderPath)}`
+  }
+
+  return (
+    <Breadcrumb>
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-transparent pr-1">
+        <BreadcrumbItem>
+          <BreadcrumbLink asChild className="font-semibold hover:no-underline">
+            <Link href={baseHref}>Agents</Link>
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        {segments.map((segment, index) => {
+          const folderPath = `/${segments.slice(0, index + 1).join("/")}`
+          const isLast = index === segments.length - 1
+          return (
+            <Fragment key={folderPath}>
+              <BreadcrumbSeparator className="shrink-0">
+                <span className="text-muted-foreground">/</span>
+              </BreadcrumbSeparator>
+              <BreadcrumbItem>
+                {isLast ? (
+                  <BreadcrumbPage className="font-semibold">
+                    {segment}
+                  </BreadcrumbPage>
+                ) : (
+                  <BreadcrumbLink
+                    asChild
+                    className="font-semibold hover:no-underline"
+                  >
+                    <Link href={getFolderHref(folderPath)}>{segment}</Link>
+                  </BreadcrumbLink>
+                )}
+              </BreadcrumbItem>
+            </Fragment>
+          )
+        })}
+      </BreadcrumbList>
+    </Breadcrumb>
+  )
 }
 
 function AgentsActions() {
@@ -1531,6 +1607,11 @@ function MembersActions({ view }: { view: MembersViewMode }) {
 
 function CredentialsActions() {
   const [dialogOpen, setDialogOpen] = useState(false)
+  const canCreateSecrets = useScopeCheck("secret:create")
+
+  if (canCreateSecrets !== true) {
+    return null
+  }
 
   return (
     <>
@@ -1576,6 +1657,35 @@ function ServiceAccountsActions() {
     >
       <Plus className="mr-1 h-3.5 w-3.5" />
       Create service account
+    </Button>
+  )
+}
+
+function McpServersActions() {
+  const canCreate = useScopeCheck("integration:create")
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const router = useRouter()
+
+  if (canCreate !== true || !pathname) {
+    return null
+  }
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className="h-7 bg-white"
+      onClick={() => {
+        const params = new URLSearchParams(searchParams?.toString())
+        params.set("createMcpServer", Date.now().toString())
+        router.replace(`${pathname}?${params.toString()}`, {
+          scroll: false,
+        })
+      }}
+    >
+      <Plus className="mr-1 h-3.5 w-3.5" />
+      Add MCP server
     </Button>
   )
 }
@@ -1643,9 +1753,10 @@ function CaseBreadcrumb({
           <span className="text-muted-foreground">/</span>
         </BreadcrumbSeparator>
         <BreadcrumbItem>
-          <BreadcrumbPage className="font-semibold">
-            {caseData?.short_id || caseId}
-          </BreadcrumbPage>
+          <BreadcrumbEntityPage
+            label={caseData?.short_id}
+            skeletonClassName="h-4 w-20"
+          />
         </BreadcrumbItem>
       </BreadcrumbList>
     </Breadcrumb>
@@ -1755,9 +1866,10 @@ function TableBreadcrumb({
           <span className="text-muted-foreground">/</span>
         </BreadcrumbSeparator>
         <BreadcrumbItem>
-          <BreadcrumbPage className="font-semibold">
-            {table?.name || tableId}
-          </BreadcrumbPage>
+          <BreadcrumbEntityPage
+            label={table?.name}
+            skeletonClassName="h-4 w-28"
+          />
         </BreadcrumbItem>
       </BreadcrumbList>
     </Breadcrumb>
@@ -1795,9 +1907,10 @@ function AgentPresetBreadcrumb({
           <span className="text-muted-foreground">/</span>
         </BreadcrumbSeparator>
         <BreadcrumbItem>
-          <BreadcrumbPage className="font-semibold">
-            {preset?.name || presetId}
-          </BreadcrumbPage>
+          <BreadcrumbEntityPage
+            label={preset?.name}
+            skeletonClassName="h-4 w-32"
+          />
         </BreadcrumbItem>
       </BreadcrumbList>
     </Breadcrumb>
@@ -1868,8 +1981,16 @@ function getPageConfig(
       }
     }
 
+    const agentsView = searchParams?.get("view") === "list" ? "list" : "folders"
     return {
-      title: "Agents",
+      title: (
+        <AgentFoldersBreadcrumb
+          workspaceId={workspaceId}
+          path={
+            agentsView === "folders" ? (searchParams?.get("path") ?? "/") : "/"
+          }
+        />
+      ),
       actions: <AgentsActions />,
     }
   }
@@ -1955,6 +2076,13 @@ function getPageConfig(
     return {
       title: "Credentials",
       actions: <CredentialsActions />,
+    }
+  }
+
+  if (pagePath.startsWith("/mcp-servers")) {
+    return {
+      title: "MCP servers",
+      actions: <McpServersActions />,
     }
   }
 

@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, cast
 
+from tracecat.dsl.common import build_action_statements_from_actions
 from tracecat.dsl.view import (
     RFEdge,
     RFGraph,
@@ -12,6 +16,8 @@ from tracecat.dsl.view import (
     UDFNode,
     UDFNodeData,
 )
+from tracecat.expressions.expectations import create_expectation_model
+from tracecat.registry.actions.schemas import TemplateAction
 
 
 def _make_trigger_node(trigger_id: str | None = None) -> TriggerNode:
@@ -126,3 +132,41 @@ class TestRFGraphNormalizeActionIds:
         assert len(action_nodes) == 2
         node_ids = {n.id for n in action_nodes}
         assert node_ids == {action1_uuid, action2_uuid}
+
+
+def test_build_action_statements_preserves_sentinel_date_like_api_version() -> None:
+    """Date-like string inputs should stay strings for template arg validation."""
+    template = TemplateAction.from_yaml(
+        Path(
+            "packages/tracecat-registry/tracecat_registry/templates/tools/"
+            "microsoft_sentinel/incidents/get_incident.yml"
+        )
+    )
+    expectation_model = create_expectation_model(template.definition.expects)
+    action = cast(
+        Any,
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            ref="get_incident",
+            type=template.definition.action,
+            inputs="""
+subscription_id: sub-123
+resource_group_name: rg
+workspace_name: workspace
+incident_id: incident-123
+api_version: 2025-09-01
+base_url: https://management.azure.com
+""",
+            control_flow={},
+            upstream_edges=[],
+            is_interactive=False,
+            interaction=None,
+        ),
+    )
+
+    statements = build_action_statements_from_actions([action])
+
+    assert len(statements) == 1
+    assert statements[0].args["api_version"] == "2025-09-01"
+    validated_args = expectation_model.model_validate(statements[0].args)
+    assert validated_args.model_dump()["api_version"] == "2025-09-01"

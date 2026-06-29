@@ -10,8 +10,10 @@ from __future__ import annotations
 import asyncio
 import shutil
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -26,10 +28,12 @@ from tracecat_ee.agent.activities import (
 
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import HarnessType
+from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
     SandboxedAgentExecutor,
+    _cancel_task_with_timeout,
     _hydrate_sdk_session_history,
     run_agent_activity,
 )
@@ -56,6 +60,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.chat.schemas import ChatMessage
 from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
+from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
 
@@ -82,9 +87,13 @@ def mock_session_id() -> uuid.UUID:
 @pytest.fixture
 def mock_agent_config() -> AgentConfig:
     """Create a mock agent config for testing."""
-    return AgentConfig(
-        model_name="claude-3-5-sonnet-20241022",
-        model_provider="anthropic",
+    agent_config = cast(Any, AgentConfig)
+    return cast(
+        AgentConfig,
+        agent_config(
+            model_name="claude-3-5-sonnet-20241022",
+            model_provider="anthropic",
+        ),
     )
 
 
@@ -259,6 +268,272 @@ class TestBuildToolDefinitionsActivity:
         assert exc_info.value.non_retryable is True
 
     @pytest.mark.anyio
+    async def test_mcp_tool_policy_filters_and_maps_approvals(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+    ) -> None:
+        from tracecat.agent.mcp import user_client
+        from tracecat.agent.preset.service import AgentPresetService
+
+        integration_id = uuid.uuid4()
+
+        async def mock_build_agent_tools(**_kwargs: Any) -> BuildToolsResult:
+            return BuildToolsResult(tools=[], collected_secrets=set())
+
+        async def mock_discover_user_mcp_tools(
+            configs: list[dict[str, Any]],
+            *,
+            fail_on_error: bool = False,
+        ) -> dict[str, MCPToolDefinition]:
+            assert fail_on_error is False
+            assert configs[0]["headers"] == {"authorization": "Bearer test-token"}
+            return {
+                "mcp__Jira__getIssue": MCPToolDefinition(
+                    name="mcp__Jira__getIssue",
+                    description="Get issue",
+                    parameters_json_schema={"type": "object"},
+                ),
+                "mcp__Jira__deleteIssue": MCPToolDefinition(
+                    name="mcp__Jira__deleteIssue",
+                    description="Delete issue",
+                    parameters_json_schema={"type": "object"},
+                ),
+            }
+
+        class _PresetService:
+            async def resolve_mcp_integration_tool_policies(
+                self,
+                mcp_integration_ids: list[uuid.UUID],
+            ) -> dict[uuid.UUID, dict[str, MCPToolSummary]]:
+                assert mcp_integration_ids == [integration_id]
+                return {
+                    integration_id: {
+                        "getIssue": MCPToolSummary(
+                            name="getIssue",
+                            requires_approval=True,
+                        ),
+                        "deleteIssue": MCPToolSummary(
+                            name="deleteIssue",
+                            enabled=False,
+                        ),
+                    }
+                }
+
+            async def resolve_mcp_integration_secrets(
+                self,
+                mcp_integration_id: uuid.UUID,
+            ) -> dict[str, str]:
+                assert mcp_integration_id == integration_id
+                return {"authorization": "Bearer test-token"}
+
+        class _PresetContext:
+            async def __aenter__(self) -> _PresetService:
+                return _PresetService()
+
+            async def __aexit__(
+                self, exc_type: object, exc: object, tb: object
+            ) -> None:
+                return None
+
+        class _LockService:
+            async def resolve_lock_with_bindings(
+                self,
+                actions: set[str],
+            ) -> RegistryLock:
+                assert actions == set()
+                return RegistryLock(origins={}, actions={})
+
+        class _LockContext:
+            async def __aenter__(self) -> _LockService:
+                return _LockService()
+
+            async def __aexit__(
+                self, exc_type: object, exc: object, tb: object
+            ) -> None:
+                return None
+
+        entitlement_roles: list[Role] = []
+
+        async def mock_check_tool_approval_entitlement(role: Role) -> None:
+            entitlement_roles.append(role)
+
+        monkeypatch.setattr(
+            agent_activities, "build_agent_tools", mock_build_agent_tools
+        )
+        monkeypatch.setattr(
+            user_client,
+            "discover_user_mcp_tools",
+            mock_discover_user_mcp_tools,
+        )
+        monkeypatch.setattr(
+            AgentPresetService,
+            "with_session",
+            staticmethod(lambda **_kwargs: _PresetContext()),
+        )
+        monkeypatch.setattr(
+            RegistryLockService,
+            "with_session",
+            lambda: _LockContext(),
+        )
+        monkeypatch.setattr(
+            AgentActivities,
+            "_check_tool_approval_entitlement",
+            staticmethod(mock_check_tool_approval_entitlement),
+        )
+
+        result = await AgentActivities().build_tool_definitions(
+            BuildToolDefsArgs(
+                role=mock_role,
+                tool_filters=ToolFilters(actions=[]),
+                mcp_servers=[
+                    {
+                        "type": "http",
+                        "name": "Jira",
+                        "url": "https://mcp.example.com/mcp",
+                        "id": str(integration_id),
+                    }
+                ],
+            )
+        )
+
+        assert set(result.tool_definitions) == {"mcp__Jira__getIssue"}
+        assert result.tool_approvals == {"mcp.Jira.getIssue": True}
+        assert result.user_mcp_claims is not None
+        assert result.user_mcp_claims[0].id == integration_id
+        assert entitlement_roles == [mock_role]
+
+    @pytest.mark.anyio
+    async def test_mcp_tool_with_dotted_remote_name_always_dropped(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+    ) -> None:
+        """User MCP tool names reach the provider verbatim (registered on the
+        trusted server without dot-to-underscore conversion). Provider tool-name
+        constraints reject dots, so a dotted remote name is dropped regardless of
+        approval status - otherwise the agent would fail to start."""
+        from tracecat.agent.mcp import user_client
+        from tracecat.agent.preset.service import AgentPresetService
+
+        integration_id = uuid.uuid4()
+
+        async def mock_build_agent_tools(**_kwargs: Any) -> BuildToolsResult:
+            return BuildToolsResult(tools=[], collected_secrets=set())
+
+        async def mock_discover_user_mcp_tools(
+            configs: list[dict[str, Any]],
+            *,
+            fail_on_error: bool = False,
+        ) -> dict[str, MCPToolDefinition]:
+            return {
+                # Dotted, no approval -> dropped (dot reaches provider verbatim).
+                "mcp__Jira__issue.get": MCPToolDefinition(
+                    name="mcp__Jira__issue.get",
+                    description="Dotted, no approval",
+                    parameters_json_schema={"type": "object"},
+                ),
+                # Dotted, approval-gated -> dropped (dot reaches provider verbatim
+                # and approval key can't round-trip back to the router name).
+                "mcp__Jira__issue.delete": MCPToolDefinition(
+                    name="mcp__Jira__issue.delete",
+                    description="Dotted, approval-gated",
+                    parameters_json_schema={"type": "object"},
+                ),
+                # Non-dotted -> kept.
+                "mcp__Jira__list_issues": MCPToolDefinition(
+                    name="mcp__Jira__list_issues",
+                    description="Non-dotted, no approval",
+                    parameters_json_schema={"type": "object"},
+                ),
+            }
+
+        class _PresetService:
+            async def resolve_mcp_integration_tool_policies(
+                self,
+                mcp_integration_ids: list[uuid.UUID],
+            ) -> dict[uuid.UUID, dict[str, MCPToolSummary]]:
+                return {
+                    integration_id: {
+                        "issue.delete": MCPToolSummary(
+                            name="issue.delete",
+                            requires_approval=True,
+                        ),
+                    }
+                }
+
+            async def resolve_mcp_integration_secrets(
+                self,
+                mcp_integration_id: uuid.UUID,
+            ) -> dict[str, str]:
+                return {}
+
+        class _PresetContext:
+            async def __aenter__(self) -> _PresetService:
+                return _PresetService()
+
+            async def __aexit__(
+                self, exc_type: object, exc: object, tb: object
+            ) -> None:
+                return None
+
+        class _LockService:
+            async def resolve_lock_with_bindings(
+                self, actions: set[str]
+            ) -> RegistryLock:
+                return RegistryLock(origins={}, actions={})
+
+        class _LockContext:
+            async def __aenter__(self) -> _LockService:
+                return _LockService()
+
+            async def __aexit__(
+                self, exc_type: object, exc: object, tb: object
+            ) -> None:
+                return None
+
+        async def mock_check_tool_approval_entitlement(role: Role) -> None:
+            return None
+
+        monkeypatch.setattr(
+            agent_activities, "build_agent_tools", mock_build_agent_tools
+        )
+        monkeypatch.setattr(
+            user_client, "discover_user_mcp_tools", mock_discover_user_mcp_tools
+        )
+        monkeypatch.setattr(
+            AgentPresetService,
+            "with_session",
+            staticmethod(lambda **_kwargs: _PresetContext()),
+        )
+        monkeypatch.setattr(RegistryLockService, "with_session", lambda: _LockContext())
+        monkeypatch.setattr(
+            AgentActivities,
+            "_check_tool_approval_entitlement",
+            staticmethod(mock_check_tool_approval_entitlement),
+        )
+
+        result = await AgentActivities().build_tool_definitions(
+            BuildToolDefsArgs(
+                role=mock_role,
+                tool_filters=ToolFilters(actions=[]),
+                mcp_servers=[
+                    {
+                        "type": "http",
+                        "name": "Jira",
+                        "url": "https://mcp.example.com/mcp",
+                        "id": str(integration_id),
+                    }
+                ],
+            )
+        )
+
+        # Both dotted tools are dropped; only the non-dotted tool survives.
+        assert set(result.tool_definitions) == {"mcp__Jira__list_issues"}
+        # No approval entry is recorded for the dropped approval-gated dotted tool.
+        assert not (result.tool_approvals or {})
+
+    @pytest.mark.anyio
     async def test_build_agent_tool_definitions_returns_partitioned_scopes(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -380,6 +655,8 @@ class TestCreateSessionActivity:
         # Set up the mock service
         mock_agent_session = MagicMock()
         mock_agent_session.agents_binding = None
+        mock_agent_session.sdk_session_id = None
+        mock_agent_session.parent_session_id = None
         mock_service = AsyncMock()
         mock_service.get_or_create_session.return_value = (mock_agent_session, False)
 
@@ -410,6 +687,8 @@ class TestCreateSessionActivity:
 
         mock_agent_session = MagicMock()
         mock_agent_session.agents_binding = None
+        mock_agent_session.sdk_session_id = None
+        mock_agent_session.parent_session_id = None
         mock_service = AsyncMock()
         mock_service.get_or_create_session.return_value = (
             mock_agent_session,
@@ -435,30 +714,63 @@ class TestCreateSessionActivity:
         (
             "incoming_agents_binding",
             "persisted_agents_binding",
+            "sdk_session_id",
+            "parent_session_id",
             "expected_success",
+            "expected_backfill",
         ),
         [
             pytest.param(
                 ResolvedAgentsConfig.model_validate({"enabled": True, "subagents": []}),
                 None,
+                None,
+                None,
+                True,
+                True,
+                id="fresh-null-backfills-resolved-agents",
+            ),
+            pytest.param(
+                ResolvedAgentsConfig.model_validate({"enabled": True, "subagents": []}),
+                None,
+                "sdk-session-1",
+                None,
                 False,
-                id="legacy-null-cannot-enable-agents",
+                False,
+                id="resumable-null-cannot-enable-agents",
+            ),
+            pytest.param(
+                ResolvedAgentsConfig.model_validate({"enabled": True, "subagents": []}),
+                None,
+                None,
+                uuid.UUID("00000000-0000-0000-0000-000000000001"),
+                False,
+                False,
+                id="fork-null-cannot-enable-agents",
             ),
             pytest.param(
                 ResolvedAgentsConfig(),
                 {"enabled": False},
+                "sdk-session-1",
+                None,
                 True,
+                False,
                 id="default-equivalent-jsonb",
             ),
             pytest.param(
                 ResolvedAgentsConfig.model_validate({"enabled": True, "subagents": []}),
                 {"enabled": False},
+                None,
+                None,
+                False,
                 False,
                 id="different-explicit-binding",
             ),
             pytest.param(
                 None,
                 {"enabled": True, "subagents": []},
+                None,
+                None,
+                False,
                 False,
                 id="missing-incoming-binding",
             ),
@@ -473,9 +785,12 @@ class TestCreateSessionActivity:
         mock_session_id: uuid.UUID,
         incoming_agents_binding: ResolvedAgentsConfig | None,
         persisted_agents_binding: dict[str, object] | None,
+        sdk_session_id: str | None,
+        parent_session_id: uuid.UUID | None,
         expected_success: bool,
+        expected_backfill: bool,
     ):
-        """Existing sessions reject changes to their bound subagent topology."""
+        """Existing sessions reject binding changes once SDK/fork resume state exists."""
         input = CreateSessionInput(
             role=mock_role,
             session_id=mock_session_id,
@@ -486,6 +801,8 @@ class TestCreateSessionActivity:
 
         mock_agent_session = MagicMock()
         mock_agent_session.agents_binding = persisted_agents_binding
+        mock_agent_session.sdk_session_id = sdk_session_id
+        mock_agent_session.parent_session_id = parent_session_id
         mock_service = AsyncMock()
         mock_service.get_or_create_session.return_value = (
             mock_agent_session,
@@ -509,8 +826,18 @@ class TestCreateSessionActivity:
                 "Agent session was created with a different agents binding"
             )
             assert exc_info.value.non_retryable is True
-        mock_service.session.add.assert_not_called()
-        mock_service.session.commit.assert_not_awaited()
+
+        if expected_backfill:
+            assert incoming_agents_binding is not None
+            assert (
+                mock_agent_session.agents_binding
+                == incoming_agents_binding.model_dump(mode="json")
+            )
+            mock_service.session.add.assert_called_once_with(mock_agent_session)
+            mock_service.session.commit.assert_awaited_once()
+        else:
+            mock_service.session.add.assert_not_called()
+            mock_service.session.commit.assert_not_awaited()
 
     @pytest.mark.anyio
     @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
@@ -529,6 +856,8 @@ class TestCreateSessionActivity:
         mock_service = AsyncMock()
         mock_agent_session = MagicMock()
         mock_agent_session.agents_binding = None
+        mock_agent_session.sdk_session_id = None
+        mock_agent_session.parent_session_id = None
         mock_service.get_session.return_value = mock_agent_session
 
         mock_ctx = AsyncMock()
@@ -648,6 +977,8 @@ class TestCreateSessionActivity:
 
         mock_agent_session = MagicMock()
         mock_agent_session.agents_binding = None
+        mock_agent_session.sdk_session_id = None
+        mock_agent_session.parent_session_id = None
         mock_service = AsyncMock()
         mock_service.get_or_create_session.return_value = (mock_agent_session, False)
         mock_service.auto_title_session_on_first_prompt = AsyncMock()
@@ -984,7 +1315,10 @@ class TestSandboxedAgentExecutorHelpers:
         assert payload.user_prompt == executor_input.user_prompt
         assert payload.mcp_auth_token == executor_input.mcp_auth_token
         assert payload.llm_gateway_auth_token == executor_input.llm_gateway_auth_token
-        assert payload.config.model_name == executor_input.config.model_name
+        assert (
+            cast(Any, payload.config).model_name
+            == cast(Any, executor_input.config).model_name
+        )
 
     def test_apply_loopback_result_omits_output_for_approval_turn(
         self,
@@ -1016,6 +1350,48 @@ class TestSandboxedAgentExecutorHelpers:
         assert result.success is True
         assert result.approval_requested is False
         assert result.output == {"status": "completed"}
+
+    def test_apply_loopback_result_copies_terminal_stream_error_flag(
+        self,
+    ) -> None:
+        result = AgentExecutorResult(
+            success=False,
+            terminal_stream_error_emitted=False,
+        )
+        loopback_result = LoopbackResult(
+            success=False,
+            error="runtime failed",
+            terminal_stream_error_emitted=True,
+        )
+
+        SandboxedAgentExecutor._apply_loopback_result(result, loopback_result)
+
+        assert result.success is False
+        assert result.error == "runtime failed"
+        assert result.terminal_stream_error_emitted is True
+
+    @pytest.mark.anyio
+    async def test_cancel_task_with_timeout_does_not_wait_forever(self) -> None:
+        release = asyncio.Event()
+
+        async def stubborn_task() -> None:
+            try:
+                await asyncio.Future()
+            except asyncio.CancelledError:
+                await release.wait()
+
+        task = asyncio.create_task(stubborn_task())
+        await asyncio.sleep(0)
+
+        await _cancel_task_with_timeout(
+            task,
+            task_name="stubborn_task",
+            timeout_seconds=0.01,
+        )
+
+        assert not task.done()
+        release.set()
+        await task
 
     @pytest.mark.anyio
     @patch("tracecat.agent.executor.activity.AgentSessionService.with_session")
@@ -1055,6 +1431,425 @@ class TestSandboxedAgentExecutorHelpers:
 
         assert hydrated is executor_input
         mock_with_session.assert_not_called()
+
+
+class TestSandboxedAgentExecutorFilesystemPersistence:
+    """Tests for feature-flagged agent work-dir hydration and snapshotting."""
+
+    @pytest.mark.anyio
+    async def test_run_skips_filesystem_persistence_when_feature_disabled(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        mock_executor_input = AgentExecutorInput(
+            session_id=mock_session_id,
+            workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            user_prompt="Test prompt",
+            config=mock_agent_config,
+            role=mock_role,
+            mcp_auth_token="mock-jwt-token",
+            llm_gateway_auth_token="mock-llm-token",
+        )
+        executor = SandboxedAgentExecutor(input=mock_executor_input)
+        job_dir = tmp_path / "job"
+        socket_dir = job_dir / "sockets"
+        events: list[str] = []
+
+        async def fake_create_job_directory() -> Path:
+            socket_dir.mkdir(parents=True)
+            return job_dir
+
+        async def fake_create_llm_socket_proxy(_socket_path: Path) -> AsyncMock:
+            return AsyncMock()
+
+        class FakeBroker:
+            def session_turn_lease(self, session_id: str):
+                @asynccontextmanager
+                async def lease():
+                    assert session_id == str(mock_session_id)
+                    yield
+
+                return lease()
+
+            async def run_turn_in_session_lease(
+                self, request: Any, handler: Any
+            ) -> None:
+                assert request.hydrate_work_dir is None
+                events.append("broker")
+                handler._result = LoopbackResult(success=True)
+
+            async def cancel_turn(self, _session_id: str) -> None:
+                raise AssertionError("cancel_turn should not be called")
+
+        async def fail_hydrate_agent_work_dir(**_kwargs: Any) -> None:
+            raise AssertionError("hydrate should not run when feature is disabled")
+
+        async def fail_persist_agent_work_dir(**_kwargs: Any) -> None:
+            raise AssertionError("snapshot should not run when feature is disabled")
+
+        monkeypatch.setattr(
+            executor, "_create_job_directory", fake_create_job_directory
+        )
+        monkeypatch.setattr(
+            executor,
+            "_create_llm_socket_proxy",
+            fake_create_llm_socket_proxy,
+        )
+        monkeypatch.setattr(executor, "_cleanup", AsyncMock())
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity._agent_fs_persistence_enabled",
+            lambda: False,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.get_claude_runtime_broker",
+            lambda: FakeBroker(),
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.hydrate_agent_work_dir",
+            fail_hydrate_agent_work_dir,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.persist_agent_work_dir",
+            fail_persist_agent_work_dir,
+        )
+
+        result = await executor.run()
+
+        assert result.success is True
+        assert events == ["broker"]
+
+    @pytest.mark.anyio
+    async def test_run_hydrates_and_snapshots_when_feature_enabled(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        mock_executor_input = AgentExecutorInput(
+            session_id=mock_session_id,
+            workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            user_prompt="Test prompt",
+            config=mock_agent_config,
+            role=mock_role,
+            mcp_auth_token="mock-jwt-token",
+            llm_gateway_auth_token="mock-llm-token",
+        )
+        executor = SandboxedAgentExecutor(input=mock_executor_input)
+        job_dir = tmp_path / "job"
+        socket_dir = job_dir / "sockets"
+        work_dir = tmp_path / "work"
+        events: list[str] = []
+        leased = False
+
+        async def fake_create_job_directory() -> Path:
+            socket_dir.mkdir(parents=True)
+            return job_dir
+
+        async def fake_create_llm_socket_proxy(_socket_path: Path) -> AsyncMock:
+            return AsyncMock()
+
+        class FakeBroker:
+            def session_turn_lease(self, session_id: str):
+                @asynccontextmanager
+                async def lease():
+                    nonlocal leased
+                    assert session_id == str(mock_session_id)
+                    leased = True
+                    try:
+                        yield
+                    finally:
+                        leased = False
+
+                return lease()
+
+            async def run_turn_in_session_lease(
+                self, request: Any, handler: Any
+            ) -> None:
+                assert leased is True
+                assert request.hydrate_work_dir is not None
+                await request.hydrate_work_dir(work_dir)
+                events.append("broker")
+                handler._result = LoopbackResult(success=True)
+
+            async def cancel_turn(self, _session_id: str) -> None:
+                raise AssertionError("cancel_turn should not be called")
+
+        async def fake_hydrate_agent_work_dir(**kwargs: Any) -> None:
+            events.append("hydrate")
+            assert kwargs["session_id"] == mock_session_id
+            assert kwargs["work_dir"] == work_dir
+
+        async def fake_persist_agent_work_dir(**kwargs: Any) -> None:
+            events.append("snapshot")
+            assert leased is True
+            assert kwargs["session_id"] == mock_session_id
+            assert kwargs["workspace_id"] == mock_executor_input.workspace_id
+            assert kwargs["work_dir"] == work_dir
+
+        monkeypatch.setattr(
+            executor, "_create_job_directory", fake_create_job_directory
+        )
+        monkeypatch.setattr(
+            executor,
+            "_create_llm_socket_proxy",
+            fake_create_llm_socket_proxy,
+        )
+        monkeypatch.setattr(executor, "_cleanup", AsyncMock())
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity._agent_fs_persistence_enabled",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.get_claude_runtime_broker",
+            lambda: FakeBroker(),
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.build_agent_sandbox_path_mapping",
+            lambda **_kwargs: SimpleNamespace(host_work_dir=work_dir),
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.hydrate_agent_work_dir",
+            fake_hydrate_agent_work_dir,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.persist_agent_work_dir",
+            fake_persist_agent_work_dir,
+        )
+
+        result = await executor.run()
+
+        assert result.success is True
+        assert events == ["hydrate", "broker", "snapshot"]
+
+    @pytest.mark.anyio
+    async def test_run_succeeds_when_snapshot_after_success_fails(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        mock_executor_input = AgentExecutorInput(
+            session_id=mock_session_id,
+            workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            user_prompt="Test prompt",
+            config=mock_agent_config,
+            role=mock_role,
+            mcp_auth_token="mock-jwt-token",
+            llm_gateway_auth_token="mock-llm-token",
+        )
+        executor = SandboxedAgentExecutor(input=mock_executor_input)
+        job_dir = tmp_path / "job"
+        socket_dir = job_dir / "sockets"
+        work_dir = tmp_path / "work"
+        events: list[str] = []
+
+        async def fake_create_job_directory() -> Path:
+            socket_dir.mkdir(parents=True)
+            return job_dir
+
+        async def fake_create_llm_socket_proxy(_socket_path: Path) -> AsyncMock:
+            return AsyncMock()
+
+        class FakeBroker:
+            def session_turn_lease(self, _session_id: str):
+                @asynccontextmanager
+                async def lease():
+                    yield
+
+                return lease()
+
+            async def run_turn_in_session_lease(
+                self, request: Any, handler: Any
+            ) -> None:
+                assert request.hydrate_work_dir is not None
+                await request.hydrate_work_dir(work_dir)
+                events.append("broker")
+                handler._result = LoopbackResult(success=True)
+
+            async def cancel_turn(self, _session_id: str) -> None:
+                raise AssertionError("cancel_turn should not be called")
+
+        async def fake_hydrate_agent_work_dir(**_kwargs: Any) -> None:
+            events.append("hydrate")
+
+        async def fail_persist_agent_work_dir(**_kwargs: Any) -> None:
+            events.append("snapshot")
+            raise RuntimeError("snapshot store unavailable")
+
+        monkeypatch.setattr(
+            executor, "_create_job_directory", fake_create_job_directory
+        )
+        monkeypatch.setattr(
+            executor,
+            "_create_llm_socket_proxy",
+            fake_create_llm_socket_proxy,
+        )
+        monkeypatch.setattr(executor, "_cleanup", AsyncMock())
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity._agent_fs_persistence_enabled",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.get_claude_runtime_broker",
+            lambda: FakeBroker(),
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.build_agent_sandbox_path_mapping",
+            lambda **_kwargs: SimpleNamespace(host_work_dir=work_dir),
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.hydrate_agent_work_dir",
+            fake_hydrate_agent_work_dir,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.persist_agent_work_dir",
+            fail_persist_agent_work_dir,
+        )
+
+        result = await executor.run()
+
+        # Fail-open: a snapshot persistence failure is logged but the
+        # already-successful turn is not failed.
+        assert result.success is True
+        assert result.error is None
+        assert events == ["hydrate", "broker", "snapshot"]
+
+    @pytest.mark.anyio
+    async def test_run_skips_snapshot_after_hydrate_fallback(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        mock_executor_input = AgentExecutorInput(
+            session_id=mock_session_id,
+            workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            user_prompt="Test prompt",
+            config=mock_agent_config,
+            role=mock_role,
+            mcp_auth_token="mock-jwt-token",
+            llm_gateway_auth_token="mock-llm-token",
+        )
+        executor = SandboxedAgentExecutor(input=mock_executor_input)
+        job_dir = tmp_path / "job"
+        socket_dir = job_dir / "sockets"
+        work_dir = tmp_path / "work"
+        work_dir.mkdir()
+        (work_dir / "stale.txt").write_text("stale")
+        events: list[str] = []
+
+        async def fake_create_job_directory() -> Path:
+            socket_dir.mkdir(parents=True)
+            return job_dir
+
+        async def fake_create_llm_socket_proxy(_socket_path: Path) -> AsyncMock:
+            return AsyncMock()
+
+        class FakeBroker:
+            def session_turn_lease(self, _session_id: str):
+                @asynccontextmanager
+                async def lease():
+                    yield
+
+                return lease()
+
+            async def run_turn_in_session_lease(
+                self, request: Any, handler: Any
+            ) -> None:
+                assert request.hydrate_work_dir is not None
+                await request.hydrate_work_dir(work_dir)
+                events.append("broker")
+                handler._result = LoopbackResult(success=True)
+
+            async def cancel_turn(self, _session_id: str) -> None:
+                raise AssertionError("cancel_turn should not be called")
+
+        async def fail_hydrate_agent_work_dir(**_kwargs: Any) -> None:
+            events.append("hydrate")
+            raise RuntimeError("snapshot missing")
+
+        async def fail_persist_agent_work_dir(**_kwargs: Any) -> None:
+            raise AssertionError("hydrate fallback should not be persisted")
+
+        monkeypatch.setattr(
+            executor, "_create_job_directory", fake_create_job_directory
+        )
+        monkeypatch.setattr(
+            executor,
+            "_create_llm_socket_proxy",
+            fake_create_llm_socket_proxy,
+        )
+        monkeypatch.setattr(executor, "_cleanup", AsyncMock())
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity._agent_fs_persistence_enabled",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.get_claude_runtime_broker",
+            lambda: FakeBroker(),
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.hydrate_agent_work_dir",
+            fail_hydrate_agent_work_dir,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.persist_agent_work_dir",
+            fail_persist_agent_work_dir,
+        )
+
+        result = await executor.run()
+
+        assert result.success is True
+        assert events == ["hydrate", "broker"]
+        assert work_dir.is_dir()
+        assert list(work_dir.iterdir()) == []
+
+    @pytest.mark.anyio
+    async def test_hydrate_failure_falls_back_to_empty_work_dir(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        executor = SandboxedAgentExecutor(
+            input=AgentExecutorInput(
+                session_id=mock_session_id,
+                workspace_id=mock_role.workspace_id or uuid.uuid4(),
+                user_prompt="Test prompt",
+                config=mock_agent_config,
+                role=mock_role,
+                mcp_auth_token="mock-jwt-token",
+                llm_gateway_auth_token="mock-llm-token",
+            )
+        )
+        work_dir = tmp_path / "work"
+        work_dir.mkdir()
+        (work_dir / "stale.txt").write_text("stale")
+
+        async def fail_hydrate_agent_work_dir(**_kwargs: Any) -> None:
+            raise RuntimeError("snapshot missing")
+
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.hydrate_agent_work_dir",
+            fail_hydrate_agent_work_dir,
+        )
+
+        await executor._hydrate_agent_filesystem(work_dir)
+
+        assert work_dir.is_dir()
+        assert list(work_dir.iterdir()) == []
 
 
 class TestSandboxedAgentExecutorSkillCaching:
@@ -1255,7 +2050,7 @@ class TestSandboxedAgentExecutorSkillCaching:
     ) -> None:
         """Resolved skill staging copies cached skill directories in a worker thread."""
 
-        mock_agent_config.resolved_skills = [
+        cast(Any, mock_agent_config).resolved_skills = [
             ResolvedSkillRef(
                 skill_id=uuid.uuid4(),
                 skill_name="skill-a",

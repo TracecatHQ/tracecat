@@ -1,6 +1,6 @@
 import uuid
 from itertools import batched
-from typing import Annotated, Any, Literal, TypedDict
+from typing import Annotated, Any, Literal, NotRequired, TypedDict
 
 from fastapi import (
     APIRouter,
@@ -21,6 +21,7 @@ from tracecat.concurrency import cooperative
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLInput
+from tracecat.dsl.schemas import TriggerInputs
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.ee.interactions.enums import InteractionCategory
 from tracecat.ee.interactions.schemas import InteractionInput
@@ -274,6 +275,7 @@ async def incoming_webhook_post(
         vendor=vendor,
         request=request,
         content_type=content_type,
+        include_headers=getattr(request.state, "webhook_include_headers", False),
     )
 
 
@@ -310,7 +312,68 @@ async def incoming_webhook_get(
         vendor=vendor,
         request=request,
         content_type=content_type,
+        include_headers=getattr(request.state, "webhook_include_headers", False),
     )
+
+
+# Auth headers that must never be exposed to workflows via the trigger envelope.
+_REDACTED_HEADERS = frozenset({"x-tracecat-api-key"})
+
+
+class WebhookTriggerEnvelope(TypedDict):
+    """`core.http.request`-style envelope passed to TRIGGER when a webhook opts
+    into ``include_headers``."""
+
+    status_code: int
+    headers: dict[str, str]
+    data: TriggerInputs | None
+    raw_body: NotRequired[str]
+
+
+def _include_raw_body(input_schema: dict[str, Any] | None) -> bool:
+    """Preserve legacy include_headers schemas that forbid unknown fields."""
+    return not input_schema or "raw_body" in input_schema
+
+
+async def _wrap_with_headers(
+    payload: TriggerInputs | None, request: Request, *, include_raw_body: bool = True
+) -> WebhookTriggerEnvelope:
+    """Wrap the parsed body in a `core.http.request`-style envelope.
+
+    Strips sensitive auth headers so workflow authors can't read the webhook's
+    own credentials.
+    """
+    headers = {
+        k: v for k, v in request.headers.items() if k.lower() not in _REDACTED_HEADERS
+    }
+    envelope = WebhookTriggerEnvelope(
+        status_code=200,
+        headers=headers,
+        data=payload,
+    )
+    if include_raw_body:
+        body = await request.body()
+        envelope["raw_body"] = body.decode("utf-8")
+    return envelope
+
+
+async def _wrapped_payload(
+    request: Request,
+    payload: TriggerInputs | None,
+    *,
+    include_raw_body: bool = True,
+) -> TriggerInputs | None:
+    """Wrap the parsed body in the request envelope when the webhook opts in.
+
+    Used by trigger endpoints that pass the payload straight through (no NDJSON
+    batching), so the whole payload can be wrapped here. The root POST/GET path
+    wraps per-batch-item inside ``_incoming_webhook`` instead.
+    """
+    if getattr(request.state, "webhook_include_headers", False):
+        return await _wrap_with_headers(
+            payload, request, include_raw_body=include_raw_body
+        )
+    return payload
 
 
 async def _incoming_webhook(
@@ -323,11 +386,13 @@ async def _incoming_webhook(
     vendor: str | None,
     request: Request,
     content_type: str | None,
+    include_headers: bool = False,
 ) -> WebhookResponse:
     logger.info("Webhook hit", path=workflow_id, role=ctx_role.get())
     logger.trace("Webhook payload", payload=payload)
 
     dsl_input = DSLInput(**defn.content)
+    include_raw_body = _include_raw_body(dsl_input.entrypoint.expects)
 
     service = await WorkflowExecutionsService.connect()
     # If this was a ndjson, automatically batch the requests
@@ -341,7 +406,11 @@ async def _incoming_webhook(
             one_response = await service.create_workflow_execution_wait_for_start(
                 dsl=dsl_input,
                 wf_id=workflow_id,
-                payload=p,
+                payload=await _wrap_with_headers(
+                    p, request, include_raw_body=include_raw_body
+                )
+                if include_headers
+                else p,
                 trigger_type=TriggerType.WEBHOOK,
                 registry_lock=RegistryLock.model_validate(defn.registry_lock)
                 if defn.registry_lock
@@ -360,7 +429,11 @@ async def _incoming_webhook(
         response = await service.create_workflow_execution_wait_for_start(
             dsl=dsl_input,
             wf_id=workflow_id,
-            payload=payload,
+            payload=await _wrap_with_headers(
+                payload, request, include_raw_body=include_raw_body
+            )
+            if include_headers
+            else payload,
             trigger_type=TriggerType.WEBHOOK,
             registry_lock=RegistryLock.model_validate(defn.registry_lock)
             if defn.registry_lock
@@ -411,6 +484,7 @@ async def incoming_webhook_wait(
     workflow_id: AnyWorkflowIDPath,
     defn: ValidWorkflowDefinitionDep,
     payload: PayloadDep,
+    request: Request,
     unwrap: Annotated[
         bool,
         Query(
@@ -429,9 +503,16 @@ async def incoming_webhook_wait(
     The workflow is identified by the `path` parameter, which is equivalent to the workflow id.
     """
     logger.info("Webhook hit", path=workflow_id, role=ctx_role.get())
-    logger.trace("Webhook payload", payload=payload)
+    # Do not log the payload here: it may be wrapped with request headers
+    # (include_headers), which can contain auth/signature values.
+    logger.trace("Webhook payload received")
 
     dsl_input = DSLInput(**defn.content)
+    payload = await _wrapped_payload(
+        request=request,
+        payload=payload,
+        include_raw_body=_include_raw_body(dsl_input.entrypoint.expects),
+    )
 
     service = await WorkflowExecutionsService.connect()
     response = await service.create_workflow_execution(
@@ -461,6 +542,7 @@ async def incoming_webhook_draft(
     workflow_id: AnyWorkflowIDPath,
     draft_ctx: DraftWorkflowDep,
     payload: PayloadDep,
+    request: Request,
 ) -> WorkflowExecutionCreateResponse:
     """Draft webhook endpoint to trigger a workflow execution using the draft workflow graph.
 
@@ -468,7 +550,15 @@ async def incoming_webhook_draft(
     Child workflows using aliases will resolve to the latest draft aliases, not committed aliases.
     """
     logger.info("Draft webhook hit", path=workflow_id, role=ctx_role.get())
-    logger.trace("Draft webhook payload", payload=payload)
+    # Do not log the payload here: it may be wrapped with request headers
+    # (include_headers), which can contain auth/signature values.
+    logger.trace("Draft webhook payload received")
+
+    payload = await _wrapped_payload(
+        request=request,
+        payload=payload,
+        include_raw_body=_include_raw_body(draft_ctx.dsl.entrypoint.expects),
+    )
 
     service = await WorkflowExecutionsService.connect()
     response = await service.create_draft_workflow_execution_wait_for_start(

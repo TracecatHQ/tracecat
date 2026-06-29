@@ -86,9 +86,33 @@ def remote_workflow_definition(sample_dsl: DSLInput) -> RemoteWorkflowDefinition
                 timeout=300.0,
             )
         ],
-        webhook=RemoteWebhook(methods=["POST", "PUT"], status="online"),
+        webhook=RemoteWebhook(
+            methods=["POST", "PUT"], status="online", include_headers=True
+        ),
         definition=sample_dsl,
     )
+
+
+def test_remote_webhook_defaults_include_headers_false():
+    """Store exports predating include_headers must import as False."""
+    rw = RemoteWebhook.model_validate({"methods": ["POST"], "status": "online"})
+    assert rw.include_headers is False
+
+
+async def _publish_workflow(
+    session: AsyncSession, workflow: Workflow, dsl: DSLInput
+) -> None:
+    definition = WorkflowDefinition(
+        workspace_id=workflow.workspace_id,
+        workflow_id=workflow.id,
+        version=1,
+        content=dsl.model_dump(exclude_unset=True),
+    )
+    session.add(definition)
+    workflow.version = definition.version
+    session.add(workflow)
+    await session.commit()
+    await session.refresh(workflow)
 
 
 class TestWorkflowImportService:
@@ -158,6 +182,7 @@ class TestWorkflowImportService:
         webhook = workflow.webhook
         assert webhook.methods == ["POST", "PUT"]
         assert webhook.status == "online"
+        assert webhook.include_headers is True
 
         # Verify workflow definition was created
         stmt = select(WorkflowDefinition).where(WorkflowDefinition.workflow_id == wf_id)
@@ -199,6 +224,7 @@ class TestWorkflowImportService:
         workflow = await import_service.wf_mgmt.create_db_workflow_from_dsl(
             sample_dsl, workflow_id=WorkflowUUID.new_uuid4()
         )
+        await _publish_workflow(import_service.session, workflow, sample_dsl)
         case_trigger_service = CaseTriggersService(
             import_service.session, role=import_service.role
         )
@@ -228,6 +254,7 @@ class TestWorkflowImportService:
         workflow = await import_service.wf_mgmt.create_db_workflow_from_dsl(
             sample_dsl, workflow_id=WorkflowUUID.new_uuid4()
         )
+        await _publish_workflow(import_service.session, workflow, sample_dsl)
         case_trigger_service = CaseTriggersService(
             import_service.session, role=import_service.role
         )
@@ -527,6 +554,42 @@ class TestWorkflowImportService:
         assert action2.type == "core.http_request"
         inputs2 = yaml.safe_load(action2.inputs)
         assert inputs2 == {"url": "https://example.com", "method": "GET"}
+
+    @pytest.mark.anyio
+    async def test_import_runs_agent_catalog_correlation(
+        self,
+        import_service: WorkflowImportService,
+        remote_workflow_definition: RemoteWorkflowDefinition,
+    ):
+        """Git-sync import routes the definition through catalog correlation.
+
+        The remap logic itself is covered in test_workflow_management; here we
+        verify _import_single_workflow (the create/update chokepoint) invokes
+        it on the remote definition so synced workflows self-heal on pull. The
+        downstream create/update is stubbed to isolate the wiring.
+        """
+        seen: dict[str, object] = {}
+
+        async def fake_correlate(dsl):
+            seen["dsl"] = dsl
+            return dsl
+
+        with (
+            patch.object(
+                import_service.wf_mgmt,
+                "correlate_agent_catalog_ids",
+                side_effect=fake_correlate,
+            ) as correlate_mock,
+            patch.object(import_service.wf_mgmt, "get_workflow", return_value=None),
+            patch.object(
+                import_service, "_create_new_workflow", new=AsyncMock()
+            ) as create_mock,
+        ):
+            await import_service._import_single_workflow(remote_workflow_definition)
+
+        correlate_mock.assert_awaited_once()
+        assert seen["dsl"] is remote_workflow_definition.definition
+        create_mock.assert_awaited_once()
 
     @pytest.mark.anyio
     async def test_schedule_handling_improvements(

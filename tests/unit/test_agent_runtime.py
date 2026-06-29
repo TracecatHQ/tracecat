@@ -248,6 +248,32 @@ def test_get_litellm_route_model_prefixes_provider_route(
 class TestClaudeAgentRuntimeRun:
     """Tests for ClaudeAgentRuntime.run()."""
 
+    def test_trusted_mcp_bridge_disables_response_compression(self) -> None:
+        """The MCP SDK parses bridge responses itself, so request plain JSON."""
+        server_config = ClaudeAgentRuntime._trusted_mcp_server_config("test-jwt-token")
+
+        assert server_config.get("headers") == {
+            "Authorization": "Bearer test-jwt-token",
+            "Accept-Encoding": "identity",
+        }
+
+    def test_system_prompt_documents_duckdb_cli(
+        self, mock_socket_writer: MagicMock
+    ) -> None:
+        """Runtime prompt should document local CLI tools available in shell."""
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+
+        prompt = runtime._build_system_prompt("Preset instructions.")
+
+        assert "<CommandLineTools>" in prompt
+        assert "`duckdb`" in prompt
+        assert "DuckDB CLI" in prompt
+        assert "`json`, `httpfs`, `inet`, and `fts` extensions" in prompt
+        assert "not a Tracecat action or MCP tool" in prompt
+        assert prompt.endswith("Preset instructions.")
+
     @pytest.mark.anyio
     async def test_sends_done_on_completion(
         self,
@@ -832,7 +858,10 @@ class TestClaudeAgentRuntimeRun:
         assert mcp_servers["tracecat-registry"] == {
             "type": "http",
             "url": TRUSTED_MCP_BRIDGE_URL,
-            "headers": {"Authorization": "Bearer test-jwt-token"},
+            "headers": {
+                "Authorization": "Bearer test-jwt-token",
+                "Accept-Encoding": "identity",
+            },
         }
         assert "tracecat_registry" not in mcp_servers
 
@@ -884,7 +913,10 @@ class TestClaudeAgentRuntimeRun:
             "tracecat-registry": {
                 "type": "http",
                 "url": TRUSTED_MCP_BRIDGE_URL,
-                "headers": {"Authorization": "Bearer test-jwt-token"},
+                "headers": {
+                    "Authorization": "Bearer test-jwt-token",
+                    "Accept-Encoding": "identity",
+                },
             },
             "local-tools": {
                 "type": "stdio",
@@ -1171,7 +1203,10 @@ class TestClaudeAgentRuntimeRun:
             "tracecat-registry": {
                 "type": "http",
                 "url": TRUSTED_MCP_BRIDGE_URL,
-                "headers": {"Authorization": "Bearer test-jwt-token"},
+                "headers": {
+                    "Authorization": "Bearer test-jwt-token",
+                    "Accept-Encoding": "identity",
+                },
             }
         }
         agent_def = options.agents["analyst"]
@@ -1181,7 +1216,10 @@ class TestClaudeAgentRuntimeRun:
                 "tracecat-registry-analyst": {
                     "type": "http",
                     "url": TRUSTED_MCP_BRIDGE_URL,
-                    "headers": {"Authorization": "Bearer child-mcp-token"},
+                    "headers": {
+                        "Authorization": "Bearer child-mcp-token",
+                        "Accept-Encoding": "identity",
+                    },
                 }
             },
             {
@@ -2090,6 +2128,36 @@ class TestClaudeAgentRuntimePreToolUseHook:
         )
 
         # Should have sent approval request and interrupted
+        mock_socket_writer.send_stream_event.assert_awaited()
+        runtime.client.interrupt.assert_awaited()
+
+    @pytest.mark.anyio
+    async def test_proxy_routed_user_mcp_tool_requires_approval(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        runtime.tool_approvals = {"mcp.Jira.getIssue": True}
+        runtime.client = MagicMock()
+        runtime.client.interrupt = AsyncMock()
+
+        result = await runtime._pre_tool_use_hook(
+            input_data=make_hook_input(
+                tool_name="mcp__tracecat-registry__mcp__Jira__getIssue",
+                tool_input={"issue_key": "ISSUE-1"},
+                tool_use_id="call-user-mcp",
+            ),
+            tool_use_id="call-user-mcp",
+            context=make_hook_context(),
+        )
+
+        hook_output = get_hook_output(result)
+        assert hook_output.get("permissionDecision") == "deny"
+        assert "mcp.Jira.getIssue" in (
+            hook_output.get("permissionDecisionReason") or ""
+        )
         mock_socket_writer.send_stream_event.assert_awaited()
         runtime.client.interrupt.assert_awaited()
 

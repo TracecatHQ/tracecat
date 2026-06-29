@@ -36,6 +36,7 @@ from tracecat_ee.agent.activities import (
     BuildAgentToolDefsResult,
     BuildToolDefsResult,
     EmitSessionErrorInputs,
+    ExecuteRemoteMCPToolArgs,
     PersistApprovalsActivityInputs,
 )
 from tracecat_ee.agent.approvals.service import (
@@ -76,6 +77,7 @@ from tracecat.agent.session.activities import (
 )
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.tokens import UserMCPServerClaim
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -522,6 +524,104 @@ async def test_agent_workflow_streams_tool_definition_error(
     assert len(emitted_errors) == 1
     assert emitted_errors[0].session_id == mock_session_id
     assert emitted_errors[0].message == "Cannot request more than 100 tools"
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_agent_workflow_does_not_duplicate_runtime_terminal_error(
+    temporal_client: Client,
+    agent_worker_factory,
+    agent_workflow_args: AgentWorkflowArgs,
+    mock_session_id: uuid.UUID,
+) -> None:
+    queue = f"test-agent-queue-{mock_session_id}"
+    emitted_errors: list[EmitSessionErrorInputs] = []
+
+    def runtime_failure(
+        call_count: int, input: AgentExecutorInput
+    ) -> AgentExecutorResult:
+        del call_count, input
+        return AgentExecutorResult(
+            success=False,
+            error="runtime exploded",
+            terminal_stream_error_emitted=True,
+        )
+
+    @activity.defn(name="emit_session_error")
+    async def mock_emit_session_error(args: EmitSessionErrorInputs) -> None:
+        emitted_errors.append(args)
+
+    activities = [
+        *create_activities_with_mock_executor(runtime_failure),
+        mock_emit_session_error,
+    ]
+
+    async with agent_worker_factory(
+        temporal_client, task_queue=queue, custom_activities=activities
+    ):
+        with pytest.raises(WorkflowFailureError) as exc_info:
+            await temporal_client.execute_workflow(
+                DurableAgentWorkflow.run,
+                agent_workflow_args,
+                id=AgentWorkflowID(mock_session_id),
+                task_queue=queue,
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                execution_timeout=timedelta(seconds=30),
+            )
+
+    assert isinstance(exc_info.value.cause, ApplicationError)
+    assert "Agent execution failed: runtime exploded" in str(exc_info.value.cause)
+    assert emitted_errors == []
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_agent_workflow_streams_executor_pre_stream_failure(
+    temporal_client: Client,
+    agent_worker_factory,
+    agent_workflow_args: AgentWorkflowArgs,
+    mock_session_id: uuid.UUID,
+) -> None:
+    queue = f"test-agent-queue-{mock_session_id}"
+    emitted_errors: list[EmitSessionErrorInputs] = []
+
+    def setup_failure(
+        call_count: int, input: AgentExecutorInput
+    ) -> AgentExecutorResult:
+        del call_count, input
+        return AgentExecutorResult(
+            success=False,
+            error="executor setup failed",
+            terminal_stream_error_emitted=False,
+        )
+
+    @activity.defn(name="emit_session_error")
+    async def mock_emit_session_error(args: EmitSessionErrorInputs) -> None:
+        emitted_errors.append(args)
+
+    activities = [
+        *create_activities_with_mock_executor(setup_failure),
+        mock_emit_session_error,
+    ]
+
+    async with agent_worker_factory(
+        temporal_client, task_queue=queue, custom_activities=activities
+    ):
+        with pytest.raises(WorkflowFailureError) as exc_info:
+            await temporal_client.execute_workflow(
+                DurableAgentWorkflow.run,
+                agent_workflow_args,
+                id=AgentWorkflowID(mock_session_id),
+                task_queue=queue,
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                execution_timeout=timedelta(seconds=30),
+            )
+
+    assert isinstance(exc_info.value.cause, ApplicationError)
+    assert "Agent execution failed: executor setup failed" in str(exc_info.value.cause)
+    assert len(emitted_errors) == 1
+    assert emitted_errors[0].session_id == mock_session_id
+    assert emitted_errors[0].message == "Agent execution failed: executor setup failed"
 
 
 @pytest.mark.anyio
@@ -1297,6 +1397,209 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
     }
     assert decisions_by_tool_call_id["call_risky"].approved is False
     assert decisions_by_tool_call_id["call_risky"].reason == "too risky"
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_agent_workflow_routes_approved_user_mcp_tool_to_remote_activity(
+    svc_role: Role,
+    temporal_client: Client,
+    agent_worker_factory,
+    mock_session_id: uuid.UUID,
+) -> None:
+    """An approved user MCP tool must execute via execute_remote_mcp_tool, not
+    the registry executor, and the workflow must replay before and after the
+    approval signal."""
+    queue = f"test-agent-queue-{mock_session_id}"
+    integration_id = uuid.uuid4()
+    approval_request_recorded = asyncio.Event()
+    agent_inputs: list[AgentExecutorInput] = []
+    remote_activity_inputs: list[ExecuteRemoteMCPToolArgs] = []
+    registry_activity_inputs: list[RunActionInput] = []
+    reconcile_inputs: list[ReconcileToolResultsInput] = []
+
+    @activity.defn(name="load_session_activity")
+    async def mock_load_session_activity(
+        input: LoadSessionInput,
+    ) -> LoadSessionResult:
+        assert input.session_id == mock_session_id
+        return LoadSessionResult(
+            found=bool(agent_inputs),
+            sdk_session_id="sdk-session" if agent_inputs else None,
+            sdk_session_data=None,
+            is_fork=False,
+        )
+
+    @activity.defn(name="build_agent_tool_definitions")
+    async def mock_build_tool_definitions(
+        args: BuildAgentToolDefsArgs,
+    ) -> BuildAgentToolDefsResult:
+        tool_result = BuildToolDefsResult(
+            tool_definitions={
+                "mcp__Jira__getIssue": MCPToolDefinition(
+                    name="mcp__Jira__getIssue",
+                    description="Get an issue",
+                    parameters_json_schema={
+                        "type": "object",
+                        "properties": {"issue_key": {"type": "string"}},
+                        "required": ["issue_key"],
+                        "additionalProperties": False,
+                    },
+                )
+            },
+            registry_lock=RegistryLock(origins={}, actions={}),
+            user_mcp_claims=[UserMCPServerClaim(name="Jira", id=integration_id)],
+            tool_approvals={"mcp.Jira.getIssue": True},
+        )
+        return BuildAgentToolDefsResult(
+            scopes={scope.scope: tool_result for scope in args.scopes}
+        )
+
+    @activity.defn(name="run_agent_activity")
+    async def mock_run_agent_activity(
+        input: AgentExecutorInput,
+    ) -> AgentExecutorResult:
+        agent_inputs.append(input)
+        if len(agent_inputs) == 1:
+            assert input.is_approval_continuation is False
+            return AgentExecutorResult(
+                success=True,
+                approval_requested=True,
+                approval_items=[
+                    ToolCallContent(
+                        id="call-user-mcp",
+                        name="mcp__tracecat-registry__mcp__Jira__getIssue",
+                        input={"issue_key": "ISSUE-1"},
+                    )
+                ],
+            )
+
+        assert input.is_approval_continuation is True
+        return AgentExecutorResult(
+            success=True,
+            approval_requested=False,
+            output={"continued": True},
+        )
+
+    @activity.defn(name="record_approval_requests")
+    async def mock_record_approval_requests(
+        input: PersistApprovalsActivityInputs,
+    ) -> None:
+        assert [approval.tool_call_id for approval in input.approvals] == [
+            "call-user-mcp"
+        ]
+        approval_request_recorded.set()
+
+    @activity.defn(name="apply_approval_decisions")
+    async def mock_apply_approval_decisions(
+        input: ApplyApprovalResultsActivityInputs,
+    ) -> None:
+        assert [decision.tool_call_id for decision in input.decisions] == [
+            "call-user-mcp"
+        ]
+        assert input.decisions[0].approved is True
+
+    @activity.defn(name="execute_remote_mcp_tool")
+    async def mock_execute_remote_mcp_tool(args: ExecuteRemoteMCPToolArgs) -> str:
+        remote_activity_inputs.append(args)
+        assert args.tool_name == "mcp__Jira__getIssue"
+        assert args.args == {"issue_key": "ISSUE-1"}
+        assert args.mcp_auth_token
+        return '{"ok": true}'
+
+    @activity.defn(name="execute_action_activity")
+    async def mock_execute_action_activity(
+        input: RunActionInput,
+        role: Role,
+    ) -> InlineObject[dict[str, str]]:
+        del role
+        registry_activity_inputs.append(input)
+        return InlineObject(data={"unexpected": "registry path"})
+
+    @activity.defn(name="reconcile_tool_results_activity")
+    async def mock_reconcile_tool_results_activity(
+        input: ReconcileToolResultsInput,
+    ) -> ReconcileToolResultsResult:
+        reconcile_inputs.append(input)
+        return ReconcileToolResultsResult(
+            results=[
+                ToolExecutionResult(
+                    tool_call_id=pending.tool_call_id,
+                    tool_name=pending.tool_name,
+                    result=pending.raw_result,
+                    is_error=pending.is_error,
+                )
+                for pending in input.pending_results
+            ]
+        )
+
+    workflow_args = AgentWorkflowArgs(
+        role=svc_role,
+        agent_args=RunAgentArgs(
+            session_id=mock_session_id,
+            user_prompt="Validate remote MCP approval continuation",
+            config=AgentConfig(
+                model_name="claude-3-5-sonnet-20241022",
+                model_provider="anthropic",
+                actions=[],
+                tool_approvals={"mcp.Jira.getIssue": True},
+            ),
+        ),
+        entity_type=AgentSessionEntity.WORKFLOW,
+        entity_id=uuid.uuid4(),
+    )
+
+    activities = [
+        create_mock_create_session_activity(),
+        mock_load_session_activity,
+        create_mock_load_session_messages_activity(),
+        mock_build_tool_definitions,
+        mock_run_agent_activity,
+        mock_record_approval_requests,
+        mock_apply_approval_decisions,
+        mock_execute_remote_mcp_tool,
+        mock_execute_action_activity,
+        mock_reconcile_tool_results_activity,
+    ]
+
+    async with agent_worker_factory(
+        temporal_client, task_queue=queue, custom_activities=activities
+    ):
+        wf_handle = await temporal_client.start_workflow(
+            DurableAgentWorkflow.run,
+            workflow_args,
+            id=AgentWorkflowID(mock_session_id),
+            task_queue=queue,
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            execution_timeout=timedelta(seconds=30),
+        )
+
+        await asyncio.wait_for(approval_request_recorded.wait(), timeout=10)
+        suspended_history = await fetch_history_after_completed_workflow_task(wf_handle)
+        await replay_durable_agent_workflow_history(temporal_client, suspended_history)
+
+        await wf_handle.execute_update(
+            DurableAgentWorkflow.set_approvals,
+            WorkflowApprovalSubmission(
+                approvals={"call-user-mcp": True},
+                approved_by=svc_role.user_id,
+            ),
+        )
+
+        result = await wf_handle.result()
+        completed_history = await wf_handle.fetch_history()
+        await replay_durable_agent_workflow_history(temporal_client, completed_history)
+
+    assert result.output == {"continued": True}
+    assert len(remote_activity_inputs) == 1
+    assert remote_activity_inputs[0].tool_name == "mcp__Jira__getIssue"
+    assert remote_activity_inputs[0].args == {"issue_key": "ISSUE-1"}
+    # The approved user MCP tool must NOT fall through to the registry executor.
+    assert registry_activity_inputs == []
+    assert len(reconcile_inputs) == 1
+    assert len(reconcile_inputs[0].pending_results) == 1
+    assert reconcile_inputs[0].pending_results[0].raw_result == '{"ok": true}'
+    assert [input.is_approval_continuation for input in agent_inputs] == [False, True]
 
 
 @pytest.mark.anyio

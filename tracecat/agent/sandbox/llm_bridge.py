@@ -32,10 +32,8 @@ from pathlib import Path
 
 import orjson
 
+from tracecat.agent.common.config import JAILED_LLM_SOCKET_PATH
 from tracecat.logger import logger
-
-# Well-known socket path inside the sandbox
-JAILED_LLM_SOCKET_PATH = Path("/var/run/tracecat/llm.sock")
 
 # Bridge listens on this address inside the sandbox
 LLM_BRIDGE_HOST = "127.0.0.1"

@@ -20,19 +20,20 @@ from claude_agent_sdk.types import (
 
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.types import SandboxAgentConfig
+from tracecat.agent.executor.loopback import LoopbackResult
+from tracecat.agent.runtime import session_paths as session_paths_module
 from tracecat.agent.runtime.claude_code import broker as broker_module
-from tracecat.agent.runtime.claude_code import session_paths as session_paths_module
 from tracecat.agent.runtime.claude_code import transport as transport_module
 from tracecat.agent.runtime.claude_code.broker import (
     ClaudeRuntimeBroker,
     ClaudeTurnRequest,
     ConcurrentSessionTurnError,
 )
-from tracecat.agent.runtime.claude_code.session_paths import ClaudeSandboxPathMapping
 from tracecat.agent.runtime.claude_code.transport import (
     SandboxedCLITransport,
     open_mcp_bridge_binding,
 )
+from tracecat.agent.runtime.session_paths import AgentSandboxPathMapping
 
 
 def _make_request(tmp_path: Path) -> ClaudeTurnRequest:
@@ -59,12 +60,13 @@ def _make_request(tmp_path: Path) -> ClaudeTurnRequest:
 
 
 def _make_transport(tmp_path: Path, *, use_jailed_paths: bool) -> SandboxedCLITransport:
-    runtime_root = Path("/work") if use_jailed_paths else tmp_path / "runtime"
-    path_mapping = ClaudeSandboxPathMapping(
+    runtime_home_dir = Path("/home/agent") if use_jailed_paths else tmp_path / "home"
+    runtime_work_dir = Path("/work") if use_jailed_paths else tmp_path / "work"
+    path_mapping = AgentSandboxPathMapping(
         host_home_dir=tmp_path / "home",
-        host_project_dir=tmp_path / "project",
-        runtime_home_dir=runtime_root / "home",
-        runtime_cwd=runtime_root / "project",
+        host_work_dir=tmp_path / "work",
+        runtime_home_dir=runtime_home_dir,
+        runtime_work_dir=runtime_work_dir,
     )
     return SandboxedCLITransport(
         options=ClaudeAgentOptions(),
@@ -136,6 +138,25 @@ async def test_broker_rejects_second_turn_for_same_session(
 
 
 @pytest.mark.anyio
+async def test_broker_session_lease_blocks_second_turn(tmp_path: Path) -> None:
+    broker = ClaudeRuntimeBroker()
+    await broker.start()
+    request = _make_request(tmp_path)
+    handler = cast(
+        Any,
+        SimpleNamespace(
+            prepare=AsyncMock(),
+            process_envelope=AsyncMock(),
+        ),
+    )
+    session_key = str(request.init_payload.session_id)
+
+    async with broker.session_turn_lease(session_key):
+        with pytest.raises(ConcurrentSessionTurnError):
+            await broker.run_turn(request, handler)
+
+
+@pytest.mark.anyio
 async def test_broker_rechecks_closed_state_after_waiting_for_lock(
     tmp_path: Path,
 ) -> None:
@@ -160,6 +181,57 @@ async def test_broker_rechecks_closed_state_after_waiting_for_lock(
         await task
 
 
+@pytest.mark.anyio
+async def test_broker_hydrates_work_dir_while_session_is_active(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    events: list[tuple[str, bool]] = []
+
+    class FakeRuntime:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        async def run(self, payload: RuntimeInitPayload) -> None:
+            events.append(("runtime", str(payload.session_id) in broker._active_turns))
+
+    async def hydrate_work_dir(_work_dir: Path) -> None:
+        events.append(("hydrate", session_key in broker._active_turns))
+
+    monkeypatch.setattr(broker_module, "ClaudeAgentRuntime", FakeRuntime)
+    monkeypatch.setattr(
+        session_paths_module.tempfile, "gettempdir", lambda: str(tmp_path)
+    )
+
+    broker = ClaudeRuntimeBroker()
+    await broker.start()
+    request = _make_request(tmp_path)
+    request = ClaudeTurnRequest(
+        init_payload=request.init_payload,
+        job_dir=request.job_dir,
+        socket_dir=request.socket_dir,
+        llm_socket_path=request.llm_socket_path,
+        enable_internet_access=request.enable_internet_access,
+        hydrate_work_dir=hydrate_work_dir,
+    )
+    session_key = str(request.init_payload.session_id)
+    handler = cast(
+        Any,
+        SimpleNamespace(
+            prepare=AsyncMock(),
+            process_envelope=AsyncMock(),
+            build_result=lambda: LoopbackResult(success=True),
+        ),
+    )
+
+    await broker.run_turn(request, handler)
+
+    assert events == [
+        ("hydrate", True),
+        ("runtime", True),
+    ]
+
+
 def test_build_path_mapping_uses_runtime_mount_paths_when_nsjail_enabled(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -171,14 +243,14 @@ def test_build_path_mapping_uses_runtime_mount_paths_when_nsjail_enabled(
     mapping = ClaudeRuntimeBroker._build_path_mapping(session_id="session-123")
 
     assert (
-        mapping.host_home_dir == tmp_path / "tracecat-agent-session-123" / "claude-home"
+        mapping.host_home_dir == tmp_path / "tracecat-agent-session-123" / "agent-home"
     )
     assert (
-        mapping.host_project_dir
-        == tmp_path / "tracecat-agent-session-123" / "claude-project"
+        mapping.host_work_dir
+        == tmp_path / "tracecat-agent-session-123" / "agent-work-dir"
     )
-    assert mapping.runtime_home_dir == Path("/work/claude-home")
-    assert mapping.runtime_cwd == Path("/work/claude-project")
+    assert mapping.runtime_home_dir == Path("/home/agent")
+    assert mapping.runtime_work_dir == Path("/work")
 
 
 def test_build_path_mapping_uses_host_paths_in_direct_mode(
@@ -192,7 +264,7 @@ def test_build_path_mapping_uses_host_paths_in_direct_mode(
     mapping = ClaudeRuntimeBroker._build_path_mapping(session_id="session-123")
 
     assert mapping.runtime_home_dir == mapping.host_home_dir
-    assert mapping.runtime_cwd == mapping.host_project_dir
+    assert mapping.runtime_work_dir == mapping.host_work_dir
 
 
 def test_build_path_mapping_is_stable_per_session(

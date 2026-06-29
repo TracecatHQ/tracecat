@@ -3,7 +3,7 @@ definition:
   title: List adversaries
   description: List Caldera adversaries.
   display_group: MITRE Caldera
-  doc_url: https://caldera.readthedocs.io/en/latest/Users/REST-api.html#adversaries
+  doc_url: https://caldera.readthedocs.io/en/latest/The-REST-API.html
   namespace: tools.caldera
   name: list_adversaries
   secrets:

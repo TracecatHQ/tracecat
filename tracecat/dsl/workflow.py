@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid
-from collections.abc import Awaitable, Coroutine, Iterator
+from collections.abc import Awaitable, Coroutine
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -43,7 +43,6 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.schemas import RunAgentArgs
     from tracecat.agent.session.types import AgentSessionEntity
     from tracecat.agent.types import AgentConfig
-    from tracecat.concurrency import cooperative
     from tracecat.contexts import (
         ctx_interaction,
         ctx_logical_time,
@@ -161,6 +160,9 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.workflow.schedules.schemas import GetScheduleActivityInputs
     from tracecat.workflow.schedules.service import WorkflowSchedulesService
     from tracecat.workspaces.activities import get_workspace_organization_id_activity
+
+
+_CHILD_RUN_ARG_PREP_YIELD_EVERY = 8
 
 
 def _inherit_search_attributes_with_alias(
@@ -1314,7 +1316,7 @@ class DSLWorkflow:
             )
 
             runtime_config = prepared.get_config(0)
-            sf_run_args = DSLRunArgs(
+            sf_run_args = DSLRunArgs.model_construct(
                 role=self.role,
                 dsl=prepared.dsl,
                 wf_id=prepared.wf_id,
@@ -1437,59 +1439,41 @@ class DSLWorkflow:
         retrieve its specific trigger_inputs.
         """
 
-        def iter_run_args() -> Iterator[tuple[int, DSLRunArgs]]:
-            for i in range(batch_size):
-                loop_index = batch_start + i
-                config = prepared.get_config(loop_index)
-
-                # Get trigger_inputs for this specific iteration
-                # Works with both CollectionObject and InlineObject
-                trigger_inputs = prepared.get_trigger_input_at(loop_index)
-
-                yield (
-                    loop_index,
-                    DSLRunArgs(
-                        role=self.role,
-                        dsl=prepared.dsl,
-                        wf_id=prepared.wf_id,
-                        trigger_inputs=trigger_inputs,
-                        parent_run_context=self.run_context,
-                        runtime_config=config,
-                        execution_type=self.execution_type,
-                        time_anchor=child_time_anchor,
-                        registry_lock=prepared.registry_lock,
-                    ),
-                )
-
-        dispatch_semaphore = asyncio.Semaphore(dispatch_window)
-
-        async def dispatch_child(
-            *, loop_index: int, run_args: DSLRunArgs
-        ) -> workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject]:
-            async with dispatch_semaphore:
-                return await self._dispatch_child_workflow(
-                    task,
-                    run_args,
-                    loop_index=loop_index,
-                    wait_strategy=wait_strategy,
-                )
-
-        coros: list[
+        dispatch_batch: list[
             Awaitable[workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject]]
         ] = []
-        async for loop_index, run_args in cooperative(
-            iter_run_args(),
-            delay=0.1,
-        ):
-            self.logger.trace(
-                "Run child workflow batch (prepared)",
-                loop_index=loop_index,
-                fail_strategy=fail_strategy,
-            )
-            coro = dispatch_child(loop_index=loop_index, run_args=run_args)
-            coros.append(coro)
+        launched_handles: list[
+            workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject] | BaseException
+        ] = []
 
-        launched_handles = await asyncio.gather(*coros, return_exceptions=True)
+        for offset in range(batch_size):
+            if offset and offset % _CHILD_RUN_ARG_PREP_YIELD_EVERY == 0:
+                # Prepared subflow data has already been validated by the
+                # activity. Checkpoint before another burst of trusted model
+                # construction inside the workflow activation.
+                await asyncio.sleep(0)
+
+            loop_index = batch_start + offset
+            dispatch_batch.append(
+                self._prepare_child_workflow_dispatch(
+                    task,
+                    prepared,
+                    loop_index=loop_index,
+                    wait_strategy=wait_strategy,
+                    fail_strategy=fail_strategy,
+                    child_time_anchor=child_time_anchor,
+                )
+            )
+            if len(dispatch_batch) >= dispatch_window:
+                launched_handles.extend(
+                    await self._flush_child_workflow_dispatch_batch(dispatch_batch)
+                )
+                await asyncio.sleep(0)
+
+        if dispatch_batch:
+            launched_handles.extend(
+                await self._flush_child_workflow_dispatch_batch(dispatch_batch)
+            )
         gather_result = await self._gather_dispatched_child_results(
             launched_handles=launched_handles,
             wait_strategy=wait_strategy,
@@ -1509,6 +1493,65 @@ class DSLWorkflow:
                 case _:
                     result.append(StoredObjectValidator.validate_python(val))
         return result
+
+    def _prepare_child_workflow_dispatch(
+        self,
+        task: ActionStatement,
+        prepared: PreparedSubflowResult,
+        *,
+        loop_index: int,
+        wait_strategy: WaitStrategy,
+        fail_strategy: FailStrategy,
+        child_time_anchor: datetime,
+    ) -> Awaitable[workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject]]:
+        run_args = self._build_prepared_child_run_args(
+            prepared=prepared,
+            loop_index=loop_index,
+            child_time_anchor=child_time_anchor,
+        )
+        self.logger.trace(
+            "Run child workflow batch (prepared)",
+            loop_index=loop_index,
+            fail_strategy=fail_strategy,
+        )
+        return self._dispatch_child_workflow(
+            task,
+            run_args,
+            loop_index=loop_index,
+            wait_strategy=wait_strategy,
+        )
+
+    def _build_prepared_child_run_args(
+        self,
+        *,
+        prepared: PreparedSubflowResult,
+        loop_index: int,
+        child_time_anchor: datetime,
+    ) -> DSLRunArgs:
+        return DSLRunArgs.model_construct(
+            role=self.role,
+            dsl=prepared.dsl,
+            wf_id=prepared.wf_id,
+            trigger_inputs=prepared.get_trigger_input_at(loop_index),
+            parent_run_context=self.run_context,
+            runtime_config=prepared.get_config(loop_index),
+            execution_type=self.execution_type,
+            time_anchor=child_time_anchor,
+            registry_lock=prepared.registry_lock,
+        )
+
+    async def _flush_child_workflow_dispatch_batch(
+        self,
+        dispatch_batch: list[
+            Awaitable[workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject]]
+        ],
+    ) -> list[workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject] | BaseException]:
+        launched_handles = await asyncio.gather(
+            *dispatch_batch,
+            return_exceptions=True,
+        )
+        dispatch_batch.clear()
+        return list(launched_handles)
 
     async def _gather_dispatched_child_results(
         self,

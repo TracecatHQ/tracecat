@@ -7,6 +7,9 @@ node_modules
 
 # testing
 coverage
+playwright-report
+test-results
+tests/smoke/.auth
 
 # next.js
 .next/

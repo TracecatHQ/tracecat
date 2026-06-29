@@ -5,7 +5,11 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
-import { DefaultChatTransport, type UIMessage } from "ai"
+import {
+  type ChatOnDataCallback,
+  DefaultChatTransport,
+  type UIMessage,
+} from "ai"
 import { useCallback, useMemo, useState } from "react"
 import {
   type AgentSessionCreate,
@@ -14,6 +18,8 @@ import {
   type AgentSessionsGetSessionResponse,
   type AgentSessionsGetSessionVercelResponse,
   type AgentSessionsListSessionsResponse,
+  type AgentSessionsRemoveSessionArtifactData,
+  type AgentSessionsRemoveSessionArtifactResponse,
   type AgentSessionUpdate,
   type ApiError,
   agentSessionsCreateSession,
@@ -21,6 +27,7 @@ import {
   agentSessionsGetSession,
   agentSessionsGetSessionVercel,
   agentSessionsListSessions,
+  agentSessionsRemoveSessionArtifact,
   agentSessionsUpdateSession,
   type ContinueRunRequest,
   type VercelChatRequest,
@@ -45,6 +52,11 @@ type UpdateChatContext = {
   >
 }
 
+type RemoveSessionArtifactInput = Omit<
+  AgentSessionsRemoveSessionArtifactData,
+  "workspaceId"
+>
+
 function applyOptimisticChatUpdate<T extends UpdateableChatRecord>(
   chat: T,
   update: AgentSessionUpdate
@@ -54,6 +66,9 @@ function applyOptimisticChatUpdate<T extends UpdateableChatRecord>(
     updated_at: new Date().toISOString(),
     ...(typeof update.title === "string" ? { title: update.title } : {}),
     ...(update.tools !== undefined ? { tools: update.tools ?? [] } : {}),
+    ...(update.mcp_integrations !== undefined
+      ? { mcp_integrations: update.mcp_integrations ?? [] }
+      : {}),
     ...(update.agent_preset_id !== undefined
       ? { agent_preset_id: update.agent_preset_id }
       : {}),
@@ -373,17 +388,67 @@ export function useGetChatVercel({
   return { chat, chatLoading, chatError }
 }
 
+function applyArtifactsToVercelChat(
+  chat: AgentSessionsGetSessionVercelResponse | undefined,
+  response: AgentSessionsRemoveSessionArtifactResponse
+): AgentSessionsGetSessionVercelResponse | undefined {
+  if (!chat || !("artifacts" in chat)) {
+    return chat
+  }
+  return {
+    ...chat,
+    artifacts: response.artifacts ?? [],
+  }
+}
+
+export function useRemoveSessionArtifact(workspaceId: string) {
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: async (input: RemoveSessionArtifactInput) =>
+      await agentSessionsRemoveSessionArtifact({
+        ...input,
+        workspaceId,
+      }),
+    onSuccess: (response, variables) => {
+      queryClient.setQueryData<
+        AgentSessionsGetSessionVercelResponse | undefined
+      >(["chat", variables.sessionId, workspaceId, "vercel"], (current) =>
+        applyArtifactsToVercelChat(current, response)
+      )
+      queryClient.invalidateQueries({
+        queryKey: ["chat", variables.sessionId, workspaceId, "vercel"],
+      })
+    },
+  })
+
+  return {
+    removeArtifact: mutation.mutateAsync,
+    isRemovingArtifact: mutation.isPending,
+    removeArtifactError: mutation.error,
+  }
+}
+
 // Combined hook for chat functionality with Vercel AI SDK streaming
 export function useVercelChat({
   chatId,
   workspaceId,
   messages,
   modelInfo,
+  onData,
+  resume = true,
 }: {
   chatId?: string
   workspaceId: string
   messages: UIMessage[]
   modelInfo: ModelInfo
+  onData?: ChatOnDataCallback<UIMessage>
+  /**
+   * Reconnect to the live event stream on mount. Defaults to true. Set to
+   * false for terminal sessions whose history is already seeded from the DB:
+   * resuming there replays the last persisted turn on top of the seeded
+   * messages, duplicating the chat.
+   */
+  resume?: boolean
 }) {
   const queryClient = useQueryClient()
   const [lastError, setLastError] = useState<string | null>(null)
@@ -399,7 +464,7 @@ export function useVercelChat({
   // Use Vercel's useChat hook for streaming
   const chat = aiSdk.useChat({
     id: chatId,
-    resume: !!chatId,
+    resume: !!chatId && resume,
     messages,
     transport: new DefaultChatTransport({
       api: apiEndpoint,
@@ -455,7 +520,19 @@ export function useVercelChat({
         queryKey: ["chat", chatId, workspaceId, "vercel"],
       })
       queryClient.invalidateQueries({ queryKey: ["chats", workspaceId] })
+      // A completed turn can change a session's inbox status (e.g. an approval
+      // continuation moves a row from "Review required" to "Completed"). The
+      // inbox detail pane derives its status/approval state from these queries,
+      // so refresh them here too — otherwise the open pane keeps showing the
+      // stale "Approval required" card until a hard reload. Both are already
+      // polled, so this just makes the update prompt; it is a no-op when no
+      // inbox view is mounted to observe them.
+      queryClient.invalidateQueries({ queryKey: ["inbox-items"] })
+      queryClient.invalidateQueries({
+        queryKey: ["pending-approvals-count", workspaceId],
+      })
     },
+    onData,
   })
 
   return {

@@ -29,15 +29,21 @@ from tracecat.dsl.schemas import (
     RunActionInput,
     RunContext,
 )
+from tracecat.executor.action_gateway.config import ACTION_GATEWAY_SANDBOX_SOCKET
+from tracecat.executor.action_gateway.server import ActionGateway
 from tracecat.executor.backends.base import ExecutorBackend
 from tracecat.executor.backends.direct import DirectBackend
 from tracecat.executor.backends.ephemeral import EphemeralBackend
 from tracecat.executor.schemas import ActionImplementation, ResolvedContext
 from tracecat.identifiers.workflow import ExecutionUUID, WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
-from tracecat.sandbox import SandboxService, validate_run_python_script
+from tracecat.sandbox import (
+    SandboxExecutionError,
+    SandboxService,
+    validate_run_python_script,
+)
 from tracecat.sandbox.executor import NsjailExecutor
-from tracecat.sandbox.types import SandboxConfig
+from tracecat.sandbox.types import SandboxConfig, SandboxResult
 from tracecat.sandbox.unsafe_pid_executor import (
     SAFE_WRAPPER_SCRIPT as UNSAFE_PID_WRAPPER_SCRIPT,
 )
@@ -85,6 +91,20 @@ class _FakeTracecatClient:
     @property
     def cases(self) -> _FakeCasesClient:
         return _FakeCasesClient()
+
+
+class _CapturingNsjailExecutor:
+    def __init__(self) -> None:
+        self.config: SandboxConfig | None = None
+
+    async def execute(
+        self,
+        _job_dir: Path,
+        config: SandboxConfig,
+        _cache_key: str | None,
+    ) -> SandboxResult:
+        self.config = config
+        return SandboxResult(success=True, output={"ok": True})
 
 
 def _run_wrapper_source(
@@ -243,6 +263,29 @@ def main():
 """
 
 
+def _registry_ctx_gateway_smoke_script() -> str:
+    return """
+from tracecat_registry import ctx
+
+
+async def main():
+    import os
+    import urllib.request
+
+    try:
+        urllib.request.urlopen("https://example.com", timeout=2)
+        outbound_status = "allowed"
+    except Exception as exc:
+        outbound_status = f"blocked: {type(exc).__name__}"
+
+    return {
+        "gateway": await ctx.client.get("/health"),
+        "socket_path": os.environ.get("TRACECAT__ACTION_GATEWAY_SOCKET"),
+        "outbound_status": outbound_status,
+    }
+"""
+
+
 def _registry_ctx_env_vars() -> dict[str, str]:
     return {
         "TRACECAT__API_URL": "http://api.test:8000",
@@ -285,6 +328,129 @@ def _registry_python_path_dirs() -> list[Path]:
     return [registry_source_root, purelib]
 
 
+def _write_legacy_registry_sdk(root: Path) -> Path:
+    """Write a minimal pre-gateway tracecat_registry package for nsjail tests."""
+    package_dir = root / "tracecat_registry"
+    sdk_dir = package_dir / "sdk"
+    sdk_dir.mkdir(parents=True)
+
+    (package_dir / "__init__.py").write_text("from . import ctx\n")
+    (sdk_dir / "__init__.py").write_text("")
+    (package_dir / "ctx.py").write_text(
+        """
+from tracecat_registry.context import get_context
+
+
+def __getattr__(name):
+    if name == "client":
+        return get_context().client
+    raise AttributeError(name)
+"""
+    )
+    (package_dir / "context.py").write_text(
+        """
+import os
+
+
+_context = None
+
+
+class RegistryContext:
+    def __init__(self, *, api_url, token, workspace_id):
+        self.api_url = api_url
+        self.token = token
+        self.workspace_id = workspace_id
+
+    @classmethod
+    def from_env(cls):
+        return cls(
+            workspace_id=os.environ["TRACECAT__WORKSPACE_ID"],
+            api_url=os.environ.get("TRACECAT__API_URL", "http://api:8000"),
+            token=os.environ.get("TRACECAT__EXECUTOR_TOKEN", ""),
+        )
+
+    @property
+    def client(self):
+        from tracecat_registry.sdk.client import TracecatClient
+
+        return TracecatClient(
+            api_url=self.api_url,
+            token=self.token,
+            workspace_id=self.workspace_id,
+        )
+
+
+def get_context():
+    if _context is None:
+        raise RuntimeError("No registry context is set")
+    return _context
+
+
+def set_context(ctx):
+    global _context
+    _context = ctx
+
+
+def init_context_from_env():
+    ctx = RegistryContext.from_env()
+    set_context(ctx)
+    return ctx
+"""
+    )
+    (sdk_dir / "client.py").write_text(
+        """
+import os
+
+import httpx
+
+
+class TracecatClient:
+    def __init__(
+        self,
+        *,
+        api_url=None,
+        token=None,
+        workspace_id=None,
+        timeout=120.0,
+    ):
+        self._api_url = (api_url or os.environ.get("TRACECAT__API_URL", "http://api:8000")).rstrip("/") + "/internal"
+        self._token = token or os.environ.get("TRACECAT__EXECUTOR_TOKEN", "")
+        self._timeout = timeout
+
+    def _get_headers(self):
+        headers = {"Content-Type": "application/json"}
+        if self._token:
+            headers["Authorization"] = f"Bearer {self._token}"
+        return headers
+
+    def _handle_error_response(self, response):
+        response.raise_for_status()
+
+    async def request(self, method, path, *, params=None, json=None, headers=None):
+        request_headers = self._get_headers()
+        if headers:
+            request_headers.update(headers)
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            response = await client.request(
+                method,
+                f"{self._api_url}{path}",
+                params=params,
+                json=json,
+                headers=request_headers,
+            )
+        if not response.is_success:
+            self._handle_error_response(response)
+        if not response.content:
+            return None
+        return response.json()
+
+    async def get(self, path, *, params=None, headers=None):
+        return await self.request("GET", path, params=params, headers=headers)
+"""
+    )
+    return root
+
+
 async def _run_sandbox_registry_ctx_smoke(
     *,
     cache_dir: Path,
@@ -301,12 +467,12 @@ async def _run_sandbox_registry_ctx_smoke(
 class _FakeRunPythonRegistryPathRunner:
     def __init__(self, paths: list[Path]) -> None:
         self.paths = paths
-        self.tarball_uris: list[str] | None = None
+        self.artifact_uris: list[str] | None = None
 
     async def resolve_registry_paths(
-        self, tarball_uris: list[str] | None = None
+        self, artifact_uris: list[str] | None = None
     ) -> list[Path]:
-        self.tarball_uris = tarball_uris
+        self.artifact_uris = artifact_uris
         return self.paths
 
 
@@ -318,7 +484,7 @@ async def _run_backend_registry_ctx_smoke(
 ) -> dict[str, Any]:
     fake_runner = _FakeRunPythonRegistryPathRunner(_registry_python_path_dirs())
 
-    async def _get_tarball_uris(_input: RunActionInput, _role: Role) -> list[str]:
+    async def _get_artifact_uris(_input: RunActionInput, _role: Role) -> list[str]:
         return ["s3://tracecat-registry/test/site-packages.tar.gz"]
 
     monkeypatch.setattr(
@@ -326,7 +492,7 @@ async def _run_backend_registry_ctx_smoke(
         "SandboxService",
         lambda: SandboxService(cache_dir=str(cache_dir)),
     )
-    monkeypatch.setattr(backend, "_get_tarball_uris", _get_tarball_uris)
+    monkeypatch.setattr(backend, "_get_artifact_uris", _get_artifact_uris)
     monkeypatch.setattr(
         executor_backend_module,
         "get_action_runner",
@@ -336,6 +502,11 @@ async def _run_backend_registry_ctx_smoke(
         executor_backend_module.config,
         "TRACECAT__API_URL",
         "http://api.test:8000",
+    )
+    monkeypatch.setattr(
+        executor_backend_module.config,
+        "TRACECAT__ACTION_GATEWAY_ENABLED",
+        False,
     )
 
     input_data = _make_run_python_input()
@@ -362,7 +533,76 @@ async def _run_backend_registry_ctx_smoke(
         environment=input_data.run_context.environment,
         token=resolved_context.executor_token,
     )
-    assert fake_runner.tarball_uris == [
+    assert fake_runner.artifact_uris == [
+        "s3://tracecat-registry/test/site-packages.tar.gz"
+    ]
+    return result.result
+
+
+async def _run_backend_registry_ctx_gateway_smoke(
+    *,
+    backend: ExecutorBackend,
+    monkeypatch: pytest.MonkeyPatch,
+    cache_dir: Path,
+    action_gateway_socket: Path,
+    registry_paths: list[Path],
+) -> dict[str, Any]:
+    """Run a real SDK request through run_python's nsjail Action Gateway mount."""
+    fake_runner = _FakeRunPythonRegistryPathRunner(registry_paths)
+
+    async def _get_artifact_uris(_input: RunActionInput, _role: Role) -> list[str]:
+        return ["s3://tracecat-registry/test/site-packages.tar.gz"]
+
+    monkeypatch.setattr(
+        executor_backend_module,
+        "SandboxService",
+        lambda: SandboxService(cache_dir=str(cache_dir)),
+    )
+    monkeypatch.setattr(backend, "_get_artifact_uris", _get_artifact_uris)
+    monkeypatch.setattr(
+        executor_backend_module,
+        "get_action_runner",
+        lambda: fake_runner,
+    )
+    monkeypatch.setattr(
+        executor_backend_module.config,
+        "TRACECAT__API_URL",
+        "http://tracecat-api:8000",
+    )
+    monkeypatch.setattr(
+        executor_backend_module.config,
+        "TRACECAT__ACTION_GATEWAY_ENABLED",
+        True,
+    )
+    monkeypatch.setattr(
+        executor_backend_module.config,
+        "TRACECAT__ACTION_GATEWAY_SOCKET",
+        str(action_gateway_socket),
+    )
+
+    input_data = _make_run_python_input()
+    resolved_context = _make_run_python_context()
+    resolved_context.evaluated_args.update(
+        {
+            "script": _registry_ctx_gateway_smoke_script(),
+            "allow_network": False,
+            "timeout_seconds": 60,
+        }
+    )
+
+    result = await backend.execute(
+        input=input_data,
+        role=_make_role(),
+        resolved_context=resolved_context,
+    )
+
+    assert result.type == "success"
+    assert result.result == {
+        "gateway": {"status": "ok"},
+        "socket_path": str(ACTION_GATEWAY_SANDBOX_SOCKET),
+        "outbound_status": "blocked: URLError",
+    }
+    assert fake_runner.artifact_uris == [
         "s3://tracecat-registry/test/site-packages.tar.gz"
     ]
     return result.result
@@ -382,7 +622,46 @@ async def _run_backend_registry_ctx_smoke_matrix(
         assert isinstance(result, dict)
 
 
-def _run_nsjail_sdk_context_harness_in_docker_or_skip() -> None:
+async def _run_backend_registry_ctx_gateway_smoke_matrix(
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+    cache_dir: Path,
+) -> None:
+    action_gateway_socket = cache_dir / "action-gateway.sock"
+    monkeypatch.setattr(
+        executor_backend_module.config,
+        "TRACECAT__ACTION_GATEWAY_ENABLED",
+        True,
+    )
+    action_gateway = ActionGateway(socket_path=action_gateway_socket)
+    await action_gateway.start()
+    legacy_registry_root = _write_legacy_registry_sdk(cache_dir / "legacy-registry")
+
+    try:
+        registry_path_cases = [
+            _registry_python_path_dirs(),
+            [legacy_registry_root, Path(sysconfig.get_path("purelib")).resolve()],
+        ]
+        for index, registry_paths in enumerate(registry_path_cases):
+            result = await _run_backend_registry_ctx_gateway_smoke(
+                backend=DirectBackend(),
+                monkeypatch=monkeypatch,
+                cache_dir=cache_dir / f"sandbox-cache-{index}",
+                action_gateway_socket=action_gateway_socket,
+                registry_paths=registry_paths,
+            )
+            assert isinstance(result, dict)
+    finally:
+        await action_gateway.stop()
+
+
+def _run_nsjail_harness_in_docker_or_skip(
+    *,
+    cli_arg: str,
+    override_prefix: str,
+    timeout: int,
+    failure_message: str,
+) -> None:
     if os.environ.get("TRACECAT__RUN_PYTHON_NSJAIL_DOCKER_FALLBACK_CHILD") == "1":
         pytest.skip("run_python nsjail unavailable inside Docker fallback child")
     if not _docker_nsjail_fallback_enabled():
@@ -412,7 +691,7 @@ def _run_nsjail_sdk_context_harness_in_docker_or_skip() -> None:
     compose_env.setdefault("TRACECAT__APP_ENV", "development")
     tests_mount = f"{repo_root / 'tests'}:/app/tests:ro"
     fd, override_name = tempfile.mkstemp(
-        prefix="tracecat-run-python-nsjail-test-",
+        prefix=override_prefix,
         suffix=".yml",
     )
     os.close(fd)
@@ -460,13 +739,13 @@ def _run_nsjail_sdk_context_harness_in_docker_or_skip() -> None:
                 "api",
                 "-lc",
                 "uv run python -m tests.unit.executor.test_run_python_sdk_context "
-                "--run-nsjail-sdk-context-smoke",
+                f"{cli_arg}",
             ],
             cwd=repo_root,
             env=compose_env,
             capture_output=True,
             text=True,
-            timeout=180,
+            timeout=timeout,
             check=False,
         )
     finally:
@@ -474,9 +753,26 @@ def _run_nsjail_sdk_context_harness_in_docker_or_skip() -> None:
 
     if result.returncode != 0:
         pytest.fail(
-            "Dockerized run_python nsjail SDK-context fallback failed."
-            f"\n\nstdout:\n{result.stdout}\n\nstderr:\n{result.stderr}"
+            f"{failure_message}\n\nstdout:\n{result.stdout}\n\nstderr:\n{result.stderr}"
         )
+
+
+def _run_nsjail_sdk_context_harness_in_docker_or_skip() -> None:
+    _run_nsjail_harness_in_docker_or_skip(
+        cli_arg="--run-nsjail-sdk-context-smoke",
+        override_prefix="tracecat-run-python-nsjail-test-",
+        timeout=180,
+        failure_message="Dockerized run_python nsjail SDK-context fallback failed.",
+    )
+
+
+def _run_nsjail_sdk_gateway_harness_in_docker_or_skip() -> None:
+    _run_nsjail_harness_in_docker_or_skip(
+        cli_arg="--run-nsjail-sdk-gateway-smoke",
+        override_prefix="tracecat-run-python-nsjail-gateway-test-",
+        timeout=240,
+        failure_message="Dockerized run_python nsjail SDK-gateway fallback failed.",
+    )
 
 
 def _run_nsjail_sdk_context_smoke_from_cli() -> None:
@@ -488,6 +784,23 @@ def _run_nsjail_sdk_context_smoke_from_cli() -> None:
             await _run_backend_registry_ctx_smoke_matrix(
                 monkeypatch=monkeypatch,
                 cache_dir=tmp_path / "sandbox-cache",
+            )
+        finally:
+            monkeypatch.undo()
+            shutil.rmtree(tmp_path, ignore_errors=True)
+
+    asyncio.run(run())
+
+
+def _run_nsjail_sdk_gateway_smoke_from_cli() -> None:
+    async def run() -> None:
+        monkeypatch = pytest.MonkeyPatch()
+        tmp_path = Path(tempfile.mkdtemp(prefix="tracecat-run-python-gateway-"))
+        try:
+            _set_run_python_nsjail_mode(monkeypatch, disable_nsjail=False)
+            await _run_backend_registry_ctx_gateway_smoke_matrix(
+                monkeypatch=monkeypatch,
+                cache_dir=tmp_path,
             )
         finally:
             monkeypatch.undo()
@@ -542,6 +855,56 @@ def test_nsjail_config_mounts_registry_paths_under_pythonpath_root(
     assert (
         f'mount {{ src: "{dependency_path}" dst: "/pythonpath/1" is_bind: true rw: false }}'
     ) in config_text
+
+
+def test_nsjail_config_mounts_run_python_action_gateway_socket(
+    tmp_path: Path,
+) -> None:
+    action_gateway_socket = tmp_path / "action-gateway.sock"
+    action_gateway_socket.touch()
+    sandbox_config = SandboxConfig(
+        action_gateway_socket=action_gateway_socket,
+    )
+
+    config_text = NsjailExecutor(rootfs_path=str(tmp_path))._build_config(
+        tmp_path,
+        "execute",
+        sandbox_config,
+    )
+
+    assert (
+        f'mount {{ src: "{action_gateway_socket}" '
+        f'dst: "{ACTION_GATEWAY_SANDBOX_SOCKET}" is_bind: true rw: false }}'
+    ) in config_text
+
+
+def test_run_python_action_gateway_env_rejects_missing_socket(tmp_path: Path) -> None:
+    env_vars = {"CUSTOM_VALUE": "kept"}
+
+    with pytest.raises(SandboxExecutionError, match="socket is unavailable"):
+        SandboxService._with_action_gateway_socket_env(
+            env_vars,
+            socket_path=tmp_path / "missing-action-gateway.sock",
+        )
+
+
+@pytest.mark.anyio
+async def test_run_python_nsjail_rejects_missing_action_gateway_socket(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    service = SandboxService(cache_dir=str(tmp_path / "sandbox-cache"))
+    nsjail_executor = _CapturingNsjailExecutor()
+    monkeypatch.setattr(service, "_nsjail_executor", nsjail_executor)
+    monkeypatch.setattr(service, "_is_nsjail_available", lambda: True)
+
+    with pytest.raises(SandboxExecutionError, match="socket is unavailable"):
+        await service.run_python(
+            script="def main():\n    return 1",
+            env_vars={"CUSTOM_VALUE": "kept"},
+            action_gateway_socket=tmp_path / "missing-action-gateway.sock",
+        )
+    assert nsjail_executor.config is None
 
 
 def test_nsjail_env_map_prefers_installed_dependencies_over_registry_mounts(
@@ -758,7 +1121,7 @@ async def test_run_python_backend_always_injects_sdk_context(
     artifact_path.mkdir()
     fake_runner = _FakeRunPythonRegistryPathRunner([artifact_path])
 
-    async def _get_tarball_uris(_input: RunActionInput, _role: Role) -> list[str]:
+    async def _get_artifact_uris(_input: RunActionInput, _role: Role) -> list[str]:
         return ["s3://tracecat-registry/test/site-packages.tar.gz"]
 
     class FakeSandboxService:
@@ -775,7 +1138,7 @@ async def test_run_python_backend_always_injects_sdk_context(
         "http://api.test:8000",
     )
     backend = DirectBackend()
-    monkeypatch.setattr(backend, "_get_tarball_uris", _get_tarball_uris)
+    monkeypatch.setattr(backend, "_get_artifact_uris", _get_artifact_uris)
     monkeypatch.setattr(
         "tracecat.executor.backends.base.get_action_runner",
         lambda: fake_runner,
@@ -802,7 +1165,7 @@ async def test_run_python_backend_always_injects_sdk_context(
         "TRACECAT__EXECUTOR_TOKEN": resolved_context.executor_token,
     }
     assert captured["python_path_dirs"] == [artifact_path]
-    assert fake_runner.tarball_uris == [
+    assert fake_runner.artifact_uris == [
         "s3://tracecat-registry/test/site-packages.tar.gz"
     ]
 
@@ -811,7 +1174,7 @@ async def test_run_python_backend_always_injects_sdk_context(
 async def test_run_python_backend_fails_without_registry_artifacts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def _get_tarball_uris(_input: RunActionInput, _role: Role) -> list[str]:
+    async def _get_artifact_uris(_input: RunActionInput, _role: Role) -> list[str]:
         return []
 
     monkeypatch.setattr(
@@ -819,7 +1182,7 @@ async def test_run_python_backend_fails_without_registry_artifacts(
         False,
     )
     backend = DirectBackend()
-    monkeypatch.setattr(backend, "_get_tarball_uris", _get_tarball_uris)
+    monkeypatch.setattr(backend, "_get_artifact_uris", _get_artifact_uris)
 
     result = await backend.execute(
         input=_make_run_python_input(),
@@ -851,7 +1214,7 @@ async def test_run_python_backend_uses_local_registry_paths(
         if site_path
     }
 
-    async def _get_tarball_uris(_input: RunActionInput, _role: Role) -> list[str]:
+    async def _get_artifact_uris(_input: RunActionInput, _role: Role) -> list[str]:
         return []
 
     class FakeSandboxService:
@@ -861,10 +1224,10 @@ async def test_run_python_backend_uses_local_registry_paths(
 
     class FailingRegistryPathRunner:
         async def resolve_registry_paths(
-            self, tarball_uris: list[str] | None = None
+            self, artifact_uris: list[str] | None = None
         ) -> list[Path]:
             raise AssertionError(
-                f"local repository mode should not resolve {tarball_uris=}"
+                f"local repository mode should not resolve {artifact_uris=}"
             )
 
     monkeypatch.setattr(executor_backend_module, "SandboxService", FakeSandboxService)
@@ -891,7 +1254,7 @@ async def test_run_python_backend_uses_local_registry_paths(
     monkeypatch.setenv("PYTHONUSERBASE", str(custom_target))
 
     backend = DirectBackend()
-    monkeypatch.setattr(backend, "_get_tarball_uris", _get_tarball_uris)
+    monkeypatch.setattr(backend, "_get_artifact_uris", _get_artifact_uris)
 
     result = await backend.execute(
         input=_make_run_python_input(),
@@ -955,11 +1318,128 @@ async def test_run_python_nsjail_can_import_registry_ctx_with_registry_paths(
     )
 
 
+@pytest.mark.anyio
+async def test_run_python_nsjail_sdk_calls_use_action_gateway_without_network(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """SDK calls should use the internal gateway while outbound network is off.
+
+    This mirrors cloud `core.script.run_python` execution: user egress remains
+    disabled by default, but `tracecat_registry.ctx` calls are internal platform
+    calls and should route through the worker-owned Unix socket. The matrix also
+    uses a minimal pre-gateway registry package to catch cached legacy artifacts
+    whose `TracecatClient` does not natively read the gateway socket env var.
+    """
+    if not _run_python_nsjail_available():
+        _run_nsjail_sdk_gateway_harness_in_docker_or_skip()
+        return
+
+    _set_run_python_nsjail_mode(monkeypatch, disable_nsjail=False)
+    await _run_backend_registry_ctx_gateway_smoke_matrix(
+        monkeypatch=monkeypatch,
+        cache_dir=tmp_path,
+    )
+
+
+@pytest.mark.anyio
+async def test_run_python_pid_sdk_calls_use_action_gateway_with_legacy_registry(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Unsafe PID fallback should patch pre-gateway SDK artifacts too."""
+    _set_run_python_nsjail_mode(monkeypatch, disable_nsjail=True)
+    action_gateway_socket = (
+        Path("/tmp") / f"tracecat-run-python-gateway-{uuid.uuid4().hex}.sock"
+    )
+    action_gateway_socket.unlink(missing_ok=True)
+    action_gateway = ActionGateway(socket_path=action_gateway_socket)
+    legacy_registry_root = _write_legacy_registry_sdk(tmp_path / "legacy-registry")
+    fake_runner = _FakeRunPythonRegistryPathRunner(
+        [legacy_registry_root, Path(sysconfig.get_path("purelib")).resolve()]
+    )
+
+    async def _get_artifact_uris(_input: RunActionInput, _role: Role) -> list[str]:
+        return ["s3://tracecat-registry/test/site-packages.tar.gz"]
+
+    monkeypatch.setattr(
+        executor_backend_module,
+        "SandboxService",
+        lambda: SandboxService(cache_dir=str(tmp_path / "sandbox-cache")),
+    )
+    monkeypatch.setattr(
+        executor_backend_module,
+        "get_action_runner",
+        lambda: fake_runner,
+    )
+    monkeypatch.setattr(
+        executor_backend_module.config,
+        "TRACECAT__API_URL",
+        "http://tracecat-api:8000",
+    )
+    monkeypatch.setattr(
+        executor_backend_module.config,
+        "TRACECAT__ACTION_GATEWAY_ENABLED",
+        True,
+    )
+    monkeypatch.setattr(
+        executor_backend_module.config,
+        "TRACECAT__ACTION_GATEWAY_SOCKET",
+        str(action_gateway_socket),
+    )
+
+    backend = DirectBackend()
+    monkeypatch.setattr(backend, "_get_artifact_uris", _get_artifact_uris)
+
+    input_data = _make_run_python_input()
+    resolved_context = _make_run_python_context()
+    resolved_context.evaluated_args.update(
+        {
+            "script": """
+from tracecat_registry import ctx
+
+
+async def main():
+    import os
+
+    return {
+        "gateway": await ctx.client.get("/health"),
+        "socket_path": os.environ.get("TRACECAT__ACTION_GATEWAY_SOCKET"),
+    }
+""",
+            "allow_network": False,
+            "timeout_seconds": 60,
+        }
+    )
+
+    try:
+        await action_gateway.start()
+        result = await backend.execute(
+            input=input_data,
+            role=_make_role(),
+            resolved_context=resolved_context,
+        )
+    finally:
+        await action_gateway.stop()
+        action_gateway_socket.unlink(missing_ok=True)
+
+    assert result.type == "success", result.error
+    assert result.result == {
+        "gateway": {"status": "ok"},
+        "socket_path": str(action_gateway_socket),
+    }
+    assert fake_runner.artifact_uris == [
+        "s3://tracecat-registry/test/site-packages.tar.gz"
+    ]
+
+
 if __name__ == "__main__":
     if sys.argv[1:] == ["--run-nsjail-sdk-context-smoke"]:
         _run_nsjail_sdk_context_smoke_from_cli()
+    elif sys.argv[1:] == ["--run-nsjail-sdk-gateway-smoke"]:
+        _run_nsjail_sdk_gateway_smoke_from_cli()
     else:
         raise SystemExit(
             "Usage: python -m tests.unit.executor.test_run_python_sdk_context "
-            "[--run-nsjail-sdk-context-smoke]"
+            "[--run-nsjail-sdk-context-smoke|--run-nsjail-sdk-gateway-smoke]"
         )

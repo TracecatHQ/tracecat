@@ -1,0 +1,205 @@
+cases:
+  - id: new_linear_summary_workflow
+    groups: [smoke, full]
+    prompt: |
+      Create a new workflow that accepts a trigger input named `events`, a list
+      of event objects with `severity`, `source`, and `message` fields.
+
+      The workflow should summarize the collection deterministically with
+      `core.script.run_python`, returning counts by severity, the first five
+      sources sorted alphabetically, and at most five sample messages. Keep the
+      workflow small and linear.
+    rubric:
+      - starts_from_live_context
+      - created_workflow
+      - valid_workflow_yaml
+      - declares_trigger_inputs
+      - uses_core_script_run_python
+      - linear_small_graph
+      - bounded_output
+      - no_scatter_gather
+      - no_third_party_tools
+
+  - id: paginated_api_enrichment
+    groups: [full]
+    prompt: |
+      Create a new workflow that accepts `account_id` and fetches all pages from
+      a synthetic API endpoint at `https://api.example.com/v1/accounts/${{ TRIGGER.account_id }}/findings`.
+
+      Use the Tracecat pagination action for the paginated request. Then use a
+      deterministic transform to return the page items as a list plus a count.
+      Do not use a third-party integration.
+    rubric:
+      - starts_from_live_context
+      - created_workflow
+      - valid_workflow_yaml
+      - declares_trigger_inputs
+      - uses_core_http_paginate
+      - treats_paginate_result_as_list
+      - no_third_party_tools
+
+  - id: existing_workflow_sequential_patch
+    groups: [smoke, full]
+    seed_workflow: true
+    prompt: |
+      Update the existing seeded workflow. Add a deterministic Python step after
+      the current step that normalizes the seeded output into:
+
+      - `ok`: boolean
+      - `summary`: string
+      - `source`: string
+
+      Use targeted JSON Patch edits against the draft document. First perform a
+      validate-only edit, then apply the real edit by reusing the original
+      `draft_revision` returned by `get_workflow`.
+      Keep the layout entries consistent with the definition action refs.
+    rubric:
+      - starts_from_live_context
+      - fetched_existing_workflow
+      - used_edit_workflow
+      - used_validate_only_edit
+      - valid_workflow_yaml
+      - layout_refs_match_actions
+      - changed_seed_workflow
+
+  - id: workflow_metadata_update_tool
+    groups: [builder, full]
+    seed_workflow: true
+    prompt: |
+      Update the existing seeded workflow metadata only. Set a clearer title,
+      description, offline status, and a unique alias that starts with the run
+      prefix. Use the MCP workflow metadata update tool for metadata only.
+
+      Do not replace or edit the workflow definition for this task. Do not use
+      the workflow YAML reference as the source of truth for MCP tool arguments;
+      use the live MCP tool schema.
+    rubric:
+      - discovered_workspace
+      - fetched_existing_workflow
+      - used_update_workflow_metadata_only
+      - no_update_workflow_patch_ops
+
+  - id: builder_table_schema_and_index
+    groups: [builder, full]
+    prompt: |
+      Create a workspace table for automation builder test assets. Include
+      columns for an external id, status, optional metadata JSON, and a
+      multi-select tag list. Use uppercase table column types and only put
+      options on select-style fields. Use a short table name under 63
+      characters.
+
+      After creating the table, fetch the table definition and create a unique
+      index on the external id column using the real column UUID from the table
+      response.
+    rubric:
+      - discovered_workspace
+      - created_table_with_valid_columns
+      - created_table_index_from_fetched_table
+
+  - id: builder_custom_case_fields
+    groups: [builder, full]
+    prompt: |
+      Create custom case fields for automation builder triage:
+
+      - a long-text analyst notes field
+      - a URL field for evidence links
+      - a select field for triage state with three options
+
+      Use the MCP case field tools and exact live tool schemas. List fields
+      first, create the fields with valid uppercase SQL types and valid kind
+      values, then update the select field options to add one more allowed
+      value.
+    rubric:
+      - discovered_workspace
+      - created_and_updated_case_fields
+
+  - id: bulk_rows_consolidation
+    groups: [full]
+    prompt: |
+      Create a workflow that accepts `rows`, a large list of JSON records from
+      `example.com` inventory exports. Normalize records, dedupe by `asset_id`,
+      batch rows into groups of 1000, and return only counts and up to ten
+      rejected examples.
+
+      Keep the workflow readable. Do not build a large graph for the collection
+      processing.
+    rubric:
+      - starts_from_live_context
+      - created_workflow
+      - valid_workflow_yaml
+      - uses_core_script_run_python
+      - no_scatter_gather
+      - linear_small_graph
+      - bounded_output
+
+  - id: agentic_triage_minimal_graph
+    groups: [full]
+    prompt: |
+      Create a workflow that accepts a compact case summary and a list of
+      synthetic alerts. It should prepare concise deterministic context, ask an
+      agent or preset agent to judge likely priority and next steps, then return
+      a bounded triage object.
+
+      Keep deterministic prep and response shaping outside the agent. Keep the
+      graph small.
+    rubric:
+      - starts_from_live_context
+      - created_workflow
+      - valid_workflow_yaml
+      - uses_agent_action
+      - small_agentic_graph
+      - deterministic_prep_outside_agent
+      - agent_without_broad_http_tool
+      - no_third_party_tools
+
+  - id: subflow_boundary_case
+    groups: [full]
+    prompt: |
+      Create a parent workflow for isolated per-customer processing. It accepts
+      `customers`, a list of objects with `customer_id` and `plan`.
+
+      Call the child workflow by alias `eval_customer_child` using
+      `core.workflow.execute`. Use batch loop semantics, an explicit batch size,
+      isolated failure behavior, and an explicit wait strategy. Return a small
+      summary of scheduled or completed child runs.
+    rubric:
+      - starts_from_live_context
+      - created_workflow
+      - valid_workflow_yaml
+      - uses_workflow_execute
+      - uses_workflow_alias
+      - explicit_batch_loop_options
+      - explicit_wait_strategy
+
+  - id: third_party_tool_gating
+    groups: [smoke, full]
+    prompt: |
+      Create a workflow for generic IP reputation enrichment of indicators from
+      a trigger input named `indicators`. The user has not named any enrichment
+      provider or specific integration.
+
+      Follow the Tracecat third-party tool policy. Either scaffold with core
+      actions and placeholder `example.com` endpoints, or explain in final notes
+      what provider confirmation is needed before adding provider-specific
+      `tools.*` actions.
+    rubric:
+      - starts_from_live_context
+      - valid_or_clarified
+      - no_third_party_tools
+      - provider_gating_note_or_core_http
+
+  - id: safe_debug_run
+    groups: [smoke, full]
+    prompt: |
+      Create a deterministic workflow that accepts `name`, formats
+      `hello, <name>` with `core.script.run_python`, validates it, runs the
+      draft workflow safely with `{"name": "example"}`, and inspects the
+      execution before claiming success.
+    rubric:
+      - starts_from_live_context
+      - created_workflow
+      - valid_workflow_yaml
+      - uses_core_script_run_python
+      - validated_workflow
+      - ran_draft_workflow
+      - inspected_execution

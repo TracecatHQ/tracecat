@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import copy
 import hashlib
 import uuid
 from collections.abc import AsyncIterator, Sequence
@@ -11,7 +12,6 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 import orjson
-from pydantic_ai.exceptions import AgentRunError, UserError
 from pydantic_ai.messages import (
     ModelRequest,
     UserPromptPart,
@@ -34,8 +34,11 @@ from temporalio.common import TypedSearchAttributes
 from tracecat_registry._internal.exceptions import SecretNotFoundError
 
 import tracecat.agent.adapter.vercel
+import tracecat.artifacts.projection as artifact_projection
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.common.types import MCPServerConfig
+from tracecat.agent.llm import LLMCompletionError
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
 from tracecat.agent.preset.service import AgentPresetService
@@ -59,6 +62,8 @@ from tracecat.agent.subagents import (
     ResolvedAgentsConfig,
 )
 from tracecat.agent.types import AgentConfig, ClaudeSDKMessageTA, StreamKey
+from tracecat.artifacts.bindings import ArtifactSideEffect
+from tracecat.artifacts.schemas import Artifact, ArtifactAdapter, ArtifactType
 from tracecat.audit.logger import audit_log
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.prompts import CaseCopilotPrompts
@@ -76,8 +81,18 @@ from tracecat.chat.schemas import (
     VercelChatRequest,
 )
 from tracecat.chat.service import ChatService
-from tracecat.chat.tools import get_default_tools
-from tracecat.db.models import AgentSession, AgentSessionHistory, Approval, Chat
+from tracecat.chat.tools import (
+    filter_workspace_chat_tools_for_entitlements,
+    get_default_tools,
+)
+from tracecat.db.models import (
+    AgentSession,
+    AgentSessionHistory,
+    Approval,
+    Case,
+    Chat,
+    Workflow,
+)
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -115,6 +130,68 @@ class AgentSessionService(BaseWorkspaceService):
     """Service for managing agent sessions and history."""
 
     service_name = "agent-session"
+
+    async def _get_default_tools(self, entity_type: AgentSessionEntity) -> list[str]:
+        """Get entitlement-aware default tools for a session entity type."""
+        agent_addons_enabled = True
+        if entity_type is AgentSessionEntity.WORKSPACE_CHAT:
+            agent_addons_enabled = await self.has_entitlement(Entitlement.AGENT_ADDONS)
+        return get_default_tools(
+            entity_type.value,
+            agent_addons_enabled=agent_addons_enabled,
+        )
+
+    async def _workspace_chat_tools_for_entitlements(
+        self,
+        tools: list[str] | None,
+    ) -> list[str] | None:
+        """Filter stored Workspace chat tools by current entitlements."""
+        if tools is None:
+            return None
+        return filter_workspace_chat_tools_for_entitlements(
+            tools,
+            agent_addons_enabled=await self.has_entitlement(Entitlement.AGENT_ADDONS),
+        )
+
+    async def _resolve_workspace_chat_actions(
+        self,
+        agent_session: AgentSession,
+    ) -> list[str] | None:
+        """Merge always-on Workspace chat defaults with the session's extras.
+
+        Defaults are derived at runtime (never frozen per session), so they stay
+        current and are always present. ``agent_session.tools`` holds only the
+        extra tools the user added in the chat tools dialog.
+        """
+        defaults = await self._get_default_tools(AgentSessionEntity.WORKSPACE_CHAT)
+        extras = agent_session.tools or []
+        merged = list(dict.fromkeys([*defaults, *extras]))
+        return await self._workspace_chat_tools_for_entitlements(merged)
+
+    async def _resolve_session_mcp_servers(
+        self,
+        agent_session: AgentSession,
+        agent_svc: AgentManagementService,
+    ) -> list[MCPServerConfig] | None:
+        """Resolve attached MCP integration IDs into boundary-safe server refs."""
+        if (
+            not agent_session.mcp_integrations
+            or agent_svc.presets is None
+            or not await self.has_entitlement(Entitlement.AGENT_ADDONS)
+        ):
+            return None
+        return await agent_svc.presets.resolve_mcp_integration_refs(
+            agent_session.mcp_integrations
+        )
+
+    async def _validate_session_mcp_integrations(
+        self, mcp_integrations: list[str] | None
+    ) -> None:
+        """Validate session-attached MCP integrations before persistence."""
+        if not mcp_integrations:
+            return
+        preset_service = AgentPresetService(self.session, self.role)
+        await preset_service.validate_mcp_integrations(mcp_integrations)
 
     def _build_direct_agent_search_attributes(
         self, session_id: uuid.UUID
@@ -157,10 +234,16 @@ class AgentSessionService(BaseWorkspaceService):
         Returns:
             The created AgentSession model.
         """
-        # Apply default tools based on entity type if tools not provided
+        # Apply default tools based on entity type if tools not provided.
+        # Workspace chat merges its always-on defaults at runtime instead, so
+        # ``tools`` stores only the extras the user added (never the defaults).
         tools = args.tools
-        if not tools and args.entity_type:
-            tools = get_default_tools(args.entity_type.value)
+        if (
+            not tools
+            and args.entity_type
+            and args.entity_type is not AgentSessionEntity.WORKSPACE_CHAT
+        ):
+            tools = await self._get_default_tools(args.entity_type)
         logical_preset_id = self._resolve_logical_preset_id(
             entity_type=args.entity_type,
             entity_id=args.entity_id,
@@ -180,6 +263,7 @@ class AgentSessionService(BaseWorkspaceService):
                     pinned_preset_version_id
                 )
             )
+        await self._validate_session_mcp_integrations(args.mcp_integrations)
 
         agent_session = AgentSession(
             workspace_id=self.workspace_id,
@@ -190,6 +274,7 @@ class AgentSessionService(BaseWorkspaceService):
             entity_id=args.entity_id,
             channel_context=channel_context,
             tools=tools,
+            mcp_integrations=args.mcp_integrations,
             agent_preset_id=logical_preset_id,
             agent_preset_version_id=pinned_preset_version_id,
             agents_binding=resolved_agents_binding,
@@ -312,6 +397,128 @@ class AgentSessionService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def build_initial_artifact(
+        self, agent_session: AgentSession
+    ) -> Artifact | None:
+        """Build the session's initial chat artifact, if supported."""
+        entity_type = AgentSessionEntity(agent_session.entity_type)
+        match entity_type:
+            case AgentSessionEntity.CASE:
+                stmt = select(Case).where(
+                    Case.id == agent_session.entity_id,
+                    Case.workspace_id == self.workspace_id,
+                )
+                result = await self.session.execute(stmt)
+                case = result.scalar_one_or_none()
+                if case is None:
+                    return None
+                return ArtifactAdapter.validate_python(
+                    {
+                        "type": "case",
+                        "id": str(case.id),
+                        "title": case.summary,
+                        "severity": case.severity.value,
+                        "status": case.status.value,
+                    }
+                )
+            case AgentSessionEntity.WORKFLOW:
+                stmt = select(Workflow).where(
+                    Workflow.id == agent_session.entity_id,
+                    Workflow.workspace_id == self.workspace_id,
+                )
+                result = await self.session.execute(stmt)
+                workflow = result.scalar_one_or_none()
+                if workflow is None:
+                    return None
+                return ArtifactAdapter.validate_python(
+                    {
+                        "type": "workflow",
+                        "id": str(workflow.id),
+                        "title": workflow.title,
+                        "color": "#64748b",
+                        "isPublished": workflow.status == "online",
+                    }
+                )
+            case _:
+                return None
+
+    def list_artifacts(self, agent_session: AgentSession) -> list[Artifact]:
+        """Return the persisted artifact projection for a session."""
+        return artifact_projection.validate_artifacts(
+            getattr(agent_session, "artifacts", [])
+        )
+
+    async def apply_artifact_side_effects(
+        self,
+        session_id: uuid.UUID,
+        effects: Sequence[ArtifactSideEffect],
+    ) -> list[Artifact]:
+        """Persist artifact side effects onto the session projection."""
+        if not effects:
+            agent_session = await self.get_session(session_id)
+            if agent_session is None:
+                raise TracecatNotFoundError(f"Session {session_id} not found")
+            return self.list_artifacts(agent_session)
+
+        stmt = (
+            select(AgentSession)
+            .where(
+                AgentSession.id == session_id,
+                AgentSession.workspace_id == self.workspace_id,
+            )
+            .with_for_update()
+        )
+        result = await self.session.execute(stmt)
+        agent_session = result.scalar_one_or_none()
+        if agent_session is None:
+            raise TracecatNotFoundError(f"Session {session_id} not found")
+
+        current_artifacts = self.list_artifacts(agent_session)
+        next_artifacts = artifact_projection.apply_artifact_side_effects(
+            current_artifacts,
+            effects,
+        )
+        agent_session.artifacts = artifact_projection.serialize_artifacts(
+            next_artifacts
+        )
+        await self.session.commit()
+        await self.session.refresh(agent_session)
+        return self.list_artifacts(agent_session)
+
+    async def remove_artifact(
+        self,
+        session_id: uuid.UUID,
+        *,
+        artifact_type: ArtifactType,
+        artifact_id: str,
+    ) -> list[Artifact]:
+        """Remove one artifact from the persisted session projection."""
+        stmt = (
+            select(AgentSession)
+            .where(
+                AgentSession.id == session_id,
+                AgentSession.workspace_id == self.workspace_id,
+            )
+            .with_for_update()
+        )
+        result = await self.session.execute(stmt)
+        agent_session = result.scalar_one_or_none()
+        if agent_session is None:
+            raise TracecatNotFoundError(f"Session {session_id} not found")
+
+        current_artifacts = self.list_artifacts(agent_session)
+        next_artifacts = artifact_projection.remove_artifact(
+            current_artifacts,
+            artifact_type=artifact_type,
+            artifact_id=artifact_id,
+        )
+        agent_session.artifacts = artifact_projection.serialize_artifacts(
+            next_artifacts
+        )
+        await self.session.commit()
+        await self.session.refresh(agent_session)
+        return self.list_artifacts(agent_session)
+
     async def is_legacy_session(self, session_id: uuid.UUID) -> bool:
         """Check if a session ID refers to a legacy Chat record.
 
@@ -351,6 +558,7 @@ class AgentSessionService(BaseWorkspaceService):
         self,
         *,
         created_by: UserID | None = None,
+        filter_created_by_none: bool = False,
         entity_type: AgentSessionEntity | None = None,
         entity_id: uuid.UUID | None = None,
         exclude_entity_types: list[AgentSessionEntity] | None = None,
@@ -364,6 +572,7 @@ class AgentSessionService(BaseWorkspaceService):
 
         Args:
             created_by: Filter by user who created the session.
+            filter_created_by_none: Filter to sessions without a user creator.
             entity_type: Filter by entity type.
             entity_id: Filter by entity ID.
             exclude_entity_types: Entity types to exclude from results.
@@ -379,6 +588,8 @@ class AgentSessionService(BaseWorkspaceService):
         )
         if created_by is not None:
             session_stmt = session_stmt.where(AgentSession.created_by == created_by)
+        elif filter_created_by_none:
+            session_stmt = session_stmt.where(AgentSession.created_by.is_(None))
         if entity_type is not None:
             session_stmt = session_stmt.where(
                 AgentSession.entity_type == entity_type.value
@@ -404,16 +615,17 @@ class AgentSessionService(BaseWorkspaceService):
         sessions = list(session_result.scalars().all())
 
         legacy_chats: list[Chat] = []
-        if parent_session_id is None:
+        if parent_session_id is None and not filter_created_by_none:
             # Query legacy Chat table
-            # Note: exclude_entity_types is not applied here because legacy Chat records
-            # predate entity types like WORKFLOW and APPROVAL that are typically excluded.
-            # Legacy chats only have entity types like "case" or "agent_preset".
             chat_stmt = select(Chat).where(Chat.workspace_id == self.workspace_id)
             if created_by is not None:
                 chat_stmt = chat_stmt.where(Chat.user_id == created_by)
             if entity_type is not None:
                 chat_stmt = chat_stmt.where(Chat.entity_type == entity_type.value)
+            if exclude_entity_types:
+                chat_stmt = chat_stmt.where(
+                    Chat.entity_type.notin_([et.value for et in exclude_entity_types])
+                )
             if entity_id is not None:
                 chat_stmt = chat_stmt.where(Chat.entity_id == entity_id)
             # Bound query cost at the database layer; we still merge+sort below.
@@ -461,6 +673,10 @@ class AgentSessionService(BaseWorkspaceService):
         requested_version_id = set_fields.pop(
             "agent_preset_version_id", agent_session.agent_preset_version_id
         )
+        if "mcp_integrations" in set_fields:
+            await self._validate_session_mcp_integrations(
+                set_fields["mcp_integrations"]
+            )
 
         if preset_id_updated or version_id_updated:
             try:
@@ -725,6 +941,10 @@ class AgentSessionService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none() is None
 
+    async def should_seed_initial_artifact(self, agent_session: AgentSession) -> bool:
+        """Return whether the session should receive its initial artifact seed."""
+        return await self._is_first_prompt_for_session(agent_session.id)
+
     async def has_pending_approvals(self, session_id: uuid.UUID) -> bool:
         """Return whether the session has pending approval decisions."""
         stmt = (
@@ -850,18 +1070,16 @@ class AgentSessionService(BaseWorkspaceService):
                     ),
                 }
             )
-            agent_service = AgentManagementService(self.session, service_role)
-            async with agent_service.with_model_config() as model_config:
-                new_title = await generate_session_title(
-                    user_prompt=prompt,
-                    model_name=model_config.name,
-                    model_provider=model_config.provider,
-                )
+            new_title = await generate_session_title(
+                user_prompt=prompt,
+                session=self.session,
+                role=service_role,
+            )
         except (
-            AgentRunError,
+            LLMCompletionError,
             SecretNotFoundError,
             TracecatNotFoundError,
-            UserError,
+            TracecatValidationError,
             ValueError,
         ) as e:
             logger.warning(
@@ -1378,7 +1596,7 @@ class AgentSessionService(BaseWorkspaceService):
                     "Agent preset builder requires a default AI model with valid provider credentials. "
                     "Configure credentials in Workspace settings before chatting."
                 ) from exc
-        elif session_entity is AgentSessionEntity.COPILOT:
+        elif session_entity is AgentSessionEntity.WORKSPACE_CHAT:
             # Copilot uses org-level credentials, not workspace credentials
             entity_instructions = await self._entity_to_prompt(agent_session)
             if agent_session.agent_preset_id:
@@ -1394,14 +1612,21 @@ class AgentSessionService(BaseWorkspaceService):
                     config = replace(preset_config, instructions=combined_instructions)
                     yield config
             else:
-                # Copilot without preset uses org-level credentials (default)
+                # Copilot without preset uses org-level credentials (default).
+                # Always-on defaults merge with session extras at runtime, and
+                # any attached MCP integrations resolve into mcp_servers.
                 async with agent_svc.with_model_config() as model_config:
+                    actions = await self._resolve_workspace_chat_actions(agent_session)
+                    mcp_servers = await self._resolve_session_mcp_servers(
+                        agent_session, agent_svc
+                    )
                     yield AgentConfig(
                         instructions=entity_instructions,
                         model_name=model_config.name,
                         model_provider=model_config.provider,
                         catalog_id=model_config.catalog_id,
-                        actions=agent_session.tools,
+                        actions=actions,
+                        mcp_servers=mcp_servers,
                     )
         elif session_entity in (
             AgentSessionEntity.WORKFLOW,
@@ -1489,7 +1714,7 @@ class AgentSessionService(BaseWorkspaceService):
                 )
             prompt = AgentPresetBuilderPrompt(preset=preset)
             return prompt.instructions
-        if entity_type == AgentSessionEntity.COPILOT:
+        if entity_type == AgentSessionEntity.WORKSPACE_CHAT:
             return WorkspaceCopilotPrompts().instructions
         else:
             raise ValueError(
@@ -2005,6 +2230,7 @@ class AgentSessionService(BaseWorkspaceService):
             channel_context=parent.channel_context,
             tools=[],
             agent_preset_id=None,
+            work_dir_snapshot=copy.deepcopy(parent.work_dir_snapshot),
             # Harness - inherit from parent
             harness_type=parent.harness_type,
             # Fork reference

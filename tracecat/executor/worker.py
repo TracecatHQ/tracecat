@@ -65,9 +65,11 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.logger import logger
     from tracecat.observability.sentry import init_sentry
     from tracecat.registry.sync.workflow import (
+        RegistryArtifactsBackfillWorkflow,
         RegistrySyncActivities,
         RegistrySyncWorkflow,
     )
+    from tracecat.storage.blob import close_storage_client_cache
     from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
 
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
@@ -144,7 +146,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         ]
 
         # Collect all workflows
-        workflows = [RegistrySyncWorkflow]
+        workflows = [RegistrySyncWorkflow, RegistryArtifactsBackfillWorkflow]
 
         logger.debug(
             "Activities loaded",
@@ -182,6 +184,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
     finally:
         logger.info("Shutting down executor backend")
         await shutdown_executor_backend()
+        await close_storage_client_cache()
         await action_gateway.stop()
 
 

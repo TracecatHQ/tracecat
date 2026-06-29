@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from time import monotonic
 from typing import Any
 
+from pydantic import ValidationError
 from redis.exceptions import ResponseError
 from sqlalchemy import or_, select, update
 from sqlalchemy.orm import selectinload
@@ -24,10 +25,13 @@ from tracecat.cases.schemas import CaseCommentWorkflowStatus
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import Case, CaseComment, CaseEvent, CaseTrigger, Workspace
 from tracecat.dsl.common import DSLInput
+from tracecat.exceptions import TracecatDSLError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.tiers.access import is_org_entitled
+from tracecat.tiers.enums import Entitlement
 from tracecat.workflow.executions.enums import TriggerType
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
@@ -175,8 +179,6 @@ class CaseTriggerConsumer:
             if case is None:
                 return True
 
-            triggers = await self._load_triggers(session, workspace_uuid, event_type)
-            case_tag_refs = {tag.ref for tag in case.tags}
             role = await self._get_service_role(session, workspace_uuid)
             explicit_workflow_id = self._parse_optional_uuid(fields.get("workflow_id"))
             explicit_comment_id = self._parse_optional_uuid(fields.get("comment_id"))
@@ -195,6 +197,19 @@ class CaseTriggerConsumer:
                 )
                 should_ack = should_ack and explicit_processed
 
+            if not await self._has_case_addons_entitlement(session, role):
+                logger.info(
+                    "Skipping configured case trigger dispatch; entitlement missing",
+                    event_id=event_id,
+                    workspace_id=workspace_id,
+                    organization_id=str(role.organization_id),
+                    entitlement=Entitlement.CASE_ADDONS.value,
+                )
+                await session.commit()
+                return should_ack
+
+            triggers = await self._load_triggers(session, workspace_uuid, event_type)
+            case_tag_refs = {tag.ref for tag in case.tags}
             for trigger in triggers:
                 if (
                     explicit_workflow_id is not None
@@ -387,6 +402,16 @@ class CaseTriggerConsumer:
         self._workspace_role_cache[workspace_id] = role
         return role
 
+    async def _has_case_addons_entitlement(self, session, role: Role) -> bool:
+        organization_id = role.organization_id
+        if organization_id is None:
+            logger.warning(
+                "Skipping configured case trigger dispatch; service role has no organization",
+                workspace_id=str(role.workspace_id),
+            )
+            return False
+        return await is_org_entitled(session, organization_id, Entitlement.CASE_ADDONS)
+
     def _get_audit_role(
         self,
         role: Role,
@@ -557,16 +582,57 @@ class CaseTriggerConsumer:
                 workflow_id=str(trigger.workflow_id),
                 event_id=str(event.id),
             )
-            return False
+            await self._disable_invalid_case_trigger(
+                session=session,
+                trigger=trigger,
+                event=event,
+                reason="missing workflow definition",
+            )
+            return True
+        if defn.workflow is None or defn.workflow.version != defn.version:
+            logger.warning(
+                "Current workflow definition missing for case trigger",
+                workflow_id=str(trigger.workflow_id),
+                event_id=str(event.id),
+                definition_version=defn.version,
+                workflow_version=defn.workflow.version if defn.workflow else None,
+            )
+            await self._disable_invalid_case_trigger(
+                session=session,
+                trigger=trigger,
+                event=event,
+                reason="current workflow definition missing",
+            )
+            return True
         if not defn.content:
             logger.warning(
                 "Workflow definition content missing",
                 workflow_id=str(trigger.workflow_id),
                 event_id=str(event.id),
             )
-            return False
+            await self._disable_invalid_case_trigger(
+                session=session,
+                trigger=trigger,
+                event=event,
+                reason="missing workflow definition content",
+            )
+            return True
 
-        dsl = DSLInput.model_validate(defn.content)
+        try:
+            dsl = DSLInput.model_validate(defn.content)
+        except (ValidationError, TracecatDSLError):
+            logger.warning(
+                "Workflow definition content invalid",
+                workflow_id=str(trigger.workflow_id),
+                event_id=str(event.id),
+            )
+            await self._disable_invalid_case_trigger(
+                session=session,
+                trigger=trigger,
+                event=event,
+                reason="invalid workflow definition content",
+            )
+            return True
         workflow_service = await WorkflowExecutionsService.connect(role=role)
 
         workflow_service.create_workflow_execution_nowait(
@@ -579,6 +645,24 @@ class CaseTriggerConsumer:
             else None,
         )
         return True
+
+    async def _disable_invalid_case_trigger(
+        self,
+        *,
+        session,
+        trigger: CaseTrigger,
+        event: CaseEvent,
+        reason: str,
+    ) -> None:
+        logger.warning(
+            "Disabling invalid case trigger",
+            workflow_id=str(trigger.workflow_id),
+            event_id=str(event.id),
+            reason=reason,
+        )
+        trigger.status = "offline"
+        session.add(trigger)
+        await session.flush()
 
     async def _dispatch_selected_workflow(
         self,

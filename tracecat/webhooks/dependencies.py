@@ -109,6 +109,12 @@ async def validate_incoming_webhook(
                 detail="Request method not allowed",
             ) from None
 
+        # Stash whether the trigger should receive the full request envelope
+        # (headers + body) instead of just the parsed body. Read as a scalar
+        # bool before the session closes so it stays valid once the ORM object
+        # detaches.
+        request.state.webhook_include_headers = webhook.include_headers
+
         updated = False
 
         client_ip = _extract_client_ip(request)

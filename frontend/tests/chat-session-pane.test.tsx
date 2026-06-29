@@ -1,14 +1,15 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import type { UIMessage } from "ai"
 import { StrictMode } from "react"
-import type { AgentSessionReadVercel } from "@/client"
+import type { AgentSessionReadVercel, MCPIntegrationRead } from "@/client"
 import {
   ChatSessionPane,
   MessagePart,
 } from "@/components/chat/chat-session-pane"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useUpdateChat, useVercelChat } from "@/hooks/use-chat"
-import { useBuilderRegistryActions } from "@/lib/hooks"
+import { useBuilderRegistryActions, useListMcpIntegrations } from "@/lib/hooks"
 
 jest.mock("@/hooks/use-chat", () => ({
   useVercelChat: jest.fn(),
@@ -31,6 +32,11 @@ jest.mock("@/lib/hooks", () => ({
   useBuilderRegistryActions: jest.fn(() => ({
     registryActions: [],
     registryActionsIsLoading: false,
+  })),
+  useListMcpIntegrations: jest.fn(() => ({
+    mcpIntegrations: [],
+    mcpIntegrationsIsLoading: false,
+    mcpIntegrationsError: null,
   })),
 }))
 jest.mock("@/components/ai-elements/code-block", () => ({
@@ -66,6 +72,9 @@ jest.mock("@/components/editor/codemirror/code-editor", () => ({
     />
   ),
 }))
+jest.mock("@/hooks/use-auth", () => ({
+  useAuth: () => ({ user: { firstName: "Daryl" } }),
+}))
 jest.mock("@/providers/workspace-id", () => ({
   useWorkspaceId: () => "workspace-1",
 }))
@@ -80,6 +89,8 @@ const mockUseBuilderRegistryActions =
   useBuilderRegistryActions as jest.MockedFunction<
     typeof useBuilderRegistryActions
   >
+const mockUseListMcpIntegrations =
+  useListMcpIntegrations as jest.MockedFunction<typeof useListMcpIntegrations>
 
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void
@@ -102,6 +113,7 @@ const createChatFixture = (
   entity_id: "case-1",
   channel_context: null,
   tools: [],
+  mcp_integrations: [],
   agent_preset_id: null,
   agents_binding: null,
   harness_type: null,
@@ -111,6 +123,28 @@ const createChatFixture = (
   messages: [],
   ...overrides,
   agent_preset_version_id: overrides?.agent_preset_version_id ?? null,
+})
+
+const createMcpIntegrationFixture = (
+  overrides?: Partial<MCPIntegrationRead>
+): MCPIntegrationRead => ({
+  id: "mcp-1",
+  workspace_id: "workspace-1",
+  name: "RunReveal",
+  description: "RunReveal MCP",
+  slug: "runreveal",
+  server_type: "http",
+  server_uri: "https://mcp.example.test",
+  auth_type: "OAUTH2",
+  oauth_integration_id: null,
+  stdio_command: null,
+  stdio_args: null,
+  has_stdio_env: false,
+  timeout: null,
+  created_at: "2024-01-01T00:00:00.000Z",
+  updated_at: "2024-01-01T00:00:00.000Z",
+  ...overrides,
+  state: overrides?.state ?? "connected",
 })
 
 describe("ChatSessionPane", () => {
@@ -128,6 +162,11 @@ describe("ChatSessionPane", () => {
       registryActionsIsLoading: false,
       registryActionsError: null,
       getRegistryAction: () => undefined,
+    })
+    mockUseListMcpIntegrations.mockReturnValue({
+      mcpIntegrations: [],
+      mcpIntegrationsIsLoading: false,
+      mcpIntegrationsError: null,
     })
     queryClient = new QueryClient({
       defaultOptions: {
@@ -176,6 +215,7 @@ describe("ChatSessionPane", () => {
   function mockUseVercelChatStatus(status: "ready" | "submitted") {
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: [],
       status,
@@ -185,6 +225,56 @@ describe("ChatSessionPane", () => {
     } as any)
   }
 
+  it("shows the empty hero for artifact-only workspace chat messages", () => {
+    mockUseVercelChat.mockReturnValue({
+      sendMessage: jest.fn(),
+      setMessages: jest.fn(),
+      regenerate: jest.fn(),
+      messages: [
+        {
+          id: "message-1",
+          role: "assistant",
+          parts: [
+            {
+              type: "data-artifact",
+              data: {
+                op: "upsert",
+                artifact: {
+                  id: "artifact-1",
+                  title: "Investigation notes",
+                  type: "generic",
+                },
+              },
+            },
+          ],
+        },
+      ],
+      status: "ready",
+      lastError: null,
+      clearError: jest.fn(),
+      // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+    } as any)
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture()}
+            workspaceId="workspace-1"
+            entityType="copilot"
+            entityId="workspace-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+            surface="workspace-chat"
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    expect(
+      screen.getByText("What should we get done, Daryl?")
+    ).toBeInTheDocument()
+  })
+
   it("logs and recovers when sendMessage throws", async () => {
     const sendMessage = jest.fn(() => {
       throw new Error("network down")
@@ -192,6 +282,7 @@ describe("ChatSessionPane", () => {
 
     mockUseVercelChat.mockReturnValue({
       sendMessage,
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: [],
       status: "ready",
@@ -235,6 +326,7 @@ describe("ChatSessionPane", () => {
   it("renders dots indicator while status is submitted", () => {
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: [],
       status: "submitted",
@@ -428,6 +520,7 @@ describe("ChatSessionPane", () => {
 
     mockUseVercelChat.mockReturnValue({
       sendMessage,
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: [
         {
@@ -535,6 +628,7 @@ describe("ChatSessionPane", () => {
 
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: [],
       status: "ready",
@@ -572,9 +666,11 @@ describe("ChatSessionPane", () => {
     fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
 
     await waitFor(() => {
-      expect(onBeforeSend).toHaveBeenCalledWith("hello", [
-        "core.cases.list_cases",
-      ])
+      expect(onBeforeSend).toHaveBeenCalledWith(
+        "hello",
+        ["core.cases.list_cases"],
+        []
+      )
     })
   })
 
@@ -612,6 +708,7 @@ describe("ChatSessionPane", () => {
 
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: [],
       status: "ready",
@@ -694,6 +791,7 @@ describe("ChatSessionPane", () => {
     const sendMessage = jest.fn().mockResolvedValue(undefined)
     mockUseVercelChat.mockReturnValue({
       sendMessage,
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: [],
       status: "ready",
@@ -738,6 +836,253 @@ describe("ChatSessionPane", () => {
     })
   })
 
+  it("waits for pending MCP persistence before sending a message", async () => {
+    const integration = createMcpIntegrationFixture()
+    mockUseListMcpIntegrations.mockReturnValue({
+      mcpIntegrations: [integration],
+      mcpIntegrationsIsLoading: false,
+      mcpIntegrationsError: null,
+    })
+
+    const mcpWrite = createDeferred<void>()
+    const updateChat = jest.fn().mockImplementation(() => mcpWrite.promise)
+    mockUseUpdateChat.mockReturnValue({
+      updateChat,
+      isUpdating: false,
+      updateError: null,
+    })
+
+    const sendMessage = jest.fn().mockResolvedValue(undefined)
+    mockUseVercelChat.mockReturnValue({
+      sendMessage,
+      setMessages: jest.fn(),
+      regenerate: jest.fn(),
+      messages: [],
+      status: "ready",
+      lastError: null,
+      clearError: jest.fn(),
+      // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+    } as any)
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture({
+              entity_type: "copilot",
+              entity_id: "workspace-1",
+            })}
+            workspaceId="workspace-1"
+            entityType="copilot"
+            entityId="workspace-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+            surface="workspace-chat"
+            toolsEnabled
+            mcpEnabled
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Tools" }))
+    fireEvent.click(await screen.findByText("RunReveal"))
+
+    await waitFor(() => {
+      expect(updateChat).toHaveBeenCalledTimes(1)
+    })
+    expect(updateChat).toHaveBeenCalledWith({
+      chatId: "chat-1",
+      update: { mcp_integrations: ["mcp-1"] },
+    })
+
+    const textarea = screen.getByRole("textbox")
+    fireEvent.change(textarea, { target: { value: "hello" } })
+    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+
+    expect(sendMessage).not.toHaveBeenCalled()
+
+    mcpWrite.resolve()
+    await waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith({ text: "hello" })
+    })
+  })
+
+  it("keeps optimistic MCP selections while queued persistence catches up", async () => {
+    const firstIntegration = createMcpIntegrationFixture({
+      id: "mcp-1",
+      name: "RunReveal",
+    })
+    const secondIntegration = createMcpIntegrationFixture({
+      id: "mcp-2",
+      name: "Okta",
+    })
+    mockUseListMcpIntegrations.mockReturnValue({
+      mcpIntegrations: [firstIntegration, secondIntegration],
+      mcpIntegrationsIsLoading: false,
+      mcpIntegrationsError: null,
+    })
+
+    const firstWrite = createDeferred<void>()
+    const secondWrite = createDeferred<void>()
+    const updateChat = jest
+      .fn()
+      .mockImplementationOnce(() => firstWrite.promise)
+      .mockImplementationOnce(() => secondWrite.promise)
+    mockUseUpdateChat.mockReturnValue({
+      updateChat,
+      isUpdating: false,
+      updateError: null,
+    })
+
+    mockUseVercelChat.mockReturnValue({
+      sendMessage: jest.fn(),
+      setMessages: jest.fn(),
+      regenerate: jest.fn(),
+      messages: [],
+      status: "ready",
+      lastError: null,
+      clearError: jest.fn(),
+      // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+    } as any)
+
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture({
+              entity_type: "copilot",
+              entity_id: "workspace-1",
+            })}
+            workspaceId="workspace-1"
+            entityType="copilot"
+            entityId="workspace-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+            surface="workspace-chat"
+            toolsEnabled
+            mcpEnabled
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Tools" }))
+    fireEvent.click(await screen.findByText("RunReveal"))
+    await waitFor(() => {
+      expect(updateChat).toHaveBeenCalledTimes(1)
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "Tools (1)" }))
+    fireEvent.click(await screen.findByText("Okta"))
+    expect(
+      screen.getByRole("button", { name: "Tools (2)" })
+    ).toBeInTheDocument()
+    expect(updateChat).toHaveBeenCalledTimes(1)
+
+    firstWrite.resolve()
+    await waitFor(() => {
+      expect(updateChat).toHaveBeenCalledTimes(2)
+    })
+
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture({
+              entity_type: "copilot",
+              entity_id: "workspace-1",
+              mcp_integrations: ["mcp-1"],
+            })}
+            workspaceId="workspace-1"
+            entityType="copilot"
+            entityId="workspace-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+            surface="workspace-chat"
+            toolsEnabled
+            mcpEnabled
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    expect(
+      screen.getByRole("button", { name: "Tools (2)" })
+    ).toBeInTheDocument()
+
+    secondWrite.resolve()
+  })
+
+  it("does not fetch MCP integrations for non-MCP chat surfaces", () => {
+    mockUseVercelChat.mockReturnValue({
+      sendMessage: jest.fn(),
+      setMessages: jest.fn(),
+      regenerate: jest.fn(),
+      messages: [],
+      status: "ready",
+      lastError: null,
+      clearError: jest.fn(),
+      // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+    } as any)
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture()}
+            workspaceId="workspace-1"
+            entityType="case"
+            entityId="case-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+            toolsEnabled
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    expect(mockUseListMcpIntegrations).toHaveBeenCalledWith(
+      "workspace-1",
+      undefined,
+      { enabled: false }
+    )
+  })
+
+  it("does not fetch MCP integrations for copilot when MCP is disabled", () => {
+    mockUseVercelChat.mockReturnValue({
+      sendMessage: jest.fn(),
+      setMessages: jest.fn(),
+      regenerate: jest.fn(),
+      messages: [],
+      status: "ready",
+      lastError: null,
+      clearError: jest.fn(),
+      // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+    } as any)
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture({
+              entity_type: "copilot",
+              entity_id: "workspace-1",
+            })}
+            workspaceId="workspace-1"
+            entityType="copilot"
+            entityId="workspace-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+            surface="workspace-chat"
+            toolsEnabled
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    expect(mockUseListMcpIntegrations).toHaveBeenCalledWith(
+      "workspace-1",
+      undefined,
+      { enabled: false }
+    )
+  })
+
   it("does not persist tool selection twice in StrictMode", async () => {
     const action = {
       id: "action-1",
@@ -767,6 +1112,7 @@ describe("ChatSessionPane", () => {
 
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: [],
       status: "ready",
@@ -851,6 +1197,7 @@ describe("ChatSessionPane", () => {
 
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: [],
       status: "ready",
@@ -946,5 +1293,77 @@ describe("ChatSessionPane", () => {
     expect(
       screen.getByRole("button", { name: /remove get case/i })
     ).toBeInTheDocument()
+  })
+
+  describe("server transcript re-seeding", () => {
+    const userTurn = (id: string, text: string) => ({
+      id,
+      role: "user" as const,
+      parts: [{ type: "text" as const, text }],
+    })
+
+    function mockLiveMessages(
+      messages: UIMessage[],
+      setMessages: jest.Mock
+    ): void {
+      mockUseVercelChat.mockReturnValue({
+        sendMessage: jest.fn(),
+        setMessages,
+        regenerate: jest.fn(),
+        messages,
+        status: "ready",
+        lastError: null,
+        clearError: jest.fn(),
+        // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+      } as any)
+    }
+
+    const renderSubject = (serverMessages: UIMessage[]) => (
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture({ messages: serverMessages })}
+            workspaceId="workspace-1"
+            entityType="case"
+            entityId="case-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    // Regression: after a turn streams, status flips to ready while the
+    // invalidated chat query is still refetching, so the live list leads the
+    // stale server copy. The pane must NOT re-seed from the server then, or it
+    // drops the just-streamed response (permanently if the refetch fails).
+    it("does not clobber a streamed turn while the server copy is stale", () => {
+      const setMessages = jest.fn()
+      const streamed = [userTurn("m1", "hello"), userTurn("m2", "world")]
+      // Live list is one turn ahead of the server transcript.
+      mockLiveMessages(streamed, setMessages)
+
+      const { rerender } = render(renderSubject([userTurn("m1", "hello")]))
+      // Server still behind on a re-render (e.g. refetch in flight or failed).
+      rerender(renderSubject([userTurn("m1", "hello")]))
+
+      expect(setMessages).not.toHaveBeenCalled()
+    })
+
+    // The original fix: once the server transcript advances (refetch lands with
+    // a resolved approval / new turn), the pane adopts it.
+    it("adopts the server transcript once it advances", () => {
+      const setMessages = jest.fn()
+      mockLiveMessages([userTurn("m1", "hello")], setMessages)
+
+      const { rerender } = render(renderSubject([userTurn("m1", "hello")]))
+      expect(setMessages).not.toHaveBeenCalled()
+
+      // Server moves forward: refetch lands with an extra message.
+      const advanced = [userTurn("m1", "hello"), userTurn("m2", "resolved")]
+      rerender(renderSubject(advanced))
+
+      expect(setMessages).toHaveBeenCalledTimes(1)
+      expect(setMessages.mock.calls[0][0]).toHaveLength(2)
+    })
   })
 })

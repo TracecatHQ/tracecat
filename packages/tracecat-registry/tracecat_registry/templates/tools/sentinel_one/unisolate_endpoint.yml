@@ -3,7 +3,7 @@ definition:
   title: Unisolate endpoint
   description: Connect a SentinelOne agent to the network.
   display_group: SentinelOne
-  doc_url: https://<base_url>/api-doc/api-details?category=agents&api=post-agents-actions-connect
+  doc_url: https://github.com/Sentinel-One/purple-mcp
   namespace: tools.sentinel_one
   name: connect_to_network
   secrets:

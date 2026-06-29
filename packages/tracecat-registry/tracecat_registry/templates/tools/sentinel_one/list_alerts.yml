@@ -3,7 +3,7 @@ definition:
   title: List alerts
   description: Query for SentinelOne alerts.
   display_group: SentinelOne
-  doc_url: https://<base_url>/api-doc/api-details?category=alerts&api=get-alerts
+  doc_url: https://github.com/Sentinel-One/purple-mcp
   namespace: tools.sentinel_one
   name: list_alerts
   secrets:

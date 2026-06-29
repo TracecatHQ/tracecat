@@ -23,6 +23,12 @@ class RunRevealMCPProvider(MCPAuthProvider):
     # MCP server endpoint - OAuth endpoints discovered automatically
     mcp_server_uri: ClassVar[str] = "https://api.runreveal.com/mcp"
 
+    # RunReveal's MCP resource server is api.runreveal.com, while OAuth endpoints
+    # discovered from it are served from www-api.runreveal.com.
+    oauth_endpoint_allowed_hosts: ClassVar[frozenset[str]] = frozenset(
+        {"www-api.runreveal.com"}
+    )
+
     # No default scopes - authorization server determines based on user/workspace permissions
     scopes: ClassVar[ProviderScopes] = ProviderScopes(default=[])
 

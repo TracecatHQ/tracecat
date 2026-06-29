@@ -29,6 +29,9 @@
 #   Cluster 2: 180, 3100, 5532, 6479, 7333, 8100, 8181, 9100, 9101
 #   Cluster 3: 280, 3200, 5632, 6579, 7433, 8200, 8281, 9200, 9201
 #   ...
+#
+#   With portless enabled, the Caddy/public app port starts at 10080 instead
+#   of 80 because portless itself owns ports 80 and 443.
 
 set -euo pipefail
 
@@ -39,7 +42,7 @@ ENV_FILE="${REPO_ROOT}/.env"
 # Default profile
 PROFILE="dev"
 CLUSTER_EE_MULTI_TENANT=""
-CLUSTER_USE_SANDBOX_COMPOSE=false
+CLUSTER_USE_SANDBOX_COMPOSE=true
 
 # Get worktree identifier for namespacing clusters
 # Returns "main" for the main worktree, or a sanitized branch/directory name for worktrees
@@ -219,6 +222,15 @@ portless_docs_alias_name() {
     echo "docs.${WORKTREE_ID}.tracecat"
 }
 
+source_env_file() {
+    if [[ -f "$ENV_FILE" ]]; then
+        set -a
+        # shellcheck disable=SC1090
+        source "$ENV_FILE"
+        set +a
+    fi
+}
+
 # Get list of running cluster numbers for this worktree (used for auto-selection)
 get_running_clusters() {
     local prefix="tracecat-${WORKTREE_ID}-"
@@ -332,6 +344,7 @@ auto_select_cluster() {
 
 # Base ports (cluster 1 defaults)
 BASE_PUBLIC_APP_PORT=80
+BASE_PORTLESS_PUBLIC_APP_PORT=10080
 BASE_UI_PORT=3000
 BASE_PG_PORT=5432
 BASE_REDIS_PORT=6379
@@ -380,8 +393,12 @@ Tenant mode:
   --single-tenant                 Set TRACECAT__EE_MULTI_TENANT=false
   --multi-tenant                  Set TRACECAT__EE_MULTI_TENANT=true
   --ee-multi-tenant true|false    Set TRACECAT__EE_MULTI_TENANT explicitly
-  --sandbox                       Layer docker-compose.sandbox.yml for nsjail
-                                  and SquashFS device privileges
+
+Sandbox mode:
+  Enabled by default for cluster development.
+  --sandbox                       Keep nsjail sandboxing enabled
+  --no-sandbox                    Disable nsjail sandboxing and sandbox
+                                  compose privileges
 
 Commands:
   up [args]     Start the cluster (e.g., up -d)
@@ -392,6 +409,10 @@ Commands:
                 user, and all default tier entitlements by default for the dev
                 profile. Use --no-seed to skip.
                 Use --default-tier-entitlements all|none|a,b to override.
+                Use --no-sandbox to opt out of nsjail sandboxing.
+  seed [args]   Seed or update the dev superuser, tenant user, and default tier
+                for an already running cluster. Use
+                --default-tier-entitlements all|none|a,b to override.
   down          Stop the cluster (keeps volumes)
   rm            Remove the cluster (down + remove volumes)
   restart [svc] Restart the cluster or specific service
@@ -413,16 +434,18 @@ Nuke options:
   nuke volumes          List and select volumes to remove
 
 Examples:
-  ./cluster up -d                Start cluster and create dev users
+  ./cluster up -d                Start sandboxed cluster and create dev users
   ./cluster up -d --single-tenant
                                   Start cluster with multi-tenancy disabled
   ./cluster --ee-multi-tenant false up -d
                                   Start cluster with explicit tenant mode
-  ./cluster --sandbox up -d       Start cluster with sandbox device privileges
+  ./cluster up -d --no-sandbox    Start cluster without nsjail sandboxing
   ./cluster up -d --new          Force a new cluster on next available number
   ./cluster up -d --no-seed      Start cluster without creating dev tenant user
   ./cluster up -d --default-tier-entitlements none
   ./cluster up -d --default-tier-entitlements custom_registry,case_addons
+  ./cluster seed                 Seed dev users for a running cluster
+  ./cluster seed --default-tier-entitlements none
   ./cluster down                 Stop cluster (keeps volumes)
   ./cluster rm                   Remove cluster and volumes
   ./cluster restart api          Restart the api service
@@ -465,8 +488,13 @@ normalize_bool() {
 calculate_ports() {
     local cluster_num=$1
     local offset=$(( (cluster_num - 1) * 100 ))
+    local public_app_base=$BASE_PUBLIC_APP_PORT
 
-    PUBLIC_APP_PORT=$(( BASE_PUBLIC_APP_PORT + offset ))
+    if portless_enabled; then
+        public_app_base=$BASE_PORTLESS_PUBLIC_APP_PORT
+    fi
+
+    PUBLIC_APP_PORT=$(( public_app_base + offset ))
     UI_PORT=$(( BASE_UI_PORT + offset ))
     PG_PORT=$(( BASE_PG_PORT + offset ))
     REDIS_PORT_HOST=$(( BASE_REDIS_PORT + offset ))
@@ -520,8 +548,14 @@ build_env() {
     # Caddy configuration
     export BASE_DOMAIN=":${PUBLIC_APP_PORT}"
 
-    # Default to direct executor backend for development
-    export TRACECAT__EXECUTOR_BACKEND="${TRACECAT__EXECUTOR_BACKEND:-direct}"
+    if [[ "$CLUSTER_USE_SANDBOX_COMPOSE" == "true" ]]; then
+        export TRACECAT__DISABLE_NSJAIL=false
+        export TRACECAT__EXECUTOR_BACKEND=ephemeral
+    else
+        # Default to direct executor backend for development
+        export TRACECAT__DISABLE_NSJAIL=true
+        export TRACECAT__EXECUTOR_BACKEND=direct
+    fi
 
     # Cluster development always defaults to multi-tenant mode. Only the
     # explicit cluster flags (--single-tenant / --multi-tenant /
@@ -588,6 +622,8 @@ if [[ $# -lt 1 ]]; then
     usage
 fi
 
+source_env_file
+
 # Handle 'list' command specially
 if [[ "$1" == "list" ]]; then
     list_clusters
@@ -647,6 +683,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --sandbox)
             CLUSTER_USE_SANDBOX_COMPOSE=true
+            shift
+            ;;
+        --no-sandbox)
+            CLUSTER_USE_SANDBOX_COMPOSE=false
             shift
             ;;
         *)
@@ -718,6 +758,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --sandbox)
             CLUSTER_USE_SANDBOX_COMPOSE=true
+            shift
+            ;;
+        --no-sandbox)
+            CLUSTER_USE_SANDBOX_COMPOSE=false
             shift
             ;;
         *)
@@ -842,14 +886,6 @@ if [[ "$COMMAND" == "db" ]]; then
         echo "Error: TablePlus is not installed" >&2
         echo "Install from: https://tableplus.com or brew install --cask tableplus" >&2
         exit 1
-    fi
-
-    # Source .env for credentials if it exists
-    if [[ -f "$ENV_FILE" ]]; then
-        set -a
-        # shellcheck disable=SC1090
-        source "$ENV_FILE"
-        set +a
     fi
 
     calculate_ports "$CLUSTER_NUM"
@@ -1063,10 +1099,7 @@ fi
 
 # Source the .env file for other variables (but our exports take precedence)
 if [[ -f "$ENV_FILE" ]]; then
-    set -a
-    # shellcheck disable=SC1090
-    source "$ENV_FILE"
-    set +a
+    source_env_file
     # Re-apply our overrides (source may have overwritten them)
     build_env "$CLUSTER_NUM"
 fi
@@ -1075,10 +1108,12 @@ if [[ "$COMMAND" == "up" ]]; then
     echo "EE multi-tenant: ${TRACECAT__EE_MULTI_TENANT}"
 fi
 
-# Sync dependencies before starting cluster
-if [[ "$COMMAND" == "up" ]]; then
+# Sync dependencies before starting cluster or running the standalone dev seed.
+if [[ "$COMMAND" == "up" || "$COMMAND" == "seed" ]]; then
     echo "Syncing dependencies..."
     (cd "$REPO_ROOT" && uv sync --group admin --quiet)
+fi
+if [[ "$COMMAND" == "up" ]]; then
     (cd "$REPO_ROOT" && pnpm -C frontend install > /dev/null 2>&1)
 fi
 
@@ -1125,21 +1160,41 @@ if [[ "$COMMAND" == "up" ]]; then
         esac
     done
     set -- ${UP_ARGS[@]+"${UP_ARGS[@]}"}
+elif [[ "$COMMAND" == "seed" ]]; then
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --default-tier-entitlements)
+                if [[ $# -lt 2 ]]; then
+                    echo "Error: --default-tier-entitlements requires a value" >&2
+                    exit 1
+                fi
+                DEFAULT_TIER_ENTITLEMENTS="$2"
+                shift 2
+                ;;
+            --default-tier-entitlements=*)
+                DEFAULT_TIER_ENTITLEMENTS="${1#*=}"
+                shift
+                ;;
+            *)
+                echo "Error: unknown seed argument '$1'" >&2
+                exit 1
+                ;;
+        esac
+    done
 fi
 
 # Function to seed a tenant dev user after cluster starts
 seed_dev_user() {
     local api_url="http://localhost:${PUBLIC_APP_PORT}/api"
-    local max_attempts=60
+    local max_attempts=150
     local attempt=1
 
-    echo "[dev-seed] Waiting for API to be ready..."
+    echo "[dev-seed] Waiting for API health check (up to 5 minutes)..."
     while [[ $attempt -le $max_attempts ]]; do
-        # Use /ready endpoint which checks full startup completion (not /health which returns immediately)
         local status_code
-        status_code=$(curl -s -o /dev/null -w "%{http_code}" "${api_url}/ready" 2>/dev/null || echo "000")
+        status_code=$(curl -s -o /dev/null -w "%{http_code}" "${api_url}/health" 2>/dev/null || echo "000")
         if [[ "$status_code" == "200" ]]; then
-            echo "[dev-seed] API is ready"
+            echo "[dev-seed] API health check passed"
             break
         fi
         sleep 2
@@ -1147,7 +1202,7 @@ seed_dev_user() {
     done
 
     if [[ $attempt -gt $max_attempts ]]; then
-        echo "[dev-seed] Warning: API did not become ready in time, skipping dev seed"
+        echo "[dev-seed] Warning: API health check did not pass within 5 minutes, skipping dev seed"
         return 1
     fi
 
@@ -1174,6 +1229,11 @@ seed_dev_user() {
             --workspace-role "$seed_workspace_role"
     )
 }
+
+if [[ "$COMMAND" == "seed" ]]; then
+    seed_dev_user
+    exit $?
+fi
 
 # Run docker compose with the configured environment
 if [[ "$SEED_USER" == "true" && "$COMMAND" == "up" ]]; then

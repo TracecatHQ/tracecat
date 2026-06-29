@@ -204,7 +204,6 @@ export function SuccessEvent({
   executionId,
   eventId,
   defaultExpanded = true,
-  defaultTab = "nested",
 }: {
   event: WorkflowExecutionEventCompact
   type: Omit<TabType, "interaction">
@@ -212,7 +211,6 @@ export function SuccessEvent({
   executionId: string
   eventId: number
   defaultExpanded?: boolean
-  defaultTab?: "nested" | "flat"
 }) {
   const shouldShowTriggerInput =
     type === "result" && eventRef === WF_TRIGGER_EVENT_REF
@@ -223,7 +221,6 @@ export function SuccessEvent({
         <JsonViewWithControls
           src={event.action_input}
           defaultExpanded={defaultExpanded}
-          defaultTab={defaultTab}
           copyPrefix={getEventCopyPrefix(eventRef, "input")}
           copyMode="jsonpath-and-payload"
         />
@@ -234,7 +231,6 @@ export function SuccessEvent({
           <JsonViewWithControls
             src={event.action_input}
             defaultExpanded={defaultExpanded}
-            defaultTab={defaultTab}
             copyPrefix={getEventCopyPrefix(eventRef, "input")}
             copyMode="jsonpath-and-payload"
           />
@@ -247,7 +243,6 @@ export function SuccessEvent({
           executionId={executionId}
           eventId={eventId}
           defaultExpanded={defaultExpanded}
-          defaultTab={defaultTab}
         />
       )
   }
@@ -260,14 +255,12 @@ function ActionResultViewer({
   executionId,
   eventId,
   defaultExpanded = true,
-  defaultTab = "nested",
 }: {
   result: unknown
   eventRef: string
   executionId: string
   eventId: number
   defaultExpanded?: boolean
-  defaultTab?: "nested" | "flat"
 }) {
   if (result === null || result === undefined) {
     return (
@@ -304,7 +297,6 @@ function ActionResultViewer({
     <JsonViewWithControls
       src={result}
       defaultExpanded={defaultExpanded}
-      defaultTab={defaultTab}
       copyPrefix={getEventCopyPrefix(eventRef, "result")}
       copyMode="jsonpath-and-payload"
     />
@@ -454,7 +446,6 @@ function ActionEventContent({
                 executionId={executionId}
                 eventId={actionEvent.source_event_id}
                 defaultExpanded={true}
-                defaultTab="nested"
               />
             </TabsContent>
           </Tabs>

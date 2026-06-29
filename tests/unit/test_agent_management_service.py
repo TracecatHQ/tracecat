@@ -378,10 +378,14 @@ async def test_get_catalog_credentials_preserves_migrated_custom_provider_base_u
 
     credentials = await service.get_catalog_credentials(catalog.id)
 
+    # The selected catalog row's model_name wins over the shared provider-level
+    # CUSTOM_MODEL_PROVIDER_MODEL_NAME baked into the migrated blob
+    # ("provider/custom-model"), so per-model selections aren't all collapsed
+    # onto one model.
     assert credentials == {
         "CUSTOM_MODEL_PROVIDER_BASE_URL": "https://llm.example.com/v1",
         "CUSTOM_MODEL_PROVIDER_API_KEY": "sk-custom",
-        "CUSTOM_MODEL_PROVIDER_MODEL_NAME": "provider/custom-model",
+        "CUSTOM_MODEL_PROVIDER_MODEL_NAME": "custom-model-provider",
         "CUSTOM_MODEL_PROVIDER_PASSTHROUGH": "false",
     }
 
@@ -393,6 +397,172 @@ async def test_get_catalog_credentials_preserves_migrated_custom_provider_base_u
     assert credentials is not None
     assert credentials["CUSTOM_MODEL_PROVIDER_BASE_URL"] == (
         "https://column.example.com/v1"
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_get_catalog_credentials_distinct_models_share_one_custom_provider(
+    session: AsyncSession,
+    svc_organization: Organization,
+    svc_workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each catalog row resolves to its own model_name even when several rows
+    share one custom provider whose blob carries a stale, provider-wide
+    CUSTOM_MODEL_PROVIDER_MODEL_NAME (regression: every selection collapsing
+    onto the single legacy model name).
+    """
+    encryption_key = Fernet.generate_key().decode()
+    monkeypatch.setattr(
+        tracecat_config,
+        "TRACECAT__DB_ENCRYPTION_KEY",
+        encryption_key,
+    )
+    # Migrated/legacy blob carrying one shared model name for the provider.
+    migrated_blob = encrypt_keyvalues(
+        [
+            SecretKeyValue(
+                key="CUSTOM_MODEL_PROVIDER_BASE_URL",
+                value=SecretStr("https://llm.example.com/v1"),
+            ),
+            SecretKeyValue(
+                key="CUSTOM_MODEL_PROVIDER_API_KEY",
+                value=SecretStr("sk-custom"),
+            ),
+            SecretKeyValue(
+                key="CUSTOM_MODEL_PROVIDER_MODEL_NAME",
+                value=SecretStr("stale/opus-4-6"),
+            ),
+        ],
+        key=encryption_key,
+    )
+    provider = AgentCustomProvider(
+        organization_id=svc_organization.id,
+        display_name="Shared provider",
+        base_url="https://llm.example.com/v1",
+        passthrough=False,
+        encrypted_config=migrated_blob,
+    )
+    session.add(provider)
+    await session.flush()
+
+    gemini = await _seed_catalog(
+        session,
+        org_id=svc_organization.id,
+        provider="custom-model-provider",
+        model_name="custom-gemini",
+        custom_provider_id=provider.id,
+    )
+    opus = await _seed_catalog(
+        session,
+        org_id=svc_organization.id,
+        provider="custom-model-provider",
+        model_name="custom-opus-4-8",
+        custom_provider_id=provider.id,
+    )
+    for catalog_row in (gemini, opus):
+        await _grant_access(
+            session,
+            org_id=svc_organization.id,
+            catalog_id=catalog_row.id,
+        )
+    await session.commit()
+
+    service = AgentManagementService(
+        session=session,
+        role=_db_role(svc_organization, svc_workspace),
+    )
+
+    gemini_creds = await service.get_catalog_credentials(gemini.id)
+    opus_creds = await service.get_catalog_credentials(opus.id)
+
+    assert gemini_creds is not None
+    assert opus_creds is not None
+    # The selected row's model_name wins; the shared "stale/opus-4-6" never leaks.
+    assert gemini_creds["CUSTOM_MODEL_PROVIDER_MODEL_NAME"] == "custom-gemini"
+    assert opus_creds["CUSTOM_MODEL_PROVIDER_MODEL_NAME"] == "custom-opus-4-8"
+    assert (
+        gemini_creds["CUSTOM_MODEL_PROVIDER_MODEL_NAME"]
+        != opus_creds["CUSTOM_MODEL_PROVIDER_MODEL_NAME"]
+    )
+    # Shared provider-level credentials still resolve as expected.
+    assert gemini_creds["CUSTOM_MODEL_PROVIDER_API_KEY"] == "sk-custom"
+    assert opus_creds["CUSTOM_MODEL_PROVIDER_BASE_URL"] == "https://llm.example.com/v1"
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_get_catalog_credentials_legacy_placeholder_row_keeps_blob_model_name(
+    session: AsyncSession,
+    svc_organization: Organization,
+    svc_workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The single legacy backfill catalog row carries the "custom" placeholder
+    model_name; the real upstream model name lives in the provider blob. For
+    that row the blob's model name must stay authoritative (the per-row pin is
+    only for real, discovered per-model rows).
+    """
+    encryption_key = Fernet.generate_key().decode()
+    monkeypatch.setattr(
+        tracecat_config,
+        "TRACECAT__DB_ENCRYPTION_KEY",
+        encryption_key,
+    )
+    migrated_blob = encrypt_keyvalues(
+        [
+            SecretKeyValue(
+                key="CUSTOM_MODEL_PROVIDER_BASE_URL",
+                value=SecretStr("https://llm.example.com/v1"),
+            ),
+            SecretKeyValue(
+                key="CUSTOM_MODEL_PROVIDER_API_KEY",
+                value=SecretStr("sk-custom"),
+            ),
+            SecretKeyValue(
+                key="CUSTOM_MODEL_PROVIDER_MODEL_NAME",
+                value=SecretStr("provider/real-upstream-model"),
+            ),
+        ],
+        key=encryption_key,
+    )
+    provider = AgentCustomProvider(
+        organization_id=svc_organization.id,
+        display_name="Migrated provider",
+        base_url="https://llm.example.com/v1",
+        passthrough=False,
+        encrypted_config=migrated_blob,
+    )
+    session.add(provider)
+    await session.flush()
+    # The backfill writes the "custom" placeholder on the legacy linked row.
+    catalog = await _seed_catalog(
+        session,
+        org_id=svc_organization.id,
+        provider="custom-model-provider",
+        model_name="custom",
+        custom_provider_id=provider.id,
+    )
+    await _grant_access(
+        session,
+        org_id=svc_organization.id,
+        catalog_id=catalog.id,
+    )
+    await session.commit()
+
+    service = AgentManagementService(
+        session=session,
+        role=_db_role(svc_organization, svc_workspace),
+    )
+
+    credentials = await service.get_catalog_credentials(catalog.id)
+
+    assert credentials is not None
+    # The placeholder must NOT overwrite the blob's real model name.
+    assert (
+        credentials["CUSTOM_MODEL_PROVIDER_MODEL_NAME"]
+        == "provider/real-upstream-model"
     )
 
 
@@ -447,6 +617,9 @@ async def test_load_custom_model_provider_creds_requires_catalog_access(
     assert credentials == {
         "CUSTOM_MODEL_PROVIDER_BASE_URL": "https://llm.example.com/v1",
         "CUSTOM_MODEL_PROVIDER_PASSTHROUGH": "true",
+        # The selected row's model_name is pinned (it's a real, non-placeholder
+        # name) so the provider blob can't override the per-row selection.
+        "CUSTOM_MODEL_PROVIDER_MODEL_NAME": "custom-model-provider",
     }
 
 

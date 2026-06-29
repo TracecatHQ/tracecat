@@ -320,6 +320,16 @@ export type AdminUserRead = {
 }
 
 /**
+ * Agent preset artifact shown in artifact-capable chat surfaces.
+ */
+export type AgentArtifact = {
+  id: string
+  title: string
+  scope?: ArtifactScope | null
+  type?: "agent"
+}
+
+/**
  * List catalog entries with pagination.
  */
 export type AgentCatalogListResponse = {
@@ -767,6 +777,13 @@ export type AgentPresetVersionReadMinimal = {
 }
 
 /**
+ * Response schema for persisted agent session artifacts.
+ */
+export type AgentSessionArtifactsRead = {
+  artifacts?: Array<Artifact>
+}
+
+/**
  * Request schema for creating an agent session.
  */
 export type AgentSessionCreate = {
@@ -791,9 +808,13 @@ export type AgentSessionCreate = {
    */
   entity_id: string
   /**
-   * Tools available to the agent for this session
+   * Extra tools added to this session alongside entity defaults
    */
   tools?: Array<string> | null
+  /**
+   * MCP integration IDs attached to this session
+   */
+  mcp_integrations?: Array<string> | null
   /**
    * Agent preset used for this session (if any)
    */
@@ -815,7 +836,7 @@ export type AgentSessionCreate = {
  * - CASE: Chat attached to a Case entity for investigation
  * - AGENT_PRESET: Live chat testing a preset configuration
  * - AGENT_PRESET_BUILDER: Builder chat for editing/configuring a preset
- * - COPILOT: Workspace-level copilot assistant
+ * - WORKSPACE_CHAT: Workspace-level chat assistant (wire value: copilot)
  * - WORKFLOW: Workflow-initiated agent run (from action)
  * - APPROVAL: Inbox approval continuation (hidden from main chat list)
  * - EXTERNAL_CHANNEL: External channel session (e.g. Slack thread)
@@ -847,17 +868,19 @@ export type AgentSessionRead = {
   workspace_id: string
   title: string
   created_by: string | null
-  entity_type: string
+  entity_type: AgentSessionEntity
   entity_id: string
   channel_context: {
     [key: string]: unknown
   } | null
   tools: Array<string> | null
+  mcp_integrations: Array<string> | null
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
   harness_type: string | null
   last_stream_id?: string | null
+  artifacts?: Array<Artifact>
   parent_session_id?: string | null
   created_at: string
   updated_at: string
@@ -871,17 +894,19 @@ export type AgentSessionReadVercel = {
   workspace_id: string
   title: string
   created_by: string | null
-  entity_type: string
+  entity_type: AgentSessionEntity
   entity_id: string
   channel_context: {
     [key: string]: unknown
   } | null
   tools: Array<string> | null
+  mcp_integrations: Array<string> | null
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
   harness_type: string | null
   last_stream_id?: string | null
+  artifacts?: Array<Artifact>
   parent_session_id?: string | null
   created_at: string
   updated_at: string
@@ -899,17 +924,19 @@ export type AgentSessionReadWithMessages = {
   workspace_id: string
   title: string
   created_by: string | null
-  entity_type: string
+  entity_type: AgentSessionEntity
   entity_id: string
   channel_context: {
     [key: string]: unknown
   } | null
   tools: Array<string> | null
+  mcp_integrations: Array<string> | null
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
   harness_type: string | null
   last_stream_id?: string | null
+  artifacts?: Array<Artifact>
   parent_session_id?: string | null
   created_at: string
   updated_at: string
@@ -928,9 +955,13 @@ export type AgentSessionUpdate = {
    */
   title?: string | null
   /**
-   * Tools available to the agent
+   * Extra tools added to this session alongside entity defaults
    */
   tools?: Array<string> | null
+  /**
+   * MCP integration IDs attached to this session
+   */
+  mcp_integrations?: Array<string> | null
   /**
    * Agent preset to use for this session
    */
@@ -995,6 +1026,16 @@ export type AgentTagRead = {
   name: string
   ref: string
   color: string | null
+}
+
+/**
+ * Alert artifact stub. Extend when alert surfaces are wired.
+ */
+export type AlertArtifact = {
+  id: string
+  title: string
+  scope?: ArtifactScope | null
+  type?: "alert"
 }
 
 export type AnyAttachedSubagentRef =
@@ -1127,6 +1168,26 @@ export type ApprovalStatus = "pending" | "approved" | "rejected"
  */
 export type ApprovalSubmission = {
   approvals: ApprovalMap
+}
+
+export type Artifact =
+  | CaseArtifact
+  | WorkflowArtifact
+  | RunArtifact
+  | TableArtifact
+  | AgentArtifact
+  | AlertArtifact
+  | IntegrationArtifact
+  | SecretArtifact
+  | GenericArtifact
+
+/**
+ * Attribution scope for artifact data parts.
+ */
+export type ArtifactScope = {
+  agentId?: string | null
+  agentType?: string | null
+  parentToolCallId?: string | null
 }
 
 /**
@@ -1442,15 +1503,6 @@ export type BinaryContent = {
   readonly identifier: string
 }
 
-export type Body_auth_auth_database_login = {
-  grant_type?: string | null
-  username: string
-  password: string
-  scope?: string
-  client_id?: string | null
-  client_secret?: string | null
-}
-
 export type Body_auth_reset_forgot_password = {
   email: string
 }
@@ -1461,8 +1513,8 @@ export type Body_auth_reset_reset_password = {
 }
 
 export type Body_auth_sso_acs = {
-  saml_response: string
-  relay_state: string
+  SAMLResponse: string
+  RelayState: string
 }
 
 export type Body_auth_verify_request_token = {
@@ -1503,6 +1555,18 @@ export type CachePoint = {
 }
 
 export type ttl = "5m" | "1h"
+
+/**
+ * Case artifact shown in artifact-capable chat surfaces.
+ */
+export type CaseArtifact = {
+  id: string
+  title: string
+  scope?: ArtifactScope | null
+  type?: "case"
+  severity: CaseSeverity
+  status: CaseStatus
+}
 
 /**
  * Model for attachment download URL response.
@@ -2396,7 +2460,7 @@ export type ChatRead = {
   /**
    * Type of entity this chat is associated with
    */
-  entity_type: string
+  entity_type: AgentSessionEntity
   /**
    * ID of the associated entity
    */
@@ -2405,6 +2469,10 @@ export type ChatRead = {
    * Tools available to the agent
    */
   tools: Array<string>
+  /**
+   * MCP integration IDs attached to this chat
+   */
+  mcp_integrations?: Array<string>
   /**
    * Agent preset used for this chat, if any
    */
@@ -2456,7 +2524,7 @@ export type ChatReadMinimal = {
   /**
    * Type of entity this chat is associated with
    */
-  entity_type: string
+  entity_type: AgentSessionEntity
   /**
    * ID of the associated entity
    */
@@ -2465,6 +2533,10 @@ export type ChatReadMinimal = {
    * Tools available to the agent
    */
   tools: Array<string>
+  /**
+   * MCP integration IDs attached to this chat
+   */
+  mcp_integrations?: Array<string>
   /**
    * Agent preset used for this chat, if any
    */
@@ -2510,7 +2582,7 @@ export type ChatReadVercel = {
   /**
    * Type of entity this chat is associated with
    */
-  entity_type: string
+  entity_type: AgentSessionEntity
   /**
    * ID of the associated entity
    */
@@ -2519,6 +2591,10 @@ export type ChatReadVercel = {
    * Tools available to the agent
    */
   tools: Array<string>
+  /**
+   * MCP integration IDs attached to this chat
+   */
+  mcp_integrations?: Array<string>
   /**
    * Agent preset used for this chat, if any
    */
@@ -3511,6 +3587,10 @@ export type EffectiveEntitlements = {
    */
   service_accounts?: boolean
   /**
+   * Whether Workspace Chat is enabled
+   */
+  workspace_chat?: boolean
+  /**
    * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
    */
   watchtower?: boolean
@@ -3546,6 +3626,10 @@ export type EntitlementsDict = {
    * Whether service accounts for API key access are enabled
    */
   service_accounts?: boolean
+  /**
+   * Whether Workspace Chat is enabled
+   */
+  workspace_chat?: boolean
   /**
    * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
    */
@@ -3708,6 +3792,7 @@ export type FeatureFlag =
   | "ai-ranking"
   | "workflow-concurrency-limits"
   | "agent-channels"
+  | "agent-fs-persistence"
 
 /**
  * Response model for feature flags.
@@ -3773,6 +3858,19 @@ export type FolderDirectoryItem = {
   updated_at: string
   type: "folder"
   num_items: number
+}
+
+/**
+ * Escape hatch for surfaced objects without a dedicated panel view.
+ */
+export type GenericArtifact = {
+  id: string
+  title: string
+  scope?: ArtifactScope | null
+  type?: "generic"
+  data?: {
+    [key: string]: unknown
+  } | null
 }
 
 export type GetWorkflowDefinitionActivityInputs = {
@@ -3892,6 +3990,22 @@ export type GitHubAppPermissions = {
   contents: string
   metadata: string
   pull_requests: string
+}
+
+/**
+ * Repository granted to the configured GitHub App installation.
+ */
+export type GitHubAppRepository = {
+  id: number
+  name: string
+  full_name: string
+  private: boolean
+  default_branch: string
+  git_url: string
+  html_url?: string | null
+  installation_id: number
+  installation_account: string
+  installation_account_type?: string | null
 }
 
 /**
@@ -4154,6 +4268,14 @@ export type ImageUrl = {
 }
 
 /**
+ * Display groups for inbox items.
+ *
+ * Groups are derived from approval state and live workflow execution status,
+ * so membership cannot be expressed as a pure SQL filter.
+ */
+export type InboxGroup = "review_required" | "running" | "error" | "completed"
+
+/**
  * Read model for inbox items.
  */
 export type InboxItemRead = {
@@ -4194,6 +4316,10 @@ export type InboxItemRead = {
    */
   workflow?: WorkflowSummary | null
   /**
+   * User who created the source entity (None for automation-initiated items)
+   */
+  created_by?: UserSummary | null
+  /**
    * ID of the source entity
    */
   source_id: string
@@ -4217,7 +4343,7 @@ export type InboxItemStatus = "pending" | "completed" | "failed"
 /**
  * Types of inbox items.
  */
-export type InboxItemType = "approval"
+export type InboxItemType = "approval" | "agent_run"
 
 /**
  * Count of pending inbox items that require attention.
@@ -4261,6 +4387,16 @@ export type Integer = {
   min_val?: number | null
   max_val?: number | null
   step?: number
+}
+
+/**
+ * Integration artifact stub. Extend when integration surfaces are wired.
+ */
+export type IntegrationArtifact = {
+  id: string
+  title: string
+  scope?: ArtifactScope | null
+  type?: "integration"
 }
 
 /**
@@ -4482,6 +4618,126 @@ export type JoinStrategy = "any" | "all"
 export type MCPAuthType = "OAUTH2" | "CUSTOM" | "NONE"
 
 /**
+ * Response for connecting a platform MCP catalog entry.
+ */
+export type MCPCatalogConnectResponse = {
+  status: "connected" | "oauth_redirect"
+  mcp_integration?: MCPIntegrationRead | null
+  auth_url?: string | null
+  provider_id?: string | null
+}
+
+export type status3 = "connected" | "oauth_redirect"
+
+/**
+ * Typed configure-dialog field declared by a catalog spec.
+ */
+export type MCPConfigField = {
+  key: string
+  label: string
+  description: string
+  target: "server_uri" | "oauth_client" | "http_header" | "stdio_env"
+  required?: boolean
+  secret?: boolean
+  placeholder?: string | null
+  type?: "string" | "url"
+}
+
+export type target = "server_uri" | "oauth_client" | "http_header" | "stdio_env"
+
+export type type = "string" | "url"
+
+/**
+ * User-supplied value needed to materialize a catalog connection.
+ */
+export type MCPConnectionCredential = {
+  key: string
+  label: string
+  description: string
+  required?: boolean
+  secret?: boolean
+  default_value?: string | null
+  /**
+   * Optional placeholder shown in the configure dialog to hint the expected value format (e.g. 'https://your-console.example.net').
+   */
+  placeholder?: string | null
+  /**
+   * Value type used for light client/server validation. 'url' requires an http(s):// scheme.
+   */
+  type?: "string" | "url"
+  target: "server_uri" | "oauth_client" | "http_header" | "stdio_env"
+}
+
+/**
+ * A connectable transport/auth option for one catalog provider.
+ */
+export type MCPConnectionOption = {
+  id: string
+  label: string
+  description?: string | null
+  docs_url?: string | null
+  connection_spec: MCPConnectionSpec
+}
+
+export type MCPConnectionSpec =
+  | MCPHTTPOAuth2ConnectionSpec
+  | MCPHTTPCustomConnectionSpec
+  | MCPHTTPNoneConnectionSpec
+  | MCPStdioCustomConnectionSpec
+  | MCPStdioNoneConnectionSpec
+
+/**
+ * HTTP MCP server using user-provided headers or API keys.
+ */
+export type MCPHTTPCustomConnectionSpec = {
+  requires_config?: boolean
+  credentials?: Array<MCPConnectionCredential>
+  kind?: "http_custom"
+  server_type?: "http"
+  auth_type?: "CUSTOM"
+  server_uri: string
+  /**
+   * Configure-dialog view of ``credentials``; same data, UI field shape.
+   */
+  readonly config_fields: Array<MCPConfigField>
+}
+
+/**
+ * HTTP MCP server with no authentication.
+ */
+export type MCPHTTPNoneConnectionSpec = {
+  requires_config?: boolean
+  credentials?: Array<MCPConnectionCredential>
+  kind?: "http_none"
+  server_type?: "http"
+  auth_type?: "NONE"
+  server_uri: string
+  /**
+   * Configure-dialog view of ``credentials``; same data, UI field shape.
+   */
+  readonly config_fields: Array<MCPConfigField>
+}
+
+/**
+ * HTTP MCP server using MCP OAuth.
+ */
+export type MCPHTTPOAuth2ConnectionSpec = {
+  requires_config?: boolean
+  credentials?: Array<MCPConnectionCredential>
+  kind?: "http_oauth2"
+  server_type?: "http"
+  auth_type?: "OAUTH2"
+  server_uri: string
+  scopes?: Array<string>
+  oauth_authorization_endpoint?: string | null
+  oauth_token_endpoint?: string | null
+  /**
+   * Configure-dialog view of ``credentials``; same data, UI field shape.
+   */
+  readonly config_fields: Array<MCPConfigField>
+}
+
+/**
  * Request model for creating an HTTP MCP integration.
  */
 export type MCPHttpIntegrationCreate = {
@@ -4497,6 +4753,10 @@ export type MCPHttpIntegrationCreate = {
    * Timeout in seconds
    */
   timeout?: number | null
+  /**
+   * Platform MCP catalog slug this workspace config is created from
+   */
+  catalog_slug?: string | null
   server_type?: "http"
   /**
    * MCP server endpoint URL (required for http type)
@@ -4567,12 +4827,46 @@ export type MCPIntegrationRead = {
   server_uri: string | null
   auth_type: MCPAuthType
   oauth_integration_id: string | null
+  state: "not_configured" | "configured" | "connected" | "error"
   stdio_command: string | null
   stdio_args: Array<string> | null
   has_stdio_env?: boolean
   timeout: number | null
+  tools?: Array<MCPToolSummary> | null
   created_at: string
   updated_at: string
+}
+
+export type state = "not_configured" | "configured" | "connected" | "error"
+
+/**
+ * Request to test connectivity against an unsaved HTTP MCP configuration.
+ *
+ * Carries the (possibly edited, not yet persisted) form values. When
+ * ``mcp_integration_id`` is set, stored secrets from that row are used as a
+ * fallback for fields the caller leaves blank (e.g. unchanged credentials).
+ */
+export type MCPIntegrationTestConnectionRequest = {
+  mcp_integration_id?: string | null
+  server_uri: string
+  auth_type?: MCPAuthType
+  oauth_integration_id?: string | null
+  /**
+   * JSON object of custom headers; falls back to stored headers when omitted
+   */
+  custom_credentials?: string | null
+  timeout?: number | null
+}
+
+/**
+ * Response for testing connectivity to an MCP server.
+ */
+export type MCPIntegrationTestConnectionResponse = {
+  success: boolean
+  mcp_integration_id?: string | null
+  tools?: Array<MCPToolSummary> | null
+  message: string
+  error?: string | null
 }
 
 /**
@@ -4581,6 +4875,10 @@ export type MCPIntegrationRead = {
 export type MCPIntegrationUpdate = {
   name?: string | null
   description?: string | null
+  /**
+   * MCP server type. Changing this clears fields from the previous type.
+   */
+  server_type?: MCPServerType | null
   server_uri?: string | null
   auth_type?: MCPAuthType | null
   oauth_integration_id?: string | null
@@ -4606,6 +4904,16 @@ export type MCPIntegrationUpdate = {
    * Timeout in seconds
    */
   timeout?: number | null
+}
+
+/**
+ * Supported stdio package launch option.
+ */
+export type MCPPackageOption = {
+  manager: string
+  command: string
+  args?: Array<string>
+  package?: string | null
 }
 
 export type MCPPersonalAccessTokenCreate = {
@@ -4637,6 +4945,25 @@ export type MCPPersonalAccessTokenRead = {
 export type MCPServerType = "http" | "stdio"
 
 /**
+ * Stdio MCP server using user-provided env vars.
+ */
+export type MCPStdioCustomConnectionSpec = {
+  requires_config?: boolean
+  credentials?: Array<MCPConnectionCredential>
+  kind?: "stdio_custom"
+  server_type?: "stdio"
+  auth_type?: "CUSTOM"
+  stdio_command?: string | null
+  stdio_args?: Array<string>
+  stdio_env?: Array<string>
+  packages?: Array<MCPPackageOption>
+  /**
+   * Configure-dialog view of ``credentials``; same data, UI field shape.
+   */
+  readonly config_fields: Array<MCPConfigField>
+}
+
+/**
  * Request model for creating a stdio MCP integration.
  */
 export type MCPStdioIntegrationCreate = {
@@ -4652,6 +4979,10 @@ export type MCPStdioIntegrationCreate = {
    * Timeout in seconds
    */
   timeout?: number | null
+  /**
+   * Platform MCP catalog slug this workspace config is created from
+   */
+  catalog_slug?: string | null
   server_type?: "stdio"
   /**
    * Stdio command to run for stdio-type servers (e.g., 'npx')
@@ -4670,6 +5001,25 @@ export type MCPStdioIntegrationCreate = {
 }
 
 /**
+ * Stdio MCP server with no authentication.
+ */
+export type MCPStdioNoneConnectionSpec = {
+  requires_config?: boolean
+  credentials?: Array<MCPConnectionCredential>
+  kind?: "stdio_none"
+  server_type?: "stdio"
+  auth_type?: "NONE"
+  stdio_command?: string | null
+  stdio_args?: Array<string>
+  stdio_env?: Array<string>
+  packages?: Array<MCPPackageOption>
+  /**
+   * Configure-dialog view of ``credentials``; same data, UI field shape.
+   */
+  readonly config_fields: Array<MCPConfigField>
+}
+
+/**
  * Configuration for a stdio MCP server.
  */
 export type MCPStdioServerConfig = {
@@ -4683,6 +5033,35 @@ export type MCPStdioServerConfig = {
   timeout?: number
   id?: string
 }
+
+/**
+ * Per-tool policy update for a stored MCP integration tool.
+ */
+export type MCPToolPolicyUpdate = {
+  name: string
+  enabled?: boolean | null
+  requires_approval?: boolean | null
+}
+
+/**
+ * Request to update per-tool MCP integration policy.
+ */
+export type MCPToolPolicyUpdateRequest = {
+  tools: Array<MCPToolPolicyUpdate>
+}
+
+/**
+ * Summary of a tool discovered on a remote MCP server.
+ */
+export type MCPToolSummary = {
+  name: string
+  description?: string | null
+  enabled?: boolean
+  requires_approval?: boolean
+  status?: "available" | "missing"
+}
+
+export type status4 = "available" | "missing"
 
 /**
  * The type/kind of message stored in the chat.
@@ -4974,7 +5353,7 @@ export type OrganizationSecretRead = {
   type: SecretType
   name: string
   description?: string | null
-  encrypted_keys: Blob | File
+  encrypted_keys: string
   environment: string
   tags?: {
     [key: string]: string
@@ -5052,6 +5431,94 @@ export type PayloadChangedEventRead = {
    */
   created_at: string
 }
+
+/**
+ * Platform audit settings response.
+ */
+export type PlatformAuditSettingsRead = {
+  audit_webhook_url: string | null
+  audit_webhook_custom_headers?: {
+    [key: string]: string
+  } | null
+  audit_webhook_custom_payload?: {
+    [key: string]: unknown
+  } | null
+  audit_webhook_payload_attribute?: string | null
+  audit_webhook_verify_ssl?: boolean
+  /**
+   * Encrypted setting keys that could not be decrypted with the current encryption key and must be reconfigured.
+   */
+  decryption_failed_keys?: Array<string>
+}
+
+/**
+ * Update platform audit settings.
+ */
+export type PlatformAuditSettingsUpdate = {
+  /**
+   * Webhook URL that receives streamed audit events. When unset, audit events are skipped.
+   */
+  audit_webhook_url?: string | null
+  /**
+   * Custom headers to include in audit webhook requests. Header names are case-insensitive.
+   */
+  audit_webhook_custom_headers?: {
+    [key: string]: string
+  } | null
+  /**
+   * Custom JSON payload merged into streamed audit event payloads. Custom keys override default audit event keys.
+   */
+  audit_webhook_custom_payload?: {
+    [key: string]: unknown
+  } | null
+  /**
+   * Optional wrapper key for audit payloads. When set to a value like 'event', payload is sent as {'event': <audit_payload>}.
+   */
+  audit_webhook_payload_attribute?: string | null
+  /**
+   * Whether TLS certificates are verified for webhook requests. Disable only for trusted on-prem/self-signed endpoints.
+   */
+  audit_webhook_verify_ssl?: boolean
+}
+
+/**
+ * Cursor-paginated platform MCP catalog response.
+ */
+export type PlatformMCPCatalogListResponse = {
+  items: Array<PlatformMCPCatalogRead>
+  next_cursor?: string | null
+}
+
+/**
+ * Catalog row joined with workspace-specific MCP state.
+ */
+export type PlatformMCPCatalogRead = {
+  id: string
+  slug: string
+  name: string
+  description: string
+  category: string
+  status: "available" | "coming_soon" | "deprecated" | "hidden"
+  icon_url: string | null
+  docs_url: string | null
+  provider_id: string | null
+  connection_spec: MCPConnectionSpec | null
+  connection_options?: Array<MCPConnectionOption>
+  /**
+   * Whether this platform MCP catalog row is locked by entitlement.
+   */
+  locked: boolean
+  state: "not_configured" | "configured" | "connected" | "error"
+  mcp_integration_id: string | null
+  mcp_server_type?: MCPServerType | null
+  mcp_auth_type?: MCPAuthType | null
+  tools?: Array<MCPToolSummary> | null
+  created_at: string
+  updated_at: string
+  last_refreshed_at: string | null
+}
+
+export type status5 = "available" | "coming_soon" | "deprecated" | "hidden"
 
 /**
  * Platform registry settings response.
@@ -5144,7 +5611,7 @@ export type ProviderCredentialField = {
 /**
  * Input type: 'text' or 'password'
  */
-export type type = "text" | "password"
+export type type2 = "text" | "password"
 
 /**
  * Metadata for a provider.
@@ -5294,12 +5761,7 @@ export type RateLimitInfo = {
   }
 }
 
-export type status3 = "allowed" | "allowed_warning" | "rejected"
-
-export type ReadinessResponse = {
-  status: string
-  registry: RegistryStatus
-}
+export type status6 = "allowed" | "allowed_warning" | "rejected"
 
 /**
  * A reasoning part of a message.
@@ -5315,7 +5777,7 @@ export type ReasoningUIPart = {
   }
 }
 
-export type state = "streaming" | "done"
+export type state2 = "streaming" | "done"
 
 export type ReceiveInteractionResponse = {
   message: string
@@ -5423,7 +5885,7 @@ export type RegistryActionRead = {
 /**
  * The type of the action
  */
-export type type2 = "udf" | "template"
+export type type3 = "udf" | "template"
 
 /**
  * API minimal read model for a registered action.
@@ -5504,6 +5966,21 @@ export type RegistryActionValidationErrorInfo = {
 }
 
 /**
+ * Request to start an artifact backfill workflow for selected versions.
+ */
+export type RegistryArtifactsBackfillStartRequest = {
+  version_ids: Array<string>
+}
+
+/**
+ * Response after scheduling an artifact backfill workflow.
+ */
+export type RegistryArtifactsBackfillStartResponse = {
+  workflow_id: string
+  requested_count: number
+}
+
+/**
  * Registry version lock with action-level bindings for O(1) resolution.
  *
  * Attributes:
@@ -5511,6 +5988,9 @@ export type RegistryActionValidationErrorInfo = {
  * Example: {"tracecat_registry": "2024.12.10.123456"}
  * actions: Maps action name to its source origin.
  * Example: {"core.transform.reshape": "tracecat_registry"}
+ * origin_fingerprints: Optional immutable manifest fingerprints for origins.
+ * New executors use the builtin fingerprint to decide whether their
+ * bundled tracecat_registry package is an exact match for the lock.
  */
 export type RegistryLock = {
   origins: {
@@ -5519,6 +5999,18 @@ export type RegistryLock = {
   actions: {
     [key: string]: string
   }
+  origin_fingerprints?: {
+    [key: string]: string
+  }
+}
+
+/**
+ * Display metadata for one registry lock origin.
+ */
+export type RegistryLockEntryRead = {
+  origin: string
+  version: string
+  label: string
 }
 
 /**
@@ -5608,12 +6100,6 @@ export type RegistrySecret = {
 export type secret_type = "custom" | "ssh_key" | "mtls" | "ca_cert"
 
 export type RegistrySecretType = RegistrySecret | RegistryOAuthSecret
-
-export type RegistryStatus = {
-  synced: boolean
-  expected_version: string
-  current_version: string | null
-}
 
 /**
  * Registry health status.
@@ -5771,7 +6257,7 @@ export type Role = {
   [key: string]: unknown | string | boolean
 }
 
-export type type3 = "user" | "service" | "service_account"
+export type type4 = "user" | "service" | "service_account"
 
 export type service_id =
   | "tracecat-api"
@@ -5862,6 +6348,21 @@ export type RunActionInput = {
   session_id?: string | null
   registry_lock: RegistryLock
 }
+
+/**
+ * Workflow run artifact shown in artifact-capable chat surfaces.
+ */
+export type RunArtifact = {
+  id: string
+  title: string
+  scope?: ArtifactScope | null
+  type?: "run"
+  workflowId: string
+  status: "running" | "success" | "failed" | "cancelled"
+  startedAt: string
+}
+
+export type status7 = "running" | "success" | "failed" | "cancelled"
 
 /**
  * This is the runtime context model for a workflow run. Passed into activities.
@@ -6044,6 +6545,16 @@ export type ScopeRead = {
 export type ScopeSource = "platform" | "custom"
 
 /**
+ * Secret artifact stub. Extend when secret surfaces are wired.
+ */
+export type SecretArtifact = {
+  id: string
+  title: string
+  scope?: ArtifactScope | null
+  type?: "secret"
+}
+
+/**
  * Create a new secret.
  *
  * Secret types
@@ -6091,7 +6602,7 @@ export type SecretRead = {
   type: SecretType
   name: string
   description?: string | null
-  encrypted_keys: Blob | File
+  encrypted_keys: string
   environment: string
   tags?: {
     [key: string]: string
@@ -6660,6 +7171,17 @@ export type SystemMessage = {
   data: {
     [key: string]: unknown
   }
+}
+
+/**
+ * Table artifact shown in artifact-capable chat surfaces.
+ */
+export type TableArtifact = {
+  id: string
+  title: string
+  scope?: ArtifactScope | null
+  type?: "table"
+  rowCount?: number | null
 }
 
 /**
@@ -7438,7 +7960,7 @@ export type Trigger = {
   }
 }
 
-export type type4 = "schedule" | "webhook"
+export type type5 = "schedule" | "webhook"
 
 /**
  * Trigger type for a workflow execution.
@@ -7614,6 +8136,28 @@ export type UserScopesRead = {
   scopes: Array<string>
 }
 
+/**
+ * Summary of a user for inbox item context.
+ */
+export type UserSummary = {
+  /**
+   * User ID
+   */
+  id: string
+  /**
+   * User email
+   */
+  email: string
+  /**
+   * User first name
+   */
+  first_name?: string | null
+  /**
+   * User last name
+   */
+  last_name?: string | null
+}
+
 export type UserUpdate = {
   password?: string | null
   email?: string | null
@@ -7638,6 +8182,10 @@ export type ValidationError = {
   loc: Array<string | number>
   msg: string
   type: string
+  input?: unknown
+  ctx?: {
+    [key: string]: unknown
+  }
 }
 
 export type ValidationResult =
@@ -7955,6 +8503,7 @@ export type WebhookCreate = {
   methods?: Array<WebhookMethod>
   entrypoint_ref?: string | null
   allowlisted_cidrs?: Array<string>
+  include_headers?: boolean
 }
 
 export type WebhookMethod = "GET" | "POST"
@@ -7972,6 +8521,7 @@ export type WebhookRead = {
    * Methods to allow
    */
   methods?: Array<WebhookMethod>
+  include_headers?: boolean
   workflow_id: string
   url: string
   api_key?: WebhookApiKeyRead | null
@@ -7999,10 +8549,23 @@ export type WebhookUpdate = {
   methods?: Array<WebhookMethod> | null
   entrypoint_ref?: string | null
   allowlisted_cidrs?: Array<string> | null
+  include_headers?: boolean | null
 }
 
 export type WorkflowAlias = {
   component_id?: "workflow-alias"
+}
+
+/**
+ * Workflow artifact shown in artifact-capable chat surfaces.
+ */
+export type WorkflowArtifact = {
+  id: string
+  title: string
+  scope?: ArtifactScope | null
+  type?: "workflow"
+  color: string
+  isPublished?: boolean | null
 }
 
 export type WorkflowCommitResponse = {
@@ -8015,7 +8578,7 @@ export type WorkflowCommitResponse = {
   } | null
 }
 
-export type status4 = "success" | "failure"
+export type status8 = "success" | "failure"
 
 /**
  * API response model for persisted workflow definitions.
@@ -8030,6 +8593,10 @@ export type WorkflowDefinitionRead = {
   } | null
   created_at: string
   updated_at: string
+  /**
+   * Registry lock origins with server-normalized display labels.
+   */
+  readonly registry_lock_entries: Array<RegistryLockEntryRead>
 }
 
 export type WorkflowDefinitionReadMinimal = {
@@ -8074,7 +8641,7 @@ export type WorkflowDslPublishResult = {
   message: string
 }
 
-export type status5 = "committed" | "no_op"
+export type status9 = "committed" | "no_op"
 
 export type WorkflowEntrypointValidationRequest = {
   expects?: {
@@ -8239,7 +8806,7 @@ export type WorkflowExecutionEvent = {
   workflow_timeout?: number | null
 }
 
-export type WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_ = {
+export type WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_ = {
   source_event_id: number
   schedule_time: string
   start_time?: string | null
@@ -8392,7 +8959,7 @@ export type WorkflowExecutionRead = {
   interactions?: Array<InteractionRead>
 }
 
-export type status6 =
+export type status10 =
   | "RUNNING"
   | "COMPLETED"
   | "FAILED"
@@ -8401,7 +8968,7 @@ export type status6 =
   | "CONTINUED_AS_NEW"
   | "TIMED_OUT"
 
-export type WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_ = {
+export type WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_ = {
   /**
    * The ID of the workflow execution
    */
@@ -8445,7 +9012,7 @@ export type WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_ = {
   /**
    * Compact events in the workflow execution
    */
-  events: Array<WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_>
+  events: Array<WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_>
   /**
    * The interactions in the workflow execution
    */
@@ -8854,6 +9421,15 @@ export type Yaml = {
   component_id?: "yaml"
 }
 
+export type login = {
+  grant_type?: string | null
+  username: string
+  password: string
+  scope?: string
+  client_id?: string | null
+  client_secret?: string | null
+}
+
 /**
  * Response from sync operation.
  */
@@ -8885,6 +9461,10 @@ export type tracecat__admin__registry__schemas__RegistryVersionRead = {
   commit_sha: string | null
   tarball_uri: string | null
   created_at: string
+  is_current?: boolean
+  artifacts_ready?: boolean
+  workflow_definition_count?: number
+  in_use?: boolean
 }
 
 export type tracecat__organization__schemas__OrgDomainRead = {
@@ -9555,7 +10135,7 @@ export type WorkflowExecutionsGetWorkflowExecutionCompactData = {
 }
 
 export type WorkflowExecutionsGetWorkflowExecutionCompactResponse =
-  WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_
+  WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_
 
 export type WorkflowExecutionsGetWorkflowExecutionObjectDownloadData = {
   executionId: string
@@ -9684,6 +10264,13 @@ export type WorkflowsPublishWorkflowData = {
 }
 
 export type WorkflowsPublishWorkflowResponse = WorkflowDslPublishResult
+
+export type WorkflowsListWorkflowRepositoriesData = {
+  workspaceId: string
+}
+
+export type WorkflowsListWorkflowRepositoriesResponse =
+  Array<GitHubAppRepository>
 
 export type WorkflowsListWorkflowCommitsData = {
   /**
@@ -10713,6 +11300,25 @@ export type AgentSessionsGetSessionVercelResponse =
   | AgentSessionReadVercel
   | ChatReadVercel
 
+export type AgentSessionsRemoveSessionArtifactData = {
+  artifactId: string
+  artifactType:
+    | "case"
+    | "workflow"
+    | "run"
+    | "table"
+    | "agent"
+    | "alert"
+    | "integration"
+    | "secret"
+    | "generic"
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSessionsRemoveSessionArtifactResponse =
+  AgentSessionArtifactsRead
+
 export type AgentSessionsSendMessageData = {
   requestBody: VercelChatRequest | ContinueRunRequest
   sessionId: string
@@ -10747,6 +11353,13 @@ export type ApprovalsSubmitApprovalsData = {
 }
 
 export type ApprovalsSubmitApprovalsResponse = void
+
+export type ApprovalsDeleteApprovalData = {
+  sessionId: string
+  workspaceId: string
+}
+
+export type ApprovalsDeleteApprovalResponse = void
 
 export type WatchtowerListWatchtowerAgentsData = {
   agentType?: WatchtowerAgentType | null
@@ -10929,6 +11542,14 @@ export type AdminPromoteOrgRepositoryVersionData = {
 export type AdminPromoteOrgRepositoryVersionResponse =
   OrgRegistryVersionPromoteResponse
 
+export type AdminGetAuditSettingsResponse = PlatformAuditSettingsRead
+
+export type AdminUpdateAuditSettingsData = {
+  requestBody: PlatformAuditSettingsUpdate
+}
+
+export type AdminUpdateAuditSettingsResponse = PlatformAuditSettingsRead
+
 export type AdminGetRegistrySettingsResponse = PlatformRegistrySettingsRead
 
 export type AdminUpdateRegistrySettingsData = {
@@ -11007,6 +11628,12 @@ export type AdminGetUserData = {
 
 export type AdminGetUserResponse = AdminUserRead
 
+export type AdminDeleteUserData = {
+  userId: string
+}
+
+export type AdminDeleteUserResponse = void
+
 export type AdminPromoteToSuperuserData = {
   userId: string
 }
@@ -11068,6 +11695,13 @@ export type AdminRegistryListRegistryVersionsData = {
 export type AdminRegistryListRegistryVersionsResponse =
   Array<tracecat__admin__registry__schemas__RegistryVersionRead>
 
+export type AdminRegistryStartRegistryArtifactsBackfillData = {
+  requestBody: RegistryArtifactsBackfillStartRequest
+}
+
+export type AdminRegistryStartRegistryArtifactsBackfillResponse =
+  RegistryArtifactsBackfillStartResponse
+
 export type AdminRegistryPromoteRegistryVersionData = {
   repositoryId: string
   versionId: string
@@ -11083,17 +11717,37 @@ export type InboxGetPendingCountData = {
 export type InboxGetPendingCountResponse = InboxPendingCount
 
 export type InboxListItemsData = {
+  /**
+   * Only items created at or after this time (ISO 8601)
+   */
+  createdAfter?: string | null
   cursor?: string | null
+  /**
+   * Filter items to a single entity type
+   */
+  entityType?: AgentSessionEntity | null
+  /**
+   * Filter items to a single display group
+   */
+  group?: InboxGroup | null
   limit?: number
   /**
-   * Column name to order by (created_at, updated_at, status)
+   * Column name to order by (created_at, updated_at)
    */
-  orderBy?: string | null
+  orderBy?: "created_at" | "updated_at" | null
   reverse?: boolean
+  /**
+   * Case-insensitive search on item title
+   */
+  search?: string | null
   /**
    * Sort direction (asc or desc)
    */
   sort?: "asc" | "desc" | null
+  /**
+   * Only items updated at or after this time (ISO 8601)
+   */
+  updatedAfter?: string | null
   workspaceId: string
 }
 
@@ -12233,11 +12887,55 @@ export type McpIntegrationsCreateMcpIntegrationData = {
 export type McpIntegrationsCreateMcpIntegrationResponse = MCPIntegrationRead
 
 export type McpIntegrationsListMcpIntegrationsData = {
+  /**
+   * Restrict results to platform-managed or workspace-authored MCP integrations. Defaults to all rows.
+   */
+  source?: "platform" | "workspace" | null
   workspaceId: string
 }
 
 export type McpIntegrationsListMcpIntegrationsResponse =
   Array<MCPIntegrationRead>
+
+export type McpIntegrationsListPlatformMcpCatalogData = {
+  /**
+   * Filter by category
+   */
+  category?: string | null
+  /**
+   * Cursor for pagination
+   */
+  cursor?: string | null
+  limit?: number
+  /**
+   * Search name, slug, description
+   */
+  q?: string | null
+  /**
+   * Filter by catalog status
+   */
+  status?: "available" | "coming_soon" | "deprecated" | "hidden" | null
+  workspaceId: string
+}
+
+export type McpIntegrationsListPlatformMcpCatalogResponse =
+  PlatformMCPCatalogListResponse
+
+export type McpIntegrationsConnectPlatformMcpCatalogData = {
+  catalogSlug: string
+  workspaceId: string
+}
+
+export type McpIntegrationsConnectPlatformMcpCatalogResponse =
+  MCPCatalogConnectResponse
+
+export type McpIntegrationsConnectMcpIntegrationData = {
+  requestBody: MCPIntegrationCreate
+  workspaceId: string
+}
+
+export type McpIntegrationsConnectMcpIntegrationResponse =
+  MCPCatalogConnectResponse
 
 export type McpIntegrationsGetMcpIntegrationData = {
   mcpIntegrationId: string
@@ -12260,6 +12958,38 @@ export type McpIntegrationsDeleteMcpIntegrationData = {
 }
 
 export type McpIntegrationsDeleteMcpIntegrationResponse = void
+
+export type McpIntegrationsUpdateMcpIntegrationToolPoliciesData = {
+  mcpIntegrationId: string
+  requestBody: MCPToolPolicyUpdateRequest
+  workspaceId: string
+}
+
+export type McpIntegrationsUpdateMcpIntegrationToolPoliciesResponse =
+  MCPIntegrationRead
+
+export type McpIntegrationsTestMcpConnectionConfigData = {
+  requestBody: MCPIntegrationTestConnectionRequest
+  workspaceId: string
+}
+
+export type McpIntegrationsTestMcpConnectionConfigResponse =
+  MCPIntegrationTestConnectionResponse
+
+export type McpIntegrationsTestMcpIntegrationConnectionData = {
+  mcpIntegrationId: string
+  workspaceId: string
+}
+
+export type McpIntegrationsTestMcpIntegrationConnectionResponse =
+  MCPIntegrationTestConnectionResponse
+
+export type McpIntegrationsDisconnectMcpIntegrationData = {
+  mcpIntegrationId: string
+  workspaceId: string
+}
+
+export type McpIntegrationsDisconnectMcpIntegrationResponse = void
 
 export type FeatureFlagsGetFeatureFlagsResponse = FeatureFlagsRead
 
@@ -12508,7 +13238,7 @@ export type UsersUsersDeleteUserData = {
 export type UsersUsersDeleteUserResponse = void
 
 export type AuthAuthDatabaseLoginData = {
-  formData: Body_auth_auth_database_login
+  formData: login
 }
 
 export type AuthAuthDatabaseLoginResponse = unknown | void
@@ -12575,8 +13305,6 @@ export type AuthDiscoverAuthMethodData = {
 export type AuthDiscoverAuthMethodResponse = AuthDiscoverResponse
 
 export type PublicCheckHealthResponse = HealthResponse
-
-export type PublicCheckReadyResponse = ReadinessResponse
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
@@ -13531,7 +14259,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_
+        200: WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_
         /**
          * Validation Error
          */
@@ -13764,6 +14492,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: WorkflowDslPublishResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/sync/repositories": {
+    get: {
+      req: WorkflowsListWorkflowRepositoriesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<GitHubAppRepository>
         /**
          * Validation Error
          */
@@ -15686,6 +16429,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/agent/sessions/{session_id}/artifacts/{artifact_type}/{artifact_id}": {
+    delete: {
+      req: AgentSessionsRemoveSessionArtifactData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentSessionArtifactsRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/agent/sessions/{session_id}/messages": {
     post: {
       req: AgentSessionsSendMessageData
@@ -15734,6 +16492,19 @@ export type $OpenApiTs = {
   "/workspaces/{workspace_id}/approvals/{session_id}": {
     post: {
       req: ApprovalsSubmitApprovalsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: ApprovalsDeleteApprovalData
       res: {
         /**
          * Successful Response
@@ -16074,6 +16845,29 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/admin/settings/audit": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PlatformAuditSettingsRead
+      }
+    }
+    patch: {
+      req: AdminUpdateAuditSettingsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PlatformAuditSettingsRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/admin/settings/registry": {
     get: {
       res: {
@@ -16246,6 +17040,19 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
+    delete: {
+      req: AdminDeleteUserData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
   }
   "/admin/users/{user_id}/promote": {
     post: {
@@ -16365,6 +17172,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: Array<tracecat__admin__registry__schemas__RegistryVersionRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/registry/versions/artifacts/backfill": {
+    post: {
+      req: AdminRegistryStartRegistryArtifactsBackfillData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RegistryArtifactsBackfillStartResponse
         /**
          * Validation Error
          */
@@ -18230,6 +19052,51 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/mcp-integrations/catalog": {
+    get: {
+      req: McpIntegrationsListPlatformMcpCatalogData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PlatformMCPCatalogListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/mcp-integrations/catalog/{catalog_slug}/connect": {
+    post: {
+      req: McpIntegrationsConnectPlatformMcpCatalogData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: MCPCatalogConnectResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/mcp-integrations/connect": {
+    post: {
+      req: McpIntegrationsConnectMcpIntegrationData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: MCPCatalogConnectResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}": {
     get: {
       req: McpIntegrationsGetMcpIntegrationData
@@ -18259,6 +19126,66 @@ export type $OpenApiTs = {
     }
     delete: {
       req: McpIntegrationsDeleteMcpIntegrationData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}/tools": {
+    patch: {
+      req: McpIntegrationsUpdateMcpIntegrationToolPoliciesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MCPIntegrationRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/mcp-integrations/test": {
+    post: {
+      req: McpIntegrationsTestMcpConnectionConfigData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MCPIntegrationTestConnectionResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}/test": {
+    post: {
+      req: McpIntegrationsTestMcpIntegrationConnectionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MCPIntegrationTestConnectionResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}/disconnect": {
+    post: {
+      req: McpIntegrationsDisconnectMcpIntegrationData
       res: {
         /**
          * Successful Response
@@ -19052,20 +19979,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: HealthResponse
-      }
-    }
-  }
-  "/ready": {
-    get: {
-      res: {
-        /**
-         * Successful Response
-         */
-        200: ReadinessResponse
-        /**
-         * API startup or platform registry sync is incomplete.
-         */
-        503: ReadinessResponse
       }
     }
   }

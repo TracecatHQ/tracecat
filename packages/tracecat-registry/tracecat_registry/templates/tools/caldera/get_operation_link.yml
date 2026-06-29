@@ -3,7 +3,7 @@ definition:
   title: Get operation link
   description: Retrieve a specific link from a Caldera operation.
   display_group: MITRE Caldera
-  doc_url: https://caldera.readthedocs.io/en/latest/Users/REST-api.html#operations
+  doc_url: https://caldera.readthedocs.io/en/latest/The-REST-API.html
   namespace: tools.caldera
   name: get_operation_link
   secrets:

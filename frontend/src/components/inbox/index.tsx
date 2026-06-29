@@ -1,16 +1,25 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import { useInboxChat } from "@/app/workspaces/[workspaceId]/inbox/layout"
-import type { AgentSessionEntity } from "@/client"
+import type { AgentSessionEntity, InboxGroup } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
+import { InboxHeader } from "@/components/inbox/inbox-header"
+import { RunsTable } from "@/components/inbox/runs-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import type { DateFilterValue, UseInboxFilters } from "@/hooks/use-inbox"
+import { toast } from "@/components/ui/use-toast"
+import {
+  type DateFilterValue,
+  type InboxGroupState,
+  type InboxOrderBy,
+  type UseInboxFilters,
+  useDeleteApproval,
+} from "@/hooks/use-inbox"
 import type { InboxSessionItem } from "@/lib/agents"
-import { ActivityAccordion } from "./activity-accordion"
-import { InboxHeader } from "./inbox-header"
 
 interface ActivityLayoutProps {
   sessions: InboxSessionItem[]
+  groups: Record<InboxGroup, InboxGroupState>
   selectedId: string | null
   onSelect: (id: string | null) => void
   isLoading: boolean
@@ -21,10 +30,14 @@ interface ActivityLayoutProps {
   onLimitChange: (limit: number) => void
   onUpdatedAfterChange: (value: DateFilterValue) => void
   onCreatedAfterChange: (value: DateFilterValue) => void
+  orderBy: InboxOrderBy
+  sort: "asc" | "desc"
+  onSort: (key: InboxOrderBy) => void
 }
 
 export function ActivityLayout({
   sessions,
+  groups,
   selectedId,
   onSelect,
   isLoading,
@@ -35,8 +48,24 @@ export function ActivityLayout({
   onLimitChange,
   onUpdatedAfterChange,
   onCreatedAfterChange,
+  orderBy,
+  sort,
+  onSort,
 }: ActivityLayoutProps) {
   const { setSelectedSession, setChatOpen, registerOnClose } = useInboxChat()
+  const canDeleteApproval = useScopeCheck("agent:delete")
+  const {
+    mutateAsync: deleteApproval,
+    variables,
+    isPending: isDeletePending,
+  } = useDeleteApproval()
+  const deletingId = isDeletePending ? (variables ?? null) : null
+
+  // Always reflects the current selectedId without closing over a stale value.
+  const selectedIdRef = useRef(selectedId)
+  useEffect(() => {
+    selectedIdRef.current = selectedId
+  }, [selectedId])
 
   // Sync selected session with layout context
   const selectedSession = sessions.find((s) => s.id === selectedId) ?? null
@@ -53,6 +82,21 @@ export function ActivityLayout({
 
   const handleSelectItem = (id: string) => {
     onSelect(id)
+  }
+
+  const handleDeleteItem = async (id: string) => {
+    try {
+      await deleteApproval(id)
+      if (selectedIdRef.current === id) {
+        onSelect(null)
+      }
+    } catch {
+      toast({
+        title: "Failed to delete approval",
+        description: "Could not delete this approval. Please try again.",
+        variant: "destructive",
+      })
+    }
   }
 
   if (isLoading) {
@@ -116,10 +160,15 @@ export function ActivityLayout({
         onCreatedAfterChange={onCreatedAfterChange}
       />
       <div className="min-h-0 flex-1">
-        <ActivityAccordion
-          sessions={sessions}
+        <RunsTable
+          groups={groups}
           selectedId={selectedId}
+          deletingId={deletingId ?? null}
           onSelect={handleSelectItem}
+          onDelete={canDeleteApproval ? handleDeleteItem : undefined}
+          orderBy={orderBy}
+          sort={sort}
+          onSort={onSort}
         />
       </div>
     </div>

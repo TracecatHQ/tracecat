@@ -19,8 +19,11 @@ from tracecat.agent.executor.schemas import ToolExecutionResult
 from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.stream.artifacts import artifact_stream_event
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.subagents import ResolvedAgentsConfig
+from tracecat.artifacts.bindings import artifact_side_effects_for_tool_result
+from tracecat.artifacts.resolution import resolve_artifact_side_effects
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ChatMessage
 from tracecat.contexts import ctx_role
@@ -64,6 +67,7 @@ class PendingToolResult(BaseModel):
 
     tool_call_id: str
     tool_name: str
+    tool_input: dict[str, Any] | None = None
     stored_result: StoredObject | None = None
     raw_result: Any = None
     is_error: bool = False
@@ -156,17 +160,30 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                     agents_binding=input.agents_binding,
                 )
 
-            # Reconcile agents_binding for pre-existing sessions: legacy NULL
-            # bindings represent the historical no-subagent runtime shape, and
-            # explicit mismatches would invalidate the SDK history we resume from.
+            # Reconcile agents_binding for pre-existing sessions. Chat-created
+            # sessions may be inserted before the durable workflow resolves the
+            # current preset's subagent bindings, so a fresh session can have a
+            # NULL binding even though this run already has a concrete binding.
+            # Backfill that first-run case. Once an SDK session exists, or the
+            # row forks from a parent SDK history, the binding is part of the
+            # resumable runtime topology and explicit mismatches must continue
+            # to fail.
             if not created:
                 disabled_agents_binding = ResolvedAgentsConfig()
                 requested_agents_binding = (
                     input.agents_binding or disabled_agents_binding
                 )
                 if agent_session.agents_binding is None:
-                    stored_agents_binding = disabled_agents_binding
+                    has_resume_state = (
+                        agent_session.sdk_session_id is not None
+                        or agent_session.parent_session_id is not None
+                    )
                     should_backfill_agents_binding = input.agents_binding is not None
+                    stored_agents_binding = (
+                        requested_agents_binding
+                        if should_backfill_agents_binding and not has_resume_state
+                        else disabled_agents_binding
+                    )
                 else:
                     stored_agents_binding = ResolvedAgentsConfig.model_validate(
                         agent_session.agents_binding
@@ -355,6 +372,41 @@ async def reconcile_tool_results_activity(
                 is_error=result.is_error,
             )
         )
+        artifact_effects = list(
+            artifact_side_effects_for_tool_result(
+                tool_name=result.tool_name,
+                tool_input=pending.tool_input,
+                tool_output=result.result,
+                is_error=result.is_error,
+                tool_call_id=result.tool_call_id,
+            )
+        )
+        if artifact_effects:
+            try:
+                async with AgentSessionService.with_session(role=input.role) as service:
+                    artifact_effects = await resolve_artifact_side_effects(
+                        artifact_effects,
+                        session=service.session,
+                        role=service.role,
+                    )
+                    if artifact_effects:
+                        await service.apply_artifact_side_effects(
+                            input.session_id,
+                            artifact_effects,
+                        )
+            except Exception as e:
+                logger.warning(
+                    "Failed to persist artifact side effects",
+                    session_id=input.session_id,
+                    tool_call_id=result.tool_call_id,
+                    error=str(e),
+                )
+                raise
+
+        for artifact_effect in artifact_effects:
+            await stream.append(
+                artifact_stream_event(artifact_effect.op, artifact_effect.artifact)
+            )
 
     if results:
         async with AgentSessionService.with_session(role=input.role) as service:

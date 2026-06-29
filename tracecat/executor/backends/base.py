@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 from tracecat import config
 from tracecat.dsl.enums import PlatformAction
+from tracecat.executor.action_gateway.config import action_gateway_socket_path
 from tracecat.executor.action_runner import get_action_runner
 from tracecat.executor.schemas import (
     ExecutorActionErrorInfo,
@@ -146,6 +147,7 @@ class ExecutorBackend(ABC):
                 env_vars=env_vars,
                 python_path_dirs=registry_paths,
                 workspace_id=resolved_context.workspace_id,
+                action_gateway_socket=action_gateway_socket_path(),
             )
             return ExecutorResultSuccess(result=result)
         except (
@@ -169,8 +171,8 @@ class ExecutorBackend(ABC):
         role: Role,
     ) -> list[Path] | ExecutorActionErrorInfo:
         """Resolve registry artifact paths for run_python SDK imports."""
-        tarball_uris = await self._get_tarball_uris(input, role)
-        if not tarball_uris:
+        artifact_uris = await self._get_artifact_uris(input, role)
+        if not artifact_uris:
             if config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
                 if local_registry_paths := self._get_run_python_local_registry_paths():
                     return local_registry_paths
@@ -181,7 +183,7 @@ class ExecutorBackend(ABC):
                 )
             else:
                 message = (
-                    "No registry tarballs available for run_python execution. "
+                    "No registry artifacts available for run_python execution. "
                     "Check that the registry is synced and the registry_lock is valid."
                 )
 
@@ -192,7 +194,7 @@ class ExecutorBackend(ABC):
                 filename="base.py",
                 function="_execute_run_python",
             )
-        return await get_action_runner().resolve_registry_paths(tarball_uris)
+        return await get_action_runner().resolve_registry_paths(artifact_uris)
 
     def _get_run_python_local_registry_paths(self) -> list[Path]:
         """Return local registry import roots for run_python local-repository mode."""
@@ -224,12 +226,12 @@ class ExecutorBackend(ABC):
         return paths
 
     @abstractmethod
-    async def _get_tarball_uris(
+    async def _get_artifact_uris(
         self,
         input: RunActionInput,
         role: Role,
     ) -> list[str]:
-        """Get registry tarball URIs for this backend."""
+        """Get registry artifact URIs for this backend."""
         ...
 
     def _build_run_python_env_vars(

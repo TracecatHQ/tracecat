@@ -2,6 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query"
 import {
+  type ChatOnDataCallback,
   type ChatStatus,
   getToolName,
   isToolUIPart,
@@ -86,6 +87,9 @@ import {
   ToolInput,
   ToolOutput,
 } from "@/components/ai-elements/tool"
+import { ChatEmptyHero } from "@/components/chat/chat-empty-hero"
+import { ChatToolsPicker } from "@/components/chat/chat-tools-picker"
+import { SmoothResponse } from "@/components/chat/smooth-response"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { getIcon, ProviderIcon } from "@/components/icons"
 import { JsonViewWithControls } from "@/components/json-viewer"
@@ -108,8 +112,10 @@ import {
   toUIMessage,
   transformMessages,
 } from "@/lib/chat"
-import { useBuilderRegistryActions } from "@/lib/hooks"
+import { useBuilderRegistryActions, useListMcpIntegrations } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
+import type { ChatSurface } from "@/types/chat-surface"
+import { ARTIFACT_DATA_PART_TYPE } from "@/types/workspace-chat-artifacts"
 
 const MAX_TOOL_MENTION_RESULTS = 40
 const AGENT_TOOL_NAMES = new Set(["Agent", "Task"])
@@ -133,6 +139,48 @@ type ToolSuggestion = {
   label: string
   description?: string
   group?: string
+}
+
+function messageHasVisibleParts(message: UIMessage): boolean {
+  return message.parts.some((part) => part.type !== ARTIFACT_DATA_PART_TYPE)
+}
+
+/** Message ids and their part types — compares two transcripts by shape. */
+function transcriptShape(messages: UIMessage[]): string {
+  return messages
+    .map((m) => `${m.id}:${m.parts.map((p) => p.type).join(",")}`)
+    .join("|")
+}
+
+function matchingUserTextPartKeys(
+  messages: UIMessage[],
+  text: string
+): Set<string> {
+  const keys = new Set<string>()
+  for (const message of messages) {
+    if (message.role !== "user") {
+      continue
+    }
+    for (const [partIndex, part] of message.parts.entries()) {
+      if (part.type === "text" && part.text === text) {
+        keys.add(`${message.id}:${partIndex}`)
+      }
+    }
+  }
+  return keys
+}
+
+function hasNewMatchingUserTextPart(
+  messages: UIMessage[],
+  text: string,
+  knownKeys: Set<string>
+): boolean {
+  for (const key of matchingUserTextPartKeys(messages, text)) {
+    if (!knownKeys.has(key)) {
+      return true
+    }
+  }
+  return false
 }
 
 function areToolListsEqual(left: string[], right: string[]): boolean {
@@ -189,8 +237,13 @@ export interface ChatSessionPaneProps {
   className?: string
   placeholder?: string
   onMessagesChange?: (messages: UIMessage[]) => void
+  onData?: ChatOnDataCallback<UIMessage>
+  /** Called whenever the underlying chat transport status changes. */
+  onStatusChange?: (status: ChatStatus) => void
   modelInfo: ModelInfo
   toolsEnabled?: boolean
+  agentAddonsEnabled?: boolean
+  mcpEnabled?: boolean
   /** Autofocus the prompt input when the pane mounts. */
   autoFocusInput?: boolean
   /**
@@ -201,8 +254,14 @@ export interface ChatSessionPaneProps {
    */
   onBeforeSend?: (
     messageText: string,
-    selectedTools?: string[]
+    selectedTools?: string[],
+    selectedMcpIntegrations?: string[]
   ) => Promise<string | null>
+  /**
+   * Render a temporary user message and assistant loading dots while
+   * onBeforeSend is creating a session or fork before the real stream mounts.
+   */
+  optimisticBeforeSend?: boolean
   /**
    * Message to send immediately on mount. Used after forking a session
    * to send the user's message to the newly forked session.
@@ -226,6 +285,14 @@ export interface ChatSessionPaneProps {
    * Optional preset selector rendered in the prompt footer.
    */
   presetSelector?: ChatPresetSelector
+  /** Selects the chat stream projection and surrounding UI surface. */
+  surface?: ChatSurface
+  /**
+   * Reconnect to the live event stream on mount. Defaults to true. Set to
+   * false for terminal sessions whose history is already loaded, to avoid
+   * replaying the last turn on top of the seeded messages.
+   */
+  resume?: boolean
 }
 
 export function ChatSessionPane({
@@ -236,15 +303,22 @@ export function ChatSessionPane({
   className,
   placeholder = "Ask your question...",
   onMessagesChange,
+  onData,
+  onStatusChange,
   modelInfo,
   toolsEnabled = true,
+  agentAddonsEnabled = true,
+  mcpEnabled = false,
   autoFocusInput = false,
   onBeforeSend,
+  optimisticBeforeSend = false,
   pendingMessage,
   onPendingMessageSent,
   inputDisabled = false,
   inputDisabledPlaceholder,
   presetSelector,
+  surface = "regular",
+  resume = true,
 }: ChatSessionPaneProps) {
   const queryClient = useQueryClient()
   const promptInputContainerRef = useRef<HTMLDivElement>(null)
@@ -263,9 +337,20 @@ export function ChatSessionPane({
   const [input, setInput] = useState<string>("")
   const [toolMention, setToolMention] = useState<ToolMentionState>()
   const [selectedTools, setSelectedTools] = useState<string[]>([])
+  const [selectedMcpIntegrations, setSelectedMcpIntegrations] = useState<
+    string[]
+  >([])
+  const [optimisticMessageText, setOptimisticMessageText] = useState<
+    string | null
+  >(null)
+  const optimisticMessageKnownTextPartKeysRef = useRef<Set<string>>(new Set())
   const { updateChat, isUpdating: isUpdatingTools } = useUpdateChat(workspaceId)
   const { registryActions, registryActionsIsLoading } =
     useBuilderRegistryActions()
+  const sessionMcpEnabled = mcpEnabled && entityType === "copilot"
+  const { mcpIntegrations } = useListMcpIntegrations(workspaceId, undefined, {
+    enabled: toolsEnabled && sessionMcpEnabled,
+  })
 
   // Check if this is a legacy read-only session
   const isReadonly = chat ? "is_readonly" in chat && chat.is_readonly : false
@@ -274,13 +359,71 @@ export function ChatSessionPane({
     () => (chat?.messages || []).map(toUIMessage),
     [chat?.messages]
   )
-  const { sendMessage, messages, status, regenerate, lastError, clearError } =
-    useVercelChat({
-      chatId: chat?.id,
-      workspaceId,
-      messages: uiMessages,
-      modelInfo,
-    })
+  const isWorkspaceChat = surface === "workspace-chat"
+  const chatContentCenterClass = isWorkspaceChat
+    ? "mx-auto w-full max-w-[56rem]"
+    : undefined
+  const promptCenterClass = isWorkspaceChat
+    ? "relative mx-auto w-full max-w-[56rem]"
+    : "relative"
+  const promptInputClassName = isWorkspaceChat
+    ? "[&_[data-slot=input-group]]:rounded-2xl [&_[data-slot=input-group]]:border-muted-foreground/25 [&_[data-slot=input-group]]:shadow-none"
+    : undefined
+  const {
+    sendMessage,
+    messages,
+    setMessages,
+    status,
+    regenerate,
+    lastError,
+    clearError,
+  } = useVercelChat({
+    chatId: chat?.id,
+    workspaceId,
+    messages: uiMessages,
+    modelInfo,
+    onData,
+    resume,
+  })
+
+  // useChat seeds `messages` only on mount. Re-seed when the server transcript
+  // *advances* (e.g. an approval resolves), but never on a plain mismatch — post
+  // -stream the live list legitimately leads the not-yet-refetched server copy,
+  // and adopting then would drop the just-streamed turn.
+  const lastServerShapeRef = useRef<string | null>(null)
+  useEffect(() => {
+    const serverShape = transcriptShape(uiMessages)
+    if (lastServerShapeRef.current === null) {
+      lastServerShapeRef.current = serverShape // mount seed; useChat has it
+      return
+    }
+    if (serverShape === lastServerShapeRef.current) return
+    lastServerShapeRef.current = serverShape
+    if (status === "ready") setMessages(uiMessages) // don't clobber a live stream
+  }, [status, uiMessages, setMessages])
+
+  useEffect(() => {
+    onStatusChange?.(status)
+  }, [status, onStatusChange])
+
+  const hasOptimisticMessageInStream = useMemo(
+    () =>
+      optimisticMessageText
+        ? hasNewMatchingUserTextPart(
+            messages,
+            optimisticMessageText,
+            optimisticMessageKnownTextPartKeysRef.current
+          )
+        : false,
+    [messages, optimisticMessageText]
+  )
+
+  useEffect(() => {
+    if (hasOptimisticMessageInStream) {
+      optimisticMessageKnownTextPartKeysRef.current = new Set()
+      setOptimisticMessageText(null)
+    }
+  }, [hasOptimisticMessageInStream])
 
   // Track pending message sends to avoid duplicate sends
   const pendingMessageSentRef = useRef<string | null>(null)
@@ -329,7 +472,9 @@ export function ChatSessionPane({
     return false
   }, [status, messages])
 
-  const isInputDisabled = isReadonly || inputDisabled || !canSubmit
+  const isOptimisticBeforeSendPending = optimisticMessageText !== null
+  const isInputDisabled =
+    isReadonly || inputDisabled || isOptimisticBeforeSendPending || !canSubmit
   const isInputDisabledRef = useRef(isInputDisabled)
   isInputDisabledRef.current = isInputDisabled
   const wasInputDisabledRef = useRef(isInputDisabled)
@@ -519,6 +664,92 @@ export function ChatSessionPane({
       void queuePersistTools(next)
     },
     [chat, isReadonly, queuePersistTools]
+  )
+
+  const persistMcpChainRef = useRef<Promise<void>>(Promise.resolve())
+  const selectedMcpIntegrationsRef = useRef<string[]>([])
+  const pendingPersistedMcpIntegrationsRef = useRef<string[] | null>(null)
+  const syncedMcpChatIdRef = useRef<string | undefined>(undefined)
+
+  useEffect(() => {
+    selectedMcpIntegrationsRef.current = selectedMcpIntegrations
+  }, [selectedMcpIntegrations])
+
+  useEffect(() => {
+    const nextChatId = chat?.id
+    const nextMcpIntegrations = chat?.mcp_integrations ?? []
+
+    if (syncedMcpChatIdRef.current !== nextChatId) {
+      syncedMcpChatIdRef.current = nextChatId
+      pendingPersistedMcpIntegrationsRef.current = null
+      selectedMcpIntegrationsRef.current = nextMcpIntegrations
+      setSelectedMcpIntegrations(nextMcpIntegrations)
+      return
+    }
+
+    const pendingMcpIntegrations = pendingPersistedMcpIntegrationsRef.current
+    if (pendingMcpIntegrations) {
+      if (areToolListsEqual(nextMcpIntegrations, pendingMcpIntegrations)) {
+        pendingPersistedMcpIntegrationsRef.current = null
+      } else {
+        // Keep the optimistic MCP selection visible until the invalidated chat
+        // query catches up, matching the selected tools behavior above.
+        return
+      }
+    }
+
+    if (
+      !areToolListsEqual(
+        selectedMcpIntegrationsRef.current,
+        nextMcpIntegrations
+      )
+    ) {
+      selectedMcpIntegrationsRef.current = nextMcpIntegrations
+      setSelectedMcpIntegrations(nextMcpIntegrations)
+    }
+  }, [chat?.id, chat?.mcp_integrations])
+
+  const commitSelectedMcpIntegrations = useCallback(
+    (next: string[]) => {
+      if (areToolListsEqual(selectedMcpIntegrationsRef.current, next)) {
+        return
+      }
+
+      selectedMcpIntegrationsRef.current = next
+      setSelectedMcpIntegrations(next)
+      if (!chat || isReadonly) {
+        pendingPersistedMcpIntegrationsRef.current = null
+        return
+      }
+      const chatId = chat.id
+      pendingPersistedMcpIntegrationsRef.current = next
+      persistMcpChainRef.current = persistMcpChainRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          try {
+            await updateChat({
+              chatId,
+              update: { mcp_integrations: next },
+            })
+          } catch (error) {
+            if (
+              pendingPersistedMcpIntegrationsRef.current &&
+              areToolListsEqual(
+                pendingPersistedMcpIntegrationsRef.current,
+                next
+              )
+            ) {
+              pendingPersistedMcpIntegrationsRef.current = null
+            }
+            toast({
+              title: "Failed to update MCP integrations",
+              description: parseChatError(error),
+              variant: "destructive",
+            })
+          }
+        })
+    },
+    [chat, isReadonly, updateChat]
   )
 
   const addSelectedTool = useCallback(
@@ -837,11 +1068,26 @@ export function ChatSessionPane({
     const messageText = message.text || ""
 
     if (onBeforeSend) {
-      const result = await onBeforeSend(messageText, selectedTools)
+      if (optimisticBeforeSend) {
+        optimisticMessageKnownTextPartKeysRef.current =
+          matchingUserTextPartKeys(messages, messageText)
+        setOptimisticMessageText(messageText)
+        setInput("")
+      }
+
+      const result = await onBeforeSend(
+        messageText,
+        selectedTools,
+        selectedMcpIntegrations
+      )
       // Only clear input if onBeforeSend succeeded (non-null)
       // If null, the action was cancelled and user keeps their draft
       if (result !== null) {
         setInput("")
+      } else if (optimisticBeforeSend) {
+        optimisticMessageKnownTextPartKeysRef.current = new Set()
+        setOptimisticMessageText(null)
+        setInput(messageText)
       }
       // Parent will handle switching sessions and sending via pendingMessage
       return
@@ -856,6 +1102,7 @@ export function ChatSessionPane({
 
     try {
       await persistToolsChainRef.current.catch(() => undefined)
+      await persistMcpChainRef.current.catch(() => undefined)
       clearError()
       sendMessage({
         text: messageText,
@@ -866,28 +1113,210 @@ export function ChatSessionPane({
     }
   }
 
+  const promptComposer = (
+    <div ref={promptInputContainerRef} className={promptCenterClass}>
+      {mentionEnabled && toolMention && (
+        <div className="absolute inset-x-0 bottom-full z-30 mb-2">
+          <div className="overflow-hidden rounded-md border bg-popover shadow-md">
+            {registryActionsIsLoading ? (
+              <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+                <Loader2 className="size-3 animate-spin" />
+                Loading tools...
+              </div>
+            ) : null}
+            {!registryActionsIsLoading &&
+              filteredToolSuggestions.length === 0 && (
+                <div className="px-3 py-2 text-xs text-muted-foreground">
+                  No tools found for
+                  {` "${toolMention.query}"`}.
+                </div>
+              )}
+            {!registryActionsIsLoading &&
+              filteredToolSuggestions.length > 0 && (
+                <div className="max-h-64 overflow-y-auto p-1">
+                  {filteredToolSuggestions.map((tool, index) => {
+                    const isActive = toolMention.activeIndex === index
+                    const isSelected = selectedTools.includes(tool.value)
+
+                    return (
+                      <button
+                        key={tool.value}
+                        type="button"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => handleSelectMentionTool(tool.value)}
+                        className={cn(
+                          "flex w-full items-start justify-between gap-2 rounded-sm px-2 py-2 text-left",
+                          isActive && "bg-accent"
+                        )}
+                      >
+                        <div className="flex min-w-0 items-start gap-2">
+                          {getIcon(tool.value, {
+                            className: "mt-0.5 size-6 shrink-0",
+                          })}
+                          <div className="min-w-0">
+                            <p className="truncate text-xs font-medium text-foreground">
+                              {tool.label}
+                            </p>
+                            <p className="truncate text-[11px] text-muted-foreground">
+                              {tool.value}
+                            </p>
+                          </div>
+                        </div>
+                        {isSelected ? (
+                          <CheckIcon className="mt-0.5 size-3.5 text-muted-foreground" />
+                        ) : null}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+          </div>
+        </div>
+      )}
+      <PromptInput onSubmit={handleSubmit} className={promptInputClassName}>
+        {/* Workspace chat surfaces attached tools via the Tools popover, so the
+            header chip row is reserved for the other chat surfaces. */}
+        {toolsEnabled && !isWorkspaceChat && selectedToolBadges.length > 0 && (
+          <PromptInputHeader className="gap-1.5 px-3 pt-3">
+            {selectedToolBadges.map((tool) => (
+              <Badge
+                key={tool.value}
+                variant="secondary"
+                className="h-7 gap-1.5 px-2.5 text-xs"
+              >
+                <span className="inline-flex items-center justify-center text-foreground">
+                  {tool.icon}
+                </span>
+                <span className="truncate">{tool.label}</span>
+                <button
+                  type="button"
+                  className="inline-flex items-center text-muted-foreground hover:text-foreground"
+                  aria-label={`Remove ${tool.label}`}
+                  onClick={() => removeSelectedTool(tool.value)}
+                  disabled={
+                    isUpdatingTools ||
+                    isReadonly ||
+                    inputDisabled ||
+                    !toolsEnabled
+                  }
+                >
+                  <XIcon className="size-3.5" />
+                </button>
+              </Badge>
+            ))}
+          </PromptInputHeader>
+        )}
+        <PromptInputBody>
+          <PromptInputTextarea
+            onChange={handleInputChange}
+            onKeyDown={handleInputKeyDown}
+            onFocus={handleInputFocus}
+            onBlur={handleInputBlur}
+            placeholder={
+              isReadonly
+                ? "This is a legacy session (read-only)"
+                : (inputDisabled || isOptimisticBeforeSendPending) &&
+                    inputDisabledPlaceholder
+                  ? inputDisabledPlaceholder
+                  : placeholder
+            }
+            value={input}
+            autoFocus={autoFocusInput && !isReadonly && !inputDisabled}
+            disabled={isInputDisabled}
+          />
+        </PromptInputBody>
+        <PromptInputFooter>
+          <PromptInputTools>
+            {presetSelector && !isReadonly && (
+              <PromptPresetSelector
+                selector={presetSelector}
+                disabled={inputDisabled || !canSubmit}
+              />
+            )}
+            {toolsEnabled && !isReadonly && (
+              <ChatToolsPicker
+                registryActions={registryActions ?? []}
+                selectedTools={selectedTools}
+                onToolsChange={commitSelectedTools}
+                mcpIntegrations={mcpIntegrations ?? []}
+                selectedMcpIntegrations={selectedMcpIntegrations}
+                onMcpChange={commitSelectedMcpIntegrations}
+                agentAddonsEnabled={agentAddonsEnabled}
+                mcpEnabled={sessionMcpEnabled}
+                disabled={inputDisabled || isUpdatingTools}
+                surface={surface}
+                mcpIntegrationsHref={`/workspaces/${workspaceId}/mcp-servers`}
+              />
+            )}
+            {!isReadonly ? (
+              <PromptModelIndicator modelInfo={modelInfo} />
+            ) : null}
+          </PromptInputTools>
+          <PromptInputSubmit
+            disabled={isInputDisabled || !input.trim()}
+            status={status}
+            className="text-muted-foreground/80"
+          />
+        </PromptInputFooter>
+      </PromptInput>
+    </div>
+  )
+
+  const showEmptyHero =
+    isWorkspaceChat &&
+    !isReadonly &&
+    !lastError &&
+    !optimisticMessageText &&
+    !isWaitingForResponse &&
+    !transformedMessages.some(messageHasVisibleParts)
+
+  if (showEmptyHero) {
+    return (
+      <div className={cn("flex h-full min-h-0 flex-col", className)}>
+        <div
+          className="flex min-h-0 flex-1 flex-col"
+          onPointerDownCapture={handlePromptPointerDownCapture}
+        >
+          <ChatEmptyHero>{promptComposer}</ChatEmptyHero>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className={cn("flex h-full min-h-0 flex-col", className)}>
-      <div className="flex flex-1 min-h-0 flex-col">
-        <Conversation className="flex-1">
-          <ConversationContent>
-            {lastError && (
-              <Alert variant="destructive" className="mb-4">
-                <AlertTitle>Unable to continue with this model</AlertTitle>
-                <AlertDescription>{lastError}</AlertDescription>
-              </Alert>
-            )}
-            {transformedMessages.map(({ id, role, parts }) => {
-              // Track whether this message is the latest entry so we can keep its actions visible.
-              const isLastMessage = id === messages[messages.length - 1].id
-              const sourceUrlParts = parts?.filter(
-                (part) => part.type === "source-url"
-              )
-              return (
-                <div key={id} className="group relative">
-                  {role === "assistant" &&
-                    sourceUrlParts &&
-                    sourceUrlParts.length > 0 && (
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="flex min-h-0 flex-1 flex-col">
+          <Conversation
+            className="flex-1"
+            resize={status === "streaming" ? "instant" : "smooth"}
+          >
+            <ConversationContent className={chatContentCenterClass}>
+              {lastError && (
+                <Alert variant="destructive" className="mb-4">
+                  <AlertTitle>Unable to continue with this model</AlertTitle>
+                  <AlertDescription>{lastError}</AlertDescription>
+                </Alert>
+              )}
+              {optimisticMessageText ? (
+                <OptimisticPendingMessage text={optimisticMessageText} />
+              ) : null}
+              {transformedMessages.map(({ id, role, parts }) => {
+                const visibleParts = parts?.filter(
+                  (part) => part.type !== ARTIFACT_DATA_PART_TYPE
+                )
+                if (!visibleParts?.length) {
+                  return null
+                }
+
+                // Track whether this message is the latest entry so we can keep its actions visible.
+                const isLastMessage = id === messages[messages.length - 1].id
+                const sourceUrlParts = visibleParts.filter(
+                  (part) => part.type === "source-url"
+                )
+                return (
+                  <div key={id} className="group relative">
+                    {role === "assistant" && sourceUrlParts.length > 0 && (
                       <Sources>
                         <SourcesTrigger count={sourceUrlParts.length} />
                         {sourceUrlParts.map((part, partIdx) => (
@@ -901,22 +1330,19 @@ export function ChatSessionPane({
                       </Sources>
                     )}
 
-                  {parts?.map((part, partIdx) => (
-                    <MemoizedMessagePart
-                      key={`${id}-${part.type}-${partIdx}`}
-                      part={part}
-                      partIdx={partIdx}
-                      id={id}
-                      role={role}
-                      status={status}
-                      isLastMessage={isLastMessage}
-                      onSubmitApprovals={handleSubmitApprovals}
-                    />
-                  ))}
-                  {role === "assistant" &&
-                    parts &&
-                    parts.length > 0 &&
-                    !isWaitingForResponse && (
+                    {visibleParts.map((part, partIdx) => (
+                      <MemoizedMessagePart
+                        key={`${id}-${part.type}-${partIdx}`}
+                        part={part}
+                        partIdx={partIdx}
+                        id={id}
+                        role={role}
+                        status={status}
+                        isLastMessage={isLastMessage}
+                        onSubmitApprovals={handleSubmitApprovals}
+                      />
+                    ))}
+                    {role === "assistant" && !isWaitingForResponse && (
                       // Render response actions for assistant messages and reveal them on hover for older messages.
                       <Actions
                         className={cn(
@@ -940,157 +1366,53 @@ export function ChatSessionPane({
                         )}
                       </Actions>
                     )}
-                </div>
-              )
-            })}
-            {isWaitingForResponse && (
-              <motion.div
-                className="mt-5"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.3, ease: "easeInOut" }}
-              >
-                <Dots />
-              </motion.div>
-            )}
-          </ConversationContent>
-          <ConversationScrollButton />
-        </Conversation>
-      </div>
-      <div
-        className="relative px-3 pb-3"
-        onPointerDownCapture={handlePromptPointerDownCapture}
-        ref={promptInputContainerRef}
-      >
-        {mentionEnabled && toolMention && (
-          <div className="absolute inset-x-3 bottom-full z-30 mb-2">
-            <div className="overflow-hidden rounded-md border bg-popover shadow-md">
-              {registryActionsIsLoading ? (
-                <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
-                  <Loader2 className="size-3 animate-spin" />
-                  Loading tools...
-                </div>
-              ) : null}
-              {!registryActionsIsLoading &&
-                filteredToolSuggestions.length === 0 && (
-                  <div className="px-3 py-2 text-xs text-muted-foreground">
-                    No tools found for
-                    {` "${toolMention.query}"`}.
                   </div>
-                )}
-              {!registryActionsIsLoading &&
-                filteredToolSuggestions.length > 0 && (
-                  <div className="max-h-64 overflow-y-auto p-1">
-                    {filteredToolSuggestions.map((tool, index) => {
-                      const isActive = toolMention.activeIndex === index
-                      const isSelected = selectedTools.includes(tool.value)
-
-                      return (
-                        <button
-                          key={tool.value}
-                          type="button"
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => handleSelectMentionTool(tool.value)}
-                          className={cn(
-                            "flex w-full items-start justify-between gap-2 rounded-sm px-2 py-2 text-left",
-                            isActive && "bg-accent"
-                          )}
-                        >
-                          <div className="flex min-w-0 items-start gap-2">
-                            {getIcon(tool.value, {
-                              className: "mt-0.5 size-6 shrink-0",
-                            })}
-                            <div className="min-w-0">
-                              <p className="truncate text-xs font-medium text-foreground">
-                                {tool.label}
-                              </p>
-                              <p className="truncate text-[11px] text-muted-foreground">
-                                {tool.value}
-                              </p>
-                            </div>
-                          </div>
-                          {isSelected ? (
-                            <CheckIcon className="mt-0.5 size-3.5 text-muted-foreground" />
-                          ) : null}
-                        </button>
-                      )
-                    })}
-                  </div>
-                )}
-            </div>
-          </div>
-        )}
-        <PromptInput onSubmit={handleSubmit}>
-          {toolsEnabled && selectedToolBadges.length > 0 && (
-            <PromptInputHeader className="gap-1.5 px-3 pt-3">
-              {selectedToolBadges.map((tool) => (
-                <Badge
-                  key={tool.value}
-                  variant="secondary"
-                  className="h-7 gap-1.5 px-2.5 text-xs"
+                )
+              })}
+              {isWaitingForResponse && (
+                <motion.div
+                  className="mt-5"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.3, ease: "easeInOut" }}
                 >
-                  <span className="inline-flex items-center justify-center text-foreground">
-                    {tool.icon}
-                  </span>
-                  <span className="truncate">{tool.label}</span>
-                  <button
-                    type="button"
-                    className="inline-flex items-center text-muted-foreground hover:text-foreground"
-                    aria-label={`Remove ${tool.label}`}
-                    onClick={() => removeSelectedTool(tool.value)}
-                    disabled={
-                      isUpdatingTools ||
-                      isReadonly ||
-                      inputDisabled ||
-                      !toolsEnabled
-                    }
-                  >
-                    <XIcon className="size-3.5" />
-                  </button>
-                </Badge>
-              ))}
-            </PromptInputHeader>
-          )}
-          <PromptInputBody>
-            <PromptInputTextarea
-              onChange={handleInputChange}
-              onKeyDown={handleInputKeyDown}
-              onFocus={handleInputFocus}
-              onBlur={handleInputBlur}
-              placeholder={
-                isReadonly
-                  ? "This is a legacy session (read-only)"
-                  : inputDisabled && inputDisabledPlaceholder
-                    ? inputDisabledPlaceholder
-                    : placeholder
-              }
-              value={input}
-              autoFocus={autoFocusInput && !isReadonly && !inputDisabled}
-              disabled={isInputDisabled}
-            />
-          </PromptInputBody>
-          <PromptInputFooter>
-            <PromptInputTools>
-              {presetSelector && !isReadonly && (
-                <PromptPresetSelector
-                  selector={presetSelector}
-                  disabled={inputDisabled || !canSubmit}
-                />
+                  <Dots />
+                </motion.div>
               )}
-              {!isReadonly ? (
-                <PromptModelIndicator modelInfo={modelInfo} />
-              ) : null}
-            </PromptInputTools>
-            <PromptInputSubmit
-              disabled={isInputDisabled || !input.trim()}
-              status={status}
-              className="text-muted-foreground/80"
-            />
-          </PromptInputFooter>
-        </PromptInput>
+            </ConversationContent>
+            <ConversationScrollButton />
+          </Conversation>
+        </div>
+        <div
+          className="px-3 pb-3"
+          onPointerDownCapture={handlePromptPointerDownCapture}
+        >
+          {promptComposer}
+        </div>
       </div>
     </div>
+  )
+}
+
+function OptimisticPendingMessage({ text }: { text: string }) {
+  return (
+    <>
+      <Message from="user">
+        <MessageContent variant="flat">
+          <Response>{text}</Response>
+        </MessageContent>
+      </Message>
+      <motion.div
+        className="mt-5"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.3, ease: "easeInOut" }}
+      >
+        <Dots />
+      </motion.div>
+    </>
   )
 }
 
@@ -1326,7 +1648,10 @@ export function MessagePart({
     return (
       <Message key={`${id}-${partIdx}`} from={role}>
         <MessageContent variant="flat">
-          <Response>{part.text}</Response>
+          <SmoothResponse
+            text={part.text}
+            animate={status === "streaming" && isLastMessage}
+          />
         </MessageContent>
       </Message>
     )

@@ -122,15 +122,8 @@ module "ecs" {
   user_auth_secret_arn    = var.user_auth_secret_arn
 
   # SAML SSO
-  saml_idp_metadata_url_arn  = var.saml_idp_metadata_url_arn
-  saml_allow_unsolicited     = var.saml_allow_unsolicited
-  saml_authn_requests_signed = var.saml_authn_requests_signed
-  saml_signed_assertions     = var.saml_signed_assertions
-  saml_signed_responses      = var.saml_signed_responses
-  saml_verify_ssl_entity     = var.saml_verify_ssl_entity
-  saml_verify_ssl_metadata   = var.saml_verify_ssl_metadata
-  saml_ca_certs_arn          = var.saml_ca_certs_arn
-  saml_metadata_cert_arn     = var.saml_metadata_cert_arn
+  saml_idp_metadata_url_arn = var.saml_idp_metadata_url_arn
+  saml_allow_unsolicited    = var.saml_allow_unsolicited
 
   # Temporal UI authentication
   temporal_auth_provider_url      = var.temporal_auth_provider_url

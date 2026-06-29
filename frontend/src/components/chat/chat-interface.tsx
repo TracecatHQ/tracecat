@@ -1,14 +1,25 @@
 "use client"
 
-import { ChevronDown, Plus } from "lucide-react"
+import { useQueryClient } from "@tanstack/react-query"
+import type { ChatOnDataCallback, ChatStatus, UIMessage } from "ai"
+import { ArrowRight, ChevronDown, Plus } from "lucide-react"
 import Link from "next/link"
-import { useEffect, useState } from "react"
+import { type ReactNode, useEffect, useState } from "react"
 import type {
   AgentPresetRead,
   AgentPresetReadMinimal,
   AgentSessionEntity,
   AgentSessionsGetSessionVercelResponse,
 } from "@/client"
+import {
+  PromptInput,
+  PromptInputBody,
+  PromptInputFooter,
+  PromptInputSubmit,
+  PromptInputTextarea,
+  PromptInputTools,
+} from "@/components/ai-elements/prompt-input"
+import { ChatEmptyHero } from "@/components/chat/chat-empty-hero"
 import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { NoMessages } from "@/components/chat/messages"
@@ -46,13 +57,29 @@ import { getApiErrorDetail } from "@/lib/errors"
 import { useChatReadiness } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
+import type { ChatSurface } from "@/types/chat-surface"
 
 interface ChatInterfaceProps {
   chatId?: string
   entityType: AgentSessionEntity
   entityId: string
+  title?: string
   onChatSelect?: (chatId: string) => void
   bodyClassName?: string
+  placeholder?: string
+  surface?: ChatSurface
+  /** Called on every chat message update; lets parents derive side-panel state. */
+  onMessagesChange?: (messages: UIMessage[]) => void
+  /** Called for data stream parts as soon as the chat transport receives them. */
+  onData?: ChatOnDataCallback<UIMessage>
+  /** Called whenever the chat transport status changes. */
+  onStatusChange?: (status: ChatStatus) => void
+  /** Called when the selected chat payload changes. */
+  onChatChange?: (
+    chat: AgentSessionsGetSessionVercelResponse | undefined
+  ) => void
+  /** Extra slot rendered before the New-chat button in the header. */
+  headerActions?: ReactNode
 }
 
 type PendingFirstMessage = {
@@ -65,14 +92,25 @@ type PresetConfigLike = Pick<
   "model_name" | "model_provider" | "base_url"
 >
 
+const NOOP = () => {}
+
 export function ChatInterface({
   chatId,
   entityType,
   entityId,
+  title,
   onChatSelect,
   bodyClassName,
+  placeholder,
+  surface = "regular",
+  onMessagesChange,
+  onData,
+  onStatusChange,
+  onChatChange,
+  headerActions,
 }: ChatInterfaceProps) {
   const workspaceId = useWorkspaceId()
+  const queryClient = useQueryClient()
   const { hasEntitlement } = useEntitlements()
   const agentAddonsEnabled = hasEntitlement("agent_addons")
   const [selectedChatId, setSelectedChatId] = useState<string | undefined>(
@@ -80,7 +118,7 @@ export function ChatInterface({
   )
   const [newChatDialogOpen, setNewChatDialogOpen] = useState(false)
   const [autoCreateAttempted, setAutoCreateAttempted] = useState(false)
-  const [isCaseDraftChat, setIsCaseDraftChat] = useState(false)
+  const [isDraftChat, setIsDraftChat] = useState(false)
   const [pendingFirstMessage, setPendingFirstMessage] =
     useState<PendingFirstMessage | null>(null)
 
@@ -88,7 +126,7 @@ export function ChatInterface({
   useEffect(() => {
     setSelectedChatId(chatId)
     if (chatId) {
-      setIsCaseDraftChat(false)
+      setIsDraftChat(false)
     }
   }, [chatId])
 
@@ -107,8 +145,32 @@ export function ChatInterface({
   })
   const { updateChat, isUpdating } = useUpdateChat(workspaceId)
 
+  useEffect(() => {
+    onChatChange?.(selectedChatId ? chat : undefined)
+  }, [chat, onChatChange, selectedChatId])
+
   const presetsEnabled =
     agentAddonsEnabled && (entityType === "case" || entityType === "copilot")
+  const sessionMcpEnabled = agentAddonsEnabled && entityType === "copilot"
+  const inWorkspaceChat = surface === "workspace-chat"
+  // Surfaces that defer server-side session creation until the first message,
+  // showing a draft composer instead of an eagerly-created empty session.
+  const deferSessionCreation = entityType === "case" || inWorkspaceChat
+
+  // Mirror the active workspace-chat session into the URL so sessions are
+  // deep-linkable (/chat/:sessionId). Uses replaceState to avoid remounting the
+  // chat view, keeping the optimistic first-message flow intact.
+  useEffect(() => {
+    if (!inWorkspaceChat || typeof window === "undefined") {
+      return
+    }
+    const base = `/workspaces/${workspaceId}/chat`
+    const nextPath = selectedChatId ? `${base}/${selectedChatId}` : base
+    if (window.location.pathname !== nextPath) {
+      const nextUrl = `${nextPath}${window.location.search}`
+      window.history.replaceState(window.history.state, "", nextUrl)
+    }
+  }, [inWorkspaceChat, workspaceId, selectedChatId])
 
   const {
     presets: presetOptions,
@@ -139,27 +201,28 @@ export function ChatInterface({
 
   useEffect(() => {
     setAutoCreateAttempted(false)
-    setIsCaseDraftChat(false)
+    setIsDraftChat(false)
     setPendingFirstMessage(null)
   }, [entityType, entityId])
 
   // Auto-select the first chat when available.
-  // For non-case entities we preserve the legacy behavior of creating a chat
-  // automatically when none exists.
+  // Workspace chat always opens a fresh draft, so it never auto-selects.
+  // Surfaces that defer session creation skip the legacy auto-create path.
   useEffect(() => {
     if (!chats || chatsLoading || createChatPending) return
 
     if (
       chats.length > 0 &&
       !selectedChatId &&
-      !(entityType === "case" && isCaseDraftChat)
+      !inWorkspaceChat &&
+      !(entityType === "case" && isDraftChat)
     ) {
       // Select first existing chat
       const firstChatId = chats[0].id
       setSelectedChatId(firstChatId)
       onChatSelect?.(firstChatId)
     } else if (
-      entityType !== "case" &&
+      !deferSessionCreation &&
       chats.length === 0 &&
       !selectedChatId &&
       !autoCreateAttempted
@@ -189,14 +252,16 @@ export function ChatInterface({
     entityType,
     entityId,
     autoCreateAttempted,
-    isCaseDraftChat,
+    isDraftChat,
+    inWorkspaceChat,
+    deferSessionCreation,
   ])
 
   const handleCreateChat = async () => {
     setNewChatDialogOpen(false)
 
-    if (entityType === "case") {
-      setIsCaseDraftChat(true)
+    if (deferSessionCreation) {
+      setIsDraftChat(true)
       setPendingFirstMessage(null)
       setSelectedChatId(undefined)
       return
@@ -215,25 +280,35 @@ export function ChatInterface({
     }
   }
 
-  const handleCreateCaseChatOnFirstSend = async (
+  const handleCreateSessionOnFirstSend = async (
     messageText: string,
-    selectedTools?: string[]
+    selectedTools?: string[],
+    selectedMcpIntegrations?: string[]
   ) => {
-    if (entityType !== "case" || createChatPending) {
+    if (!deferSessionCreation || createChatPending) {
       return null
     }
 
     try {
       const newChat = await createChat({
         title: `Chat ${(chats?.length || 0) + 1}`,
-        entity_type: "case",
+        entity_type: entityType,
         entity_id: entityId,
         tools: selectedTools,
+        mcp_integrations: selectedMcpIntegrations,
         agent_preset_id: effectivePresetId,
         agent_preset_version_id: selectedPresetVersionId,
       })
 
-      setIsCaseDraftChat(false)
+      // Prime the vercel chat cache with the freshly created (empty) session so
+      // the session view mounts and sends the pending message immediately,
+      // rather than waiting on a fetch of a session we already know is empty.
+      queryClient.setQueryData<AgentSessionsGetSessionVercelResponse>(
+        ["chat", newChat.id, workspaceId, "vercel"],
+        { ...newChat, messages: [] }
+      )
+
+      setIsDraftChat(false)
       setSelectedChatId(newChat.id)
       setPendingFirstMessage({
         chatId: newChat.id,
@@ -242,7 +317,7 @@ export function ChatInterface({
       onChatSelect?.(newChat.id)
       return newChat.id
     } catch (error) {
-      console.error("Failed to create case chat on first message:", error)
+      console.error("Failed to create chat on first message:", error)
       toast({
         title: "Failed to create chat",
         description: parseChatError(error),
@@ -253,7 +328,7 @@ export function ChatInterface({
   }
 
   const handleSelectChat = (chatId: string) => {
-    setIsCaseDraftChat(false)
+    setIsDraftChat(false)
     setSelectedChatId(chatId)
     onChatSelect?.(chatId)
   }
@@ -261,7 +336,7 @@ export function ChatInterface({
   // Show loading while chats are loading or being auto-created
   if (
     chatsLoading ||
-    (entityType !== "case" && chats && chats.length === 0 && createChatPending)
+    (!deferSessionCreation && chats && chats.length === 0 && createChatPending)
   ) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -278,13 +353,45 @@ export function ChatInterface({
     )
   }
 
+  // Workspace chat exposes tool + MCP selection so users can add extras
+  // alongside the always-on platform defaults. Presets still own their tools.
+  const toolsEnabled = !activePreset
+  const draftMode =
+    deferSessionCreation &&
+    (inWorkspaceChat || isDraftChat || chats?.length === 0)
+  const presetSelector = presetsEnabled
+    ? {
+        label: presetMenuLabel,
+        presets: presetOptions,
+        presetsError,
+        presetsIsLoading,
+        selectedPresetId: effectivePresetId,
+        disabled: presetMenuDisabled,
+        showSpinner: showPresetSpinner,
+        noPresetDescription: "Use workspace default case agent instructions.",
+        onSelect: (presetId: string | null) =>
+          void handlePresetChange(presetId),
+      }
+    : undefined
+  const pendingMessageText =
+    selectedChatId && pendingFirstMessage?.chatId === selectedChatId
+      ? pendingFirstMessage.text
+      : null
+  const handlePendingMessageSent = () =>
+    setPendingFirstMessage((current) =>
+      current?.chatId === selectedChatId ? null : current
+    )
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Chat Header */}
       <div className="px-4 py-2">
-        <div className="flex items-center justify-between">
+        <div className="flex w-full items-center justify-between">
           {/* Unified New-chat / History dropdown */}
           <div className="flex items-center gap-2">
+            {title ? (
+              <h1 className="min-w-0 truncate text-sm font-medium">{title}</h1>
+            ) : null}
             <ChatHistoryDropdown
               chats={chats}
               isLoading={chatsLoading}
@@ -292,12 +399,11 @@ export function ChatInterface({
               selectedChatId={selectedChatId}
               onSelectChat={handleSelectChat}
             />
-
-            {/* (left-side plus removed) */}
           </div>
 
           {/* Right-side actions */}
           <div className="flex items-center gap-1">
+            {headerActions}
             {/* New chat icon button with tooltip */}
             <AlertDialog
               open={newChatDialogOpen}
@@ -324,8 +430,8 @@ export function ChatInterface({
                 <AlertDialogHeader>
                   <AlertDialogTitle>Start a new chat?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    {entityType === "case"
-                      ? "This opens a fresh case chat draft. A new conversation will be created after you send your first message."
+                    {deferSessionCreation
+                      ? "This starts a fresh chat. A new conversation is created after you send your first message."
                       : "This will create a new conversation. Your current chat will remain accessible from the conversations menu."}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
@@ -348,45 +454,27 @@ export function ChatInterface({
           workspaceId={workspaceId}
           entityType={entityType}
           entityId={entityId}
+          placeholder={placeholder ?? `Ask about this ${entityType}...`}
           chat={chat}
           chatLoading={chatLoading}
           chatError={chatError}
           selectedPreset={activePreset}
           selectedPresetConfigError={selectedPresetConfigError}
-          toolsEnabled={!activePreset}
-          draftMode={
-            entityType === "case" && (isCaseDraftChat || chats?.length === 0)
-          }
-          presetSelector={
-            presetsEnabled
-              ? {
-                  label: presetMenuLabel,
-                  presets: presetOptions,
-                  presetsError,
-                  presetsIsLoading,
-                  selectedPresetId: effectivePresetId,
-                  disabled: presetMenuDisabled,
-                  showSpinner: showPresetSpinner,
-                  noPresetDescription:
-                    "Use workspace default case agent instructions.",
-                  onSelect: (presetId) => void handlePresetChange(presetId),
-                }
-              : undefined
-          }
+          toolsEnabled={toolsEnabled}
+          agentAddonsEnabled={agentAddonsEnabled}
+          mcpEnabled={sessionMcpEnabled}
+          draftMode={draftMode}
+          presetSelector={presetSelector}
           onCreateSessionBeforeSend={
-            entityType === "case" ? handleCreateCaseChatOnFirstSend : undefined
+            deferSessionCreation ? handleCreateSessionOnFirstSend : undefined
           }
           draftInputDisabled={createChatPending}
-          pendingMessage={
-            selectedChatId && pendingFirstMessage?.chatId === selectedChatId
-              ? pendingFirstMessage.text
-              : null
-          }
-          onPendingMessageSent={() =>
-            setPendingFirstMessage((current) =>
-              current?.chatId === selectedChatId ? null : current
-            )
-          }
+          pendingMessage={pendingMessageText}
+          onPendingMessageSent={handlePendingMessageSent}
+          surface={surface}
+          onMessagesChange={onMessagesChange}
+          onData={onData}
+          onStatusChange={onStatusChange}
         />
       </div>
     </div>
@@ -398,12 +486,15 @@ interface ChatBodyProps {
   workspaceId: string
   entityType: AgentSessionEntity
   entityId: string
+  placeholder: string
   chat?: AgentSessionsGetSessionVercelResponse
   chatLoading: boolean
   chatError: unknown
   selectedPreset?: PresetConfigLike
   selectedPresetConfigError?: unknown
   toolsEnabled: boolean
+  agentAddonsEnabled: boolean
+  mcpEnabled: boolean
   draftMode: boolean
   presetSelector?: {
     label: string
@@ -418,11 +509,16 @@ interface ChatBodyProps {
   }
   onCreateSessionBeforeSend?: (
     messageText: string,
-    selectedTools?: string[]
+    selectedTools?: string[],
+    selectedMcpIntegrations?: string[]
   ) => Promise<string | null>
   draftInputDisabled: boolean
   pendingMessage: string | null
   onPendingMessageSent: () => void
+  surface: ChatSurface
+  onMessagesChange?: (messages: UIMessage[]) => void
+  onData?: ChatOnDataCallback<UIMessage>
+  onStatusChange?: (status: ChatStatus) => void
 }
 
 function ChatBody({
@@ -430,18 +526,25 @@ function ChatBody({
   workspaceId,
   entityType,
   entityId,
+  placeholder,
   chat,
   chatLoading,
   chatError,
   selectedPreset,
   selectedPresetConfigError,
   toolsEnabled,
+  agentAddonsEnabled,
+  mcpEnabled,
   draftMode,
   presetSelector,
   onCreateSessionBeforeSend,
   draftInputDisabled,
   pendingMessage,
   onPendingMessageSent,
+  surface,
+  onMessagesChange,
+  onData,
+  onStatusChange,
 }: ChatBodyProps) {
   const {
     ready: chatReady,
@@ -494,25 +597,31 @@ function ChatBody({
   // Render active chat session when ready
   if (!chatReady || !modelInfo) {
     // Render configuration required state
+    if (surface === "workspace-chat") {
+      return (
+        <ChatEmptyHero>
+          <NoDefaultModelComposer />
+        </ChatEmptyHero>
+      )
+    }
+
     return (
       <>
         <NoMessages />
         <Link
           href="/organization/settings/agent"
-          className="block rounded-md border border-border bg-gradient-to-r from-muted/30 to-muted/50 p-4 backdrop-blur-sm transition-all duration-200 hover:from-muted/40 hover:to-muted/60"
+          className="block rounded-md border border-border bg-muted/40 p-4 transition-colors hover:bg-muted/60"
         >
-          <div className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="flex-1">
-                <h4 className="mb-1 text-sm font-medium text-foreground">
-                  No default model
-                </h4>
-                <p className="text-xs text-muted-foreground">
-                  Select a default model in agent settings to enable chat.
-                </p>
-              </div>
-              <ChevronDown className="size-4 rotate-[-90deg] text-muted-foreground" />
+          <div className="flex items-center gap-3">
+            <div className="flex-1">
+              <h4 className="mb-1 text-sm font-medium text-foreground">
+                No default model
+              </h4>
+              <p className="text-xs text-muted-foreground">
+                Select a default model in agent settings to enable chat.
+              </p>
             </div>
+            <ChevronDown className="size-4 rotate-[-90deg] text-muted-foreground" />
           </div>
         </Link>
       </>
@@ -533,14 +642,21 @@ function ChatBody({
         workspaceId={workspaceId}
         entityType={entityType}
         entityId={entityId}
-        placeholder={`Ask about this ${entityType}...`}
+        placeholder={placeholder}
         className="flex-1 min-h-0"
         modelInfo={modelInfo}
         toolsEnabled={toolsEnabled}
+        agentAddonsEnabled={agentAddonsEnabled}
+        mcpEnabled={mcpEnabled}
         presetSelector={presetSelector}
         onBeforeSend={onCreateSessionBeforeSend}
+        optimisticBeforeSend
         inputDisabled={draftInputDisabled}
         inputDisabledPlaceholder="Creating chat..."
+        surface={surface}
+        onMessagesChange={onMessagesChange}
+        onData={onData}
+        onStatusChange={onStatusChange}
       />
     )
   }
@@ -559,13 +675,64 @@ function ChatBody({
       workspaceId={workspaceId}
       entityType={entityType}
       entityId={entityId}
-      placeholder={`Ask about this ${entityType}...`}
+      placeholder={placeholder}
       className="flex-1 min-h-0"
       modelInfo={modelInfo}
       toolsEnabled={toolsEnabled}
+      agentAddonsEnabled={agentAddonsEnabled}
+      mcpEnabled={mcpEnabled}
       presetSelector={presetSelector}
       pendingMessage={pendingMessage ?? undefined}
       onPendingMessageSent={onPendingMessageSent}
+      surface={surface}
+      onMessagesChange={onMessagesChange}
+      onData={onData}
+      onStatusChange={onStatusChange}
     />
+  )
+}
+
+/**
+ * Disabled chat composer shown when no default model is configured. Mirrors the
+ * real prompt input but is non-interactive, with a CTA linking to agent
+ * settings where a default model can be selected.
+ */
+function NoDefaultModelComposer() {
+  return (
+    <div className="space-y-3">
+      <PromptInput
+        onSubmit={NOOP}
+        aria-disabled="true"
+        className="pointer-events-none select-none [&_[data-slot=input-group]]:rounded-2xl [&_[data-slot=input-group]]:border-muted-foreground/25 [&_[data-slot=input-group]]:shadow-none"
+      >
+        <PromptInputBody>
+          <PromptInputTextarea
+            placeholder="Select a default model to start chatting..."
+            readOnly
+            tabIndex={-1}
+            aria-disabled="true"
+            className="cursor-default"
+          />
+        </PromptInputBody>
+        <PromptInputFooter>
+          <PromptInputTools />
+          <PromptInputSubmit
+            disabled
+            aria-disabled="true"
+            className="text-muted-foreground/80"
+          />
+        </PromptInputFooter>
+      </PromptInput>
+      <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+        <span>No default model configured.</span>
+        <Link
+          href="/organization/settings/agent"
+          className="inline-flex items-center gap-0.5 font-medium text-foreground underline-offset-4 hover:underline"
+        >
+          Select one in agent settings
+          <ArrowRight className="size-3" />
+        </Link>
+      </div>
+    </div>
   )
 }

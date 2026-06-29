@@ -38,6 +38,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.ext.hybrid import hybrid_property
+from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -1178,6 +1179,12 @@ class Webhook(WorkspaceModel):
         default=list,
         nullable=False,
         server_default=text("'[]'::jsonb"),
+    )
+    include_headers: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        server_default=text("false"),
     )
 
     workflow: Mapped[Workflow] = relationship(back_populates="webhook")
@@ -2808,6 +2815,12 @@ class AgentSession(WorkspaceModel):
         nullable=True,
         doc="The tools available to the agent for this session",
     )
+    mcp_integrations: Mapped[list[str] | None] = mapped_column(
+        JSONB,
+        default=None,
+        nullable=True,
+        doc="MCP integration IDs attached to this session",
+    )
     agent_preset_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
         ForeignKey("agent_preset.id", ondelete="SET NULL"),
@@ -2849,6 +2862,22 @@ class AgentSession(WorkspaceModel):
         String(128),
         nullable=True,
         doc="Last processed Redis stream ID - used to resume streaming from correct position",
+    )
+    work_dir_snapshot: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc=(
+            "Current durable agent work-dir snapshot pointer. Stores blob bucket/key, "
+            "archive hash, state hash, sizes, and entry counts for hydrating the "
+            "latest filesystem state."
+        ),
+    )
+    artifacts: Mapped[list[dict[str, Any]]] = mapped_column(
+        MutableList.as_mutable(JSONB),
+        nullable=False,
+        default=list,
+        server_default=text("'[]'::jsonb"),
+        doc="Durable artifact panel projection for artifact-capable sessions",
     )
     # Parent session for forked sessions (approval continuations)
     parent_session_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -4326,6 +4355,10 @@ class OAuthIntegration(TimestampMixin, Base):
         Text,
         nullable=True,
     )
+    token_endpoint_auth_method: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+    )
 
     # Relationships
     user: Mapped[User | None] = relationship("User")
@@ -4449,6 +4482,9 @@ class MCPIntegration(TimestampMixin, Base):
         UniqueConstraint(
             "workspace_id", "slug", name="uq_mcp_integration_workspace_slug"
         ),
+        Index(
+            "ix_mcp_integration_workspace_catalog_slug", "workspace_id", "catalog_slug"
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -4480,6 +4516,11 @@ class MCPIntegration(TimestampMixin, Base):
         String,
         nullable=False,
         doc="Slug of the MCP integration",
+    )
+    catalog_slug: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+        doc="Platform MCP catalog slug this integration was created from",
     )
     # Server type: 'http' (HTTP/SSE) or 'stdio' (stdio)
     server_type: Mapped[str] = mapped_column(
@@ -4532,6 +4573,13 @@ class MCPIntegration(TimestampMixin, Base):
         Integer,
         nullable=True,
         doc="Timeout in seconds (HTTP timeout for http type, process timeout for stdio type)",
+    )
+    tools: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Tools discovered at the last successful connection verification "
+        "([{name, description, enabled, requires_approval, status}]); null means "
+        "the server is unverified",
     )
 
     oauth_integration: Mapped[OAuthIntegration | None] = relationship(
@@ -5130,6 +5178,7 @@ class UserRoleAssignment(Base):
         # Partial unique index for org-wide assignments (workspace_id IS NULL)
         Index(
             "ix_user_role_assignment_user_org_unique",
+            "organization_id",
             "user_id",
             unique=True,
             postgresql_where=text("workspace_id IS NULL"),

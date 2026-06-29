@@ -289,7 +289,7 @@ export function MultiTagCommandInput({
                   return (
                     <CommandItem
                       key={suggestion.id}
-                      value={suggestion.value}
+                      value={`${index}`}
                       onSelect={() => handleSelect(suggestion)}
                       onMouseDown={(e) => e.preventDefault()}
                       data-suggestion-index={index}

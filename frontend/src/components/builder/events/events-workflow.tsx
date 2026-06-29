@@ -62,15 +62,105 @@ import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-export function WorkflowEventsHeader({
+/** Run duration as a short human label (e.g. "8s", "1m 12s"), or null. */
+function formatRunDuration(
+  startISO: string | null | undefined,
+  closeISO: string | null | undefined
+): string | null {
+  if (!startISO || !closeISO) {
+    return null
+  }
+  const start = new Date(startISO).getTime()
+  const close = new Date(closeISO).getTime()
+  if (Number.isNaN(start) || Number.isNaN(close) || close < start) {
+    return null
+  }
+  const totalSeconds = Math.round((close - start) / 1000)
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`
+  }
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  if (minutes < 60) {
+    return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`
+  }
+  const hours = Math.floor(minutes / 60)
+  const remMinutes = minutes % 60
+  return remMinutes ? `${hours}h ${remMinutes}m` : `${hours}h`
+}
+
+/**
+ * Single-row run summary for space-constrained surfaces (e.g. the embedded
+ * workflow artifact): status badge on the left, trigger / duration / start
+ * time muted on the right. Drops the scheduled/start/end breakdown.
+ */
+function CompactWorkflowEventsHeader({
   execution,
 }: {
   execution: WorkflowExecutionReadCompact
+}) {
+  const startTime = execution.execution_time ?? execution.start_time
+  const duration = formatRunDuration(startTime, execution.close_time)
+  const timeLabel = startTime ? new Date(startTime).toLocaleTimeString() : null
+  const detail = execution.status === "RUNNING" ? "Running…" : duration
+
+  return (
+    <div className="flex items-center justify-between gap-3 px-4 py-2.5 text-xs">
+      <Badge
+        variant="secondary"
+        className="flex items-center gap-1 text-foreground/70 hover:cursor-default"
+      >
+        {getExecutionStatusIcon(execution.status, "size-3.5")}
+        {undoSlugify(execution.status.toLowerCase())}
+      </Badge>
+      <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
+        <Tooltip delayDuration={500}>
+          <TooltipTrigger asChild>
+            <span className="flex items-center gap-1">
+              {getTriggerTypeIcon(execution.trigger_type)}
+              <span>
+                {execution.trigger_type.charAt(0).toUpperCase() +
+                  execution.trigger_type.slice(1)}
+              </span>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="font-mono tracking-tight">
+            {execution.id}
+          </TooltipContent>
+        </Tooltip>
+        {detail && (
+          <>
+            <span aria-hidden>·</span>
+            <span>{detail}</span>
+          </>
+        )}
+        {timeLabel && (
+          <>
+            <span aria-hidden>·</span>
+            <span className="truncate">{timeLabel}</span>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+export function WorkflowEventsHeader({
+  execution,
+  embedded = false,
+}: {
+  execution: WorkflowExecutionReadCompact
+  embedded?: boolean
 }) {
   const { setSelectedNodeId } = useWorkflowBuilder()
   const workspaceId = useWorkspaceId()
   const parentExec = execution.parent_wf_exec_id
   const parentExecId = parentExec ? executionId(parentExec) : null
+
+  if (embedded) {
+    return <CompactWorkflowEventsHeader execution={execution} />
+  }
+
   return (
     <div className="space-y-2 p-4 text-xs text-muted-foreground">
       {/* Trigger type */}

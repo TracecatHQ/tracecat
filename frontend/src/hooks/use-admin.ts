@@ -28,7 +28,9 @@ import {
   adminDeleteOrganization,
   adminDeleteOrganizationDomain,
   adminDeleteTier,
+  adminDeleteUser,
   adminDemoteFromSuperuser,
+  adminGetAuditSettings,
   adminGetOrganization,
   adminGetOrganizationInvitationToken,
   adminGetOrgTier,
@@ -47,10 +49,12 @@ import {
   adminRegistryGetRegistryStatus,
   adminRegistryListRegistryVersions,
   adminRegistryPromoteRegistryVersion,
+  adminRegistryStartRegistryArtifactsBackfill,
   adminRegistrySyncAllRepositories,
   adminRegistrySyncRepository,
   adminRevokeOrganizationInvitation,
   adminSyncOrgRepository,
+  adminUpdateAuditSettings,
   adminUpdateOrganization,
   adminUpdateOrganizationDomain,
   adminUpdateOrgTier,
@@ -65,7 +69,11 @@ import {
   type OrgDomainUpdate,
   type tracecat_ee__admin__organizations__schemas__OrgRead as OrgRead,
   type OrgUpdate,
+  type PlatformAuditSettingsRead,
+  type PlatformAuditSettingsUpdate,
   type PlatformRegistrySettingsUpdate,
+  type RegistryArtifactsBackfillStartRequest,
+  type RegistryArtifactsBackfillStartResponse,
   type TierCreate,
   type TierRead,
   type TierUpdate,
@@ -415,6 +423,20 @@ export function useAdminUsers() {
         queryClient.invalidateQueries({ queryKey: ["admin", "users"] }),
     })
 
+  const { mutateAsync: deleteUser, isPending: deletePending } = useMutation<
+    void,
+    Error,
+    string
+  >({
+    mutationFn: async (userId) => {
+      await adminDeleteUser({ userId })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "users"] })
+      queryClient.invalidateQueries({ queryKey: ["sessions"] })
+    },
+  })
+
   return {
     users,
     isLoading,
@@ -425,6 +447,8 @@ export function useAdminUsers() {
     promotePending,
     demoteFromSuperuser,
     demotePending,
+    deleteUser,
+    deletePending,
   }
 }
 
@@ -759,6 +783,21 @@ export function useAdminRegistrySync() {
       },
     })
 
+  const {
+    mutateAsync: backfillArtifacts,
+    isPending: backfillArtifactsPending,
+  } = useMutation<
+    RegistryArtifactsBackfillStartResponse,
+    Error,
+    RegistryArtifactsBackfillStartRequest
+  >({
+    mutationFn: (data) =>
+      adminRegistryStartRegistryArtifactsBackfill({ requestBody: data }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "registry"] })
+    },
+  })
+
   return {
     syncAllRepositories,
     syncAllPending,
@@ -766,6 +805,8 @@ export function useAdminRegistrySync() {
     syncPending,
     promoteVersion,
     promotePending,
+    backfillArtifacts,
+    backfillArtifactsPending,
   }
 }
 
@@ -799,6 +840,45 @@ export function useAdminRegistrySettings() {
     error,
     updateSettings,
     updatePending,
+  }
+}
+
+export function useAdminAuditSettings() {
+  const queryClient = useQueryClient()
+
+  const {
+    data: auditSettings,
+    isLoading: auditSettingsIsLoading,
+    error: auditSettingsError,
+  } = useQuery<PlatformAuditSettingsRead, Error>({
+    queryKey: ["admin", "audit", "settings"],
+    queryFn: adminGetAuditSettings,
+  })
+
+  const {
+    mutateAsync: updateAuditSettings,
+    isPending: updateAuditSettingsIsPending,
+    error: updateAuditSettingsError,
+  } = useMutation<
+    PlatformAuditSettingsRead,
+    Error,
+    { requestBody: PlatformAuditSettingsUpdate }
+  >({
+    mutationFn: ({ requestBody }) => adminUpdateAuditSettings({ requestBody }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["admin", "audit", "settings"],
+      })
+    },
+  })
+
+  return {
+    auditSettings,
+    auditSettingsIsLoading,
+    auditSettingsError,
+    updateAuditSettings,
+    updateAuditSettingsIsPending,
+    updateAuditSettingsError,
   }
 }
 

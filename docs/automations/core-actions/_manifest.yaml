@@ -114,6 +114,7 @@ pages:
       - id: core.duckdb.execute_sql
         examples:
           - sql-duckdb-query
+          - sql-duckdb-s3
 
   - slug: request-actions/ssh
     title: SSH

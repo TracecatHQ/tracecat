@@ -49,6 +49,30 @@ def bound_env[T: int | float](
     return bounded
 
 
+def env_bool(var: str, *, default: bool) -> bool:
+    """Read a boolean env var with explicit tokens and code-defined defaults.
+
+    Missing, empty, or whitespace-only values return default. Non-empty values
+    must be one of 1, true, yes, on, 0, false, no, or off.
+
+    Deployment files must not pass boolean env vars through as blank/defaultless
+    values. Keep Compose entries as `${VAR:-default}` so `.env` overrides still
+    work; keep `.env.example` entries explicit, never blank.
+    `tests/unit/test_config.py` enforces this.
+    """
+    raw_value = os.environ.get(var)
+    if raw_value is None or not raw_value.strip():
+        return default
+
+    value = raw_value.strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+
+    raise ValueError(f"{var} must be a boolean value (got {raw_value!r})")
+
+
 class RLSMode(StrEnum):
     """Runtime mode for application-level RLS session behavior."""
 
@@ -129,6 +153,11 @@ TRACECAT__EXECUTOR_QUEUE = os.environ.get(
 )
 """Task queue for the ExecutorWorker (Temporal activity queue)."""
 
+TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY = int(
+    os.environ.get("TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY") or 4
+)
+"""Maximum concurrent iterations for a single executor-side action for_each loop."""
+
 TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT = int(
     os.environ.get("TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT") or 60
 )
@@ -149,9 +178,9 @@ TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR = os.environ.get(
 )
 """Directory for caching extracted registry tarballs in subprocess mode. Uses /tmp for ephemeral storage."""
 
-TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED = os.environ.get(
-    "TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED", "true"
-).lower() in ("true", "1")
+TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED = env_bool(
+    "TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED", default=True
+)
 """Prefer SquashFS registry artifacts when sidecars and mount support are available."""
 
 TRACECAT__AGENT_SKILL_CACHE_DIR = os.environ.get(
@@ -239,9 +268,9 @@ TRACECAT__AUTH_TYPES = _parse_auth_types()
 """The set of allowed auth types on the platform. If an auth type is not in this set,
 it cannot be enabled."""
 
-TRACECAT__AUTH_REQUIRE_EMAIL_VERIFICATION = os.environ.get(
-    "TRACECAT__AUTH_REQUIRE_EMAIL_VERIFICATION", ""
-).lower() in ("true", "1")  # Default to False
+TRACECAT__AUTH_REQUIRE_EMAIL_VERIFICATION = env_bool(
+    "TRACECAT__AUTH_REQUIRE_EMAIL_VERIFICATION", default=False
+)
 SESSION_EXPIRE_TIME_SECONDS = int(
     os.environ.get("SESSION_EXPIRE_TIME_SECONDS") or 86400 * 7
 )  # 7 days
@@ -299,34 +328,21 @@ TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN = os.environ.get(
 
 # SAML SSO
 
+
 SAML_PUBLIC_ACS_URL = f"{TRACECAT__PUBLIC_APP_URL}/auth/saml/acs"
 
 SAML_IDP_METADATA_URL = os.environ.get("SAML_IDP_METADATA_URL")
 """Sets the default SAML metadata URL for cold start."""
 
-SAML_ALLOW_UNSOLICITED = (
-    os.environ.get("SAML_ALLOW_UNSOLICITED", "false").lower() == "true"
-)
+SAML_ALLOW_UNSOLICITED = env_bool("SAML_ALLOW_UNSOLICITED", default=False)
 """Whether to allow unsolicited SAML responses (default false)
 Do not set to true if authn requests are signed are false
 """
 
-SAML_AUTHN_REQUESTS_SIGNED = (
-    os.environ.get("SAML_AUTHN_REQUESTS_SIGNED", "false").lower() == "true"
-)
+SAML_AUTHN_REQUESTS_SIGNED = env_bool("SAML_AUTHN_REQUESTS_SIGNED", default=False)
 """Whether to require signed SAML authentication requests. (default false)
 Do not set to true if authn requests are signed are false
 """
-
-SAML_SIGNED_ASSERTIONS = (
-    os.environ.get("SAML_SIGNED_ASSERTIONS", "true").lower() == "true"
-)
-"""Whether to require signed SAML assertions."""
-
-SAML_SIGNED_RESPONSES = (
-    os.environ.get("SAML_SIGNED_RESPONSES", "true").lower() == "true"
-)
-"""Whether to require signed SAML responses."""
 
 SAML_ACCEPTED_TIME_DIFF = int(os.environ.get("SAML_ACCEPTED_TIME_DIFF") or 3)
 """The time difference in seconds for SAML authentication."""
@@ -336,14 +352,10 @@ XMLSEC_BINARY_PATH = os.environ.get("XMLSEC_BINARY_PATH", "/usr/bin/xmlsec1")
 SAML_CA_CERTS = os.environ.get("SAML_CA_CERTS")
 """Base64 encoded CA certificates for validating self-signed certificates."""
 
-SAML_VERIFY_SSL_ENTITY = (
-    os.environ.get("SAML_VERIFY_SSL_ENTITY", "true").lower() == "true"
-)
+SAML_VERIFY_SSL_ENTITY = env_bool("SAML_VERIFY_SSL_ENTITY", default=True)
 """Whether to verify SSL certificates for general SAML entity operations."""
 
-SAML_VERIFY_SSL_METADATA = (
-    os.environ.get("SAML_VERIFY_SSL_METADATA", "true").lower() == "true"
-)
+SAML_VERIFY_SSL_METADATA = env_bool("SAML_VERIFY_SSL_METADATA", default=True)
 """Whether to verify SSL certificates for SAML metadata operations."""
 
 # === CORS config === #
@@ -374,13 +386,13 @@ TEMPORAL__METRICS_PORT = os.environ.get("TEMPORAL__METRICS_PORT")
 """Port for the Temporal metrics server."""
 
 
-TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION = os.environ.get(
-    "TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION", "true"
-).lower() in ("true", "1")
+TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION = env_bool(
+    "TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION", default=True
+)
 """Disable eager activity execution for Temporal workflows."""
-TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED = os.environ.get(
-    "TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED", "false"
-).lower() in ("true", "1")
+TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED = env_bool(
+    "TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED", default=False
+)
 """Enable application-layer encryption for Temporal payloads."""
 
 TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING = os.environ.get(
@@ -408,10 +420,9 @@ SENTRY_ENVIRONMENT_OVERRIDE = os.environ.get("SENTRY_ENVIRONMENT_OVERRIDE")
 """Override the Sentry environment. If not set, defaults to '{app_env}-{temporal_namespace}'."""
 
 # === Secrets manager config === #
-TRACECAT__UNSAFE_DISABLE_SM_MASKING = os.environ.get(
-    "TRACECAT__UNSAFE_DISABLE_SM_MASKING",
-    "0",  # Default to False
-).lower() in ("1", "true")
+TRACECAT__UNSAFE_DISABLE_SM_MASKING = env_bool(
+    "TRACECAT__UNSAFE_DISABLE_SM_MASKING", default=False
+)
 """Disable masking of secrets in the secrets manager.
     WARNING: This is only be used for testing and debugging purposes during
     development and should never be enabled in production.
@@ -451,6 +462,12 @@ TRACECAT__BLOB_STORAGE_BUCKET_SKILLS = os.environ.get(
 TRACECAT__BLOB_STORAGE_ENDPOINT = os.environ.get("TRACECAT__BLOB_STORAGE_ENDPOINT", "")
 """Endpoint URL for blob storage."""
 
+TRACECAT__BLOB_STORAGE_MAX_ATTEMPTS = int(
+    os.environ.get("TRACECAT__BLOB_STORAGE_MAX_ATTEMPTS") or 5
+)
+"""Total blob storage request attempts (initial try + retries) for transient
+S3/MinIO failures. Uses botocore's "standard" retry mode with backoff."""
+
 TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = os.environ.get(
     "TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT", None
 )
@@ -461,9 +478,8 @@ TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY = int(
 )
 """Default expiry time for presigned URLs in seconds (default: 10 seconds for immediate use)."""
 
-TRACECAT__DISABLE_PRESIGNED_URL_IP_CHECKING = (
-    os.environ.get("TRACECAT__DISABLE_PRESIGNED_URL_IP_CHECKING", "true").lower()
-    == "true"
+TRACECAT__DISABLE_PRESIGNED_URL_IP_CHECKING = env_bool(
+    "TRACECAT__DISABLE_PRESIGNED_URL_IP_CHECKING", default=True
 )
 """Disable client IP checking for presigned URLs. Set to false for production with public S3, true for local MinIO (default: true)."""
 
@@ -472,6 +488,11 @@ TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW = os.environ.get(
     "TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW", "tracecat-workflow"
 )
 """Bucket for externalized workflow data (action results, triggers, etc.)."""
+
+TRACECAT__BLOB_STORAGE_BUCKET_AGENT = os.environ.get(
+    "TRACECAT__BLOB_STORAGE_BUCKET_AGENT", "tracecat-agent"
+)
+"""Bucket for durable agent filesystem snapshots."""
 
 TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS = int(
     os.environ.get("TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS") or 30
@@ -484,9 +505,9 @@ Default: 30 days (matches Temporal Cloud workflow history retention).
 """
 
 # === Result Externalization Config === #
-TRACECAT__RESULT_EXTERNALIZATION_ENABLED = os.environ.get(
-    "TRACECAT__RESULT_EXTERNALIZATION_ENABLED", "true"
-).lower() in ("true", "1")
+TRACECAT__RESULT_EXTERNALIZATION_ENABLED = env_bool(
+    "TRACECAT__RESULT_EXTERNALIZATION_ENABLED", default=True
+)
 """Enable externalization of large action results and triggers to S3/MinIO.
 
 When enabled, payloads exceeding the threshold are stored in blob storage with
@@ -506,9 +527,9 @@ Default: 128 KB.
 """
 
 # === Collection Manifests Config === #
-TRACECAT__COLLECTION_MANIFESTS_ENABLED = os.environ.get(
-    "TRACECAT__COLLECTION_MANIFESTS_ENABLED", "false"
-).lower() in ("true", "1")
+TRACECAT__COLLECTION_MANIFESTS_ENABLED = env_bool(
+    "TRACECAT__COLLECTION_MANIFESTS_ENABLED", default=False
+)
 """Feature gate for CollectionObject emission.
 
 When enabled, large collections (above thresholds) are stored as chunked manifests
@@ -532,9 +553,9 @@ TRACECAT__COLLECTION_INLINE_MAX_BYTES = int(
 """Maximum bytes before using CollectionObject. Default: 256 KB."""
 
 # === Local registry === #
-TRACECAT__LOCAL_REPOSITORY_ENABLED = os.getenv(
-    "TRACECAT__LOCAL_REPOSITORY_ENABLED", "0"
-).lower() in ("1", "true")
+TRACECAT__LOCAL_REPOSITORY_ENABLED = env_bool(
+    "TRACECAT__LOCAL_REPOSITORY_ENABLED", default=False
+)
 TRACECAT__LOCAL_REPOSITORY_PATH = os.getenv("TRACECAT__LOCAL_REPOSITORY_PATH")
 TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH = "/app/local_registry"
 
@@ -558,6 +579,22 @@ TRACECAT__SANDBOX_CACHE_DIR = os.environ.get(
 )
 """Base directory for sandbox caching (packages, uv cache)."""
 
+TRACECAT__AGENT_FS_CACHE_DIR = os.environ.get(
+    "TRACECAT__AGENT_FS_CACHE_DIR",
+    f"{TRACECAT__SANDBOX_CACHE_DIR}/agent-fs",
+)
+"""Worker-local staging directory for agent filesystem snapshot archives."""
+
+TRACECAT__AGENT_FS_MAX_UNCOMPRESSED_BYTES = int(
+    os.environ.get("TRACECAT__AGENT_FS_MAX_UNCOMPRESSED_BYTES") or 1024 * 1024 * 1024
+)
+"""Maximum uncompressed bytes allowed in one agent filesystem snapshot."""
+
+TRACECAT__AGENT_FS_MAX_FILE_COUNT = int(
+    os.environ.get("TRACECAT__AGENT_FS_MAX_FILE_COUNT") or 50_000
+)
+"""Maximum number of regular files allowed in one agent filesystem snapshot."""
+
 TRACECAT__SANDBOX_DEFAULT_TIMEOUT = int(
     os.environ.get("TRACECAT__SANDBOX_DEFAULT_TIMEOUT") or 300
 )
@@ -580,9 +617,7 @@ TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS = [
 ]
 """Additional PyPI index URLs (comma-separated). Used as fallback sources for package installation."""
 
-TRACECAT__DISABLE_NSJAIL = os.environ.get(
-    "TRACECAT__DISABLE_NSJAIL", "true"
-).lower() in ("true", "1")
+TRACECAT__DISABLE_NSJAIL = env_bool("TRACECAT__DISABLE_NSJAIL", default=True)
 """Disable nsjail sandbox and use the unsafe PID executor instead.
 
 When True (default), uses UnsafePidExecutor with best-effort PID namespace
@@ -623,9 +658,9 @@ TRACECAT__EXECUTOR_CLIENT_TIMEOUT = float(
 """Default timeout in seconds for executor client operations (default: 300s)."""
 
 # === Action Gateway === #
-TRACECAT__ACTION_GATEWAY_ENABLED = (
-    os.environ.get("TRACECAT__ACTION_GATEWAY_ENABLED") or "true"
-).lower() in ("true", "1")
+TRACECAT__ACTION_GATEWAY_ENABLED = env_bool(
+    "TRACECAT__ACTION_GATEWAY_ENABLED", default=True
+)
 """Enable the executor-local action gateway for action SDK calls."""
 
 TRACECAT__ACTION_GATEWAY_SOCKET = (
@@ -635,9 +670,9 @@ TRACECAT__ACTION_GATEWAY_SOCKET = (
 """Unix socket path for the executor-local action gateway."""
 
 # === Action Executor Sandbox === #
-TRACECAT__EXECUTOR_SANDBOX_ENABLED = os.environ.get(
-    "TRACECAT__EXECUTOR_SANDBOX_ENABLED", "false"
-).lower() in ("true", "1")
+TRACECAT__EXECUTOR_SANDBOX_ENABLED = env_bool(
+    "TRACECAT__EXECUTOR_SANDBOX_ENABLED", default=False
+)
 """Enable nsjail sandbox for action execution in subprocess mode.
 
 When True, actions run in an nsjail sandbox with:
@@ -667,9 +702,9 @@ TRACECAT__EXECUTOR_SITE_PACKAGES_DIR = os.environ.get(
 If not set, will be auto-detected from a known dependency's location.
 """
 
-TRACECAT__EXECUTOR_POOL_METRICS_ENABLED = os.environ.get(
-    "TRACECAT__EXECUTOR_POOL_METRICS_ENABLED", "false"
-).lower() in ("true", "1")
+TRACECAT__EXECUTOR_POOL_METRICS_ENABLED = env_bool(
+    "TRACECAT__EXECUTOR_POOL_METRICS_ENABLED", default=False
+)
 """Enable periodic metrics emission for the worker pool.
 
 When True, the pool emits metrics every 10 seconds including:
@@ -686,6 +721,17 @@ TRACECAT__AGENT_SANDBOX_TIMEOUT = int(
     os.environ.get("TRACECAT__AGENT_SANDBOX_TIMEOUT") or 1800
 )
 """Default timeout for agent sandbox execution in seconds (30 minutes)."""
+
+TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT = int(
+    os.environ.get("TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT")
+    or (TRACECAT__AGENT_SANDBOX_TIMEOUT + 60)
+)
+"""Agent executor worker drain timeout in seconds.
+
+Defaults to the agent sandbox timeout plus a small buffer so planned worker
+shutdowns can let active agent activities finish instead of interrupting the
+sandbox.
+"""
 
 TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(
     os.environ.get("TRACECAT__AGENT_SANDBOX_MEMORY_MB") or 4096
@@ -775,9 +821,7 @@ This queue is reserved for `run_agent_activity` so agent runtime capacity can be
 provisioned independently from agent workflow/control-plane work."""
 
 # === Rate Limiting === #
-TRACECAT__RATE_LIMIT_ENABLED = (
-    os.environ.get("TRACECAT__RATE_LIMIT_ENABLED", "true").lower() == "true"
-)
+TRACECAT__RATE_LIMIT_ENABLED = env_bool("TRACECAT__RATE_LIMIT_ENABLED", default=True)
 """Whether rate limiting is enabled for the executor service."""
 
 TRACECAT__RATE_LIMIT_RATE = float(os.environ.get("TRACECAT__RATE_LIMIT_RATE") or 40.0)
@@ -793,13 +837,11 @@ TRACECAT__RATE_LIMIT_WINDOW_SIZE = int(
 )
 """The time window in seconds for rate limiting."""
 
-TRACECAT__RATE_LIMIT_BY_IP = (
-    os.environ.get("TRACECAT__RATE_LIMIT_BY_IP", "true").lower() == "true"
-)
+TRACECAT__RATE_LIMIT_BY_IP = env_bool("TRACECAT__RATE_LIMIT_BY_IP", default=True)
 """Whether to rate limit by client IP."""
 
-TRACECAT__RATE_LIMIT_BY_ENDPOINT = (
-    os.environ.get("TRACECAT__RATE_LIMIT_BY_ENDPOINT", "true").lower() == "true"
+TRACECAT__RATE_LIMIT_BY_ENDPOINT = env_bool(
+    "TRACECAT__RATE_LIMIT_BY_ENDPOINT", default=True
 )
 """Whether to rate limit by endpoint."""
 
@@ -878,9 +920,9 @@ TRACECAT__LIMIT_TABLE_DOWNLOAD_DEFAULT = TRACECAT__LIMIT_TABLE_DOWNLOAD_MAX
 """Default row count for internal table download."""
 
 # === Context Compression === #
-TRACECAT__CONTEXT_COMPRESSION_ENABLED = os.environ.get(
-    "TRACECAT__CONTEXT_COMPRESSION_ENABLED", "false"
-).lower() in ("true", "1")
+TRACECAT__CONTEXT_COMPRESSION_ENABLED = env_bool(
+    "TRACECAT__CONTEXT_COMPRESSION_ENABLED", default=False
+)
 """Enable compression of large action results in workflow contexts. Defaults to False."""
 
 TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB = int(
@@ -911,8 +953,8 @@ REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
 REDIS_URL__ARN = os.environ.get("REDIS_URL__ARN")
 """(AWS only) ARN of the secret containing the Redis URL."""
 
-TRACECAT__CASE_TRIGGERS_ENABLED = (
-    os.environ.get("TRACECAT__CASE_TRIGGERS_ENABLED", "true").lower() == "true"
+TRACECAT__CASE_TRIGGERS_ENABLED = env_bool(
+    "TRACECAT__CASE_TRIGGERS_ENABLED", default=True
 )
 """Enable case event workflow triggers. Defaults to true."""
 
@@ -1032,15 +1074,10 @@ TRACECAT__ALLOWED_ATTACHMENT_MIME_TYPES = {
 """The allowed MIME types for case attachment files."""
 
 # === Enterprise Edition === #
-ENTERPRISE_EDITION = os.environ.get("ENTERPRISE_EDITION", "false").lower() in (
-    "true",
-    "1",
-)
+ENTERPRISE_EDITION = env_bool("ENTERPRISE_EDITION", default=False)
 """Whether the enterprise edition is enabled."""
 
-TRACECAT__EE_MULTI_TENANT = os.environ.get(
-    "TRACECAT__EE_MULTI_TENANT", "false"
-).lower() in ("true", "1")
+TRACECAT__EE_MULTI_TENANT = env_bool("TRACECAT__EE_MULTI_TENANT", default=False)
 """Whether multi-tenant features are enabled for Enterprise Edition."""
 
 # === Feature Flags === #
@@ -1071,9 +1108,9 @@ except ValueError:
 
 
 # === Agent config === #
-TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED = os.environ.get(
-    "TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED", "false"
-).lower() in ("true", "1")
+TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED = env_bool(
+    "TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED", default=False
+)
 """Whether to enable unified streaming for agent execution."""
 
 TRACECAT__AGENT_MAX_TOOLS = int(os.environ.get("TRACECAT__AGENT_MAX_TOOLS") or 128)
@@ -1116,9 +1153,9 @@ TRACECAT__MODEL_CONTEXT_LIMITS = {
 """Model-specific character limits for agent message history truncation."""
 
 # === Registry Sync === #
-TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED = os.environ.get(
-    "TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED", "true"
-).lower() in ("true", "1")
+TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED = env_bool(
+    "TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED", default=True
+)
 """Enable sandboxed registry sync via Temporal workflow on ExecutorWorker.
 
 When True (default), registry sync operations run on the ExecutorWorker with:
@@ -1140,9 +1177,9 @@ TRACECAT__REGISTRY_SYNC_DISCOVER_TIMEOUT = int(
 )
 """Timeout for action discovery during registry sync in seconds. Defaults to 300 (5 min)."""
 
-TRACECAT__REGISTRY_SYNC_BUILTIN_USE_INSTALLED_SITE_PACKAGES = os.environ.get(
-    "TRACECAT__REGISTRY_SYNC_BUILTIN_USE_INSTALLED_SITE_PACKAGES", "true"
-).lower() in ("true", "1")
+TRACECAT__REGISTRY_SYNC_BUILTIN_USE_INSTALLED_SITE_PACKAGES = env_bool(
+    "TRACECAT__REGISTRY_SYNC_BUILTIN_USE_INSTALLED_SITE_PACKAGES", default=True
+)
 """Use installed site-packages for builtin registry tarball builds.
 
 When True (default), builtin tracecat_registry sync packages the current
@@ -1150,9 +1187,9 @@ interpreter's installed site-packages into a tarball. This avoids creating
 a fresh venv and re-installing dependencies from package indexes at runtime.
 """
 
-TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED = os.environ.get(
-    "TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED", "true"
-).lower() in ("true", "1")
+TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED = env_bool(
+    "TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED", default=True
+)
 """Build SquashFS sidecars for registry tarball venvs when mksquashfs is available."""
 
 TRACECAT__REGISTRY_SYNC_SQUASHFS_PROCESSORS = int(
@@ -1164,6 +1201,16 @@ TRACECAT__REGISTRY_SYNC_SQUASHFS_MEM = (
     os.environ.get("TRACECAT__REGISTRY_SYNC_SQUASHFS_MEM") or "200M"
 )
 """Memory budget passed to mksquashfs for registry SquashFS sidecar builds."""
+
+TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR = (
+    os.environ.get("TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR")
+    or "/app/.registry-artifacts"
+)
+"""Root directory for release-built registry artifacts.
+
+Artifacts use the same relative layout as blob storage keys, for example:
+platform/tarball-venvs/tracecat_registry/<version>/site-packages.tar.gz
+"""
 
 TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH = os.environ.get(
     "TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH", "/app/packages/tracecat-registry"

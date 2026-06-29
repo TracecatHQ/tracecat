@@ -8,6 +8,8 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat import config
 from tracecat.admin.registry.schemas import (
+    RegistryArtifactsBackfillStartRequest,
+    RegistryArtifactsBackfillStartResponse,
     RegistryStatusResponse,
     RegistrySyncResponse,
     RegistryVersionPromoteResponse,
@@ -16,6 +18,7 @@ from tracecat.admin.registry.schemas import (
 from tracecat.admin.registry.service import AdminRegistryService
 from tracecat.auth.credentials import SuperuserRole
 from tracecat.db.dependencies import AsyncDBSessionBypass
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.registry.repositories.schemas import (
     RegistryRepositoryRead,
     RegistryRepositoryReadMinimal,
@@ -101,6 +104,27 @@ async def list_registry_versions(
 
 
 @router.post(
+    "/versions/artifacts/backfill",
+    response_model=RegistryArtifactsBackfillStartResponse,
+)
+async def start_registry_artifacts_backfill(
+    role: SuperuserRole,
+    session: AsyncDBSessionBypass,
+    params: RegistryArtifactsBackfillStartRequest,
+) -> RegistryArtifactsBackfillStartResponse:
+    """Start a workflow to backfill artifacts for selected versions."""
+    service = AdminRegistryService(session, role)
+    try:
+        return await service.start_artifacts_backfill(params)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+
+
+@router.post(
     "/{repository_id}/versions/{version_id}/promote",
     response_model=RegistryVersionPromoteResponse,
 )
@@ -116,5 +140,9 @@ async def promote_registry_version(
         return await service.promote_version(
             repository_id=repository_id, version_id=version_id
         )
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e

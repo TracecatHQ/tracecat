@@ -22,6 +22,11 @@ locals {
   temporal_cluster_queue = var.temporal_cluster_queue
   temporal_namespace     = var.temporal_namespace
   allow_origins          = "https://${var.domain_name},http://ui-service:3000"
+  internal_litellm_url   = "http://litellm-service:4000"
+
+  tracecat_litellm_env = {
+    TRACECAT__LITELLM_BASE_URL = local.internal_litellm_url
+  }
 
   # Tracecat Postgres env vars
   tracecat_db_configs = {
@@ -69,11 +74,13 @@ locals {
     TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY    = aws_s3_bucket.registry.bucket
     TRACECAT__BLOB_STORAGE_BUCKET_SKILLS      = aws_s3_bucket.skills.bucket
     TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW    = aws_s3_bucket.workflow.bucket
+    TRACECAT__BLOB_STORAGE_BUCKET_AGENT       = aws_s3_bucket.agent.bucket
   }
 
   api_env = [
     for k, v in merge(
       local.tracecat_common_env,
+      local.tracecat_litellm_env,
       local.tracecat_temporal_payload_encryption_env,
       local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
@@ -92,11 +99,6 @@ locals {
         OIDC_SCOPES                                = var.oidc_scopes
         TEMPORAL__CLUSTER_QUEUE                    = local.temporal_cluster_queue
         SAML_ALLOW_UNSOLICITED                     = var.saml_allow_unsolicited
-        SAML_AUTHN_REQUESTS_SIGNED                 = var.saml_authn_requests_signed
-        SAML_SIGNED_ASSERTIONS                     = var.saml_signed_assertions
-        SAML_SIGNED_RESPONSES                      = var.saml_signed_responses
-        SAML_VERIFY_SSL_ENTITY                     = var.saml_verify_ssl_entity
-        SAML_VERIFY_SSL_METADATA                   = var.saml_verify_ssl_metadata
         SENTRY_DSN                                 = var.sentry_dsn
         TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS = var.workflow_artifact_retention_days
       }
@@ -172,6 +174,7 @@ locals {
   agent_executor_env = [
     for k, v in merge(
       local.tracecat_common_env,
+      local.tracecat_litellm_env,
       local.tracecat_temporal_payload_encryption_env,
       local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
@@ -196,7 +199,6 @@ locals {
         TRACECAT__LLM_GATEWAY_POOL_TIMEOUT_SECONDS         = var.llm_gateway_healthcheck_pool_timeout_seconds
         TRACECAT__LLM_GATEWAY_FAILURE_THRESHOLD            = var.llm_gateway_healthcheck_failure_threshold
         TRACECAT__LLM_GATEWAY_STATUS_LOG_INTERVAL_SECONDS  = var.llm_gateway_status_log_interval_seconds
-        TRACECAT__LITELLM_BASE_URL                         = "http://litellm-service:4000"
         TRACECAT__UNSAFE_DISABLE_SM_MASKING                = "false"
         TRACECAT__DISABLE_NSJAIL                           = "true"
         TRACECAT__SANDBOX_NSJAIL_PATH                      = "/usr/local/bin/nsjail"
@@ -211,12 +213,12 @@ locals {
   litellm_env = [
     for k, v in merge(
       local.tracecat_common_env,
+      local.tracecat_litellm_env,
       local.tracecat_db_configs,
       {
         TRACECAT__DB_ENDPOINT         = local.core_db_hostname
         TRACECAT__LITELLM_PORT        = "4000"
         TRACECAT__LITELLM_NUM_WORKERS = var.litellm_num_workers
-        TRACECAT__LITELLM_BASE_URL    = "http://litellm-service:4000"
       }
     ) :
     { name = k, value = tostring(v) } if v != null

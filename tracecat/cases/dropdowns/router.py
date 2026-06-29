@@ -193,7 +193,7 @@ async def update_dropdown_option(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(err)
         ) from err
     try:
-        option = await service.update_option(option_id, params)
+        option = await service.update_option(definition_id, option_id, params)
     except TracecatNotFoundError as err:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(err)
@@ -228,7 +228,7 @@ async def delete_dropdown_option(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(err)
         ) from err
     try:
-        await service.delete_option(option_id)
+        await service.delete_option(definition_id, option_id)
     except TracecatNotFoundError as err:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(err)

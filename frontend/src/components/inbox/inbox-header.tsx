@@ -31,8 +31,11 @@ const ENTITY_TYPE_OPTIONS: Array<{
   { value: "all", label: "All types" },
   { value: "case", label: "Case" },
   { value: "agent_preset", label: "Agent preset" },
+  { value: "agent_preset_builder", label: "Agent preset builder" },
   { value: "workflow", label: "Workflow" },
   { value: "copilot", label: "Copilot" },
+  { value: "approval", label: "Approval" },
+  { value: "external_channel", label: "External channel" },
 ]
 
 const LIMIT_OPTIONS = [

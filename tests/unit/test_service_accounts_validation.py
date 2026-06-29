@@ -45,7 +45,16 @@ def test_apply_api_key_created_cursor_rejects_invalid_cursor() -> None:
         "case:update",
         "case:delete",
         "secret:update",
+        "table:read",
+        "table:create",
+        "table:update",
+        "table:delete",
         "workspace:member:invite",
+        "agent:read",
+        "agent:create",
+        "agent:update",
+        "agent:delete",
+        "agent:execute",
         "action:tools.slack.post_message:execute",
     ],
 )
@@ -62,12 +71,9 @@ def test_workspace_service_account_assignable_scope_allows_supported_api_key_sco
 @pytest.mark.parametrize(
     "scope_name",
     [
-        "table:read",
-        "table:create",
         "variable:read",
         "variable:update",
         "inbox:read",
-        "agent:execute",
         "workspace:create",
         "workspace:member:update",
         "workspace:service_account:read",
@@ -76,6 +82,8 @@ def test_workspace_service_account_assignable_scope_allows_supported_api_key_sco
 def test_workspace_service_account_assignable_scope_rejects_user_only_scopes(
     scope_name: str,
 ) -> None:
+    if scope_name.startswith("variable:"):
+        pytest.skip("Variable scopes are assignable to service accounts")
     assert not is_workspace_service_account_assignable_scope(
         name=scope_name,
         source=ScopeSource.PLATFORM,
@@ -92,6 +100,11 @@ def test_workspace_service_account_assignable_scope_rejects_user_only_scopes(
         "org:workspace:read",
         "workspace:create",
         "workflow:update",
+        "table:read",
+        "org:rbac:read",
+        "org:rbac:create",
+        "org:rbac:update",
+        "org:rbac:delete",
         "action:tools.slack.post_message:execute",
     ],
 )
@@ -110,10 +123,8 @@ def test_org_service_account_assignable_scope_allows_supported_api_key_scopes(
     [
         "org:settings:read",
         "org:settings:update",
-        "org:rbac:read",
         "org:registry:read",
         "org:member:invite",
-        "table:read",
         "variable:read",
         "org:service_account:read",
     ],
@@ -121,7 +132,47 @@ def test_org_service_account_assignable_scope_allows_supported_api_key_scopes(
 def test_org_service_account_assignable_scope_rejects_user_only_scopes(
     scope_name: str,
 ) -> None:
+    if scope_name.startswith("variable:"):
+        pytest.skip("Variable scopes are assignable to service accounts")
     assert not is_org_service_account_assignable_scope(
+        name=scope_name,
+        source=ScopeSource.PLATFORM,
+        organization_id_present=False,
+    )
+
+
+@pytest.mark.parametrize(
+    "scope_name",
+    [
+        "variable:read",
+        "variable:create",
+        "variable:update",
+        "variable:delete",
+    ],
+)
+def test_workspace_service_account_assignable_scope_allows_variable_scopes(
+    scope_name: str,
+) -> None:
+    assert is_workspace_service_account_assignable_scope(
+        name=scope_name,
+        source=ScopeSource.PLATFORM,
+        organization_id_present=False,
+    )
+
+
+@pytest.mark.parametrize(
+    "scope_name",
+    [
+        "variable:read",
+        "variable:create",
+        "variable:update",
+        "variable:delete",
+    ],
+)
+def test_org_service_account_assignable_scope_allows_variable_scopes(
+    scope_name: str,
+) -> None:
+    assert is_org_service_account_assignable_scope(
         name=scope_name,
         source=ScopeSource.PLATFORM,
         organization_id_present=False,

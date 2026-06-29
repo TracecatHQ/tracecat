@@ -13,6 +13,7 @@ import {
   type LucideIcon,
   MousePointerClickIcon,
   Pyramid,
+  Sparkles,
   Table2Icon,
   TerminalIcon,
   UsersIcon,
@@ -68,12 +69,15 @@ type NavItem = {
   icon: LucideIcon
   isActive?: boolean
   isLocked?: boolean
+  isPendingEntitlement?: boolean
   onSelect?: () => void
   locked?: boolean
   visible?: boolean
   requiredScope?: string
   badgeCount?: number
   badgeLabel?: string
+  /** Small status pill shown after the title, e.g. "Beta". */
+  tag?: string
   items?: {
     title: string
     url: string
@@ -109,6 +113,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   // Scope checks for sidebar items
   const canViewWorkflows = useScopeCheck("workflow:read")
   const canViewAgents = useScopeCheck("agent:read")
+  const canExecuteAgents = useScopeCheck("agent:execute")
   const canViewTables = useScopeCheck("table:read")
   const canViewVariables = useScopeCheck("variable:read")
   const canViewSecrets = useScopeCheck("secret:read")
@@ -119,14 +124,23 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const canViewServiceAccounts = useScopeCheck("workspace:service_account:read")
   const canViewMcpAccess = useScopeCheck("workspace:read")
   const canViewCases = useScopeCheck("case:read")
+  const canAccessMissionControl =
+    canExecuteAgents === true && canViewAgents === true
   const shouldLoadEntitlements =
     canViewAgents === true ||
+    canExecuteAgents === true ||
     canViewServiceAccounts === true ||
     canViewInbox === true
-  const { hasEntitlement, isLoading: entitlementsIsLoading } = useEntitlements({
+  const {
+    hasEntitlement,
+    hasEntitlementData,
+    isLoading: entitlementsIsLoading,
+  } = useEntitlements({
     enabled: shouldLoadEntitlements,
   })
+  const entitlementsKnown = !entitlementsIsLoading && hasEntitlementData
   const agentAddonsEnabled = hasEntitlement("agent_addons")
+  const workspaceChatEnabled = hasEntitlement("workspace_chat")
   const serviceAccountsEnabled = hasEntitlement("service_accounts")
   const { data: pendingApprovalsCount = 0 } = usePendingApprovalsCount(
     workspaceId,
@@ -139,17 +153,24 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const navWorkspace: NavItem[] = useMemo(
     () => [
       {
+        title: "Chat",
+        url: `${basePath}/chat`,
+        icon: BotIcon,
+        tag: "Beta",
+        isActive: pathname?.startsWith(`${basePath}/chat`),
+        visible: canAccessMissionControl,
+        isLocked: entitlementsKnown && !workspaceChatEnabled,
+        isPendingEntitlement: !entitlementsKnown,
+        onSelect:
+          entitlementsKnown && !workspaceChatEnabled
+            ? () => setLockedFeatureDialogOpen(true)
+            : undefined,
+      },
+      {
         title: "Workflows",
         url: `${basePath}/workflows`,
         icon: WorkflowIcon,
         isActive: pathname?.startsWith(`${basePath}/workflows`),
-        visible: canViewWorkflows === true,
-      },
-      {
-        title: "Runs",
-        url: `${basePath}/runs`,
-        icon: ListVideoIcon,
-        isActive: pathname?.startsWith(`${basePath}/runs`),
         visible: canViewWorkflows === true,
       },
       {
@@ -165,10 +186,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         icon: MousePointerClickIcon,
         isActive: pathname?.startsWith(`${basePath}/agents`),
         visible: canViewAgents === true,
-        isLocked: entitlementsIsLoading || !agentAddonsEnabled,
-        onSelect: entitlementsIsLoading
-          ? undefined
-          : () => setLockedFeatureDialogOpen(true),
+        isLocked: entitlementsKnown && !agentAddonsEnabled,
+        isPendingEntitlement: !entitlementsKnown,
+        onSelect:
+          entitlementsKnown && !agentAddonsEnabled
+            ? () => setLockedFeatureDialogOpen(true)
+            : undefined,
       },
       {
         title: "Tables",
@@ -199,14 +222,23 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         visible: canViewIntegrations === true,
       },
       {
+        title: "MCP servers",
+        url: `${basePath}/mcp-servers`,
+        icon: Sparkles,
+        isActive: pathname?.startsWith(`${basePath}/mcp-servers`),
+        visible: canViewIntegrations === true,
+      },
+      {
         title: "Skills",
         url: `${basePath}/skills`,
         icon: Pyramid,
         isActive: pathname?.startsWith(`${basePath}/skills`),
-        isLocked: entitlementsIsLoading || !agentAddonsEnabled,
-        onSelect: entitlementsIsLoading
-          ? undefined
-          : () => setLockedFeatureDialogOpen(true),
+        isLocked: entitlementsKnown && !agentAddonsEnabled,
+        isPendingEntitlement: !entitlementsKnown,
+        onSelect:
+          entitlementsKnown && !agentAddonsEnabled
+            ? () => setLockedFeatureDialogOpen(true)
+            : undefined,
         visible: canViewAgents === true,
       },
       {
@@ -222,12 +254,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       pathname,
       canViewWorkflows,
       canViewCases,
+      canAccessMissionControl,
       canViewTables,
       canViewVariables,
       canViewSecrets,
       canViewIntegrations,
-      entitlementsIsLoading,
+      entitlementsKnown,
       agentAddonsEnabled,
+      workspaceChatEnabled,
       canViewAgents,
       canViewActions,
     ]
@@ -242,7 +276,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       visible: canViewWorkflows === true,
     },
     {
-      title: "Approvals",
+      title: "Inbox",
       url: `${basePath}/inbox`,
       icon: ListChecksIcon,
       isActive: pathname?.startsWith(`${basePath}/inbox`),
@@ -313,11 +347,30 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                               <span>{item.title}</span>
                               <LockedFeatureChip className="ml-auto shrink-0" />
                             </SidebarMenuButton>
+                          ) : item.isPendingEntitlement ? (
+                            <SidebarMenuButton
+                              type="button"
+                              isActive={item.isActive}
+                              disabled
+                            >
+                              <item.icon />
+                              <span>{item.title}</span>
+                              {item.tag ? (
+                                <span className="ml-auto shrink-0 rounded-full border px-1.5 py-px text-[10px] font-medium leading-none text-muted-foreground">
+                                  {item.tag}
+                                </span>
+                              ) : null}
+                            </SidebarMenuButton>
                           ) : (
                             <SidebarMenuButton asChild isActive={item.isActive}>
                               <Link href={item.url!}>
                                 <item.icon />
                                 <span>{item.title}</span>
+                                {item.tag ? (
+                                  <span className="ml-auto shrink-0 rounded-full border px-1.5 py-px text-[10px] font-medium leading-none text-muted-foreground">
+                                    {item.tag}
+                                  </span>
+                                ) : null}
                               </Link>
                             </SidebarMenuButton>
                           )}

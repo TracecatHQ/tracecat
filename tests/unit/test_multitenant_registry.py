@@ -16,6 +16,7 @@ import pytest
 
 from tracecat.executor.registry_artifacts import (
     RegistryArtifactCache,
+    TarballArtifact,
     compute_registry_artifact_cache_key,
 )
 
@@ -66,21 +67,17 @@ class TestTarballCacheBehavior:
 
         download_count = [0]  # Use list to allow mutation in nested function
 
-        async def mock_download(_uri: str, path: Path):
+        async def mock_download(self, ctx, path: Path):
             download_count[0] += 1
             await asyncio.sleep(0.1)  # Simulate network delay
             path.write_bytes(b"fake tarball")
 
-        async def mock_extract(tarball_path: Path, target_dir: Path):
+        async def mock_extract(self, tarball_path: Path, target_dir: Path):
             (target_dir / "extracted.txt").write_text("content")
 
         with (
-            patch.object(
-                cache,
-                "_download_artifact",
-                mock_download,
-            ),
-            patch.object(cache, "_extract_tarball", mock_extract),
+            patch.object(TarballArtifact, "download", mock_download),
+            patch.object(TarballArtifact, "extract", mock_extract),
         ):
             # Launch multiple concurrent requests
             results = await asyncio.gather(
@@ -118,20 +115,16 @@ class TestTarballCacheBehavior:
 
         download_calls: list[str] = []
 
-        async def mock_download(uri: str, path: Path):
-            download_calls.append(uri)
+        async def mock_download(self, ctx, path: Path):
+            download_calls.append(self.uri)
             path.write_bytes(b"fake tarball")
 
-        async def mock_extract(tarball_path: Path, target_dir: Path):
+        async def mock_extract(self, tarball_path: Path, target_dir: Path):
             (target_dir / "extracted.txt").write_text("content")
 
         with (
-            patch.object(
-                cache,
-                "_download_artifact",
-                mock_download,
-            ),
-            patch.object(cache, "_extract_tarball", mock_extract),
+            patch.object(TarballArtifact, "download", mock_download),
+            patch.object(TarballArtifact, "extract", mock_extract),
         ):
             results = []
             for uri in uris:
@@ -165,19 +158,15 @@ class TestTarballCacheBehavior:
         cache_key = "failed-extraction-test"
         tarball_uri = "s3://bucket/bad.tar.gz"
 
-        async def mock_download(_uri: str, path: Path):
+        async def mock_download(self, ctx, path: Path):
             path.write_bytes(b"corrupt tarball")
 
-        async def mock_extract(tarball_path: Path, target_dir: Path):
+        async def mock_extract(self, tarball_path: Path, target_dir: Path):
             raise RuntimeError("Extraction failed - corrupt tarball")
 
         with (
-            patch.object(
-                cache,
-                "_download_artifact",
-                mock_download,
-            ),
-            patch.object(cache, "_extract_tarball", mock_extract),
+            patch.object(TarballArtifact, "download", mock_download),
+            patch.object(TarballArtifact, "extract", mock_extract),
         ):
             with pytest.raises(RuntimeError, match="Extraction failed"):
                 await cache.materialize(cache_key, tarball_uri)
@@ -208,20 +197,16 @@ class TestTarballCacheBehavior:
 
         download_count = [0]
 
-        async def mock_download(_uri: str, path: Path):
+        async def mock_download(self, ctx, path: Path):
             download_count[0] += 1
             path.write_bytes(b"tarball")
 
-        async def mock_extract(tarball_path: Path, target_dir: Path):
+        async def mock_extract(self, tarball_path: Path, target_dir: Path):
             (target_dir / "file.txt").write_text("content")
 
         with (
-            patch.object(
-                cache,
-                "_download_artifact",
-                mock_download,
-            ),
-            patch.object(cache, "_extract_tarball", mock_extract),
+            patch.object(TarballArtifact, "download", mock_download),
+            patch.object(TarballArtifact, "extract", mock_extract),
         ):
             # First request
             result1 = await cache.materialize(cache_key, tarball_uri)

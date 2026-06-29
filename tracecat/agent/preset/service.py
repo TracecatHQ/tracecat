@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import uuid
 from collections import Counter
 from collections.abc import Sequence
@@ -43,7 +42,6 @@ from tracecat.agent.types import (
     OutputType,
 )
 from tracecat.audit.logger import audit_log
-from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
     AgentCatalog,
@@ -51,18 +49,18 @@ from tracecat.db.models import (
     AgentPresetSkill,
     AgentPresetVersion,
     AgentPresetVersionSkill,
-    OAuthIntegration,
     SkillVersion,
 )
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.executor.service import get_workspace_variables
 from tracecat.expressions.eval import collect_expressions, eval_templated_object
-from tracecat.integrations.enums import MCPAuthType
 from tracecat.integrations.mcp_validation import (
+    MCPConfigurationError,
     MCPValidationError,
     validate_mcp_command_config,
 )
+from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.pagination import (
@@ -72,7 +70,6 @@ from tracecat.pagination import (
 )
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets import secrets_manager
-from tracecat.secrets.encryption import decrypt_value
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tiers.enums import Entitlement
 
@@ -656,58 +653,6 @@ class AgentPresetService(BaseWorkspaceService):
         )
         return resolved.to_agents_binding().model_dump(mode="json")
 
-    def _decrypt_mcp_headers(
-        self,
-        *,
-        encrypted_headers: bytes,
-        encryption_key: str,
-        mcp_integration_id: uuid.UUID,
-        mcp_integration_name: str,
-    ) -> dict[str, str] | None:
-        """Decrypt and validate MCP custom headers from encrypted storage."""
-        try:
-            decrypted_bytes = decrypt_value(encrypted_headers, key=encryption_key)
-            custom_credentials_str = decrypted_bytes.decode("utf-8")
-            parsed_headers = json.loads(custom_credentials_str)
-        except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as err:
-            logger.warning(
-                "Failed to parse custom credentials for MCP integration %r: %s",
-                mcp_integration_name,
-                str(err),
-                extra={
-                    "workspace_id": str(self.workspace_id),
-                    "mcp_integration_id": str(mcp_integration_id),
-                },
-            )
-            return None
-
-        if not isinstance(parsed_headers, dict):
-            logger.warning(
-                "Custom credentials for MCP integration %r must be a JSON object",
-                mcp_integration_name,
-                extra={
-                    "workspace_id": str(self.workspace_id),
-                    "mcp_integration_id": str(mcp_integration_id),
-                },
-            )
-            return None
-
-        custom_headers: dict[str, str] = {}
-        for key, value in parsed_headers.items():
-            if not isinstance(key, str) or not isinstance(value, str):
-                logger.warning(
-                    "Custom credentials for MCP integration %r must contain string header values",
-                    mcp_integration_name,
-                    extra={
-                        "workspace_id": str(self.workspace_id),
-                        "mcp_integration_id": str(mcp_integration_id),
-                    },
-                )
-                return None
-            custom_headers[key] = value
-
-        return custom_headers
-
     async def resolve_mcp_integrations(
         self, mcp_integrations: list[str] | None
     ) -> list[MCPServerConfig] | None:
@@ -721,9 +666,6 @@ class AgentPresetService(BaseWorkspaceService):
             mcp_integration.id: mcp_integration
             for mcp_integration in available_mcp_integrations
         }
-
-        # Get encryption key for decrypting custom credentials
-        encryption_key = get_db_encryption_key()
 
         mcp_servers: list[MCPServerConfig] = []
 
@@ -827,156 +769,21 @@ class AgentPresetService(BaseWorkspaceService):
                 continue
 
             # Handle HTTP-type servers (default)
-            if not mcp_integration.server_uri:
+            try:
+                http_config = await integrations_service.resolve_mcp_http_server_config(
+                    mcp_integration
+                )
+            except MCPConfigurationError as e:
                 logger.warning(
-                    "HTTP-type MCP integration %r has no server_uri specified",
+                    "Failed to resolve HTTP MCP integration %r, skipping: %s",
                     mcp_integration.name,
+                    str(e),
                     extra={
                         "workspace_id": str(self.workspace_id),
                         "mcp_integration_id": str(mcp_integration.id),
                     },
                 )
                 continue
-
-            headers: dict[str, str] = {}
-
-            # Resolve headers based on auth type
-            if mcp_integration.auth_type == MCPAuthType.OAUTH2:
-                # OAuth2: Get access token from linked OAuth integration
-                if not mcp_integration.oauth_integration_id:
-                    logger.warning(
-                        "MCP integration %r has OAUTH2 auth type but no oauth_integration_id",
-                        mcp_integration.name,
-                        extra={
-                            "workspace_id": str(self.workspace_id),
-                            "mcp_integration_id": str(mcp_integration.id),
-                        },
-                    )
-                    continue
-
-                # Get OAuth integration by ID
-                stmt = select(OAuthIntegration).where(
-                    OAuthIntegration.id == mcp_integration.oauth_integration_id,
-                    OAuthIntegration.workspace_id == self.workspace_id,
-                )
-                result = await self.session.execute(stmt)
-                oauth_integration = result.scalars().first()
-                if not oauth_integration:
-                    logger.warning(
-                        "OAuth integration not found for MCP integration %r",
-                        mcp_integration.name,
-                        extra={
-                            "workspace_id": str(self.workspace_id),
-                            "mcp_integration_id": str(mcp_integration.id),
-                            "oauth_integration_id": str(
-                                mcp_integration.oauth_integration_id
-                            ),
-                        },
-                    )
-                    continue
-
-                await integrations_service.refresh_token_if_needed(oauth_integration)
-                access_token = await integrations_service.get_access_token(
-                    oauth_integration
-                )
-                if not access_token:
-                    logger.warning(
-                        "No access token for MCP integration %r (likely disconnected)",
-                        mcp_integration.name,
-                        extra={
-                            "workspace_id": str(self.workspace_id),
-                            "mcp_integration_id": str(mcp_integration.id),
-                            "integration_status": oauth_integration.status,
-                        },
-                    )
-                    continue
-
-                token_type = oauth_integration.token_type or "Bearer"
-                headers["Authorization"] = (
-                    f"{token_type} {access_token.get_secret_value()}"
-                )
-
-                if mcp_integration.encrypted_headers:
-                    custom_headers = self._decrypt_mcp_headers(
-                        encrypted_headers=mcp_integration.encrypted_headers,
-                        encryption_key=encryption_key,
-                        mcp_integration_id=mcp_integration.id,
-                        mcp_integration_name=mcp_integration.name,
-                    )
-                    if custom_headers is None:
-                        # OAuth2 additional headers are optional; malformed values should
-                        # not disable the integration when an access token is available.
-                        custom_headers = {}
-
-                    auth_header_keys = [
-                        key
-                        for key in custom_headers
-                        if key.strip().casefold() == "authorization"
-                    ]
-                    if auth_header_keys:
-                        logger.warning(
-                            "Ignoring custom Authorization header variants for OAUTH2 MCP integration %r",
-                            mcp_integration.name,
-                            extra={
-                                "workspace_id": str(self.workspace_id),
-                                "mcp_integration_id": str(mcp_integration.id),
-                                "dropped_header_keys": auth_header_keys,
-                            },
-                        )
-                        for auth_header_key in auth_header_keys:
-                            custom_headers.pop(auth_header_key, None)
-                    headers.update(custom_headers)
-
-            elif mcp_integration.auth_type == MCPAuthType.CUSTOM:
-                # CUSTOM: Decrypt and parse custom credentials (JSON string with headers)
-                if not mcp_integration.encrypted_headers:
-                    logger.warning(
-                        "MCP integration %r has CUSTOM auth type but no encrypted_headers",
-                        mcp_integration.name,
-                        extra={
-                            "workspace_id": str(self.workspace_id),
-                            "mcp_integration_id": str(mcp_integration.id),
-                        },
-                    )
-                    continue
-
-                custom_headers = self._decrypt_mcp_headers(
-                    encrypted_headers=mcp_integration.encrypted_headers,
-                    encryption_key=encryption_key,
-                    mcp_integration_id=mcp_integration.id,
-                    mcp_integration_name=mcp_integration.name,
-                )
-                if custom_headers is None:
-                    continue
-                # Merge custom headers (e.g., {"Authorization": "Bearer ...", "X-API-Key": "..."})
-                headers.update(custom_headers)
-
-            elif mcp_integration.auth_type == MCPAuthType.NONE:
-                pass
-
-            else:
-                logger.warning(
-                    "Unknown auth type for MCP integration %r: %s",
-                    mcp_integration.name,
-                    mcp_integration.auth_type,
-                    extra={
-                        "workspace_id": str(self.workspace_id),
-                        "mcp_integration_id": str(mcp_integration.id),
-                        "auth_type": str(mcp_integration.auth_type),
-                    },
-                )
-                continue
-
-            # Build MCP server config
-            http_config: MCPHttpServerConfig = {
-                "type": "http",
-                "name": mcp_integration.name,
-                "url": mcp_integration.server_uri,
-                "headers": headers,
-                "id": str(mcp_integration.id),
-            }
-            if mcp_integration.timeout is not None:
-                http_config["timeout"] = mcp_integration.timeout
             mcp_servers.append(http_config)
 
         if not mcp_servers:
@@ -1107,6 +914,31 @@ class AgentPresetService(BaseWorkspaceService):
 
         return refs
 
+    async def resolve_mcp_integration_tool_policies(
+        self, mcp_integration_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, dict[str, MCPToolSummary]]:
+        """Resolve stored MCP tool policy by integration id and tool name."""
+        if not mcp_integration_ids:
+            return {}
+
+        requested_ids = set(mcp_integration_ids)
+        integrations_service = IntegrationService(self.session, role=self.role)
+        available = await integrations_service.list_mcp_integrations()
+
+        policies: dict[uuid.UUID, dict[str, MCPToolSummary]] = {}
+        for mcp_integration in available:
+            if mcp_integration.id not in requested_ids:
+                continue
+            tools = MCPToolSummary.validate_stored(
+                mcp_integration.tools,
+                mcp_integration_id=mcp_integration.id,
+            )
+            if tools is None:
+                continue
+            policies[mcp_integration.id] = {tool.name: tool for tool in tools}
+
+        return policies
+
     async def resolve_mcp_integration_secrets(
         self, mcp_integration_id: uuid.UUID
     ) -> dict[str, str] | None:
@@ -1157,64 +989,22 @@ class AgentPresetService(BaseWorkspaceService):
                 return None
 
         # HTTP server — resolve headers per auth type.
-        encryption_key = get_db_encryption_key()
-        headers: dict[str, str] = {}
-
-        if mcp_integration.auth_type == MCPAuthType.OAUTH2:
-            if not mcp_integration.oauth_integration_id:
-                return None
-            stmt = select(OAuthIntegration).where(
-                OAuthIntegration.id == mcp_integration.oauth_integration_id,
-                OAuthIntegration.workspace_id == self.workspace_id,
+        try:
+            server_config = await integrations_service.resolve_mcp_http_server_config(
+                mcp_integration
             )
-            result = await self.session.execute(stmt)
-            oauth_integration = result.scalars().first()
-            if not oauth_integration:
-                return None
-            await integrations_service.refresh_token_if_needed(oauth_integration)
-            access_token = await integrations_service.get_access_token(
-                oauth_integration
+        except MCPConfigurationError as e:
+            logger.warning(
+                "Failed to resolve secrets for HTTP MCP integration %r: %s",
+                mcp_integration.name,
+                str(e),
+                extra={
+                    "workspace_id": str(self.workspace_id),
+                    "mcp_integration_id": str(mcp_integration.id),
+                },
             )
-            if not access_token:
-                return None
-            token_type = oauth_integration.token_type or "Bearer"
-            headers["Authorization"] = f"{token_type} {access_token.get_secret_value()}"
-
-            if mcp_integration.encrypted_headers:
-                custom_headers = self._decrypt_mcp_headers(
-                    encrypted_headers=mcp_integration.encrypted_headers,
-                    encryption_key=encryption_key,
-                    mcp_integration_id=mcp_integration.id,
-                    mcp_integration_name=mcp_integration.name,
-                )
-                if custom_headers:
-                    # Drop any user-supplied Authorization header — the OAuth
-                    # one wins.
-                    for key in list(custom_headers):
-                        if key.strip().casefold() == "authorization":
-                            custom_headers.pop(key, None)
-                    headers.update(custom_headers)
-
-        elif mcp_integration.auth_type == MCPAuthType.CUSTOM:
-            if not mcp_integration.encrypted_headers:
-                return None
-            custom_headers = self._decrypt_mcp_headers(
-                encrypted_headers=mcp_integration.encrypted_headers,
-                encryption_key=encryption_key,
-                mcp_integration_id=mcp_integration.id,
-                mcp_integration_name=mcp_integration.name,
-            )
-            if not custom_headers:
-                return None
-            headers.update(custom_headers)
-
-        elif mcp_integration.auth_type == MCPAuthType.NONE:
-            pass
-
-        else:
             return None
-
-        return headers
+        return server_config.get("headers", {})
 
     async def _resolve_stdio_env(
         self,

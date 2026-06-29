@@ -16,7 +16,7 @@ import os
 import re
 import tempfile
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -84,6 +84,7 @@ from tracecat.logger import logger
 
 CLAUDE_PROJECT_DIR_MAX_LENGTH = 200
 CLAUDE_PROJECT_DIR_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9]")
+LOG_PREVIEW_CHARS = 8000
 
 
 def _claude_project_dir_name(cwd: Path) -> str:
@@ -106,6 +107,12 @@ def _claude_project_dir_name(cwd: Path) -> str:
 def _ensure_supported_claude_project_dir_name(cwd: Path) -> None:
     """Ensure Claude can persist sessions under the runtime cwd."""
     _claude_project_dir_name(cwd)
+
+
+def _preview_text(text: str, *, limit: int = LOG_PREVIEW_CHARS) -> str:
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}... [truncated]"
 
 
 class RuntimeEventWriter(Protocol):
@@ -198,6 +205,17 @@ INTERNET_TOOLS = [
     "WebFetch",
 ]
 
+COMMAND_LINE_TOOLS_PROMPT = (
+    "<CommandLineTools>\n"
+    "- `duckdb`: The runtime shell includes the DuckDB CLI. Use it for local "
+    "SQL and tabular data inspection over files such as CSV, JSON, Parquet, "
+    "and DuckDB database files. The CLI is configured with the `json`, "
+    "`httpfs`, `inet`, and `fts` extensions for JSON, HTTP/S3, IP address, "
+    "and full-text search workflows. This is a local "
+    "command-line capability, not a Tracecat action or MCP tool.\n"
+    "</CommandLineTools>"
+)
+
 # Registry MCP server naming.
 # We canonicalize persisted session history to the hyphen form at the
 # resume boundary so runtime configuration only exposes one logical server.
@@ -242,6 +260,7 @@ class ClaudeAgentRuntime:
         session_home_dir: Path | None = None,
         cwd: Path | None = None,
         cwd_setup_path: Path | None = None,
+        system_prompt_fragments: Sequence[str] = (),
     ):
         self._event_writer = event_writer
         self._session_id: uuid.UUID | None = None
@@ -268,6 +287,7 @@ class ClaudeAgentRuntime:
         self._cwd_setup_path = cwd_setup_path
         self._session_home_dir = session_home_dir
         self._transport_factory = transport_factory
+        self._system_prompt_fragments = tuple(system_prompt_fragments)
         # Tracks Stop hook retries within this run to break structured-output loops
         self._stop_hook_retries: int = 0
 
@@ -310,7 +330,10 @@ class ClaudeAgentRuntime:
         return {
             "type": "http",
             "url": TRUSTED_MCP_BRIDGE_URL,
-            "headers": {"Authorization": f"Bearer {auth_token}"},
+            "headers": {
+                "Authorization": f"Bearer {auth_token}",
+                "Accept-Encoding": "identity",
+            },
         }
 
     @staticmethod
@@ -981,7 +1004,10 @@ class ClaudeAgentRuntime:
         self, instructions: str | None, output_type: str | dict[str, Any] | None = None
     ) -> str:
         """Build the system prompt for the agent."""
-        base = "If asked about your identity, you are a Tracecat automation assistant."
+        base = (
+            "If asked about your identity, you are a Tracecat automation assistant."
+            f"\n\n{COMMAND_LINE_TOOLS_PROMPT}"
+        )
 
         # Only include structured output instruction if output_type is configured (not None)
         if output_type is not None:
@@ -991,7 +1017,11 @@ class ClaudeAgentRuntime:
                 " after the structured output. This applies to every response, not just the first one."
             )
 
-        return f"{base}\n\n{instructions}" if instructions else base
+        prompt_parts = [base]
+        if instructions:
+            prompt_parts.append(instructions)
+        prompt_parts.extend(self._system_prompt_fragments)
+        return "\n\n".join(prompt_parts)
 
     def _build_agent_definitions(
         self,
@@ -1145,6 +1175,16 @@ class ClaudeAgentRuntime:
         stderr: Callable[[str], None],
     ) -> ClaudeAgentOptions:
         """Build Claude SDK options from runtime policy and payload config."""
+        system_prompt = self._build_system_prompt(
+            payload.config.instructions,
+            payload.config.output_type,
+        )
+        logger.info(
+            "Claude runtime system prompt prepared",
+            session_id=str(payload.session_id),
+            system_prompt_length=len(system_prompt),
+            system_prompt_fragment_count=len(self._system_prompt_fragments),
+        )
         return ClaudeAgentOptions(
             include_partial_messages=True,
             resume=resume_session_id,
@@ -1161,9 +1201,7 @@ class ClaudeAgentRuntime:
                 model_name=payload.config.model_name,
                 passthrough=payload.config.passthrough,
             ),
-            system_prompt=self._build_system_prompt(
-                payload.config.instructions, payload.config.output_type
-            ),
+            system_prompt=system_prompt,
             mcp_servers=mcp_servers,
             allowed_tools=self._root_allowed_tools(
                 actions=payload.allowed_actions,
@@ -1338,11 +1376,24 @@ class ClaudeAgentRuntime:
                     "prompt_length": len(APPROVAL_CONTINUATION_PROMPT),
                     "is_meta": True,
                 }
-                logger.debug("Approval continuation with meta prompt")
+                logger.info(
+                    "Claude runtime user prompt prepared",
+                    session_id=str(payload.session_id),
+                    is_continuation=True,
+                    is_meta=True,
+                    prompt_length=len(APPROVAL_CONTINUATION_PROMPT),
+                    prompt_preview=_preview_text(APPROVAL_CONTINUATION_PROMPT),
+                )
             else:
                 query_input = payload.user_prompt
                 query_log_extra = {"prompt_length": len(query_input)}
-                logger.debug("Normal turn with user prompt")
+                logger.info(
+                    "Claude runtime user prompt prepared",
+                    session_id=str(payload.session_id),
+                    is_continuation=False,
+                    is_meta=False,
+                    prompt_length=len(query_input),
+                )
 
             transport = self._transport_factory(options)
             client = ClaudeSDKClient(options=options, transport=transport)

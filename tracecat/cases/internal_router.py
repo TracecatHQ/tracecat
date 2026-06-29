@@ -220,6 +220,10 @@ async def search_cases(
         None,
         description="Text to search for in case summary, description, or short ID",
     ),
+    short_id: str | None = Query(
+        None,
+        description="Search by exact case short ID (e.g. 42 or CASE-0042)",
+    ),
     status: list[CaseStatus] | None = Query(None, description="Filter by case status"),
     priority: list[CasePriority] | None = Query(
         None, description="Filter by case priority"
@@ -301,6 +305,7 @@ async def search_cases(
         cases = await service.search_cases(
             pagination_params,
             search_term=search_term,
+            short_id=short_id,
             status=status,
             priority=priority,
             severity=severity,

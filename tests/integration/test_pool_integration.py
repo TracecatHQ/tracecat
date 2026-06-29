@@ -38,6 +38,7 @@ import pytest
 from tracecat.auth.types import Role
 from tracecat.dsl.schemas import RunActionInput
 from tracecat.executor.backends.pool import WorkerPool
+from tracecat.executor.registry_artifacts import TarballArtifact
 from tracecat.executor.schemas import (
     ExecutorResult,
     ExecutorResultFailure,
@@ -432,12 +433,12 @@ class TestCacheBehavior:
         cache = RegistryArtifactCache(temp_registry_cache)
         download_count = [0]
 
-        async def mock_download(_uri: str, path: Path) -> None:
+        async def mock_download(self, ctx, path: Path) -> None:
             download_count[0] += 1
             await asyncio.sleep(0.1)  # Simulate network latency
             path.write_bytes(b"mock tarball")
 
-        async def mock_extract(tarball_path: Path, target_dir: Path) -> None:
+        async def mock_extract(self, tarball_path: Path, target_dir: Path) -> None:
             shutil.copytree(
                 mock_modules_dir / "workspace_a",
                 target_dir,
@@ -445,12 +446,8 @@ class TestCacheBehavior:
             )
 
         with (
-            patch.object(
-                cache,
-                "_download_artifact",
-                mock_download,
-            ),
-            patch.object(cache, "_extract_tarball", mock_extract),
+            patch.object(TarballArtifact, "download", mock_download),
+            patch.object(TarballArtifact, "extract", mock_extract),
         ):
             cache_key = "concurrent-test"
             tarball_uri = "s3://bucket/concurrent.tar.gz"

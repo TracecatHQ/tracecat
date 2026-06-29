@@ -1257,7 +1257,7 @@ class RegistryActionsService(BaseOrgService):
             Tuple of (commit_sha, version_string)
 
         Raises:
-            TarballBuildError: If tarball building fails (no version is created)
+            RegistryArtifactBuildError: If artifact building fails (no version is created)
         """
         # Use the v2 sync service
         sync_service = RegistrySyncService(self.session, self.role)

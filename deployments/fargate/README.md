@@ -19,7 +19,7 @@ Terraform stack for Tracecat on AWS ECS Fargate (`>1.0.0-beta.xx`).
 - ECS cluster with Service Connect
 - RDS (core + optional temporal DB)
 - ElastiCache Redis
-- S3 buckets: attachments, registry, workflow artifacts
+- S3 buckets: attachments, registry, workflow artifacts, agent filesystem snapshots
 - VPC endpoints: S3 + Secrets Manager
 
 ## Security
@@ -69,7 +69,7 @@ export TF_VAR_hosted_zone_id=Z1234567890
 export TF_VAR_tracecat_db_encryption_key_arn=arn:aws:secretsmanager:...
 export TF_VAR_tracecat_service_key_arn=arn:aws:secretsmanager:...
 export TF_VAR_tracecat_signing_secret_arn=arn:aws:secretsmanager:...
-export TF_VAR_tracecat_image_tag=1.0.0-beta.47
+export TF_VAR_tracecat_image_tag=1.0.0-beta.48
 
 terraform apply
 ```
@@ -101,4 +101,5 @@ the current Alembic database revision while rolling back the app images.
 - `s3_attachments_bucket_name`
 - `s3_registry_bucket_name`
 - `s3_workflow_bucket_name`
+- `s3_agent_bucket_name`
 - `nat_gateway_eips` (outbound allowlisting IPs; public identifiers, not secrets)

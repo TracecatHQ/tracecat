@@ -3,9 +3,9 @@ from __future__ import annotations
 import pytest
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
-from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
+from tests._route_utils import iter_effective_api_routes
 from tracecat.executor.action_gateway import app as action_gateway_app
 from tracecat.executor.action_gateway.app import (
     create_app,
@@ -17,8 +17,7 @@ from tracecat.executor.action_gateway.app import (
 def _route_keys(app: FastAPI) -> set[tuple[str, str]]:
     return {
         (route.path, method)
-        for route in app.routes
-        if isinstance(route, APIRoute)
+        for route in iter_effective_api_routes(app)
         for method in route.methods
     }
 

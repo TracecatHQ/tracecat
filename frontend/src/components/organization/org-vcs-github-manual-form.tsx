@@ -1,7 +1,15 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useState } from "react"
+import { FileTextIcon, UploadCloudIcon } from "lucide-react"
+import {
+  type ChangeEvent,
+  type DragEvent,
+  type KeyboardEvent,
+  useCallback,
+  useRef,
+  useState,
+} from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
@@ -19,6 +27,9 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/ui/use-toast"
 import { useGitHubAppCredentials } from "@/lib/hooks"
+import { cn } from "@/lib/utils"
+
+const pemFileExtensionRegex = /\.pem$/i
 
 const gitHubAppCredentialsSchema = z.object({
   app_id: z
@@ -56,6 +67,12 @@ export function GitHubAppManualForm({
   const { saveCredentials } = useGitHubAppCredentials()
   const { toast } = useToast()
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [privateKeyFileName, setPrivateKeyFileName] = useState<string | null>(
+    null
+  )
+  const [isPrivateKeyDragOver, setIsPrivateKeyDragOver] = useState(false)
+  const privateKeyFileInputRef = useRef<HTMLInputElement | null>(null)
+  const privateKeyReadIdRef = useRef(0)
 
   const form = useForm<GitHubAppCredentialsFormData>({
     resolver: zodResolver(gitHubAppCredentialsSchema),
@@ -66,6 +83,141 @@ export function GitHubAppManualForm({
       client_id: "",
     },
   })
+
+  const resetPrivateKeyFileInput = useCallback(() => {
+    if (privateKeyFileInputRef.current) {
+      privateKeyFileInputRef.current.value = ""
+    }
+  }, [])
+
+  const handlePrivateKeyFile = useCallback(
+    (file: File | undefined) => {
+      if (!file) {
+        return
+      }
+
+      const readId = privateKeyReadIdRef.current + 1
+      privateKeyReadIdRef.current = readId
+
+      if (!pemFileExtensionRegex.test(file.name)) {
+        setPrivateKeyFileName(null)
+        form.setValue("private_key", "", {
+          shouldDirty: true,
+          shouldTouch: true,
+          shouldValidate: false,
+        })
+        form.setError("private_key", {
+          type: "manual",
+          message: "Upload a .pem file.",
+        })
+        resetPrivateKeyFileInput()
+        return
+      }
+
+      setPrivateKeyFileName(null)
+      form.setValue("private_key", "", {
+        shouldDirty: true,
+        shouldTouch: true,
+        shouldValidate: false,
+      })
+
+      const reader = new FileReader()
+      reader.onload = () => {
+        if (readId !== privateKeyReadIdRef.current) {
+          return
+        }
+
+        const privateKey =
+          typeof reader.result === "string" ? reader.result : ""
+
+        form.clearErrors("private_key")
+        form.setValue("private_key", privateKey, {
+          shouldDirty: true,
+          shouldTouch: true,
+          shouldValidate: true,
+        })
+        setPrivateKeyFileName(file.name)
+        resetPrivateKeyFileInput()
+      }
+      reader.onerror = () => {
+        if (readId !== privateKeyReadIdRef.current) {
+          return
+        }
+
+        setPrivateKeyFileName(null)
+        form.setValue("private_key", "", {
+          shouldDirty: true,
+          shouldTouch: true,
+          shouldValidate: false,
+        })
+        form.setError("private_key", {
+          type: "manual",
+          message: "Failed to read the uploaded PEM file.",
+        })
+        resetPrivateKeyFileInput()
+      }
+
+      reader.readAsText(file)
+      resetPrivateKeyFileInput()
+    },
+    [form, resetPrivateKeyFileInput]
+  )
+
+  const handlePrivateKeyInputChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      handlePrivateKeyFile(event.target.files?.[0])
+    },
+    [handlePrivateKeyFile]
+  )
+
+  const handlePrivateKeyDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      event.preventDefault()
+      event.stopPropagation()
+      setIsPrivateKeyDragOver(false)
+      handlePrivateKeyFile(event.dataTransfer.files?.[0])
+      event.dataTransfer.clearData()
+    },
+    [handlePrivateKeyFile]
+  )
+
+  const handlePrivateKeyDragOver = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      event.preventDefault()
+      event.dataTransfer.dropEffect = "copy"
+      setIsPrivateKeyDragOver(true)
+    },
+    []
+  )
+
+  const handlePrivateKeyDragLeave = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      const relatedTarget = event.relatedTarget
+      if (
+        relatedTarget instanceof Node &&
+        event.currentTarget.contains(relatedTarget)
+      ) {
+        return
+      }
+      setIsPrivateKeyDragOver(false)
+    },
+    []
+  )
+
+  const handlePrivateKeyDropzoneClick = useCallback(() => {
+    privateKeyFileInputRef.current?.click()
+  }, [])
+
+  const handlePrivateKeyDropzoneKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return
+      }
+      event.preventDefault()
+      handlePrivateKeyDropzoneClick()
+    },
+    [handlePrivateKeyDropzoneClick]
+  )
 
   const onSubmit = async (data: GitHubAppCredentialsFormData) => {
     try {
@@ -85,7 +237,10 @@ export function GitHubAppManualForm({
       })
 
       // Clear sensitive data from form
+      privateKeyReadIdRef.current += 1
       form.setValue("private_key", "")
+      setPrivateKeyFileName(null)
+      resetPrivateKeyFileInput()
       if (data.webhook_secret) {
         form.setValue("webhook_secret", "")
       }
@@ -140,25 +295,101 @@ export function GitHubAppManualForm({
               <FormField
                 control={form.control}
                 name="private_key"
-                render={({ field }) => (
-                  <FormItem className="space-y-2">
-                    <FormLabel>Private Key *</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        {...field}
-                        placeholder="-----BEGIN RSA PRIVATE KEY-----
-MIIEpAIBAAKCAQEA...
------END RSA PRIVATE KEY-----"
-                        className="h-32 font-mono text-xs"
+                render={({ field, fieldState }) => {
+                  return (
+                    <FormItem className="space-y-2">
+                      <FormLabel>Private Key *</FormLabel>
+                      <input
+                        ref={privateKeyFileInputRef}
+                        type="file"
+                        accept=".pem"
+                        className="hidden"
+                        onChange={handlePrivateKeyInputChange}
                       />
-                    </FormControl>
-                    <p className="text-xs text-muted-foreground">
-                      Paste the full contents of the PEM file you downloaded
-                      from GitHub
-                    </p>
-                    <FormMessage />
-                  </FormItem>
-                )}
+                      <div
+                        data-testid="github-app-private-key-dropzone"
+                        role="button"
+                        tabIndex={0}
+                        aria-label="Choose GitHub App private key PEM file"
+                        onClick={handlePrivateKeyDropzoneClick}
+                        onKeyDown={handlePrivateKeyDropzoneKeyDown}
+                        onDrop={handlePrivateKeyDrop}
+                        onDragEnter={handlePrivateKeyDragOver}
+                        onDragOver={handlePrivateKeyDragOver}
+                        onDragLeave={handlePrivateKeyDragLeave}
+                        className={cn(
+                          "flex cursor-pointer flex-col items-center justify-center gap-3 rounded-md border border-dashed px-4 py-8 text-center transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
+                          fieldState.invalid &&
+                            "border-destructive/80 bg-destructive/5",
+                          !fieldState.invalid &&
+                            isPrivateKeyDragOver &&
+                            "border-primary/60 bg-primary/5",
+                          !fieldState.invalid &&
+                            !isPrivateKeyDragOver &&
+                            "border-muted-foreground/30 bg-muted/40 hover:border-muted-foreground/50"
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "flex size-10 items-center justify-center rounded-full transition-colors",
+                            isPrivateKeyDragOver
+                              ? "bg-primary/10 text-primary"
+                              : "bg-muted-foreground/10 text-muted-foreground"
+                          )}
+                        >
+                          {privateKeyFileName ? (
+                            <FileTextIcon className="size-5" />
+                          ) : (
+                            <UploadCloudIcon className="size-5" />
+                          )}
+                        </span>
+                        <div className="flex flex-col gap-0.5">
+                          {privateKeyFileName ? (
+                            <>
+                              <p className="text-sm font-medium">
+                                {privateKeyFileName}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                Click to replace, or paste below
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <p className="text-sm font-medium">
+                                Drop .pem file here, or{" "}
+                                <span className="text-primary">
+                                  click to browse
+                                </span>
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                You can also paste it below
+                              </p>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <FormControl>
+                        <Textarea
+                          {...field}
+                          onChange={(event) => {
+                            privateKeyReadIdRef.current += 1
+                            setPrivateKeyFileName(null)
+                            form.clearErrors("private_key")
+                            field.onChange(event)
+                          }}
+                          placeholder={`-----BEGIN RSA PRIVATE KEY-----
+MIIEpAIBAAKCAQEA1Xq8z2vY3kHnPbW9pJ4rT5sU6wK
+9bV3nHpQ7rTaB4eYhN2dWfL5mC8xR1oZ0gD7uF6iX3c
+…
+hQ4kR2bJ8nVwPzL0aXmS9tE1yU6sJ0oZ4eY7dWfL5mC
+-----END RSA PRIVATE KEY-----`}
+                          className="h-32 font-mono text-xs"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )
+                }}
               />
 
               <FormField

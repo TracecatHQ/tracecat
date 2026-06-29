@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import math
 import threading
 import time
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 import orjson
+from botocore.exceptions import HTTPClientError
 from cachetools import TTLCache
 
 from tracecat.logger import logger
@@ -21,6 +24,62 @@ if TYPE_CHECKING:
 MAX_CACHEABLE_BLOB_SIZE = 50 * 1024 * 1024  # 50 MB per item
 BLOB_CACHE_MAX_BYTES = 500 * 1024 * 1024  # 500 MB total pool
 BLOB_CACHE_TTL = 300.0  # 5 minutes
+STORAGE_TRANSPORT_RETRY_ATTEMPTS = 3
+STORAGE_TRANSPORT_RETRY_BASE_DELAY_SECONDS = 0.25
+
+
+def is_retryable_storage_transport_error(exc: BaseException) -> bool:
+    """Return true for transient blob-storage transport failures.
+
+    Keep this deliberately narrow: retry aiobotocore/botocore HTTP client
+    transport failures, but do not retry S3 service errors, missing objects,
+    integrity failures, validation errors, or user/data errors. Walk the
+    exception chain so a wrapped transport error is still detected.
+    """
+    seen: set[int] = set()
+    stack: list[BaseException | None] = [exc]
+    while stack:
+        current = stack.pop()
+        if current is None:
+            continue
+        current_id = id(current)
+        if current_id in seen:
+            continue
+        seen.add(current_id)
+        if isinstance(current, HTTPClientError):
+            return True
+        if isinstance(current, BaseExceptionGroup):
+            stack.extend(current.exceptions)
+        stack.append(current.__cause__)
+        stack.append(current.__context__)
+    return False
+
+
+async def retry_storage_transport_error[T](
+    operation: str,
+    fn: Callable[[], Awaitable[T]],
+    **log_context: Any,
+) -> T:
+    """Retry a storage operation only for transient HTTP transport failures."""
+    max_attempts = max(1, STORAGE_TRANSPORT_RETRY_ATTEMPTS)
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return await fn()
+        except Exception as e:
+            if attempt >= max_attempts or not is_retryable_storage_transport_error(e):
+                raise
+            delay = STORAGE_TRANSPORT_RETRY_BASE_DELAY_SECONDS * (2 ** (attempt - 1))
+            logger.warning(
+                "Retrying blob storage transport operation",
+                operation=operation,
+                attempt=attempt,
+                max_attempts=max_attempts,
+                delay_seconds=delay,
+                error=str(e),
+                **log_context,
+            )
+            await asyncio.sleep(delay)
+    raise RuntimeError("unreachable")
 
 
 class SizedMemoryCache:
@@ -140,7 +199,12 @@ async def cached_blob_download(sha256: str, bucket: str, key: str) -> bytes:
         logger.debug("Blob cache hit", sha256=sha256[:16])
         return cached
 
-    content = await blob.download_file(key=key, bucket=bucket)
+    content = await retry_storage_transport_error(
+        "blob_download",
+        lambda: blob.download_file(key=key, bucket=bucket),
+        key=key,
+        bucket=bucket,
+    )
 
     # Skip caching large blobs to prevent memory bloat
     if len(content) <= MAX_CACHEABLE_BLOB_SIZE:
@@ -182,10 +246,15 @@ async def cached_select_item(
         return deserialize_object(cached)
 
     expression = f"SELECT s.items[{local_index}] FROM s3object s"
-    result_bytes = await blob.select_object_content(
+    result_bytes = await retry_storage_transport_error(
+        "select_object_content",
+        lambda: blob.select_object_content(
+            key=key,
+            bucket=bucket,
+            expression=expression,
+        ),
         key=key,
         bucket=bucket,
-        expression=expression,
     )
 
     # S3 Select returns {"_1": <item>} for indexed array access

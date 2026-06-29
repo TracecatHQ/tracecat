@@ -1,6 +1,7 @@
 """Tests for the tracecat:active-org-id cookie honored by _resolve_org_for_regular_user."""
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
@@ -40,13 +41,21 @@ async def _seed_user(session: AsyncSession, *, is_superuser: bool = False) -> Us
     return user
 
 
-async def _seed_org(session: AsyncSession, slug_prefix: str) -> Organization:
+async def _seed_org(
+    session: AsyncSession,
+    slug_prefix: str,
+    created_at: datetime | None = None,
+    org_id: uuid.UUID | None = None,
+    is_active: bool = True,
+) -> Organization:
     org = Organization(
-        id=uuid.uuid4(),
+        id=org_id or uuid.uuid4(),
         name=f"Org {slug_prefix}",
         slug=f"{slug_prefix}-{uuid.uuid4().hex[:8]}",
-        is_active=True,
+        is_active=is_active,
     )
+    if created_at is not None:
+        org.created_at = created_at
     session.add(org)
     await session.flush()
     return org
@@ -89,21 +98,35 @@ async def test_cookie_ignored_when_user_is_not_member(session: AsyncSession) -> 
 
 
 @pytest.mark.anyio
-async def test_cookie_ignored_when_user_is_not_member_multi_org_falls_through_to_400(
+async def test_cookie_ignored_when_user_is_not_member_multi_org_uses_valid_membership(
     session: AsyncSession,
 ) -> None:
     user = await _seed_user(session)
-    org_a = await _seed_org(session, "a")
-    org_b = await _seed_org(session, "b")
+    base_time = datetime(2024, 1, 1, tzinfo=UTC)
+    org_a = await _seed_org(session, "a", created_at=base_time + timedelta(days=1))
+    org_b = await _seed_org(session, "b", created_at=base_time)
     other_org = await _seed_org(session, "other")
     await _add_membership(session, user_id=user.id, organization_id=org_a.id)
     await _add_membership(session, user_id=user.id, organization_id=org_b.id)
 
     request = _request_with_cookie(str(other_org.id))
-    with pytest.raises(HTTPException) as exc:
-        await _resolve_org_for_regular_user(request, session, user)
-    assert exc.value.status_code == status.HTTP_400_BAD_REQUEST
-    assert "Multiple organizations found" in exc.value.detail
+    resolved = await _resolve_org_for_regular_user(request, session, user)
+    assert resolved == org_b.id
+    assert resolved != other_org.id
+
+
+@pytest.mark.anyio
+async def test_cookie_ignored_when_org_is_inactive(session: AsyncSession) -> None:
+    """A cookie pointing at an inactive org falls through to an active membership."""
+    user = await _seed_user(session)
+    active_org = await _seed_org(session, "active")
+    inactive_org = await _seed_org(session, "inactive", is_active=False)
+    await _add_membership(session, user_id=user.id, organization_id=active_org.id)
+    await _add_membership(session, user_id=user.id, organization_id=inactive_org.id)
+
+    request = _request_with_cookie(str(inactive_org.id))
+    resolved = await _resolve_org_for_regular_user(request, session, user)
+    assert resolved == active_org.id
 
 
 @pytest.mark.anyio
@@ -144,18 +167,79 @@ async def test_no_cookie_single_membership_returns_it(session: AsyncSession) -> 
 
 
 @pytest.mark.anyio
-async def test_no_cookie_multi_membership_raises_400(session: AsyncSession) -> None:
+async def test_no_cookie_multi_membership_uses_stable_membership(
+    session: AsyncSession,
+) -> None:
     user = await _seed_user(session)
-    org_a = await _seed_org(session, "a")
-    org_b = await _seed_org(session, "b")
+    base_time = datetime(2024, 1, 1, tzinfo=UTC)
+    org_a = await _seed_org(session, "a", created_at=base_time + timedelta(days=1))
+    org_b = await _seed_org(session, "b", created_at=base_time)
     await _add_membership(session, user_id=user.id, organization_id=org_a.id)
     await _add_membership(session, user_id=user.id, organization_id=org_b.id)
+
+    request = _request_with_cookie(None)
+    resolved = await _resolve_org_for_regular_user(request, session, user)
+    assert resolved == org_b.id
+
+
+@pytest.mark.anyio
+async def test_no_cookie_multi_membership_uses_stable_id_tiebreaker(
+    session: AsyncSession,
+) -> None:
+    user = await _seed_user(session)
+    shared_time = datetime(2024, 1, 1, tzinfo=UTC)
+    org_a = await _seed_org(
+        session,
+        "a",
+        created_at=shared_time,
+        org_id=uuid.UUID("00000000-0000-4000-8000-000000000002"),
+    )
+    org_b = await _seed_org(
+        session,
+        "b",
+        created_at=shared_time,
+        org_id=uuid.UUID("00000000-0000-4000-8000-000000000001"),
+    )
+    await _add_membership(session, user_id=user.id, organization_id=org_a.id)
+    await _add_membership(session, user_id=user.id, organization_id=org_b.id)
+
+    request = _request_with_cookie(None)
+    resolved = await _resolve_org_for_regular_user(request, session, user)
+    assert resolved == org_b.id
+
+
+@pytest.mark.anyio
+async def test_no_cookie_fallback_skips_inactive_orgs(session: AsyncSession) -> None:
+    """The stable fallback only considers active orgs, even older ones."""
+    user = await _seed_user(session)
+    base_time = datetime(2024, 1, 1, tzinfo=UTC)
+    inactive_org = await _seed_org(
+        session, "inactive", created_at=base_time, is_active=False
+    )
+    active_org = await _seed_org(
+        session, "active", created_at=base_time + timedelta(days=1)
+    )
+    await _add_membership(session, user_id=user.id, organization_id=inactive_org.id)
+    await _add_membership(session, user_id=user.id, organization_id=active_org.id)
+
+    request = _request_with_cookie(None)
+    resolved = await _resolve_org_for_regular_user(request, session, user)
+    assert resolved == active_org.id
+
+
+@pytest.mark.anyio
+async def test_no_cookie_only_inactive_memberships_raises_400(
+    session: AsyncSession,
+) -> None:
+    user = await _seed_user(session)
+    inactive_org = await _seed_org(session, "inactive", is_active=False)
+    await _add_membership(session, user_id=user.id, organization_id=inactive_org.id)
 
     request = _request_with_cookie(None)
     with pytest.raises(HTTPException) as exc:
         await _resolve_org_for_regular_user(request, session, user)
     assert exc.value.status_code == status.HTTP_400_BAD_REQUEST
-    assert "Multiple organizations found" in exc.value.detail
+    assert "no organization memberships" in exc.value.detail
 
 
 @pytest.mark.anyio

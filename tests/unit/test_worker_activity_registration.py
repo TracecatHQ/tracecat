@@ -164,13 +164,18 @@ async def test_agent_executor_worker_treats_empty_numeric_env_vars_as_defaults(
         "TRACECAT__AGENT_EXECUTOR_QUEUE",
         "test-agent-executor-queue",
     )
+    monkeypatch.setattr(
+        executor_worker.config,
+        "TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT",
+        1860,
+    )
     await executor_worker.main(shutdown_event=shutdown_event)
 
     assert captured == {
         "task_queue": "test-agent-executor-queue",
         "max_concurrent_activities": 1,
         "threadpool_max_workers": 100,
-        "graceful_shutdown_timeout": timedelta(minutes=5),
+        "graceful_shutdown_timeout": timedelta(seconds=1860),
     }
 
 

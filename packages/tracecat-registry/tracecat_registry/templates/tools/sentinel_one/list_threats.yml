@@ -3,7 +3,7 @@ definition:
   title: List threats
   description: Query for SentinelOne threats.
   display_group: SentinelOne
-  doc_url: https://<base_url>/api-doc/api-details?category=threats&api=get-threats
+  doc_url: https://github.com/Sentinel-One/purple-mcp
   namespace: tools.sentinel_one
   name: list_threats
   secrets:

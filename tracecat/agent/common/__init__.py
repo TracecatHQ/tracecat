@@ -37,6 +37,7 @@ from tracecat.agent.common.socket_io import (
     read_message,
 )
 from tracecat.agent.common.stream_types import (
+    ArtifactEventContent,
     HarnessType,
     StreamEventType,
     ToolCallContent,
@@ -73,6 +74,7 @@ __all__ = [
     "build_message",
     "read_message",
     # Stream types
+    "ArtifactEventContent",
     "HarnessType",
     "StreamEventType",
     "ToolCallContent",

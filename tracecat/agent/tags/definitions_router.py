@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from tracecat import config
 from tracecat.agent.tags.schemas import AgentTagRead
 from tracecat.agent.tags.service import AgentTagsService
-from tracecat.auth.dependencies import WorkspaceUserRouteRole
+from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import (
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/agent-tags", tags=["agent-tags"])
 @require_scope("agent:read")
 async def list_agent_tags(
     *,
-    role: WorkspaceUserRouteRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     limit: int = Query(
         default=config.TRACECAT__LIMIT_DEFAULT,
@@ -61,7 +61,7 @@ async def list_agent_tags(
 @require_scope("agent:read")
 async def get_agent_tag(
     *,
-    role: WorkspaceUserRouteRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     tag_id: AgentTagID,
 ) -> AgentTagRead:
@@ -81,7 +81,7 @@ async def get_agent_tag(
 @require_scope("agent:create")
 async def create_agent_tag(
     *,
-    role: WorkspaceUserRouteRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     params: TagCreate,
 ) -> AgentTagRead:
@@ -101,7 +101,7 @@ async def create_agent_tag(
 @require_scope("agent:update")
 async def update_agent_tag(
     *,
-    role: WorkspaceUserRouteRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     tag_id: AgentTagID,
     params: TagUpdate,
@@ -129,7 +129,7 @@ async def update_agent_tag(
 @require_scope("agent:delete")
 async def delete_agent_tag(
     *,
-    role: WorkspaceUserRouteRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     tag_id: AgentTagID,
 ) -> None:

@@ -4,16 +4,16 @@ import type {
   InteractionInput,
   RunActionInput,
   WorkflowEventType,
-  WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_,
-  WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_,
+  WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_,
+  WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_,
 } from "@/client"
 import { ACTION_REF_DELIMITER, undoSlugify } from "@/lib/utils"
 
 export type WorkflowExecutionEventCompact =
-  WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_
+  WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_
 
 export type WorkflowExecutionReadCompact =
-  WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_
+  WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_
 
 // Safe because refs are slugified. Use `workflow` to namespace from regular action refs.
 export const WF_TRIGGER_EVENT_REF = "__workflow_trigger__"

@@ -33,8 +33,15 @@ import {
   Webhook,
 } from "lucide-react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import {
+  type FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import {
   type FieldErrors,
   type UseFormReturn,
@@ -65,7 +72,7 @@ import { ActionSelect } from "@/components/chat/action-select"
 import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
-import { getIcon, ProviderIcon } from "@/components/icons"
+import { getIcon, getMcpProviderIconId, ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { MultiTagCommandInput, type Suggestion } from "@/components/tags-input"
 import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
@@ -187,53 +194,23 @@ const RESERVED_SUBAGENT_ALIASES = new Set([
   "root",
   "task",
 ])
+const AGENT_PRESET_TAB_QUERY_PARAM = "tab"
 
-/**
- * Maps MCP integration slugs to provider IDs for icon lookup.
- * This handles both built-in MCP providers and custom integrations.
- */
-function getMcpProviderId(slug: string): string | undefined {
-  // Map common slugs to provider IDs
-  const slugMap: Record<string, string> = {
-    "github-copilot": "github_mcp",
-    github: "github_mcp",
-    sentry: "sentry_mcp",
-    notion: "notion_mcp",
-    linear: "linear_mcp",
-    jira: "jira_mcp",
-    runreveal: "runreveal_mcp",
-    "secure-annex": "secureannex_mcp",
-    secureannex: "secureannex_mcp",
-    wiz: "wiz_mcp",
-  }
-
-  const normalized = slug.toLowerCase()
-  if (slugMap[normalized]) {
-    return slugMap[normalized]
-  }
-
-  // Normalize "<name>[-_]mcp" into "<normalized_name>_mcp".
-  // Examples:
-  // - github_mcp -> github_mcp
-  // - secure_annex_mcp -> secureannex_mcp
-  // - secure-annex-mcp -> secureannex_mcp
-  const mcpMatch = normalized.match(/^(.*?)(?:[_-]?mcp)$/)
-  if (mcpMatch && mcpMatch[1]) {
-    const compactBase = mcpMatch[1].replace(/[^a-z0-9]/g, "")
-    if (compactBase) {
-      return `${compactBase}_mcp`
-    }
-  }
-
-  if (normalized.endsWith("_mcp")) {
-    return normalized
-  }
-
-  if (normalized.endsWith("-mcp")) {
-    return normalized.replace(/-/g, "_")
-  }
-
-  return undefined
+function AgentPresetLoadError({
+  title,
+  detail,
+}: {
+  title: string
+  detail: string
+}) {
+  return (
+    <div className="flex h-full items-center justify-center px-6">
+      <Alert variant="destructive" className="max-w-xl">
+        <AlertTitle>{title}</AlertTitle>
+        <AlertDescription>{detail}</AlertDescription>
+      </Alert>
+    </div>
+  )
 }
 
 const agentPresetSchema = z
@@ -459,10 +436,14 @@ export function AgentPresetsBuilder({
   builderPrompt?: string
 }) {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const workspaceId = useWorkspaceId()
   const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
   const agentAddonsEnabled = hasEntitlement("agent_addons")
   const activePresetId = presetId
+  const queryTab = parseAgentPresetSideTab(
+    searchParams.get(AGENT_PRESET_TAB_QUERY_PARAM)
+  )
 
   const { presets, presetsIsLoading, presetsError } = useAgentPresets(
     workspaceId,
@@ -485,7 +466,7 @@ export function AgentPresetsBuilder({
         id: integration.id,
         name: integration.name,
         description: integration.description,
-        providerId: getMcpProviderId(integration.slug),
+        providerId: getMcpProviderIconId(integration.slug),
       }))
       .sort((a, b) => a.name.localeCompare(b.name))
   }, [mcpIntegrations])
@@ -510,41 +491,33 @@ export function AgentPresetsBuilder({
         return
       }
       const nextPath = `/workspaces/${workspaceId}/agents/${normalizedId}`
-      router.replace(nextPath)
+      const params = new URLSearchParams(searchParams.toString())
+      const queryString = params.toString()
+      router.replace(queryString ? `${nextPath}?${queryString}` : nextPath)
     },
-    [activePresetId, router, workspaceId]
+    [activePresetId, router, searchParams, workspaceId]
   )
 
-  const selectedPresetId = activePresetId
-  const { preset: selectedPreset } = useAgentPreset(
-    workspaceId,
-    selectedPresetId,
-    {
-      enabled: agentAddonsEnabled && !entitlementsLoading,
-    }
+  const handleTabChange = useCallback(
+    (tab: AgentPresetSideTab) => {
+      const params = new URLSearchParams(searchParams.toString())
+      params.set(AGENT_PRESET_TAB_QUERY_PARAM, tab)
+      const queryString = params.toString()
+      const path = activePresetId
+        ? `/workspaces/${workspaceId}/agents/${activePresetId}`
+        : `/workspaces/${workspaceId}/agents`
+      router.replace(queryString ? `${path}?${queryString}` : path)
+    },
+    [activePresetId, router, searchParams, workspaceId]
   )
 
-  useEffect(() => {
-    if (!presetId || presetsIsLoading || !presets) {
-      return
-    }
-    const presetExists = presets.some((preset) => preset.id === presetId)
-    if (presetExists) {
-      return
-    }
-    if (presets.length > 0) {
-      handleSetSelectedPresetId(presets[0].id)
-    } else {
-      router.replace(`/workspaces/${workspaceId}/agents`)
-    }
-  }, [
-    presets,
-    handleSetSelectedPresetId,
-    presetId,
-    presetsIsLoading,
-    router,
-    workspaceId,
-  ])
+  const {
+    preset: selectedPreset,
+    presetIsLoading: selectedPresetIsLoading,
+    presetError: selectedPresetError,
+  } = useAgentPreset(workspaceId, activePresetId, {
+    enabled: agentAddonsEnabled && !entitlementsLoading,
+  })
 
   const actionSuggestions: Suggestion[] = useMemo(() => {
     if (!registryActions) {
@@ -593,17 +566,29 @@ export function AgentPresetsBuilder({
   }
 
   if (presetsError) {
-    const detail =
-      typeof presetsError.body?.detail === "string"
-        ? presetsError.body.detail
-        : presetsError.message
     return (
-      <div className="flex h-full items-center justify-center px-6">
-        <Alert variant="destructive" className="max-w-xl">
-          <AlertTitle>Unable to load agent presets</AlertTitle>
-          <AlertDescription>{detail}</AlertDescription>
-        </Alert>
-      </div>
+      <AgentPresetLoadError
+        title="Unable to load agent presets"
+        detail={
+          getApiErrorDetail(presetsError) ?? "Agent presets failed to load."
+        }
+      />
+    )
+  }
+
+  if (activePresetId && selectedPresetIsLoading) {
+    return <CenteredSpinner />
+  }
+
+  if (activePresetId && (selectedPresetError || !selectedPreset)) {
+    return (
+      <AgentPresetLoadError
+        title="Unable to load agent preset"
+        detail={
+          getApiErrorDetail(selectedPresetError) ??
+          "Agent preset was not found."
+        }
+      />
     )
   }
 
@@ -678,8 +663,121 @@ export function AgentPresetsBuilder({
               }
             : undefined
         }
+        initialTab={queryTab ?? "live-chat"}
+        onTabChange={handleTabChange}
       />
     </div>
+  )
+}
+
+/**
+ * Embeds the preset builder in surfaces that need a stacked, narrow layout.
+ */
+export function AgentPresetArtifactView({
+  preset,
+  workspaceId,
+  initialTab,
+  onTabChange,
+}: {
+  preset: AgentPresetRead
+  workspaceId: string
+  initialTab?: string | null
+  onTabChange?: (tab: string) => void
+}) {
+  const { presets } = useAgentPresets(workspaceId)
+  const { registryActions } = useRegistryActions()
+  const { models, providers } = useWorkspaceAgentModels(workspaceId)
+  const enabledModelsLoaded = models !== undefined
+  const { mcpIntegrations, mcpIntegrationsIsLoading } =
+    useListMcpIntegrations(workspaceId)
+  const { updateAgentPreset, updateAgentPresetIsPending } =
+    useUpdateAgentPreset(workspaceId)
+
+  const actionSuggestions: Suggestion[] = useMemo(() => {
+    if (!registryActions) {
+      return []
+    }
+    return registryActions
+      .map((action) => ({
+        id: action.id,
+        label: action.default_title ?? action.name,
+        value: action.action,
+        description: action.description,
+        group: action.namespace,
+        icon: getIcon(action.action, {
+          className: "size-6 p-[3px] border-[0.5px]",
+        }),
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label))
+  }, [registryActions])
+
+  const namespaceSuggestions: Suggestion[] = useMemo(() => {
+    if (!registryActions) {
+      return []
+    }
+    const seen = new Set<string>()
+    const entries: Suggestion[] = []
+    for (const action of registryActions) {
+      if (action.namespace && !seen.has(action.namespace)) {
+        seen.add(action.namespace)
+        entries.push({
+          id: action.namespace,
+          label: action.namespace,
+          value: action.namespace,
+        })
+      }
+    }
+    return entries.sort((a, b) => a.label.localeCompare(b.label))
+  }, [registryActions])
+
+  const enabledModelOptions = useMemo(
+    () => buildEnabledModelOptions(models, providers),
+    [models, providers]
+  )
+
+  const mcpIntegrationsForForm = useMemo(() => {
+    if (!mcpIntegrations) {
+      return []
+    }
+
+    return mcpIntegrations
+      .map((integration) => ({
+        id: integration.id,
+        name: integration.name,
+        description: integration.description,
+        providerId: getMcpProviderIconId(integration.slug),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [mcpIntegrations])
+
+  return (
+    <AgentPresetForm
+      key={preset.id}
+      preset={preset}
+      mode="edit"
+      workspaceId={workspaceId}
+      agentPresets={presets ?? []}
+      onCreate={async () => {
+        throw new Error("Agent artifacts cannot create presets.")
+      }}
+      onUpdate={async (presetId, payload) => {
+        return await updateAgentPreset({
+          presetId,
+          ...payload,
+        })
+      }}
+      isSaving={updateAgentPresetIsPending}
+      isDeleting={false}
+      actionSuggestions={actionSuggestions}
+      namespaceSuggestions={namespaceSuggestions}
+      enabledModelOptions={enabledModelOptions}
+      enabledModelsLoaded={enabledModelsLoaded}
+      mcpIntegrations={mcpIntegrationsForForm}
+      mcpIntegrationsIsLoading={mcpIntegrationsIsLoading}
+      layout="stacked"
+      initialTab={parseAgentPresetSideTab(initialTab) ?? "configuration"}
+      onTabChange={onTabChange}
+    />
   )
 }
 
@@ -737,6 +835,7 @@ function AgentPresetChatPane({
     () =>
       effectiveModelConfig
         ? findEnabledModelOption(enabledModelOptions, {
+            catalogId: effectiveModelConfig.catalog_id,
             modelProvider: effectiveModelConfig.model_provider,
             modelName: effectiveModelConfig.model_name,
             baseUrl: effectiveModelConfig.base_url ?? null,
@@ -935,6 +1034,7 @@ function AgentPresetChatPane({
               align="end"
             />
             <Button
+              type="button"
               size="sm"
               variant="ghost"
               className="text-xs"
@@ -1017,6 +1117,26 @@ type AgentPresetSideTab =
   | "structured-output"
   | "versions"
 
+const AGENT_PRESET_SIDE_TABS = new Set<AgentPresetSideTab>([
+  "live-chat",
+  "assistant",
+  "configuration",
+  "subagents",
+  "skills",
+  "channels",
+  "structured-output",
+  "versions",
+])
+
+function parseAgentPresetSideTab(
+  value: string | null | undefined
+): AgentPresetSideTab | null {
+  if (!value || !AGENT_PRESET_SIDE_TABS.has(value as AgentPresetSideTab)) {
+    return null
+  }
+  return value as AgentPresetSideTab
+}
+
 function getAgentPresetErrorTab(
   errors: FieldErrors<AgentPresetFormValues>
 ): AgentPresetSideTab | null {
@@ -1064,7 +1184,7 @@ type McpIntegrationOption = {
   id: string
   name: string
   description?: string | null
-  providerId?: string
+  providerId: string
 }
 
 type EnabledModelOption = {
@@ -1184,12 +1304,22 @@ function getProviderDisplayLabel(provider: string): string {
 function findEnabledModelOption(
   options: EnabledModelOption[],
   selection: {
+    catalogId?: string | null
     sourceId?: string | null
     modelProvider?: string | null
     modelName?: string | null
     baseUrl?: string | null
   }
 ): EnabledModelOption | null {
+  if (selection.catalogId) {
+    const catalogMatch = options.find(
+      (option) => option.catalogId === selection.catalogId
+    )
+    if (catalogMatch) {
+      return catalogMatch
+    }
+  }
+
   if (!selection.modelProvider || !selection.modelName) {
     return null
   }
@@ -1246,6 +1376,9 @@ type AgentPresetFormProps = {
   enabledModelsLoaded: boolean
   mcpIntegrations: McpIntegrationOption[]
   mcpIntegrationsIsLoading: boolean
+  layout?: "split" | "stacked"
+  initialTab?: AgentPresetSideTab
+  onTabChange?: (tab: AgentPresetSideTab) => void
 }
 
 function AgentPresetForm({
@@ -1266,11 +1399,14 @@ function AgentPresetForm({
   enabledModelsLoaded,
   mcpIntegrations,
   mcpIntegrationsIsLoading,
+  layout = "split",
+  initialTab = "live-chat",
+  onTabChange,
 }: AgentPresetFormProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [isDuplicating, setIsDuplicating] = useState(false)
   const isDuplicatingRef = useRef(false)
-  const [activeTab, setActiveTab] = useState<AgentPresetSideTab>("live-chat")
+  const [activeTab, setActiveTab] = useState<AgentPresetSideTab>(initialTab)
   const { isFeatureEnabled: isFeatureEnabledFlag } = useFeatureFlag()
   const channelsEnabled = isFeatureEnabledFlag("agent-channels")
   const form = useForm<AgentPresetFormValues>({
@@ -1308,6 +1444,18 @@ function AgentPresetForm({
       enabled:
         watchedAgentsEnabled && selectedPinnedSubagentPresetIds.length > 0,
     }
+  )
+
+  useEffect(() => {
+    setActiveTab(initialTab)
+  }, [initialTab])
+
+  const handleTabChange = useCallback(
+    (tab: AgentPresetSideTab) => {
+      setActiveTab(tab)
+      onTabChange?.(tab)
+    },
+    [onTabChange]
   )
 
   const handleConfirmDelete = async () => {
@@ -1354,6 +1502,7 @@ function AgentPresetForm({
   }, [form, mode, preset])
 
   const watchedName = form.watch("name")
+  const catalogId = form.watch("catalog_id")
   const sourceId = form.watch("source_id")
   const modelProvider = form.watch("model_provider")
   const modelName = form.watch("model_name")
@@ -1361,12 +1510,20 @@ function AgentPresetForm({
   const selectedModel = useMemo(
     () =>
       findEnabledModelOption(enabledModelOptions, {
+        catalogId,
         sourceId,
         modelProvider,
         modelName,
         baseUrl,
       }),
-    [baseUrl, enabledModelOptions, sourceId, modelName, modelProvider]
+    [
+      baseUrl,
+      catalogId,
+      enabledModelOptions,
+      sourceId,
+      modelName,
+      modelProvider,
+    ]
   )
 
   useEffect(() => {
@@ -1426,7 +1583,7 @@ function AgentPresetForm({
               message: eligibilityIssue.message,
             }
           )
-          setActiveTab("subagents")
+          handleTabChange("subagents")
           return
         }
       }
@@ -1446,7 +1603,7 @@ function AgentPresetForm({
     (errors) => {
       const nextTab = getAgentPresetErrorTab(errors)
       if (nextTab) {
-        setActiveTab(nextTab)
+        handleTabChange(nextTab)
       }
     }
   )
@@ -1517,72 +1674,99 @@ function AgentPresetForm({
     [appendSkillBinding]
   )
 
+  const documentPanel = (
+    <AgentPresetDocumentPanel
+      form={form}
+      mode={mode}
+      isSaving={isSaving}
+      isDeleting={isDeleting}
+      canSubmit={canSubmit}
+      presetName={preset?.name ?? ""}
+      onDuplicate={onDuplicate ? handleDuplicate : undefined}
+      isDuplicating={isDuplicating}
+      onDelete={onDelete}
+      deleteDialogOpen={deleteDialogOpen}
+      onDeleteDialogChange={handleDeleteDialogChange}
+      onConfirmDelete={handleConfirmDelete}
+    />
+  )
+
+  const rightPanel = (
+    <AgentPresetRightPanel
+      activeTab={effectiveTab}
+      onTabChange={handleTabChange}
+      channelsEnabled={channelsEnabled}
+      preset={preset}
+      workspaceId={workspaceId}
+      agentPresets={agentPresets}
+      subagentVersionsByPresetId={subagentVersionsByPresetId}
+      subagentVersionsByPresetIdIsLoading={subagentVersionsByPresetIdIsLoading}
+      builderPrompt={builderPrompt}
+      form={form}
+      isSaving={isSaving}
+      actionSuggestions={actionSuggestions}
+      namespaceSuggestions={namespaceSuggestions}
+      enabledModelOptions={enabledModelOptions}
+      enabledModelsLoaded={enabledModelsLoaded}
+      mcpIntegrations={mcpIntegrations}
+      mcpIntegrationsIsLoading={mcpIntegrationsIsLoading}
+      skillFields={skillFields}
+      onAddSkillBinding={handleAddSkillBinding}
+      onRemoveSkillBinding={removeSkillBinding}
+      toolApprovalFields={toolApprovalFields}
+      onAddToolApproval={handleAddToolApproval}
+      onRemoveToolApproval={removeToolApproval}
+      subagentFields={subagentFields}
+      onAddSubagent={handleAddSubagent}
+      onRemoveSubagent={removeSubagent}
+    />
+  )
+
+  const handleFormSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    // Ignore submits bubbling from nested forms (e.g., chat prompt inputs).
+    if (event.target !== event.currentTarget) {
+      return
+    }
+    void handleSubmit()
+  }
+
   return (
     <Form {...form}>
-      <form
-        onSubmit={(event) => {
-          event.preventDefault()
-          // Ignore submits bubbling from nested forms (e.g., chat prompt inputs).
-          if (event.target !== event.currentTarget) {
-            return
-          }
-          void handleSubmit()
-        }}
-        className="h-full"
-      >
-        <ResizablePanelGroup direction="horizontal" className="h-full">
-          <ResizablePanel defaultSize={62} minSize={40}>
-            <AgentPresetDocumentPanel
-              form={form}
-              mode={mode}
-              isSaving={isSaving}
-              isDeleting={isDeleting}
-              canSubmit={canSubmit}
-              presetName={preset?.name ?? ""}
-              onDuplicate={onDuplicate ? handleDuplicate : undefined}
-              isDuplicating={isDuplicating}
-              onDelete={onDelete}
-              deleteDialogOpen={deleteDialogOpen}
-              onDeleteDialogChange={handleDeleteDialogChange}
-              onConfirmDelete={handleConfirmDelete}
-            />
-          </ResizablePanel>
+      <form onSubmit={handleFormSubmit} className="h-full min-h-0">
+        {layout === "stacked" ? (
+          <ResizablePanelGroup direction="vertical" className="h-full">
+            <ResizablePanel
+              defaultSize={42}
+              minSize={28}
+              className="overflow-hidden"
+            >
+              {documentPanel}
+            </ResizablePanel>
 
-          <ResizableHandle withHandle />
+            <ResizableHandle />
 
-          <ResizablePanel defaultSize={38} minSize={26}>
-            <AgentPresetRightPanel
-              activeTab={effectiveTab}
-              onTabChange={setActiveTab}
-              channelsEnabled={channelsEnabled}
-              preset={preset}
-              workspaceId={workspaceId}
-              agentPresets={agentPresets}
-              subagentVersionsByPresetId={subagentVersionsByPresetId}
-              subagentVersionsByPresetIdIsLoading={
-                subagentVersionsByPresetIdIsLoading
-              }
-              builderPrompt={builderPrompt}
-              form={form}
-              isSaving={isSaving}
-              actionSuggestions={actionSuggestions}
-              namespaceSuggestions={namespaceSuggestions}
-              enabledModelOptions={enabledModelOptions}
-              enabledModelsLoaded={enabledModelsLoaded}
-              mcpIntegrations={mcpIntegrations}
-              mcpIntegrationsIsLoading={mcpIntegrationsIsLoading}
-              skillFields={skillFields}
-              onAddSkillBinding={handleAddSkillBinding}
-              onRemoveSkillBinding={removeSkillBinding}
-              toolApprovalFields={toolApprovalFields}
-              onAddToolApproval={handleAddToolApproval}
-              onRemoveToolApproval={removeToolApproval}
-              subagentFields={subagentFields}
-              onAddSubagent={handleAddSubagent}
-              onRemoveSubagent={removeSubagent}
-            />
-          </ResizablePanel>
-        </ResizablePanelGroup>
+            <ResizablePanel
+              defaultSize={58}
+              minSize={32}
+              className="overflow-hidden"
+            >
+              {rightPanel}
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        ) : (
+          <ResizablePanelGroup direction="horizontal" className="h-full">
+            <ResizablePanel defaultSize={62} minSize={40}>
+              {documentPanel}
+            </ResizablePanel>
+
+            <ResizableHandle withHandle />
+
+            <ResizablePanel defaultSize={38} minSize={26}>
+              {rightPanel}
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        )}
       </form>
     </Form>
   )
@@ -1999,6 +2183,7 @@ function AgentPresetConfigurationPanel({
   onAddToolApproval: () => void
   onRemoveToolApproval: (index: number) => void
 }) {
+  const catalogId = form.watch("catalog_id")
   const sourceId = form.watch("source_id")
   const modelProvider = form.watch("model_provider")
   const modelName = form.watch("model_name")
@@ -2008,12 +2193,20 @@ function AgentPresetConfigurationPanel({
   const selectedModel = useMemo(
     () =>
       findEnabledModelOption(enabledModelOptions, {
+        catalogId,
         sourceId,
         modelProvider,
         modelName,
         baseUrl,
       }),
-    [baseUrl, enabledModelOptions, sourceId, modelName, modelProvider]
+    [
+      baseUrl,
+      catalogId,
+      enabledModelOptions,
+      sourceId,
+      modelName,
+      modelProvider,
+    ]
   )
   const hasMissingEnabledModel =
     enabledModelsLoaded && !selectedModel && Boolean(modelProvider || modelName)
@@ -2301,8 +2494,8 @@ function AgentPresetConfigurationPanel({
                       description: integration.description || "MCP Integration",
                       icon: (
                         <ProviderIcon
-                          providerId={integration.providerId || "custom"}
-                          className="size-3 bg-transparent p-0 mx-1"
+                          providerId={integration.providerId}
+                          className="size-4 bg-transparent p-0"
                         />
                       ),
                     }))}
@@ -3575,6 +3768,7 @@ function AgentPresetBuilderChatPane({
               align="end"
             />
             <Button
+              type="button"
               size="sm"
               variant="ghost"
               className="text-xs"

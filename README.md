@@ -25,8 +25,8 @@
 
 - **Prompt-to-automations**: build end-to-end automations with agents, workflows, cases, and tables from your own agent harness (e.g. Claude code, Codex, OpenCode).
 - **Code-native**: sync custom Python scripts from your Git repo into Tracecat.
-- **All-in-one**: agents, workflows, lookup tables, and case management. Everything technical teams need to automate work in one place.
-- **Self-host anywhere**: Docker, Kubernetes, AWS Fargate.
+- **All-in-one**: agents, workflows, lookup tables, and case management. Everything security teams need to automate work in one place.
+- **Deployment options**: sign up for Tracecat managed Cloud, or self-host with Docker, AWS Fargate, or Kubernetes Helm.
 
 Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run on [Temporal](https://temporal.io) for security, reliability, and scale.
 
@@ -37,11 +37,12 @@ Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run o
 
 ### Key Capabilities
 
-- **Agents**: build custom agents with prompts, tools, chat, and any MCP server (remote HTTP / OAuth or local via `npx` / `uvx` commands)
+- **Agents**: build custom agents with prompts, tools, and chat
 - **Workflows**: low-code builder with complex control flow (if-conditions, loops) and durable execution (Temporal)
 - **Case management**: track, automate, and resolve work items with agents and workflows
 - **Integrations**: over 100+ pre-built connectors to enterprise tools via HTTP, SMTP, gRPC, OAuth, and more
-- **MCP server**: work with Tracecat through your own agent harness
+- **Tracecat MCP**: turns prompts into automations through Claude Code, Codex, Copilot, etc.
+- **MCP client**: connect custom agents any MCP server (remote HTTP / OAuth or local via `npx` / `uvx` commands)
 - **Custom registry**: turn custom Python scripts into agent tools and workflow steps
 
 ### Other OSS Highlights
@@ -54,9 +55,10 @@ Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run o
 
 ### Enterprise Edition
 
+- **Pre-built MCP servers**: over 100+ Tracecat hosted MCP servers for security operations
 - **Fine-grained access control**: RBAC, ABAC, OAuth2.0 scopes for humans and agents
 - **Human-in-the-loop**: review and approve sensitive tools calls from a unified inbox, Slack, or email
-- **Workflow version control**: sync to GitHub, GitLab, Bitbucket, etc.
+- **Workspace version control**: sync workflows, agents, and table schemas to GitHub, GitLab, Bitbucket, etc.
 - **Metrics and monitoring**: for workflows, agents, and cases
 
 ## Tech Stack
@@ -70,10 +72,14 @@ Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run o
 
 ## Open Source vs Enterprise
 
+> [!NOTE]
+> Tracecat Enterprise is available as managed Cloud with US or EU hosting, or as a self-hosted deployment with dedicated support.
+> [Book a demo today](https://cal.com/team/tracecat).
+
 This repo is available under the [AGPL-3.0 license](https://github.com/TracecatHQ/tracecat/blob/main/LICENSE) with the following exceptions:
 
 - `packages/tracecat-ee` directory is under Tracecat's paid EE (Enterprise Edition) license.
-- `deployments/k8s` is a git submodule under the source available [PolyForm Shield License](https://polyformproject.org/licenses/shield/1.0.0/). It contains the Tracecat Helm chart and EKS deployment templates for internal use only, and its chart releases are published from that repo to public ECR.
+- `deployments/k8s` is a git submodule under the source available [PolyForm Shield License](https://polyformproject.org/licenses/shield/1.0.0/). It contains the Tracecat Helm chart and EKS deployment templates for internal use only. The Helm chart is distributed as a private OCI artifact hosted in AWS ECR.
 - Any code that gates `ee` features across the repo
 
 Code that fall under the above exceptions must not be redistributed, sold, or otherwise commercialized without permission.

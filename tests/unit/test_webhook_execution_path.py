@@ -36,8 +36,13 @@ from tracecat.storage.object import (
     ObjectRef,
 )
 from tracecat.storage.utils import deserialize_object
-from tracecat.webhooks.router import _incoming_webhook, incoming_webhook_wait
+from tracecat.webhooks.router import (
+    _incoming_webhook,
+    _wrapped_payload,
+    incoming_webhook_wait,
+)
 from tracecat.webhooks.router import router as webhook_router
+from tracecat.webhooks.schemas import WebhookRead
 from tracecat.workflow.executions.enums import (
     ExecutionType,
     TemporalSearchAttr,
@@ -464,6 +469,19 @@ class TestWebhookRouterExecutionPath:
     the contract between the router and the execution service.
     """
 
+    @staticmethod
+    def _request(
+        *,
+        include_headers: bool = False,
+        headers: dict[str, str] | None = None,
+        body: bytes = b"",
+    ) -> Request:
+        request = MagicMock(spec=Request)
+        request.headers = headers or {}
+        request.body = AsyncMock(return_value=body)
+        request.state.webhook_include_headers = include_headers
+        return request
+
     @pytest.mark.anyio
     async def test_standard_webhook_calls_wait_for_start_with_webhook_trigger(self):
         """The primary webhook handler must use create_workflow_execution_wait_for_start
@@ -504,6 +522,351 @@ class TestWebhookRouterExecutionPath:
         )
         assert call_kwargs["trigger_type"] == TriggerType.WEBHOOK
         assert call_kwargs["payload"] == payload
+
+    @pytest.mark.anyio
+    async def test_include_headers_off_passes_raw_body(self):
+        """With include_headers=False, TRIGGER is the raw parsed body (default)."""
+        workflow_id = WorkflowUUID.new_uuid4()
+        payload = {"event": "test"}
+        mock_service = AsyncMock()
+        mock_service.create_workflow_execution_wait_for_start = AsyncMock(
+            return_value={
+                "message": "Workflow execution started",
+                "wf_id": workflow_id,
+                "wf_exec_id": f"{workflow_id.short()}/exec_1",
+            }
+        )
+
+        request = MagicMock(spec=Request)
+        request.headers = {"content-type": "application/json"}
+
+        with patch(
+            "tracecat.webhooks.router.WorkflowExecutionsService.connect",
+            AsyncMock(return_value=mock_service),
+        ):
+            await _incoming_webhook(
+                workflow_id=workflow_id,
+                defn=_definition(),
+                payload=payload,
+                echo=False,
+                empty_echo=False,
+                vendor=None,
+                request=request,
+                content_type="application/json",
+                include_headers=False,
+            )
+
+        call_kwargs = (
+            mock_service.create_workflow_execution_wait_for_start.call_args.kwargs
+        )
+        assert call_kwargs["payload"] == payload
+
+    @pytest.mark.anyio
+    async def test_include_headers_on_wraps_body_with_envelope(self):
+        """With include_headers=True, TRIGGER is {status_code, headers, data}.
+
+        The synthetic status_code mirrors core.http.request and the original
+        body is preserved under `data` and `raw_body`.
+        """
+        workflow_id = WorkflowUUID.new_uuid4()
+        payload = {"event": "test"}
+        mock_service = AsyncMock()
+        mock_service.create_workflow_execution_wait_for_start = AsyncMock(
+            return_value={
+                "message": "Workflow execution started",
+                "wf_id": workflow_id,
+                "wf_exec_id": f"{workflow_id.short()}/exec_1",
+            }
+        )
+
+        raw_body = b'{"event": "test"}'
+        request = MagicMock(spec=Request)
+        request.headers = {
+            "content-type": "application/json",
+            "x-custom-header": "abc",
+        }
+        request.body = AsyncMock(return_value=raw_body)
+
+        with patch(
+            "tracecat.webhooks.router.WorkflowExecutionsService.connect",
+            AsyncMock(return_value=mock_service),
+        ):
+            await _incoming_webhook(
+                workflow_id=workflow_id,
+                defn=_definition(),
+                payload=payload,
+                echo=False,
+                empty_echo=False,
+                vendor=None,
+                request=request,
+                content_type="application/json",
+                include_headers=True,
+            )
+
+        call_kwargs = (
+            mock_service.create_workflow_execution_wait_for_start.call_args.kwargs
+        )
+        wrapped = call_kwargs["payload"]
+        assert wrapped == {
+            "status_code": 200,
+            "headers": {
+                "content-type": "application/json",
+                "x-custom-header": "abc",
+            },
+            "data": payload,
+            "raw_body": raw_body.decode("utf-8"),
+        }
+
+    @pytest.mark.anyio
+    async def test_include_headers_on_preserves_legacy_envelope_expects(self):
+        workflow_id = WorkflowUUID.new_uuid4()
+        payload = {"event": "test"}
+        mock_service = AsyncMock()
+        mock_service.create_workflow_execution_wait_for_start = AsyncMock(
+            return_value={
+                "message": "Workflow execution started",
+                "wf_id": workflow_id,
+                "wf_exec_id": f"{workflow_id.short()}/exec_1",
+            }
+        )
+
+        request = MagicMock(spec=Request)
+        request.headers = {"content-type": "application/json"}
+        request.body = AsyncMock(return_value=b'{"event": "test"}')
+
+        defn = _definition(
+            entrypoint={
+                "ref": "start",
+                "expects": {
+                    "status_code": {"type": "int"},
+                    "headers": {"type": "dict[str, str]"},
+                    "data": {"type": "dict"},
+                },
+            }
+        )
+
+        with patch(
+            "tracecat.webhooks.router.WorkflowExecutionsService.connect",
+            AsyncMock(return_value=mock_service),
+        ):
+            await _incoming_webhook(
+                workflow_id=workflow_id,
+                defn=defn,
+                payload=payload,
+                echo=False,
+                empty_echo=False,
+                vendor=None,
+                request=request,
+                content_type="application/json",
+                include_headers=True,
+            )
+
+        call_kwargs = (
+            mock_service.create_workflow_execution_wait_for_start.call_args.kwargs
+        )
+        assert call_kwargs["payload"] == {
+            "status_code": 200,
+            "headers": {"content-type": "application/json"},
+            "data": payload,
+        }
+
+    @pytest.mark.anyio
+    async def test_include_headers_on_keeps_raw_body_when_expects_declares_it(self):
+        workflow_id = WorkflowUUID.new_uuid4()
+        payload = {"event": "test"}
+        mock_service = AsyncMock()
+        mock_service.create_workflow_execution_wait_for_start = AsyncMock(
+            return_value={
+                "message": "Workflow execution started",
+                "wf_id": workflow_id,
+                "wf_exec_id": f"{workflow_id.short()}/exec_1",
+            }
+        )
+
+        raw_body = b'{"event": "test"}'
+        request = MagicMock(spec=Request)
+        request.headers = {"content-type": "application/json"}
+        request.body = AsyncMock(return_value=raw_body)
+
+        defn = _definition(
+            entrypoint={
+                "ref": "start",
+                "expects": {
+                    "status_code": {"type": "int"},
+                    "headers": {"type": "dict[str, str]"},
+                    "data": {"type": "dict"},
+                    "raw_body": {"type": "str"},
+                },
+            }
+        )
+
+        with patch(
+            "tracecat.webhooks.router.WorkflowExecutionsService.connect",
+            AsyncMock(return_value=mock_service),
+        ):
+            await _incoming_webhook(
+                workflow_id=workflow_id,
+                defn=defn,
+                payload=payload,
+                echo=False,
+                empty_echo=False,
+                vendor=None,
+                request=request,
+                content_type="application/json",
+                include_headers=True,
+            )
+
+        call_kwargs = (
+            mock_service.create_workflow_execution_wait_for_start.call_args.kwargs
+        )
+        assert call_kwargs["payload"] == {
+            "status_code": 200,
+            "headers": {"content-type": "application/json"},
+            "data": payload,
+            "raw_body": raw_body.decode("utf-8"),
+        }
+
+    @pytest.mark.anyio
+    async def test_include_headers_on_keeps_empty_raw_body_as_string(self):
+        workflow_id = WorkflowUUID.new_uuid4()
+        mock_service = AsyncMock()
+        mock_service.create_workflow_execution_wait_for_start = AsyncMock(
+            return_value={
+                "message": "Workflow execution started",
+                "wf_id": workflow_id,
+                "wf_exec_id": f"{workflow_id.short()}/exec_1",
+            }
+        )
+
+        request = MagicMock(spec=Request)
+        request.headers = {"content-type": "application/json"}
+        request.body = AsyncMock(return_value=b"")
+
+        defn = _definition(
+            entrypoint={
+                "ref": "start",
+                "expects": {
+                    "status_code": {"type": "int"},
+                    "headers": {"type": "dict[str, str]"},
+                    "data": {"type": "Any"},
+                    "raw_body": {"type": "str"},
+                },
+            }
+        )
+
+        with patch(
+            "tracecat.webhooks.router.WorkflowExecutionsService.connect",
+            AsyncMock(return_value=mock_service),
+        ):
+            await _incoming_webhook(
+                workflow_id=workflow_id,
+                defn=defn,
+                payload=None,
+                echo=False,
+                empty_echo=False,
+                vendor=None,
+                request=request,
+                content_type="application/json",
+                include_headers=True,
+            )
+
+        call_kwargs = (
+            mock_service.create_workflow_execution_wait_for_start.call_args.kwargs
+        )
+        assert call_kwargs["payload"] == {
+            "status_code": 200,
+            "headers": {"content-type": "application/json"},
+            "data": None,
+            "raw_body": "",
+        }
+
+    @pytest.mark.anyio
+    async def test_include_headers_on_strips_api_key_header(self):
+        """The webhook's own API key header must never reach the workflow."""
+        workflow_id = WorkflowUUID.new_uuid4()
+        payload = {"event": "test"}
+        mock_service = AsyncMock()
+        mock_service.create_workflow_execution_wait_for_start = AsyncMock(
+            return_value={
+                "message": "Workflow execution started",
+                "wf_id": workflow_id,
+                "wf_exec_id": f"{workflow_id.short()}/exec_1",
+            }
+        )
+
+        request = MagicMock(spec=Request)
+        request.headers = {
+            "content-type": "application/json",
+            "x-tracecat-api-key": "super-secret",
+        }
+        request.body = AsyncMock(return_value=b'{"event": "test"}')
+
+        with patch(
+            "tracecat.webhooks.router.WorkflowExecutionsService.connect",
+            AsyncMock(return_value=mock_service),
+        ):
+            await _incoming_webhook(
+                workflow_id=workflow_id,
+                defn=_definition(),
+                payload=payload,
+                echo=False,
+                empty_echo=False,
+                vendor=None,
+                request=request,
+                content_type="application/json",
+                include_headers=True,
+            )
+
+        call_kwargs = (
+            mock_service.create_workflow_execution_wait_for_start.call_args.kwargs
+        )
+        wrapped = call_kwargs["payload"]
+        assert "x-tracecat-api-key" not in wrapped["headers"]
+        assert wrapped["headers"] == {"content-type": "application/json"}
+
+    @pytest.mark.anyio
+    async def test_include_headers_on_wraps_each_ndjson_batch_item(self):
+        """NDJSON batches: each execution gets its own wrapped envelope."""
+        workflow_id = WorkflowUUID.new_uuid4()
+        payload = [{"event": "a"}, {"event": "b"}]
+        mock_service = AsyncMock()
+        mock_service.create_workflow_execution_wait_for_start = AsyncMock(
+            return_value={
+                "message": "Workflow execution started",
+                "wf_id": workflow_id,
+                "wf_exec_id": f"{workflow_id.short()}/exec_1",
+            }
+        )
+
+        request = MagicMock(spec=Request)
+        request.headers = {"content-type": "application/x-ndjson"}
+        request.body = AsyncMock(return_value=b'{"event":"a"}\n{"event":"b"}')
+
+        with patch(
+            "tracecat.webhooks.router.WorkflowExecutionsService.connect",
+            AsyncMock(return_value=mock_service),
+        ):
+            await _incoming_webhook(
+                workflow_id=workflow_id,
+                defn=_definition(),
+                payload=payload,
+                echo=False,
+                empty_echo=False,
+                vendor=None,
+                request=request,
+                content_type="application/x-ndjson",
+                include_headers=True,
+            )
+
+        # NDJSON batches of 8 -> both items land in a single batch list payload
+        call_kwargs = (
+            mock_service.create_workflow_execution_wait_for_start.call_args.kwargs
+        )
+        wrapped = call_kwargs["payload"]
+        assert wrapped["status_code"] == 200
+        assert wrapped["headers"] == {"content-type": "application/x-ndjson"}
+        # batched() yields tuples; the whole batch is wrapped as one envelope
+        assert list(wrapped["data"]) == payload
 
     @pytest.mark.anyio
     async def test_webhook_constructs_dsl_input_from_definition_content(self):
@@ -656,6 +1019,7 @@ class TestWebhookRouterExecutionPath:
                 workflow_id=workflow_id,
                 defn=_definition(),
                 payload=payload,
+                request=self._request(),
             )
 
         response_obj = cast(dict[str, Any], response)
@@ -704,6 +1068,7 @@ class TestWebhookRouterExecutionPath:
                 workflow_id=workflow_id,
                 defn=_definition(),
                 payload=payload,
+                request=self._request(),
             )
 
         response_obj = cast(dict[str, Any], response)
@@ -763,6 +1128,7 @@ class TestWebhookRouterExecutionPath:
                 workflow_id=workflow_id,
                 defn=_definition(),
                 payload=payload,
+                request=self._request(),
             )
 
         response_obj = cast(dict[str, Any], response)
@@ -823,6 +1189,7 @@ class TestWebhookRouterExecutionPath:
                 workflow_id=workflow_id,
                 defn=_definition(),
                 payload=payload,
+                request=self._request(),
             )
 
         response_obj = cast(dict[str, Any], response)
@@ -905,6 +1272,7 @@ class TestWebhookRouterExecutionPath:
                 workflow_id=workflow_id,
                 defn=_definition(),
                 payload=payload,
+                request=self._request(),
             )
 
         response_obj = cast(dict[str, Any], response)
@@ -937,6 +1305,7 @@ class TestWebhookRouterExecutionPath:
                 workflow_id=workflow_id,
                 defn=_definition(),
                 payload=payload,
+                request=self._request(),
                 unwrap=True,
             )
 
@@ -985,6 +1354,7 @@ class TestWebhookRouterExecutionPath:
                     workflow_id=workflow_id,
                     defn=_definition(),
                     payload=payload,
+                    request=self._request(),
                     unwrap=True,
                 )
 
@@ -1044,6 +1414,7 @@ class TestWebhookRouterExecutionPath:
                     workflow_id=workflow_id,
                     defn=_definition(),
                     payload=payload,
+                    request=self._request(),
                     unwrap=True,
                 )
 
@@ -1209,3 +1580,130 @@ class TestWebhookDispatchWorkflowInvariants:
             )
 
         assert response["result"] == inline_result
+
+
+# ---------------------------------------------------------------------------
+# _wrapped_payload dependency (shared by /wait and /draft endpoints)
+# ---------------------------------------------------------------------------
+
+
+class TestWrappedPayloadDependency:
+    """The /wait and /draft endpoints honor include_headers via _wrapped_payload.
+
+    This is the same envelope the root POST/GET path produces, so TRIGGER has a
+    consistent shape across all webhook trigger endpoints.
+    """
+
+    @staticmethod
+    def _request(
+        *,
+        include_headers: bool,
+        headers: dict[str, str] | None = None,
+        body: bytes = b"",
+    ) -> Request:
+        request = MagicMock(spec=Request)
+        request.headers = headers or {}
+        request.body = AsyncMock(return_value=body)
+        request.state.webhook_include_headers = include_headers
+        return request
+
+    @pytest.mark.anyio
+    async def test_passthrough_when_flag_off(self):
+        request = self._request(
+            include_headers=False, headers={"content-type": "application/json"}
+        )
+        payload = {"alert": "x"}
+        result = await _wrapped_payload(request=request, payload=payload)
+        assert result == payload
+
+    @pytest.mark.anyio
+    async def test_wraps_when_flag_on(self):
+        raw_body = b'{"alert": "x"}'
+        request = self._request(
+            include_headers=True,
+            headers={"content-type": "application/json", "x-custom-source": "siem"},
+            body=raw_body,
+        )
+        payload = {"alert": "x"}
+        result = await _wrapped_payload(request=request, payload=payload)
+        assert result == {
+            "status_code": 200,
+            "headers": {
+                "content-type": "application/json",
+                "x-custom-source": "siem",
+            },
+            "data": payload,
+            "raw_body": raw_body.decode("utf-8"),
+        }
+
+    @pytest.mark.anyio
+    async def test_omits_raw_body_when_not_schema_compatible(self):
+        request = self._request(
+            include_headers=True,
+            headers={"content-type": "application/json", "x-custom-source": "siem"},
+            body=b'{"alert": "x"}',
+        )
+        payload = {"alert": "x"}
+        result = await _wrapped_payload(
+            request=request, payload=payload, include_raw_body=False
+        )
+        assert result == {
+            "status_code": 200,
+            "headers": {
+                "content-type": "application/json",
+                "x-custom-source": "siem",
+            },
+            "data": payload,
+        }
+
+    @pytest.mark.anyio
+    async def test_strips_api_key_when_flag_on(self):
+        request = self._request(
+            include_headers=True,
+            headers={
+                "content-type": "application/json",
+                "x-tracecat-api-key": "super-secret",
+            },
+        )
+        result = await _wrapped_payload(request=request, payload={"a": 1})
+        assert result is not None
+        assert "x-tracecat-api-key" not in result["headers"]
+        assert result["headers"] == {"content-type": "application/json"}
+
+
+class TestWebhookReadIncludeHeaders:
+    """WebhookRead must tolerate a NULL include_headers on unflushed ORM objects."""
+
+    def test_none_include_headers_coerced_to_false(self):
+        obj = SimpleNamespace(
+            id=uuid.uuid4(),
+            secret="secret",
+            status="online",
+            entrypoint_ref=None,
+            allowlisted_cidrs=None,
+            filters=None,
+            methods=None,
+            include_headers=None,
+            workflow_id=_WF_ID,
+            url="http://localhost/webhooks/x/y",
+            api_key=None,
+        )
+        read = WebhookRead.model_validate(obj, from_attributes=True)
+        assert read.include_headers is False
+
+    def test_true_include_headers_preserved(self):
+        obj = SimpleNamespace(
+            id=uuid.uuid4(),
+            secret="secret",
+            status="online",
+            entrypoint_ref=None,
+            allowlisted_cidrs=[],
+            filters={},
+            methods=["POST"],
+            include_headers=True,
+            workflow_id=_WF_ID,
+            url="http://localhost/webhooks/x/y",
+            api_key=None,
+        )
+        read = WebhookRead.model_validate(obj, from_attributes=True)
+        assert read.include_headers is True

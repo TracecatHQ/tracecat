@@ -30,6 +30,10 @@ from tracecat.exceptions import (
 )
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.lock.service import RegistryLockService
+from tracecat.registry.versions.schemas import (
+    RegistryVersionManifest,
+    registry_manifest_fingerprint,
+)
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -239,6 +243,11 @@ async def test_resolve_lock_queries_platform_registry(
     assert "platform_registry" in lock.origins
     assert lock.origins["platform_registry"] == "1.0.0"
     assert lock.actions["platform.shared_action"] == "platform_registry"
+    assert lock.origin_fingerprints["platform_registry"] == (
+        registry_manifest_fingerprint(
+            RegistryVersionManifest.model_validate(platform_version.manifest)
+        )
+    )
 
 
 @pytest.mark.anyio
@@ -662,6 +671,11 @@ async def test_resolve_lock_overwrites_builtin_origin_with_platform_version(
 
     assert lock.actions["tools.custom.same_origin"] == "tracecat_registry"
     assert lock.origins["tracecat_registry"] == "2.0.0-beta.1"
+    assert lock.origin_fingerprints[
+        "tracecat_registry"
+    ] == registry_manifest_fingerprint(
+        RegistryVersionManifest.model_validate(platform_version.manifest)
+    )
 
 
 @pytest.mark.anyio
