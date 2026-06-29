@@ -136,15 +136,23 @@ function getInitialOktaAuthMethod(
   return "ssws"
 }
 
-function isJsonObject(value: string) {
+function isValidOktaPrivateKeyJwk(value: string) {
+  let parsed: unknown
   try {
-    const parsed = JSON.parse(value)
-    return (
-      parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
-    )
+    parsed = JSON.parse(value)
   } catch {
     return false
   }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return false
+  }
+  const jwk = parsed as Record<string, unknown>
+  // Okta private-key auth only supports RSA, and signing requires the private
+  // exponent `d` plus the public params `n`/`e`. A public-only or non-JWK
+  // object parses as JSON but fails inside the Okta SDK at action-run time.
+  const hasField = (field: string) =>
+    typeof jwk[field] === "string" && (jwk[field] as string).length > 0
+  return jwk.kty === "RSA" && hasField("n") && hasField("e") && hasField("d")
 }
 
 function isValidOktaPrivateKey(value: string | undefined) {
@@ -153,7 +161,7 @@ function isValidOktaPrivateKey(value: string | undefined) {
     return false
   }
   if (trimmed.startsWith("{")) {
-    return isJsonObject(trimmed)
+    return isValidOktaPrivateKeyJwk(trimmed)
   }
   return sshKeyRegex.test(trimmed)
 }
@@ -400,7 +408,8 @@ export function EditCredentialsDialog({
         ) {
           methods.setError("okta_private_key", {
             type: "manual",
-            message: "Private key must be PEM or JWK JSON.",
+            message:
+              "Private key must be a PEM block or an RSA private JWK (kty, n, e, d).",
           })
           return false
         }

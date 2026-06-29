@@ -5,7 +5,7 @@ from datetime import date, datetime
 from enum import Enum
 from typing import Annotated, Any, Literal, TypedDict, cast
 from urllib.parse import parse_qs, urlparse
-
+from okta.models import UpdateUserRequest
 from pydantic import BaseModel, Field
 
 from tracecat_registry import (
@@ -20,6 +20,14 @@ OKTA_SDK_DOC_URL = "https://github.com/okta/okta-sdk-python"
 DEFAULT_RATE_LIMIT_MAX_RETRIES = 2
 
 type OktaAuthMode = Literal["auto", "ssws", "oauth", "bearer", "private_key"]
+
+BaseUrlParam = Annotated[
+    str | None, Field(description="Okta org URL. Defaults to `OKTA_BASE_URL`.")
+]
+AuthModeParam = Annotated[OktaAuthMode, Field(description="Auth mode.")]
+ScopesParam = Annotated[
+    list[str] | None, Field(description="OAuth scopes for private-key auth.")
+]
 
 
 class OktaPaginatedResult(TypedDict):
@@ -481,110 +489,6 @@ async def call_paginated_method(
     )
 
 
-async def _call_named(
-    method_name: str,
-    *,
-    params: dict[str, Any] | None = None,
-    base_url: str | None = None,
-    auth_mode: OktaAuthMode = "auto",
-    scopes: list[str] | None = None,
-    rate_limit_max_retries: int = DEFAULT_RATE_LIMIT_MAX_RETRIES,
-) -> Any:
-    return await _call_okta_method(
-        method_name=method_name,
-        params=params,
-        base_url=base_url,
-        auth_mode=auth_mode,
-        scopes=scopes,
-        rate_limit_max_retries=rate_limit_max_retries,
-    )
-
-
-async def _call_named_object(
-    method_name: str,
-    *,
-    params: dict[str, Any] | None = None,
-    base_url: str | None = None,
-    auth_mode: OktaAuthMode = "auto",
-    scopes: list[str] | None = None,
-    rate_limit_max_retries: int = DEFAULT_RATE_LIMIT_MAX_RETRIES,
-) -> dict[str, Any]:
-    return cast(
-        dict[str, Any],
-        await _call_named(
-            method_name,
-            params=params,
-            base_url=base_url,
-            auth_mode=auth_mode,
-            scopes=scopes,
-            rate_limit_max_retries=rate_limit_max_retries,
-        ),
-    )
-
-
-async def _call_named_object_or_none(
-    method_name: str,
-    *,
-    params: dict[str, Any] | None = None,
-    base_url: str | None = None,
-    auth_mode: OktaAuthMode = "auto",
-    scopes: list[str] | None = None,
-    rate_limit_max_retries: int = DEFAULT_RATE_LIMIT_MAX_RETRIES,
-) -> dict[str, Any] | None:
-    return cast(
-        dict[str, Any] | None,
-        await _call_named(
-            method_name,
-            params=params,
-            base_url=base_url,
-            auth_mode=auth_mode,
-            scopes=scopes,
-            rate_limit_max_retries=rate_limit_max_retries,
-        ),
-    )
-
-
-async def _call_named_object_list(
-    method_name: str,
-    *,
-    params: dict[str, Any] | None = None,
-    base_url: str | None = None,
-    auth_mode: OktaAuthMode = "auto",
-    scopes: list[str] | None = None,
-    rate_limit_max_retries: int = DEFAULT_RATE_LIMIT_MAX_RETRIES,
-) -> list[dict[str, Any]]:
-    return cast(
-        list[dict[str, Any]],
-        await _call_named(
-            method_name,
-            params=params,
-            base_url=base_url,
-            auth_mode=auth_mode,
-            scopes=scopes,
-            rate_limit_max_retries=rate_limit_max_retries,
-        ),
-    )
-
-
-async def _call_named_none(
-    method_name: str,
-    *,
-    params: dict[str, Any] | None = None,
-    base_url: str | None = None,
-    auth_mode: OktaAuthMode = "auto",
-    scopes: list[str] | None = None,
-    rate_limit_max_retries: int = DEFAULT_RATE_LIMIT_MAX_RETRIES,
-) -> None:
-    await _call_named(
-        method_name,
-        params=params,
-        base_url=base_url,
-        auth_mode=auth_mode,
-        scopes=scopes,
-        rate_limit_max_retries=rate_limit_max_retries,
-    )
-
-
 @registry.register(
     default_title="Update user",
     description="Partially update an Okta user profile and credentials.",
@@ -604,20 +508,21 @@ async def update_user(
         str | None,
         Field(..., description="ETag value for conditional update."),
     ] = None,
-    base_url: Annotated[
-        str | None,
-        Field(..., description="Okta org URL. Defaults to `OKTA_BASE_URL`."),
-    ] = None,
-    auth_mode: Annotated[OktaAuthMode, Field(..., description="Auth mode.")] = "auto",
-    scopes: Annotated[
-        list[str] | None,
-        Field(..., description="OAuth scopes for private-key auth."),
-    ] = None,
+    base_url: BaseUrlParam = None,
+    auth_mode: AuthModeParam = "auto",
+    scopes: ScopesParam = None,
 ) -> dict[str, Any]:
-    return await _call_named_object(
-        "update_user",
+    return await _call_okta_method(
+        method_name="update_user",
         params=_drop_none(
-            {"id": user_id, "user": user, "strict": strict, "if_match": if_match}
+            {
+                "id": user_id,
+                # from_dict preserves custom profile attributes (model_validate
+                # drops unknown keys before the request is sent).
+                "user": UpdateUserRequest.from_dict(user),
+                "strict": strict,
+                "if_match": if_match,
+            }
         ),
         base_url=base_url,
         auth_mode=auth_mode,
@@ -644,20 +549,21 @@ async def replace_user(
         str | None,
         Field(..., description="ETag value for conditional replace."),
     ] = None,
-    base_url: Annotated[
-        str | None,
-        Field(..., description="Okta org URL. Defaults to `OKTA_BASE_URL`."),
-    ] = None,
-    auth_mode: Annotated[OktaAuthMode, Field(..., description="Auth mode.")] = "auto",
-    scopes: Annotated[
-        list[str] | None,
-        Field(..., description="OAuth scopes for private-key auth."),
-    ] = None,
+    base_url: BaseUrlParam = None,
+    auth_mode: AuthModeParam = "auto",
+    scopes: ScopesParam = None,
 ) -> dict[str, Any]:
-    return await _call_named_object(
-        "replace_user",
+    return await _call_okta_method(
+        method_name="replace_user",
         params=_drop_none(
-            {"id": user_id, "user": user, "strict": strict, "if_match": if_match}
+            {
+                "id": user_id,
+                # from_dict preserves custom profile attributes (model_validate
+                # drops unknown keys before the request is sent).
+                "user": UpdateUserRequest.from_dict(user),
+                "strict": strict,
+                "if_match": if_match,
+            }
         ),
         base_url=base_url,
         auth_mode=auth_mode,
@@ -683,18 +589,12 @@ async def delete_user(
         str | None,
         Field(..., description="Okta Prefer header value."),
     ] = None,
-    base_url: Annotated[
-        str | None,
-        Field(..., description="Okta org URL. Defaults to `OKTA_BASE_URL`."),
-    ] = None,
-    auth_mode: Annotated[OktaAuthMode, Field(..., description="Auth mode.")] = "auto",
-    scopes: Annotated[
-        list[str] | None,
-        Field(..., description="OAuth scopes for private-key auth."),
-    ] = None,
+    base_url: BaseUrlParam = None,
+    auth_mode: AuthModeParam = "auto",
+    scopes: ScopesParam = None,
 ) -> None:
-    return await _call_named_none(
-        "delete_user",
+    return await _call_okta_method(
+        method_name="delete_user",
         params=_drop_none({"id": user_id, "send_email": send_email, "prefer": prefer}),
         base_url=base_url,
         auth_mode=auth_mode,
@@ -720,18 +620,12 @@ async def deactivate_user(
         str | None,
         Field(..., description="Okta Prefer header value."),
     ] = None,
-    base_url: Annotated[
-        str | None,
-        Field(..., description="Okta org URL. Defaults to `OKTA_BASE_URL`."),
-    ] = None,
-    auth_mode: Annotated[OktaAuthMode, Field(..., description="Auth mode.")] = "auto",
-    scopes: Annotated[
-        list[str] | None,
-        Field(..., description="OAuth scopes for private-key auth."),
-    ] = None,
+    base_url: BaseUrlParam = None,
+    auth_mode: AuthModeParam = "auto",
+    scopes: ScopesParam = None,
 ) -> dict[str, Any] | None:
-    return await _call_named_object_or_none(
-        "deactivate_user",
+    return await _call_okta_method(
+        method_name="deactivate_user",
         params=_drop_none({"id": user_id, "send_email": send_email, "prefer": prefer}),
         base_url=base_url,
         auth_mode=auth_mode,
@@ -753,18 +647,12 @@ async def reactivate_user(
         bool | None,
         Field(..., description="Send Okta lifecycle email."),
     ] = None,
-    base_url: Annotated[
-        str | None,
-        Field(..., description="Okta org URL. Defaults to `OKTA_BASE_URL`."),
-    ] = None,
-    auth_mode: Annotated[OktaAuthMode, Field(..., description="Auth mode.")] = "auto",
-    scopes: Annotated[
-        list[str] | None,
-        Field(..., description="OAuth scopes for private-key auth."),
-    ] = None,
+    base_url: BaseUrlParam = None,
+    auth_mode: AuthModeParam = "auto",
+    scopes: ScopesParam = None,
 ) -> dict[str, Any]:
-    return await _call_named_object(
-        "reactivate_user",
+    return await _call_okta_method(
+        method_name="reactivate_user",
         params=_drop_none({"id": user_id, "send_email": send_email}),
         base_url=base_url,
         auth_mode=auth_mode,
@@ -782,18 +670,12 @@ async def reactivate_user(
 )
 async def unlock_user(
     user_id: Annotated[str, Field(..., description="Okta user ID or login.")],
-    base_url: Annotated[
-        str | None,
-        Field(..., description="Okta org URL. Defaults to `OKTA_BASE_URL`."),
-    ] = None,
-    auth_mode: Annotated[OktaAuthMode, Field(..., description="Auth mode.")] = "auto",
-    scopes: Annotated[
-        list[str] | None,
-        Field(..., description="OAuth scopes for private-key auth."),
-    ] = None,
+    base_url: BaseUrlParam = None,
+    auth_mode: AuthModeParam = "auto",
+    scopes: ScopesParam = None,
 ) -> dict[str, Any] | None:
-    return await _call_named_object_or_none(
-        "unlock_user",
+    return await _call_okta_method(
+        method_name="unlock_user",
         params={"id": user_id},
         base_url=base_url,
         auth_mode=auth_mode,
@@ -811,18 +693,12 @@ async def unlock_user(
 )
 async def reset_factors(
     user_id: Annotated[str, Field(..., description="Okta user ID or login.")],
-    base_url: Annotated[
-        str | None,
-        Field(..., description="Okta org URL. Defaults to `OKTA_BASE_URL`."),
-    ] = None,
-    auth_mode: Annotated[OktaAuthMode, Field(..., description="Auth mode.")] = "auto",
-    scopes: Annotated[
-        list[str] | None,
-        Field(..., description="OAuth scopes for private-key auth."),
-    ] = None,
+    base_url: BaseUrlParam = None,
+    auth_mode: AuthModeParam = "auto",
+    scopes: ScopesParam = None,
 ) -> dict[str, Any] | None:
-    return await _call_named_object_or_none(
-        "reset_factors",
+    return await _call_okta_method(
+        method_name="reset_factors",
         params={"id": user_id},
         base_url=base_url,
         auth_mode=auth_mode,
@@ -848,18 +724,12 @@ async def revoke_user_sessions(
         bool | None,
         Field(..., description="Forget remembered devices."),
     ] = None,
-    base_url: Annotated[
-        str | None,
-        Field(..., description="Okta org URL. Defaults to `OKTA_BASE_URL`."),
-    ] = None,
-    auth_mode: Annotated[OktaAuthMode, Field(..., description="Auth mode.")] = "auto",
-    scopes: Annotated[
-        list[str] | None,
-        Field(..., description="OAuth scopes for private-key auth."),
-    ] = None,
+    base_url: BaseUrlParam = None,
+    auth_mode: AuthModeParam = "auto",
+    scopes: ScopesParam = None,
 ) -> None:
-    return await _call_named_none(
-        "revoke_user_sessions",
+    return await _call_okta_method(
+        method_name="revoke_user_sessions",
         params=_drop_none(
             {
                 "user_id": user_id,
@@ -891,18 +761,12 @@ async def change_password(
         bool | None,
         Field(..., description="Apply Okta strict validation."),
     ] = None,
-    base_url: Annotated[
-        str | None,
-        Field(..., description="Okta org URL. Defaults to `OKTA_BASE_URL`."),
-    ] = None,
-    auth_mode: Annotated[OktaAuthMode, Field(..., description="Auth mode.")] = "auto",
-    scopes: Annotated[
-        list[str] | None,
-        Field(..., description="OAuth scopes for private-key auth."),
-    ] = None,
+    base_url: BaseUrlParam = None,
+    auth_mode: AuthModeParam = "auto",
+    scopes: ScopesParam = None,
 ) -> dict[str, Any]:
-    return await _call_named_object(
-        "change_password",
+    return await _call_okta_method(
+        method_name="change_password",
         params=_drop_none(
             {
                 "user_id": user_id,
@@ -930,18 +794,12 @@ async def forgot_password(
         bool | None,
         Field(..., description="Send Okta lifecycle email."),
     ] = None,
-    base_url: Annotated[
-        str | None,
-        Field(..., description="Okta org URL. Defaults to `OKTA_BASE_URL`."),
-    ] = None,
-    auth_mode: Annotated[OktaAuthMode, Field(..., description="Auth mode.")] = "auto",
-    scopes: Annotated[
-        list[str] | None,
-        Field(..., description="OAuth scopes for private-key auth."),
-    ] = None,
+    base_url: BaseUrlParam = None,
+    auth_mode: AuthModeParam = "auto",
+    scopes: ScopesParam = None,
 ) -> dict[str, Any]:
-    return await _call_named_object(
-        "forgot_password",
+    return await _call_okta_method(
+        method_name="forgot_password",
         params=_drop_none({"user_id": user_id, "send_email": send_email}),
         base_url=base_url,
         auth_mode=auth_mode,
@@ -959,18 +817,12 @@ async def forgot_password(
 )
 async def add_group(
     group: Annotated[dict[str, Any], Field(..., description="Okta group body.")],
-    base_url: Annotated[
-        str | None,
-        Field(..., description="Okta org URL. Defaults to `OKTA_BASE_URL`."),
-    ] = None,
-    auth_mode: Annotated[OktaAuthMode, Field(..., description="Auth mode.")] = "auto",
-    scopes: Annotated[
-        list[str] | None,
-        Field(..., description="OAuth scopes for private-key auth."),
-    ] = None,
+    base_url: BaseUrlParam = None,
+    auth_mode: AuthModeParam = "auto",
+    scopes: ScopesParam = None,
 ) -> dict[str, Any]:
-    return await _call_named_object(
-        "add_group",
+    return await _call_okta_method(
+        method_name="add_group",
         params={"group": group},
         base_url=base_url,
         auth_mode=auth_mode,
@@ -988,18 +840,12 @@ async def add_group(
 )
 async def get_group(
     group_id: Annotated[str, Field(..., description="Okta group ID.")],
-    base_url: Annotated[
-        str | None,
-        Field(..., description="Okta org URL. Defaults to `OKTA_BASE_URL`."),
-    ] = None,
-    auth_mode: Annotated[OktaAuthMode, Field(..., description="Auth mode.")] = "auto",
-    scopes: Annotated[
-        list[str] | None,
-        Field(..., description="OAuth scopes for private-key auth."),
-    ] = None,
+    base_url: BaseUrlParam = None,
+    auth_mode: AuthModeParam = "auto",
+    scopes: ScopesParam = None,
 ) -> dict[str, Any]:
-    return await _call_named_object(
-        "get_group",
+    return await _call_okta_method(
+        method_name="get_group",
         params={"group_id": group_id},
         base_url=base_url,
         auth_mode=auth_mode,
@@ -1018,18 +864,12 @@ async def get_group(
 async def replace_group(
     group_id: Annotated[str, Field(..., description="Okta group ID.")],
     group: Annotated[dict[str, Any], Field(..., description="Okta group body.")],
-    base_url: Annotated[
-        str | None,
-        Field(..., description="Okta org URL. Defaults to `OKTA_BASE_URL`."),
-    ] = None,
-    auth_mode: Annotated[OktaAuthMode, Field(..., description="Auth mode.")] = "auto",
-    scopes: Annotated[
-        list[str] | None,
-        Field(..., description="OAuth scopes for private-key auth."),
-    ] = None,
+    base_url: BaseUrlParam = None,
+    auth_mode: AuthModeParam = "auto",
+    scopes: ScopesParam = None,
 ) -> dict[str, Any]:
-    return await _call_named_object(
-        "replace_group",
+    return await _call_okta_method(
+        method_name="replace_group",
         params={"group_id": group_id, "group": group},
         base_url=base_url,
         auth_mode=auth_mode,
@@ -1047,18 +887,12 @@ async def replace_group(
 )
 async def delete_group(
     group_id: Annotated[str, Field(..., description="Okta group ID.")],
-    base_url: Annotated[
-        str | None,
-        Field(..., description="Okta org URL. Defaults to `OKTA_BASE_URL`."),
-    ] = None,
-    auth_mode: Annotated[OktaAuthMode, Field(..., description="Auth mode.")] = "auto",
-    scopes: Annotated[
-        list[str] | None,
-        Field(..., description="OAuth scopes for private-key auth."),
-    ] = None,
+    base_url: BaseUrlParam = None,
+    auth_mode: AuthModeParam = "auto",
+    scopes: ScopesParam = None,
 ) -> None:
-    return await _call_named_none(
-        "delete_group",
+    return await _call_okta_method(
+        method_name="delete_group",
         params={"group_id": group_id},
         base_url=base_url,
         auth_mode=auth_mode,
@@ -1084,18 +918,12 @@ async def list_assigned_applications_for_group(
         int | None,
         Field(..., ge=1, le=1000, description="Per-page item limit."),
     ] = None,
-    base_url: Annotated[
-        str | None,
-        Field(..., description="Okta org URL. Defaults to `OKTA_BASE_URL`."),
-    ] = None,
-    auth_mode: Annotated[OktaAuthMode, Field(..., description="Auth mode.")] = "auto",
-    scopes: Annotated[
-        list[str] | None,
-        Field(..., description="OAuth scopes for private-key auth."),
-    ] = None,
+    base_url: BaseUrlParam = None,
+    auth_mode: AuthModeParam = "auto",
+    scopes: ScopesParam = None,
 ) -> list[dict[str, Any]]:
-    return await _call_named_object_list(
-        "list_assigned_applications_for_group",
+    return await _call_okta_method(
+        method_name="list_assigned_applications_for_group",
         params=_drop_none({"group_id": group_id, "after": after, "limit": limit}),
         base_url=base_url,
         auth_mode=auth_mode,
@@ -1139,18 +967,12 @@ async def list_applications(
         bool | None,
         Field(..., description="Include VPN settings."),
     ] = None,
-    base_url: Annotated[
-        str | None,
-        Field(..., description="Okta org URL. Defaults to `OKTA_BASE_URL`."),
-    ] = None,
-    auth_mode: Annotated[OktaAuthMode, Field(..., description="Auth mode.")] = "auto",
-    scopes: Annotated[
-        list[str] | None,
-        Field(..., description="OAuth scopes for private-key auth."),
-    ] = None,
+    base_url: BaseUrlParam = None,
+    auth_mode: AuthModeParam = "auto",
+    scopes: ScopesParam = None,
 ) -> list[dict[str, Any]]:
-    return await _call_named_object_list(
-        "list_applications",
+    return await _call_okta_method(
+        method_name="list_applications",
         params=_drop_none(
             {
                 "q": q,
@@ -1182,18 +1004,12 @@ async def get_application(
     expand: Annotated[
         str | None, Field(..., description="Okta expand expression.")
     ] = None,
-    base_url: Annotated[
-        str | None,
-        Field(..., description="Okta org URL. Defaults to `OKTA_BASE_URL`."),
-    ] = None,
-    auth_mode: Annotated[OktaAuthMode, Field(..., description="Auth mode.")] = "auto",
-    scopes: Annotated[
-        list[str] | None,
-        Field(..., description="OAuth scopes for private-key auth."),
-    ] = None,
+    base_url: BaseUrlParam = None,
+    auth_mode: AuthModeParam = "auto",
+    scopes: ScopesParam = None,
 ) -> dict[str, Any]:
-    return await _call_named_object(
-        "get_application",
+    return await _call_okta_method(
+        method_name="get_application",
         params=_drop_none({"app_id": app_id, "expand": expand}),
         base_url=base_url,
         auth_mode=auth_mode,
@@ -1211,18 +1027,12 @@ async def get_application(
 )
 async def activate_application(
     app_id: Annotated[str, Field(..., description="Okta application ID.")],
-    base_url: Annotated[
-        str | None,
-        Field(..., description="Okta org URL. Defaults to `OKTA_BASE_URL`."),
-    ] = None,
-    auth_mode: Annotated[OktaAuthMode, Field(..., description="Auth mode.")] = "auto",
-    scopes: Annotated[
-        list[str] | None,
-        Field(..., description="OAuth scopes for private-key auth."),
-    ] = None,
+    base_url: BaseUrlParam = None,
+    auth_mode: AuthModeParam = "auto",
+    scopes: ScopesParam = None,
 ) -> dict[str, Any] | None:
-    return await _call_named_object_or_none(
-        "activate_application",
+    return await _call_okta_method(
+        method_name="activate_application",
         params={"app_id": app_id},
         base_url=base_url,
         auth_mode=auth_mode,
@@ -1240,18 +1050,12 @@ async def activate_application(
 )
 async def deactivate_application(
     app_id: Annotated[str, Field(..., description="Okta application ID.")],
-    base_url: Annotated[
-        str | None,
-        Field(..., description="Okta org URL. Defaults to `OKTA_BASE_URL`."),
-    ] = None,
-    auth_mode: Annotated[OktaAuthMode, Field(..., description="Auth mode.")] = "auto",
-    scopes: Annotated[
-        list[str] | None,
-        Field(..., description="OAuth scopes for private-key auth."),
-    ] = None,
+    base_url: BaseUrlParam = None,
+    auth_mode: AuthModeParam = "auto",
+    scopes: ScopesParam = None,
 ) -> dict[str, Any] | None:
-    return await _call_named_object_or_none(
-        "deactivate_application",
+    return await _call_okta_method(
+        method_name="deactivate_application",
         params={"app_id": app_id},
         base_url=base_url,
         auth_mode=auth_mode,
@@ -1269,18 +1073,12 @@ async def deactivate_application(
 )
 async def list_factors(
     user_id: Annotated[str, Field(..., description="Okta user ID or login.")],
-    base_url: Annotated[
-        str | None,
-        Field(..., description="Okta org URL. Defaults to `OKTA_BASE_URL`."),
-    ] = None,
-    auth_mode: Annotated[OktaAuthMode, Field(..., description="Auth mode.")] = "auto",
-    scopes: Annotated[
-        list[str] | None,
-        Field(..., description="OAuth scopes for private-key auth."),
-    ] = None,
+    base_url: BaseUrlParam = None,
+    auth_mode: AuthModeParam = "auto",
+    scopes: ScopesParam = None,
 ) -> list[dict[str, Any]]:
-    return await _call_named_object_list(
-        "list_factors",
+    return await _call_okta_method(
+        method_name="list_factors",
         params={"user_id": user_id},
         base_url=base_url,
         auth_mode=auth_mode,
@@ -1299,18 +1097,12 @@ async def list_factors(
 async def get_factor(
     user_id: Annotated[str, Field(..., description="Okta user ID or login.")],
     factor_id: Annotated[str, Field(..., description="Okta factor ID.")],
-    base_url: Annotated[
-        str | None,
-        Field(..., description="Okta org URL. Defaults to `OKTA_BASE_URL`."),
-    ] = None,
-    auth_mode: Annotated[OktaAuthMode, Field(..., description="Auth mode.")] = "auto",
-    scopes: Annotated[
-        list[str] | None,
-        Field(..., description="OAuth scopes for private-key auth."),
-    ] = None,
+    base_url: BaseUrlParam = None,
+    auth_mode: AuthModeParam = "auto",
+    scopes: ScopesParam = None,
 ) -> dict[str, Any]:
-    return await _call_named_object(
-        "get_factor",
+    return await _call_okta_method(
+        method_name="get_factor",
         params={"user_id": user_id, "factor_id": factor_id},
         base_url=base_url,
         auth_mode=auth_mode,
@@ -1333,18 +1125,12 @@ async def unenroll_factor(
         bool | None,
         Field(..., description="Remove recovery enrollment."),
     ] = None,
-    base_url: Annotated[
-        str | None,
-        Field(..., description="Okta org URL. Defaults to `OKTA_BASE_URL`."),
-    ] = None,
-    auth_mode: Annotated[OktaAuthMode, Field(..., description="Auth mode.")] = "auto",
-    scopes: Annotated[
-        list[str] | None,
-        Field(..., description="OAuth scopes for private-key auth."),
-    ] = None,
+    base_url: BaseUrlParam = None,
+    auth_mode: AuthModeParam = "auto",
+    scopes: ScopesParam = None,
 ) -> None:
-    return await _call_named_none(
-        "unenroll_factor",
+    return await _call_okta_method(
+        method_name="unenroll_factor",
         params=_drop_none(
             {
                 "user_id": user_id,
@@ -1392,18 +1178,12 @@ async def verify_factor(
         str | None,
         Field(..., description="Accept-Language header value."),
     ] = None,
-    base_url: Annotated[
-        str | None,
-        Field(..., description="Okta org URL. Defaults to `OKTA_BASE_URL`."),
-    ] = None,
-    auth_mode: Annotated[OktaAuthMode, Field(..., description="Auth mode.")] = "auto",
-    scopes: Annotated[
-        list[str] | None,
-        Field(..., description="OAuth scopes for private-key auth."),
-    ] = None,
+    base_url: BaseUrlParam = None,
+    auth_mode: AuthModeParam = "auto",
+    scopes: ScopesParam = None,
 ) -> dict[str, Any]:
-    return await _call_named_object(
-        "verify_factor",
+    return await _call_okta_method(
+        method_name="verify_factor",
         params=_drop_none(
             {
                 "user_id": user_id,
@@ -1455,18 +1235,12 @@ async def list_log_events(
         str | None,
         Field(..., description="Sort order, e.g. `ASCENDING` or `DESCENDING`."),
     ] = None,
-    base_url: Annotated[
-        str | None,
-        Field(..., description="Okta org URL. Defaults to `OKTA_BASE_URL`."),
-    ] = None,
-    auth_mode: Annotated[OktaAuthMode, Field(..., description="Auth mode.")] = "auto",
-    scopes: Annotated[
-        list[str] | None,
-        Field(..., description="OAuth scopes for private-key auth."),
-    ] = None,
+    base_url: BaseUrlParam = None,
+    auth_mode: AuthModeParam = "auto",
+    scopes: ScopesParam = None,
 ) -> list[dict[str, Any]]:
-    return await _call_named_object_list(
-        "list_log_events",
+    return await _call_okta_method(
+        method_name="list_log_events",
         params=_drop_none(
             {
                 "since": since,
