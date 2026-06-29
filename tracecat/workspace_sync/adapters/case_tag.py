@@ -87,6 +87,18 @@ class CaseTagAdapter(FlatManifestAdapter):
                 + ", ".join(repr(name) for name in duplicate_names)
             )
 
+        # A tag's ref is its source id, so mapped rows whose refs have drifted
+        # must release those refs before final assignment below.
+        await self.plan_name_swap(
+            workspace_service,
+            targets={source_id: source_id for source_id in tags},
+            model=CaseTag,
+            name_column=CaseTag.ref,
+            noun="ref",
+            kind_label="Case tag",
+            owner_label="tag",
+        )
+
         source_ids = set(tags)
         names = {spec.name for spec in tags.values()}
         # Resolve which incoming source ids already map to local tag rows.

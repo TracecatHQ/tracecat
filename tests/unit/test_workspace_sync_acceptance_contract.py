@@ -4273,6 +4273,84 @@ async def test_case_tag_import_allows_in_batch_name_swap(
 
 
 @pytest.mark.anyio
+async def test_case_tag_import_allows_mapped_ref_swap(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    tag_a = CaseTag(
+        workspace_id=svc_role.workspace_id,
+        ref="tag-b",
+        name="Alpha",
+        color="#101010",
+    )
+    tag_b = CaseTag(
+        workspace_id=svc_role.workspace_id,
+        ref="tag-a",
+        name="Beta",
+        color="#202020",
+    )
+    session.add_all([tag_a, tag_b])
+    await session.flush()
+    session.add_all(
+        [
+            WorkspaceSyncResourceMapping(
+                workspace_id=svc_role.workspace_id,
+                provider=VcsProvider.GITHUB.value,
+                resource_type=SyncResourceType.CASE_TAG.value,
+                source_id="tag-a",
+                source_path=f"{CASE_TAG_ROOT}/tag-a.yml",
+                local_id=tag_a.id,
+            ),
+            WorkspaceSyncResourceMapping(
+                workspace_id=svc_role.workspace_id,
+                provider=VcsProvider.GITHUB.value,
+                resource_type=SyncResourceType.CASE_TAG.value,
+                source_id="tag-b",
+                source_path=f"{CASE_TAG_ROOT}/tag-b.yml",
+                local_id=tag_b.id,
+            ),
+        ]
+    )
+    await session.flush()
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{CASE_TAG_ROOT}/tag-a.yml": _yaml(
+            {
+                "version": 1,
+                "type": "case_tag",
+                "id": "tag-a",
+                "name": "Alpha",
+                "color": "#303030",
+            }
+        ),
+        f"{CASE_TAG_ROOT}/tag-b.yml": _yaml(
+            {
+                "version": 1,
+                "type": "case_tag",
+                "id": "tag-b",
+                "name": "Beta",
+                "color": "#404040",
+            }
+        ),
+    }
+
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="r" * 40)
+
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+    await session.refresh(tag_a)
+    await session.refresh(tag_b)
+    assert tag_a.ref == "tag-a"
+    assert tag_a.color == "#303030"
+    assert tag_b.ref == "tag-b"
+    assert tag_b.color == "#404040"
+
+
+@pytest.mark.anyio
 async def test_case_tag_import_reuses_source_id_mapping_after_local_rename(
     session: AsyncSession,
     svc_role: Role,
