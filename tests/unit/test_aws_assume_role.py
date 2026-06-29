@@ -27,7 +27,7 @@ def test_get_sync_temporary_credentials_uses_external_id_and_default_session_nam
     )
 
     with (
-        patch.object(aws_boto3, "get_context", return_value=ctx),
+        patch("tracecat_registry.ctx.get_context", return_value=ctx),
         patch.object(
             aws_boto3.secrets,
             "get_or_default",

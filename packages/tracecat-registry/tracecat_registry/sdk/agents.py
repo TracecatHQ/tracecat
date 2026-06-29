@@ -155,7 +155,7 @@ async def run_agent(
     Returns:
         AgentOutput with result, message history, usage, and session ID.
     """
-    from tracecat_registry.context import get_context
+    from tracecat_registry import ctx
 
     # Handle legacy mcp_server_url/headers
     merged_mcp_servers: list[MCPServerConfig] | None = mcp_servers
@@ -170,8 +170,7 @@ async def run_agent(
             )
         )
 
-    ctx = get_context()
-    result = await ctx.agents.run(
+    result = await ctx.agents.aio.run(
         user_prompt=user_prompt,
         config=AgentConfig(
             model_name=model_name,
@@ -234,10 +233,9 @@ async def rank_items(
     Returns:
         List of item IDs in ranked order (most to least relevant).
     """
-    from tracecat_registry.context import get_context
+    from tracecat_registry import ctx
 
-    ctx = get_context()
-    return await ctx.agents.rank_items(
+    return await ctx.agents.aio.rank_items(
         items=items,
         criteria_prompt=criteria_prompt,
         model_name=model_name,
@@ -293,10 +291,9 @@ async def rank_items_pairwise(
     Returns:
         List of item IDs in ranked order (most to least relevant).
     """
-    from tracecat_registry.context import get_context
+    from tracecat_registry import ctx
 
-    ctx = get_context()
-    return await ctx.agents.rank_items_pairwise(
+    return await ctx.agents.aio.rank_items_pairwise(
         items=items,
         criteria_prompt=criteria_prompt,
         model_name=model_name,

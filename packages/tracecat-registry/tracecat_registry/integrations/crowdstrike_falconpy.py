@@ -5,8 +5,7 @@ from typing import Annotated, Any
 from falconpy import APIHarnessV2
 from pydantic import Field
 
-from tracecat_registry import RegistrySecret, registry, secrets
-from tracecat_registry.context import get_context
+from tracecat_registry import RegistrySecret, ctx, registry, secrets
 
 crowdstrike_secret = RegistrySecret(
     name="crowdstrike",
@@ -60,7 +59,7 @@ async def call_command(
     # Resolve base_url: parameter takes precedence, then workspace variable
     resolved_base_url = base_url
     if not resolved_base_url:
-        resolved_base_url = await get_context().variables.get_or_default(
+        resolved_base_url = await ctx.variables.aio.get_or_default(
             "crowdstrike", "base_url", None
         )
 
