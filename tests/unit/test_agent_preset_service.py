@@ -2105,6 +2105,54 @@ class TestAgentPresetService:
         await agent_preset_service.session.refresh(token)
         assert token.is_active is False
 
+    async def test_update_preset_rejects_archived_preset(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Archived presets cannot be mutated through a stale model instance."""
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params
+        )
+        await agent_preset_service.delete_preset(created_preset)
+
+        with pytest.raises(TracecatNotFoundError, match="not found"):
+            await agent_preset_service.update_preset(
+                created_preset,
+                AgentPresetUpdate(name="Archived update"),
+            )
+
+    async def test_restore_version_rejects_archived_preset(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Archived presets cannot be restored through a stale model instance."""
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params
+        )
+        current_version = await agent_preset_service.get_current_version_for_preset(
+            created_preset
+        )
+        await agent_preset_service.delete_preset(created_preset)
+
+        with pytest.raises(TracecatNotFoundError, match="not found"):
+            await agent_preset_service.restore_version(created_preset, current_version)
+
+    async def test_create_version_rejects_archived_preset(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Version creation refuses archived preset heads."""
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params
+        )
+        await agent_preset_service.delete_preset(created_preset)
+
+        with pytest.raises(TracecatNotFoundError, match="not found"):
+            await agent_preset_service._create_version_from_preset(created_preset)
+
     async def test_delete_preset_locks_target_before_subagent_reference_check(
         self,
         agent_preset_service: AgentPresetService,

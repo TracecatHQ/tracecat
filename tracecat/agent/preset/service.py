@@ -359,10 +359,11 @@ class AgentPresetService(BaseWorkspaceService):
         self, preset: AgentPreset, params: AgentPresetUpdate
     ) -> AgentPreset:
         """Update an existing preset."""
+        await self._lock_preset_row(preset.id)
         set_fields = params.model_dump(exclude_unset=True, exclude={"skills"})
         execution_changed = False
         requested_skills = None
-        preset_locked = False
+        preset_locked = True
         if "skills" in params.model_fields_set:
             requested_skills = params.skills or []
 
@@ -406,8 +407,6 @@ class AgentPresetService(BaseWorkspaceService):
                 execution_changed = True
 
         if requested_skills is not None:
-            await self._lock_preset_row(preset.id)
-            preset_locked = True
             await self.skills.validate_binding_inputs(
                 requested_skills,
                 for_update=True,
@@ -1428,6 +1427,7 @@ class AgentPresetService(BaseWorkspaceService):
             .where(
                 AgentPreset.workspace_id == self.workspace_id,
                 AgentPreset.id == preset_id,
+                AgentPreset.archived_at.is_(None),
             )
             .with_for_update()
         )
