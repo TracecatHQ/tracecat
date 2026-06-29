@@ -1,5 +1,6 @@
 export function readEnvValue(value: string | undefined): string | undefined {
-  return value?.trim() ? value : undefined
+  const trimmedValue = value?.trim()
+  return trimmedValue || undefined
 }
 
 export function readSentryDsn(): string | undefined {

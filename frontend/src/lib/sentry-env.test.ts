@@ -6,8 +6,9 @@ describe("readEnvValue", () => {
     expect(readEnvValue("   ")).toBeUndefined()
   })
 
-  it("keeps non-blank values", () => {
+  it("trims non-blank values", () => {
     expect(readEnvValue("configured")).toBe("configured")
+    expect(readEnvValue("  configured  ")).toBe("configured")
   })
 })
 
