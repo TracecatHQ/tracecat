@@ -37,6 +37,7 @@ from tracecat.agent.preset.types import SkillBindingSpec
 from tracecat.agent.skill.service import SkillService
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
+    ResolvedAgentsConfig,
 )
 from tracecat.agent.types import (
     AgentConfig,
@@ -1475,7 +1476,12 @@ class AgentPresetService(BaseWorkspaceService):
             )
 
         await self._lock_preset_for_versioning(preset.id)
-        self._sync_preset_head_from_version(preset, version)
+        restored_agents = await self._resolve_restored_agents_config(preset, version)
+        self._sync_preset_head_from_version(
+            preset,
+            version,
+            agents=restored_agents,
+        )
         await self._restore_head_skill_bindings_from_version(
             preset_id=preset.id,
             version_id=version.id,
@@ -1485,6 +1491,53 @@ class AgentPresetService(BaseWorkspaceService):
         await self.session.commit()
         await self.session.refresh(preset)
         return preset
+
+    async def _resolve_restored_agents_config(
+        self,
+        preset: AgentPreset,
+        version: AgentPresetVersion,
+    ) -> dict[str, Any]:
+        """Resolve historical agents config before making it active again."""
+        agents = await self._resolve_preset_subagent_configs(
+            version.agents,
+            parent_preset_id=preset.id,
+            parent_slug=preset.slug,
+        )
+        await self._validate_active_restored_subagents(
+            ResolvedAgentsConfig.model_validate(agents)
+        )
+        return agents
+
+    async def _validate_active_restored_subagents(
+        self, agents: ResolvedAgentsConfig
+    ) -> None:
+        """Ensure restored subagent bindings point at active preset heads."""
+        preset_ids = {subagent.preset_id for subagent in agents.subagents}
+        if not preset_ids:
+            return
+
+        stmt = (
+            select(AgentPreset.id)
+            .where(
+                AgentPreset.workspace_id == self.workspace_id,
+                AgentPreset.id.in_(preset_ids),
+                AgentPreset.archived_at.is_(None),
+            )
+            .with_for_update()
+        )
+        active_ids = set((await self.session.execute(stmt)).scalars().all())
+        if missing_ids := preset_ids - active_ids:
+            missing_refs = sorted(
+                {
+                    subagent.preset
+                    for subagent in agents.subagents
+                    if subagent.preset_id in missing_ids
+                }
+            )
+            raise TracecatValidationError(
+                "Cannot restore version because it references archived or missing "
+                f"subagent presets: {missing_refs}"
+            )
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def compare_versions(
@@ -1703,6 +1756,8 @@ class AgentPresetService(BaseWorkspaceService):
         self,
         preset: AgentPreset,
         version: AgentPresetVersion,
+        *,
+        agents: dict[str, Any],
     ) -> None:
         """Copy versioned execution fields onto the mutable preset head."""
         preset.instructions = version.instructions
@@ -1715,7 +1770,7 @@ class AgentPresetService(BaseWorkspaceService):
         preset.namespaces = version.namespaces
         preset.tool_approvals = version.tool_approvals
         preset.mcp_integrations = version.mcp_integrations
-        preset.agents = version.agents
+        preset.agents = agents
         preset.retries = version.retries
         preset.enable_thinking = version.enable_thinking
         preset.enable_internet_access = version.enable_internet_access

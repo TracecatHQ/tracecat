@@ -1819,6 +1819,54 @@ class TestAgentPresetService:
         with pytest.raises(TracecatValidationError, match="not found"):
             await agent_preset_service.restore_version(created_preset, version_1)
 
+    async def test_restore_version_rejects_archived_subagent_bindings(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Restoring a version cannot make archived subagents active again."""
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Restored Child", "slug": "restored-child"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Restored Parent",
+                    "slug": "restored-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": child.slug}],
+                        }
+                    ),
+                }
+            )
+        )
+        version_with_child = await agent_preset_service.get_current_version_for_preset(
+            parent
+        )
+        await agent_preset_service.update_preset(
+            parent,
+            AgentPresetUpdate(agents=AgentSubagentsConfig()),
+        )
+        version_without_child = (
+            await agent_preset_service.get_current_version_for_preset(parent)
+        )
+
+        await agent_preset_service.delete_preset(child)
+
+        with pytest.raises(
+            TracecatValidationError,
+            match="archived or missing subagent",
+        ):
+            await agent_preset_service.restore_version(parent, version_with_child)
+
+        await agent_preset_service.session.refresh(parent)
+        assert parent.current_version_id == version_without_child.id
+        assert parent.agents == {"enabled": False, "subagents": []}
+
     async def test_restore_version_locks_skill_bindings_during_validation(
         self,
         configure_minio_for_skills,
