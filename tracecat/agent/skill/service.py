@@ -49,6 +49,7 @@ from tracecat.agent.skill.schemas import (
 from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
+    AgentPreset,
     AgentPresetSkill,
     AgentPresetVersionSkill,
     Skill,
@@ -2131,9 +2132,15 @@ class SkillService(BaseWorkspaceService):
         binding_stmt = (
             select(func.count())
             .select_from(AgentPresetSkill)
+            .join(
+                AgentPreset,
+                AgentPreset.id == AgentPresetSkill.preset_id,
+            )
             .where(
                 AgentPresetSkill.workspace_id == self.workspace_id,
                 AgentPresetSkill.skill_id == skill.id,
+                AgentPreset.workspace_id == self.workspace_id,
+                AgentPreset.archived_at.is_(None),
             )
         )
         binding_count = int(
