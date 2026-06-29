@@ -2,7 +2,7 @@ from dataclasses import asdict, is_dataclass
 from typing import Any
 
 from temporalio import activity, workflow
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, FailureError
 from temporalio.worker import (
     ActivityInboundInterceptor,
     ExecuteActivityInput,
@@ -135,7 +135,10 @@ class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
                         sentry.set_context("temporal.workflow.input", arg.model_dump())
                 sentry.set_context("temporal.workflow.info", workflow.info().__dict__)
 
-                if not workflow.unsafe.is_replaying():
+                if (
+                    not workflow.unsafe.is_replaying()
+                    and _should_capture_workflow_exception(e)
+                ):
                     sentry.capture_exception(e)
                     logger.error(
                         "Unexpected workflow error, likely a platform issue",
@@ -176,10 +179,23 @@ class _SentryActivityInboundInterceptor(ActivityInboundInterceptor):
 
 
 def _should_capture_activity_exception(exc: Exception) -> bool:
+    return _should_capture_temporal_exception(exc)
+
+
+def _should_capture_workflow_exception(exc: Exception) -> bool:
+    return _should_capture_temporal_exception(exc)
+
+
+def _should_capture_temporal_exception(exc: Exception) -> bool:
     if isinstance(exc, _USER_FACING_EXCEPTION_CLASSES):
         return False
     if isinstance(exc, ApplicationError):
-        return exc.type not in _USER_FACING_APPLICATION_ERROR_TYPES
+        return (
+            exc.type is not None
+            and exc.type not in _USER_FACING_APPLICATION_ERROR_TYPES
+        )
+    if isinstance(exc, FailureError) and isinstance(exc.cause, Exception):
+        return _should_capture_temporal_exception(exc.cause)
     return True
 
 

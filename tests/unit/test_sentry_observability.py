@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import pytest
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError
 
-from tracecat.dsl.interceptor import _should_capture_activity_exception
+from tracecat.dsl.interceptor import (
+    _should_capture_activity_exception,
+    _should_capture_workflow_exception,
+)
 from tracecat.exceptions import TracecatException, TracecatExpressionError
 from tracecat.observability import sentry as sentry_observability
 
@@ -86,6 +89,12 @@ def test_activity_interceptor_skips_base_tracecat_application_errors() -> None:
     assert _should_capture_activity_exception(exc) is False
 
 
+def test_activity_interceptor_skips_untyped_application_errors() -> None:
+    exc = ApplicationError("Invalid custom model provider credentials")
+
+    assert _should_capture_activity_exception(exc) is False
+
+
 def test_activity_interceptor_skips_direct_tracecat_exceptions() -> None:
     assert (
         _should_capture_activity_exception(TracecatException("invalid input")) is False
@@ -102,3 +111,33 @@ def test_activity_interceptor_captures_platform_application_errors() -> None:
     exc = ApplicationError("database failed", type="RuntimeError")
 
     assert _should_capture_activity_exception(exc) is True
+
+
+def test_workflow_interceptor_skips_user_facing_activity_error_causes() -> None:
+    exc = _activity_error_with_cause(
+        ApplicationError("action failed", type="ExecutionError")
+    )
+
+    assert _should_capture_workflow_exception(exc) is False
+
+
+def test_workflow_interceptor_captures_platform_activity_error_causes() -> None:
+    exc = _activity_error_with_cause(
+        ApplicationError("database failed", type="OSError")
+    )
+
+    assert _should_capture_workflow_exception(exc) is True
+
+
+def _activity_error_with_cause(cause: Exception) -> ActivityError:
+    exc = ActivityError(
+        "activity failed",
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity="test-worker",
+        activity_type="test_activity",
+        activity_id="test-activity-id",
+        retry_state=None,
+    )
+    exc.__cause__ = cause
+    return exc
