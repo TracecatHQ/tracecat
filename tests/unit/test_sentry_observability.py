@@ -97,6 +97,26 @@ def test_sentry_scrubber_redacts_request_query_string_secrets() -> None:
     }
 
 
+def test_sentry_scrubber_redacts_semicolon_delimited_query_secrets() -> None:
+    event = {
+        "request": {
+            "query_string": "safe=visible;token=secret-token;code=secret-code",
+        }
+    }
+
+    scrubbed = sentry_observability._scrub(event)
+    request = scrubbed["request"]
+    params = parse_qs(request["query_string"])
+
+    assert params == {
+        "safe": ["visible"],
+        "token": [sentry_observability.REDACTED_VALUE],
+        "code": [sentry_observability.REDACTED_VALUE],
+    }
+    assert "secret-token" not in request["query_string"]
+    assert "secret-code" not in request["query_string"]
+
+
 def test_sentry_scrubber_redacts_request_url_query_secrets() -> None:
     event = {
         "request": {

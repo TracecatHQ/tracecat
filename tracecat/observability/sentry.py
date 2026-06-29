@@ -178,7 +178,7 @@ def _scrub_query_string(value: str) -> str:
     if not value:
         return value
 
-    params = parse_qsl(value, keep_blank_values=True)
+    params = parse_qsl(value.replace(";", "&"), keep_blank_values=True)
     if not params:
         return value
 
