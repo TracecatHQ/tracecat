@@ -4,7 +4,7 @@ import asyncio
 from collections.abc import Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -125,6 +125,28 @@ async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
         "max_concurrent_workflow_tasks": 100,
         "graceful_shutdown_timeout": timedelta(seconds=30),
     }
+
+
+@pytest.mark.anyio
+async def test_dsl_worker_rejects_single_workflow_task_slot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat.dsl import worker
+
+    temporal_worker = Mock()
+    monkeypatch.delenv("SENTRY_DSN", raising=False)
+    monkeypatch.setenv("TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS", "1")
+    monkeypatch.setattr(worker, "get_temporal_client", AsyncMock(return_value=object()))
+    monkeypatch.setattr(worker, "get_activities", lambda: [])
+    monkeypatch.setattr(worker, "Worker", temporal_worker)
+
+    with pytest.raises(
+        ValueError,
+        match="TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS must be at least 2",
+    ):
+        await worker.main(shutdown_event=asyncio.Event())
+
+    temporal_worker.assert_not_called()
 
 
 @pytest.mark.anyio

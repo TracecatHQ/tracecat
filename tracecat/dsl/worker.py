@@ -14,6 +14,8 @@ from temporalio.worker.workflow_sandbox import (
 
 from tracecat import __version__ as APP_VERSION
 
+_MIN_CONCURRENT_WORKFLOW_TASKS = 2
+
 with workflow.unsafe.imports_passed_through():
     import sentry_sdk
     import uvloop
@@ -152,6 +154,10 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
     max_concurrent_workflow_tasks = int(
         os.environ.get("TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS") or 100
     )
+    if max_concurrent_workflow_tasks < _MIN_CONCURRENT_WORKFLOW_TASKS:
+        raise ValueError(
+            "TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS must be at least 2 when workflow caching is enabled."
+        )
 
     try:
         with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:

@@ -545,8 +545,8 @@ variable "worker_max_concurrent_workflow_tasks" {
   default     = 100
 
   validation {
-    condition     = var.worker_max_concurrent_workflow_tasks > 0 && floor(var.worker_max_concurrent_workflow_tasks) == var.worker_max_concurrent_workflow_tasks
-    error_message = "worker_max_concurrent_workflow_tasks must be a positive integer."
+    condition     = var.worker_max_concurrent_workflow_tasks >= 2 && floor(var.worker_max_concurrent_workflow_tasks) == var.worker_max_concurrent_workflow_tasks
+    error_message = "worker_max_concurrent_workflow_tasks must be an integer greater than or equal to 2."
   }
 }
 
