@@ -26,6 +26,10 @@ from tracecat.git.types import GitUrl
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.sync import CommitInfo, PullOptions, PushStatus
 from tracecat.workflow.store.schemas import RemoteCaseTrigger, RemoteWorkflowSchedule
+from tracecat.workspace_sync.adapters import (
+    SECRET_METADATA_RESOURCE_ADAPTER,
+    VARIABLE_RESOURCE_ADAPTER,
+)
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.schemas import (
     MANIFEST_FILENAME,
@@ -713,33 +717,38 @@ async def test_workflow_export_allows_projected_dependencies_with_publish_scope(
     service = WorkspaceSyncService(session=session, role=role)
     workflow_id = WorkflowUUID.new_uuid4()
     workflow = cast(Any, SimpleNamespace(id=workflow_id, git_sync_branch=None))
+    projection_spec = WorkspaceSpec(
+        workflows={
+            "parent": WorkflowResourceSpec(
+                id="parent",
+                alias="parent",
+                definition=sample_dsl,
+            )
+        },
+        variables={
+            "default/api_token": VariableResourceSpec(
+                id="default/api_token",
+                name="api_token",
+                environment="default",
+            )
+        },
+        secret_metadata={
+            "default/vendor_api": SecretMetadataResourceSpec(
+                id="default/vendor_api",
+                name="vendor_api",
+                environment="default",
+                keys=["TOKEN"],
+            )
+        },
+    )
+    projection_manifest = WorkspaceManifest()
     projection = WorkspaceProjection(
-        manifest=WorkspaceManifest(),
-        spec=WorkspaceSpec(
-            workflows={
-                "parent": WorkflowResourceSpec(
-                    id="parent",
-                    alias="parent",
-                    definition=sample_dsl,
-                )
-            },
-            variables={
-                "default/api_token": VariableResourceSpec(
-                    id="default/api_token",
-                    name="api_token",
-                    environment="default",
-                )
-            },
-            secret_metadata={
-                "default/vendor_api": SecretMetadataResourceSpec(
-                    id="default/vendor_api",
-                    name="vendor_api",
-                    environment="default",
-                    keys=["TOKEN"],
-                )
-            },
+        manifest=projection_manifest,
+        spec=projection_spec,
+        files=service._files_from_spec(
+            manifest=projection_manifest,
+            spec=projection_spec,
         ),
-        files={MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())},
     )
     service._workspace_git_url = AsyncMock(
         return_value=GitUrl(host="github.com", org="tracecat", repo="sync")
@@ -773,6 +782,15 @@ async def test_workflow_export_allows_projected_dependencies_with_publish_scope(
 
     assert result.commit.status is PushStatus.COMMITTED
     transport.write_files.assert_awaited_once()
+    expected_paths = {
+        MANIFEST_FILENAME,
+        workflow_source_path("parent"),
+        VARIABLE_RESOURCE_ADAPTER.source_path("default/api_token"),
+        SECRET_METADATA_RESOURCE_ADAPTER.source_path("default/vendor_api"),
+    }
+    written_files = transport.write_files.await_args.kwargs["files"]
+    assert set(written_files) == expected_paths
+    assert set(result.files) == expected_paths
     assert workflow.git_sync_branch == "sync/workflow"
 
 
