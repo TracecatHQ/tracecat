@@ -2537,8 +2537,7 @@ export function OrgSettingsAgentForm() {
         <AlertNotification
           level="error"
           message={
-            getApiErrorDetail(pageError) ??
-            "Unable to load model provider settings."
+            getApiErrorDetail(pageError) ?? "Unable to load agent settings."
           }
         />
       ) : null}

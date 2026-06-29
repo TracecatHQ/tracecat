@@ -1052,6 +1052,7 @@ export type AppSettingsRead = {
   app_workflow_export_enabled: boolean
   app_create_workspace_on_register: boolean
   app_action_form_mode_enabled: boolean
+  app_versioned_resource_resolution_strategy?: VersionedResourceResolutionStrategy
 }
 
 /**
@@ -1082,6 +1083,10 @@ export type AppSettingsUpdate = {
    * Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.
    */
   app_action_form_mode_enabled?: boolean
+  /**
+   * How versioned resource references are resolved when a feature supports both pinned and latest dependency resolution.
+   */
+  app_versioned_resource_resolution_strategy?: VersionedResourceResolutionStrategy
 }
 
 /**
@@ -8365,6 +8370,8 @@ export type VersionDiff = {
   actions_modified?: Array<ActionChange>
   total_changes?: number
 }
+
+export type VersionedResourceResolutionStrategy = "pinned" | "latest"
 
 /**
  * Vertex AI catalog entry.

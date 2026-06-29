@@ -51,6 +51,11 @@ from tracecat.registry.versions.schemas import (
     RegistryVersionManifest,
     RegistryVersionManifestAction,
 )
+from tracecat.settings.schemas import (
+    AppSettingsUpdate,
+    VersionedResourceResolutionStrategy,
+)
+from tracecat.settings.service import SettingsService
 from tracecat.storage.blob import ensure_bucket_exists
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -1023,6 +1028,75 @@ class TestAgentPresetService:
         assert version_read.skills[0].skill_version_id == skill_version.id
         assert version_read.skills[0].skill_version == 1
 
+    async def test_resolve_config_uses_latest_skill_versions_when_setting_enabled(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        svc_admin_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Latest-resource mode resolves skills by current version at execution time."""
+
+        settings_service = SettingsService(session=session, role=svc_admin_role)
+        await settings_service.update_app_settings(
+            AppSettingsUpdate(
+                app_versioned_resource_resolution_strategy=(
+                    VersionedResourceResolutionStrategy.LATEST
+                )
+            )
+        )
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(name="latest-skill-v1")
+        )
+        skill_version_one = await skill_service.publish_skill(created_skill.id)
+
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Latest skill preset",
+                description="Preset that follows skill current versions",
+                instructions="Use the selected skill",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=created_skill.id,
+                        skill_version_id=skill_version_one.id,
+                    )
+                ],
+            )
+        )
+
+        draft = await skill_service.get_draft(created_skill.id)
+        assert draft is not None
+        await skill_service.patch_draft(
+            skill_id=created_skill.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content=(
+                            "---\nname: latest-skill-v2\n---\n\n# latest-skill-v2\n"
+                        ),
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            ),
+        )
+        skill_version_two = await skill_service.publish_skill(created_skill.id)
+
+        config = await agent_preset_service.resolve_agent_preset_config(
+            preset_id=created_preset.id
+        )
+
+        assert config.resolved_skills is not None
+        assert len(config.resolved_skills) == 1
+        resolved_skill = config.resolved_skills[0]
+        assert resolved_skill.skill_version_id == skill_version_two.id
+        assert resolved_skill.skill_name == "latest-skill-v2"
+
     async def test_list_versions_returns_metadata_without_skill_lookups(
         self,
         configure_minio_for_skills,
@@ -1266,10 +1340,19 @@ class TestAgentPresetService:
         configure_minio_for_skills,
         session: AsyncSession,
         svc_role: Role,
+        svc_admin_role: Role,
         agent_preset_service: AgentPresetService,
     ) -> None:
         """Preset version creation rejects duplicate resolved skill names."""
 
+        settings_service = SettingsService(session=session, role=svc_admin_role)
+        await settings_service.update_app_settings(
+            AppSettingsUpdate(
+                app_versioned_resource_resolution_strategy=(
+                    VersionedResourceResolutionStrategy.PINNED
+                )
+            )
+        )
         skill_service = SkillService(session=session, role=svc_role)
         skill_a = await skill_service.create_skill(SkillCreate(name="shared-name"))
         skill_a_shared = await skill_service.publish_skill(skill_a.id)
@@ -1345,10 +1428,19 @@ class TestAgentPresetService:
         configure_minio_for_skills,
         session: AsyncSession,
         svc_role: Role,
+        svc_admin_role: Role,
         agent_preset_service: AgentPresetService,
     ) -> None:
         """Preset resolution fails before runtime if a snapshot contains duplicates."""
 
+        settings_service = SettingsService(session=session, role=svc_admin_role)
+        await settings_service.update_app_settings(
+            AppSettingsUpdate(
+                app_versioned_resource_resolution_strategy=(
+                    VersionedResourceResolutionStrategy.PINNED
+                )
+            )
+        )
         skill_service = SkillService(session=session, role=svc_role)
         skill_a = await skill_service.create_skill(SkillCreate(name="shared-name"))
         skill_a_shared = await skill_service.publish_skill(skill_a.id)
@@ -2455,6 +2547,72 @@ class TestAgentPresetService:
         assert agents.enabled is True
         assert isinstance(agents.subagents[0], ResolvedAttachedSubagentRef)
         assert agents.subagents[0].preset_id == child.id
+
+    async def test_resolve_config_uses_latest_subagent_version_when_setting_enabled(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        svc_admin_role: Role,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Latest-resource mode resolves preset-backed subagents by current version."""
+
+        settings_service = SettingsService(session=session, role=svc_admin_role)
+        await settings_service.update_app_settings(
+            AppSettingsUpdate(
+                app_versioned_resource_resolution_strategy=(
+                    VersionedResourceResolutionStrategy.LATEST
+                )
+            )
+        )
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Latest Child",
+                    "slug": "latest-child",
+                    "instructions": "Child v1",
+                }
+            )
+        )
+        child_version_one = await agent_preset_service.get_current_version_for_preset(
+            child
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Latest Parent",
+                    "slug": "latest-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": child.slug}],
+                        }
+                    ),
+                }
+            )
+        )
+
+        await agent_preset_service.update_preset(
+            child,
+            AgentPresetUpdate(instructions="Child v2"),
+        )
+        child_version_two = await agent_preset_service.get_current_version_for_preset(
+            child
+        )
+
+        config = await agent_preset_service.resolve_agent_preset_config(
+            preset_id=parent.id
+        )
+
+        assert child_version_two.id != child_version_one.id
+        assert config.agents.enabled is True
+        assert len(config.agents.subagents) == 1
+        resolved_subagent = config.agents.subagents[0]
+        assert isinstance(resolved_subagent, ResolvedAttachedSubagentRef)
+        assert resolved_subagent.preset_id == child.id
+        assert resolved_subagent.preset_version_id == child_version_two.id
+        assert resolved_subagent.preset_version == child_version_two.version
 
     async def test_update_parent_rejects_subagent_with_tool_approvals(
         self,
