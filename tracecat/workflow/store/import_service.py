@@ -130,12 +130,17 @@ class WorkflowImportService(BaseWorkspaceService):
     async def validate_workflows(
         self,
         remote_workflows: list[RemoteWorkflowDefinition],
+        *,
+        normalize_existing: bool = True,
     ) -> list[PullDiagnostic]:
         """Validate all workflows before import. Returns list of diagnostics."""
         diagnostics: list[PullDiagnostic] = []
 
         for remote_workflow in remote_workflows:
-            workflow_diagnostics = await self._validate_single_workflow(remote_workflow)
+            workflow_diagnostics = await self._validate_single_workflow(
+                remote_workflow,
+                normalize_existing=normalize_existing,
+            )
             diagnostics.extend(workflow_diagnostics)
 
         # Cross-workflow integrity: validate alias references in child workflow actions
@@ -163,6 +168,8 @@ class WorkflowImportService(BaseWorkspaceService):
     async def _validate_single_workflow(
         self,
         remote_workflow: RemoteWorkflowDefinition,
+        *,
+        normalize_existing: bool = True,
     ) -> list[PullDiagnostic]:
         """Validate a single workflow. Returns list of diagnostics."""
         diagnostics: list[PullDiagnostic] = []
@@ -185,7 +192,7 @@ class WorkflowImportService(BaseWorkspaceService):
 
             # Check for conflicts
             wf_id = WorkflowUUID.new(remote_workflow.id)
-            await self.wf_mgmt.get_workflow(wf_id)
+            await self.wf_mgmt.get_workflow(wf_id, normalize=normalize_existing)
 
         except ValidationError as e:
             diagnostics.append(

@@ -1103,7 +1103,10 @@ class WorkspaceSyncService(BaseWorkspaceService):
             session=self.session,
             role=self.role,
         )
-        return await workflow_importer.validate_workflows(remote_workflows)
+        return await workflow_importer.validate_workflows(
+            remote_workflows,
+            normalize_existing=False,
+        )
 
     async def _list_projectable_workflows(
         self,

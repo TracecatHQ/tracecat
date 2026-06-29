@@ -37,11 +37,13 @@ from tracecat.db.models import (
     CaseDurationDefinition,
     CaseFields,
     CaseTag,
+    CaseTrigger,
     Secret,
     Skill,
     SkillDraftFile,
     SkillVersion,
     Table,
+    Webhook,
     Workflow,
     Workspace,
     WorkspaceSyncResourceMapping,
@@ -85,6 +87,7 @@ from tracecat.workspace_sync.schemas import (
     WorkflowResourceSpec,
     WorkspaceManifest,
     WorkspaceProjection,
+    WorkspaceRemoteSnapshot,
     WorkspaceSpec,
     WorkspaceSyncExportPreviewRequest,
     WorkspaceSyncExportRequest,
@@ -372,6 +375,59 @@ async def test_pull_dry_run_reports_per_resource_counts(
     assert resource_counts["case_tag"].found == 1
     assert resource_counts["variable"].found == 1
     assert resource_counts["secret_metadata"].found == 1
+
+
+@pytest.mark.anyio
+async def test_pull_dry_run_validation_does_not_normalize_existing_workflow(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    workflow = Workflow(
+        workspace_id=svc_role.workspace_id,
+        title="QA preview workflow",
+        description="Existing workflow missing system resource rows",
+        alias="qa-preview",
+    )
+    session.add(workflow)
+    await session.flush()
+    snapshot = WorkspaceRemoteSnapshot(
+        commit_sha="d" * 40,
+        files={},
+        spec=WorkspaceSpec(
+            workflows={
+                "qa-preview": WorkflowResourceSpec.model_validate(
+                    _workflow_spec(
+                        source_id="qa-preview",
+                        title="QA preview workflow",
+                        alias="qa-preview",
+                        folder_path="QA/Preview",
+                        actions=[
+                            {
+                                "ref": "shape",
+                                "action": "core.transform.reshape",
+                                "args": {"value": "${{ TRIGGER.value }}"},
+                            }
+                        ],
+                    )
+                )
+            }
+        ),
+    )
+
+    diagnostics = await WorkspaceSyncService(
+        session=session,
+        role=svc_role,
+    )._validate_workflow_import(snapshot)
+
+    assert diagnostics == []
+    assert (
+        await session.scalar(select(Webhook).where(Webhook.workflow_id == workflow.id))
+    ) is None
+    assert (
+        await session.scalar(
+            select(CaseTrigger).where(CaseTrigger.workflow_id == workflow.id)
+        )
+    ) is None
 
 
 @pytest.mark.anyio
