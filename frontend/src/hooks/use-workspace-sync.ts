@@ -210,6 +210,7 @@ export function useWorkspaceSyncExportPreview(
 export function useRepositoryBranches(
   workspaceId: string,
   options?: {
+    gitRepoUrl?: string
     limit?: number
     enabled?: boolean
   }
@@ -219,7 +220,12 @@ export function useRepositoryBranches(
     isLoading: branchesIsLoading,
     error: branchesError,
   } = useQuery<GitBranchInfo[], ApiError>({
-    queryKey: ["workflow-sync-branches", workspaceId, options?.limit ?? 200],
+    queryKey: [
+      "workflow-sync-branches",
+      workspaceId,
+      options?.gitRepoUrl ?? "__workspace_repo__",
+      options?.limit ?? 200,
+    ],
     queryFn: async (): Promise<GitBranchInfo[]> => {
       if (!workspaceId) {
         throw new Error("Workspace ID is required")
@@ -247,6 +253,7 @@ export function useRepositoryBranches(
 export function useRepositoryCommits(
   workspaceId: string,
   options?: {
+    gitRepoUrl?: string
     branch?: string
     limit?: number
     enabled?: boolean
@@ -260,6 +267,7 @@ export function useRepositoryCommits(
     queryKey: [
       "repository_commits",
       workspaceId,
+      options?.gitRepoUrl ?? "__workspace_repo__",
       options?.branch ?? "main",
       options?.limit ?? 10,
     ],

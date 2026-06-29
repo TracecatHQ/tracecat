@@ -76,16 +76,17 @@ export function WorkspaceResourceSyncActions({
   const [exportMessage, setExportMessage] = useState(`Push ${label}`)
   const { exportWorkspace, exportWorkspaceIsPending } =
     useWorkspaceSyncExport(workspaceId)
+  const gitRepoUrl = workspace?.settings?.git_repo_url || undefined
   const {
     branches: repoBranches,
     branchesIsLoading,
     branchesError,
   } = useRepositoryBranches(workspaceId, {
     enabled: open && Boolean(workspace?.settings?.git_repo_url),
+    gitRepoUrl,
     limit: 200,
   })
 
-  const gitRepoUrl = workspace?.settings?.git_repo_url || undefined
   const resourceRefs = useMemo<ResourceRef[]>(
     () => resources.map((resourceType) => ({ resource_type: resourceType })),
     [resources]

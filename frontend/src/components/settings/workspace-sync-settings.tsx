@@ -56,6 +56,7 @@ export function WorkspaceSyncSettings({
     branchesError,
   } = useRepositoryBranches(workspace.id, {
     enabled: Boolean(persistedGitUrl),
+    gitRepoUrl: persistedGitUrl,
     limit: 200,
   })
   const baseBranch = getWorkspaceSyncBaseBranch(persistedGitUrl, repoBranches)
@@ -64,6 +65,7 @@ export function WorkspaceSyncSettings({
     workspace.id,
     {
       branch: baseBranch,
+      gitRepoUrl: persistedGitUrl,
       limit: 20,
       enabled: Boolean(persistedGitUrl) && Boolean(baseBranch),
     }
