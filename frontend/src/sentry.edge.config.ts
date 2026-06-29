@@ -1,12 +1,14 @@
 import * as Sentry from "@sentry/nextjs"
 import { beforeSend } from "@/lib/sentry"
+import { readEnvValue, readSentryDsn } from "@/lib/sentry-env"
 
-const sentryDsn = process.env.SENTRY_DSN ?? process.env.NEXT_PUBLIC_SENTRY_DSN
+const sentryDsn = readSentryDsn()
 
 if (sentryDsn) {
   Sentry.init({
     dsn: sentryDsn,
-    environment: process.env.NEXT_PUBLIC_APP_ENV ?? process.env.NODE_ENV,
+    environment:
+      readEnvValue(process.env.NEXT_PUBLIC_APP_ENV) ?? process.env.NODE_ENV,
     sendDefaultPii: false,
     tracesSampleRate: 0,
     beforeSend,

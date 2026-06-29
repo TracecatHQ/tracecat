@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/nextjs"
 import { beforeSend } from "@/lib/sentry"
+import { readEnvValue } from "@/lib/sentry-env"
 
 export type PublicEnvKey = "NEXT_PUBLIC_SENTRY_DSN" | "NEXT_PUBLIC_APP_ENV"
 
@@ -38,8 +39,4 @@ function readBundledPublicEnv(key: PublicEnvKey): string | undefined {
     case "NEXT_PUBLIC_APP_ENV":
       return readEnvValue(process.env.NEXT_PUBLIC_APP_ENV)
   }
-}
-
-function readEnvValue(value: string | undefined): string | undefined {
-  return value?.trim() ? value : undefined
 }
