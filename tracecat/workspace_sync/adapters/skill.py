@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import uuid
 from collections import defaultdict
 from collections.abc import Mapping
-from typing import cast
+from typing import Literal, cast
 
 import orjson
 import sqlalchemy as sa
@@ -257,7 +259,32 @@ class SkillAdapter(DirectoryManifestAdapter):
                     )
                 )
                 continue
-            actual_hash = hashlib.sha256(content.encode()).hexdigest()
+            try:
+                content_bytes = _skill_file_content_bytes(file_spec, content)
+            except ValueError as e:
+                diagnostics.append(
+                    PullDiagnostic(
+                        workflow_path=self._version_file_source_path(
+                            source_id,
+                            version.version_number,
+                            file_spec.path,
+                        ),
+                        workflow_title=version.name,
+                        error_type="validation",
+                        message=(
+                            f"Skill version {spec.slug!r}@{version.version_number} "
+                            f"file {file_spec.path!r} could not be decoded: {e}"
+                        ),
+                        details={
+                            "skill_slug": spec.slug,
+                            "skill_version": version.version_number,
+                            "file_path": file_spec.path,
+                            "encoding": file_spec.encoding,
+                        },
+                    )
+                )
+                continue
+            actual_hash = hashlib.sha256(content_bytes).hexdigest()
             if actual_hash != file_spec.sha256:
                 diagnostics.append(
                     PullDiagnostic(
@@ -458,13 +485,15 @@ class SkillAdapter(DirectoryManifestAdapter):
                     key=blob_row.key,
                     bucket=blob_row.bucket,
                 )
+                content_text, encoding = _skill_file_content_for_git(content)
                 files.append(
                     SkillFileSpec(
                         path=version_file.path,
                         sha256=blob_row.sha256,
+                        encoding=encoding,
                     )
                 )
-                file_contents[version_file.path] = content.decode("utf-8")
+                file_contents[version_file.path] = content_text
             versions[version.version] = SkillVersionResourceSpec(
                 version_number=version.version,
                 name=version.name,
@@ -612,7 +641,13 @@ class SkillAdapter(DirectoryManifestAdapter):
                     f"Skill version {version.name!r}@{version.version_number} "
                     f"declares file {file_spec.path!r} but no content was provided."
                 )
-            content = content_text.encode()
+            try:
+                content = _skill_file_content_bytes(file_spec, content_text)
+            except ValueError as e:
+                raise TracecatValidationError(
+                    f"Skill version {version.name!r}@{version.version_number} "
+                    f"file {file_spec.path!r} could not be decoded: {e}"
+                ) from e
             blob_row = await skill_service._get_or_create_blob(content=content)
             file_refs.append(
                 (
@@ -814,3 +849,21 @@ def _parse_skill_version_manifest(
             )
         )
     return None
+
+
+def _skill_file_content_for_git(content: bytes) -> tuple[str, Literal["base64"] | None]:
+    """Return Git-safe text plus an encoding marker for a skill file blob."""
+    try:
+        return content.decode("utf-8"), None
+    except UnicodeDecodeError:
+        return base64.b64encode(content).decode("ascii"), "base64"
+
+
+def _skill_file_content_bytes(file_spec: SkillFileSpec, content: str) -> bytes:
+    """Return original skill file bytes from repository text content."""
+    if file_spec.encoding == "base64":
+        try:
+            return base64.b64decode(content.encode("ascii"), validate=True)
+        except (UnicodeEncodeError, binascii.Error) as e:
+            raise ValueError("invalid base64 content") from e
+    return content.encode()

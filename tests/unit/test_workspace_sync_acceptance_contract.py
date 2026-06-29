@@ -6,6 +6,7 @@ resource adapter and reconciler implementations.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import re
@@ -3091,6 +3092,62 @@ async def test_import_skill_version_rejects_missing_declared_file_content(
             session=session,
             role=svc_role,
         ).import_non_workflow_resources(spec)
+
+
+@pytest.mark.anyio
+async def test_project_workspace_preserves_binary_skill_version_file(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    binary_content = b"\x89PNG\r\n\x1a\n\xff\x00"
+    encoded_content = base64.b64encode(binary_content).decode("ascii")
+    binary_sha256 = hashlib.sha256(binary_content).hexdigest()
+    spec = WorkspaceSpec(
+        skills={
+            "binary-skill": SkillResourceSpec(
+                id="binary-skill",
+                slug="binary-skill",
+                name="Binary skill",
+                current_version=1,
+                versions={
+                    1: SkillVersionResourceSpec(
+                        version_number=1,
+                        name="Binary skill",
+                        files=[
+                            SkillFileSpec(
+                                path="assets/logo.png",
+                                sha256=binary_sha256,
+                                encoding="base64",
+                            )
+                        ],
+                        file_contents={"assets/logo.png": encoded_content},
+                    )
+                },
+            )
+        }
+    )
+
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(spec)
+
+    projection = await WorkspaceSyncService(
+        session=session,
+        role=svc_role,
+    ).project_workspace()
+
+    version_path = f"{SKILL_ROOT}/binary-skill/versions/1/version.yml"
+    file_path = f"{SKILL_ROOT}/binary-skill/versions/1/files/assets/logo.png"
+    version_spec = yaml.safe_load(projection.files[version_path])
+    assert version_spec["files"] == [
+        {
+            "path": "assets/logo.png",
+            "sha256": binary_sha256,
+            "encoding": "base64",
+        }
+    ]
+    assert projection.files[file_path] == encoded_content
 
 
 @pytest.mark.anyio

@@ -410,6 +410,10 @@ class SkillFileSpec(BaseModel):
         max_length=64,
         description="Hex-encoded SHA-256 of the file contents.",
     )
+    encoding: Literal["base64"] | None = Field(
+        default=None,
+        description="Encoding used for non-text file contents in Git.",
+    )
 
 
 class SkillVersionResourceSpec(BaseModel):
