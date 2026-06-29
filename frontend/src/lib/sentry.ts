@@ -33,6 +33,9 @@ function scrubValue(value: unknown, depth = 0, key?: string): unknown {
   if (depth > MAX_SCRUB_DEPTH) {
     return REDACTED_VALUE
   }
+  if (key && isRequestQueryKey(key)) {
+    return scrubQueryValue(value, depth)
+  }
   if (Array.isArray(value)) {
     return value.map((item) => scrubValue(item, depth + 1))
   }
@@ -55,13 +58,45 @@ function scrubValue(value: unknown, depth = 0, key?: string): unknown {
 
 function scrubRequestString(key: string | undefined, value: string): string {
   const normalizedKey = key ? normalizeSensitiveKey(key) : ""
-  if (REQUEST_QUERY_KEYS.has(normalizedKey)) {
-    return scrubQueryString(value)
-  }
   if (REQUEST_URL_KEYS.has(normalizedKey)) {
     return scrubUrlQuery(value)
   }
   return value
+}
+
+function scrubQueryValue(value: unknown, depth: number): unknown {
+  if (typeof value === "string") {
+    return scrubQueryString(value)
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => {
+      if (isQueryParamPair(item)) {
+        const [paramKey, paramValue] = item
+        return [
+          paramKey,
+          shouldRedactQueryKey(String(paramKey))
+            ? REDACTED_VALUE
+            : scrubValue(paramValue, depth + 1),
+        ]
+      }
+      return scrubValue(item, depth + 1)
+    })
+  }
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([paramKey, paramValue]) => [
+        paramKey,
+        shouldRedactQueryKey(paramKey)
+          ? REDACTED_VALUE
+          : scrubValue(paramValue, depth + 1),
+      ])
+    )
+  }
+  return value
+}
+
+function isQueryParamPair(value: unknown): value is [unknown, unknown] {
+  return Array.isArray(value) && value.length === 2
 }
 
 function scrubUrlQuery(value: string): string {
@@ -104,6 +139,10 @@ function scrubQueryString(value: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
+}
+
+function isRequestQueryKey(key: string): boolean {
+  return REQUEST_QUERY_KEYS.has(normalizeSensitiveKey(key))
 }
 
 function shouldRedactKey(key: string): boolean {

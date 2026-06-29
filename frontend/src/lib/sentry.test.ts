@@ -77,6 +77,48 @@ describe("beforeSend", () => {
     expect(params.get("safe")).toBe("visible")
   })
 
+  it("redacts object request query string secrets", () => {
+    const event = {
+      request: {
+        query_string: {
+          code: "secret-code",
+          state: "secret-state",
+          safe: "visible",
+        },
+      },
+    } as unknown as ErrorEvent
+
+    const result = beforeSend(event, {} as EventHint)
+    const request = asRecord(result?.request)
+    const queryString = asRecord(request.query_string)
+
+    expect(queryString.code).toBe("[Filtered]")
+    expect(queryString.state).toBe("[Filtered]")
+    expect(queryString.safe).toBe("visible")
+  })
+
+  it("redacts pair-array request query string secrets", () => {
+    const event = {
+      request: {
+        query_string: [
+          ["code", "secret-code"],
+          ["state", "secret-state"],
+          ["safe", "visible"],
+        ],
+      },
+    } as unknown as ErrorEvent
+
+    const result = beforeSend(event, {} as EventHint)
+    const request = asRecord(result?.request)
+    const queryString = request.query_string as [string, string][]
+
+    expect(queryString).toEqual([
+      ["code", "[Filtered]"],
+      ["state", "[Filtered]"],
+      ["safe", "visible"],
+    ])
+  })
+
   it("redacts request URL query secrets", () => {
     const event = {
       request: {
