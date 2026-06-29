@@ -1340,10 +1340,19 @@ class TestAgentPresetService:
         configure_minio_for_skills,
         session: AsyncSession,
         svc_role: Role,
+        svc_admin_role: Role,
         agent_preset_service: AgentPresetService,
     ) -> None:
         """Preset version creation rejects duplicate resolved skill names."""
 
+        settings_service = SettingsService(session=session, role=svc_admin_role)
+        await settings_service.update_app_settings(
+            AppSettingsUpdate(
+                app_versioned_resource_resolution_strategy=(
+                    VersionedResourceResolutionStrategy.PINNED
+                )
+            )
+        )
         skill_service = SkillService(session=session, role=svc_role)
         skill_a = await skill_service.create_skill(SkillCreate(name="shared-name"))
         skill_a_shared = await skill_service.publish_skill(skill_a.id)
@@ -1419,10 +1428,19 @@ class TestAgentPresetService:
         configure_minio_for_skills,
         session: AsyncSession,
         svc_role: Role,
+        svc_admin_role: Role,
         agent_preset_service: AgentPresetService,
     ) -> None:
         """Preset resolution fails before runtime if a snapshot contains duplicates."""
 
+        settings_service = SettingsService(session=session, role=svc_admin_role)
+        await settings_service.update_app_settings(
+            AppSettingsUpdate(
+                app_versioned_resource_resolution_strategy=(
+                    VersionedResourceResolutionStrategy.PINNED
+                )
+            )
+        )
         skill_service = SkillService(session=session, role=svc_role)
         skill_a = await skill_service.create_skill(SkillCreate(name="shared-name"))
         skill_a_shared = await skill_service.publish_skill(skill_a.id)
