@@ -45,6 +45,8 @@ class VariableAdapter(EnvironmentScopedManifestAdapter):
     """Pydantic spec model variables serialize to and from."""
     root = VARIABLE_ROOT
     """Top-level repository directory for variables."""
+    import_identity_attrs = ("environment", "name")
+    import_identity_noun = "target"
 
     async def project(
         self, workspace_service: BaseWorkspaceService

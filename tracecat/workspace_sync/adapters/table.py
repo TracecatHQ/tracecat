@@ -55,6 +55,8 @@ class TableAdapter(DirectoryManifestAdapter):
     """Top-level repository directory for tables."""
     filename = TABLE_FILENAME
     """Primary file name inside each table's directory."""
+    import_identity_attrs = ("name",)
+    import_identity_noun = "name"
 
     async def project(
         self, workspace_service: BaseWorkspaceService

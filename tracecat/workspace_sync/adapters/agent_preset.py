@@ -66,6 +66,8 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
     update_scope = "agent:update"
     root = AGENT_PRESET_ROOT
     filename = AGENT_PRESET_FILENAME
+    import_identity_attrs = ("slug",)
+    import_identity_noun = "slug"
 
     def _version_source_path(self, source_id: str, version: int) -> str:
         """Return the repository path for an agent preset version manifest."""

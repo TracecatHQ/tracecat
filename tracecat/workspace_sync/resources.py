@@ -153,6 +153,8 @@ def validate_workspace_dependencies(spec: WorkspaceSpec) -> list[PullDiagnostic]
             )
         )
 
+    diagnostics.extend(_validate_unique_import_identities(spec))
+
     for source_id, workflow in sorted(spec.workflows.items()):
         references = workflow_references(workflow.definition)
         for alias in sorted(references.execute_aliases):
@@ -310,6 +312,49 @@ def validate_workspace_dependencies(spec: WorkspaceSpec) -> list[PullDiagnostic]
             )
         )
     return diagnostics
+
+
+def _validate_unique_import_identities(spec: WorkspaceSpec) -> list[PullDiagnostic]:
+    """Reject non-workflow specs that would collide during adapter import."""
+    diagnostics: list[PullDiagnostic] = []
+    for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS:
+        specs = adapter.specs(spec)
+        source_ids_by_identity: dict[tuple[str, ...], list[str]] = defaultdict(list)
+        for source_id, resource_spec in sorted(specs.items()):
+            identity = adapter.import_identity(resource_spec)
+            if identity is None:
+                continue
+            source_ids_by_identity[identity].append(source_id)
+
+        for identity, source_ids in sorted(source_ids_by_identity.items()):
+            if len(source_ids) <= 1:
+                continue
+            first_spec = specs[source_ids[0]]
+            diagnostics.append(
+                PullDiagnostic(
+                    workflow_path=adapter.source_path(source_ids[0]),
+                    workflow_title=adapter.display_name(first_spec),
+                    error_type="validation",
+                    message=(
+                        f"Duplicate {adapter.resource_type.value} "
+                        f"{adapter.import_identity_noun} "
+                        f"{_format_import_identity(identity)} declared by multiple "
+                        "resources"
+                    ),
+                    details={
+                        "resource_type": adapter.resource_type.value,
+                        "identity_attrs": list(adapter.import_identity_attrs),
+                        "identity": list(identity),
+                        "source_ids": source_ids,
+                    },
+                )
+            )
+    return diagnostics
+
+
+def _format_import_identity(identity: tuple[str, ...]) -> str:
+    """Format a sync identity for validation diagnostics."""
+    return "/".join(repr(part) for part in identity)
 
 
 class WorkflowReferences(NamedTuple):

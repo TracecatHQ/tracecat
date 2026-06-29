@@ -66,6 +66,8 @@ class SkillAdapter(DirectoryManifestAdapter):
     update_scope = "agent:update"
     root = SKILL_ROOT
     filename = SKILL_FILENAME
+    import_identity_attrs = ("slug",)
+    import_identity_noun = "slug"
 
     def _version_manifest_path(self, source_id: str, version: int) -> str:
         """Return the repository path for a skill version manifest."""

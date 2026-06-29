@@ -37,6 +37,8 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
     create_scope = "secret:create"
     update_scope = "secret:update"
     root = SECRET_METADATA_ROOT
+    import_identity_attrs = ("environment", "name")
+    import_identity_noun = "target"
 
     async def project(
         self, workspace_service: BaseWorkspaceService

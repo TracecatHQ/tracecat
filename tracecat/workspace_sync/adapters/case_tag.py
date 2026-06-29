@@ -36,6 +36,8 @@ class CaseTagAdapter(FlatManifestAdapter):
     create_scope = "case:create"
     update_scope = "case:update"
     root = CASE_TAG_ROOT
+    import_identity_attrs = ("name",)
+    import_identity_noun = "name"
 
     async def project(
         self, workspace_service: BaseWorkspaceService

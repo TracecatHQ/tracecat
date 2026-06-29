@@ -35,6 +35,8 @@ class CaseDurationAdapter(FlatManifestAdapter):
     update_scope = "case:update"
     required_entitlements = frozenset({Entitlement.CASE_ADDONS})
     root = CASE_DURATION_ROOT
+    import_identity_attrs = ("name",)
+    import_identity_noun = "name"
 
     async def project(
         self, workspace_service: BaseWorkspaceService

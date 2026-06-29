@@ -410,6 +410,59 @@ async def test_duplicate_workflow_alias_is_dependency_diagnostic(
 
 
 @pytest.mark.anyio
+async def test_duplicate_skill_slug_is_validation_diagnostic(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    files = _expanded_selected_git_tree()
+    skill_path = f"{SKILL_ROOT}/qa-enrichment-skill-copy/skill.yml"
+    skill = yaml.safe_load(files[f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml"])
+    skill.update(
+        {
+            "id": "qa-enrichment-skill-copy",
+            "name": "QA enrichment skill copy",
+            "current_version": None,
+            "files": [],
+        }
+    )
+    files[skill_path] = _yaml(skill)
+
+    _, diagnostics = await workspace_sync_service.parse_files(files)
+
+    assert any(
+        diagnostic.workflow_path == f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml"
+        and diagnostic.error_type == "validation"
+        and "duplicate skill slug" in diagnostic.message.lower()
+        and diagnostic.details.get("identity") == ["qa-enrichment-skill"]
+        and diagnostic.details.get("source_ids")
+        == ["qa-enrichment-skill", "qa-enrichment-skill-copy"]
+        for diagnostic in diagnostics
+    )
+
+
+@pytest.mark.anyio
+async def test_duplicate_variable_environment_name_is_validation_diagnostic(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    files = _expanded_selected_git_tree()
+    variable_path = f"{VARIABLE_ROOT}/default/qa_config_copy.yml"
+    variable = yaml.safe_load(files[f"{VARIABLE_ROOT}/default/qa_config.yml"])
+    variable["id"] = "default/qa_config_copy"
+    files[variable_path] = _yaml(variable)
+
+    _, diagnostics = await workspace_sync_service.parse_files(files)
+
+    assert any(
+        diagnostic.workflow_path == f"{VARIABLE_ROOT}/default/qa_config.yml"
+        and diagnostic.error_type == "validation"
+        and "duplicate variable target" in diagnostic.message.lower()
+        and diagnostic.details.get("identity") == ["default", "qa_config"]
+        and diagnostic.details.get("source_ids")
+        == ["default/qa_config", "default/qa_config_copy"]
+        for diagnostic in diagnostics
+    )
+
+
+@pytest.mark.anyio
 async def test_missing_preset_slug_is_dependency_diagnostic(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:

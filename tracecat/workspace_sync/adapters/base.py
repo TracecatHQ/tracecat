@@ -329,6 +329,10 @@ class ResourceAdapter(ABC):
     """RBAC scope required to apply an import for this resource type."""
     required_entitlements: ClassVar[frozenset[Entitlement]] = frozenset()
     """Organization entitlements required to sync this resource type."""
+    import_identity_attrs: ClassVar[tuple[str, ...]] = ()
+    """Spec attributes that form the import-time unique target identity."""
+    import_identity_noun: ClassVar[str] = "identity"
+    """Human-readable noun for duplicate import identity diagnostics."""
 
     # -- paths and serialization ------------------------------------------
     @abstractmethod
@@ -449,6 +453,18 @@ class ResourceAdapter(ABC):
             if isinstance(value, str) and (cleaned := value.strip()):
                 return cleaned
         return None
+
+    def import_identity(self, spec: BaseModel) -> tuple[str, ...] | None:
+        """Return the import-time unique target identity for ``spec``, if any."""
+        if not self.import_identity_attrs:
+            return None
+        identity = []
+        for attr in self.import_identity_attrs:
+            value = getattr(spec, attr, None)
+            if not isinstance(value, str):
+                return None
+            identity.append(value)
+        return tuple(identity)
 
     def projected_resource(
         self,
