@@ -60,4 +60,38 @@ describe("beforeSend", () => {
     expect(serialized).toContain("[Filtered]")
     expect(serialized).not.toContain("deep-secret")
   })
+
+  it("redacts request query string secrets", () => {
+    const event = {
+      request: {
+        query_string: "code=secret-code&state=secret-state&safe=visible",
+      },
+    } as unknown as ErrorEvent
+
+    const result = beforeSend(event, {} as EventHint)
+    const request = asRecord(result?.request)
+    const params = new URLSearchParams(String(request.query_string))
+
+    expect(params.get("code")).toBe("[Filtered]")
+    expect(params.get("state")).toBe("[Filtered]")
+    expect(params.get("safe")).toBe("visible")
+  })
+
+  it("redacts request URL query secrets", () => {
+    const event = {
+      request: {
+        url: "https://example.com/auth/oauth/callback?code=secret-code&state=secret-state&safe=visible",
+      },
+    } as unknown as ErrorEvent
+
+    const result = beforeSend(event, {} as EventHint)
+    const request = asRecord(result?.request)
+    const url = new URL(String(request.url))
+
+    expect(url.origin).toBe("https://example.com")
+    expect(url.pathname).toBe("/auth/oauth/callback")
+    expect(url.searchParams.get("code")).toBe("[Filtered]")
+    expect(url.searchParams.get("state")).toBe("[Filtered]")
+    expect(url.searchParams.get("safe")).toBe("visible")
+  })
 })
