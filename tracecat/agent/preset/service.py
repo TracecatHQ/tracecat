@@ -1629,8 +1629,10 @@ class AgentPresetService(BaseWorkspaceService):
                 include_runtime_config=False,
                 follow_latest_versions=True,
             )
-            agents = AgentSubagentsConfig.model_validate(
-                resolved_agents.to_agents_binding().model_dump(mode="json")
+            binding = resolved_agents.to_agents_binding()
+            agents = AgentSubagentsConfig(
+                enabled=binding.enabled,
+                subagents=list(binding.subagents),
             )
         return AgentConfig(
             model_name=version.model_name,
