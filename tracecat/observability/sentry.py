@@ -156,7 +156,10 @@ def _scrub_request_value(key: str, value: Any) -> Any:
 
 
 def _scrub_url_query(value: str) -> str:
-    parsed_url = urlsplit(value)
+    try:
+        parsed_url = urlsplit(value)
+    except ValueError:
+        return value
     if not parsed_url.query:
         return value
     return urlunsplit(parsed_url._replace(query=_scrub_query_string(parsed_url.query)))

@@ -119,6 +119,21 @@ def test_sentry_scrubber_redacts_request_url_query_secrets() -> None:
     }
 
 
+def test_sentry_scrubber_leaves_malformed_request_urls_unchanged() -> None:
+    event = {
+        "request": {
+            "url": "https://[invalid-ipv6-host/auth/oauth/callback?code=secret-code",
+        }
+    }
+
+    scrubbed = sentry_observability._scrub(event)
+
+    assert (
+        scrubbed["request"]["url"]
+        == "https://[invalid-ipv6-host/auth/oauth/callback?code=secret-code"
+    )
+
+
 def test_activity_interceptor_skips_known_user_facing_application_errors() -> None:
     exc = ApplicationError("action failed", type="ExecutionError")
 
