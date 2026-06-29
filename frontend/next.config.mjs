@@ -1,7 +1,5 @@
 import { withSentryConfig } from "@sentry/nextjs"
 
-const sentryDsn = process.env.NEXT_PUBLIC_SENTRY_DSN ?? process.env.SENTRY_DSN
-const sentryConnectSources = getSentryConnectSources(sentryDsn)
 const uploadSourcemaps = Boolean(
   process.env.SENTRY_AUTH_TOKEN &&
     process.env.SENTRY_ORG &&
@@ -49,21 +47,6 @@ const nextConfig = {
             key: "Permissions-Policy",
             value: "document-domain=()",
           },
-          {
-            key: "Content-Security-Policy",
-            value: [
-              getConnectSrc(),
-              "default-src 'self'",
-              "worker-src 'self' blob:",
-              "frame-ancestors 'none'",
-              "img-src 'self' data:",
-              "object-src 'none'",
-              "base-uri 'self'",
-              getScriptSrc(),
-              "script-src-attr 'none'",
-              "style-src 'self' 'unsafe-inline'",
-            ].join("; "),
-          },
         ],
       },
     ]
@@ -82,46 +65,6 @@ const nextConfig = {
 // Override settings for non-production environments
 if (process.env.NODE_ENV !== "production") {
   nextConfig.reactStrictMode = false
-}
-
-function getConnectSrc() {
-  return [
-    "connect-src 'self'",
-    process.env.POSTHOG_KEY ? "https://*.posthog.com" : undefined,
-    ...sentryConnectSources,
-  ]
-    .filter(Boolean)
-    .join(" ")
-}
-
-function getScriptSrc() {
-  return [
-    "script-src 'self' 'unsafe-inline'",
-    process.env.POSTHOG_KEY ? "https://*.posthog.com" : undefined,
-  ]
-    .filter(Boolean)
-    .join(" ")
-}
-
-function getSentryConnectSources(dsn) {
-  const sources = new Set([
-    "https://*.ingest.sentry.io",
-    "https://*.ingest.de.sentry.io",
-    "https://*.ingest.us.sentry.io",
-  ])
-
-  if (!dsn) {
-    return Array.from(sources)
-  }
-
-  try {
-    const parsedDsn = new URL(dsn)
-    sources.add(parsedDsn.origin)
-  } catch {
-    return Array.from(sources)
-  }
-
-  return Array.from(sources)
 }
 
 export default withSentryConfig(nextConfig, {
