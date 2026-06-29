@@ -136,4 +136,37 @@ describe("beforeSend", () => {
     expect(url.searchParams.get("state")).toBe("[Filtered]")
     expect(url.searchParams.get("safe")).toBe("visible")
   })
+
+  it("removes request URL credentials and fragments", () => {
+    const event = {
+      request: {
+        url: "https://user:password@example.com/auth/oauth/callback?code=secret-code&safe=visible#access_token=secret-token",
+      },
+    } as unknown as ErrorEvent
+
+    const result = beforeSend(event, {} as EventHint)
+    const request = asRecord(result?.request)
+    const url = new URL(String(request.url))
+
+    expect(url.username).toBe("")
+    expect(url.password).toBe("")
+    expect(url.hash).toBe("")
+    expect(url.searchParams.get("code")).toBe("[Filtered]")
+    expect(url.searchParams.get("safe")).toBe("visible")
+    expect(request.url).not.toContain("password")
+    expect(request.url).not.toContain("secret-token")
+  })
+
+  it("removes relative request URL fragments", () => {
+    const event = {
+      request: {
+        url: "/auth/oauth/callback#access_token=secret-token",
+      },
+    } as unknown as ErrorEvent
+
+    const result = beforeSend(event, {} as EventHint)
+    const request = asRecord(result?.request)
+
+    expect(request.url).toBe("/auth/oauth/callback")
+  })
 })

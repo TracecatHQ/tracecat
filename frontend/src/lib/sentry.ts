@@ -103,14 +103,16 @@ function scrubUrlQuery(value: string): string {
   const isAbsoluteUrl = /^[a-z][a-z\d+\-.]*:/i.test(value)
   try {
     const parsedUrl = new URL(value, "https://tracecat.invalid")
-    if (!parsedUrl.search) {
-      return value
-    }
-    parsedUrl.search = scrubQueryString(parsedUrl.search)
+    parsedUrl.username = ""
+    parsedUrl.password = ""
+    parsedUrl.hash = ""
+    parsedUrl.search = parsedUrl.search
+      ? scrubQueryString(parsedUrl.search)
+      : ""
     if (isAbsoluteUrl) {
       return parsedUrl.toString()
     }
-    return `${parsedUrl.pathname}${parsedUrl.search}${parsedUrl.hash}`
+    return `${parsedUrl.pathname}${parsedUrl.search}`
   } catch {
     return value
   }
