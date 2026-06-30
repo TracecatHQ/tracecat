@@ -166,7 +166,7 @@ export function WorkspaceSyncConnectionForm({
           control={form.control}
           name="git_provider"
           render={({ field }) => (
-            <FormItem>
+            <FormItem className="flex flex-col items-start">
               <FormLabel>Provider</FormLabel>
               <ToggleTabs<WorkspaceSyncConnectionProvider>
                 value={field.value}
