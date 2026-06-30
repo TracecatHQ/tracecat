@@ -15,14 +15,13 @@ const SENTRY_CONNECT_SOURCES = [
   "https://*.ingest.us.sentry.io",
 ]
 
-const DIRECTIVES_BEFORE_SCRIPT = [
+const DIRECTIVES_BEFORE_IMAGE = [
   "default-src 'self'",
   "worker-src 'self' blob:",
   "frame-ancestors 'none'",
-  "img-src 'self' data:",
-  "object-src 'none'",
-  "base-uri 'self'",
 ]
+
+const DIRECTIVES_AFTER_IMAGE = ["object-src 'none'", "base-uri 'self'"]
 
 const DIRECTIVES_AFTER_SCRIPT = [
   "script-src-attr 'none'",
@@ -35,7 +34,9 @@ export function buildContentSecurityPolicy(
 ): string {
   return [
     getConnectSrc(env),
-    ...DIRECTIVES_BEFORE_SCRIPT,
+    ...DIRECTIVES_BEFORE_IMAGE,
+    getImgSrc(env),
+    ...DIRECTIVES_AFTER_IMAGE,
     getScriptSrc(env),
     ...DIRECTIVES_AFTER_SCRIPT,
   ].join("; ")
@@ -50,6 +51,15 @@ function getConnectSrc(env: ContentSecurityPolicyEnv): string {
       ? "https://*.posthog.com"
       : undefined,
     ...getSentryConnectSources(readSentryDsn(env)),
+  ]
+    .filter(Boolean)
+    .join(" ")
+}
+
+function getImgSrc(env: ContentSecurityPolicyEnv): string {
+  return [
+    "img-src 'self' data:",
+    getUrlOrigin(env.NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT),
   ]
     .filter(Boolean)
     .join(" ")

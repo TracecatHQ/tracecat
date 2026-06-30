@@ -41,30 +41,35 @@ describe("buildContentSecurityPolicy", () => {
   })
 
   it("allows the configured presigned blob storage origin", () => {
-    const connectSrc = getConnectSrc(
-      buildContentSecurityPolicy({
-        NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT:
-          " https://tracecat-skills.s3.us-east-1.amazonaws.com/uploads ",
-      })
-    )
+    const policy = buildContentSecurityPolicy({
+      NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT:
+        " https://tracecat-skills.s3.us-east-1.amazonaws.com/uploads ",
+    })
+    const connectSrc = getConnectSrc(policy)
+    const imgSrc = getImgSrc(policy)
 
     expect(connectSrc).toContain(
       "https://tracecat-skills.s3.us-east-1.amazonaws.com"
     )
     expect(connectSrc).not.toContain("/uploads")
+    expect(imgSrc).toContain(
+      "https://tracecat-skills.s3.us-east-1.amazonaws.com"
+    )
+    expect(imgSrc).not.toContain("/uploads")
   })
 
   it("ignores relative public API URLs", () => {
-    const connectSrc = getConnectSrc(
-      buildContentSecurityPolicy({
-        NEXT_PUBLIC_API_URL: "/api",
-        NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT: "/s3",
-      })
-    )
+    const policy = buildContentSecurityPolicy({
+      NEXT_PUBLIC_API_URL: "/api",
+      NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT: "/s3",
+    })
+    const connectSrc = getConnectSrc(policy)
+    const imgSrc = getImgSrc(policy)
 
     expect(connectSrc).toContain("connect-src 'self'")
     expect(connectSrc).not.toContain("/api")
     expect(connectSrc).not.toContain("/s3")
+    expect(imgSrc).not.toContain("/s3")
   })
 
   it("falls back to the server Sentry DSN when the public DSN is blank", () => {
@@ -96,6 +101,10 @@ function getConnectSrc(policy: string): string {
 
 function getScriptSrc(policy: string): string {
   return getDirective(policy, "script-src")
+}
+
+function getImgSrc(policy: string): string {
+  return getDirective(policy, "img-src")
 }
 
 function getDirective(policy: string, name: string): string {
