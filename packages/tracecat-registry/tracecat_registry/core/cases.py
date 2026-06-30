@@ -9,7 +9,6 @@ import httpx
 from typing_extensions import Doc
 
 from tracecat_registry import config, ctx, registry, types
-from tracecat_registry.context import get_context
 from tracecat_registry.sdk.exceptions import (
     TracecatValidationError,
 )
