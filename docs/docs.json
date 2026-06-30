@@ -216,6 +216,7 @@
               "tools/notion",
               "tools/okta",
               "tools/okta_oar",
+              "tools/okta_sdk",
               "tools/pagerduty",
               "tools/panther",
               "tools/phishlabs",
