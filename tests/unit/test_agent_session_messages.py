@@ -90,6 +90,7 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
         id=session_id,
         parent_session_id=None,
         sdk_session_id="sdk-session-123",
+        curr_run_id=None,
     )
     tool_result_uuid = "tool-result-uuid"
     thinking_uuid = "thinking-uuid"
@@ -191,6 +192,7 @@ async def test_list_messages_skips_misclassified_continuation_artifacts() -> Non
     agent_session = SimpleNamespace(
         id=session_id,
         parent_session_id=None,
+        curr_run_id=None,
     )
     prompt_uuid = "prompt-uuid"
     thinking_uuid = "thinking-uuid"

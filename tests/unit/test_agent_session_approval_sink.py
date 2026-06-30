@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import orjson
 import pytest
 from pydantic_ai.tools import ToolApproved
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.approvals.enums import ApprovalStatus
@@ -279,6 +280,85 @@ async def test_replace_interrupt_with_tool_results_replaces_legacy_interrupted_r
     assert tool_result["tool_use_id"] == "call_123"
     assert tool_result["is_error"] is False
     assert orjson.loads(tool_result["content"]) == {"status": "success"}
+
+
+@pytest.mark.anyio
+async def test_replace_interrupt_with_tool_results_tags_active_run_id(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """The inserted tool_result must be tagged with the active run id so the
+    mid-turn filter hides it alongside its tool_use row. A NULL tag would leave
+    the tool_result visible while its tool_use stays hidden — a dangling result.
+    """
+    run_id = uuid.uuid4()
+    agent_session = AgentSession(
+        id=uuid.uuid4(),
+        title="Approval chat",
+        workspace_id=svc_role.workspace_id,
+        entity_type=AgentSessionEntity.AGENT_PRESET.value,
+        entity_id=uuid.uuid4(),
+        sdk_session_id="sdk-session",
+        curr_run_id=run_id,
+    )
+    assistant_uuid = str(uuid.uuid4())
+    session.add(agent_session)
+    # Assistant tool_use row is tagged with the active run id (durability-only).
+    session.add(
+        AgentSessionHistory(
+            session_id=agent_session.id,
+            workspace_id=svc_role.workspace_id,
+            kind=MessageKind.CHAT_MESSAGE.value,
+            curr_run_id=run_id,
+            content={
+                "uuid": assistant_uuid,
+                "sessionId": "sdk-session",
+                "type": "assistant",
+                "timestamp": "2026-03-18T00:00:00Z",
+                "cwd": "/home/agent",
+                "version": "2.0.72",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "call_123",
+                            "name": "core__http_request",
+                            "input": {"url": "https://example.com"},
+                        }
+                    ],
+                },
+            },
+        )
+    )
+    await session.commit()
+
+    service = AgentSessionService(session=session, role=svc_role)
+    await service.replace_interrupt_with_tool_results(
+        agent_session.id,
+        [
+            ToolExecutionResult(
+                tool_call_id="call_123",
+                tool_name="core.http_request",
+                result={"status": "success"},
+                is_error=False,
+            )
+        ],
+    )
+
+    # Every persisted row for this turn — the assistant tool_use and the newly
+    # inserted tool_result — must carry the active run id. The mid-turn filter
+    # (list_messages, include_active=False) keys off this tag: a NULL on the
+    # tool_result would leave it visible while its tool_use stays hidden.
+    rows = (
+        await session.execute(
+            select(AgentSessionHistory.curr_run_id, AgentSessionHistory.content)
+            .where(AgentSessionHistory.session_id == agent_session.id)
+            .order_by(AgentSessionHistory.surrogate_id)
+        )
+    ).all()
+    by_type = {content.get("type"): crid for crid, content in rows}
+    assert by_type == {"assistant": run_id, "user": run_id}
 
 
 @pytest.mark.anyio

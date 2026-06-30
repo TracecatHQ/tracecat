@@ -767,19 +767,33 @@ async def test_multiple_tools_concurrent():
 
 
 @pytest.mark.anyio
-async def test_delta_for_unknown_part_index():
-    """Test delta for unknown part index logs warning but doesn't crash."""
+async def test_delta_for_unknown_part_index_self_heals():
+    """A delta for an unopened part lazily opens one (resume self-heal).
+
+    On reconnect, a TEXT_DELTA can arrive without its TEXT_START (the start was
+    emitted before the cursor). Instead of dropping it, the adapter opens a fresh
+    text part so the tail renders. The synthesized start is flagged as a repair
+    frame so sse_vercel doesn't count it toward the composite frame index.
+    """
     ctx = VercelStreamContext(message_id="msg_test")
 
-    # Send delta without starting a part
     events = [
         UnifiedStreamEvent(type=StreamEventType.TEXT_DELTA, part_id=99, text="orphan"),
     ]
 
     frames = await collect_frames(ctx, events)
 
-    # Should handle gracefully with no frames
-    assert len(frames) == 0
+    # A start + the delta are emitted under one fresh part id (collect_frames
+    # also finalizes the open part at the end -> trailing text-end).
+    assert len(frames) == 3
+    start, delta, end = frames
+    assert isinstance(start, TextStartEventPayload)
+    assert isinstance(delta, TextDeltaEventPayload)
+    assert isinstance(end, TextEndEventPayload)
+    assert start.id == delta.id == end.id
+    assert delta.delta == "orphan"
+    # The synthesized start is marked as a repair frame for sse_vercel.
+    assert ctx.repair_frames == 1
 
 
 @pytest.mark.anyio

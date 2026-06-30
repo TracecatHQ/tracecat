@@ -15,6 +15,7 @@ from tracecat_ee.agent.activities import BuildToolDefsArgs, BuildToolDefsResult
 from tracecat_ee.agent.workflows.durable import (
     BUILD_AGENT_TOOL_DEFINITIONS_PATCH,
     EMIT_PRE_STREAM_SESSION_ERRORS_PATCH,
+    FINALIZE_TURN_PATCH,
     LOAD_TERMINAL_MESSAGE_HISTORY_PATCH,
     UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,
     AgentWorkflowArgs,
@@ -201,7 +202,12 @@ async def test_run_skips_search_attribute_upsert_without_patch_marker() -> None:
     ):
         result = await workflow_instance.run(workflow_args)
 
-    patched_mock.assert_called_once_with(UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH)
+    # run() gates the search-attribute upsert (entry) and finalize_turn (finally)
+    # behind patch markers; legacy histories see False for both.
+    assert patched_mock.call_args_list == [
+        ((UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,),),
+        ((FINALIZE_TURN_PATCH,),),
+    ]
     upsert_mock.assert_not_called()
     run_mock.assert_awaited_once_with(workflow_args, cfg)
     assert result == expected_output
@@ -234,7 +240,7 @@ async def test_run_skips_activity_error_emission_without_patch_marker() -> None:
     with (
         patch(
             "tracecat_ee.agent.workflows.durable.workflow.patched",
-            side_effect=[False, False],
+            side_effect=[False, False, False],
         ) as patched_mock,
         patch(
             "tracecat_ee.agent.workflows.durable.workflow.unsafe.is_replaying",
@@ -258,6 +264,7 @@ async def test_run_skips_activity_error_emission_without_patch_marker() -> None:
     assert patched_mock.call_args_list == [
         ((UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,),),
         ((EMIT_PRE_STREAM_SESSION_ERRORS_PATCH,),),
+        ((FINALIZE_TURN_PATCH,),),
     ]
     emit_error_mock.assert_not_awaited()
 

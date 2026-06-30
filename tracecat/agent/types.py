@@ -37,12 +37,15 @@ else:
 class StreamKey(str):
     def __new__(
         cls,
-        workspace_id: uuid.UUID | str,
-        session_id: uuid.UUID | str,
+        *,
+        workspace_id: uuid.UUID,
+        session_id: uuid.UUID,
+        stream_id: uuid.UUID | None = None,
     ) -> StreamKey:
+        base = f"agent-stream:{workspace_id}:{session_id}"
         return super().__new__(
             cls,
-            f"agent-stream:{str(workspace_id)}:{str(session_id)}",
+            f"{base}:{stream_id}" if stream_id else base,
         )
 
 
