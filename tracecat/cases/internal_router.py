@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, Literal, NoReturn
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import Field
 from sqlalchemy.exc import DBAPIError, NoResultFound
 from starlette.status import (
     HTTP_200_OK,
@@ -97,6 +99,22 @@ async def _list_case_dropdown_values(
     if not await dropdown_service.has_entitlement(Entitlement.CASE_ADDONS):
         return []
     return await dropdown_service.list_values_for_case(case_id)
+
+
+async def _list_case_dropdown_values_by_case(
+    *,
+    session: AsyncDBSession,
+    role: ExecutorWorkspaceRole,
+    case_ids: Sequence[uuid.UUID],
+) -> dict[uuid.UUID, list[CaseDropdownValueRead]]:
+    unique_case_ids = list(dict.fromkeys(case_ids))
+    if not unique_case_ids:
+        return {}
+
+    dropdown_service = CaseDropdownValuesService(session, role)
+    if not await dropdown_service.has_entitlement(Entitlement.CASE_ADDONS):
+        return {case_id: [] for case_id in unique_case_ids}
+    return await dropdown_service.list_values_for_cases(unique_case_ids)
 
 
 async def _list_case_rows(
@@ -378,7 +396,7 @@ async def get_case(
     include_rows: bool = Query(False, description="Include linked table rows"),
 ) -> CaseRead:
     service = CasesService(session, role)
-    case = await service.get_case(case_id, track_view=True)
+    case = await service.get_case(case_id, track_view=False)
     if case is None:
         raise HTTPException(
             status_code=HTTP_404_NOT_FOUND,
@@ -592,6 +610,12 @@ async def list_comments(
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
     case_id: uuid.UUID,
+    limit: int = Query(
+        config.TRACECAT__LIMIT_CASE_COMMENTS_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CASE_COMMENTS_MAX,
+        description="Maximum comments to return",
+    ),
 ) -> list[CaseCommentRead]:
     service = CasesService(session, role)
     case = await service.get_case(case_id)
@@ -601,7 +625,7 @@ async def list_comments(
             detail=f"Case with ID {case_id} not found",
         )
     comments_svc = CaseCommentsService(session, role)
-    return await comments_svc.list_comments(case)
+    return await comments_svc.list_comments(case, limit=limit)
 
 
 @router.get("/{case_id}/comments/threads", status_code=HTTP_200_OK)
@@ -611,6 +635,12 @@ async def list_comment_threads(
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
     case_id: uuid.UUID,
+    limit: int = Query(
+        config.TRACECAT__LIMIT_CASE_COMMENTS_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CASE_COMMENTS_MAX,
+        description="Maximum comments to return before grouping threads",
+    ),
 ) -> list[CaseCommentThreadRead]:
     service = CasesService(session, role)
     case = await service.get_case(case_id)
@@ -620,7 +650,7 @@ async def list_comment_threads(
             detail=f"Case with ID {case_id} not found",
         )
     comments_svc = CaseCommentsService(session, role)
-    return await comments_svc.list_comment_threads(case)
+    return await comments_svc.list_comment_threads(case, limit=limit)
 
 
 @router.post("/{case_id}/comments", status_code=HTTP_201_CREATED)
@@ -827,7 +857,9 @@ async def list_events_with_users(
 class CaseMetricsRequest(Schema):
     """Request body for case metrics."""
 
-    case_ids: list[uuid.UUID]
+    case_ids: list[uuid.UUID] = Field(
+        max_length=config.TRACECAT__LIMIT_CASE_METRICS_MAX,
+    )
 
 
 @duration_router.post("/metrics", status_code=HTTP_200_OK)
@@ -844,6 +876,7 @@ async def get_case_metrics(
 
     cases_service = CasesService(session, role)
     duration_service = CaseDurationService(session, role)
+    requested_case_ids = list(dict.fromkeys(params.case_ids))
 
     field_definitions = await cases_service.fields.list_fields()
     field_schema = await cases_service.fields.get_field_schema()
@@ -852,19 +885,34 @@ async def get_case_metrics(
         for defn in field_definitions
     ]
 
-    cases = []
+    cases = await cases_service.get_cases(requested_case_ids)
+    cases_by_id = {case.id: case for case in cases}
+    missing_case_ids = [
+        case_id for case_id in requested_case_ids if case_id not in cases_by_id
+    ]
+    if missing_case_ids:
+        missing_case_id = missing_case_ids[0]
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND,
+            detail=f"Case with ID {missing_case_id} not found",
+        )
+
+    cases = [cases_by_id[case_id] for case_id in requested_case_ids]
+    fields_by_case = await cases_service.fields.batch_get_fields(
+        case_ids=[case.id for case in cases],
+        field_ids=[field.id for field in field_templates],
+    )
+    dropdown_values_by_case = await _list_case_dropdown_values_by_case(
+        session=session,
+        role=role,
+        case_ids=[case.id for case in cases],
+    )
+
     case_context: dict[
         str, tuple[list[dict[str, Any]], list[CaseTagRead], list[CaseDropdownValueRead]]
     ] = {}
-    for case_id in params.case_ids:
-        case = await cases_service.get_case(case_id)
-        if case is None:
-            raise HTTPException(
-                status_code=HTTP_404_NOT_FOUND,
-                detail=f"Case with ID {case_id} not found",
-            )
-
-        fields = await cases_service.fields.get_fields(case) or {}
+    for case in cases:
+        fields = fields_by_case.get(case.id, {})
         field_reads = [
             CaseFieldRead(
                 **f.model_dump(),
@@ -876,12 +924,9 @@ async def get_case_metrics(
         tag_reads = [
             CaseTagRead.model_validate(tag, from_attributes=True) for tag in case.tags
         ]
-        dropdown_reads = await _list_case_dropdown_values(
-            session=session, role=role, case_id=case.id
-        )
+        dropdown_reads = dropdown_values_by_case.get(case.id, [])
 
         case_context[str(case.id)] = (field_dicts, tag_reads, dropdown_reads)
-        cases.append(case)
 
     metrics = await duration_service.compute_time_series(cases)
     enriched_metrics: list[CaseDurationMetric] = []
