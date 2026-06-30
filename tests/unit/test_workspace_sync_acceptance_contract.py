@@ -85,6 +85,7 @@ from tracecat.workspace_sync.schemas import (
     TABLE_ROOT,
     VARIABLE_ROOT,
     WORKFLOW_ROOT,
+    AgentPresetSkillBinding,
     AgentPresetSubagentRef,
     ResourceRef,
     SkillFileSpec,
@@ -1385,6 +1386,141 @@ async def test_round_trip_preserves_presets_pinning_different_skill_versions(
     )
     version_bindings = dict(version_binding_rows.tuples().all())
     assert version_bindings == {"agent-x": 1, "agent-y": 2}
+
+
+@pytest.mark.anyio
+async def test_agent_preset_import_ignores_archived_skill_bindings(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    skill_id = uuid.uuid4()
+    version_id = uuid.uuid4()
+    archived_skill = Skill(
+        id=skill_id,
+        workspace_id=svc_role.workspace_id,
+        name="skill-a",
+        draft_revision=0,
+        description="Archived helper",
+        archived_at=datetime.now(UTC),
+    )
+    session.add(archived_skill)
+    await session.flush()
+    archived_version = SkillVersion(
+        id=version_id,
+        workspace_id=svc_role.workspace_id,
+        skill_id=skill_id,
+        version=1,
+        manifest_sha256="a" * 64,
+        file_count=0,
+        total_size_bytes=0,
+        name="Skill A",
+        description="Archived helper",
+    )
+    session.add(archived_version)
+    await session.flush()
+    archived_skill.current_version_id = version_id
+    session.add(archived_skill)
+    await session.flush()
+
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{AGENT_PRESET_ROOT}/agent-x/preset.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset",
+                "id": "agent-x",
+                "slug": "agent-x",
+                "name": "Agent X",
+                "current_version": 1,
+            }
+        ),
+        f"{AGENT_PRESET_ROOT}/agent-x/versions/1.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset_version",
+                "version_number": 1,
+                "name": "Agent X",
+                "skills": [{"slug": "skill-a"}],
+            }
+        ),
+    }
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="3" * 40)
+
+    assert [diagnostic.message for diagnostic in diagnostics] == [
+        "Agent preset references missing skill slug 'skill-a'"
+    ]
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+
+    preset = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "agent-x",
+        )
+    )
+    assert preset is not None
+    head_bindings = (
+        await session.scalars(
+            select(AgentPresetSkill).where(
+                AgentPresetSkill.workspace_id == svc_role.workspace_id,
+                AgentPresetSkill.preset_id == preset.id,
+            )
+        )
+    ).all()
+    assert head_bindings == []
+    version_bindings = (
+        await session.scalars(
+            select(AgentPresetVersionSkill).where(
+                AgentPresetVersionSkill.workspace_id == svc_role.workspace_id,
+                AgentPresetVersionSkill.preset_version_id == preset.current_version_id,
+            )
+        )
+    ).all()
+    assert version_bindings == []
+
+
+@pytest.mark.anyio
+async def test_agent_preset_import_locks_resolved_skill_binding_target() -> None:
+    adapter = AgentPresetAdapter()
+    workspace_id = uuid.uuid4()
+    skill_id = uuid.uuid4()
+    version_id = uuid.uuid4()
+    skill = Skill(
+        id=skill_id,
+        workspace_id=workspace_id,
+        name="skill-a",
+        current_version_id=version_id,
+        draft_revision=0,
+        description="Active helper",
+    )
+    version = SkillVersion(
+        id=version_id,
+        workspace_id=workspace_id,
+        skill_id=skill_id,
+        version=1,
+        manifest_sha256="b" * 64,
+        file_count=0,
+        total_size_bytes=0,
+        name="Skill A",
+        description="Active helper",
+    )
+    session = _ScalarRecorder(skill, version)
+    service = cast(
+        BaseWorkspaceService,
+        SimpleNamespace(session=session, workspace_id=workspace_id),
+    )
+
+    resolved = await adapter._skill_binding_targets(
+        service, AgentPresetSkillBinding(slug="skill-a")
+    )
+
+    assert resolved == (skill, version)
+    skill_lookup = str(session.statements[0].compile(dialect=postgresql.dialect()))
+    assert "skill.archived_at IS NULL" in skill_lookup
+    assert "FOR UPDATE" in skill_lookup
 
 
 @pytest.mark.anyio

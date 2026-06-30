@@ -1093,10 +1093,13 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         """
         # Resolve the skill by its slug (stored as `name`) in this workspace.
         skill = await workspace_service.session.scalar(
-            select(Skill).where(
+            select(Skill)
+            .where(
                 Skill.workspace_id == workspace_service.workspace_id,
                 Skill.name == binding.slug,
+                Skill.archived_at.is_(None),
             )
+            .with_for_update()
         )
         if skill is None:
             return None, None
