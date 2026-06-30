@@ -43,3 +43,25 @@ class GitHubAppManifestResponse(BaseModel):
 
     manifest: GitHubAppManifest
     instructions: list[str]
+
+
+class GitLabTokenCredentialsRequest(BaseModel):
+    """Request to register or update GitLab token credentials."""
+
+    base_url: str = Field(
+        default="https://gitlab.com",
+        description="Base URL for GitLab.com or a self-managed GitLab instance.",
+    )
+    token: SecretStr = Field(
+        ...,
+        description="GitLab personal/project/group access token with api scope.",
+    )
+
+
+class GitLabTokenCredentialsStatus(BaseModel):
+    """Status of GitLab token credentials."""
+
+    exists: bool
+    is_corrupted: bool = False
+    base_url: str | None = None
+    created_at: str | None = None

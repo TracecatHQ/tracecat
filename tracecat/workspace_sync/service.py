@@ -1959,8 +1959,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
         """Resolve the workspace's configured Git repository URL.
 
         Raises :class:`TracecatSettingsError` when no URL is configured or it is
-        invalid, and :class:`TracecatValidationError` for providers other than
-        GitHub, which is the only one currently supported.
+        invalid, and :class:`TracecatValidationError` for unsupported providers.
         """
         workspace = await self._workspace()
         repo_url = (
@@ -1970,12 +1969,16 @@ class WorkspaceSyncService(BaseWorkspaceService):
             raise TracecatSettingsError(
                 "Git repository URL not configured for this workspace."
             )
-        if provider != VcsProvider.GITHUB:
-            raise TracecatValidationError(
-                f"{provider.value} workspace sync is not implemented yet."
-            )
         try:
-            return parse_git_url(repo_url, allowed_domains={"github.com"})
+            match provider:
+                case VcsProvider.GITHUB:
+                    return parse_git_url(repo_url, allowed_domains={"github.com"})
+                case VcsProvider.GITLAB:
+                    return parse_git_url(repo_url)
+                case VcsProvider.BITBUCKET:
+                    raise TracecatValidationError(
+                        f"{provider.value} workspace sync is not implemented yet."
+                    )
         except ValueError as e:
             raise TracecatSettingsError(
                 f"Invalid Git repository URL configured for this workspace: {e}"

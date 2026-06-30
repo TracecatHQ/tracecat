@@ -11,10 +11,13 @@ from tracecat.logger import logger
 from tracecat.vcs.github.app import GitHubAppError, GitHubAppService
 from tracecat.vcs.github.flows import handle_manifest_conversion
 from tracecat.vcs.github.manifest import generate_github_app_manifest
+from tracecat.vcs.gitlab.app import GitLabError, GitLabTokenService
 from tracecat.vcs.schemas import (
     GitHubAppCredentialsRequest,
     GitHubAppCredentialsStatus,
     GitHubAppManifestResponse,
+    GitLabTokenCredentialsRequest,
+    GitLabTokenCredentialsStatus,
 )
 
 org_router = APIRouter(prefix="/organization/vcs", tags=["vcs", "organization"])
@@ -22,6 +25,9 @@ org_router = APIRouter(prefix="/organization/vcs", tags=["vcs", "organization"])
 
 github_router = APIRouter(prefix="/github", tags=["vcs", "github", "organization"])
 """Manage GitHub App for organization-level features."""
+
+gitlab_router = APIRouter(prefix="/gitlab", tags=["vcs", "gitlab", "organization"])
+"""Manage GitLab token credentials for organization-level features."""
 
 
 @github_router.get("/manifest", response_model=GitHubAppManifestResponse)
@@ -227,5 +233,96 @@ async def get_github_app_credentials_status(
         ) from e
 
 
-# Mount GitHub sub-router to organization VCS router after all endpoints are defined
+@gitlab_router.post("/credentials", status_code=status.HTTP_201_CREATED)
+@require_scope("org:settings:update")
+async def save_gitlab_token_credentials(
+    *,
+    session: AsyncDBSession,
+    role: OrgUserRole,
+    request: GitLabTokenCredentialsRequest,
+) -> dict[str, str]:
+    """Save GitLab token credentials (create if new or update existing)."""
+    try:
+        gitlab_service = GitLabTokenService(session=session, role=role)
+        credentials, was_created = (
+            await gitlab_service.save_gitlab_token_credentials(
+                base_url=request.base_url,
+                token=request.token,
+            )
+        )
+        action = "created" if was_created else "updated"
+        return {
+            "message": f"GitLab token credentials {action} successfully",
+            "action": action,
+            "base_url": credentials.base_url,
+        }
+    except (GitLabError, ValueError) as e:
+        logger.error("Failed to save GitLab token credentials", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to save GitLab token credentials: {str(e)}",
+        ) from e
+    except Exception as e:
+        logger.error(
+            "Error saving GitLab token credentials",
+            error_type=type(e).__name__,
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error while saving credentials",
+        ) from e
+
+
+@gitlab_router.delete("/credentials", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:settings:delete")
+async def delete_gitlab_token_credentials(
+    *,
+    session: AsyncDBSession,
+    role: OrgUserRole,
+) -> None:
+    """Delete GitLab token credentials."""
+    try:
+        gitlab_service = GitLabTokenService(session=session, role=role)
+        await gitlab_service.delete_gitlab_token_credentials()
+    except GitLabError as e:
+        logger.error("Failed to delete GitLab token credentials", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to delete GitLab token credentials: {str(e)}",
+        ) from e
+    except Exception as e:
+        logger.error("Error deleting GitLab token credentials", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error while deleting credentials",
+        ) from e
+
+
+@gitlab_router.get("/credentials/status", response_model=GitLabTokenCredentialsStatus)
+@require_scope("org:settings:read")
+async def get_gitlab_token_credentials_status(
+    *,
+    session: AsyncDBSession,
+    role: OrgUserRole,
+) -> GitLabTokenCredentialsStatus:
+    """Get the status of GitLab token credentials."""
+    try:
+        gitlab_service = GitLabTokenService(session=session, role=role)
+        status_data = await gitlab_service.get_gitlab_token_credentials_status()
+        return GitLabTokenCredentialsStatus(**status_data)
+    except Exception as e:
+        logger.error(
+            "Error getting GitLab token credentials status",
+            error_type=type(e).__name__,
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error while getting credentials status",
+        ) from e
+
+
+# Mount VCS sub-routers after all endpoints are defined.
 org_router.include_router(github_router)
+org_router.include_router(gitlab_router)

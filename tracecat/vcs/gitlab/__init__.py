@@ -1,0 +1,1 @@
+"""GitLab VCS integration."""

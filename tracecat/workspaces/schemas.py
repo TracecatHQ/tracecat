@@ -10,12 +10,14 @@ from tracecat.core.schemas import Schema
 from tracecat.git.constants import GIT_SSH_URL_REGEX
 from tracecat.identifiers import InvitationID, OrganizationID, UserID, WorkspaceID
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.workspace_sync.enums import VcsProvider
 
 # === Workspace === #
 
 
 # DTO
 class WorkspaceSettings(TypedDict):
+    git_provider: NotRequired[VcsProvider | None]
     git_repo_url: NotRequired[str | None]
     workflow_unlimited_timeout_enabled: NotRequired[bool | None]
     workflow_default_timeout_seconds: NotRequired[int | None]
@@ -26,6 +28,7 @@ class WorkspaceSettings(TypedDict):
 
 # Schema
 class WorkspaceSettingsRead(Schema):
+    git_provider: VcsProvider | None = None
     git_repo_url: str | None = None
     workflow_unlimited_timeout_enabled: bool | None = None
     workflow_default_timeout_seconds: int | None = None
@@ -51,6 +54,7 @@ class WorkspaceSettingsRead(Schema):
 
 
 class WorkspaceSettingsUpdate(Schema):
+    git_provider: VcsProvider | None = None
     git_repo_url: str | None = None
     workflow_unlimited_timeout_enabled: bool | None = Field(
         default=None,
