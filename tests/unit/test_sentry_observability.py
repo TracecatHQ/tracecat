@@ -1,14 +1,17 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
+from temporalio import activity
+from temporalio.common import Priority, RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError
 
 from tracecat.auth.types import system_role
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.interceptor import (
+    _activity_info_context,
     _should_capture_activity_exception,
     _should_capture_workflow_exception,
     _workflow_input_context,
@@ -270,6 +273,65 @@ def test_activity_interceptor_captures_platform_application_errors() -> None:
     assert _should_capture_activity_exception(exc) is True
 
 
+def test_activity_interceptor_skips_retryable_platform_errors_before_final_attempt() -> (
+    None
+):
+    info = _activity_info(attempt=1, maximum_attempts=3)
+
+    assert (
+        _should_capture_activity_exception(RuntimeError("database failed"), info)
+        is False
+    )
+
+
+def test_activity_interceptor_captures_retryable_platform_errors_on_final_attempt() -> (
+    None
+):
+    info = _activity_info(attempt=3, maximum_attempts=3)
+
+    assert (
+        _should_capture_activity_exception(RuntimeError("database failed"), info)
+        is True
+    )
+
+
+def test_activity_interceptor_captures_non_retryable_platform_errors_immediately() -> (
+    None
+):
+    exc = ApplicationError(
+        "database failed",
+        type="RuntimeError",
+        non_retryable=True,
+    )
+    info = _activity_info(attempt=1, maximum_attempts=3)
+
+    assert _should_capture_activity_exception(exc, info) is True
+
+
+def test_activity_interceptor_skips_unbounded_retryable_platform_errors() -> None:
+    info = _activity_info(attempt=10, maximum_attempts=0)
+
+    assert (
+        _should_capture_activity_exception(RuntimeError("database failed"), info)
+        is False
+    )
+
+
+def test_activity_info_context_includes_retry_policy_metadata() -> None:
+    info = _activity_info(attempt=2, maximum_attempts=6)
+
+    context = _activity_info_context(info)
+
+    assert context["attempt"] == 2
+    assert context["retry_policy"] == {
+        "initial_interval_seconds": 1.0,
+        "backoff_coefficient": 2.0,
+        "maximum_interval_seconds": None,
+        "maximum_attempts": 6,
+        "non_retryable_error_types": None,
+    }
+
+
 def test_workflow_input_context_omits_dsl_run_args_payloads() -> None:
     run_args = DSLRunArgs.model_construct(
         role=system_role(),
@@ -332,3 +394,35 @@ def _activity_error_with_cause(cause: Exception) -> ActivityError:
     )
     exc.__cause__ = cause
     return exc
+
+
+def _activity_info(
+    *, attempt: int, maximum_attempts: int | None = None
+) -> activity.Info:
+    now = datetime.now(UTC)
+    retry_policy = (
+        RetryPolicy(maximum_attempts=maximum_attempts)
+        if maximum_attempts is not None
+        else None
+    )
+    return activity.Info(
+        activity_id="test-activity-id",
+        activity_type="test_activity",
+        attempt=attempt,
+        current_attempt_scheduled_time=now,
+        heartbeat_details=[],
+        heartbeat_timeout=None,
+        is_local=False,
+        schedule_to_close_timeout=None,
+        scheduled_time=now,
+        start_to_close_timeout=None,
+        started_time=now,
+        task_queue="test-task-queue",
+        task_token=b"test-task-token",
+        workflow_id="test-workflow-id",
+        workflow_namespace="default",
+        workflow_run_id="test-run-id",
+        workflow_type="TestWorkflow",
+        priority=Priority.default,
+        retry_policy=retry_policy,
+    )

@@ -2,6 +2,7 @@ from dataclasses import is_dataclass
 from typing import Any
 
 from temporalio import activity, workflow
+from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError, FailureError
 from temporalio.worker import (
     ActivityInboundInterceptor,
@@ -167,7 +168,7 @@ class _SentryActivityInboundInterceptor(ActivityInboundInterceptor):
             try:
                 return await super().execute_activity(input)
             except Exception as e:
-                if _should_capture_activity_exception(e):
+                if _should_capture_activity_exception(e, info):
                     sentry.set_context(
                         "temporal.activity.info",
                         _activity_info_context(info),
@@ -176,8 +177,14 @@ class _SentryActivityInboundInterceptor(ActivityInboundInterceptor):
                 raise
 
 
-def _should_capture_activity_exception(exc: Exception) -> bool:
-    return _should_capture_temporal_exception(exc)
+def _should_capture_activity_exception(
+    exc: Exception, info: activity.Info | None = None
+) -> bool:
+    if not _should_capture_temporal_exception(exc):
+        return False
+    if info is None or _is_non_retryable_temporal_exception(exc):
+        return True
+    return _activity_retry_exhausted(info)
 
 
 def _should_capture_workflow_exception(exc: Exception) -> bool:
@@ -195,6 +202,22 @@ def _should_capture_temporal_exception(exc: Exception) -> bool:
     if isinstance(exc, FailureError) and isinstance(exc.cause, Exception):
         return _should_capture_temporal_exception(exc.cause)
     return True
+
+
+def _is_non_retryable_temporal_exception(exc: Exception) -> bool:
+    if isinstance(exc, ApplicationError):
+        return exc.non_retryable
+    if isinstance(exc, FailureError) and isinstance(exc.cause, Exception):
+        return _is_non_retryable_temporal_exception(exc.cause)
+    return False
+
+
+def _activity_retry_exhausted(info: activity.Info) -> bool:
+    retry_policy = info.retry_policy
+    if retry_policy is None:
+        return True
+    maximum_attempts = retry_policy.maximum_attempts
+    return maximum_attempts > 0 and info.attempt >= maximum_attempts
 
 
 def _workflow_input_context(arg: Any) -> dict[str, Any]:
@@ -228,6 +251,21 @@ def _activity_info_context(info: activity.Info) -> dict[str, Any]:
         "workflow_namespace": info.workflow_namespace,
         "workflow_run_id": info.workflow_run_id,
         "workflow_type": info.workflow_type,
+        "retry_policy": _retry_policy_context(info.retry_policy),
+    }
+
+
+def _retry_policy_context(retry_policy: RetryPolicy | None) -> dict[str, Any] | None:
+    if retry_policy is None:
+        return None
+    return {
+        "initial_interval_seconds": retry_policy.initial_interval.total_seconds(),
+        "backoff_coefficient": retry_policy.backoff_coefficient,
+        "maximum_interval_seconds": retry_policy.maximum_interval.total_seconds()
+        if retry_policy.maximum_interval
+        else None,
+        "maximum_attempts": retry_policy.maximum_attempts,
+        "non_retryable_error_types": retry_policy.non_retryable_error_types,
     }
 
 
