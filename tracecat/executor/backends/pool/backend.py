@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from tracecat.executor.action_runner import get_action_runner
 from tracecat.executor.backends.base import ExecutorBackend
 from tracecat.executor.backends.pool.pool import (
     get_worker_pool,
@@ -24,6 +25,8 @@ from tracecat.executor.backends.registry_helpers import get_registry_artifact_ur
 from tracecat.logger import logger
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from tracecat.auth.types import Role
     from tracecat.dsl.schemas import RunActionInput
     from tracecat.executor.schemas import ExecutorResult, ResolvedContext
@@ -64,12 +67,39 @@ class PoolBackend(ExecutorBackend):
             task_ref=input.task.ref,
         )
 
+        # Materialize custom registry artifacts on the host so the warm
+        # worker can import custom UDF modules. The pool sandbox has no
+        # DB/network access, so the host downloads and extracts everything
+        # to the shared registry cache dir, which is bind-mounted into the
+        # sandbox. The worker then adds the extracted paths to sys.path.
+        registry_paths: list[Path] = []
+        try:
+            artifact_uris = await self._get_artifact_uris(input, role)
+            if artifact_uris:
+                runner = get_action_runner()
+                registry_paths = await runner.resolve_registry_paths(artifact_uris)
+                if registry_paths:
+                    logger.debug(
+                        "Materialized registry artifacts for pool worker",
+                        action=action_name,
+                        task_ref=input.task.ref,
+                        count=len(registry_paths),
+                    )
+        except Exception as e:
+            logger.warning(
+                "Failed to materialize registry artifacts, continuing without them",
+                action=action_name,
+                task_ref=input.task.ref,
+                error=str(e),
+            )
+
         pool = await get_worker_pool()
         return await pool.execute(
             input=input,
             role=role,
             resolved_context=resolved_context,
             timeout=timeout,
+            registry_paths=registry_paths,
         )
 
     async def _get_artifact_uris(
