@@ -6,7 +6,6 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from tracecat.db.models import CaseDurationDefinition
-from tracecat.service import BaseWorkspaceService
 from tracecat.tiers.enums import Entitlement
 from tracecat.workspace_sync.adapters.base import (
     FlatManifestAdapter,
@@ -14,6 +13,7 @@ from tracecat.workspace_sync.adapters.base import (
     NameSwapPlan,
     ProjectedResource,
     ResourceProjection,
+    SyncMappingService,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
@@ -39,7 +39,7 @@ class CaseDurationAdapter(FlatManifestAdapter):
     import_identity_noun = "name"
 
     async def project(
-        self, workspace_service: BaseWorkspaceService
+        self, workspace_service: SyncMappingService
     ) -> ResourceProjection:
         """Project case duration definitions, with their anchors, into specs."""
         stmt = (
@@ -82,7 +82,7 @@ class CaseDurationAdapter(FlatManifestAdapter):
 
     async def import_specs(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         """Reconcile duration specs, creating or updating each definition."""
@@ -137,7 +137,7 @@ class CaseDurationAdapter(FlatManifestAdapter):
 
     async def _duration_for_import(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         *,
         source_id: str,
         spec: CaseDurationResourceSpec,
@@ -175,7 +175,7 @@ class CaseDurationAdapter(FlatManifestAdapter):
 
     async def _duration_by_source_id(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         *,
         source_id: str,
     ) -> CaseDurationDefinition | None:

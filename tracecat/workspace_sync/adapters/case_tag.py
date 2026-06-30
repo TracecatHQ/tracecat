@@ -11,12 +11,12 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from tracecat.db.models import CaseTag
-from tracecat.service import BaseWorkspaceService
 from tracecat.workspace_sync.adapters.base import (
     FlatManifestAdapter,
     ImportedResource,
     ProjectedResource,
     ResourceProjection,
+    SyncMappingService,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
@@ -40,7 +40,7 @@ class CaseTagAdapter(FlatManifestAdapter):
     import_identity_noun = "name"
 
     async def project(
-        self, workspace_service: BaseWorkspaceService
+        self, workspace_service: SyncMappingService
     ) -> ResourceProjection:
         """Project case tags into specs."""
         # Deterministic order (ref, then id) keeps the serialized output stable.
@@ -65,7 +65,7 @@ class CaseTagAdapter(FlatManifestAdapter):
 
     async def import_specs(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         """Reconcile case tag specs, resolving name collisions before persisting.

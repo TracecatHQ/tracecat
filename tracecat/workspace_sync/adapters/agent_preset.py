@@ -26,7 +26,6 @@ from tracecat.db.models import (
     SkillVersion,
 )
 from tracecat.exceptions import TracecatValidationError
-from tracecat.service import BaseWorkspaceService
 from tracecat.sync import PullDiagnostic, serializable_validation_errors
 from tracecat.workspace_sync.adapters.base import (
     DirectoryManifestAdapter,
@@ -35,6 +34,7 @@ from tracecat.workspace_sync.adapters.base import (
     ProjectedResource,
     ResourceDependencyRefs,
     ResourceProjection,
+    SyncMappingService,
     path_parts,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
@@ -159,7 +159,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         return updated
 
     async def project(
-        self, workspace_service: BaseWorkspaceService
+        self, workspace_service: SyncMappingService
     ) -> ResourceProjection:
         """Project agent presets into Git specs."""
         stmt = self._projection_stmt(workspace_service)
@@ -168,7 +168,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
     async def project_dependency_refs(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         refs: ResourceDependencyRefs,
     ) -> ResourceProjection:
         """Project presets selected directly or referenced by slug."""
@@ -223,7 +223,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         )
 
     def _projection_stmt(
-        self, workspace_service: BaseWorkspaceService
+        self, workspace_service: SyncMappingService
     ) -> sa.Select[tuple[AgentPreset]]:
         """Build the base eager-loaded preset projection query."""
         return (
@@ -239,7 +239,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
     async def _projection_from_presets(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         presets: list[AgentPreset],
         versions_by_preset_id: Mapping[uuid.UUID, set[int]] | None = None,
     ) -> ResourceProjection:
@@ -274,7 +274,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
     async def _version_specs_for_preset(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         *,
         preset: AgentPreset,
         version_numbers: set[int],
@@ -321,7 +321,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
     async def _skill_bindings_for_versions(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         version_ids: list[uuid.UUID],
     ) -> dict[uuid.UUID, list[AgentPresetSkillBinding]]:
         """Return slug/version skill bindings grouped by preset version id."""
@@ -359,7 +359,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
     async def _skill_bindings_for_version(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         version: AgentPresetVersion,
     ) -> list[AgentPresetSkillBinding]:
         """Return slug/version skill bindings for an immutable preset version."""
@@ -386,7 +386,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
     async def import_specs(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         """Reconcile agent preset specs into the local database.
@@ -615,7 +615,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
     async def _preset_for_import(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         *,
         source_id: str,
         spec: AgentPresetResourceSpec,
@@ -657,7 +657,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
     async def _preset_by_source_id(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         *,
         source_id: str,
     ) -> AgentPreset | None:
@@ -671,7 +671,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
     async def _ensure_agent_folder(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         folder_path: str | None,
     ) -> AgentFolder | None:
         """Resolve ``folder_path`` to an :class:`AgentFolder`, creating segments.
@@ -713,7 +713,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
     async def _replace_agent_tags(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         preset: AgentPreset,
         tag_names: list[str],
     ) -> None:
@@ -759,7 +759,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
     async def _resolved_subagents_config(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         spec: AgentPresetResourceSpec | AgentPresetVersionResourceSpec,
     ) -> dict[str, Any]:
         """Build the subagents config dict for ``spec``.
@@ -800,7 +800,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
     async def _resolved_subagent_target(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         subagent: AgentPresetSubagentRef,
     ) -> tuple[AgentPreset, AgentPresetVersion] | None:
         """Resolve a subagent ref to its child preset and desired version."""
@@ -836,7 +836,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
     async def _current_version_for_preset(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         preset: AgentPreset,
     ) -> AgentPresetVersion | None:
         """Return ``preset``'s current :class:`AgentPresetVersion`, if pinned."""
@@ -852,7 +852,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
     async def _version_matches_preset(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         version: AgentPresetVersion,
         preset: AgentPreset,
         skill_targets: list[tuple[Skill, SkillVersion]],
@@ -891,7 +891,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
     async def _create_agent_preset_version(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         preset: AgentPreset,
     ) -> AgentPresetVersion:
         """Create the next :class:`AgentPresetVersion` snapshotting ``preset``.
@@ -919,7 +919,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
     async def _upsert_agent_preset_version(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         *,
         preset: AgentPreset,
         version: AgentPresetVersionResourceSpec,
@@ -995,7 +995,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
     async def _replace_head_skill_bindings(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         preset: AgentPreset,
         skill_targets: list[tuple[Skill, SkillVersion]],
     ) -> None:
@@ -1021,7 +1021,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
     async def _replace_version_skill_bindings(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         version: AgentPresetVersion,
         skill_targets: list[tuple[Skill, SkillVersion]],
     ) -> None:
@@ -1047,7 +1047,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
     async def _skill_binding_targets_for_spec(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         spec: AgentPresetResourceSpec | AgentPresetVersionResourceSpec,
     ) -> list[tuple[Skill, SkillVersion]]:
         """Resolve ``spec``'s skill bindings to ``(skill, version)`` pairs.
@@ -1069,7 +1069,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
     async def _skill_binding_targets(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         binding: AgentPresetSkillBinding,
     ) -> tuple[Skill | None, SkillVersion | None]:
         """Resolve one skill binding to its ``(skill, version)`` pair.

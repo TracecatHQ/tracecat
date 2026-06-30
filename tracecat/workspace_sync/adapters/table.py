@@ -11,7 +11,6 @@ from sqlalchemy.orm import selectinload
 
 from tracecat.db.models import Table, TableColumn
 from tracecat.exceptions import TracecatNotFoundError
-from tracecat.service import BaseWorkspaceService
 from tracecat.tables.schemas import (
     TableColumnCreate,
     TableColumnUpdate,
@@ -25,6 +24,7 @@ from tracecat.workspace_sync.adapters.base import (
     ProjectedResource,
     ResourceDependencyRefs,
     ResourceProjection,
+    SyncMappingService,
     sql_type,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
@@ -59,7 +59,7 @@ class TableAdapter(DirectoryManifestAdapter):
     import_identity_noun = "name"
 
     async def project(
-        self, workspace_service: BaseWorkspaceService
+        self, workspace_service: SyncMappingService
     ) -> ResourceProjection:
         """Project workspace table metadata and column schema into specs."""
         stmt = self._projection_stmt(workspace_service)
@@ -68,7 +68,7 @@ class TableAdapter(DirectoryManifestAdapter):
 
     async def project_dependency_refs(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         refs: ResourceDependencyRefs,
     ) -> ResourceProjection:
         """Project tables selected directly or referenced by table name."""
@@ -105,7 +105,7 @@ class TableAdapter(DirectoryManifestAdapter):
         return await self._projection_from_tables(workspace_service, tables)
 
     def _projection_stmt(
-        self, workspace_service: BaseWorkspaceService
+        self, workspace_service: SyncMappingService
     ) -> sa.Select[tuple[Table]]:
         """Build the base eager-loaded table projection query."""
         return (
@@ -117,7 +117,7 @@ class TableAdapter(DirectoryManifestAdapter):
 
     async def _projection_from_tables(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         tables: list[Table],
     ) -> ResourceProjection:
         """Build sync specs from eager-loaded table rows."""
@@ -155,7 +155,7 @@ class TableAdapter(DirectoryManifestAdapter):
 
     async def import_specs(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         """Reconcile table specs into the database.
@@ -262,7 +262,7 @@ class TableAdapter(DirectoryManifestAdapter):
 
     async def _table_by_source_id(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         source_id: str,
     ) -> Table | None:
         """Load the mapped :class:`Table` (with columns) for ``source_id``, if any."""

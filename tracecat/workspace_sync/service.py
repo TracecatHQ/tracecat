@@ -35,7 +35,6 @@ from tracecat.git.types import GitUrl
 from tracecat.git.utils import parse_git_url
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.repositories.schemas import GitBranchInfo, GitCommitInfo
-from tracecat.service import BaseWorkspaceService
 from tracecat.sync import (
     PullDiagnostic,
     PullOptions,
@@ -65,6 +64,7 @@ from tracecat.workspace_sync.adapters import (
 from tracecat.workspace_sync.adapters.base import (
     DirectoryManifestAdapter,
     ResourceDependencyRefs,
+    SyncMappingService,
     VersionedSlug,
 )
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
@@ -141,7 +141,7 @@ class SyncMappingTarget:
     local_id: uuid.UUID
 
 
-class WorkspaceSyncService(BaseWorkspaceService):
+class WorkspaceSyncService(SyncMappingService):
     """Direct workspace import/export over a VCS provider."""
 
     service_name = "workspace_sync"
@@ -160,7 +160,6 @@ class WorkspaceSyncService(BaseWorkspaceService):
         """
         super().__init__(session=session, role=role)
         self._transport_factory = transport_factory
-        self._mapping_provider = VcsProvider.GITHUB
 
     async def export_workspace(
         self,
@@ -657,11 +656,6 @@ class WorkspaceSyncService(BaseWorkspaceService):
             yield
         finally:
             self._mapping_provider = previous_provider
-
-    @property
-    def _mapping_provider_value(self) -> str:
-        """Provider value used for workspace sync resource mappings."""
-        return self._mapping_provider.value
 
     def _require_workspace_sync_scope(self) -> None:
         """Require the feature-level workspace sync RBAC scope."""

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import itertools
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 from urllib.parse import quote
@@ -148,7 +148,95 @@ _GITLAB_BLOB_CONCURRENCY = 8
 """Maximum concurrent GitLab blob calls during sync reads."""
 
 
-class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
+class BaseWorkspaceSyncTransport(BaseWorkspaceService):
+    """Shared, provider-neutral helpers for workspace sync transports.
+
+    The GitHub and GitLab transports differ in how they authenticate, list
+    blobs, and write commits, but agree on which files a snapshot contains, how
+    export inputs are validated, and what the generated PR/MR body says. Those
+    provider-neutral pieces live here so both transports stay in lockstep.
+    """
+
+    @staticmethod
+    def _normalize_commit_message(files: dict[str, str], message: str) -> str:
+        """Validate export inputs and return the stripped commit message."""
+        if not files:
+            raise ValueError("At least one file is required for workspace sync export")
+        message = message.strip()
+        if not message:
+            raise ValueError("A non-empty commit message is required")
+        return message
+
+    async def _select_snapshot_files(
+        self,
+        *,
+        blob_paths: Sequence[str],
+        fetch_text: Callable[[str], Awaitable[str | None]],
+    ) -> dict[str, str]:
+        """Decode the manifest and managed-resource blobs from a commit tree.
+
+        ``blob_paths`` lists every blob path in the tree; ``fetch_text`` loads and
+        UTF-8 decodes one path, returning ``None`` for binary blobs. The manifest
+        (when present) selects the resource roots; only paths under those roots
+        are read. Shared by the GitHub and GitLab readers, which differ only in
+        how blobs are listed and fetched.
+        """
+        paths = set(blob_paths)
+
+        async def fetch_path(path: str) -> tuple[str, str | None]:
+            """Fetch ``path`` and preserve its identity through gather."""
+            return path, await fetch_text(path)
+
+        files: dict[str, str] = {}
+        resource_roots = manifest_resource_roots(WorkspaceManifest())
+        if MANIFEST_FILENAME in paths:
+            manifest_content = await fetch_text(MANIFEST_FILENAME)
+            if manifest_content is not None:
+                files[MANIFEST_FILENAME] = manifest_content
+                try:
+                    manifest = workspace_manifest_from_json(manifest_content)
+                    resource_roots = manifest_resource_roots(manifest)
+                except Exception:
+                    pass
+
+        resource_paths = [
+            path
+            for path in sorted(paths)
+            if path != MANIFEST_FILENAME
+            and any(path.startswith(f"{root}/") for root in resource_roots)
+        ]
+        for path, content in await asyncio.gather(
+            *(fetch_path(path) for path in resource_paths)
+        ):
+            if content is not None:
+                files[path] = content
+        return files
+
+    async def _sync_request_body(self) -> str:
+        """Render the shared PR/MR description with workspace attribution."""
+        workspace = await WorkspaceService(
+            session=self.session,
+            role=self.role,
+        ).get_workspace(self.workspace_id)
+        if workspace is None:
+            raise TracecatNotFoundError("Workspace not found")
+
+        current_user = None
+        if self.role.user_id is not None:
+            try:
+                current_user = await self.session.get(User, self.role.user_id)
+            except Exception:
+                current_user = None
+
+        published_by = current_user.email if current_user else "<unknown>"
+        return (
+            "Automated workspace sync from Tracecat\n\n"
+            f"**Workspace:** {workspace.name}\n"
+            f"**Published by:** {published_by}"
+        )
+
+
+class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
     """GitHub App transport for workspace sync."""
 
     service_name = "workspace_github_sync"
@@ -194,33 +282,10 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
                 except UnicodeDecodeError:
                     return None
 
-            async def fetch_path(path: str) -> tuple[str, str | None]:
-                """Fetch ``path`` and preserve its identity through gather."""
-                return path, await fetch_text(path)
-
-            files: dict[str, str] = {}
-            resource_roots = manifest_resource_roots(WorkspaceManifest())
-            if MANIFEST_FILENAME in blob_shas:
-                manifest_content = await fetch_text(MANIFEST_FILENAME)
-                if manifest_content is not None:
-                    files[MANIFEST_FILENAME] = manifest_content
-                    try:
-                        manifest = workspace_manifest_from_json(manifest_content)
-                        resource_roots = manifest_resource_roots(manifest)
-                    except Exception:
-                        pass
-
-            resource_paths = [
-                path
-                for path in sorted(blob_shas)
-                if path != MANIFEST_FILENAME
-                and any(path.startswith(f"{root}/") for root in resource_roots)
-            ]
-            for path, content in await asyncio.gather(
-                *(fetch_path(path) for path in resource_paths)
-            ):
-                if content is not None:
-                    files[path] = content
+            files = await self._select_snapshot_files(
+                blob_paths=list(blob_shas),
+                fetch_text=fetch_text,
+            )
             return VcsTreeSnapshot(
                 commit_sha=commit.sha,
                 tree_sha=tree_sha,
@@ -251,11 +316,7 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
         reusing or opening a pull request when ``create_pr`` is set and the
         branch diverges from its base.
         """
-        if not files:
-            raise ValueError("At least one file is required for workspace sync export")
-        message = message.strip()
-        if not message:
-            raise ValueError("A non-empty commit message is required")
+        message = self._normalize_commit_message(files, message)
 
         gh_svc = GitHubAppService(session=self.session, role=self.role)
         gh = await gh_svc.get_github_client_for_repo(url)
@@ -549,29 +610,10 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
         if existing_pr is not None:
             return existing_pr.html_url, existing_pr.number, True
 
-        workspace = await WorkspaceService(
-            session=self.session,
-            role=self.role,
-        ).get_workspace(self.workspace_id)
-        if workspace is None:
-            raise TracecatNotFoundError("Workspace not found")
-
-        current_user = None
-        if self.role.user_id is not None:
-            try:
-                current_user = await self.session.get(User, self.role.user_id)
-            except Exception:
-                current_user = None
-
-        published_by = current_user.email if current_user else "<unknown>"
         pr = await asyncio.to_thread(
             repo.create_pull,
             title=title,
-            body=(
-                "Automated workspace sync from Tracecat\n\n"
-                f"**Workspace:** {workspace.name}\n"
-                f"**Published by:** {published_by}"
-            ),
+            body=await self._sync_request_body(),
             head=branch_name,
             base=base_branch_name,
         )
@@ -593,7 +635,7 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
         return (getattr(comparison, "ahead_by", None) or 0) > 0
 
 
-class GitLabWorkspaceSyncTransport(BaseWorkspaceService):
+class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
     """GitLab token-backed REST transport for workspace sync."""
 
     service_name = "workspace_gitlab_sync"
@@ -621,11 +663,7 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceService):
         delete_missing_paths_under: Sequence[str] = (),
     ) -> CommitInfo:
         """Commit ``files`` to ``branch``, optionally opening a merge request."""
-        if not files:
-            raise ValueError("At least one file is required for workspace sync export")
-        message = message.strip()
-        if not message:
-            raise ValueError("A non-empty commit message is required")
+        message = self._normalize_commit_message(files, message)
 
         credentials = await self._credentials()
         async with self._client(credentials) as client:
@@ -870,34 +908,10 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceService):
             except UnicodeDecodeError:
                 return None
 
-        async def fetch_path(path: str) -> tuple[str, str | None]:
-            """Fetch ``path`` and preserve identity through gather."""
-            return path, await fetch_text(path)
-
-        files: dict[str, str] = {}
-        resource_roots = manifest_resource_roots(WorkspaceManifest())
-        if MANIFEST_FILENAME in blob_shas:
-            manifest_content = await fetch_text(MANIFEST_FILENAME)
-            if manifest_content is not None:
-                files[MANIFEST_FILENAME] = manifest_content
-                try:
-                    manifest = workspace_manifest_from_json(manifest_content)
-                    resource_roots = manifest_resource_roots(manifest)
-                except Exception:
-                    pass
-
-        resource_paths = [
-            path
-            for path in sorted(blob_shas)
-            if path != MANIFEST_FILENAME
-            and any(path.startswith(f"{root}/") for root in resource_roots)
-        ]
-        for path, content in await asyncio.gather(
-            *(fetch_path(path) for path in resource_paths)
-        ):
-            if content is not None:
-                files[path] = content
-
+        files = await self._select_snapshot_files(
+            blob_paths=list(blob_shas),
+            fetch_text=fetch_text,
+        )
         return VcsTreeSnapshot(
             commit_sha=commit_sha,
             tree_sha=None,
@@ -984,21 +998,6 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceService):
             mr = existing[0]
             return str(mr.get("web_url") or ""), _int_or_none(mr.get("iid")), True
 
-        workspace = await WorkspaceService(
-            session=self.session,
-            role=self.role,
-        ).get_workspace(self.workspace_id)
-        if workspace is None:
-            raise TracecatNotFoundError("Workspace not found")
-
-        current_user = None
-        if self.role.user_id is not None:
-            try:
-                current_user = await self.session.get(User, self.role.user_id)
-            except Exception:
-                current_user = None
-
-        published_by = current_user.email if current_user else "<unknown>"
         mr_data = await self._gitlab_json(
             client,
             "POST",
@@ -1007,11 +1006,7 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceService):
                 "source_branch": branch_name,
                 "target_branch": base_branch_name,
                 "title": title,
-                "description": (
-                    "Automated workspace sync from Tracecat\n\n"
-                    f"**Workspace:** {workspace.name}\n"
-                    f"**Published by:** {published_by}"
-                ),
+                "description": await self._sync_request_body(),
             },
         )
         if not isinstance(mr_data, dict):

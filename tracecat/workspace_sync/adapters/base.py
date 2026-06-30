@@ -19,9 +19,11 @@ from typing import Any, ClassVar, Literal, NamedTuple, Protocol, cast
 
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute, Mapped
 from sqlalchemy.sql.base import ExecutableOption
 
+from tracecat.auth.types import Role
 from tracecat.db.models import WorkspaceSyncResourceMapping
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import PullDiagnostic
@@ -168,14 +170,31 @@ _TEMP_NAME_PREFIX = "__tracecat_sync_tmp_"
 """Prefix for placeholder names rows are parked under during a rename swap."""
 
 
-def _sync_mapping_provider_value(workspace_service: BaseWorkspaceService) -> str:
-    """Return the VCS provider namespace for workspace sync resource mappings."""
-    provider = getattr(workspace_service, "_mapping_provider_value", None)
-    if isinstance(provider, str):
-        return provider
-    if isinstance(provider, VcsProvider):
-        return provider.value
-    return VcsProvider.GITHUB.value
+class SyncMappingService(BaseWorkspaceService):
+    """Workspace service that namespaces sync resource mappings by VCS provider.
+
+    The resource adapters read and write :class:`WorkspaceSyncResourceMapping`
+    rows scoped to a provider; every service that drives them
+    (``WorkspaceSyncService``, the projector, and the importer) extends this base
+    so the active provider is part of the static contract instead of being
+    duck-typed at the call site.
+    """
+
+    def __init__(
+        self,
+        session: AsyncSession,
+        role: Role | None = None,
+        *,
+        mapping_provider: VcsProvider = VcsProvider.GITHUB,
+    ) -> None:
+        """Initialize with the provider namespace for sync resource mappings."""
+        super().__init__(session=session, role=role)
+        self._mapping_provider = mapping_provider
+
+    @property
+    def _mapping_provider_value(self) -> str:
+        """Provider value used for workspace sync resource mappings."""
+        return self._mapping_provider.value
 
 
 def find_duplicates(values: Iterable[str]) -> list[str]:
@@ -271,7 +290,7 @@ class NameSwapPlan[ModelT: _WorkspaceRow]:
 
     async def ensure_available(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         *,
         source_id: str,
         name: str,
@@ -393,7 +412,7 @@ class ResourceAdapter(ABC):
 
     # -- database projection and import -----------------------------------
     async def project(
-        self, workspace_service: BaseWorkspaceService
+        self, workspace_service: SyncMappingService
     ) -> ResourceProjection:
         """Project this resource type's database rows into Git specs.
 
@@ -404,7 +423,7 @@ class ResourceAdapter(ABC):
 
     async def project_dependency_refs(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         refs: ResourceDependencyRefs,
     ) -> ResourceProjection:
         """Project resources addressed by dependency-closure refs.
@@ -442,7 +461,7 @@ class ResourceAdapter(ABC):
 
     async def import_specs(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         """Reconcile this resource type's Git spec slice into the local database.
@@ -504,7 +523,7 @@ class ResourceAdapter(ABC):
 
     async def source_ids_by_local_id(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
     ) -> dict[uuid.UUID, str]:
         """Load this resource type's ``local_id`` -> ``source_id`` sync mappings.
 
@@ -517,21 +536,21 @@ class ResourceAdapter(ABC):
         ).where(
             WorkspaceSyncResourceMapping.workspace_id == workspace_service.workspace_id,
             WorkspaceSyncResourceMapping.provider
-            == _sync_mapping_provider_value(workspace_service),
+            == workspace_service._mapping_provider_value,
             WorkspaceSyncResourceMapping.resource_type == self.resource_type.value,
         )
         return dict((await workspace_service.session.execute(stmt)).tuples().all())
 
     async def local_id_for_source_id(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         source_id: str,
     ) -> uuid.UUID | None:
         """Resolve a single ``source_id`` to its mapped ``local_id``, if any."""
         stmt = select(WorkspaceSyncResourceMapping.local_id).where(
             WorkspaceSyncResourceMapping.workspace_id == workspace_service.workspace_id,
             WorkspaceSyncResourceMapping.provider
-            == _sync_mapping_provider_value(workspace_service),
+            == workspace_service._mapping_provider_value,
             WorkspaceSyncResourceMapping.resource_type == self.resource_type.value,
             WorkspaceSyncResourceMapping.source_id == source_id,
         )
@@ -539,7 +558,7 @@ class ResourceAdapter(ABC):
 
     async def local_ids_by_source_id(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         source_ids: Iterable[str],
     ) -> dict[str, uuid.UUID]:
         """Bulk-resolve ``source_id`` values to their mapped ``local_id`` UUIDs.
@@ -556,14 +575,14 @@ class ResourceAdapter(ABC):
         ).where(
             WorkspaceSyncResourceMapping.workspace_id == workspace_service.workspace_id,
             WorkspaceSyncResourceMapping.provider
-            == _sync_mapping_provider_value(workspace_service),
+            == workspace_service._mapping_provider_value,
             WorkspaceSyncResourceMapping.resource_type == self.resource_type.value,
             WorkspaceSyncResourceMapping.source_id.in_(source_id_values),
         )
         return dict((await workspace_service.session.execute(stmt)).tuples().all())
 
     async def source_id_assigner(
-        self, workspace_service: BaseWorkspaceService
+        self, workspace_service: SyncMappingService
     ) -> _SourceIdAssigner:
         """Build a :class:`_SourceIdAssigner` seeded with this type's mappings.
 
@@ -575,7 +594,7 @@ class ResourceAdapter(ABC):
 
     async def _row_by_source_id[ModelT: _WorkspaceRow](
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         *,
         source_id: str,
         model: type[ModelT],
@@ -600,7 +619,7 @@ class ResourceAdapter(ABC):
 
     async def plan_name_swap[ModelT: _WorkspaceRow](
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         *,
         targets: Mapping[str, str],
         model: type[ModelT],
@@ -715,7 +734,7 @@ class ResourceAdapter(ABC):
 
     async def _park_changing_names[ModelT: _WorkspaceRow](
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         plan: NameSwapPlan[ModelT],
         *,
         temp_prefix: str,
@@ -752,7 +771,7 @@ class ResourceAdapter(ABC):
 
     async def _reserved_names_by_scope[ModelT: _WorkspaceRow](
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         plan: NameSwapPlan[ModelT],
     ) -> dict[str | None, set[str]]:
         """In-use names plus batch targets, bucketed by scope value.
