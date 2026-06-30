@@ -14,9 +14,11 @@ from tracecat.vcs.github.manifest import generate_github_app_manifest
 from tracecat.vcs.gitlab.app import GitLabError, GitLabTokenService
 from tracecat.vcs.schemas import (
     GitHubAppCredentialsRequest,
+    GitHubAppCredentialsSaveResponse,
     GitHubAppCredentialsStatus,
     GitHubAppManifestResponse,
     GitLabTokenCredentialsRequest,
+    GitLabTokenCredentialsSaveResponse,
     GitLabTokenCredentialsStatus,
 )
 
@@ -128,14 +130,18 @@ async def github_webhook(*, payload: dict[str, Any]) -> dict[str, str]:
         ) from e
 
 
-@github_router.post("/credentials", status_code=status.HTTP_201_CREATED)
+@github_router.post(
+    "/credentials",
+    status_code=status.HTTP_201_CREATED,
+    response_model=GitHubAppCredentialsSaveResponse,
+)
 @require_scope("org:settings:update")
 async def save_github_app_credentials(
     *,
     session: AsyncDBSession,
     role: OrgUserRole,
     request: GitHubAppCredentialsRequest,
-) -> dict[str, str]:
+) -> GitHubAppCredentialsSaveResponse:
     """Save GitHub App credentials (register new or update existing)."""
     # Organization-level operation, no specific checks needed since this is org VCS
     try:
@@ -153,11 +159,11 @@ async def save_github_app_credentials(
             app_id=request.app_id,
         )
 
-        return {
-            "message": f"GitHub App credentials {action} successfully",
-            "action": action,
-            "app_id": config.app_id or request.app_id,
-        }
+        return GitHubAppCredentialsSaveResponse(
+            message=f"GitHub App credentials {action} successfully",
+            action=action,
+            app_id=config.app_id or request.app_id,
+        )
 
     except GitHubAppError as e:
         logger.error(
@@ -233,14 +239,18 @@ async def get_github_app_credentials_status(
         ) from e
 
 
-@gitlab_router.post("/credentials", status_code=status.HTTP_201_CREATED)
+@gitlab_router.post(
+    "/credentials",
+    status_code=status.HTTP_201_CREATED,
+    response_model=GitLabTokenCredentialsSaveResponse,
+)
 @require_scope("org:settings:update")
 async def save_gitlab_token_credentials(
     *,
     session: AsyncDBSession,
     role: OrgUserRole,
     request: GitLabTokenCredentialsRequest,
-) -> dict[str, str]:
+) -> GitLabTokenCredentialsSaveResponse:
     """Save GitLab token credentials (create if new or update existing)."""
     try:
         gitlab_service = GitLabTokenService(session=session, role=role)
@@ -249,11 +259,11 @@ async def save_gitlab_token_credentials(
             token=request.token,
         )
         action = "created" if was_created else "updated"
-        return {
-            "message": f"GitLab token credentials {action} successfully",
-            "action": action,
-            "base_url": credentials.base_url,
-        }
+        return GitLabTokenCredentialsSaveResponse(
+            message=f"GitLab token credentials {action} successfully",
+            action=action,
+            base_url=credentials.base_url,
+        )
     except (GitLabError, ValueError) as e:
         logger.error("Failed to save GitLab token credentials", error=str(e))
         raise HTTPException(

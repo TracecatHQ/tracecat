@@ -3963,6 +3963,17 @@ export type GitHubAppCredentialsRequest = {
 }
 
 /**
+ * Response after creating or updating GitHub App credentials.
+ */
+export type GitHubAppCredentialsSaveResponse = {
+  message: string
+  action: "created" | "updated"
+  app_id: string
+}
+
+export type action2 = "created" | "updated"
+
+/**
  * Status of GitHub App credentials.
  */
 export type GitHubAppCredentialsStatus = {
@@ -4044,6 +4055,15 @@ export type GitLabTokenCredentialsRequest = {
    * GitLab personal/project/group access token with api scope.
    */
   token: string
+}
+
+/**
+ * Response after creating or updating GitLab token credentials.
+ */
+export type GitLabTokenCredentialsSaveResponse = {
+  message: string
+  action: "created" | "updated"
+  base_url: string
 }
 
 /**
@@ -13285,9 +13305,8 @@ export type VcsSaveGithubAppCredentialsData = {
   requestBody: GitHubAppCredentialsRequest
 }
 
-export type VcsSaveGithubAppCredentialsResponse = {
-  [key: string]: string
-}
+export type VcsSaveGithubAppCredentialsResponse =
+  GitHubAppCredentialsSaveResponse
 
 export type VcsDeleteGithubAppCredentialsResponse = void
 
@@ -13298,9 +13317,8 @@ export type VcsSaveGitlabTokenCredentialsData = {
   requestBody: GitLabTokenCredentialsRequest
 }
 
-export type VcsSaveGitlabTokenCredentialsResponse = {
-  [key: string]: string
-}
+export type VcsSaveGitlabTokenCredentialsResponse =
+  GitLabTokenCredentialsSaveResponse
 
 export type VcsDeleteGitlabTokenCredentialsResponse = void
 
@@ -19567,9 +19585,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: {
-          [key: string]: string
-        }
+        201: GitHubAppCredentialsSaveResponse
         /**
          * Validation Error
          */
@@ -19602,9 +19618,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: {
-          [key: string]: string
-        }
+        201: GitLabTokenCredentialsSaveResponse
         /**
          * Validation Error
          */

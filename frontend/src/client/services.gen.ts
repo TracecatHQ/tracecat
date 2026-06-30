@@ -11979,7 +11979,7 @@ export const vcsGithubWebhook = (
  * Save GitHub App credentials (register new or update existing).
  * @param data The data for the request.
  * @param data.requestBody
- * @returns string Successful Response
+ * @returns GitHubAppCredentialsSaveResponse Successful Response
  * @throws ApiError
  */
 export const vcsSaveGithubAppCredentials = (
@@ -12029,7 +12029,7 @@ export const vcsGetGithubAppCredentialsStatus =
  * Save GitLab token credentials (create if new or update existing).
  * @param data The data for the request.
  * @param data.requestBody
- * @returns string Successful Response
+ * @returns GitLabTokenCredentialsSaveResponse Successful Response
  * @throws ApiError
  */
 export const vcsSaveGitlabTokenCredentials = (

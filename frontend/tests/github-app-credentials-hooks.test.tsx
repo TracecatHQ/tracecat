@@ -56,7 +56,11 @@ describe("GitHub App credential hooks", () => {
       },
     })
     jest.clearAllMocks()
-    mockSaveGitHubAppCredentials.mockResolvedValue({ status: "ok" })
+    mockSaveGitHubAppCredentials.mockResolvedValue({
+      message: "GitHub App credentials created successfully",
+      action: "created",
+      app_id: "123456",
+    })
     mockDeleteGitHubAppCredentials.mockResolvedValue(undefined)
   })
 

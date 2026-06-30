@@ -13287,6 +13287,28 @@ export const $GitHubAppCredentialsRequest = {
   description: "Request to register or update GitHub App credentials.",
 } as const
 
+export const $GitHubAppCredentialsSaveResponse = {
+  properties: {
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    action: {
+      type: "string",
+      enum: ["created", "updated"],
+      title: "Action",
+    },
+    app_id: {
+      type: "string",
+      title: "App Id",
+    },
+  },
+  type: "object",
+  required: ["message", "action", "app_id"],
+  title: "GitHubAppCredentialsSaveResponse",
+  description: "Response after creating or updating GitHub App credentials.",
+} as const
+
 export const $GitHubAppCredentialsStatus = {
   properties: {
     exists: {
@@ -13567,6 +13589,28 @@ export const $GitLabTokenCredentialsRequest = {
   required: ["token"],
   title: "GitLabTokenCredentialsRequest",
   description: "Request to register or update GitLab token credentials.",
+} as const
+
+export const $GitLabTokenCredentialsSaveResponse = {
+  properties: {
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    action: {
+      type: "string",
+      enum: ["created", "updated"],
+      title: "Action",
+    },
+    base_url: {
+      type: "string",
+      title: "Base Url",
+    },
+  },
+  type: "object",
+  required: ["message", "action", "base_url"],
+  title: "GitLabTokenCredentialsSaveResponse",
+  description: "Response after creating or updating GitLab token credentials.",
 } as const
 
 export const $GitLabTokenCredentialsStatus = {
