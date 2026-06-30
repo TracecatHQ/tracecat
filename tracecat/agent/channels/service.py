@@ -469,9 +469,13 @@ class AgentChannelService(BaseWorkspaceService):
             raise TracecatValidationError(
                 "Cannot activate token without Slack bot token"
             )
+        lock_preset = (
+            params.is_active
+            or validated_config.slack_bot_token == PENDING_SLACK_BOT_TOKEN
+        )
         await self._require_workspace_preset(
             params.agent_preset_id,
-            lock=params.is_active,
+            lock=lock_preset,
         )
 
         token = AgentChannelToken(

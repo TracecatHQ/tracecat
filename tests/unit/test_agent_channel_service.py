@@ -243,6 +243,44 @@ async def test_create_active_token_locks_preset(
 
 
 @pytest.mark.anyio
+async def test_create_pending_token_locks_preset(
+    agent_channel_service: AgentChannelService,
+    agent_preset: AgentPreset,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_locks: list[bool] = []
+    original_require_workspace_preset = agent_channel_service._require_workspace_preset
+
+    async def instrumented_require_workspace_preset(
+        preset_id: uuid.UUID, *, lock: bool = False
+    ) -> None:
+        captured_locks.append(lock)
+        await original_require_workspace_preset(preset_id, lock=lock)
+
+    monkeypatch.setattr(
+        agent_channel_service,
+        "_require_workspace_preset",
+        instrumented_require_workspace_preset,
+    )
+
+    await agent_channel_service.create_token(
+        AgentChannelTokenCreate(
+            agent_preset_id=agent_preset.id,
+            channel_type=ChannelType.SLACK,
+            config=SlackChannelTokenConfig(
+                slack_bot_token=PENDING_SLACK_BOT_TOKEN,
+                slack_client_id="12345.67890",
+                slack_client_secret="client-secret",
+                slack_signing_secret="signing-secret",
+            ),
+            is_active=False,
+        )
+    )
+
+    assert captured_locks == [True]
+
+
+@pytest.mark.anyio
 async def test_update_token_rejects_reactivating_archived_preset(
     agent_channel_service: AgentChannelService,
     agent_preset: AgentPreset,
