@@ -141,6 +141,10 @@ class MembershipService(BaseService):
                 # user with both a direct and group path reads as via_group
                 # (removable=false) — matching what the delete would do.
                 group_scoped_path_exists(User.id, workspace_id).label("via_group"),
+                # A direct UserRoleAssignment exists. Independent of via_group: a
+                # mixed-source member is both via_group and via_direct, and the
+                # direct role stays editable (handleChangeRole edits this row).
+                UserRoleAssignment.id.is_not(None).label("via_direct"),
             )
             .select_from(Membership)
             .join(User, Membership.user_id == User.id)
@@ -157,7 +161,7 @@ class MembershipService(BaseService):
             .outerjoin(group_role, group_role.c.user_id == User.id)
             .where(Membership.workspace_id == workspace_id)
         )
-        rows = (await self.session.execute(statement)).all()
+        rows = (await self.session.execute(statement)).tuples().all()
         return [
             WorkspaceMember(
                 user_id=user.id,
@@ -166,8 +170,9 @@ class MembershipService(BaseService):
                 email=user.email,
                 role_name=role_name,
                 via_group=bool(via_group),
+                via_direct=bool(via_direct),
             )
-            for user, role_name, via_group in rows
+            for user, role_name, via_group, via_direct in rows
         ]
 
     async def get_membership(

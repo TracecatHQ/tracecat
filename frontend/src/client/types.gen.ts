@@ -9264,6 +9264,7 @@ export type WorkspaceMember = {
   email: string
   role_name: string
   via_group?: boolean
+  via_direct?: boolean
 }
 
 export type WorkspaceMembershipCreate = {

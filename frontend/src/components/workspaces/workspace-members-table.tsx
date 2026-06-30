@@ -249,9 +249,14 @@ export function WorkspaceMembersTable({
               id: "actions",
               enableHiding: false,
               cell: ({ row }) => {
-                // Managed via the group, and the backend rejects these edits —
-                // disable the row actions rather than offer a guaranteed failure.
+                // Removal is rejected by the backend whenever any group path
+                // exists, so gate "Remove" on via_group. "Change role" edits the
+                // direct assignment, which stays editable for a mixed-source
+                // member (both via_group and via_direct) — gate it on the
+                // absence of a direct assignment instead.
                 const viaGroup = row.original.via_group ?? false
+                const viaDirect = row.original.via_direct ?? false
+                const canEditRole = viaDirect
                 return (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -270,7 +275,7 @@ export function WorkspaceMembersTable({
                       </DropdownMenuItem>
 
                       {canUpdateMembers &&
-                        (viaGroup ? (
+                        (!canEditRole ? (
                           <Tooltip>
                             {/*
                              * A disabled element does not emit the pointer or

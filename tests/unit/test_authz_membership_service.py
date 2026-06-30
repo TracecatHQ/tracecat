@@ -649,7 +649,8 @@ async def test_list_workspace_members_flags_group_derived_role(
     workspace_editor_role: DBRole,
     group: Group,
 ) -> None:
-    """Group-only members report their group role with via_group; direct ones don't."""
+    """Flags reflect the access path: via_group for any group path, via_direct
+    for a direct assignment. A mixed-source member reports both."""
     # member_user: access only via a group assignment.
     session.add(GroupMember(group_id=group.id, user_id=member_user.id))
     session.add(
@@ -671,11 +672,40 @@ async def test_list_workspace_members_flags_group_derived_role(
         )
     )
     session.add(Membership(user_id=actor_user.id, workspace_id=workspace.id))
+    # mixed_user: both a direct assignment and a group path to the workspace.
+    mixed_user = User(
+        id=uuid.uuid4(),
+        email=f"mixed-{uuid.uuid4().hex[:8]}@example.com",
+        hashed_password="hashed",
+        role=UserRole.BASIC,
+        is_active=True,
+        is_superuser=False,
+        is_verified=True,
+    )
+    session.add(mixed_user)
+    await session.commit()
+    session.add(GroupMember(group_id=group.id, user_id=mixed_user.id))
+    session.add(
+        UserRoleAssignment(
+            organization_id=organization.id,
+            user_id=mixed_user.id,
+            workspace_id=workspace.id,
+            role_id=workspace_editor_role.id,
+        )
+    )
+    session.add(Membership(user_id=mixed_user.id, workspace_id=workspace.id))
     await session.commit()
 
     members = await membership_service.list_workspace_members(workspace.id)
     by_user = {m.user_id: m for m in members}
 
+    # Group-only: removable=false, role not editable.
     assert by_user[member_user.id].via_group is True
+    assert by_user[member_user.id].via_direct is False
     assert by_user[member_user.id].role_name == workspace_editor_role.name
+    # Direct-only: removable=true, role editable.
     assert by_user[actor_user.id].via_group is False
+    assert by_user[actor_user.id].via_direct is True
+    # Mixed: via_group blocks removal, but the direct role stays editable.
+    assert by_user[mixed_user.id].via_group is True
+    assert by_user[mixed_user.id].via_direct is True
