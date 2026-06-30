@@ -9,8 +9,7 @@ from typing import Annotated, Any, Iterable, Literal
 import httpx
 from typing_extensions import Doc
 
-from tracecat_registry import RegistrySecret, registry, secrets
-from tracecat_registry.context import get_context
+from tracecat_registry import RegistrySecret, ctx, registry, secrets
 
 
 splunk_secret = RegistrySecret(
@@ -211,7 +210,7 @@ async def upload_csv_to_kv_collection(
     # Resolve base_url: parameter takes precedence, then workspace variable
     resolved_base_url = base_url
     if not resolved_base_url:
-        resolved_base_url = await get_context().variables.get_or_default(
+        resolved_base_url = await ctx.variables.aio.get_or_default(
             "splunk", "base_url", None
         )
     if not resolved_base_url:

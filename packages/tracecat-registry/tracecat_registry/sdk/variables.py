@@ -40,8 +40,8 @@ class VariablesClient:
             TracecatNotFoundError: If the variable doesn't exist.
 
         Example:
-            >>> from tracecat_registry.context import get_context
-            >>> base_url = await get_context().variables.get("api_config", "base_url")
+            >>> from tracecat_registry import ctx
+            >>> base_url = await ctx.variables.aio.get("api_config", "base_url")
         """
         params: dict[str, Any] = {"key": key}
         if is_set(environment):
@@ -68,8 +68,8 @@ class VariablesClient:
             The value for the specified key, or the default if not found.
 
         Example:
-            >>> from tracecat_registry.context import get_context
-            >>> timeout = await get_context().variables.get_or_default(
+            >>> from tracecat_registry import ctx
+            >>> timeout = await ctx.variables.aio.get_or_default(
             ...     "api_config", "timeout", 30
             ... )
         """

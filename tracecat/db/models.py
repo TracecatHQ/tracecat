@@ -520,6 +520,46 @@ class Workspace(OrganizationModel):
         back_populates="workspace",
         cascade="all, delete",
     )
+    sync_resource_mappings: Mapped[list[WorkspaceSyncResourceMapping]] = relationship(
+        "WorkspaceSyncResourceMapping",
+        back_populates="workspace",
+        cascade="all, delete",
+    )
+
+
+class WorkspaceSyncResourceMapping(WorkspaceModel):
+    """Maps portable sync source identities to workspace-local resource UUIDs."""
+
+    __tablename__ = "workspace_sync_resource_mapping"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "provider",
+            "resource_type",
+            "source_id",
+            name="uq_workspace_sync_mapping_source",
+        ),
+        UniqueConstraint(
+            "workspace_id",
+            "provider",
+            "resource_type",
+            "local_id",
+            name="uq_workspace_sync_mapping_local",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    provider: Mapped[str] = mapped_column(
+        String(32), default="github", server_default=text("'github'"), nullable=False
+    )
+    resource_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_id: Mapped[str] = mapped_column(String, nullable=False)
+    source_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    local_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+
+    workspace: Mapped[Workspace] = relationship(back_populates="sync_resource_mappings")
 
 
 class User(SQLAlchemyBaseUserTableUUID, Base):

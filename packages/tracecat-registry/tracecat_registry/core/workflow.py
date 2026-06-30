@@ -10,7 +10,7 @@ from typing import Annotated, Any, Literal
 
 from typing_extensions import Doc
 
-from tracecat_registry import ActionIsInterfaceError, registry
+from tracecat_registry import ActionIsInterfaceError, ctx, registry
 from tracecat_registry.context import get_context
 from tracecat_registry.sdk.workflows import (
     WorkflowExecutionError,
@@ -101,7 +101,7 @@ async def execute(
     """
     # Try to get the registry context for direct invocation
     try:
-        ctx = get_context()
+        context = get_context()
     except RuntimeError:
         # No context available - this is likely being called from DSLWorkflow
         # which should have intercepted this action before reaching the UDF.
@@ -112,14 +112,14 @@ async def execute(
     # Note: version, loop_strategy, batch_size, fail_strategy are DSLWorkflow-only params
 
     try:
-        result = await ctx.workflows.execute(
+        result = await context.workflows.execute(
             workflow_alias=workflow_alias,
             trigger_inputs=trigger_inputs,
             environment=environment,
             timeout=timeout,
             wait_strategy=wait_strategy,
             # Pass parent execution ID for correlation (stored in Temporal memo)
-            parent_workflow_execution_id=ctx.wf_exec_id,
+            parent_workflow_execution_id=context.wf_exec_id,
         )
         return result
     except WorkflowExecutionError:
@@ -156,9 +156,7 @@ async def create_workflow(
     ] = None,
 ) -> dict[str, Any]:
     """Create a new empty workflow and return ``{"id", "title"}``."""
-    return await get_context().workflows.create_workflow(
-        title=title, description=description
-    )
+    return await ctx.workflows.aio.create_workflow(title=title, description=description)
 
 
 @registry.register(
@@ -187,5 +185,4 @@ async def get_status(
     Raises:
         RuntimeError: If no context is available.
     """
-    ctx = get_context()
-    return await ctx.workflows.get_status(wf_exec_id)
+    return await ctx.workflows.aio.get_status(wf_exec_id)

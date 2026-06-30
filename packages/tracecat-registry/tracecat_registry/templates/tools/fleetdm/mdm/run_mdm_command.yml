@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: Run MDM command
+  description: Enqueue a raw Apple or Windows MDM command to run on hosts at next check-in.
+  display_group: Fleet
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#run-mdm-command
+  namespace: tools.fleetdm
+  name: run_mdm_command
+  secrets:
+    - name: fleetdm
+      keys: ["FLEETDM_API_TOKEN"]
+  expects:
+    base_url:
+      type: str
+      description: Fleet server base URL (e.g. https://fleet.example.com).
+    command:
+      type: str
+      description: Base64-encoded MDM command payload (Apple plist XML or Windows SyncML).
+    host_uuids:
+      type: list[str]
+      description: UUIDs of the hosts to send the command to.
+  steps:
+    - ref: run_command
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v1/fleet/commands/run
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
+          Content-Type: application/json
+        payload:
+          command: ${{ inputs.command }}
+          host_uuids: ${{ inputs.host_uuids }}
+  returns: ${{ steps.run_command.result.data }}

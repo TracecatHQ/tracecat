@@ -802,7 +802,11 @@ class OrgService(BaseOrgService):
         return membership
 
     @require_scope("org:member:invite")
-    @audit_log(resource_type="organization_invitation", action="revoke")
+    @audit_log(
+        resource_type="organization_invitation",
+        action="revoke",
+        resource_id_attr="invitation_id",
+    )
     async def revoke_invitation(
         self, invitation_id: uuid.UUID
     ) -> OrganizationInvitation:

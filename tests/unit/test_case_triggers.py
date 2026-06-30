@@ -1,4 +1,5 @@
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import ValidationError
@@ -187,6 +188,43 @@ async def test_case_trigger_update_allows_online_with_current_definition(
 
     assert updated.status == "online"
     assert updated.event_types == ["case_closed"]
+
+
+@pytest.mark.anyio
+async def test_sync_case_trigger_allows_online_without_entitlement_check(
+    session: AsyncSession, svc_role, monkeypatch: pytest.MonkeyPatch
+):
+    workflow = Workflow(
+        title="Synced Case Trigger",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+        version=1,
+    )
+    session.add(workflow)
+    await session.flush()
+
+    session.add(
+        WorkflowDefinition(
+            workspace_id=svc_role.workspace_id,
+            workflow_id=workflow.id,
+            version=1,
+            content=_runnable_definition_content(),
+        )
+    )
+    await session.commit()
+
+    service = CaseTriggersService(session, role=svc_role)
+    mock_require_entitlement = AsyncMock(side_effect=AssertionError)
+    monkeypatch.setattr(service, "require_entitlement", mock_require_entitlement)
+    updated = await service.sync_case_trigger(
+        WorkflowUUID.new(workflow.id),
+        CaseTriggerConfig(status="online", event_types=_case_closed_event_types()),
+    )
+
+    assert updated.status == "online"
+    assert updated.event_types == ["case_closed"]
+    mock_require_entitlement.assert_not_awaited()
 
 
 @pytest.mark.anyio

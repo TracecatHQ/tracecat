@@ -38,6 +38,7 @@ import type {
   AdminDeleteUserResponse,
   AdminDemoteFromSuperuserData,
   AdminDemoteFromSuperuserResponse,
+  AdminGetAuditSettingsResponse,
   AdminGetOrganizationData,
   AdminGetOrganizationInvitationTokenData,
   AdminGetOrganizationInvitationTokenResponse,
@@ -85,6 +86,8 @@ import type {
   AdminRevokeOrganizationInvitationResponse,
   AdminSyncOrgRepositoryData,
   AdminSyncOrgRepositoryResponse,
+  AdminUpdateAuditSettingsData,
+  AdminUpdateAuditSettingsResponse,
   AdminUpdateOrganizationData,
   AdminUpdateOrganizationDomainData,
   AdminUpdateOrganizationDomainResponse,
@@ -847,6 +850,8 @@ import type {
   WorkflowsDeleteWorkflowResponse,
   WorkflowsExportWorkflowData,
   WorkflowsExportWorkflowResponse,
+  WorkflowsExportWorkspaceSyncData,
+  WorkflowsExportWorkspaceSyncResponse,
   WorkflowsGetWorkflowData,
   WorkflowsGetWorkflowDefinitionData,
   WorkflowsGetWorkflowDefinitionResponse,
@@ -865,6 +870,8 @@ import type {
   WorkflowsListWorkflowsResponse,
   WorkflowsMoveWorkflowToFolderData,
   WorkflowsMoveWorkflowToFolderResponse,
+  WorkflowsPreviewExportWorkspaceSyncData,
+  WorkflowsPreviewExportWorkspaceSyncResponse,
   WorkflowsPublishWorkflowData,
   WorkflowsPublishWorkflowResponse,
   WorkflowsPullWorkflowsData,
@@ -3305,6 +3312,58 @@ export const workflowsListWorkflowBranches = (
     query: {
       limit: data.limit,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Export Workspace Sync
+ * Export workspace workflow specs to a Git branch and optional PR.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkspaceSyncExportResult Successful Response
+ * @throws ApiError
+ */
+export const workflowsExportWorkspaceSync = (
+  data: WorkflowsExportWorkspaceSyncData
+): CancelablePromise<WorkflowsExportWorkspaceSyncResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/workflows/sync/export",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Preview Export Workspace Sync
+ * Project which resources an export would commit, without writing to Git.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkspaceSyncExportPreview Successful Response
+ * @throws ApiError
+ */
+export const workflowsPreviewExportWorkspaceSync = (
+  data: WorkflowsPreviewExportWorkspaceSyncData
+): CancelablePromise<WorkflowsPreviewExportWorkspaceSyncResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/workflows/sync/export/preview",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },
@@ -7435,6 +7494,42 @@ export const adminPromoteOrgRepositoryVersion = (
       repository_id: data.repositoryId,
       version_id: data.versionId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Audit Settings
+ * Get platform audit settings.
+ * @returns PlatformAuditSettingsRead Successful Response
+ * @throws ApiError
+ */
+export const adminGetAuditSettings =
+  (): CancelablePromise<AdminGetAuditSettingsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/admin/settings/audit",
+    })
+  }
+
+/**
+ * Update Audit Settings
+ * Update platform audit settings.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns PlatformAuditSettingsRead Successful Response
+ * @throws ApiError
+ */
+export const adminUpdateAuditSettings = (
+  data: AdminUpdateAuditSettingsData
+): CancelablePromise<AdminUpdateAuditSettingsResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/admin/settings/audit",
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

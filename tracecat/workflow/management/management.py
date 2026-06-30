@@ -562,7 +562,11 @@ class WorkflowsManagementService(BaseWorkspaceService):
         )
 
     async def get_workflow(
-        self, workflow_id: WorkflowID, *, for_update: bool = False
+        self,
+        workflow_id: WorkflowID,
+        *,
+        for_update: bool = False,
+        normalize: bool = True,
     ) -> Workflow | None:
         workflow_uuid = WorkflowUUID.new(workflow_id)
         statement = (
@@ -582,7 +586,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
             statement = statement.with_for_update()
         result = await self.session.execute(statement)
         workflow = result.scalar_one_or_none()
-        if workflow:
+        if workflow and normalize:
             commit = not for_update
             await self._ensure_workflow_system_resources(workflow, commit=commit)
             await self._reconcile_graph_object_with_actions(workflow, commit=commit)

@@ -84,6 +84,7 @@ POST_RLS_WORKSPACE_SCOPED_TABLES = (
     "skill_version_file",
     "agent_preset_skill",
     "agent_preset_version_skill",
+    "workspace_sync_resource_mapping",
 )
 
 POST_RLS_ORG_SCOPED_TABLES = (

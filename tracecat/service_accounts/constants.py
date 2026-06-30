@@ -39,6 +39,7 @@ WORKSPACE_SERVICE_ACCOUNT_ASSIGNABLE_SCOPES: frozenset[str] = frozenset(
         "variable:delete",
         "workflow:read",
         "workflow:sync",
+        "workspace_sync:sync",
         "workflow:create",
         "workflow:update",
         "workflow:delete",

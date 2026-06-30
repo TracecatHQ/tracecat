@@ -46,6 +46,7 @@ VIEWER_SCOPES: frozenset[str] = frozenset(
 EDITOR_SCOPES: frozenset[str] = VIEWER_SCOPES | frozenset(
     {
         "workflow:sync",
+        "workspace_sync:sync",
         "workflow:create",
         "workflow:update",
         "workflow:execute",
@@ -164,6 +165,7 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         "inbox:read",
         "workflow:read",
         "workflow:sync",
+        "workspace_sync:sync",
         "workflow:create",
         "workflow:update",
         "workflow:delete",
@@ -265,6 +267,7 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
         "inbox:read",
         "workflow:read",
         "workflow:sync",
+        "workspace_sync:sync",
         "workflow:create",
         "workflow:update",
         "workflow:delete",
@@ -349,6 +352,7 @@ WORKSPACE_OPERATIONAL_SCOPES: frozenset[str] = frozenset(
         "inbox:read",
         "workflow:read",
         "workflow:sync",
+        "workspace_sync:sync",
         "workflow:create",
         "workflow:update",
         "workflow:delete",

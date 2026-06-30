@@ -6,8 +6,7 @@ from typing import Annotated, Any, Literal
 
 from typing_extensions import Doc
 
-from tracecat_registry import registry
-from tracecat_registry.context import get_context
+from tracecat_registry import ctx, registry
 
 OutputTypeLiteral = Literal[
     "bool",
@@ -166,7 +165,7 @@ async def create_preset(
     if skills is not None:
         kwargs["skills"] = skills
 
-    return await get_context().agents.create_preset(**kwargs)
+    return await ctx.agents.aio.create_preset(**kwargs)
 
 
 @registry.register(
@@ -184,7 +183,7 @@ async def get_preset(
         ),
     ],
 ) -> dict[str, Any]:
-    return await get_context().agents.get_preset(slug)
+    return await ctx.agents.aio.get_preset(slug)
 
 
 @registry.register(
@@ -195,7 +194,7 @@ async def get_preset(
     required_entitlements=["agent_addons"],
 )
 async def list_presets() -> list[dict[str, Any]]:
-    return await get_context().agents.list_presets()
+    return await ctx.agents.aio.list_presets()
 
 
 @registry.register(
@@ -347,7 +346,7 @@ async def update_preset(
     if skills is not None:
         kwargs["skills"] = skills
 
-    return await get_context().agents.update_preset(slug, **kwargs)
+    return await ctx.agents.aio.update_preset(slug, **kwargs)
 
 
 @registry.register(
@@ -363,4 +362,4 @@ async def delete_preset(
         Doc("The slug identifier of the preset to delete (e.g., 'security-analyst')."),
     ],
 ) -> None:
-    await get_context().agents.delete_preset(slug)
+    await ctx.agents.aio.delete_preset(slug)

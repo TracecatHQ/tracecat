@@ -1052,6 +1052,7 @@ export type AppSettingsRead = {
   app_workflow_export_enabled: boolean
   app_create_workspace_on_register: boolean
   app_action_form_mode_enabled: boolean
+  app_versioned_resource_resolution_strategy?: VersionedResourceResolutionStrategy
 }
 
 /**
@@ -1082,6 +1083,10 @@ export type AppSettingsUpdate = {
    * Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.
    */
   app_action_form_mode_enabled?: boolean
+  /**
+   * How versioned resource references are resolved when a feature supports both pinned and latest dependency resolution.
+   */
+  app_versioned_resource_resolution_strategy?: VersionedResourceResolutionStrategy
 }
 
 /**
@@ -2814,6 +2819,17 @@ export type CommentUpdatedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+export type CommitInfo = {
+  status: PushStatus
+  sha: string | null
+  ref: string
+  base_ref: string
+  pr_url?: string | null
+  pr_number?: number | null
+  pr_reused?: boolean
+  message?: string
 }
 
 /**
@@ -5433,6 +5449,55 @@ export type PayloadChangedEventRead = {
 }
 
 /**
+ * Platform audit settings response.
+ */
+export type PlatformAuditSettingsRead = {
+  audit_webhook_url: string | null
+  audit_webhook_custom_headers?: {
+    [key: string]: string
+  } | null
+  audit_webhook_custom_payload?: {
+    [key: string]: unknown
+  } | null
+  audit_webhook_payload_attribute?: string | null
+  audit_webhook_verify_ssl?: boolean
+  /**
+   * Encrypted setting keys that could not be decrypted with the current encryption key and must be reconfigured.
+   */
+  decryption_failed_keys?: Array<string>
+}
+
+/**
+ * Update platform audit settings.
+ */
+export type PlatformAuditSettingsUpdate = {
+  /**
+   * Webhook URL that receives streamed audit events. When unset, audit events are skipped.
+   */
+  audit_webhook_url?: string | null
+  /**
+   * Custom headers to include in audit webhook requests. Header names are case-insensitive.
+   */
+  audit_webhook_custom_headers?: {
+    [key: string]: string
+  } | null
+  /**
+   * Custom JSON payload merged into streamed audit event payloads. Custom keys override default audit event keys.
+   */
+  audit_webhook_custom_payload?: {
+    [key: string]: unknown
+  } | null
+  /**
+   * Optional wrapper key for audit payloads. When set to a value like 'event', payload is sent as {'event': <audit_payload>}.
+   */
+  audit_webhook_payload_attribute?: string | null
+  /**
+   * Whether TLS certificates are verified for webhook requests. Disable only for trusted on-prem/self-signed endpoints.
+   */
+  audit_webhook_verify_ssl?: boolean
+}
+
+/**
  * Cursor-paginated platform MCP catalog response.
  */
 export type PlatformMCPCatalogListResponse = {
@@ -5678,6 +5743,18 @@ export type error_type =
   | "system"
   | "transaction"
 
+export type PullResourceDiff = {
+  resource_type: string
+  source_id: string
+  source_path: string
+  change_type: "added" | "modified" | "deleted"
+  title: string | null
+  diff: string
+  truncated?: boolean
+}
+
+export type change_type2 = "added" | "modified" | "deleted"
+
 export type PullResult = {
   success: boolean
   commit_sha: string
@@ -5685,7 +5762,18 @@ export type PullResult = {
   workflows_imported: number
   diagnostics: Array<PullDiagnostic>
   message: string
+  resource_counts?: {
+    [key: string]: ResourcePullCount
+  } | null
+  resource_diffs?: Array<PullResourceDiff> | null
+  files?: Array<string> | null
+  resources?: Array<SyncPreviewResource> | null
 }
+
+/**
+ * Status of a push/commit operation.
+ */
+export type PushStatus = "committed" | "no_op"
 
 export type RateLimitEvent = {
   rate_limit_info: RateLimitInfo
@@ -6125,6 +6213,29 @@ export type ResolvedAttachedSubagentRef = {
   max_turns?: number | null
   preset_id: string
   preset_version_id: string
+}
+
+export type ResourcePullCount = {
+  found: number
+  imported: number
+}
+
+/**
+ * Reference to a single resource by type and either source or local id.
+ */
+export type ResourceRef = {
+  /**
+   * Type of the referenced resource.
+   */
+  resource_type: SyncResourceType
+  /**
+   * Git source id of the resource, if referenced by source id.
+   */
+  source_id?: string | null
+  /**
+   * Local database id of the resource, if referenced by local id.
+   */
+  local_id?: string | null
 }
 
 /**
@@ -7109,6 +7220,28 @@ export type StringListFieldChange = {
   added?: Array<string>
   removed?: Array<string>
 }
+
+export type SyncPreviewResource = {
+  resource_type: string
+  source_id: string
+  name: string
+  path: string
+}
+
+/**
+ * Kind of workspace resource that can be synced to and from Git.
+ */
+export type SyncResourceType =
+  | "workflow"
+  | "agent_preset"
+  | "skill"
+  | "table"
+  | "case_tag"
+  | "case_field"
+  | "case_dropdown"
+  | "case_duration"
+  | "variable"
+  | "secret_metadata"
 
 export type SyntaxToken = {
   type: string
@@ -8197,6 +8330,11 @@ export type VariableUpdate = {
 }
 
 /**
+ * Version control host backing a workspace sync repository.
+ */
+export type VcsProvider = "github" | "gitlab" | "bitbucket"
+
+/**
  * Vercel AI SDK format request with structured UI messages.
  */
 export type VercelChatRequest = {
@@ -8232,6 +8370,8 @@ export type VersionDiff = {
   actions_modified?: Array<ActionChange>
   total_changes?: number
 }
+
+export type VersionedResourceResolutionStrategy = "pinned" | "latest"
 
 /**
  * Vertex AI catalog entry.
@@ -9226,6 +9366,14 @@ export type WorkflowSyncPullRequest = {
    * Validate only, don't perform actual import
    */
   dry_run?: boolean
+  /**
+   * Apply schedule definitions from Git. Defaults off to preserve destination schedules.
+   */
+  sync_schedules?: boolean
+  /**
+   * VCS provider for the configured repository.
+   */
+  provider?: VcsProvider
 }
 
 export type WorkflowTagCreate = {
@@ -9361,6 +9509,125 @@ export type WorkspaceSettingsUpdate = {
    * Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.
    */
   validate_attachment_magic_number?: boolean | null
+}
+
+/**
+ * Projection summary of the resources an export would commit.
+ *
+ * Mirrors the pull dry-run preview: it projects the selected resources
+ * locally without writing to Git or mutating sync mappings.
+ */
+export type WorkspaceSyncExportPreview = {
+  /**
+   * Count of resources to commit, keyed by resource type.
+   */
+  resource_counts: {
+    [key: string]: number
+  }
+  /**
+   * Repository-relative paths the export would write.
+   */
+  files: Array<string>
+  /**
+   * Displayable resources included in the export preview.
+   */
+  resources?: Array<WorkspaceSyncPreviewResource>
+  /**
+   * Per-resource file diffs between the comparison ref and projected export.
+   */
+  resource_diffs?: Array<PullResourceDiff>
+}
+
+/**
+ * Request a dry-run projection of what an export would push to Git.
+ */
+export type WorkspaceSyncExportPreviewRequest = {
+  /**
+   * Specific resources to preview, or ``None`` for all.
+   */
+  resources?: Array<ResourceRef> | null
+  /**
+   * Whether to include workflow schedules in the preview.
+   */
+  include_schedules?: boolean
+  /**
+   * Repository ref to compare the projected export against. When omitted, the preview only returns the export manifest summary.
+   */
+  compare_ref?: string | null
+  /**
+   * VCS provider to read the comparison ref from.
+   */
+  provider?: VcsProvider
+}
+
+/**
+ * Request to commit selected workspace resources to a Git branch.
+ */
+export type WorkspaceSyncExportRequest = {
+  /**
+   * Commit message for the export.
+   */
+  message: string
+  /**
+   * Target branch to commit to.
+   */
+  branch: string
+  /**
+   * Whether to open a pull request for the commit.
+   */
+  create_pr?: boolean
+  /**
+   * Base branch for the pull request, if created.
+   */
+  pr_base_branch?: string | null
+  /**
+   * Specific resources to export, or ``None`` to export all.
+   */
+  resources?: Array<ResourceRef> | null
+  /**
+   * VCS provider to push to.
+   */
+  provider?: VcsProvider
+  /**
+   * Whether to include workflow schedules in the export.
+   */
+  include_schedules?: boolean
+}
+
+/**
+ * Outcome of a workspace export: the commit made and files written.
+ */
+export type WorkspaceSyncExportResult = {
+  /**
+   * Metadata for the commit that was created.
+   */
+  commit: CommitInfo
+  /**
+   * Repository-relative paths written by the export.
+   */
+  files: Array<string>
+}
+
+/**
+ * One resource included in a workspace sync export preview.
+ */
+export type WorkspaceSyncPreviewResource = {
+  /**
+   * Type of resource included in the preview.
+   */
+  resource_type: SyncResourceType
+  /**
+   * Stable Git source id for the resource.
+   */
+  source_id: string
+  /**
+   * Human-readable resource name.
+   */
+  name: string
+  /**
+   * Primary repository path written for the resource.
+   */
+  path: string
 }
 
 export type WorkspaceUpdate = {
@@ -10246,6 +10513,21 @@ export type WorkflowsListWorkflowBranchesData = {
 }
 
 export type WorkflowsListWorkflowBranchesResponse = Array<GitBranchInfo>
+
+export type WorkflowsExportWorkspaceSyncData = {
+  requestBody: WorkspaceSyncExportRequest
+  workspaceId: string
+}
+
+export type WorkflowsExportWorkspaceSyncResponse = WorkspaceSyncExportResult
+
+export type WorkflowsPreviewExportWorkspaceSyncData = {
+  requestBody: WorkspaceSyncExportPreviewRequest
+  workspaceId: string
+}
+
+export type WorkflowsPreviewExportWorkspaceSyncResponse =
+  WorkspaceSyncExportPreview
 
 export type WorkflowsPullWorkflowsData = {
   requestBody: WorkflowSyncPullRequest
@@ -11492,6 +11774,14 @@ export type AdminPromoteOrgRepositoryVersionData = {
 
 export type AdminPromoteOrgRepositoryVersionResponse =
   OrgRegistryVersionPromoteResponse
+
+export type AdminGetAuditSettingsResponse = PlatformAuditSettingsRead
+
+export type AdminUpdateAuditSettingsData = {
+  requestBody: PlatformAuditSettingsUpdate
+}
+
+export type AdminUpdateAuditSettingsResponse = PlatformAuditSettingsRead
 
 export type AdminGetRegistrySettingsResponse = PlatformRegistrySettingsRead
 
@@ -14487,6 +14777,36 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/workflows/sync/export": {
+    post: {
+      req: WorkflowsExportWorkspaceSyncData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkspaceSyncExportResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/sync/export/preview": {
+    post: {
+      req: WorkflowsPreviewExportWorkspaceSyncData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkspaceSyncExportPreview
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/workflows/sync/pull": {
     post: {
       req: WorkflowsPullWorkflowsData
@@ -16781,6 +17101,29 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: OrgRegistryVersionPromoteResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/settings/audit": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PlatformAuditSettingsRead
+      }
+    }
+    patch: {
+      req: AdminUpdateAuditSettingsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PlatformAuditSettingsRead
         /**
          * Validation Error
          */

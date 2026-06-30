@@ -22,9 +22,10 @@ from tracecat.cases.schemas import (
     CaseFieldUpdate,
 )
 from tracecat.cases.service import CaseFieldsService
-from tracecat.db.models import Case, CaseFields
+from tracecat.db.models import Case, CaseFields, WorkspaceSyncResourceMapping
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.tables.enums import SqlType
+from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -224,6 +225,41 @@ class TestCaseFieldsService:
 
             # Verify the method was called with the right parameters
             mock_update_column.assert_called_once_with("test_field", field_update)
+
+    async def test_update_field_rename_moves_workspace_sync_mapping(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        case_fields_service: CaseFieldsService,
+    ) -> None:
+        """Renaming a synced case field must keep its Git source identity."""
+        definition = CaseFields(
+            workspace_id=svc_role.workspace_id,
+            schema={"external_ref": {"type": "TEXT"}},
+        )
+        session.add(definition)
+        await session.flush()
+        mapping = WorkspaceSyncResourceMapping(
+            workspace_id=svc_role.workspace_id,
+            provider=VcsProvider.GITHUB.value,
+            resource_type=SyncResourceType.CASE_FIELD.value,
+            source_id="external_ref",
+            source_path="case_fields/external_ref.yml",
+            local_id=uuid.uuid5(definition.id, "external_ref"),
+        )
+        session.add(mapping)
+        await session.flush()
+
+        with patch.object(case_fields_service.editor, "update_column"):
+            await case_fields_service.update_field(
+                "external_ref",
+                CaseFieldUpdate(name="vendor_ticket_id"),
+            )
+
+        await session.refresh(mapping)
+        assert mapping.source_id == "external_ref"
+        assert mapping.source_path == "case_fields/external_ref.yml"
+        assert mapping.local_id == uuid.uuid5(definition.id, "vendor_ticket_id")
 
     async def test_update_field_required_on_closure_without_schema_entry(
         self, case_fields_service: CaseFieldsService

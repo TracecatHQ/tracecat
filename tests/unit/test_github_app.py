@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -13,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.db.models import Secret
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import ScopeDeniedError, TracecatNotFoundError
 from tracecat.git.types import GitUrl
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretKeyValue
@@ -469,6 +470,30 @@ class TestGitHubAppService:
             assert client == mock_github_client
             mock_to_thread.assert_called_once()
             mock_installation.get_github_for_installation.assert_called_once()
+
+    @pytest.mark.anyio
+    async def test_get_github_client_for_repo_accepts_legacy_or_workspace_sync_scope(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+    ) -> None:
+        """Repository client access accepts the legacy or workspace sync grant."""
+        for scope in ("workflow:sync", "workspace_sync:sync"):
+            service = GitHubAppService(
+                session=session,
+                role=svc_role.model_copy(update={"scopes": frozenset({scope})}),
+            )
+            get_github_client_for_repo = cast(Any, service.get_github_client_for_repo)
+            with pytest.raises(TypeError):
+                await get_github_client_for_repo()
+
+        service = GitHubAppService(
+            session=session,
+            role=svc_role.model_copy(update={"scopes": frozenset()}),
+        )
+        get_github_client_for_repo = cast(Any, service.get_github_client_for_repo)
+        with pytest.raises(ScopeDeniedError):
+            await get_github_client_for_repo()
 
     @pytest.mark.anyio
     async def test_get_github_client_for_repo_not_installed(

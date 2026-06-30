@@ -1,312 +1,231 @@
 "use client"
 
-import { zodResolver } from "@hookform/resolvers/zod"
-import { GitPullRequestIcon } from "lucide-react"
-import { useEffect, useState } from "react"
-import { useForm, useWatch } from "react-hook-form"
-import { z } from "zod"
-import type { GitHubAppRepository, WorkspaceRead } from "@/client"
+import {
+  AlertTriangleIcon,
+  ArrowDownIcon,
+  ArrowUpIcon,
+  GitBranchIcon,
+  PencilIcon,
+} from "lucide-react"
+import { useState } from "react"
+import type { WorkspaceRead } from "@/client"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { getWorkspaceSyncBaseBranch } from "@/components/workspace-sync/branch-target-selector"
+import { WorkspaceSyncConnectionForm } from "@/components/workspace-sync/connection-form"
+import { WorkspaceSyncPullTab } from "@/components/workspace-sync/pull-tab"
+import { WorkspaceSyncPushTab } from "@/components/workspace-sync/push-tab"
 import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form"
-import { Input } from "@/components/ui/input"
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { ToggleTabs } from "@/components/ui/toggle-tabs"
-import { validateGitSshUrl } from "@/lib/git"
-import { useGitHubAppRepositories, useWorkspaceSettings } from "@/lib/hooks"
-import { WorkflowPullDialog } from "../organization/workflow-pull-dialog"
+  useRepositoryBranches,
+  useRepositoryCommits,
+} from "@/hooks/use-workspace-sync"
+import { getRelativeTime } from "@/lib/event-history"
+import { getRepoDisplayName } from "@/lib/git"
+import { useGitHubAppRepositories } from "@/lib/hooks"
 
-export const syncSettingsSchema = z.object({
-  git_repo_url: z
-    .string()
-    .nullish()
-    .transform((url) => url?.trim() || null)
-    .superRefine((url, ctx) => validateGitSshUrl(url, ctx)),
-})
-
-type SyncSettingsForm = z.infer<typeof syncSettingsSchema>
-type RepositoryInputMode = "select" | "manual"
+type SyncMode = "push" | "pull"
 
 interface WorkspaceSyncSettingsProps {
   workspace: WorkspaceRead
 }
 
+/**
+ * Git sync settings panel for a workspace.
+ *
+ * Presents a single connection row plus a Push / Pull switch so both sync
+ * directions live in one place. Push opens or reuses a pull request for the
+ * selected branch; pull imports a selected commit back into the workspace.
+ */
 export function WorkspaceSyncSettings({
   workspace,
 }: WorkspaceSyncSettingsProps) {
-  const [pullDialogOpen, setPullDialogOpen] = useState(false)
-  const { updateWorkspace, isUpdating } = useWorkspaceSettings(workspace.id)
+  const persistedGitUrl = workspace.settings?.git_repo_url || undefined
   const {
     repositories = [],
     repositoriesIsLoading,
     repositoriesError,
   } = useGitHubAppRepositories(workspace.id)
 
-  const form = useForm<SyncSettingsForm>({
-    resolver: zodResolver(syncSettingsSchema),
-    mode: "onChange",
-    defaultValues: {
-      git_repo_url: workspace.settings?.git_repo_url || "",
-    },
+  const [isEditingConnection, setIsEditingConnection] = useState(false)
+  const [mode, setMode] = useState<SyncMode>("push")
+
+  const {
+    branches: repoBranches,
+    branchesIsLoading,
+    branchesError,
+  } = useRepositoryBranches(workspace.id, {
+    enabled: Boolean(persistedGitUrl),
+    gitRepoUrl: persistedGitUrl,
+    limit: 200,
   })
-  const currentGitRepoUrl = useWatch({
-    control: form.control,
-    name: "git_repo_url",
-  })
+  const baseBranch = getWorkspaceSyncBaseBranch(persistedGitUrl, repoBranches)
 
-  async function onSubmit(values: SyncSettingsForm) {
-    const selectedRepository =
-      repositoryInputMode === "select"
-        ? findMatchingRepository(values.git_repo_url, repositories)
-        : undefined
-
-    await updateWorkspace({
-      settings: {
-        git_repo_url: selectedRepository
-          ? getRepositoryGitUrl(selectedRepository)
-          : values.git_repo_url,
-      },
-    })
-  }
-
-  const persistedGitUrl = workspace.settings?.git_repo_url || undefined
-  const hasRepositoryOptions = repositories.length > 0
-  const currentGitUrlMatchesRepository = repositories.some((repository) =>
-    matchesRepositoryGitUrl(currentGitRepoUrl, repository)
-  )
-  const [repositoryInputMode, setRepositoryInputMode] =
-    useState<RepositoryInputMode>("select")
-  const [hasSelectedRepositoryInputMode, setHasSelectedRepositoryInputMode] =
-    useState(false)
-  useEffect(() => {
-    if (
-      !hasSelectedRepositoryInputMode &&
-      hasRepositoryOptions &&
-      !repositoriesIsLoading &&
-      currentGitRepoUrl &&
-      !currentGitUrlMatchesRepository
-    ) {
-      setRepositoryInputMode("manual")
+  const { commits, commitsIsLoading, commitsError } = useRepositoryCommits(
+    workspace.id,
+    {
+      branch: baseBranch,
+      gitRepoUrl: persistedGitUrl,
+      limit: 20,
+      enabled: Boolean(persistedGitUrl) && Boolean(baseBranch),
     }
-  }, [
-    currentGitRepoUrl,
-    currentGitUrlMatchesRepository,
-    hasSelectedRepositoryInputMode,
-    hasRepositoryOptions,
-    repositoriesIsLoading,
-  ])
-  function handleRepositoryInputModeChange(mode: RepositoryInputMode) {
-    setHasSelectedRepositoryInputMode(true)
-    setRepositoryInputMode(mode)
-  }
-
-  const shouldShowRepositoryModeTabs =
-    hasRepositoryOptions && !repositoriesIsLoading
-  const shouldShowRepositorySelect =
-    repositoriesIsLoading ||
-    (hasRepositoryOptions && repositoryInputMode === "select")
-  let repositoryDescription =
-    "Git URL of the remote repository. Must use git+ssh scheme."
-  if (hasRepositoryOptions && repositoryInputMode === "select") {
-    repositoryDescription =
-      "Select a repository granted to the connected GitHub App installation."
-  } else if (hasRepositoryOptions) {
-    repositoryDescription = "Enter any valid git+ssh URL manually."
-  } else if (repositoriesError) {
-    repositoryDescription =
-      "Could not load GitHub App repositories. Enter a git+ssh URL manually."
-  }
+  )
+  const repoDisplayName = getRepoDisplayName(persistedGitUrl)
+  const latestCommit = commits?.[0]
+  const showConnectionForm = !persistedGitUrl || isEditingConnection
 
   return (
-    <div className="flex flex-col gap-6">
-      <Form {...form}>
-        <form
-          onSubmit={form.handleSubmit(onSubmit)}
-          className="flex flex-col gap-6"
-        >
-          <FormField
-            control={form.control}
-            name="git_repo_url"
-            render={({ field, fieldState }) => (
-              <FormItem className="flex flex-col">
-                <div className="flex items-center justify-between gap-3">
-                  <FormLabel>Remote repository URL</FormLabel>
-                  {shouldShowRepositoryModeTabs && (
-                    <ToggleTabs<RepositoryInputMode>
-                      size="sm"
-                      showTooltips={false}
-                      value={repositoryInputMode}
-                      onValueChange={handleRepositoryInputModeChange}
-                      options={[
-                        { value: "select", content: "Select" },
-                        { value: "manual", content: "Manual" },
-                      ]}
-                    />
-                  )}
-                </div>
-                {shouldShowRepositorySelect ? (
-                  <Select
-                    disabled={repositoriesIsLoading}
-                    onValueChange={(value) => {
-                      const repository = repositories.find(
-                        (repo) => repo.git_url === value
-                      )
-                      field.onChange(
-                        repository ? getRepositoryGitUrl(repository) : value
-                      )
-                    }}
-                    value={getRepositorySelectValue(field.value, repositories)}
-                  >
-                    <FormControl>
-                      <SelectTrigger aria-invalid={fieldState.invalid}>
-                        <SelectValue
-                          placeholder={
-                            repositoriesIsLoading
-                              ? "Loading repositories..."
-                              : "Select a repository"
-                          }
-                        />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectGroup>
-                        {field.value &&
-                          !repositories.some((repository) =>
-                            matchesRepositoryGitUrl(field.value, repository)
-                          ) && (
-                            <SelectItem value={field.value}>
-                              {field.value}
-                            </SelectItem>
-                          )}
-                        {repositories.map((repository) => (
-                          <RepositorySelectItem
-                            key={`${repository.installation_id}:${repository.id}`}
-                            repository={repository}
-                          />
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <FormControl>
-                    <Input
-                      aria-invalid={fieldState.invalid}
-                      placeholder="git+ssh://git@github.com/my-org/my-repo.git"
-                      {...field}
-                      value={field.value ?? ""}
-                    />
-                  </FormControl>
-                )}
-                <FormDescription>{repositoryDescription}</FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <Button type="submit" disabled={isUpdating} size="sm">
-            {isUpdating ? "Saving..." : "Save"}
-          </Button>
-        </form>
-      </Form>
-
-      {persistedGitUrl && (
-        <div className="rounded-lg border bg-muted/30 p-4">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <h5 className="text-sm font-medium">Workflow synchronization</h5>
-              <p className="text-xs text-muted-foreground">
-                Pull workflow definitions from your Git repository into this
-                workspace
-              </p>
+    <div className="space-y-6">
+      {showConnectionForm ? (
+        <WorkspaceSyncConnectionForm
+          workspaceId={workspace.id}
+          persistedGitUrl={persistedGitUrl}
+          repositories={repositories}
+          repositoriesIsLoading={repositoriesIsLoading}
+          repositoriesError={repositoriesError}
+          onClose={() => setIsEditingConnection(false)}
+        />
+      ) : (
+        <div className="flex items-center justify-between gap-3 rounded-xl border bg-card px-4 py-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted">
+              <GitBranchIcon className="size-4 text-muted-foreground" />
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setPullDialogOpen(true)}
-              className="flex items-center gap-2"
-            >
-              <GitPullRequestIcon className="size-4" />
-              <span>Pull workflows</span>
-            </Button>
+            <div className="min-w-0 space-y-1">
+              <p className="truncate font-mono text-sm font-semibold">
+                {repoDisplayName ?? persistedGitUrl}
+              </p>
+              <ConnectionStatus
+                branchesIsLoading={branchesIsLoading}
+                hasBranchesError={Boolean(branchesError)}
+                defaultBranch={baseBranch}
+                commitsIsLoading={commitsIsLoading}
+                latestCommitSha={latestCommit?.sha}
+                latestCommitDate={latestCommit?.date}
+              />
+            </div>
           </div>
-
-          <div className="text-xs text-muted-foreground">
-            <p>• Select a commit SHA to pull specific workflow versions</p>
-            <p>
-              • All changes are atomic - either all workflows import or none do
-            </p>
-          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="shrink-0 gap-1.5 text-muted-foreground hover:text-foreground"
+            onClick={() => setIsEditingConnection(true)}
+          >
+            <PencilIcon className="size-3.5" />
+            Edit connection
+          </Button>
         </div>
       )}
 
-      <WorkflowPullDialog
-        open={pullDialogOpen}
-        onOpenChange={setPullDialogOpen}
-        workspaceId={workspace.id}
-        gitRepoUrl={persistedGitUrl}
-        onPullSuccess={() => {
-          console.log("Workflows pulled successfully")
-        }}
-      />
+      {persistedGitUrl && !isEditingConnection && (
+        <Tabs
+          value={mode}
+          onValueChange={(value) => setMode(value as SyncMode)}
+          className="space-y-5"
+        >
+          <TabsList>
+            <TabsTrigger value="push" disableUnderline className="gap-1.5">
+              <ArrowUpIcon className="size-3.5" />
+              Push
+            </TabsTrigger>
+            <TabsTrigger value="pull" disableUnderline className="gap-1.5">
+              <ArrowDownIcon className="size-3.5" />
+              Pull
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="push" className="space-y-4">
+            <WorkspaceSyncPushTab
+              workspaceId={workspace.id}
+              persistedGitUrl={persistedGitUrl}
+              repoDisplayName={repoDisplayName}
+              repoBranches={repoBranches}
+              baseBranch={baseBranch}
+              branchesIsLoading={branchesIsLoading}
+              branchesError={branchesError}
+            />
+          </TabsContent>
+
+          <TabsContent value="pull" className="space-y-4">
+            <WorkspaceSyncPullTab
+              workspaceId={workspace.id}
+              commits={commits}
+              commitsIsLoading={commitsIsLoading}
+              commitsError={commitsError}
+            />
+          </TabsContent>
+        </Tabs>
+      )}
     </div>
   )
 }
 
-function RepositorySelectItem({
-  repository,
-}: {
-  repository: GitHubAppRepository
-}) {
-  return (
-    <SelectItem value={repository.git_url}>{repository.full_name}</SelectItem>
-  )
+interface ConnectionStatusProps {
+  branchesIsLoading: boolean
+  hasBranchesError: boolean
+  defaultBranch: string | undefined
+  commitsIsLoading: boolean
+  latestCommitSha: string | undefined
+  latestCommitDate: string | undefined
 }
 
-function getRepositoryGitUrl(repository: GitHubAppRepository) {
-  const defaultBranch = repository.default_branch.trim()
-  if (!defaultBranch || defaultBranch === "main") {
-    return repository.git_url
+/**
+ * Compact, truthful connection status line: connection health, the default
+ * branch, and the latest remote commit. States facts about the remote only.
+ */
+function ConnectionStatus({
+  branchesIsLoading,
+  hasBranchesError,
+  defaultBranch,
+  commitsIsLoading,
+  latestCommitSha,
+  latestCommitDate,
+}: ConnectionStatusProps) {
+  if (branchesIsLoading) {
+    return (
+      <p className="text-xs text-muted-foreground">Checking connection...</p>
+    )
   }
-  return `${repository.git_url}@${defaultBranch}`
-}
 
-function matchesRepositoryGitUrl(
-  gitUrl: string | null | undefined,
-  repository: GitHubAppRepository
-) {
+  if (hasBranchesError) {
+    return (
+      <p className="flex items-center gap-1.5 text-xs text-destructive">
+        <AlertTriangleIcon className="size-3.5" />
+        Could not reach repository
+      </p>
+    )
+  }
+
   return (
-    gitUrl === repository.git_url || gitUrl === getRepositoryGitUrl(repository)
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+      <span className="inline-flex items-center gap-1.5 rounded-md border border-green-200 bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-700">
+        <span className="size-1.5 rounded-full bg-green-500" />
+        Connected
+      </span>
+      {defaultBranch && (
+        <>
+          <span>·</span>
+          <span className="font-mono font-medium text-foreground">
+            {defaultBranch}
+          </span>
+        </>
+      )}
+      {commitsIsLoading ? (
+        <Skeleton className="h-3 w-28 rounded-sm" />
+      ) : latestCommitSha ? (
+        <>
+          <span>· latest</span>
+          <span className="font-mono text-foreground">
+            {latestCommitSha.substring(0, 7)}
+          </span>
+          {latestCommitDate && (
+            <span>· {getRelativeTime(new Date(latestCommitDate))}</span>
+          )}
+        </>
+      ) : (
+        <span>· no commits yet</span>
+      )}
+    </div>
   )
-}
-
-function findMatchingRepository(
-  gitUrl: string | null | undefined,
-  repositories: GitHubAppRepository[]
-) {
-  return repositories.find((repository) =>
-    matchesRepositoryGitUrl(gitUrl, repository)
-  )
-}
-
-function getRepositorySelectValue(
-  gitUrl: string | null | undefined,
-  repositories: GitHubAppRepository[]
-) {
-  const repository = findMatchingRepository(gitUrl, repositories)
-  return repository?.git_url ?? gitUrl ?? ""
 }

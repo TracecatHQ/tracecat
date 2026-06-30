@@ -79,6 +79,11 @@ class SAMLSettingsUpdate(BaseSettingsGroup):
     saml_idp_metadata_url: str | None = Field(default=None)
 
 
+class VersionedResourceResolutionStrategy(StrEnum):
+    PINNED = "pinned"
+    LATEST = "latest"
+
+
 class AppSettingsRead(BaseSettingsGroup):
     """Settings for the app."""
 
@@ -88,6 +93,9 @@ class AppSettingsRead(BaseSettingsGroup):
     app_workflow_export_enabled: bool
     app_create_workspace_on_register: bool
     app_action_form_mode_enabled: bool
+    app_versioned_resource_resolution_strategy: VersionedResourceResolutionStrategy = (
+        VersionedResourceResolutionStrategy.LATEST
+    )
 
 
 class AppSettingsUpdate(BaseSettingsGroup):
@@ -115,6 +123,15 @@ class AppSettingsUpdate(BaseSettingsGroup):
     app_action_form_mode_enabled: bool = Field(
         default=True,
         description="Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.",
+    )
+    app_versioned_resource_resolution_strategy: VersionedResourceResolutionStrategy = (
+        Field(
+            default=VersionedResourceResolutionStrategy.LATEST,
+            description=(
+                "How versioned resource references are resolved when a feature "
+                "supports both pinned and latest dependency resolution."
+            ),
+        )
     )
 
 

@@ -11,7 +11,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import tracecat_registry.core.cases as cases_core
 import tracecat_registry.types as registry_types
 from tracecat_registry.core.cases import (
     add_case_tag,
@@ -51,7 +50,7 @@ def mock_cases_client():
 def mock_get_context(mock_cases_client: AsyncMock):
     """Mock get_context to return a fake context with mock cases client."""
     fake_ctx = SimpleNamespace(cases=mock_cases_client)
-    with patch.object(cases_core, "get_context", return_value=fake_ctx):
+    with patch("tracecat_registry.ctx.get_context", return_value=fake_ctx):
         yield
 
 

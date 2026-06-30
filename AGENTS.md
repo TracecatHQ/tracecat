@@ -188,6 +188,9 @@ just gen-functions
   other published repository text. Use generic phrasing such as "affected
   customer" or clearly synthetic placeholders instead, and search for the
   original strings before committing, pushing, or publishing PR/issue text.
+  Exception: the workspace sync feature may publish the source workspace name
+  and initiating user's email in the generated sync PR body because that
+  attribution is product behavior for user-initiated sync PRs.
 - Do not assume PostgreSQL superuser access in migrations, queries, or scripts.
 - Never add methods to `tracecat/db/models.py`; keep database models minimal.
 - Never branch on exception or error-message strings to choose behavior, status
