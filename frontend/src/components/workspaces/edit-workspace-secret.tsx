@@ -240,9 +240,7 @@ export function EditCredentialsDialog({
         okta_scopes: "",
         okta_kid: "",
         okta_private_key: "",
-        okta_dpop_enabled:
-          selectedSecret.keys.includes("OKTA_DPOP_ENABLED") &&
-          !selectedSecret.is_corrupted,
+        okta_dpop_enabled: false,
         okta_dpop_key_rotation_interval: "",
       })
     }
@@ -336,13 +334,20 @@ export function EditCredentialsDialog({
               "OKTA_DPOP_KEY_ROTATION_INTERVAL",
               values.okta_dpop_key_rotation_interval
             )
+          } else if (canPreserveOktaKey("OKTA_DPOP_ENABLED")) {
+            keys.push({ key: "OKTA_DPOP_ENABLED", value: "" })
+            addOktaKey(
+              keys,
+              "OKTA_DPOP_KEY_ROTATION_INTERVAL",
+              values.okta_dpop_key_rotation_interval
+            )
           }
           break
       }
 
       return keys
     },
-    [addOktaKey]
+    [addOktaKey, canPreserveOktaKey]
   )
 
   const validateOktaEditValues = useCallback(
@@ -998,7 +1003,9 @@ export function EditCredentialsDialog({
                               <div className="space-y-1">
                                 <FormLabel className="text-sm">DPoP</FormLabel>
                                 <FormDescription className="text-sm">
-                                  Enable proof-of-possession tokens.
+                                  {canPreserveOktaKey("OKTA_DPOP_ENABLED")
+                                    ? "Toggle on to enable proof-of-possession tokens. Leave off to keep the configured value."
+                                    : "Enable proof-of-possession tokens."}
                                 </FormDescription>
                               </div>
                               <FormControl>

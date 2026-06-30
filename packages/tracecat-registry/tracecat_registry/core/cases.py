@@ -324,7 +324,7 @@ async def get_linked_case_rows(
         Doc("The ID of the case to retrieve."),
     ],
 ) -> list[types.CaseTableRowRead]:
-    case = await get_context().cases.get_case(case_id, include_rows=True)
+    case = await ctx.cases.aio.get_case(case_id, include_rows=True)
     return case["rows"]
 
 

@@ -181,6 +181,77 @@ async def test_call_method_uses_sdk_method(monkeypatch: pytest.MonkeyPatch) -> N
     client.list_users.assert_awaited_once_with(limit=1)
 
 
+def test_add_group_request_preserves_custom_profile_attributes() -> None:
+    # Custom (schema-unknown) profile attributes must survive into the request.
+    # The SDK only routes unknown profile fields into `additional_properties`
+    # when built via `AddGroupRequest.from_dict()`; a raw dict coerced by
+    # `@validate_call` would silently drop them.
+    from okta.models.add_group_request import AddGroupRequest
+
+    request = AddGroupRequest.from_dict(
+        {
+            "profile": {
+                "name": "Engineers",
+                "description": "Eng team",
+                "costCenter": "CC-42",
+            }
+        }
+    )
+    assert request is not None
+
+    body = request.to_dict()
+    assert body["profile"] == {
+        "name": "Engineers",
+        "description": "Eng team",
+        "costCenter": "CC-42",
+    }
+
+
+@pytest.mark.anyio
+async def test_add_group_passes_request_with_custom_attributes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from okta.models.add_group_request import AddGroupRequest
+
+    client = SimpleNamespace(add_group=AsyncMock(return_value=({"id": "00g1"}, None)))
+    monkeypatch.setattr(okta_sdk, "_build_okta_client", lambda **_kwargs: client)
+
+    await okta_sdk.add_group(
+        group={"profile": {"name": "Engineers", "costCenter": "CC-42"}},
+        base_url="https://example.okta.com",
+    )
+
+    client.add_group.assert_awaited_once()
+    sent_group = client.add_group.await_args.kwargs["group"]
+    assert isinstance(sent_group, AddGroupRequest)
+    assert sent_group.to_dict()["profile"]["costCenter"] == "CC-42"
+
+
+@pytest.mark.anyio
+async def test_replace_group_passes_request_with_custom_attributes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from okta.models.add_group_request import AddGroupRequest
+
+    client = SimpleNamespace(
+        replace_group=AsyncMock(return_value=({"id": "00g1"}, None))
+    )
+    monkeypatch.setattr(okta_sdk, "_build_okta_client", lambda **_kwargs: client)
+
+    await okta_sdk.replace_group(
+        group_id="00g1",
+        group={"profile": {"name": "Engineers", "costCenter": "CC-42"}},
+        base_url="https://example.okta.com",
+    )
+
+    client.replace_group.assert_awaited_once()
+    await_kwargs = client.replace_group.await_args.kwargs
+    assert await_kwargs["group_id"] == "00g1"
+    sent_group = await_kwargs["group"]
+    assert isinstance(sent_group, AddGroupRequest)
+    assert sent_group.to_dict()["profile"]["costCenter"] == "CC-42"
+
+
 @pytest.mark.anyio
 async def test_call_method_rejects_private_method() -> None:
     with pytest.raises(ValueError, match="cannot start"):

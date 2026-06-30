@@ -5,7 +5,7 @@ from datetime import date, datetime
 from enum import Enum
 from typing import Annotated, Any, Literal, TypedDict, cast
 from urllib.parse import parse_qs, urlparse
-from okta.models import UpdateUserRequest
+
 from pydantic import BaseModel, Field
 
 from tracecat_registry import (
@@ -512,6 +512,8 @@ async def update_user(
     auth_mode: AuthModeParam = "auto",
     scopes: ScopesParam = None,
 ) -> dict[str, Any]:
+    from okta.models import UpdateUserRequest
+
     return await _call_okta_method(
         method_name="update_user",
         params=_drop_none(
@@ -553,6 +555,8 @@ async def replace_user(
     auth_mode: AuthModeParam = "auto",
     scopes: ScopesParam = None,
 ) -> dict[str, Any]:
+    from okta.models import UpdateUserRequest
+
     return await _call_okta_method(
         method_name="replace_user",
         params=_drop_none(
@@ -821,9 +825,13 @@ async def add_group(
     auth_mode: AuthModeParam = "auto",
     scopes: ScopesParam = None,
 ) -> dict[str, Any]:
+    # `from_dict` preserves custom group profile attributes; the SDK's
+    # `@validate_call` coercion of a raw dict silently drops unknown fields.
+    from okta.models.add_group_request import AddGroupRequest
+
     return await _call_okta_method(
         method_name="add_group",
-        params={"group": group},
+        params={"group": AddGroupRequest.from_dict(group)},
         base_url=base_url,
         auth_mode=auth_mode,
         scopes=scopes,
@@ -868,9 +876,13 @@ async def replace_group(
     auth_mode: AuthModeParam = "auto",
     scopes: ScopesParam = None,
 ) -> dict[str, Any]:
+    # `from_dict` preserves custom group profile attributes; the SDK's
+    # `@validate_call` coercion of a raw dict silently drops unknown fields.
+    from okta.models.add_group_request import AddGroupRequest
+
     return await _call_okta_method(
         method_name="replace_group",
-        params={"group_id": group_id, "group": group},
+        params={"group_id": group_id, "group": AddGroupRequest.from_dict(group)},
         base_url=base_url,
         auth_mode=auth_mode,
         scopes=scopes,
