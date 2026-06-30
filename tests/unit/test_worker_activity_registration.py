@@ -106,7 +106,7 @@ async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
             del exc_type, exc, tb
 
     monkeypatch.delenv("SENTRY_DSN", raising=False)
-    monkeypatch.setenv("TEMPORAL__THREADPOOL_MAX_WORKERS", "8")
+    monkeypatch.setenv("TEMPORAL__THREADPOOL_MAX_WORKERS", "")
     monkeypatch.setenv("TEMPORAL__MAX_CONCURRENT_ACTIVITIES", "")
     monkeypatch.setenv("TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS", "")
     monkeypatch.setenv("TEMPORAL__CLUSTER_QUEUE", "test-dsl-queue")
@@ -120,7 +120,7 @@ async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
 
     assert captured == {
         "task_queue": "test-dsl-queue",
-        "threadpool_max_workers": 8,
+        "threadpool_max_workers": 100,
         "max_concurrent_activities": 100,
         "max_concurrent_workflow_tasks": 100,
         "graceful_shutdown_timeout": timedelta(seconds=30),
