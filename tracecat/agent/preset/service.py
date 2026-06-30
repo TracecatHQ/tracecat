@@ -15,6 +15,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import selectinload
 
 from tracecat.agent.access.service import AgentModelAccessService
+from tracecat.agent.channels.schemas import ChannelType
+from tracecat.agent.channels.service import PENDING_SLACK_BOT_TOKEN
 from tracecat.agent.common.types import MCPHttpServerConfig, MCPServerConfig
 from tracecat.agent.preset.resolver import resolve_agents_config
 from tracecat.agent.preset.schemas import (
@@ -464,19 +466,38 @@ class AgentPresetService(BaseWorkspaceService):
         """Archive a preset without deleting its published versions."""
         await self._lock_preset_row(preset.id)
         await self._ensure_not_referenced_as_subagent(preset)
+        await self._delete_pending_slack_channel_tokens(preset.id)
+        await self._deactivate_active_channel_tokens(preset.id)
+        preset.archived_at = datetime.now(UTC)
+        self.session.add(preset)
+        await self.session.commit()
+
+    async def _delete_pending_slack_channel_tokens(self, preset_id: uuid.UUID) -> None:
+        """Remove OAuth placeholder tokens before archiving a preset."""
+        await self.session.execute(
+            sa.delete(AgentChannelToken)
+            .where(
+                AgentChannelToken.workspace_id == self.workspace_id,
+                AgentChannelToken.agent_preset_id == preset_id,
+                AgentChannelToken.channel_type == ChannelType.SLACK.value,
+                AgentChannelToken.config["slack_bot_token"].astext
+                == PENDING_SLACK_BOT_TOKEN,
+            )
+            .execution_options(synchronize_session=False)
+        )
+
+    async def _deactivate_active_channel_tokens(self, preset_id: uuid.UUID) -> None:
+        """Disable active external channel ingress for an archived preset."""
         await self.session.execute(
             sa.update(AgentChannelToken)
             .where(
                 AgentChannelToken.workspace_id == self.workspace_id,
-                AgentChannelToken.agent_preset_id == preset.id,
+                AgentChannelToken.agent_preset_id == preset_id,
                 AgentChannelToken.is_active.is_(True),
             )
             .values(is_active=False)
             .execution_options(synchronize_session=False)
         )
-        preset.archived_at = datetime.now(UTC)
-        self.session.add(preset)
-        await self.session.commit()
 
     async def _ensure_not_referenced_as_subagent(self, preset: AgentPreset) -> None:
         """Block deletion while other preset heads still reference this preset."""
