@@ -180,6 +180,103 @@ class WorkflowsClient:
             data["query"] = query
         return await self._client.post("/workflows/authoring-context", json=data)
 
+    async def get_webhook(self, *, workflow_id: str) -> dict[str, Any]:
+        """Read a workflow's webhook trigger configuration.
+
+        Args:
+            workflow_id: Workflow UUID (short ``wf_...`` or full format).
+
+        Returns:
+            dict with the webhook ``status`` (``"online"``/``"offline"``), the
+            public ``url`` to POST events to, the allowed ``methods``, and
+            ``entrypoint_ref``.
+
+        Raises:
+            TracecatNotFoundError: If the workflow has no webhook.
+            TracecatAPIError: For other API errors.
+        """
+        return await self._client.get(f"/workflows/{workflow_id}/webhook")
+
+    async def update_webhook(
+        self,
+        *,
+        workflow_id: str,
+        status: Literal["online", "offline"],
+    ) -> None:
+        """Enable or disable a workflow's webhook trigger.
+
+        Args:
+            workflow_id: Workflow UUID (short ``wf_...`` or full format).
+            status: ``"online"`` to enable the webhook (the workflow becomes
+                triggerable via its webhook ``url``) or ``"offline"`` to disable
+                it.
+
+        Raises:
+            TracecatNotFoundError: If the workflow does not exist.
+            TracecatAPIError: For other API errors.
+        """
+        await self._client.patch(
+            f"/workflows/{workflow_id}/webhook",
+            json={"status": status},
+        )
+
+    async def get_case_trigger(self, *, workflow_id: str) -> dict[str, Any]:
+        """Read a workflow's case-trigger configuration.
+
+        Args:
+            workflow_id: Workflow UUID (short ``wf_...`` or full format).
+
+        Returns:
+            dict with ``status`` (``"online"``/``"offline"``), ``event_types``
+            (the case events that fire the workflow), and ``tag_filters``.
+
+        Raises:
+            TracecatNotFoundError: If the workflow has no case trigger.
+            TracecatAPIError: For other API errors.
+        """
+        return await self._client.get(f"/workflows/{workflow_id}/case-trigger")
+
+    async def update_case_trigger(
+        self,
+        *,
+        workflow_id: str,
+        status: Literal["online", "offline"] | None = None,
+        event_types: list[str] | None = None,
+        tag_filters: list[str] | None = None,
+    ) -> None:
+        """Configure a workflow's case trigger.
+
+        This is the only supported way to set a case trigger. The case-trigger
+        config is NOT editable through :meth:`edit_workflow` JSON patches.
+
+        Args:
+            workflow_id: Workflow UUID (short ``wf_...`` or full format).
+            status: ``"online"`` to enable or ``"offline"`` to disable. When
+                setting ``"online"``, ``event_types`` must be non-empty (either
+                passed here or already configured).
+            event_types: Case event types that fire the workflow (e.g.
+                ``["case_created", "status_changed"]``).
+            tag_filters: Optional case-tag refs to restrict which cases fire the
+                trigger.
+
+        Raises:
+            TracecatNotFoundError: If the workflow does not exist.
+            TracecatValidationError: If ``status`` is ``"online"`` with no
+                ``event_types``.
+            TracecatAPIError: For other API errors.
+        """
+        data: dict[str, Any] = {}
+        if status is not None:
+            data["status"] = status
+        if event_types is not None:
+            data["event_types"] = event_types
+        if tag_filters is not None:
+            data["tag_filters"] = tag_filters
+        await self._client.patch(
+            f"/workflows/{workflow_id}/case-trigger",
+            json=data,
+        )
+
     async def execute(
         self,
         *,

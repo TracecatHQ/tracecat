@@ -1254,6 +1254,30 @@ class _WorkflowsAsync:
         action_names: list[str] | None = ...,
         query: str | None = ...,
     ) -> dict[str, Any]: ...
+    async def get_webhook(
+        self,
+        *,
+        workflow_id: str,
+    ) -> dict[str, Any]: ...
+    async def update_webhook(
+        self,
+        *,
+        workflow_id: str,
+        status: Literal["online", "offline"],
+    ) -> None: ...
+    async def get_case_trigger(
+        self,
+        *,
+        workflow_id: str,
+    ) -> dict[str, Any]: ...
+    async def update_case_trigger(
+        self,
+        *,
+        workflow_id: str,
+        status: Literal["online", "offline"] | None = ...,
+        event_types: list[str] | None = ...,
+        tag_filters: list[str] | None = ...,
+    ) -> None: ...
 
 class _Workflows:
     @property
@@ -1300,6 +1324,30 @@ class _Workflows:
         action_names: list[str] | None = ...,
         query: str | None = ...,
     ) -> dict[str, Any]: ...
+    def get_webhook(
+        self,
+        *,
+        workflow_id: str,
+    ) -> dict[str, Any]: ...
+    def update_webhook(
+        self,
+        *,
+        workflow_id: str,
+        status: Literal["online", "offline"],
+    ) -> None: ...
+    def get_case_trigger(
+        self,
+        *,
+        workflow_id: str,
+    ) -> dict[str, Any]: ...
+    def update_case_trigger(
+        self,
+        *,
+        workflow_id: str,
+        status: Literal["online", "offline"] | None = ...,
+        event_types: list[str] | None = ...,
+        tag_filters: list[str] | None = ...,
+    ) -> None: ...
 
 agents: _Agents
 cases: _Cases

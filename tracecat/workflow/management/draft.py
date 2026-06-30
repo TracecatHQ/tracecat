@@ -33,7 +33,7 @@ from tracecat.dsl.common import (
     build_action_statements_from_actions,
 )
 from tracecat.dsl.schemas import DSLConfig
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.mcp.json_patch import validate_patch_paths
 from tracecat.mcp.schemas import (
@@ -865,20 +865,18 @@ async def persist_workflow_edit_document(
 
     if "case_trigger" in changed_sections:
         case_trigger_service = CaseTriggersService(service.session, role=role)
-        if updated_document.case_trigger is None:
+        case_trigger_config = updated_document.case_trigger or CaseTriggerConfig(
+            status="offline", event_types=[], tag_filters=[]
+        )
+        try:
             await case_trigger_service.upsert_case_trigger(
                 workflow_id,
-                CaseTriggerConfig(status="offline", event_types=[], tag_filters=[]),
+                case_trigger_config,
                 create_missing_tags=True,
                 commit=False,
             )
-        else:
-            await case_trigger_service.upsert_case_trigger(
-                workflow_id,
-                updated_document.case_trigger,
-                create_missing_tags=True,
-                commit=False,
-            )
+        except (TracecatValidationError, TracecatNotFoundError) as exc:
+            raise WorkflowEditError(f"Invalid case trigger: {exc}") from exc
 
     await service.session.commit()
     await service.session.refresh(workflow)

@@ -274,6 +274,122 @@ async def get_authoring_context(
 
 @registry.register(
     namespace="core.workflow",
+    description=(
+        "Read a workflow's webhook trigger config (status, public URL, methods). "
+        "See the `tracecat-manage-workflows` skill for configuring triggers."
+    ),
+    default_title="Get workflow webhook",
+    display_group="Workflows",
+)
+async def get_webhook(
+    *,
+    workflow_id: Annotated[
+        str,
+        Doc("The workflow ID to read the webhook for (short `wf_...` or full)."),
+    ],
+) -> dict[str, Any]:
+    """Read a workflow's webhook trigger configuration."""
+    return await ctx.workflows.aio.get_webhook(workflow_id=workflow_id)
+
+
+@registry.register(
+    namespace="core.workflow",
+    description=(
+        "Enable (`online`) or disable (`offline`) a workflow's webhook trigger. "
+        "See the `tracecat-manage-workflows` skill."
+    ),
+    default_title="Update workflow webhook",
+    display_group="Workflows",
+)
+async def update_webhook(
+    *,
+    workflow_id: Annotated[
+        str,
+        Doc("The workflow ID to update the webhook for (short `wf_...` or full)."),
+    ],
+    status: Annotated[
+        Literal["online", "offline"],
+        Doc(
+            "`online` makes the workflow triggerable via its webhook URL; "
+            "`offline` disables it."
+        ),
+    ],
+) -> dict[str, Any]:
+    """Enable or disable a workflow's webhook trigger."""
+    await ctx.workflows.aio.update_webhook(workflow_id=workflow_id, status=status)
+    return {"workflow_id": workflow_id, "status": status}
+
+
+@registry.register(
+    namespace="core.workflow",
+    description=(
+        "Read a workflow's case-trigger config (status, event_types, tag_filters). "
+        "See the `tracecat-manage-workflows` skill."
+    ),
+    default_title="Get workflow case trigger",
+    display_group="Workflows",
+)
+async def get_case_trigger(
+    *,
+    workflow_id: Annotated[
+        str,
+        Doc("The workflow ID to read the case trigger for (short `wf_...` or full)."),
+    ],
+) -> dict[str, Any]:
+    """Read a workflow's case-trigger configuration."""
+    return await ctx.workflows.aio.get_case_trigger(workflow_id=workflow_id)
+
+
+@registry.register(
+    namespace="core.workflow",
+    description=(
+        "Configure a workflow's case trigger (status, event_types, tag_filters). "
+        "This is the ONLY way to set a case trigger — it is NOT editable via "
+        "`edit_workflow` JSON patches. See the `tracecat-manage-workflows` skill."
+    ),
+    default_title="Update workflow case trigger",
+    display_group="Workflows",
+)
+async def update_case_trigger(
+    *,
+    workflow_id: Annotated[
+        str,
+        Doc("The workflow ID to update the case trigger for (short `wf_...` or full)."),
+    ],
+    status: Annotated[
+        Literal["online", "offline"] | None,
+        Doc(
+            "`online` enables the case trigger (requires `event_types`); "
+            "`offline` disables it. Omit to leave unchanged."
+        ),
+    ] = None,
+    event_types: Annotated[
+        list[str] | None,
+        Doc(
+            "Case events that fire the workflow, e.g. "
+            "`['case_created', 'status_changed']`. Omit to leave unchanged."
+        ),
+    ] = None,
+    tag_filters: Annotated[
+        list[str] | None,
+        Doc(
+            "Optional case-tag refs restricting which cases fire the trigger. "
+            "Omit to leave unchanged."
+        ),
+    ] = None,
+) -> dict[str, Any]:
+    """Configure a workflow's case trigger."""
+    await ctx.workflows.aio.update_case_trigger(
+        workflow_id=workflow_id,
+        status=status,
+        event_types=event_types,
+        tag_filters=tag_filters,
+    )
+    return {"workflow_id": workflow_id}
+
+
+@registry.register(
+    namespace="core.workflow",
     description="Get the status of a workflow execution.",
     default_title="Get workflow status",
     display_group="Workflows",
