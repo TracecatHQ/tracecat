@@ -10,8 +10,15 @@ the MCP integration path.
 
 from __future__ import annotations
 
+import uuid
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+
 from tracecat.agent.authoring_context import (
     ActionRequirementPayload,
+    build_enabled_models,
     build_example_from_schema,
     evaluate_configuration,
     optional_secret_names,
@@ -146,3 +153,92 @@ class TestEvaluateConfiguration:
 
         assert configured is True
         assert missing == []
+
+
+pytestmark = pytest.mark.anyio
+
+
+class _AsyncContext:
+    """Minimal async context manager yielding a fixed value."""
+
+    def __init__(self, value: Any) -> None:
+        self._value = value
+
+    async def __aenter__(self) -> Any:
+        return self._value
+
+    async def __aexit__(self, *_args: Any) -> None:
+        return None
+
+
+class TestBuildEnabledModels:
+    """``build_enabled_models`` surfaces workspace-scoped models as hints."""
+
+    async def test_returns_workspace_models_with_agent_read(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        workspace_id = uuid.uuid4()
+        catalog_id = uuid.uuid4()
+        role = SimpleNamespace(
+            scopes=frozenset({"agent:read"}),
+            workspace_id=workspace_id,
+        )
+
+        class _AccessService:
+            async def get_workspace_models(self, ws_id: uuid.UUID) -> list[Any]:
+                assert ws_id == workspace_id
+                return [
+                    SimpleNamespace(
+                        id=catalog_id,
+                        model_name="claude-opus-4-8",
+                        model_provider="anthropic",
+                    )
+                ]
+
+        monkeypatch.setattr(
+            "tracecat.agent.authoring_context.AgentModelAccessService.with_session",
+            lambda role: _AsyncContext(_AccessService()),
+        )
+
+        models = await build_enabled_models(role=role)  # type: ignore[arg-type]
+
+        assert len(models) == 1
+        assert models[0].catalog_id == str(catalog_id)
+        assert models[0].model_name == "claude-opus-4-8"
+        assert models[0].model_provider == "anthropic"
+
+    async def test_empty_without_agent_read_scope(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        role = SimpleNamespace(
+            scopes=frozenset({"workflow:read"}),
+            workspace_id=uuid.uuid4(),
+        )
+
+        def _fail(_role: Any) -> Any:  # pragma: no cover - must not be called
+            raise AssertionError("must not read models without agent:read")
+
+        monkeypatch.setattr(
+            "tracecat.agent.authoring_context.AgentModelAccessService.with_session",
+            _fail,
+        )
+
+        assert await build_enabled_models(role=role) == []  # type: ignore[arg-type]
+
+    async def test_empty_without_workspace(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        role = SimpleNamespace(
+            scopes=frozenset({"agent:read"}),
+            workspace_id=None,
+        )
+
+        def _fail(_role: Any) -> Any:  # pragma: no cover - must not be called
+            raise AssertionError("must not read models without a workspace")
+
+        monkeypatch.setattr(
+            "tracecat.agent.authoring_context.AgentModelAccessService.with_session",
+            _fail,
+        )
+
+        assert await build_enabled_models(role=role) == []  # type: ignore[arg-type]

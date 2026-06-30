@@ -16,6 +16,7 @@ from typing import Any, Literal, TypedDict, cast
 from pydantic import BaseModel, Field
 from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
+from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.tools import create_tool_from_registry
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope
@@ -78,12 +79,27 @@ class ActionContextResponse(ActionDiscoveryResponse):
     examples: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class EnabledModelInfo(BaseModel):
+    """A model enabled for the workspace, usable when configuring AI actions.
+
+    ``catalog_id`` is the canonical model selector: pass it as the ``model``
+    selection on ``ai.agent``/``ai.call`` actions or as ``catalog_id`` on agent
+    presets. ``model_name``/``model_provider`` are surfaced for display and for
+    the deprecated legacy selectors only.
+    """
+
+    catalog_id: str
+    model_name: str
+    model_provider: str
+
+
 class WorkflowAuthoringContextResponse(BaseModel):
     """Workflow authoring context response."""
 
     actions: list[ActionContextResponse] = Field(default_factory=list)
     variable_hints: list[dict[str, Any]] = Field(default_factory=list)
     secret_hints: list[dict[str, Any]] = Field(default_factory=list)
+    enabled_models: list[EnabledModelInfo] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
 
 
@@ -335,4 +351,31 @@ async def build_secret_hints(*, role: Role) -> list[dict[str, Any]]:
             "environment": DEFAULT_SECRETS_ENVIRONMENT,
         }
         for secret_name, keys in workspace_inventory.items()
+    ]
+
+
+async def build_enabled_models(*, role: Role) -> list[EnabledModelInfo]:
+    """List the models enabled for the workspace as authoring hints.
+
+    These are the only models an author may select when configuring AI actions
+    (``ai.agent``, ``ai.call``, ...) or agent presets, so the chat agent should
+    pick a ``catalog_id`` from this list rather than guessing a model name.
+
+    Returns ``[]`` when the caller lacks ``agent:read`` (mirroring the
+    variable/secret hint gating) or when the role has no bound workspace, so the
+    enabled-model set is never enumerated to an unauthorized author.
+    """
+    if not has_scope(role.scopes or frozenset(), "agent:read"):
+        return []
+    if role.workspace_id is None:
+        return []
+    async with AgentModelAccessService.with_session(role=role) as svc:
+        models = await svc.get_workspace_models(role.workspace_id)
+    return [
+        EnabledModelInfo(
+            catalog_id=str(model.id),
+            model_name=model.model_name,
+            model_provider=model.model_provider,
+        )
+        for model in models
     ]

@@ -23,6 +23,7 @@ from temporalio.service import RPCError
 from tracecat.agent.authoring_context import (
     WorkflowAuthoringContextResponse,
     build_action_contexts,
+    build_enabled_models,
     build_secret_hints,
     build_variable_hints,
 )
@@ -530,10 +531,12 @@ async def get_authoring_context(
     )
     variable_hints = await build_variable_hints(role=role)
     secret_hints = await build_secret_hints(role=role)
+    enabled_models = await build_enabled_models(role=role)
     return WorkflowAuthoringContextResponse(
         actions=actions,
         variable_hints=variable_hints,
         secret_hints=secret_hints,
+        enabled_models=enabled_models,
     )
 
 

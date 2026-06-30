@@ -54,6 +54,7 @@ from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.authoring_context import (
     ActionContextResponse,
     ActionDiscoveryResponse,
+    build_enabled_models,
     build_example_from_schema,
     build_secret_hints,
     build_variable_hints,
@@ -4225,12 +4226,14 @@ async def get_workflow_authoring_context(
 
         variable_hints = await build_variable_hints(role=role)
         secret_hints = await build_secret_hints(role=role)
+        enabled_models = await build_enabled_models(role=role)
 
         truncated_sections, truncation = _truncate_named_sections(
             {
                 "actions": action_contexts,
                 "variable_hints": variable_hints,
                 "secret_hints": secret_hints,
+                "enabled_models": enabled_models,
             },
             limit=_MCP_EMBEDDED_COLLECTION_LIMIT,
         )
@@ -4239,10 +4242,15 @@ async def get_workflow_authoring_context(
             actions=truncated_sections["actions"],
             variable_hints=truncated_sections["variable_hints"],
             secret_hints=truncated_sections["secret_hints"],
+            enabled_models=truncated_sections["enabled_models"],
             notes=[
                 "configured means required secret names and keys exist in the "
                 "default environment, and any required OAuth integrations are "
                 "configured for the workspace",
+                "enabled_models lists the models available in this workspace; "
+                "when configuring an AI action (ai.agent, ai.call) or agent "
+                "preset, select a catalog_id from this list instead of guessing "
+                "a model name",
             ],
             truncation=truncation,
         )

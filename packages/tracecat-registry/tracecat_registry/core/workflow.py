@@ -238,8 +238,11 @@ async def edit_workflow(
 @registry.register(
     namespace="core.workflow",
     description=(
-        "Get action schemas, required secrets, and example args before writing "
-        "an action's `args:`. Resolve by `action_names` or `query`. See the "
+        "Get action schemas, required secrets, example args, and the models "
+        "enabled for this workspace before writing an action's `args:`. When "
+        "configuring an AI action (`ai.agent`, `ai.call`) or agent preset, "
+        "select a `catalog_id` from `enabled_models` instead of guessing a "
+        "model name. Resolve by `action_names` or `query`. See the "
         "`tracecat-manage-workflows` skill."
     ),
     default_title="Get workflow authoring context",
@@ -262,7 +265,7 @@ async def get_authoring_context(
         ),
     ] = None,
 ) -> dict[str, Any]:
-    """Return action schemas, secret/variable hints, and example args."""
+    """Return action schemas, secret/variable hints, enabled models, and example args."""
     return await ctx.workflows.aio.get_authoring_context(
         action_names=action_names,
         query=query,

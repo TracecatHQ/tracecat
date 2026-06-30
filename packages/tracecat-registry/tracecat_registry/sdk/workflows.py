@@ -166,7 +166,9 @@ class WorkflowsClient:
 
         Returns:
             dict with ``actions`` (each a schema/secrets/examples context),
-            ``variable_hints``, and ``secret_hints``.
+            ``variable_hints``, ``secret_hints``, and ``enabled_models`` (the
+            models available in this workspace; select a ``catalog_id`` from
+            this list when configuring AI actions or agent presets).
 
         Raises:
             TracecatAPIError: For API errors.
