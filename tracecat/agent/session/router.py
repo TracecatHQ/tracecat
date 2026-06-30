@@ -474,14 +474,22 @@ async def send_message(
                 # resuming from "0-0" would replay the approval request the active
                 # client already rendered before clicking approve/deny.
                 stream_id = agent_session.active_stream_id
-                stream = await AgentStream.new(session_id, workspace_id, stream_id)
+                stream = await AgentStream.new(
+                    session_id=session_id,
+                    workspace_id=workspace_id,
+                    stream_id=stream_id,
+                )
                 start_id = "$"
             else:
                 # Mint the per-turn stream id at the HTTP layer (turn start) so the
                 # seed artifact and the worker producer both write to the same
                 # fresh per-turn key. No reset/reuse of a prior turn's buffer.
                 stream_id = uuid.uuid4()
-                stream = await AgentStream.new(session_id, workspace_id, stream_id)
+                stream = await AgentStream.new(
+                    session_id=session_id,
+                    workspace_id=workspace_id,
+                    stream_id=stream_id,
+                )
                 start_id = "0-0"
                 if await svc.should_seed_initial_artifact(agent_session) and (
                     artifact := await svc.build_initial_artifact(agent_session)
@@ -499,14 +507,21 @@ async def send_message(
                     request=request,
                     active_stream_id=stream_id,
                 )
-            except Exception:
+            except Exception as turn_exc:
                 if not isinstance(request, ContinueRunRequest):
                     # Startup failed after we minted the stream: surface a terminal
                     # frame so reconnecting clients don't hang, and clear pointers.
                     # Non-continue turns always mint a fresh per-turn stream id.
                     assert stream_id is not None
+                    logger.warning(
+                        "Failed to start agent turn",
+                        session_id=session_id,
+                        error=str(turn_exc),
+                    )
                     try:
-                        await stream.error("Failed to start agent turn")
+                        await stream.error(
+                            f"Failed to start agent turn for session {session_id}"
+                        )
                         await stream.done()
                         await svc.clear_active_turn(
                             session_id, expected_stream_id=stream_id
@@ -635,7 +650,9 @@ async def stream_session_events(
             if last_stream_id is None and not last_event_id:
                 return Response(status_code=status.HTTP_204_NO_CONTENT)
             start_id = last_event_id or last_stream_id or "0-0"
-            legacy_stream = await AgentStream.new(session_id, workspace_id)
+            legacy_stream = await AgentStream.new(
+                session_id=session_id, workspace_id=workspace_id
+            )
             return StreamingResponse(
                 legacy_stream.sse(
                     request.is_disconnected, last_id=start_id, format=format
@@ -658,7 +675,9 @@ async def stream_session_events(
     # FAILED | TERMINATED (incl. failed-to-start): the workflow will not produce a
     # terminal frame, so emit one ourselves and let the client refetch DB history.
     if lifecycle is TurnLifecycle.FAILED:
-        finished = await AgentStream.new(session_id, workspace_id, active_stream_id)
+        finished = await AgentStream.new(
+            session_id=session_id, workspace_id=workspace_id, stream_id=active_stream_id
+        )
         return StreamingResponse(
             finished.finished_sse(format=format, message_id=message_id),
             media_type="text/event-stream",
@@ -677,7 +696,9 @@ async def stream_session_events(
     # bubble whole at the cost of re-streaming the in-flight turn on reconnect.
     # (Cursor/frame-precise resume is intentionally not used here; revisit if we
     # reconcile committed partial rows with the live stream id.)
-    stream = await AgentStream.new(session_id, workspace_id, active_stream_id)
+    stream = await AgentStream.new(
+        session_id=session_id, workspace_id=workspace_id, stream_id=active_stream_id
+    )
     start_id = "0-0"
     resume_from: str | None = None
 

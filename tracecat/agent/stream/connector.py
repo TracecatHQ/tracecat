@@ -16,6 +16,7 @@ from typing import Any
 import orjson
 from pydantic_core import to_jsonable_python
 
+from tracecat.agent.common.stream_types import parse_vercel_frame_cursor
 from tracecat.agent.stream.events import (
     AgentStreamEventTA,
     StreamConnected,
@@ -27,7 +28,6 @@ from tracecat.agent.stream.events import (
     StreamKeepAlive,
     StreamMessage,
     UnifiedStreamEventTA,
-    parse_vercel_frame_cursor,
 )
 from tracecat.agent.types import ModelMessageTA, StreamKey
 from tracecat.chat import tokens
@@ -49,6 +49,7 @@ class AgentStream:
 
     def __init__(
         self,
+        *,
         client: RedisClient,
         workspace_id: uuid.UUID,
         session_id: uuid.UUID,
@@ -58,17 +59,25 @@ class AgentStream:
         self.workspace_id = workspace_id
         self.session_id = session_id
         self.stream_id = stream_id
-        self._stream_key = StreamKey(workspace_id, session_id, stream_id)
+        self._stream_key = StreamKey(
+            workspace_id=workspace_id, session_id=session_id, stream_id=stream_id
+        )
 
     @classmethod
     async def new(
         cls,
-        session_id: uuid.UUID,
+        *,
         workspace_id: uuid.UUID,
+        session_id: uuid.UUID,
         stream_id: uuid.UUID | None = None,
     ) -> AgentStream:
         client = await get_redis_client()
-        return cls(client, workspace_id, session_id, stream_id)
+        return cls(
+            client=client,
+            workspace_id=workspace_id,
+            session_id=session_id,
+            stream_id=stream_id,
+        )
 
     async def append(self, event: Any) -> None:
         """Stream a message to a Redis stream."""

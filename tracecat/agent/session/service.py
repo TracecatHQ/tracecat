@@ -57,7 +57,11 @@ from tracecat.agent.session.schemas import (
     AgentSessionUpdate,
 )
 from tracecat.agent.session.title_generator import generate_session_title
-from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
+from tracecat.agent.session.types import (
+    AgentSessionEntity,
+    TurnLifecycle,
+    TurnLifecycleResult,
+)
 from tracecat.agent.subagents import (
     ResolvedAgentsConfig,
 )
@@ -1045,7 +1049,11 @@ class AgentSessionService(BaseWorkspaceService):
         try:
             redis_client = await get_redis_client()
             await redis_client.xadd(
-                str(StreamKey(self.workspace_id, session_id, active_stream_id)),
+                StreamKey(
+                    workspace_id=self.workspace_id,
+                    session_id=session_id,
+                    stream_id=active_stream_id,
+                ),
                 {
                     tokens.DATA_KEY: orjson.dumps(
                         {tokens.END_TOKEN: tokens.END_TOKEN_VALUE},
@@ -1404,7 +1412,7 @@ class AgentSessionService(BaseWorkspaceService):
 
     async def get_turn_lifecycle(
         self, agent_session: AgentSession
-    ) -> tuple[TurnLifecycle, uuid.UUID | None]:
+    ) -> TurnLifecycleResult:
         """Resolve the live turn lifecycle from Temporal (cold reconnect path).
 
         Temporal owns lifecycle - we never cache it in the DB. Returns the
@@ -1419,7 +1427,7 @@ class AgentSessionService(BaseWorkspaceService):
 
         curr_run_id = agent_session.curr_run_id
         if curr_run_id is None:
-            return TurnLifecycle.NONE, None
+            return TurnLifecycleResult(TurnLifecycle.NONE, None)
 
         client = await get_temporal_client()
         handle = client.get_workflow_handle_for(
@@ -1435,16 +1443,23 @@ class AgentSessionService(BaseWorkspaceService):
                 session_id=str(agent_session.id),
                 run_id=str(curr_run_id),
             )
-            return TurnLifecycle.FAILED, curr_run_id
+            return TurnLifecycleResult(TurnLifecycle.FAILED, curr_run_id)
 
         match description.status:
-            case WorkflowExecutionStatus.RUNNING:
-                return TurnLifecycle.RUNNING, curr_run_id
+            case (
+                WorkflowExecutionStatus.RUNNING
+                | WorkflowExecutionStatus.CONTINUED_AS_NEW
+            ):
+                # CONTINUED_AS_NEW is not currently reachable - DurableAgentWorkflow
+                # loops turns internally rather than calling continue_as_new - but
+                # treat it as still-running (not failed) for consistency with how
+                # the inbox provider classifies Temporal workflow statuses.
+                return TurnLifecycleResult(TurnLifecycle.RUNNING, curr_run_id)
             case WorkflowExecutionStatus.COMPLETED:
-                return TurnLifecycle.COMPLETED, curr_run_id
+                return TurnLifecycleResult(TurnLifecycle.COMPLETED, curr_run_id)
             case _:
-                # FAILED | TERMINATED | CANCELED | TIMED_OUT | CONTINUED_AS_NEW
-                return TurnLifecycle.FAILED, curr_run_id
+                # FAILED | TERMINATED | CANCELED | TIMED_OUT
+                return TurnLifecycleResult(TurnLifecycle.FAILED, curr_run_id)
 
     async def validate_turn_request(
         self,

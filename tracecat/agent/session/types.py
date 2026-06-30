@@ -1,6 +1,8 @@
 """Domain types for agent session management."""
 
+import uuid
 from enum import StrEnum
+from typing import NamedTuple
 
 
 class TurnLifecycle(StrEnum):
@@ -20,6 +22,16 @@ class TurnLifecycle(StrEnum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+
+
+class TurnLifecycleResult(NamedTuple):
+    """Result of resolving a turn's live lifecycle from Temporal.
+
+    ``run_id`` is ``None`` exactly when ``lifecycle`` is ``TurnLifecycle.NONE``.
+    """
+
+    lifecycle: TurnLifecycle
+    run_id: uuid.UUID | None
 
 
 class AgentSessionEntity(StrEnum):

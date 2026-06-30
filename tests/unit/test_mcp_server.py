@@ -10014,9 +10014,10 @@ async def test_collect_agent_response_returns_text(
             yield StreamEnd(id="1717426372769-0")
 
     async def _new(
-        _session_id: uuid.UUID,
-        _workspace_id: uuid.UUID,
-        _stream_id: uuid.UUID | None = None,
+        *,
+        session_id: uuid.UUID,
+        workspace_id: uuid.UUID,
+        stream_id: uuid.UUID | None = None,
     ) -> _Stream:
         return _Stream()
 
@@ -10063,9 +10064,10 @@ async def test_collect_agent_response_surfaces_approval_requests(
             yield StreamEnd(id="1717426372769-0")
 
     async def _new(
-        _session_id: uuid.UUID,
-        _workspace_id: uuid.UUID,
-        _stream_id: uuid.UUID | None = None,
+        *,
+        session_id: uuid.UUID,
+        workspace_id: uuid.UUID,
+        stream_id: uuid.UUID | None = None,
     ) -> _Stream:
         return _Stream()
 

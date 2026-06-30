@@ -130,7 +130,7 @@ from tracecat.cases.service import (
 )
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
-from tracecat.chat.schemas import BasicChatRequest, ChatRequest
+from tracecat.chat.schemas import BasicChatRequest
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import (
     Action,
@@ -9466,7 +9466,9 @@ async def _collect_agent_response(
     stream_id: uuid.UUID | None = None,
 ) -> str | AgentAwaitingApprovalResponse:
     """Poll Redis agent stream and return text output or pending approval state."""
-    stream = await AgentStream.new(session_id, workspace_id, stream_id)
+    stream = await AgentStream.new(
+        session_id=session_id, workspace_id=workspace_id, stream_id=stream_id
+    )
     text_parts: list[str] = []
     approval_items: dict[str, AgentApprovalItemResponse] = {}
 
@@ -9621,11 +9623,9 @@ async def run_agent_preset(
             # Mint the stream id in the caller so the producer (run_turn pins
             # this id) and the consumer (below) share the same suffixed key.
             stream_id = uuid.uuid4()
-            # BasicChatRequest is handled at runtime by run_turn's match statement
-            # but not included in the ChatRequest type alias
             await svc.run_turn(
                 session.id,
-                cast(ChatRequest, BasicChatRequest(message=prompt)),
+                BasicChatRequest(message=prompt),
                 active_stream_id=stream_id,
             )
 

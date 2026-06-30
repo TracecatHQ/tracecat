@@ -24,7 +24,7 @@ class PersistableStreamingAgentDeps:
         session_id: uuid.UUID,
         workspace_id: uuid.UUID,
     ) -> PersistableStreamingAgentDeps:
-        stream = await AgentStream.new(session_id, workspace_id)
+        stream = await AgentStream.new(session_id=session_id, workspace_id=workspace_id)
         return cls(stream_writer=AgentStreamWriter(stream=stream))
 
     @classmethod

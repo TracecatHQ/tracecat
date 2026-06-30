@@ -79,9 +79,12 @@ class ChatResponse(BaseModel):
     curr_run_id: uuid.UUID | None = Field(
         default=None,
         description=(
-            "Run id of the turn just spawned. Returned so callers can build the "
-            "stable bubble id without re-reading the session row, which terminal "
-            "cleanup (finalize_turn) may have already cleared on a fast turn."
+            "Id of the turn just spawned, used as the Temporal workflow id (not "
+            "Temporal's own run_id). This bare UUID is wrapped as "
+            "'agent/<curr_run_id>' when passed to Temporal as the workflow id. "
+            "Returned so callers can build the stable bubble id without "
+            "re-reading the session row, which terminal cleanup (finalize_turn) "
+            "may have already cleared on a fast turn."
         ),
     )
 

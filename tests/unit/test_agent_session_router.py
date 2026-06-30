@@ -447,7 +447,9 @@ async def test_send_message_continue_uses_path_session_id_for_stream_key() -> No
     with_session_mock.assert_called_once_with(role=role)
     # Continuation reuses the existing per-turn stream id (None here).
     stream_new_mock.assert_awaited_once_with(
-        session_id, workspace_id, agent_session.active_stream_id
+        session_id=session_id,
+        workspace_id=workspace_id,
+        stream_id=agent_session.active_stream_id,
     )
     fake_svc.validate_turn_request.assert_awaited_once_with(
         session_id=session_id,
@@ -530,10 +532,10 @@ async def test_send_message_new_turn_uses_fresh_per_turn_stream() -> None:
     # and run_turn (same value).
     await_args = stream_new_mock.await_args
     assert await_args is not None
-    new_call_args = await_args.args
-    assert new_call_args[0] == session_id
-    assert new_call_args[1] == workspace_id
-    minted_stream_id = new_call_args[2]
+    new_call_kwargs = await_args.kwargs
+    assert new_call_kwargs["session_id"] == session_id
+    assert new_call_kwargs["workspace_id"] == workspace_id
+    minted_stream_id = new_call_kwargs["stream_id"]
     assert isinstance(minted_stream_id, uuid.UUID)
     fake_svc.run_turn.assert_awaited_once_with(
         session_id=session_id,
@@ -1231,7 +1233,9 @@ async def test_stream_session_events_attaches_when_running_no_cursor() -> None:
     assert fake_stream.sse.call_args.kwargs["last_id"] == "0-0"
     # bubble id is session:run and the stream key is the per-turn active id.
     assert fake_stream.sse.call_args.kwargs["message_id"] == f"{session_id}:{run_id}"
-    stream_new_mock.assert_awaited_with(session_id, workspace_id, stream_id)
+    stream_new_mock.assert_awaited_with(
+        session_id=session_id, workspace_id=workspace_id, stream_id=stream_id
+    )
 
 
 @pytest.mark.anyio

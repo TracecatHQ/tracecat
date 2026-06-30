@@ -1,7 +1,7 @@
 """add active_stream_id and history curr_run_id
 
 Revision ID: 574d19d8c16c
-Revises: 290137982547
+Revises: 31b8cb7b312e
 Create Date: 2026-06-22 15:16:14.572223
 
 """
@@ -14,7 +14,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "574d19d8c16c"
-down_revision: str | None = "290137982547"
+down_revision: str | None = "31b8cb7b312e"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
