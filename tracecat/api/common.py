@@ -143,25 +143,8 @@ def tracecat_exception_handler(request: Request, exc: Exception) -> Response:
     tracecat_exc = (
         exc if isinstance(exc, TracecatException) else TracecatException(str(exc))
     )
-    role = ctx_role.get()
     query_params = _sanitize_query_params(request.query_params)
     path = redact_url_path_secrets(request.url.path)
-    capture_exception(
-        tracecat_exc,
-        tags={
-            "http.method": request.method,
-            "http.route": path,
-            "tracecat.exception_type": type(exc).__name__,
-        },
-        contexts={
-            "tracecat.request": {
-                "path": path,
-                "query_params": query_params,
-            },
-            "tracecat.role": role.model_dump(mode="json") if role else None,
-            "tracecat.exception": {"detail": tracecat_exc.detail},
-        },
-    )
     msg = str(tracecat_exc)
     logger.error(
         msg,

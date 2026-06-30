@@ -97,19 +97,17 @@ def test_tracecat_exception_handler_redacts_oauth_query_params(mocker):
     logger = mocker.patch("tracecat.api.common.logger")
     request = _make_request(b"CODE=secret-code&STATE=secret-state&foo=bar")
 
-    response = tracecat_exception_handler(request, TracecatException("boom"))
+    response = tracecat_exception_handler(
+        request,
+        TracecatException("boom", detail={"customer_email": "customer@example.com"}),
+    )
 
     query_params = {
         "CODE": REDACTED_VALUE,
         "STATE": REDACTED_VALUE,
         "foo": "bar",
     }
-    assert (
-        capture_exception.call_args.kwargs["contexts"]["tracecat.request"][
-            "query_params"
-        ]
-        == query_params
-    )
+    capture_exception.assert_not_called()
     assert logger.error.call_args.kwargs["params"] == query_params
     assert response.status_code == 500
 
@@ -136,10 +134,6 @@ def test_tracecat_exception_handler_redacts_webhook_secret_path(
 
     response = tracecat_exception_handler(request, TracecatException("boom"))
 
-    assert capture_exception.call_args.kwargs["tags"]["http.route"] == expected_path
-    assert (
-        capture_exception.call_args.kwargs["contexts"]["tracecat.request"]["path"]
-        == expected_path
-    )
+    capture_exception.assert_not_called()
     assert logger.error.call_args.kwargs["path"] == expected_path
     assert response.status_code == 500
