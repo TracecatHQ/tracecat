@@ -1334,6 +1334,11 @@ async def test_gitlab_export_uses_gitlab_transport_and_mapping_context(
         message="Committed workspace sync changes.",
     )
     providers_seen: list[VcsProvider] = []
+    service = WorkspaceSyncService(
+        session=workspace_sync_service.session,
+        role=workspace_sync_service.role,
+        provider=VcsProvider.GITLAB,
+    )
 
     async def workspace_git_url(*, provider: VcsProvider) -> GitUrl:
         providers_seen.append(provider)
@@ -1344,7 +1349,8 @@ async def test_gitlab_export_uses_gitlab_transport_and_mapping_context(
         )
 
     async def project_workspace(**_kwargs: Any) -> WorkspaceProjection:
-        assert workspace_sync_service._mapping_provider is VcsProvider.GITLAB
+        # The provider is fixed at construction, so mapping reads stay on GitLab.
+        assert service._mapping_provider is VcsProvider.GITLAB
         return projection
 
     def transport_factory(
@@ -1357,11 +1363,11 @@ async def test_gitlab_export_uses_gitlab_transport_and_mapping_context(
         providers_seen.append(provider)
         return transport
 
-    workspace_sync_service._workspace_git_url = workspace_git_url
-    workspace_sync_service.project_workspace = project_workspace
-    workspace_sync_service._transport_factory = transport_factory
+    service._workspace_git_url = workspace_git_url
+    service.project_workspace = project_workspace
+    service._transport_factory = transport_factory
 
-    result = await workspace_sync_service.export_workspace(
+    result = await service.export_workspace(
         WorkspaceSyncExportRequest(
             message="Push workspace",
             branch="sync/workspace",
@@ -1372,7 +1378,7 @@ async def test_gitlab_export_uses_gitlab_transport_and_mapping_context(
 
     assert result.files == [MANIFEST_FILENAME]
     assert providers_seen == [VcsProvider.GITLAB, VcsProvider.GITLAB]
-    assert workspace_sync_service._mapping_provider is VcsProvider.GITHUB
+    assert service._mapping_provider is VcsProvider.GITLAB
 
 
 @pytest.mark.anyio

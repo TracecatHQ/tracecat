@@ -155,11 +155,12 @@ async def list_workflow_commits(
         )
 
     try:
-        sync_service = WorkspaceSyncService(session=session, role=role)
+        sync_service = WorkspaceSyncService(
+            session=session, role=role, provider=provider
+        )
         return await sync_service.list_commits(
             branch=branch,
             limit=limit,
-            provider=provider,
         )
     except HTTPException:
         raise
@@ -214,8 +215,10 @@ async def list_workflow_branches(
         )
 
     try:
-        sync_service = WorkspaceSyncService(session=session, role=role)
-        return await sync_service.list_branches(limit=limit, provider=provider)
+        sync_service = WorkspaceSyncService(
+            session=session, role=role, provider=provider
+        )
+        return await sync_service.list_branches(limit=limit)
     except HTTPException:
         raise
     except TracecatNotFoundError as e:
@@ -258,7 +261,9 @@ async def export_workspace_sync(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Workspace ID is required",
         )
-    sync_service = WorkspaceSyncService(session=session, role=role)
+    sync_service = WorkspaceSyncService(
+        session=session, role=role, provider=params.provider
+    )
     try:
         return await sync_service.export_workspace(params)
     except TracecatNotFoundError as e:
@@ -291,7 +296,9 @@ async def preview_export_workspace_sync(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Workspace ID is required",
         )
-    sync_service = WorkspaceSyncService(session=session, role=role)
+    sync_service = WorkspaceSyncService(
+        session=session, role=role, provider=params.provider
+    )
     try:
         return await sync_service.preview_export_workspace(params)
     except TracecatNotFoundError as e:
@@ -335,10 +342,11 @@ async def pull_workflows(
             commit_sha=params.commit_sha,
             dry_run=params.dry_run,
         )
-        sync_service = WorkspaceSyncService(session=session, role=role)
+        sync_service = WorkspaceSyncService(
+            session=session, role=role, provider=params.provider
+        )
         return await sync_service.pull(
             options=pull_options,
-            provider=params.provider,
             sync_schedules=params.sync_schedules,
         )
     except ValueError as e:

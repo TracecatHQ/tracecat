@@ -884,11 +884,13 @@ async def test_source_export_target_pull_preserves_projected_workspace(
     source_service = WorkspaceSyncService(
         session=session,
         role=svc_role,
+        provider=provider,
         transport_factory=fake_vcs.transport_factory,
     )
     target_service = WorkspaceSyncService(
         session=session,
         role=target_role,
+        provider=provider,
         transport_factory=fake_vcs.transport_factory,
     )
     seed_transport = fake_vcs.transport_factory(
@@ -911,7 +913,6 @@ async def test_source_export_target_pull_preserves_projected_workspace(
     ):
         source_pull = await source_service.pull(
             options=PullOptions(commit_sha=seed_commit.sha),
-            provider=provider,
         )
         assert source_pull.success is True
         source_table = await session.scalar(
@@ -921,10 +922,9 @@ async def test_source_export_target_pull_preserves_projected_workspace(
             )
         )
         assert source_table is not None
-        with source_service._mapping_provider_scope(provider):
-            table_source_ids = await TABLE_RESOURCE_ADAPTER.source_ids_by_local_id(
-                source_service
-            )
+        table_source_ids = await TABLE_RESOURCE_ADAPTER.source_ids_by_local_id(
+            source_service
+        )
         assert table_source_ids.get(source_table.id) == "qa_indicators"
 
         first_export = await source_service.export_workspace(
@@ -940,13 +940,11 @@ async def test_source_export_target_pull_preserves_projected_workspace(
 
         first_target_pull = await target_service.pull(
             options=PullOptions(commit_sha=first_export.commit.sha),
-            provider=provider,
         )
         assert first_target_pull.success is True
         await _assert_projected_workspaces_match(
             source_service,
             target_service,
-            provider=provider,
         )
 
         # Exercise a representative update batch before the second push/pull:
@@ -960,10 +958,9 @@ async def test_source_export_target_pull_preserves_projected_workspace(
         )
         assert renamed_source_table is not None
         assert renamed_source_table.id == source_table.id
-        with source_service._mapping_provider_scope(provider):
-            renamed_table_source_ids = (
-                await TABLE_RESOURCE_ADAPTER.source_ids_by_local_id(source_service)
-            )
+        renamed_table_source_ids = await TABLE_RESOURCE_ADAPTER.source_ids_by_local_id(
+            source_service
+        )
         assert renamed_table_source_ids.get(renamed_source_table.id) == "qa_indicators"
         second_export = await source_service.export_workspace(
             WorkspaceSyncExportRequest(
@@ -975,10 +972,9 @@ async def test_source_export_target_pull_preserves_projected_workspace(
         )
         assert second_export.commit.status is PushStatus.COMMITTED
         assert second_export.commit.sha is not None
-        with source_service._mapping_provider_scope(provider):
-            source_projection = await source_service.project_workspace(
-                create_missing_mappings=False
-            )
+        source_projection = await source_service.project_workspace(
+            create_missing_mappings=False
+        )
         assert f"{TABLE_ROOT}/qa_indicators/table.yml" in source_projection.files
         assert (
             f"{TABLE_ROOT}/qa_indicators_roundtrip/table.yml"
@@ -992,14 +988,12 @@ async def test_source_export_target_pull_preserves_projected_workspace(
 
         second_target_pull = await target_service.pull(
             options=PullOptions(commit_sha=second_export.commit.sha),
-            provider=provider,
         )
 
     assert second_target_pull.success is True
     await _assert_projected_workspaces_match(
         source_service,
         target_service,
-        provider=provider,
     )
 
 
@@ -5357,20 +5351,17 @@ async def _refresh_workspace_for_fixture_cleanup(
 async def _assert_projected_workspaces_match(
     source_service: WorkspaceSyncService,
     target_service: WorkspaceSyncService,
-    *,
-    provider: VcsProvider = VcsProvider.GITHUB,
 ) -> None:
-    """Compare canonical sync files, not DB IDs or other local-only state."""
-    with (
-        source_service._mapping_provider_scope(provider),
-        target_service._mapping_provider_scope(provider),
-    ):
-        source_projection = await source_service.project_workspace(
-            create_missing_mappings=False
-        )
-        target_projection = await target_service.project_workspace(
-            create_missing_mappings=False
-        )
+    """Compare canonical sync files, not DB IDs or other local-only state.
+
+    Each service projects under the provider it was constructed with.
+    """
+    source_projection = await source_service.project_workspace(
+        create_missing_mappings=False
+    )
+    target_projection = await target_service.project_workspace(
+        create_missing_mappings=False
+    )
     assert target_projection.files == source_projection.files
 
 

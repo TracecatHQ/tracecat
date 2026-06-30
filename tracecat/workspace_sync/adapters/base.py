@@ -176,8 +176,8 @@ class SyncMappingService(BaseWorkspaceService):
     The resource adapters read and write :class:`WorkspaceSyncResourceMapping`
     rows scoped to a provider; every service that drives them
     (``WorkspaceSyncService``, the projector, and the importer) extends this base
-    so the active provider is part of the static contract instead of being
-    duck-typed at the call site.
+    and fixes the provider at construction so the active provider is part of the
+    static contract instead of being duck-typed at the call site.
     """
 
     def __init__(

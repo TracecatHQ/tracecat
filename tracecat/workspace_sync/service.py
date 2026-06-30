@@ -5,8 +5,7 @@ from __future__ import annotations
 import re
 import uuid
 from collections import Counter, deque
-from collections.abc import Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from difflib import unified_diff
 from typing import Any, cast
@@ -151,14 +150,17 @@ class WorkspaceSyncService(SyncMappingService):
         session: AsyncSession,
         role: Role | None = None,
         *,
+        provider: VcsProvider = VcsProvider.GITHUB,
         transport_factory: VcsTransportFactory | None = None,
     ) -> None:
-        """Initialize the service, optionally with a custom VCS transport factory.
+        """Initialize the service for ``provider``.
 
-        ``transport_factory`` overrides :func:`vcs_transport_for_provider`, which
-        lets tests substitute an in-memory transport.
+        ``provider`` selects the VCS the operation reads from and writes to, and
+        namespaces this workspace's sync mappings. ``transport_factory`` overrides
+        :func:`vcs_transport_for_provider`, which lets tests substitute an
+        in-memory transport.
         """
-        super().__init__(session=session, role=role)
+        super().__init__(session=session, role=role, mapping_provider=provider)
         self._transport_factory = transport_factory
 
     async def export_workspace(
@@ -168,38 +170,35 @@ class WorkspaceSyncService(SyncMappingService):
         """Export selected or all syncable resources to a branch and optional PR."""
         self._require_workspace_sync_scope()
         self._validate_export_params(params)
-        with self._mapping_provider_scope(params.provider):
-            url = await self._workspace_git_url(provider=params.provider)
-            resource_ids = await self._local_ids_from_resource_refs(params.resources)
-            projection = await self.project_workspace(
-                resource_ids=resource_ids,
-                include_schedules=params.include_schedules,
-                create_missing_mappings=True,
-            )
-            self._require_projected_export_scopes(projection.spec)
-            self._validate_projected_workspace_dependencies(projection.spec)
-            delete_missing_paths_under = await self._export_delete_roots(
-                projection,
-                full_workspace_export=resource_ids is None,
-                resource_ids=resource_ids,
-            )
-            transport = self._transport_for_provider(
-                params.provider,
-            )
-            commit = await transport.write_files(
-                url=url,
-                files=projection.files,
-                message=params.message,
-                branch=params.branch,
-                create_pr=params.create_pr,
-                pr_base_branch=params.pr_base_branch,
-                delete_missing_paths_under=delete_missing_paths_under,
-            )
-            await self.session.commit()
-            return WorkspaceSyncExportResult(
-                commit=commit,
-                files=sorted(projection.files),
-            )
+        url = await self._workspace_git_url(provider=self._mapping_provider)
+        resource_ids = await self._local_ids_from_resource_refs(params.resources)
+        projection = await self.project_workspace(
+            resource_ids=resource_ids,
+            include_schedules=params.include_schedules,
+            create_missing_mappings=True,
+        )
+        self._require_projected_export_scopes(projection.spec)
+        self._validate_projected_workspace_dependencies(projection.spec)
+        delete_missing_paths_under = await self._export_delete_roots(
+            projection,
+            full_workspace_export=resource_ids is None,
+            resource_ids=resource_ids,
+        )
+        transport = self._transport_for_provider(self._mapping_provider)
+        commit = await transport.write_files(
+            url=url,
+            files=projection.files,
+            message=params.message,
+            branch=params.branch,
+            create_pr=params.create_pr,
+            pr_base_branch=params.pr_base_branch,
+            delete_missing_paths_under=delete_missing_paths_under,
+        )
+        await self.session.commit()
+        return WorkspaceSyncExportResult(
+            commit=commit,
+            files=sorted(projection.files),
+        )
 
     async def preview_export_workspace(
         self,
@@ -213,38 +212,35 @@ class WorkspaceSyncService(SyncMappingService):
         resources pulled in transitively by the dependency closure.
         """
         self._require_workspace_sync_scope()
-        with self._mapping_provider_scope(params.provider):
-            resource_ids = await self._local_ids_from_resource_refs(params.resources)
-            projection = await self.project_workspace(
+        resource_ids = await self._local_ids_from_resource_refs(params.resources)
+        projection = await self.project_workspace(
+            resource_ids=resource_ids,
+            include_schedules=params.include_schedules,
+            create_missing_mappings=False,
+        )
+        self._require_projected_export_scopes(projection.spec)
+        self._validate_projected_workspace_dependencies(projection.spec)
+        resource_diffs: list[PullResourceDiff] = []
+        if params.compare_ref:
+            url = await self._workspace_git_url(provider=self._mapping_provider)
+            transport = self._transport_for_provider(self._mapping_provider)
+            remote_tree = await transport.read_files(url=url, ref=params.compare_ref)
+            delete_missing_paths_under = await self._export_delete_roots(
+                projection,
+                full_workspace_export=resource_ids is None,
                 resource_ids=resource_ids,
-                include_schedules=params.include_schedules,
-                create_missing_mappings=False,
             )
-            self._require_projected_export_scopes(projection.spec)
-            self._validate_projected_workspace_dependencies(projection.spec)
-            resource_diffs: list[PullResourceDiff] = []
-            if params.compare_ref:
-                url = await self._workspace_git_url(provider=params.provider)
-                transport = self._transport_for_provider(params.provider)
-                remote_tree = await transport.read_files(
-                    url=url, ref=params.compare_ref
-                )
-                delete_missing_paths_under = await self._export_delete_roots(
-                    projection,
-                    full_workspace_export=resource_ids is None,
-                    resource_ids=resource_ids,
-                )
-                resource_diffs = self._resource_diffs_for_export(
-                    projection,
-                    remote_tree,
-                    delete_missing_paths_under=delete_missing_paths_under,
-                )
-            return WorkspaceSyncExportPreview(
-                resource_counts=projection.spec.resource_count_map(),
-                files=sorted(projection.files),
-                resources=_preview_resources_from_spec(projection.spec),
-                resource_diffs=resource_diffs,
+            resource_diffs = self._resource_diffs_for_export(
+                projection,
+                remote_tree,
+                delete_missing_paths_under=delete_missing_paths_under,
             )
+        return WorkspaceSyncExportPreview(
+            resource_counts=projection.spec.resource_count_map(),
+            files=sorted(projection.files),
+            resources=_preview_resources_from_spec(projection.spec),
+            resource_diffs=resource_diffs,
+        )
 
     async def export_workflow(
         self,
@@ -261,39 +257,35 @@ class WorkspaceSyncService(SyncMappingService):
         """
         self._require_workflow_export_scope()
         self._validate_export_params(params)
-        with self._mapping_provider_scope(params.provider):
-            url = await self._workspace_git_url(provider=params.provider)
-            projection = await self.project_workspace(
-                workflow_ids=[WorkflowUUID.new(workflow.id)],
-                include_schedules=params.include_schedules,
-                create_missing_mappings=True,
-                workflow_dsl_overrides={workflow.id: dsl},
-            )
-            self._validate_projected_workspace_dependencies(projection.spec)
-            transport = self._transport_for_provider(
-                params.provider,
-            )
-            commit = await transport.write_files(
-                url=url,
-                files=projection.files,
-                message=params.message,
-                branch=params.branch,
-                create_pr=params.create_pr,
-                pr_base_branch=params.pr_base_branch,
-            )
-            workflow.git_sync_branch = commit.ref
-            self.session.add(workflow)
-            await self.session.commit()
-            return WorkspaceSyncExportResult(
-                commit=commit,
-                files=sorted(projection.files),
-            )
+        url = await self._workspace_git_url(provider=self._mapping_provider)
+        projection = await self.project_workspace(
+            workflow_ids=[WorkflowUUID.new(workflow.id)],
+            include_schedules=params.include_schedules,
+            create_missing_mappings=True,
+            workflow_dsl_overrides={workflow.id: dsl},
+        )
+        self._validate_projected_workspace_dependencies(projection.spec)
+        transport = self._transport_for_provider(self._mapping_provider)
+        commit = await transport.write_files(
+            url=url,
+            files=projection.files,
+            message=params.message,
+            branch=params.branch,
+            create_pr=params.create_pr,
+            pr_base_branch=params.pr_base_branch,
+        )
+        workflow.git_sync_branch = commit.ref
+        self.session.add(workflow)
+        await self.session.commit()
+        return WorkspaceSyncExportResult(
+            commit=commit,
+            files=sorted(projection.files),
+        )
 
     async def pull(
         self,
         *,
         options: PullOptions,
-        provider: VcsProvider = VcsProvider.GITHUB,
         sync_schedules: bool = False,
     ) -> PullResult:
         """Import a workspace spec from the configured repository.
@@ -321,77 +313,74 @@ class WorkspaceSyncService(SyncMappingService):
                 message="commit_sha is required",
             )
 
-        with self._mapping_provider_scope(provider):
-            # Read the repository tree at that commit and parse it into a spec.
-            url = await self._workspace_git_url(provider=provider)
-            transport = self._transport_for_provider(
-                provider,
+        # Read the repository tree at that commit and parse it into a spec.
+        url = await self._workspace_git_url(provider=self._mapping_provider)
+        transport = self._transport_for_provider(self._mapping_provider)
+        remote_tree = await transport.read_files(url=url, ref=options.commit_sha)
+        snapshot, diagnostics = await self.parse_files(
+            remote_tree.files,
+            commit_sha=remote_tree.commit_sha,
+            tree_sha=remote_tree.tree_sha,
+        )
+        resource_counts = self._resource_counts_from_spec(snapshot.spec)
+        # Parse/manifest problems abort before we touch the database.
+        if diagnostics:
+            return PullResult(
+                success=False,
+                commit_sha=snapshot.commit_sha,
+                workflows_found=len(snapshot.spec.workflows),
+                workflows_imported=0,
+                diagnostics=diagnostics,
+                message=f"Failed to validate workspace spec: {len(diagnostics)} issue(s)",
+                resource_counts=resource_counts,
+                files=sorted(snapshot.files),
+                resources=_sync_preview_resources_from_spec(snapshot.spec),
             )
-            remote_tree = await transport.read_files(url=url, ref=options.commit_sha)
-            snapshot, diagnostics = await self.parse_files(
-                remote_tree.files,
-                commit_sha=remote_tree.commit_sha,
-                tree_sha=remote_tree.tree_sha,
+        await self._require_spec_entitlements(snapshot.spec)
+        self._require_pull_scopes(snapshot.spec, dry_run=options.dry_run)
+        # A dry run previews the diff and validates workflows but never writes.
+        if options.dry_run:
+            resource_diffs = await self._resource_diffs_for_pull(
+                snapshot,
+                sync_schedules=sync_schedules,
             )
-            resource_counts = self._resource_counts_from_spec(snapshot.spec)
-            # Parse/manifest problems abort before we touch the database.
-            if diagnostics:
+            workflow_diagnostics = await self._validate_workflow_import(snapshot)
+            if workflow_diagnostics:
                 return PullResult(
                     success=False,
                     commit_sha=snapshot.commit_sha,
                     workflows_found=len(snapshot.spec.workflows),
                     workflows_imported=0,
-                    diagnostics=diagnostics,
-                    message=f"Failed to validate workspace spec: {len(diagnostics)} issue(s)",
-                    resource_counts=resource_counts,
-                    files=sorted(snapshot.files),
-                    resources=_sync_preview_resources_from_spec(snapshot.spec),
-                )
-            await self._require_spec_entitlements(snapshot.spec)
-            self._require_pull_scopes(snapshot.spec, dry_run=options.dry_run)
-            # A dry run previews the diff and validates workflows but never writes.
-            if options.dry_run:
-                resource_diffs = await self._resource_diffs_for_pull(
-                    snapshot,
-                    sync_schedules=sync_schedules,
-                )
-                workflow_diagnostics = await self._validate_workflow_import(snapshot)
-                if workflow_diagnostics:
-                    return PullResult(
-                        success=False,
-                        commit_sha=snapshot.commit_sha,
-                        workflows_found=len(snapshot.spec.workflows),
-                        workflows_imported=0,
-                        diagnostics=workflow_diagnostics,
-                        message=(
-                            f"Import failed: {len(workflow_diagnostics)} validation "
-                            "error(s) found"
-                        ),
-                        resource_counts=resource_counts,
-                        resource_diffs=resource_diffs,
-                        files=sorted(snapshot.files),
-                        resources=_sync_preview_resources_from_spec(snapshot.spec),
-                    )
-                return PullResult(
-                    success=True,
-                    commit_sha=snapshot.commit_sha,
-                    workflows_found=len(snapshot.spec.workflows),
-                    workflows_imported=0,
-                    diagnostics=[],
+                    diagnostics=workflow_diagnostics,
                     message=(
-                        "Dry run completed - "
-                        f"{len(resource_diffs)} resource change(s) detected"
+                        f"Import failed: {len(workflow_diagnostics)} validation "
+                        "error(s) found"
                     ),
                     resource_counts=resource_counts,
                     resource_diffs=resource_diffs,
                     files=sorted(snapshot.files),
                     resources=_sync_preview_resources_from_spec(snapshot.spec),
                 )
-            # Real pull: reconcile the snapshot into the database.
-            return await self._import_snapshot(
-                snapshot,
-                sync_schedules=sync_schedules,
+            return PullResult(
+                success=True,
+                commit_sha=snapshot.commit_sha,
+                workflows_found=len(snapshot.spec.workflows),
+                workflows_imported=0,
+                diagnostics=[],
+                message=(
+                    "Dry run completed - "
+                    f"{len(resource_diffs)} resource change(s) detected"
+                ),
+                resource_counts=resource_counts,
+                resource_diffs=resource_diffs,
+                files=sorted(snapshot.files),
+                resources=_sync_preview_resources_from_spec(snapshot.spec),
             )
+        # Real pull: reconcile the snapshot into the database.
+        return await self._import_snapshot(
+            snapshot,
+            sync_schedules=sync_schedules,
+        )
 
     async def project_workspace(
         self,
@@ -618,24 +607,22 @@ class WorkspaceSyncService(SyncMappingService):
         *,
         branch: str = "main",
         limit: int = 10,
-        provider: VcsProvider = VcsProvider.GITHUB,
     ) -> list[GitCommitInfo]:
         """List recent commits on ``branch`` for the workspace repository."""
         self._require_sync_operation_scope()
-        url = await self._workspace_git_url(provider=provider)
-        transport = self._transport_for_provider(provider)
+        url = await self._workspace_git_url(provider=self._mapping_provider)
+        transport = self._transport_for_provider(self._mapping_provider)
         return await transport.list_commits(url=url, branch=branch, limit=limit)
 
     async def list_branches(
         self,
         *,
         limit: int = 100,
-        provider: VcsProvider = VcsProvider.GITHUB,
     ) -> list[GitBranchInfo]:
         """List branches for the workspace repository."""
         self._require_sync_operation_scope()
-        url = await self._workspace_git_url(provider=provider)
-        transport = self._transport_for_provider(provider)
+        url = await self._workspace_git_url(provider=self._mapping_provider)
+        transport = self._transport_for_provider(self._mapping_provider)
         return await transport.list_branches(url=url, limit=limit)
 
     def _transport_for_provider(self, provider: VcsProvider) -> VcsSyncTransport:
@@ -646,16 +633,6 @@ class WorkspaceSyncService(SyncMappingService):
             session=self.session,
             role=self.role,
         )
-
-    @contextmanager
-    def _mapping_provider_scope(self, provider: VcsProvider) -> Iterator[None]:
-        """Use ``provider`` for sync mapping reads and writes within a request."""
-        previous_provider = self._mapping_provider
-        self._mapping_provider = provider
-        try:
-            yield
-        finally:
-            self._mapping_provider = previous_provider
 
     def _require_workspace_sync_scope(self) -> None:
         """Require the feature-level workspace sync RBAC scope."""

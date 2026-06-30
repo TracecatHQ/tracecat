@@ -82,7 +82,9 @@ class WorkflowStoreService(BaseWorkspaceService):
             include_schedules=False,
         )
 
-        sync_service = WorkspaceSyncService(session=self.session, role=self.role)
+        sync_service = WorkspaceSyncService(
+            session=self.session, role=self.role, provider=export_params.provider
+        )
         export_result = await sync_service.export_workflow(
             workflow=workflow,
             dsl=dsl,
