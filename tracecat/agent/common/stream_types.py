@@ -47,6 +47,7 @@ class StreamEventType(StrEnum):
     # System/status events
     COMPACTION = "compaction"
     ARTIFACT = "artifact"
+    RUNTIME_RESOLUTION = "runtime_resolution"
 
     # Control events
     ERROR = "error"
@@ -238,6 +239,17 @@ class UnifiedStreamEvent:
         return cls(
             type=StreamEventType.COMPACTION,
             metadata=event_metadata,
+        )
+
+    @classmethod
+    def runtime_resolution_event(
+        cls,
+        metadata: dict[str, Any],
+    ) -> UnifiedStreamEvent:
+        """Create a metadata-only event describing resolved runtime config."""
+        return cls(
+            type=StreamEventType.RUNTIME_RESOLUTION,
+            metadata=metadata,
         )
 
     @classmethod

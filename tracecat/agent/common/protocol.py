@@ -15,6 +15,7 @@ from typing import Any, Literal
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
 from tracecat.agent.common.types import (
     MCPToolDefinition,
+    RuntimeResolution,
     SandboxAgentConfig,
     SandboxSubagentConfig,
 )
@@ -157,6 +158,7 @@ class RuntimeEventEnvelope:
     result_num_turns: int | None = None
     result_duration_ms: int | None = None
     result_output: Any = None
+    runtime_resolution: RuntimeResolution | None = None
     # For type="log" - structured log forwarding from sandbox
     log_level: str | None = None  # "debug", "info", "warning", "error"
     log_message: str | None = None
@@ -184,6 +186,11 @@ class RuntimeEventEnvelope:
             result_output=data.get(
                 "result_output",
                 data.get("result_structured_output", data.get("result_result")),
+            ),
+            runtime_resolution=(
+                RuntimeResolution.model_validate(data["runtime_resolution"])
+                if data.get("runtime_resolution")
+                else None
             ),
             log_level=data.get("log_level"),
             log_message=data.get("log_message"),
@@ -215,6 +222,10 @@ class RuntimeEventEnvelope:
             result["result_duration_ms"] = self.result_duration_ms
         if self.result_output is not None:
             result["result_output"] = self.result_output
+        if self.runtime_resolution is not None:
+            result["runtime_resolution"] = self.runtime_resolution.model_dump(
+                mode="json", exclude_none=True
+            )
         if self.log_level is not None:
             result["log_level"] = self.log_level
         if self.log_message is not None:
@@ -282,6 +293,7 @@ class RuntimeEventEnvelope:
         num_turns: int | None = None,
         duration_ms: int | None = None,
         output: Any = None,
+        runtime_resolution: RuntimeResolution | None = None,
     ) -> RuntimeEventEnvelope:
         """Create a result envelope with usage data from Claude SDK ResultMessage."""
         return cls(
@@ -290,6 +302,7 @@ class RuntimeEventEnvelope:
             result_num_turns=num_turns,
             result_duration_ms=duration_ms,
             result_output=output,
+            runtime_resolution=runtime_resolution,
         )
 
     @classmethod

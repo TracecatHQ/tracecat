@@ -16,6 +16,7 @@ from pydantic_ai.models import ModelRequestParameters
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import DeferredToolResults
 
+from tracecat.agent.common.types import RuntimeResolution
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
@@ -205,6 +206,7 @@ class AgentOutput(BaseModel):
     duration: float
     usage: RunUsage | None = None
     session_id: uuid.UUID
+    runtime_resolution: RuntimeResolution | None = None
 
 
 class ExecuteToolCallArgs(BaseModel):
