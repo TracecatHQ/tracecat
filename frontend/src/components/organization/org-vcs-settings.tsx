@@ -5,7 +5,7 @@ import { GitLabTokenSetup } from "@/components/organization/org-vcs-gitlab"
 
 export function OrgVCSSettings() {
   return (
-    <div className="space-y-8">
+    <div className="space-y-4">
       <GitHubAppSetup />
       <GitLabTokenSetup />
     </div>
