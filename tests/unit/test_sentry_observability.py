@@ -1,16 +1,23 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from temporalio.exceptions import ActivityError, ApplicationError
 
+from tracecat.auth.types import system_role
+from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.interceptor import (
     _should_capture_activity_exception,
     _should_capture_workflow_exception,
+    _workflow_input_context,
 )
 from tracecat.exceptions import TracecatException, TracecatExpressionError
+from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.observability import sentry as sentry_observability
+from tracecat.storage.object import InlineObject
+from tracecat.workflow.executions.enums import ExecutionType
 
 
 def test_init_sentry_noops_without_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -261,6 +268,40 @@ def test_activity_interceptor_captures_platform_application_errors() -> None:
     exc = ApplicationError("database failed", type="RuntimeError")
 
     assert _should_capture_activity_exception(exc) is True
+
+
+def test_workflow_input_context_omits_dsl_run_args_payloads() -> None:
+    run_args = DSLRunArgs.model_construct(
+        role=system_role(),
+        wf_id=WorkflowUUID.new_uuid4(),
+        trigger_inputs=InlineObject(
+            data={
+                "customer_email": "customer@example.com",
+                "safe_field": "customer-provided value",
+            }
+        ),
+        dsl=DSLInput.model_construct(
+            title="Customer workflow",
+            description="Contains user-authored workflow text",
+            entrypoint=DSLEntrypoint(ref="start"),
+            actions=[],
+        ),
+        parent_run_context=None,
+        schedule_id=None,
+        execution_type=ExecutionType.PUBLISHED,
+        timeout=timedelta(minutes=5),
+        time_anchor=None,
+    )
+
+    context = _workflow_input_context(run_args)
+
+    assert context["type"] == "DSLRunArgs"
+    assert context["wf_id"] == run_args.wf_id.short()
+    assert "trigger_inputs" not in context
+    assert "dsl" not in context
+    assert "role" not in context
+    assert "customer@example.com" not in str(context)
+    assert "Customer workflow" not in str(context)
 
 
 def test_workflow_interceptor_skips_user_facing_activity_error_causes() -> None:

@@ -1,4 +1,4 @@
-from dataclasses import asdict, is_dataclass
+from dataclasses import is_dataclass
 from typing import Any
 
 from temporalio import activity, workflow
@@ -14,7 +14,6 @@ from temporalio.worker import (
 
 with workflow.unsafe.imports_passed_through():
     import sentry_sdk as sentry
-    from pydantic import BaseModel
 
     from tracecat.contexts import ctx_role
     from tracecat.dsl.common import DSLRunArgs, get_trigger_type
@@ -128,11 +127,10 @@ class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
             except Exception as e:
                 logger.warning("Caught platform level workflow error", error=str(e))
                 if len(input.args) >= 1:
-                    arg = input.args[0]
-                    if is_dataclass(arg) and not isinstance(arg, type):
-                        sentry.set_context("temporal.workflow.input", asdict(arg))
-                    elif isinstance(arg, BaseModel):
-                        sentry.set_context("temporal.workflow.input", arg.model_dump())
+                    sentry.set_context(
+                        "temporal.workflow.input",
+                        _workflow_input_context(input.args[0]),
+                    )
                 sentry.set_context("temporal.workflow.info", workflow.info().__dict__)
 
                 if (
@@ -197,6 +195,26 @@ def _should_capture_temporal_exception(exc: Exception) -> bool:
     if isinstance(exc, FailureError) and isinstance(exc.cause, Exception):
         return _should_capture_temporal_exception(exc.cause)
     return True
+
+
+def _workflow_input_context(arg: Any) -> dict[str, Any]:
+    context: dict[str, Any] = {"type": type(arg).__name__}
+    if isinstance(arg, DSLRunArgs):
+        context["wf_id"] = arg.wf_id.short()
+        context["execution_type"] = arg.execution_type.value
+        context["timeout_seconds"] = arg.timeout.total_seconds()
+        if arg.schedule_id:
+            context["schedule_id"] = str(arg.schedule_id)
+        if arg.time_anchor:
+            context["time_anchor"] = arg.time_anchor.isoformat()
+        if parent_run_context := arg.parent_run_context:
+            context["parent_run_context"] = {
+                "wf_id": str(parent_run_context.wf_id),
+                "wf_exec_id": parent_run_context.wf_exec_id,
+            }
+    elif is_dataclass(arg) and not isinstance(arg, type):
+        context["dataclass_type"] = type(arg).__qualname__
+    return context
 
 
 def _activity_info_context(info: activity.Info) -> dict[str, Any]:
