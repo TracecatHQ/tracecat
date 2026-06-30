@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import itertools
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 from urllib.parse import quote
@@ -13,6 +13,8 @@ from urllib.parse import quote
 import httpx
 from github.GithubException import GithubException
 from github.InputGitTreeElement import InputGitTreeElement
+from pydantic import BaseModel
+from pydantic import ValidationError as PydanticValidationError
 
 from tracecat.db.models import User
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -23,6 +25,21 @@ from tracecat.sync import CommitInfo, PushStatus
 from tracecat.vcs.github.app import GitHubAppError, GitHubAppService
 from tracecat.vcs.gitlab.app import GitLabApiError, GitLabError, GitLabTokenService
 from tracecat.vcs.gitlab.schemas import GitLabTokenCredentials
+from tracecat.vcs.gitlab.types import (
+    GitLabBranch,
+    GitLabCommit,
+    GitLabCommitAction,
+    GitLabCompareParams,
+    GitLabCompareResult,
+    GitLabCreateBranchParams,
+    GitLabCreateCommitPayload,
+    GitLabCreateMergeRequestPayload,
+    GitLabListCommitsParams,
+    GitLabListMergeRequestsParams,
+    GitLabMergeRequest,
+    GitLabTreeEntry,
+    GitLabTreeParams,
+)
 from tracecat.workspace_sync.enums import VcsProvider
 from tracecat.workspace_sync.schemas import (
     MANIFEST_FILENAME,
@@ -751,7 +768,7 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                     message="No changes detected; nothing to commit.",
                 )
 
-            actions: list[dict[str, str]] = []
+            actions: list[GitLabCommitAction] = []
             for path, content in sorted(changed_files.items()):
                 actions.append(
                     {
@@ -763,19 +780,19 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             for path in sorted(stale_paths):
                 actions.append({"action": "delete", "file_path": path})
 
-            commit_data = await self._gitlab_json(
+            commit_payload: GitLabCreateCommitPayload = {
+                "branch": branch,
+                "commit_message": message,
+                "actions": actions,
+            }
+            commit = await self._gitlab_model(
                 client,
                 "POST",
                 f"/projects/{project_id}/repository/commits",
-                json={
-                    "branch": branch,
-                    "commit_message": message,
-                    "actions": actions,
-                },
+                model=GitLabCommit,
+                json=commit_payload,
             )
-            if not isinstance(commit_data, dict) or not commit_data.get("id"):
-                raise GitLabError("GitLab commit response did not include a commit id")
-            commit_sha = str(commit_data["id"])
+            commit_sha = commit.id
 
             if create_pr:
                 pr_url, pr_number, pr_reused = await self._upsert_merge_request(
@@ -808,28 +825,27 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         credentials = await self._credentials()
         async with self._client(credentials) as client:
             project_id = _gitlab_project_id(url)
+            commits_params: GitLabListCommitsParams = {"ref_name": branch}
             raw_commits = await self._gitlab_list(
                 client,
                 f"/projects/{project_id}/repository/commits",
-                params={"ref_name": branch},
+                model=GitLabCommit,
+                params=commits_params,
                 limit=limit,
             )
         return [
             GitCommitInfo(
-                sha=str(commit.get("id") or commit.get("short_id") or ""),
-                message=str(commit.get("message") or commit.get("title") or ""),
-                author=str(commit.get("author_name") or "Unknown"),
-                author_email=str(commit.get("author_email") or ""),
-                date=str(
-                    commit.get("authored_date")
-                    or commit.get("committed_date")
-                    or commit.get("created_at")
-                    or ""
-                ),
+                sha=commit.id,
+                message=commit.message or commit.title or "",
+                author=commit.author_name or "Unknown",
+                author_email=commit.author_email or "",
+                date=commit.authored_date
+                or commit.committed_date
+                or commit.created_at
+                or "",
                 tags=[],
             )
             for commit in raw_commits
-            if isinstance(commit, dict)
         ]
 
     async def list_branches(
@@ -871,27 +887,23 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
     ) -> VcsTreeSnapshot:
         """Read workspace sync files with an existing GitLab client."""
         project_id = _gitlab_project_id(url)
-        commit_data = await self._gitlab_json(
+        commit = await self._gitlab_model(
             client,
             "GET",
             f"/projects/{project_id}/repository/commits/{quote(ref, safe='')}",
+            model=GitLabCommit,
         )
-        if not isinstance(commit_data, dict) or not commit_data.get("id"):
-            raise GitLabError("GitLab commit response did not include a commit id")
-        commit_sha = str(commit_data["id"])
+        commit_sha = commit.id
 
+        tree_params: GitLabTreeParams = {"recursive": "true", "ref": commit_sha}
         tree_entries = await self._gitlab_list(
             client,
             f"/projects/{project_id}/repository/tree",
-            params={"recursive": "true", "ref": commit_sha},
+            model=GitLabTreeEntry,
+            params=tree_params,
         )
         blob_shas = {
-            str(item["path"]): str(item["id"])
-            for item in tree_entries
-            if isinstance(item, dict)
-            and item.get("type") == "blob"
-            and item.get("path")
-            and item.get("id")
+            entry.path: entry.id for entry in tree_entries if entry.type == "blob"
         }
         blob_semaphore = asyncio.Semaphore(_GITLAB_BLOB_CONCURRENCY)
 
@@ -930,15 +942,12 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         raw_branches = await self._gitlab_list(
             client,
             f"/projects/{project_id}/repository/branches",
+            model=GitLabBranch,
             limit=limit,
         )
         return [
-            GitBranchInfo(
-                name=str(branch.get("name") or ""),
-                is_default=bool(branch.get("default")),
-            )
+            GitBranchInfo(name=branch.name, is_default=branch.default)
             for branch in raw_branches
-            if isinstance(branch, dict) and branch.get("name")
         ]
 
     async def _get_branch(
@@ -947,16 +956,14 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         client: httpx.AsyncClient,
         project_id: str,
         branch: str,
-    ) -> dict[str, Any]:
+    ) -> GitLabBranch:
         """Return a GitLab branch object or raise a structured API error."""
-        branch_data = await self._gitlab_json(
+        return await self._gitlab_model(
             client,
             "GET",
             f"/projects/{project_id}/repository/branches/{quote(branch, safe='')}",
+            model=GitLabBranch,
         )
-        if not isinstance(branch_data, dict):
-            raise GitLabError("GitLab branch response was invalid")
-        return branch_data
 
     async def _create_branch(
         self,
@@ -967,11 +974,12 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         ref: str,
     ) -> None:
         """Create ``branch`` from ``ref``."""
+        create_branch_params: GitLabCreateBranchParams = {"branch": branch, "ref": ref}
         await self._gitlab_json(
             client,
             "POST",
             f"/projects/{project_id}/repository/branches",
-            params={"branch": branch, "ref": ref},
+            params=create_branch_params,
         )
 
     async def _upsert_merge_request(
@@ -984,38 +992,36 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         base_branch_name: str,
     ) -> tuple[str | None, int | None, bool]:
         """Reuse or open the sync merge request for ``branch_name``."""
+        list_mr_params: GitLabListMergeRequestsParams = {
+            "state": "opened",
+            "source_branch": branch_name,
+            "target_branch": base_branch_name,
+        }
         existing = await self._gitlab_list(
             client,
             f"/projects/{project_id}/merge_requests",
-            params={
-                "state": "opened",
-                "source_branch": branch_name,
-                "target_branch": base_branch_name,
-            },
+            model=GitLabMergeRequest,
+            params=list_mr_params,
             limit=1,
         )
-        if existing and isinstance(existing[0], dict):
+        if existing:
             mr = existing[0]
-            return str(mr.get("web_url") or ""), _int_or_none(mr.get("iid")), True
+            return mr.web_url, mr.iid, True
 
-        mr_data = await self._gitlab_json(
+        create_mr_payload: GitLabCreateMergeRequestPayload = {
+            "source_branch": branch_name,
+            "target_branch": base_branch_name,
+            "title": title,
+            "description": await self._sync_request_body(),
+        }
+        mr = await self._gitlab_model(
             client,
             "POST",
             f"/projects/{project_id}/merge_requests",
-            json={
-                "source_branch": branch_name,
-                "target_branch": base_branch_name,
-                "title": title,
-                "description": await self._sync_request_body(),
-            },
+            model=GitLabMergeRequest,
+            json=create_mr_payload,
         )
-        if not isinstance(mr_data, dict):
-            raise GitLabError("GitLab merge request response was invalid")
-        return (
-            str(mr_data.get("web_url") or ""),
-            _int_or_none(mr_data.get("iid")),
-            False,
-        )
+        return mr.web_url, mr.iid, False
 
     async def _branch_has_commits_between(
         self,
@@ -1026,28 +1032,30 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         branch_name: str,
     ) -> bool:
         """Return whether ``branch_name`` is ahead of ``base_branch_name``."""
-        comparison = await self._gitlab_json(
+        compare_params: GitLabCompareParams = {
+            "from": base_branch_name,
+            "to": branch_name,
+        }
+        comparison = await self._gitlab_model(
             client,
             "GET",
             f"/projects/{project_id}/repository/compare",
-            params={"from": base_branch_name, "to": branch_name},
+            model=GitLabCompareResult,
+            params=compare_params,
         )
-        return bool(
-            isinstance(comparison, dict)
-            and isinstance(comparison.get("commits"), list)
-            and comparison["commits"]
-        )
+        return bool(comparison.commits)
 
-    async def _gitlab_list(
+    async def _gitlab_list[ModelT: BaseModel](
         self,
         client: httpx.AsyncClient,
         path: str,
         *,
-        params: dict[str, Any] | None = None,
+        model: type[ModelT],
+        params: Mapping[str, Any] | None = None,
         limit: int | None = None,
-    ) -> list[Any]:
-        """Collect a paginated GitLab list response."""
-        results: list[Any] = []
+    ) -> list[ModelT]:
+        """Collect and validate a paginated GitLab list response."""
+        results: list[ModelT] = []
         page = 1
         while True:
             page_params = {
@@ -1064,7 +1072,10 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             data = self._json(response)
             if not isinstance(data, list):
                 raise GitLabError("GitLab list response was invalid")
-            results.extend(data)
+            try:
+                results.extend(model.model_validate(item) for item in data)
+            except PydanticValidationError as e:
+                raise GitLabError("GitLab list response was invalid") from e
             if limit is not None and len(results) >= limit:
                 return results[:limit]
             next_page = response.headers.get("x-next-page")
@@ -1074,6 +1085,24 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 page = int(next_page)
             except ValueError as e:
                 raise GitLabError("GitLab pagination response was invalid") from e
+
+    async def _gitlab_model[ModelT: BaseModel](
+        self,
+        client: httpx.AsyncClient,
+        method: str,
+        path: str,
+        *,
+        model: type[ModelT],
+        **kwargs: Any,
+    ) -> ModelT:
+        """Return a GitLab JSON response validated against ``model``."""
+        data = await self._gitlab_json(client, method, path, **kwargs)
+        if not isinstance(data, dict):
+            raise GitLabError(f"GitLab {model.__name__} response was invalid")
+        try:
+            return model.model_validate(data)
+        except PydanticValidationError as e:
+            raise GitLabError(f"GitLab {model.__name__} response was invalid") from e
 
     async def _gitlab_json(
         self,
@@ -1135,11 +1164,3 @@ def _gitlab_error_message(response: httpx.Response) -> str:
         if isinstance(message, dict):
             return str(message)
     return str(payload)
-
-
-def _int_or_none(value: Any) -> int | None:
-    """Best-effort conversion for provider PR/MR ids."""
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
