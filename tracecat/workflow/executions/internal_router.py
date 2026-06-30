@@ -33,6 +33,7 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
+    TracecatNotFoundError,
     TracecatValidationError,
 )
 from tracecat.identifiers import WorkflowExecutionID, WorkflowID
@@ -462,6 +463,7 @@ async def edit_workflow_document(
                 action_layout.ref for action_layout in draft_document.layout.actions
             },
             validate_definition="definition" in changed_sections,
+            changed_sections=changed_sections,
             session=service.session,
             role=role,
         )
@@ -506,6 +508,63 @@ async def edit_workflow_document(
             status_code=HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
+
+
+class InternalWorkflowPublishResponse(BaseModel):
+    """Response from publishing (committing) a workflow."""
+
+    workflow_id: WorkflowID = Field(..., description="Workflow ID")
+    version: int = Field(..., description="Newly committed definition version")
+    message: str = Field(..., description="Status message")
+
+    @field_validator("workflow_id", mode="before")
+    @classmethod
+    def validate_workflow_id(cls, v: AnyWorkflowID) -> WorkflowID:
+        """Convert any valid workflow ID format to WorkflowUUID."""
+        return WorkflowUUID.new(v)
+
+
+@router.post("/{workflow_id}/publish", status_code=HTTP_201_CREATED)
+@require_scope("workflow:update")
+async def publish_workflow(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    workflow_id: AnyWorkflowIDPath,
+) -> InternalWorkflowPublishResponse:
+    """Publish (commit) a workflow's current draft as a new versioned definition.
+
+    Mirrors the MCP publish tool and the public commit route by delegating to the
+    shared ``WorkflowsManagementService.publish_workflow``. Correctable draft
+    validation problems surface as a 400 carrying the structured error list so the
+    caller (e.g. a chat agent) can fix the draft and retry, rather than escaping
+    as a 500.
+    """
+    service = WorkflowsManagementService(session, role=role)
+    try:
+        result = await service.publish_workflow(workflow_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+    if not result.ok:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail={
+                "type": "validation_error",
+                "message": f"{len(result.errors)} validation error(s)",
+                "errors": [
+                    vr.root.model_dump(mode="json", exclude_none=True)
+                    for vr in result.errors
+                ],
+            },
+        )
+
+    # result.ok guarantees a non-null version.
+    return InternalWorkflowPublishResponse(
+        workflow_id=workflow_id,
+        version=cast(int, result.version),
+        message="Workflow published successfully",
+    )
 
 
 @router.post("/authoring-context", status_code=HTTP_200_OK)

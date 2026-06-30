@@ -16,16 +16,20 @@ from __future__ import annotations
 
 import hashlib
 import json
+import uuid
 from collections.abc import Collection, Iterator, Mapping, Sequence
 from typing import Any, Literal, Protocol, cast
 
 import orjson
+from asyncpg import UniqueViolationError
 from fastmcp.exceptions import ToolError
 from pydantic import ValidationError
-from sqlalchemy import delete
+from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
+from tracecat.db.common import DBConstraints
 from tracecat.db.models import Action, Workflow
 from tracecat.dsl.common import (
     DSLEntrypoint,
@@ -381,11 +385,15 @@ def normalize_workflow_edit_document_for_persisted_revision(
 ) -> WorkflowEditDocument:
     """Normalize transient edit state that persistence drops on refresh."""
     payload = workflow_edit_document_payload(document)
-    action_refs = {action.ref for action in document.definition.actions}
-    payload["layout"]["actions"] = [
-        action_layout
+    action_refs = [action.ref for action in document.definition.actions]
+    action_ref_set = set(action_refs)
+    layout_by_ref = {
+        action_layout["ref"]: action_layout
         for action_layout in payload["layout"]["actions"]
-        if action_layout["ref"] in action_refs
+        if action_layout["ref"] in action_ref_set
+    }
+    payload["layout"]["actions"] = [
+        layout_by_ref.get(ref, {"ref": ref, "x": 0.0, "y": 0.0}) for ref in action_refs
     ]
     if payload["case_trigger"] is not None:
         case_trigger = CaseTriggerConfig.model_validate(payload["case_trigger"])
@@ -672,10 +680,18 @@ async def validate_workflow_edit_document(
     workflow_id: WorkflowUUID,
     existing_layout_action_refs: set[str] | None = None,
     validate_definition: bool = False,
+    changed_sections: Collection[str] | None = None,
     session: AsyncSession | None = None,
     role: Role | None = None,
 ) -> None:
-    """Validate editable workflow document semantics before persistence."""
+    """Validate editable workflow document semantics before persistence.
+
+    Runs the same correctness checks the persist path enforces so a
+    ``validate_only`` dry run reports the same outcome a real apply would.
+    ``changed_sections`` (computed by callers) gates the DB-stateful checks --
+    alias uniqueness and case-trigger online-readiness -- so they only run when
+    that section actually changed.
+    """
     action_refs = {action.ref for action in document.definition.actions}
     allowed_layout_action_refs = action_refs | (existing_layout_action_refs or set())
     for action_layout in document.layout.actions:
@@ -705,6 +721,71 @@ async def validate_workflow_edit_document(
             )
         except ValidationError as exc:
             raise WorkflowEditError(f"Invalid workflow schedule: {exc}") from exc
+
+    sections = set(changed_sections or ())
+
+    # Alias uniqueness is enforced by a DB unique constraint that the persist
+    # path would otherwise surface as a 500. Pre-check here so a dry run and a
+    # real apply both report a normal alias conflict as a recoverable error.
+    if "metadata" in sections and document.metadata.alias is not None:
+        if session is None or role is None:
+            raise RuntimeError("session and role are required for alias validation")
+        if role.workspace_id is None:
+            raise RuntimeError("role.workspace_id is required for alias validation")
+        await _raise_if_alias_taken(
+            session=session,
+            workspace_id=role.workspace_id,
+            workflow_id=workflow_id,
+            alias=document.metadata.alias,
+        )
+
+    # Case-trigger online-readiness is a DB-stateful check (needs a published,
+    # runnable definition). The persist path runs it inside the case-trigger
+    # service; mirror it here so validate_only can't report ``valid: true`` for a
+    # config that fails on apply. An inert (unconfigured) config has nothing to
+    # validate and is dropped by ``normalize_workflow_edit_document_for_persisted_revision``
+    # on persist, so skip the service construction (and its role requirement)
+    # entirely when there is nothing to validate.
+    if (
+        "case_trigger" in sections
+        and document.case_trigger is not None
+        and document.case_trigger.is_configured()
+    ):
+        if session is None or role is None:
+            raise RuntimeError(
+                "session and role are required for case-trigger validation"
+            )
+        case_trigger_service = CaseTriggersService(session, role=role)
+        try:
+            await case_trigger_service.validate_case_trigger_config(
+                workflow_id, document.case_trigger
+            )
+        except TracecatValidationError as exc:
+            raise WorkflowEditError(f"Invalid case trigger: {exc}") from exc
+
+
+async def _raise_if_alias_taken(
+    *,
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    workflow_id: WorkflowUUID,
+    alias: str,
+) -> None:
+    """Raise ``WorkflowEditError`` if another workflow already owns ``alias``.
+
+    Mirrors the unique constraint ``uq_workflow_alias_workspace_id`` as an
+    application-level pre-check so the conflict is recoverable (and visible to
+    ``validate_only``) instead of bubbling out of the commit as a 500.
+    """
+    existing_id = await session.scalar(
+        select(Workflow.id).where(
+            Workflow.workspace_id == workspace_id,
+            Workflow.alias == alias,
+            Workflow.id != workflow_id,
+        )
+    )
+    if existing_id is not None:
+        raise WorkflowEditError(DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE.msg())
 
 
 def _normalize_patch_pointer(path: str | None) -> str | None:
@@ -878,7 +959,24 @@ async def persist_workflow_edit_document(
         except (TracecatValidationError, TracecatNotFoundError) as exc:
             raise WorkflowEditError(f"Invalid case trigger: {exc}") from exc
 
-    await service.session.commit()
+    try:
+        await service.session.commit()
+    except IntegrityError as exc:
+        # Pre-validation catches alias conflicts under normal conditions, but a
+        # concurrent edit can still claim the alias between the check and this
+        # commit. Map the unique violation to a recoverable WorkflowEditError so
+        # the conflict surfaces as a 400/409 instead of a raw 500.
+        await service.session.rollback()
+        cause: BaseException = exc
+        while cause.__cause__ is not None:
+            cause = cause.__cause__
+        if isinstance(
+            cause, UniqueViolationError
+        ) and DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE in str(cause):
+            raise WorkflowEditError(
+                DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE.msg()
+            ) from exc
+        raise WorkflowEditError("Workflow already exists") from exc
     await service.session.refresh(workflow)
     if any(section in changed_sections for section in {"definition", "layout"}):
         await service.session.refresh(workflow, ["actions"])

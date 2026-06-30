@@ -146,6 +146,29 @@ class WorkflowsClient:
             },
         )
 
+    async def publish(self, *, workflow_id: str) -> dict[str, Any]:
+        """Publish (commit) a workflow's current draft as a new version.
+
+        Validates the draft, freezes registry dependencies, and creates a new
+        versioned definition. Run the published workflow afterwards with
+        :meth:`execute`.
+
+        Args:
+            workflow_id: Workflow UUID (short ``wf_...`` or full format).
+
+        Returns:
+            dict with ``workflow_id``, ``version`` (the new definition version),
+            and ``message``.
+
+        Raises:
+            TracecatValidationError: If the draft fails validation (400). The
+                ``detail`` carries the per-error list so the caller can fix the
+                draft and retry.
+            TracecatNotFoundError: If the workflow does not exist.
+            TracecatAPIError: For other API errors.
+        """
+        return await self._client.post(f"/workflows/{workflow_id}/publish")
+
     async def get_authoring_context(
         self,
         *,

@@ -390,6 +390,27 @@ async def update_case_trigger(
 
 @registry.register(
     namespace="core.workflow",
+    description=(
+        "Publish (commit) a workflow's current draft as a new version so it can "
+        "be run with `execute`. Validates the draft first; returns the new "
+        "version. Read the `tracecat-manage-workflows` skill."
+    ),
+    default_title="Publish workflow",
+    display_group="Workflows",
+)
+async def publish(
+    *,
+    workflow_id: Annotated[
+        str,
+        Doc("The workflow ID to publish (short `wf_...` or full format)."),
+    ],
+) -> dict[str, Any]:
+    """Publish a workflow draft and return ``{"workflow_id", "version", "message"}``."""
+    return await ctx.workflows.aio.publish(workflow_id=workflow_id)
+
+
+@registry.register(
+    namespace="core.workflow",
     description="Get the status of a workflow execution.",
     default_title="Get workflow status",
     display_group="Workflows",

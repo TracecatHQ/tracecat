@@ -472,3 +472,18 @@ class TestWorkflowAuthoringContextRequest:
         )
         assert req.action_names == ["core.http_request", "ai.agent"]
         assert req.query == "reshape"
+
+
+class TestInternalRouterPublishRoute:
+    """The publish route must be registered so the SDK's publish() (which
+    resolves under /internal) reaches it instead of 404ing."""
+
+    def test_publish_route_registered(self):
+        from tracecat.workflow.executions.internal_router import router
+
+        routes = {
+            (method, getattr(route, "path", ""))
+            for route in router.routes
+            for method in getattr(route, "methods", None) or []
+        }
+        assert ("POST", "/internal/workflows/{workflow_id}/publish") in routes

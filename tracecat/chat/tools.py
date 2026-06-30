@@ -40,6 +40,8 @@ WORKSPACE_CHAT_BASE_DEFAULT_TOOLS = [
     "core.workflow.update_webhook",
     "core.workflow.get_case_trigger",
     "core.workflow.update_case_trigger",
+    "core.workflow.publish",
+    "core.workflow.execute",
 ]
 
 WORKSPACE_CHAT_DEFAULT_TOOLS = [

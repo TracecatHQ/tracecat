@@ -40,6 +40,8 @@ def test_workspace_chat_default_tools_include_authoring_actions() -> None:
         "core.workflow.update_webhook",
         "core.workflow.get_case_trigger",
         "core.workflow.update_case_trigger",
+        "core.workflow.publish",
+        "core.workflow.execute",
     ]
 
 

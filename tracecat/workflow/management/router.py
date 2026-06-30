@@ -32,7 +32,6 @@ from tracecat.authz.controls import require_scope
 from tracecat.db.common import DBConstraints
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Webhook, WebhookApiKey, Workflow
-from tracecat.dsl.common import DSLInput
 from tracecat.dsl.schemas import DSLConfig
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
@@ -42,7 +41,6 @@ from tracecat.exceptions import (
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
-from tracecat.registry.lock.service import RegistryLockService
 from tracecat.settings.service import get_setting
 from tracecat.tags.schemas import TagRead
 from tracecat.validation.schemas import (
@@ -50,7 +48,7 @@ from tracecat.validation.schemas import (
     ValidationResult,
     ValidationResultType,
 )
-from tracecat.validation.service import validate_dsl, validate_entrypoint_expects
+from tracecat.validation.service import validate_entrypoint_expects
 from tracecat.webhooks import service as webhook_service
 from tracecat.webhooks.schemas import (
     WebhookApiKeyGenerateResponse,
@@ -453,131 +451,32 @@ async def commit_workflow(
 ) -> WorkflowCommitResponse:
     """Commit a workflow.
 
-    This deploys the workflow and updates its version. If a YAML file is provided, it will override the workflow in the database."""
-
-    # XXX: This is actually the logical equivalent of creating a workflow definition (deployment)
-    # Committing from YAML (i.e. attaching yaml) will override the workflow definition in the database
+    This deploys the workflow and updates its version, delegating to the shared
+    ``WorkflowsManagementService.publish_workflow`` so the build/validate/lock/
+    commit orchestration lives in one place (also used by the MCP publish tool
+    and the internal publish route)."""
 
     mgmt_service = WorkflowsManagementService(session, role=role)
-    workflow = await mgmt_service.get_workflow(workflow_id)
-    if not workflow:
+    try:
+        result = await mgmt_service.publish_workflow(workflow_id)
+    except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Could not find workflow"
-        )
+        ) from e
 
-    # Perform Tiered Validation
-    # Tier 1: DSLInput validation
-    # Verify that the workflow DSL is structurally sound
-    construction_errors: list[ValidationResult] = []
-    dsl: DSLInput | None = None
-    try:
-        # Convert the workflow into a WorkflowDefinition
-        # XXX: When we commit from the workflow, we have action IDs
-        dsl = await mgmt_service.build_dsl_from_workflow(workflow)
-    except TracecatValidationError as e:
-        logger.info("Custom validation error in DSL", e=e)
-        construction_errors.append(
-            ValidationResult.new(
-                type=ValidationResultType.DSL,
-                status="error",
-                msg=str(e),
-                detail=e.detail,
-            )
-        )
-    except ValidationError as e:
-        logger.info("Pydantic validation error in DSL", e=e)
-        construction_errors.append(
-            ValidationResult.new(
-                type=ValidationResultType.DSL,
-                status="error",
-                msg=str(e),
-                detail=ValidationDetail.list_from_pydantic(e),
-            )
-        )
-
-    if construction_errors:
+    if not result.ok:
         return WorkflowCommitResponse(
             workflow_id=workflow_id.short(),
             status="failure",
-            message=f"Workflow definition construction failed with {len(construction_errors)} errors",
-            errors=construction_errors,
+            message=f"{len(result.errors)} validation error(s)",
+            errors=result.errors,
         )
-
-    if dsl is None:
-        raise ValueError("dsl should be defined if no construction errors")
-    # When we're here, we've verified that the workflow DSL is structurally sound
-    # Now, we have to ensure that the arguments are sound
-
-    if val_errors := await validate_dsl(session=session, dsl=dsl, role=role):
-        logger.info("Validation errors", errors=val_errors)
-        return WorkflowCommitResponse(
-            workflow_id=workflow_id.short(),
-            status="failure",
-            message=f"{len(val_errors)} validation error(s)",
-            errors=list(val_errors),
-        )
-
-    # Validation is complete. We can now construct the workflow definition
-    # Phase 1: Create workflow definition
-    # Workflow definition uses action.refs to refer to actions
-    # We should only instantiate action refs at workflow runtime
-    service = WorkflowDefinitionsService(session, role=role)
-
-    # Always resolve registry_lock from current DSL actions
-    # This ensures the lock reflects the actual actions in the workflow, not stale data
-    lock_service = RegistryLockService(session, role)
-    action_names = {action.action for action in dsl.actions}
-    try:
-        registry_lock = await lock_service.resolve_lock_with_bindings(action_names)
-    except BuiltinRegistryHasNoSelectionError as e:
-        error = ValidationResult.new(
-            type=ValidationResultType.DSL,
-            status="error",
-            msg=str(e),
-            detail=[
-                ValidationDetail(
-                    type="registry.builtin_sync_pending",
-                    msg=str(e),
-                    loc=("registry_lock",),
-                )
-            ],
-        )
-        return WorkflowCommitResponse(
-            workflow_id=workflow_id.short(),
-            status="failure",
-            message="1 validation error(s)",
-            errors=[error],
-        )
-    # Update the workflow with the newly computed lock
-    workflow.registry_lock = registry_lock.model_dump()
-
-    # Creating a workflow definition only uses refs
-    # Copy the alias from the draft workflow to the committed definition
-    # Pass the registry_lock to freeze it with this definition
-    defn = await service.create_workflow_definition(
-        workflow_id,
-        dsl,
-        alias=workflow.alias,
-        registry_lock=registry_lock,
-        commit=False,
-    )
-
-    # Update Workflow
-    # We don't need to backpropagate the graph to the workflow beacuse the workflow is the source of truth
-    # We only need to update the workflow definition version
-    workflow.version = defn.version
-
-    session.add(workflow)
-    session.add(defn)
-    await session.commit()
-    await session.refresh(workflow)
-    await session.refresh(defn)
 
     return WorkflowCommitResponse(
         workflow_id=workflow_id.short(),
         status="success",
         message="Workflow committed successfully.",
-        metadata={"version": defn.version},
+        metadata={"version": result.version},
     )
 
 

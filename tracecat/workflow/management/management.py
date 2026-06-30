@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, NamedTuple, cast
 
@@ -38,7 +39,11 @@ from tracecat.dsl.common import (
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import DSLConfig, ExecutionContext, RunContext
 from tracecat.dsl.view import RFGraph
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import (
+    BuiltinRegistryHasNoSelectionError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.expressions.eval import eval_templated_object
 from tracecat.identifiers import WorkflowID
 from tracecat.identifiers.workflow import (
@@ -58,6 +63,7 @@ from tracecat.validation.schemas import (
     DSLValidationResult,
     ValidationDetail,
     ValidationResult,
+    ValidationResultType,
 )
 from tracecat.validation.service import validate_dsl
 from tracecat.workflow.actions.schemas import ActionControlFlow, ActionEdge
@@ -98,6 +104,23 @@ class _ModelKey(NamedTuple):
 
     provider: str
     name: str
+
+
+@dataclass
+class WorkflowPublishResult:
+    """Outcome of publishing (committing) a workflow draft.
+
+    ``version`` is the newly committed definition version on success, or ``None``
+    when ``errors`` is non-empty. Callers render ``errors`` (correctable
+    validation problems) rather than treating publish failure as an exception.
+    """
+
+    version: int | None
+    errors: list[ValidationResult]
+
+    @property
+    def ok(self) -> bool:
+        return self.version is not None and not self.errors
 
 
 class WorkflowsManagementService(BaseWorkspaceService):
@@ -901,6 +924,100 @@ class WorkflowsManagementService(BaseWorkspaceService):
             self.logger.error(f"Error creating workflow: {e}")
             await self.session.rollback()
             raise e
+
+    @require_scope("workflow:update")
+    async def publish_workflow(self, workflow_id: WorkflowID) -> WorkflowPublishResult:
+        """Publish (commit) a workflow's current draft as a new versioned definition.
+
+        Validates the draft (structural + semantic), freezes a registry lock over
+        its actions, creates a new ``WorkflowDefinition``, and bumps the workflow's
+        version. Correctable validation problems are returned as
+        ``WorkflowPublishResult.errors`` (not raised) so every caller -- the MCP
+        publish tool, the public commit route, and the internal route -- can render
+        them in its own transport shape. Shared so the orchestration lives in one
+        place instead of being duplicated per caller.
+
+        Raises:
+            TracecatNotFoundError: If the workflow does not exist.
+        """
+        workflow = await self.get_workflow(workflow_id)
+        if workflow is None:
+            raise TracecatNotFoundError(f"Workflow {workflow_id} not found")
+
+        # Tier 1: build DSL from the current draft (structural validation).
+        try:
+            dsl = await self.build_dsl_from_workflow(workflow)
+        except TracecatValidationError as e:
+            return WorkflowPublishResult(
+                version=None,
+                errors=[
+                    ValidationResult.new(
+                        DSLValidationResult(status="error", msg=str(e), detail=e.detail)
+                    )
+                ],
+            )
+        except ValidationError as e:
+            return WorkflowPublishResult(
+                version=None,
+                errors=[
+                    ValidationResult.new(
+                        DSLValidationResult(
+                            status="error",
+                            msg=str(e),
+                            detail=ValidationDetail.list_from_pydantic(e),
+                        )
+                    )
+                ],
+            )
+
+        # Tier 2: semantic validation (secrets, args, references).
+        if val_errors := await validate_dsl(
+            session=self.session, dsl=dsl, role=self.role
+        ):
+            return WorkflowPublishResult(version=None, errors=list(val_errors))
+
+        # Phase 1: resolve a registry lock over the DSL's actions so the published
+        # definition is pinned to exact action versions.
+        lock_service = RegistryLockService(self.session, self.role)
+        action_names = {action.action for action in dsl.actions}
+        try:
+            registry_lock = await lock_service.resolve_lock_with_bindings(action_names)
+        except BuiltinRegistryHasNoSelectionError as e:
+            return WorkflowPublishResult(
+                version=None,
+                errors=[
+                    ValidationResult.new(
+                        type=ValidationResultType.DSL,
+                        status="error",
+                        msg=str(e),
+                        detail=[
+                            ValidationDetail(
+                                type="registry.builtin_sync_pending",
+                                msg=str(e),
+                                loc=("registry_lock",),
+                            )
+                        ],
+                    )
+                ],
+            )
+        workflow.registry_lock = registry_lock.model_dump()
+
+        # Phase 2/3: create the definition and bump the workflow version.
+        defn_service = WorkflowDefinitionsService(self.session, self.role)
+        defn = await defn_service.create_workflow_definition(
+            workflow_id,
+            dsl,
+            alias=workflow.alias,
+            registry_lock=registry_lock,
+            commit=False,
+        )
+        workflow.version = defn.version
+        self.session.add(workflow)
+        self.session.add(defn)
+        await self.session.commit()
+        await self.session.refresh(workflow)
+        await self.session.refresh(defn)
+        return WorkflowPublishResult(version=defn.version, errors=[])
 
     async def build_dsl_from_workflow(self, workflow: Workflow) -> DSLInput:
         """Build a DSLInput from a Workflow."""

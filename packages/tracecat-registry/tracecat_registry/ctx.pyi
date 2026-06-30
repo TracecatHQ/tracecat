@@ -1278,6 +1278,11 @@ class _WorkflowsAsync:
         event_types: list[str] | None = ...,
         tag_filters: list[str] | None = ...,
     ) -> None: ...
+    async def publish(
+        self,
+        *,
+        workflow_id: str,
+    ) -> dict[str, Any]: ...
 
 class _Workflows:
     @property
@@ -1348,6 +1353,11 @@ class _Workflows:
         event_types: list[str] | None = ...,
         tag_filters: list[str] | None = ...,
     ) -> None: ...
+    def publish(
+        self,
+        *,
+        workflow_id: str,
+    ) -> dict[str, Any]: ...
 
 agents: _Agents
 cases: _Cases

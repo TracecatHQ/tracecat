@@ -2984,33 +2984,40 @@ async def test_update_workflow_rejects_oversized_inline_definition_yaml(monkeypa
 async def test_publish_workflow_builtin_registry_not_ready_returns_validation_failure(
     monkeypatch,
 ):
+    from tracecat.workflow.management.management import WorkflowPublishResult
+
     workspace_id = uuid.uuid4()
     workflow_id = uuid.uuid4()
     role = SimpleNamespace()
-    workflow = SimpleNamespace(id=workflow_id, alias=None, registry_lock=None)
-    dsl = SimpleNamespace(actions=[SimpleNamespace(action="core.transform.reshape")])
+
+    # The publish orchestration lives in WorkflowsManagementService.publish_workflow;
+    # the MCP tool just renders its WorkflowPublishResult. Simulate the
+    # builtin-sync-pending failure as the service would return it.
+    failure = WorkflowPublishResult(
+        version=None,
+        errors=[
+            ValidationResult.new(
+                type=ValidationResultType.DSL,
+                status="error",
+                msg="Builtin registry sync is still in progress. Please retry shortly.",
+                detail=[
+                    ValidationDetail(
+                        type="registry.builtin_sync_pending",
+                        msg="Builtin registry sync is still in progress. Please retry shortly.",
+                        loc=("registry_lock",),
+                    )
+                ],
+            )
+        ],
+    )
 
     class _WorkflowService:
         def __init__(self):
             self.session = object()
 
-        async def get_workflow(self, wf_id):
+        async def publish_workflow(self, wf_id):
             assert wf_id == mcp_server.WorkflowUUID.new(workflow_id)
-            return workflow
-
-        async def build_dsl_from_workflow(self, workflow_obj):
-            assert workflow_obj is workflow
-            return dsl
-
-    class _LockService:
-        def __init__(self, *_args):
-            pass
-
-        async def resolve_lock_with_bindings(self, _action_names):
-            raise BuiltinRegistryHasNoSelectionError(
-                "Builtin registry sync is still in progress. Please retry shortly.",
-                detail={"origin": "tracecat_registry"},
-            )
+            return failure
 
     async def _resolve(_workspace_id):
         return workspace_id, role
@@ -3021,10 +3028,6 @@ async def test_publish_workflow_builtin_registry_not_ready_returns_validation_fa
         "with_session",
         lambda role: _AsyncContext(_WorkflowService()),
     )
-    monkeypatch.setattr(
-        mcp_server, "validate_dsl", lambda **_kwargs: asyncio.sleep(0, result=[])
-    )
-    monkeypatch.setattr(mcp_server, "RegistryLockService", _LockService)
 
     result = await _tool(mcp_server.publish_workflow)(
         workspace_id=str(workspace_id),

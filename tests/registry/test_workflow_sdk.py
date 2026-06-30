@@ -264,6 +264,26 @@ class TestWorkflowsClientEditWorkflow:
         )
 
 
+class TestWorkflowsClientPublish:
+    """Tests for WorkflowsClient.publish()."""
+
+    @pytest.mark.anyio
+    async def test_publish_posts_to_publish_route(
+        self, workflows_client: WorkflowsClient, mock_tracecat_client: MagicMock
+    ):
+        """publish POSTs the workflow publish endpoint and returns the new version."""
+        mock_tracecat_client.post.return_value = {
+            "workflow_id": "wf_abc",
+            "version": 3,
+            "message": "Workflow published successfully",
+        }
+
+        result = await workflows_client.publish(workflow_id="wf_abc")
+
+        assert result["version"] == 3
+        mock_tracecat_client.post.assert_called_once_with("/workflows/wf_abc/publish")
+
+
 class TestWorkflowsClientGetAuthoringContext:
     """Tests for WorkflowsClient.get_authoring_context()."""
 

@@ -69,8 +69,11 @@ const TOOL_SEARCH_LIMIT = 24
  * `WORKSPACE_CHAT_DEFAULT_TOOLS` in `tracecat/chat/tools.py` — keep in sync when
  * the backend default tool set changes. These are surfaced read-only so users
  * can see what the agent can already do before adding anything.
+ *
+ * Exported so `chat-tools-picker.test.tsx` can pin the tool set and fail loudly
+ * if it drifts from the backend defaults.
  */
-const DEFAULT_CAPABILITY_GROUPS: CapabilityGroup[] = [
+export const DEFAULT_CAPABILITY_GROUPS: CapabilityGroup[] = [
   {
     id: "cases",
     label: "Cases",
@@ -108,7 +111,18 @@ const DEFAULT_CAPABILITY_GROUPS: CapabilityGroup[] = [
   {
     id: "workflows",
     label: "Workflows",
-    tools: ["core.workflow.create_workflow"],
+    tools: [
+      "core.workflow.create_workflow",
+      "core.workflow.get_workflow",
+      "core.workflow.edit_workflow",
+      "core.workflow.get_authoring_context",
+      "core.workflow.get_webhook",
+      "core.workflow.update_webhook",
+      "core.workflow.get_case_trigger",
+      "core.workflow.update_case_trigger",
+      "core.workflow.publish",
+      "core.workflow.execute",
+    ],
   },
   {
     id: "presets",

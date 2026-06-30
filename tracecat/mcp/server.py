@@ -223,7 +223,6 @@ from tracecat.registry.constants import (
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
 )
-from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.repositories.schemas import RegistryRepositorySync
 from tracecat.registry.repositories.service import RegistryReposService
@@ -246,7 +245,6 @@ from tracecat.tiers.enums import Entitlement
 from tracecat.validation.schemas import (
     ValidationDetail,
     ValidationResult,
-    ValidationResultType,
 )
 from tracecat.validation.service import validate_dsl
 from tracecat.variables.service import VariablesService
@@ -3334,6 +3332,7 @@ async def edit_workflow(
                     action_layout.ref for action_layout in draft_document.layout.actions
                 },
                 validate_definition="definition" in changed_sections,
+                changed_sections=changed_sections,
                 session=svc.session,
                 role=role,
             )
@@ -4465,106 +4464,24 @@ async def publish_workflow(
         workflow_id = WorkflowUUID.new(workflow_id)
         _, role = await _resolve_workspace_role(workspace_id)
         async with WorkflowsManagementService.with_session(role=role) as svc:
-            session = svc.session
-            workflow = await svc.get_workflow(workflow_id)
-            if not workflow:
-                raise ToolError(f"Workflow {workflow_id} not found")
-
-            # Tier 1: Build DSL
-            construction_errors: list[MCPValidationErrorPayload] = []
-            dsl: DSLInput | None = None
             try:
-                dsl = await svc.build_dsl_from_workflow(workflow)
-            except TracecatValidationError as e:
-                construction_errors.append(
-                    {
-                        "type": "dsl",
-                        "status": "error",
-                        "message": str(e),
-                    }
-                )
-            except ValidationError as e:
-                construction_errors.append(
-                    {
-                        "type": "dsl",
-                        "status": "error",
-                        "message": str(e),
-                    }
-                )
+                result = await svc.publish_workflow(workflow_id)
+            except TracecatNotFoundError as e:
+                raise ToolError(str(e)) from e
 
-            if construction_errors:
-                return WorkflowPublishResponse(
-                    workflow_id=workflow_id,
-                    status="failure",
-                    message=f"DSL construction failed with {len(construction_errors)} errors",
-                    errors=construction_errors,
-                )
-
-            if dsl is None:
-                raise ToolError("DSL should be defined if no construction errors")
-
-            # Tier 2: Semantic validation
-            val_errors = await validate_dsl(session=session, dsl=dsl, role=role)
-            if val_errors:
-                return WorkflowPublishResponse(
-                    workflow_id=workflow_id,
-                    status="failure",
-                    message=f"{len(val_errors)} validation error(s)",
-                    errors=[_validation_result_payload(vr) for vr in val_errors],
-                )
-
-            # Phase 1: Resolve registry lock
-            lock_service = RegistryLockService(session, role)
-            action_names = {action.action for action in dsl.actions}
-            try:
-                registry_lock = await lock_service.resolve_lock_with_bindings(
-                    action_names
-                )
-            except BuiltinRegistryHasNoSelectionError as e:
-                error = ValidationResult.new(
-                    type=ValidationResultType.DSL,
-                    status="error",
-                    msg=str(e),
-                    detail=[
-                        ValidationDetail(
-                            type="registry.builtin_sync_pending",
-                            msg=str(e),
-                            loc=("registry_lock",),
-                        )
-                    ],
-                )
-                return WorkflowPublishResponse(
-                    workflow_id=workflow_id,
-                    status="failure",
-                    message="1 validation error(s)",
-                    errors=[_validation_result_payload(error)],
-                )
-            workflow.registry_lock = registry_lock.model_dump()
-
-            # Phase 2: Create workflow definition
-            defn_service = WorkflowDefinitionsService(session, role=role)
-            defn = await defn_service.create_workflow_definition(
-                workflow_id,
-                dsl,
-                alias=workflow.alias,
-                registry_lock=registry_lock,
-                commit=False,
-            )
-
-            # Phase 3: Update workflow version
-            workflow.version = defn.version
-            session.add(workflow)
-            session.add(defn)
-            await session.commit()
-            await session.refresh(workflow)
-            await session.refresh(defn)
-
+        if not result.ok:
             return WorkflowPublishResponse(
                 workflow_id=workflow_id,
-                status="success",
-                message="Workflow published successfully",
-                version=defn.version,
+                status="failure",
+                message=f"{len(result.errors)} validation error(s)",
+                errors=[_validation_result_payload(vr) for vr in result.errors],
             )
+        return WorkflowPublishResponse(
+            workflow_id=workflow_id,
+            status="success",
+            message="Workflow published successfully",
+            version=result.version,
+        )
     except ToolError:
         raise
     except ValueError as e:
