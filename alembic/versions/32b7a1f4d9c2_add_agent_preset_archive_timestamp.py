@@ -1,7 +1,7 @@
 """add agent preset archive timestamp
 
 Revision ID: 32b7a1f4d9c2
-Revises: 290137982547
+Revises: 31b8cb7b312e
 Create Date: 2026-06-28 00:00:00.000000
 
 """
@@ -14,7 +14,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "32b7a1f4d9c2"
-down_revision: str | None = "290137982547"
+down_revision: str | None = "31b8cb7b312e"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
