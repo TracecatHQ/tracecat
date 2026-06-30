@@ -183,6 +183,7 @@ async def list_cases(
         None, description="Include only the requested custom field IDs"
     ),
     include_durations: bool = Query(False, description="Include case duration values"),
+    include_payload: bool = Query(False, description="Include case payload"),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     """List cases with default filtering and sorting options."""
     service = CasesService(session, role)
@@ -195,6 +196,7 @@ async def list_cases(
             order_by=order_by,
             sort=sort,
             include_durations=include_durations,
+            include_payload=include_payload,
         )
     except ValueError as e:
         logger.warning(f"Invalid request for list cases: {e}")
@@ -322,6 +324,7 @@ async def search_cases(
         None, description="Include only the requested custom field IDs"
     ),
     include_durations: bool = Query(False, description="Include case duration values"),
+    include_payload: bool = Query(False, description="Include case payload"),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     """Search cases with cursor-based pagination, filtering, and sorting."""
     service = CasesService(session, role)
@@ -358,6 +361,7 @@ async def search_cases(
             order_by=order_by,
             sort=sort,
             include_durations=include_durations,
+            include_payload=include_payload,
         )
     except ValueError as e:
         logger.warning(f"Invalid request for search cases: {e}")

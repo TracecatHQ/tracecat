@@ -1147,6 +1147,31 @@ class TestCasesService:
 
         assert "durations" in loader_calls
 
+    async def test_search_cases_gates_payload(
+        self, cases_service: CasesService
+    ) -> None:
+        """Case payload should only be returned when include_payload=True."""
+        payload = {"alert_id": "abc-123", "score": 42}
+        await cases_service.create_case(
+            CaseCreate(
+                summary="Payload case",
+                description="Case with a payload",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+                payload=payload,
+            )
+        )
+        params = CursorPaginationParams(limit=10, cursor=None, reverse=False)
+
+        default_response = await cases_service.search_cases(params=params)
+        assert default_response.items[0].payload is None
+
+        with_payload = await cases_service.search_cases(
+            params=params, include_payload=True
+        )
+        assert with_payload.items[0].payload == payload
+
     async def test_search_cases_tag_filter_uses_or_logic(
         self, cases_service: CasesService
     ) -> None:

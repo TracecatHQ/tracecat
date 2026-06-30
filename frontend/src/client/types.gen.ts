@@ -2203,6 +2203,9 @@ export type CaseReadMinimal = {
   field_values?: {
     [key: string]: unknown
   } | null
+  payload?: {
+    [key: string]: unknown
+  } | null
   num_tasks_completed?: number
   num_tasks_total?: number
 }
@@ -12354,6 +12357,10 @@ export type CasesListCasesData = {
    */
   includeDurations?: boolean
   /**
+   * Include case payload
+   */
+  includePayload?: boolean
+  /**
    * Include linked table rows
    */
   includeRows?: boolean
@@ -12417,6 +12424,10 @@ export type CasesSearchCasesData = {
    * Include case duration values
    */
   includeDurations?: boolean
+  /**
+   * Include case payload
+   */
+  includePayload?: boolean
   /**
    * Include linked table rows
    */

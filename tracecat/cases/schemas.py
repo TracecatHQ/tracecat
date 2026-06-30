@@ -55,6 +55,7 @@ class CaseReadMinimal(Schema):
     rows: list[CaseTableRowRead] = Field(default_factory=list)
     durations: list[CaseDurationRead] | None = None
     field_values: dict[str, Any] | None = None
+    payload: dict[str, Any] | None = None
     num_tasks_completed: int = Field(default=0)
     num_tasks_total: int = Field(default=0)
 
