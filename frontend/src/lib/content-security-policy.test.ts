@@ -40,15 +40,31 @@ describe("buildContentSecurityPolicy", () => {
     expect(connectSrc).not.toContain("/v1")
   })
 
+  it("allows the configured presigned blob storage origin", () => {
+    const connectSrc = getConnectSrc(
+      buildContentSecurityPolicy({
+        NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT:
+          " https://tracecat-skills.s3.us-east-1.amazonaws.com/uploads ",
+      })
+    )
+
+    expect(connectSrc).toContain(
+      "https://tracecat-skills.s3.us-east-1.amazonaws.com"
+    )
+    expect(connectSrc).not.toContain("/uploads")
+  })
+
   it("ignores relative public API URLs", () => {
     const connectSrc = getConnectSrc(
       buildContentSecurityPolicy({
         NEXT_PUBLIC_API_URL: "/api",
+        NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT: "/s3",
       })
     )
 
     expect(connectSrc).toContain("connect-src 'self'")
     expect(connectSrc).not.toContain("/api")
+    expect(connectSrc).not.toContain("/s3")
   })
 
   it("falls back to the server Sentry DSN when the public DSN is blank", () => {

@@ -264,14 +264,15 @@ locals {
 
   ui_env = [
     for k, v in {
-      NEXT_PUBLIC_API_URL    = local.public_api_url
-      NEXT_PUBLIC_APP_ENV    = var.tracecat_app_env
-      NEXT_PUBLIC_APP_URL    = local.public_app_url
-      NEXT_PUBLIC_AUTH_TYPES = var.auth_types
-      NEXT_PUBLIC_SENTRY_DSN = var.sentry_dsn
-      NEXT_SERVER_API_URL    = local.internal_api_url
-      NODE_ENV               = "production"
-      SENTRY_DSN             = var.sentry_dsn
+      NEXT_PUBLIC_API_URL                             = local.public_api_url
+      NEXT_PUBLIC_APP_ENV                             = var.tracecat_app_env
+      NEXT_PUBLIC_APP_URL                             = local.public_app_url
+      NEXT_PUBLIC_AUTH_TYPES                          = var.auth_types
+      NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = "https://${aws_s3_bucket.skills.bucket}.s3.${var.aws_region}.amazonaws.com"
+      NEXT_PUBLIC_SENTRY_DSN                          = var.sentry_dsn
+      NEXT_SERVER_API_URL                             = local.internal_api_url
+      NODE_ENV                                        = "production"
+      SENTRY_DSN                                      = var.sentry_dsn
     } :
     { name = k, value = tostring(v) } if v != null
   ]

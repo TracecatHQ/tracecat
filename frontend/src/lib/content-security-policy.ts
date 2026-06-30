@@ -3,6 +3,7 @@ import { readEnvValue } from "@/lib/sentry-env"
 type ContentSecurityPolicyEnv = {
   [key: string]: string | undefined
   NEXT_PUBLIC_API_URL?: string
+  NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT?: string
   NEXT_PUBLIC_POSTHOG_KEY?: string
   NEXT_PUBLIC_SENTRY_DSN?: string
   SENTRY_DSN?: string
@@ -44,6 +45,7 @@ function getConnectSrc(env: ContentSecurityPolicyEnv): string {
   return [
     "connect-src 'self'",
     getUrlOrigin(env.NEXT_PUBLIC_API_URL),
+    getUrlOrigin(env.NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT),
     readEnvValue(env.NEXT_PUBLIC_POSTHOG_KEY)
       ? "https://*.posthog.com"
       : undefined,
