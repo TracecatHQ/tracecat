@@ -13,7 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
-from tracecat.agent.channels.service import PENDING_SLACK_BOT_TOKEN
+from tracecat.agent.channels.schemas import (
+    AgentChannelTokenCreate,
+    ChannelType,
+    SlackChannelTokenConfig,
+)
+from tracecat.agent.channels.service import PENDING_SLACK_BOT_TOKEN, AgentChannelService
 from tracecat.agent.preset.resolver import resolve_agents_config
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
@@ -2206,49 +2211,50 @@ class TestAgentPresetService:
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
+        svc_role: Role,
     ) -> None:
         """Archiving a preset should cancel unfinished Slack OAuth installs."""
         created_preset = await agent_preset_service.create_preset(
             agent_preset_create_params
         )
-        pending_token_id = uuid.uuid4()
-        pending_token = AgentChannelToken(
-            id=pending_token_id,
-            workspace_id=agent_preset_service.workspace_id,
-            agent_preset_id=created_preset.id,
-            channel_type="slack",
-            config={
-                "slack_bot_token": PENDING_SLACK_BOT_TOKEN,
-                "slack_client_id": "client-id",
-                "slack_client_secret": "client-secret",
-                "slack_signing_secret": "signing-secret",
-            },
-            is_active=False,
+        channel_service = AgentChannelService(
+            agent_preset_service.session, role=svc_role
         )
-        inactive_token_id = uuid.uuid4()
-        inactive_token = AgentChannelToken(
-            id=inactive_token_id,
-            workspace_id=agent_preset_service.workspace_id,
-            agent_preset_id=created_preset.id,
-            channel_type="slack",
-            config={
-                "slack_bot_token": "xoxb-existing-token",
-                "slack_client_id": "client-id",
-                "slack_client_secret": "client-secret",
-                "slack_signing_secret": "signing-secret",
-            },
-            is_active=False,
+        pending_token = await channel_service.create_token(
+            AgentChannelTokenCreate(
+                agent_preset_id=created_preset.id,
+                channel_type=ChannelType.SLACK,
+                config=SlackChannelTokenConfig(
+                    slack_bot_token=PENDING_SLACK_BOT_TOKEN,
+                    slack_client_id="client-id",
+                    slack_client_secret="client-secret",
+                    slack_signing_secret="signing-secret",
+                ),
+                is_active=False,
+            )
         )
-        agent_preset_service.session.add_all([pending_token, inactive_token])
-        await agent_preset_service.session.commit()
+        inactive_token = await channel_service.create_token(
+            AgentChannelTokenCreate(
+                agent_preset_id=created_preset.id,
+                channel_type=ChannelType.SLACK,
+                config=SlackChannelTokenConfig(
+                    slack_bot_token="xoxb-existing-token",
+                    slack_client_id="client-id",
+                    slack_client_secret="client-secret",
+                    slack_signing_secret="signing-secret",
+                ),
+                is_active=False,
+            )
+        )
+        assert pending_token.config["slack_bot_token"] != PENDING_SLACK_BOT_TOKEN
 
         await agent_preset_service.delete_preset(created_preset)
 
         deleted_pending = await agent_preset_service.session.scalar(
-            select(AgentChannelToken).where(AgentChannelToken.id == pending_token_id)
+            select(AgentChannelToken).where(AgentChannelToken.id == pending_token.id)
         )
         remaining_inactive = await agent_preset_service.session.scalar(
-            select(AgentChannelToken).where(AgentChannelToken.id == inactive_token_id)
+            select(AgentChannelToken).where(AgentChannelToken.id == inactive_token.id)
         )
         assert deleted_pending is None
         assert remaining_inactive is not None
