@@ -1273,6 +1273,39 @@ export const $AgentCatalogListResponse = {
   description: "List catalog entries with pagination.",
 } as const
 
+export const $AgentCatalogProviderInfo = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+    },
+  },
+  type: "object",
+  required: ["id", "display_name", "base_url"],
+  title: "AgentCatalogProviderInfo",
+  description: `Non-sensitive custom-provider display info embedded in workspace models.
+
+Lets workspace-scoped surfaces render provider labels and resolve a base
+URL without calling the org-wide custom-provider list endpoint (which is
+restricted to organization admins).`,
+} as const
+
 export const $AgentCatalogRead = {
   properties: {
     id: {
@@ -31625,6 +31658,110 @@ export const $WorkflowUpdate = {
   },
   type: "object",
   title: "WorkflowUpdate",
+} as const
+
+export const $WorkspaceAgentModelListResponse = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/WorkspaceAgentModelRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "WorkspaceAgentModelListResponse",
+  description:
+    "Workspace-visible models, each with embedded custom-provider info.",
+} as const
+
+export const $WorkspaceAgentModelRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    custom_provider_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Custom Provider Id",
+    },
+    organization_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Organization Id",
+    },
+    model_provider: {
+      type: "string",
+      title: "Model Provider",
+    },
+    model_name: {
+      type: "string",
+      title: "Model Name",
+    },
+    model_metadata: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Metadata",
+    },
+    custom_provider: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/AgentCatalogProviderInfo",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "custom_provider_id",
+    "organization_id",
+    "model_provider",
+    "model_name",
+    "model_metadata",
+  ],
+  title: "WorkspaceAgentModelRead",
+  description:
+    "A catalog model visible to a workspace, with embedded provider info.",
 } as const
 
 export const $WorkspaceCreate = {
