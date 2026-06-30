@@ -819,6 +819,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             select(AgentPreset).where(
                 AgentPreset.workspace_id == workspace_service.workspace_id,
                 AgentPreset.slug == subagent.slug,
+                AgentPreset.archived_at.is_(None),
             )
         )
         if child is None:

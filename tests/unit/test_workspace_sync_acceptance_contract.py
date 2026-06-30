@@ -4158,6 +4158,111 @@ async def test_agent_preset_import_resolves_parent_before_child_order(
 
 
 @pytest.mark.anyio
+async def test_agent_preset_import_resolves_subagents_to_active_preset(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    archived_child = AgentPreset(
+        workspace_id=svc_role.workspace_id,
+        slug="z-child",
+        name="Archived Z child",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        agents={"enabled": False},
+        archived_at=datetime.now(UTC),
+    )
+    session.add(archived_child)
+    await session.flush()
+    archived_version = AgentPresetVersion(
+        workspace_id=svc_role.workspace_id,
+        preset_id=archived_child.id,
+        version=1,
+        instructions="Archived instructions",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        agents={"enabled": False},
+    )
+    session.add(archived_version)
+    await session.flush()
+    archived_child.current_version_id = archived_version.id
+    session.add(archived_child)
+    await session.flush()
+
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{AGENT_PRESET_ROOT}/a-parent/preset.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset",
+                "id": "a-parent",
+                "slug": "a-parent",
+                "name": "A parent",
+                "current_version": 1,
+            }
+        ),
+        f"{AGENT_PRESET_ROOT}/a-parent/versions/1.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset_version",
+                "version_number": 1,
+                "name": "A parent",
+                "subagents": [{"slug": "z-child"}],
+            }
+        ),
+        f"{AGENT_PRESET_ROOT}/z-child/preset.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset",
+                "id": "z-child",
+                "slug": "z-child",
+                "name": "Active Z child",
+                "current_version": 1,
+            }
+        ),
+        f"{AGENT_PRESET_ROOT}/z-child/versions/1.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset_version",
+                "version_number": 1,
+                "name": "Active Z child",
+            }
+        ),
+    }
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="k" * 40)
+
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+
+    parent = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "a-parent",
+            AgentPreset.archived_at.is_(None),
+        )
+    )
+    active_child = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "z-child",
+            AgentPreset.archived_at.is_(None),
+        )
+    )
+    assert parent is not None
+    assert active_child is not None
+    assert active_child.current_version_id is not None
+    assert parent.agents["enabled"] is True
+    imported_subagent = parent.agents["subagents"][0]
+    assert imported_subagent["preset_id"] == str(active_child.id)
+    assert imported_subagent["preset_version_id"] == str(
+        active_child.current_version_id
+    )
+
+
+@pytest.mark.anyio
 async def test_agent_preset_sync_preserves_subagent_options(
     session: AsyncSession,
     svc_role: Role,
