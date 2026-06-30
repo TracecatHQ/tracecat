@@ -13,6 +13,7 @@ import re
 import uuid
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -2275,6 +2276,44 @@ async def test_project_workspace_preserves_agent_preset_source_id_after_rename(
 
 
 @pytest.mark.anyio
+async def test_project_workspace_omits_archived_agent_presets(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(
+        _agent_preset_git_tree(
+            source_id="qa-archived",
+            slug="qa-archived",
+            name="QA archived",
+        ),
+        commit_sha="a" * 40,
+    )
+
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+
+    preset = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "qa-archived",
+        )
+    )
+    assert preset is not None
+    preset.archived_at = datetime.now(UTC)
+    session.add(preset)
+    await session.flush()
+
+    projection = await service.project_workspace(create_missing_mappings=False)
+
+    assert f"{AGENT_PRESET_ROOT}/qa-archived/preset.yml" not in projection.files
+    assert f"{AGENT_PRESET_ROOT}/qa-archived/versions/1.yml" not in projection.files
+
+
+@pytest.mark.anyio
 async def test_project_workspace_preserves_table_source_id_after_rename(
     session: AsyncSession,
     svc_role: Role,
@@ -2818,6 +2857,86 @@ async def test_pull_agent_preset_slug_rename_reuses_source_id_mapping(
     assert presets[0].id == first_preset_id
     assert presets[0].slug == "qa-identity-renamed"
     assert presets[0].name == "QA identity renamed"
+
+
+@pytest.mark.anyio
+async def test_pull_agent_preset_ignores_archived_source_id_mapping(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    archived_preset = AgentPreset(
+        workspace_id=svc_role.workspace_id,
+        slug="qa-identity",
+        name="QA archived identity",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        agents={"enabled": False},
+        archived_at=datetime.now(UTC),
+    )
+    session.add(archived_preset)
+    await session.flush()
+    session.add(
+        WorkspaceSyncResourceMapping(
+            workspace_id=svc_role.workspace_id,
+            provider=VcsProvider.GITHUB.value,
+            resource_type=SyncResourceType.AGENT_PRESET.value,
+            source_id="qa-identity",
+            source_path=f"{AGENT_PRESET_ROOT}/qa-identity/preset.yml",
+            local_id=archived_preset.id,
+        )
+    )
+    await session.flush()
+
+    transport = AsyncMock()
+    transport.read_files.return_value = VcsTreeSnapshot(
+        commit_sha="h" * 40,
+        tree_sha="tree-1",
+        files=_agent_preset_git_tree(
+            source_id="qa-identity",
+            slug="qa-identity",
+            name="QA active identity",
+        ),
+    )
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
+    )
+
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        result = await service.pull(options=PullOptions(commit_sha="h" * 40))
+
+    assert result.success is True
+    presets = list(
+        (
+            await session.scalars(
+                select(AgentPreset).where(
+                    AgentPreset.workspace_id == svc_role.workspace_id,
+                    AgentPreset.slug == "qa-identity",
+                )
+            )
+        ).all()
+    )
+    active_presets = [preset for preset in presets if preset.archived_at is None]
+    archived_presets = [preset for preset in presets if preset.archived_at is not None]
+    assert len(active_presets) == 1
+    assert len(archived_presets) == 1
+    active_preset = active_presets[0]
+    assert active_preset.id != archived_preset.id
+    assert active_preset.name == "QA active identity"
+
+    mapping = await session.scalar(
+        select(WorkspaceSyncResourceMapping).where(
+            WorkspaceSyncResourceMapping.workspace_id == svc_role.workspace_id,
+            WorkspaceSyncResourceMapping.resource_type
+            == SyncResourceType.AGENT_PRESET.value,
+            WorkspaceSyncResourceMapping.source_id == "qa-identity",
+        )
+    )
+    assert mapping is not None
+    assert mapping.local_id == active_preset.id
 
 
 @pytest.mark.anyio

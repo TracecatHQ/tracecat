@@ -244,6 +244,8 @@ class NameSwapPlan[ModelT: _WorkspaceRow]:
     """Attribute scoping name uniqueness (e.g. ``"environment"``), if any."""
     target_scopes: Mapping[str, str] | None = None
     """Desired ``source_id`` -> scope value; set whenever ``scope_attr`` is."""
+    row_filters: tuple[Any, ...] = ()
+    """Extra predicates defining active rows for this resource type."""
 
     @property
     def column(self) -> InstrumentedAttribute[str]:
@@ -277,6 +279,7 @@ class NameSwapPlan[ModelT: _WorkspaceRow]:
             self.model.workspace_id == workspace_service.workspace_id,
             self.column == name,
             self.model.id != row_id,
+            *self.row_filters,
         ]
         if (scope_column := self.scope_column) is not None:
             conditions.append(scope_column == scope)
@@ -567,6 +570,7 @@ class ResourceAdapter(ABC):
         source_id: str,
         model: type[ModelT],
         options: Sequence[ExecutableOption] = (),
+        row_filters: Sequence[Any] = (),
     ) -> ModelT | None:
         """Load the ``model`` row mapped to ``source_id``, or ``None`` if unmapped.
 
@@ -580,6 +584,7 @@ class ResourceAdapter(ABC):
         stmt = select(model).where(
             model.workspace_id == workspace_service.workspace_id,
             model.id == local_id,
+            *row_filters,
         )
         if options:
             stmt = stmt.options(*options)
@@ -602,6 +607,7 @@ class ResourceAdapter(ABC):
         temp_prefix: str = _TEMP_NAME_PREFIX,
         temp_max_len: int | None = None,
         rename: Callable[[ModelT, str], Awaitable[None]] | None = None,
+        row_filters: Sequence[Any] = (),
     ) -> NameSwapPlan[ModelT]:
         """Validate target names and park mapped rows whose names change.
 
@@ -628,7 +634,11 @@ class ResourceAdapter(ABC):
         mapped: dict[str, ModelT] = {}
         for source_id in sorted(targets):
             row = await self._row_by_source_id(
-                workspace_service, source_id=source_id, model=model, options=options
+                workspace_service,
+                source_id=source_id,
+                model=model,
+                options=options,
+                row_filters=row_filters,
             )
             if row is not None:
                 mapped[source_id] = row
@@ -646,6 +656,7 @@ class ResourceAdapter(ABC):
             },
             scope_attr=scope_attr,
             target_scopes=target_scopes,
+            row_filters=tuple(row_filters),
         )
         for source_id, row in mapped.items():
             await plan.ensure_available(
@@ -753,7 +764,8 @@ class ResourceAdapter(ABC):
             existing = (
                 await workspace_service.session.scalars(
                     select(plan.column).where(
-                        plan.model.workspace_id == workspace_service.workspace_id
+                        plan.model.workspace_id == workspace_service.workspace_id,
+                        *plan.row_filters,
                     )
                 )
             ).all()
@@ -762,7 +774,8 @@ class ResourceAdapter(ABC):
         rows = (
             await workspace_service.session.execute(
                 select(scope_column, plan.column).where(
-                    plan.model.workspace_id == workspace_service.workspace_id
+                    plan.model.workspace_id == workspace_service.workspace_id,
+                    *plan.row_filters,
                 )
             )
         ).tuples()
