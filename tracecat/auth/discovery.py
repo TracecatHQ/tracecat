@@ -2,22 +2,24 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Final
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import EmailStr
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from tracecat import config
 from tracecat.api.common import bootstrap_role, get_default_organization_id
 from tracecat.auth.enums import AuthType
 from tracecat.core.schemas import Schema
 from tracecat.db.dependencies import AsyncDBSessionBypass
-from tracecat.db.models import Organization, OrganizationDomain
+from tracecat.db.models import Organization, OrganizationDomain, OrganizationInvitation
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import OrganizationID
+from tracecat.invitations.enums import InvitationStatus
 from tracecat.organization.domains import normalize_domain
 from tracecat.service import BaseService
 from tracecat.settings.service import get_setting
@@ -77,6 +79,8 @@ class AuthDiscoveryService(BaseService):
         email_domain = self._extract_domain(email)
         resolution = await self._resolve_organization(email_domain)
         if resolution is None:
+            resolution = await self._resolve_organization_by_pending_invitation(email)
+        if resolution is None:
             method = await self._unmapped_domain_fallback_method()
             return AuthDiscoverResponse(
                 method=method,
@@ -110,6 +114,35 @@ class AuthDiscoveryService(BaseService):
         row = result.one_or_none()
         if row is None:
             return None
+        return row[0], row[1]
+
+    async def _resolve_organization_by_pending_invitation(
+        self, email: EmailStr
+    ) -> tuple[OrganizationID, str] | None:
+        """Resolve a single active org invitation for an otherwise unmapped email."""
+        normalized_email = str(email).strip().lower()
+        if not normalized_email:
+            return None
+
+        stmt = (
+            select(OrganizationInvitation.organization_id, Organization.slug)
+            .join(
+                Organization, Organization.id == OrganizationInvitation.organization_id
+            )
+            .where(
+                func.lower(OrganizationInvitation.email) == normalized_email,
+                OrganizationInvitation.status == InvitationStatus.PENDING,
+                OrganizationInvitation.expires_at > datetime.now(UTC),
+                Organization.is_active.is_(True),
+            )
+            .order_by(OrganizationInvitation.created_at.desc())
+            .limit(2)
+        )
+        result = await self.session.execute(stmt)
+        rows = result.all()
+        if len(rows) != 1:
+            return None
+        row = rows[0]
         return row[0], row[1]
 
     async def _resolve_organization_by_slug(
