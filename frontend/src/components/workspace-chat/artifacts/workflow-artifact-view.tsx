@@ -114,9 +114,17 @@ function WorkflowArtifactBottomPanel() {
   return <CompactWorkflowEvents />
 }
 
+/**
+ * How often the embedded artifact polls for the workflow's latest execution.
+ * Runs the agent starts via `core.workflow.execute` aren't wired to this panel,
+ * so polling while the artifact is open lets a new run appear on its own; the
+ * resolved execution's events then live-update via `useCompactWorkflowExecution`.
+ */
+const ARTIFACT_LAST_EXECUTION_POLL_MS = 2000
+
 /** Latest-run event timeline for the embedded workflow, without sidebar chrome. */
 function CompactWorkflowEvents() {
-  const resolved = useResolvedLastExecution()
+  const resolved = useResolvedLastExecution(ARTIFACT_LAST_EXECUTION_POLL_MS)
   if (resolved.status === "pending") {
     return resolved.node
   }

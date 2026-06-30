@@ -1,6 +1,6 @@
 ---
 name: tracecat-manage-workflows
-description: REQUIRED whenever the user wants to build, create, scaffold, set up, read, inspect, view, change, modify, update, edit, add a step to, or fix a Tracecat workflow or automation. Read this SKILL.md FIRST, before calling core.workflow.create_workflow, core.workflow.get_workflow, or core.workflow.edit_workflow. It covers creating a workflow (empty or from full YAML), reading its editable draft, and editing the draft with RFC 6902 JSON Patch including the mandatory read->patch->write sequence and revision handling.
+description: REQUIRED whenever the user wants to build, create, scaffold, set up, read, inspect, view, change, modify, update, edit, add a step to, fix, run, test, execute, or publish a Tracecat workflow or automation. Read this SKILL.md FIRST, before calling core.workflow.create_workflow, core.workflow.get_workflow, core.workflow.edit_workflow, core.workflow.run, or core.workflow.publish. It covers creating a workflow (empty or from full YAML), reading its editable draft, editing the draft with RFC 6902 JSON Patch including the mandatory read->patch->write sequence and revision handling, and running (draft or published) and publishing the workflow.
 ---
 
 # Managing Tracecat workflows
@@ -16,6 +16,9 @@ You manage workflows through these tools in the `core.workflow` namespace:
   workflow's **webhook** trigger (see "Triggers" below).
 - `core.workflow.get_case_trigger` / `core.workflow.update_case_trigger` — read or configure the
   workflow's **case** trigger (see "Triggers" below).
+- `core.workflow.run` — run the workflow to test it (the current draft by default; a published
+  version with `use_draft=False`). See "Running a workflow" below.
+- `core.workflow.publish` — commit the current draft as a new version (see "Running a workflow").
 
 A workflow's **draft** is its current editable state — the same thing shown in the workflow
 builder. Reading and editing always operate on the draft. There is no separate save step for the
@@ -28,8 +31,10 @@ draft itself; every successful `edit_workflow` updates the live draft.
 2. **Always pass `base_revision`.** Use the `draft_revision` from the most recent `get_workflow` as
    `edit_workflow`'s `base_revision`. If the draft changed since you read it, the edit is rejected
    with a conflict — re-read and retry. Do not reuse a stale revision.
-3. **One edit at a time, sequentially.** Each successful `edit_workflow` returns a NEW
-   `draft_revision`. Use it for the next edit. Never run edits in parallel against the same draft.
+3. **One edit at a time, sequentially.** Each successful *real* `edit_workflow` returns a NEW
+   `draft_revision`. Use it for the next edit. Never run edits in parallel against the same draft. A
+   `validate_only` (dry-run) call does NOT persist or advance the revision — after a dry run, reuse
+   the SAME `base_revision` for the real write.
 4. **Prefer small, targeted patches** over replacing the whole definition. Patch the specific
    actions/fields you are changing.
 
@@ -109,8 +114,10 @@ A workflow's actions define *what* it does; a **trigger** defines *when* it runs
 does not make a workflow runnable on its own — set up a trigger when the user wants the workflow to
 fire on an event.
 
-Tracecat has two configurable triggers, each with its own dedicated tools. **Do not configure
-triggers through `edit_workflow` JSON patches** — use the trigger tools below.
+The **webhook** and **case trigger** each have dedicated tools (`get_webhook`/`update_webhook`,
+`get_case_trigger`/`update_case_trigger`) — **prefer those tools** to configure those two triggers.
+**Schedules** have no dedicated tool: configure them by patching the `/schedules` top-level path via
+`edit_workflow`.
 
 - **Webhook** — run the workflow when an HTTP request hits its webhook URL.
   - `get_webhook(workflow_id)` returns the `status` (`"online"`/`"offline"`), the public `url`, and
@@ -125,15 +132,50 @@ triggers through `edit_workflow` JSON patches** — use the trigger tools below.
 
 Two rules that are easy to get wrong:
 
-1. **The case trigger is NOT in the editable draft.** Even though `get_workflow` shows a
-   `case_trigger` section and `/case_trigger` is listed as an editable path, a JSON patch that adds
-   or replaces `/case_trigger` is rejected. The ONLY supported way to configure a case trigger is
-   `update_case_trigger`. (`get_workflow`'s `case_trigger` is read-only context.)
+1. **Prefer `update_case_trigger` to configure the case trigger.** It is the simplest way to set
+   the trigger's `status`, `event_types`, and `tag_filters`. `/case_trigger` is an editable path, so
+   a JSON patch that adds or replaces it via `edit_workflow` also works and is persisted, but
+   `update_case_trigger` is the preferred path.
 2. **`tag_filters` must reference tags that already exist.** Passing an unknown tag ref fails with
    "Case tag(s) not found". If the user wants to filter on a tag that does not exist yet, create the
    tag first (or drop the filter) — do not guess tag refs.
 
 See [triggers](references/triggers.md) for the full event-type list and worked examples.
+
+## Running a workflow
+
+Triggers fire a workflow on an external event; `core.workflow.run` runs it **on demand** — use it
+to test a workflow you just built or edited.
+
+`core.workflow.run` runs the **current draft by default** (`use_draft=True`) — i.e. your
+unpublished edits, exactly what `get_workflow`/`edit_workflow` operate on. This is what you almost
+always want while iterating: edit the draft, then `run` it to see the result, no publish step
+needed.
+
+```
+run(workflow_id="wf_...", inputs={...})            # runs the draft (default)
+run(workflow_id="wf_...", use_draft=False)         # runs the current published version
+run(workflow_id="wf_...", use_draft=False, version=3)  # runs a specific published version
+```
+
+- `inputs` is the trigger payload (arbitrary JSON). It is validated against the workflow's
+  `entrypoint.expects` schema before dispatch — a mismatch returns a fixable error naming the bad
+  field, so shape `inputs` to that schema.
+- A **broken draft** (empty graph, invalid actions) returns a validation error instead of running.
+  Fix the draft (see "Editing a workflow") and retry; you do not need to publish to run a draft.
+- `run` returns `{workflow_id, workflow_execution_id, status: "STARTED"}` and returns immediately —
+  it does not wait for the run to finish. Report the execution id to the user.
+
+**Draft vs published.** `use_draft=True` (default) runs your working copy — best for testing.
+`use_draft=False` runs a **published** definition (the committed, versioned snapshot that triggers
+actually fire); pass `version` to pin a specific one, or omit it for the current published version.
+`version` is ignored when `use_draft=True` (a draft has no version number).
+
+**Publishing.** `core.workflow.publish(workflow_id)` commits the current draft as a new immutable
+version. Publish when the user wants the workflow's **live triggers** (webhook, case, schedule) to
+use the latest edits — triggers run the published definition, not the draft. Publishing validates
+the draft first and returns the new `version`. Typical loop: `edit_workflow` → `run` (test the
+draft) → `publish` (when it's ready to go live).
 
 ## Action namespaces — NOT everything is `core.`
 

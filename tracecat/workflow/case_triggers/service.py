@@ -104,6 +104,7 @@ class CaseTriggersService(BaseWorkspaceService):
                 "Publish the workflow before enabling case triggers"
             ) from e
 
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def validate_case_trigger_config(
         self, workflow_id: WorkflowID, config: CaseTriggerConfig
     ) -> None:

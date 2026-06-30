@@ -1241,9 +1241,17 @@ export function useCreateDraftWorkflowExecution(workflowId: string) {
 export function useLastExecution({
   workflowId,
   triggerTypes,
+  refetchInterval,
 }: {
   workflowId?: string | null
   triggerTypes: TriggerType[]
+  /**
+   * When set, poll the latest-execution list on this interval (ms) so runs
+   * started outside this view -- e.g. by a chat agent's `core.workflow.execute`
+   * -- are discovered without an explicit invalidation. Background polling is
+   * disabled, so the query only refetches while the tab is focused.
+   */
+  refetchInterval?: number
 }) {
   const workspaceId = useWorkspaceId()
   const {
@@ -1264,6 +1272,8 @@ export function useLastExecution({
 
       return executions.length > 0 ? executions[0] : null
     },
+    refetchInterval,
+    refetchIntervalInBackground: false,
   })
 
   return {

@@ -1,7 +1,9 @@
 # Configuring workflow triggers
 
-A trigger decides *when* a workflow runs. Configure one with its dedicated tools — never through
-`edit_workflow` JSON patches. There are two configurable triggers: **webhook** and **case trigger**.
+A trigger decides *when* a workflow runs. The **webhook** and **case trigger** each have dedicated
+tools that are the preferred way to configure them (editing `/case_trigger` via an `edit_workflow`
+JSON patch also works). Schedules have no dedicated tool — configure them by patching `/schedules`
+via `edit_workflow`.
 
 ## Webhook trigger
 
@@ -76,12 +78,24 @@ Use these exact strings (underscores, lowercase):
 - `task_created`
 - `task_deleted`
 - `task_status_changed`
+- `task_priority_changed`
+- `task_workflow_changed`
+- `task_assignee_changed`
+- `dropdown_value_changed`
+- `table_row_linked`
+- `table_row_unlinked`
+- `comment_created`
+- `comment_updated`
+- `comment_deleted`
+- `comment_reply_created`
+- `comment_reply_updated`
+- `comment_reply_deleted`
 
 ## Two things that trip people up
 
-1. **The case trigger is NOT editable through `edit_workflow`.** `get_workflow` shows a
-   `case_trigger` section in the draft, but a JSON patch that adds/replaces `/case_trigger` is
-   rejected. That section is read-only context — `update_case_trigger` is the only way to set it.
+1. **Prefer `update_case_trigger` to configure the case trigger.** It is the simplest way to set
+   `status`, `event_types`, and `tag_filters`. Editing `/case_trigger` via an `edit_workflow` JSON
+   patch also works and is persisted, but `update_case_trigger` is the preferred path.
 
 2. **`tag_filters` must reference existing case tags.** An unknown tag ref fails with
    "Case tag(s) not found". If the user wants to filter on a tag that does not exist yet, create

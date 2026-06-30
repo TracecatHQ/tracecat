@@ -190,9 +190,9 @@ class AgentSessionService(BaseWorkspaceService):
         merged = list(dict.fromkeys([*defaults, *extras]))
         # Chat tools execute under the executor service principal, which the
         # internal API routes authorize against the service allowlist rather than
-        # the chat user's RBAC. Enforce the caller's workflow scopes here -- the
+        # the chat user's RBAC. Enforce the caller's action scopes here -- the
         # last point where the user's real role is available -- so `agent:execute`
-        # alone cannot grant workflow create/read/update via these tools.
+        # alone cannot grant workflow create/edit or case delete via these tools.
         merged = filter_workspace_chat_tools_for_scopes(merged, role=self.role)
         return await self._workspace_chat_tools_for_entitlements(merged)
 
@@ -1779,9 +1779,23 @@ class AgentSessionService(BaseWorkspaceService):
                         if preset_config.instructions
                         else entity_instructions
                     )
+                    # A preset carries its own actions/namespaces, so it must pass
+                    # the same user-scope gate as the no-preset path -- otherwise
+                    # attaching a preset (only `agent:execute` is needed) would let
+                    # the agent run actions the user lacks scopes for. (`namespaces`
+                    # only narrows this set at tool-build time, never widens it, so
+                    # filtering `actions` is sufficient.)
+                    scoped_actions = (
+                        filter_workspace_chat_tools_for_scopes(
+                            preset_config.actions, role=self.role
+                        )
+                        if preset_config.actions is not None
+                        else None
+                    )
                     config = replace(
                         preset_config,
                         instructions=combined_instructions,
+                        actions=scoped_actions,
                         builtin_skills=builtin_skills,
                     )
                     yield config
