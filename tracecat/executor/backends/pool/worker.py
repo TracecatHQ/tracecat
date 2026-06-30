@@ -52,6 +52,28 @@ from tracecat.logger import logger  # noqa: E402
 # Track tarball paths already added to sys.path to avoid duplicates
 _added_tarball_paths: set[str] = set()
 
+# Track host-resolved registry paths already added to sys.path
+_added_registry_paths: set[str] = set()
+
+
+def _add_registry_paths_to_sys_path(paths: list[str]) -> None:
+    """Add host-resolved registry artifact paths to sys.path.
+
+    Called per-task with paths materialized by the host process. Unlike
+    _ensure_tarball_paths_in_sys_path() which scans the cache dir for
+    pre-existing tarball directories, this accepts explicit paths from
+    the request that the host resolved just before sending.
+    """
+    for path_str in paths:
+        if path_str not in _added_registry_paths and path_str not in sys.path:
+            sys.path.insert(0, path_str)
+            _added_registry_paths.add(path_str)
+            logger.debug(
+                "Added registry artifact path to sys.path",
+                path=path_str,
+                worker_id=_worker_id,
+            )
+
 
 def _ensure_tarball_paths_in_sys_path() -> None:
     """Ensure all tarball extraction directories are in sys.path.
@@ -134,6 +156,13 @@ async def handle_task(request: dict[str, Any]) -> dict[str, Any]:
 
         # Ensure tarball paths are in sys.path for custom registry modules
         _ensure_tarball_paths_in_sys_path()
+
+        # Add host-resolved registry artifact paths to sys.path so UDFs in
+        # custom registry packages can be imported. The host materialized
+        # the artifacts (downloaded + extracted) before sending the request.
+        registry_paths = request.get("registry_paths", [])
+        if registry_paths:
+            _add_registry_paths_to_sys_path(registry_paths)
 
         # Set the role context for actions that need it (e.g., core.cases, core.table)
         ctx_role.set(role)
