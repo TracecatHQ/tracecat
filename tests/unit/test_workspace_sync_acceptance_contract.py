@@ -14,7 +14,8 @@ import uuid
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -22,6 +23,7 @@ import yaml
 from pydantic import SecretStr, ValidationError
 from pydantic_core import PydanticSerializationError
 from sqlalchemy import select
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.support.fake_vcs import FakeVcsServer
@@ -57,6 +59,7 @@ from tracecat.identifiers.workflow import WF_ID_SHORT_PATTERN, WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets.schemas import SecretKeyValue
 from tracecat.secrets.service import SecretsService
+from tracecat.service import BaseWorkspaceService
 from tracecat.sync import PullOptions, PushStatus
 from tracecat.tables.schemas import TableUpdate
 from tracecat.tables.service import BaseTablesService
@@ -65,6 +68,7 @@ from tracecat.workspace_sync.adapters import (
     TABLE_RESOURCE_ADAPTER,
     WORKSPACE_RESOURCE_ADAPTERS,
 )
+from tracecat.workspace_sync.adapters.agent_preset import AgentPresetAdapter
 from tracecat.workspace_sync.adapters.base import VersionedSlug
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.importer import WorkspaceResourceImportService
@@ -81,6 +85,7 @@ from tracecat.workspace_sync.schemas import (
     TABLE_ROOT,
     VARIABLE_ROOT,
     WORKFLOW_ROOT,
+    AgentPresetSubagentRef,
     ResourceRef,
     SkillFileSpec,
     SkillResourceSpec,
@@ -155,6 +160,16 @@ def workspace_sync_service() -> WorkspaceSyncService:
         scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-api"],
     )
     return WorkspaceSyncService(session=session, role=role)
+
+
+class _ScalarRecorder:
+    def __init__(self, *results: Any) -> None:
+        self._results = list(results)
+        self.statements: list[Any] = []
+
+    async def scalar(self, statement: Any) -> Any:
+        self.statements.append(statement)
+        return self._results.pop(0)
 
 
 def test_sync_resource_type_declares_expanded_resource_contract() -> None:
@@ -4260,6 +4275,47 @@ async def test_agent_preset_import_resolves_subagents_to_active_preset(
     assert imported_subagent["preset_version_id"] == str(
         active_child.current_version_id
     )
+
+
+@pytest.mark.anyio
+async def test_agent_preset_import_locks_resolved_subagent_target() -> None:
+    adapter = AgentPresetAdapter()
+    workspace_id = uuid.uuid4()
+    child_id = uuid.uuid4()
+    version_id = uuid.uuid4()
+    child = AgentPreset(
+        id=child_id,
+        workspace_id=workspace_id,
+        slug="z-child",
+        name="Z child",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        agents={"enabled": False},
+        current_version_id=version_id,
+    )
+    version = AgentPresetVersion(
+        id=version_id,
+        workspace_id=workspace_id,
+        preset_id=child_id,
+        version=1,
+        instructions="Child instructions",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        agents={"enabled": False},
+    )
+    session = _ScalarRecorder(child, version)
+    service = cast(
+        BaseWorkspaceService,
+        SimpleNamespace(session=session, workspace_id=workspace_id),
+    )
+
+    resolved = await adapter._resolved_subagent_target(
+        service, AgentPresetSubagentRef(slug="z-child")
+    )
+
+    assert resolved == (child, version)
+    child_lookup = str(session.statements[0].compile(dialect=postgresql.dialect()))
+    assert "FOR UPDATE" in child_lookup
 
 
 @pytest.mark.anyio

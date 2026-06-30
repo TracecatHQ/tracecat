@@ -816,11 +816,13 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         """Resolve a subagent ref to its child preset and desired version."""
         # Look up the child preset by slug within the same workspace.
         child = await workspace_service.session.scalar(
-            select(AgentPreset).where(
+            select(AgentPreset)
+            .where(
                 AgentPreset.workspace_id == workspace_service.workspace_id,
                 AgentPreset.slug == subagent.slug,
                 AgentPreset.archived_at.is_(None),
             )
+            .with_for_update()
         )
         if child is None:
             return None
