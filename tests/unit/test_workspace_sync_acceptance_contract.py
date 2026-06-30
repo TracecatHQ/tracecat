@@ -1389,6 +1389,41 @@ async def test_round_trip_preserves_presets_pinning_different_skill_versions(
 
 
 @pytest.mark.anyio
+async def test_export_ignores_archived_preset_skill_version_pins(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(
+        _versioned_agent_skill_git_tree(),
+        commit_sha="4" * 40,
+    )
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+
+    agent_x = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "agent-x",
+        )
+    )
+    assert agent_x is not None
+    agent_x.archived_at = datetime.now(UTC)
+    session.add(agent_x)
+    await session.flush()
+
+    projection = await service.project_workspace(create_missing_mappings=False)
+
+    assert f"{SKILL_ROOT}/skill-a/versions/1/version.yml" not in projection.files
+    assert f"{SKILL_ROOT}/skill-a/versions/1/files/SKILL.md" not in projection.files
+    assert f"{SKILL_ROOT}/skill-a/versions/2/version.yml" in projection.files
+    assert f"{SKILL_ROOT}/skill-a/versions/2/files/SKILL.md" in projection.files
+
+
+@pytest.mark.anyio
 async def test_agent_preset_import_ignores_archived_skill_bindings(
     session: AsyncSession,
     svc_role: Role,
