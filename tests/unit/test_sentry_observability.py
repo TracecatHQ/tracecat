@@ -6,7 +6,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from temporalio import activity
 from temporalio.common import Priority, RetryPolicy
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError, CancelledError
 
 from tracecat.auth.types import system_role
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
@@ -364,6 +364,10 @@ def test_workflow_input_context_omits_dsl_run_args_payloads() -> None:
     assert "role" not in context
     assert "customer@example.com" not in str(context)
     assert "Customer workflow" not in str(context)
+
+
+def test_workflow_interceptor_skips_expected_cancellations() -> None:
+    assert _should_capture_workflow_exception(CancelledError()) is False
 
 
 def test_workflow_interceptor_skips_user_facing_activity_error_causes() -> None:

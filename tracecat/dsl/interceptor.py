@@ -3,7 +3,7 @@ from typing import Any
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ApplicationError, FailureError
+from temporalio.exceptions import ApplicationError, FailureError, is_cancelled_exception
 from temporalio.worker import (
     ActivityInboundInterceptor,
     ExecuteActivityInput,
@@ -192,6 +192,8 @@ def _should_capture_workflow_exception(exc: Exception) -> bool:
 
 
 def _should_capture_temporal_exception(exc: Exception) -> bool:
+    if is_cancelled_exception(exc):
+        return False
     if isinstance(exc, _USER_FACING_EXCEPTION_CLASSES):
         return False
     if isinstance(exc, ApplicationError):
