@@ -23,6 +23,7 @@ def mock_tracecat_client() -> MagicMock:
     client = MagicMock()
     client.get = AsyncMock()
     client.post = AsyncMock()
+    client.patch = AsyncMock()
     return client
 
 
@@ -171,6 +172,138 @@ class TestWorkflowsClientGetStatus:
         assert result["status"] == "RUNNING"
         mock_tracecat_client.get.assert_called_once_with(
             "/workflows/executions/wf-00000000000000000000000000000123/exec-456"
+        )
+
+
+class TestWorkflowsClientCreate:
+    """Tests for WorkflowsClient.create_workflow()."""
+
+    @pytest.mark.anyio
+    async def test_create_empty_omits_definition(
+        self, workflows_client: WorkflowsClient, mock_tracecat_client: MagicMock
+    ):
+        """Create without definition_yaml posts only title/description."""
+        mock_tracecat_client.post.return_value = {"id": "wf_abc", "title": "T"}
+
+        await workflows_client.create_workflow(title="T", description="D")
+
+        mock_tracecat_client.post.assert_called_once_with(
+            "/workflows",
+            json={"title": "T", "description": "D"},
+        )
+
+    @pytest.mark.anyio
+    async def test_create_with_definition_yaml(
+        self, workflows_client: WorkflowsClient, mock_tracecat_client: MagicMock
+    ):
+        """Create with definition_yaml forwards it in the body."""
+        mock_tracecat_client.post.return_value = {"id": "wf_abc", "title": "T"}
+
+        await workflows_client.create_workflow(
+            title="T", definition_yaml="definition:\n  title: T\n"
+        )
+
+        mock_tracecat_client.post.assert_called_once_with(
+            "/workflows",
+            json={"title": "T", "definition_yaml": "definition:\n  title: T\n"},
+        )
+
+
+class TestWorkflowsClientGetWorkflow:
+    """Tests for WorkflowsClient.get_workflow()."""
+
+    @pytest.mark.anyio
+    async def test_get_workflow_hits_edit_document(
+        self, workflows_client: WorkflowsClient, mock_tracecat_client: MagicMock
+    ):
+        """get_workflow reads the draft edit-document endpoint."""
+        mock_tracecat_client.get.return_value = {
+            "workflow_id": "wf_abc",
+            "draft_revision": "rev1",
+            "draft_document": {},
+        }
+
+        result = await workflows_client.get_workflow(workflow_id="wf_abc")
+
+        assert result["draft_revision"] == "rev1"
+        mock_tracecat_client.get.assert_called_once_with(
+            "/workflows/wf_abc/edit-document"
+        )
+
+
+class TestWorkflowsClientEditWorkflow:
+    """Tests for WorkflowsClient.edit_workflow()."""
+
+    @pytest.mark.anyio
+    async def test_edit_workflow_patches_edit_document(
+        self, workflows_client: WorkflowsClient, mock_tracecat_client: MagicMock
+    ):
+        """edit_workflow PATCHes the edit-document endpoint with the patch body."""
+        mock_tracecat_client.patch.return_value = {
+            "message": "ok",
+            "workflow_id": "wf_abc",
+            "draft_revision": "rev2",
+        }
+        patch_ops = [{"op": "add", "path": "/definition/actions/-", "value": {}}]
+
+        result = await workflows_client.edit_workflow(
+            workflow_id="wf_abc",
+            base_revision="rev1",
+            patch_ops=patch_ops,
+            validate_only=True,
+        )
+
+        assert result["draft_revision"] == "rev2"
+        mock_tracecat_client.patch.assert_called_once_with(
+            "/workflows/wf_abc/edit-document",
+            json={
+                "base_revision": "rev1",
+                "patch_ops": patch_ops,
+                "validate_only": True,
+            },
+        )
+
+
+class TestWorkflowsClientGetAuthoringContext:
+    """Tests for WorkflowsClient.get_authoring_context()."""
+
+    @pytest.mark.anyio
+    async def test_get_authoring_context_by_names(
+        self, workflows_client: WorkflowsClient, mock_tracecat_client: MagicMock
+    ):
+        """By-name lookup POSTs only action_names to the authoring-context route."""
+        mock_tracecat_client.post.return_value = {
+            "actions": [],
+            "variable_hints": [],
+            "secret_hints": [],
+        }
+
+        result = await workflows_client.get_authoring_context(
+            action_names=["core.http_request", "ai.agent"]
+        )
+
+        assert result == {"actions": [], "variable_hints": [], "secret_hints": []}
+        mock_tracecat_client.post.assert_called_once_with(
+            "/workflows/authoring-context",
+            json={"action_names": ["core.http_request", "ai.agent"]},
+        )
+
+    @pytest.mark.anyio
+    async def test_get_authoring_context_by_query(
+        self, workflows_client: WorkflowsClient, mock_tracecat_client: MagicMock
+    ):
+        """By-query lookup POSTs only the query to the authoring-context route."""
+        mock_tracecat_client.post.return_value = {
+            "actions": [],
+            "variable_hints": [],
+            "secret_hints": [],
+        }
+
+        await workflows_client.get_authoring_context(query="reshape")
+
+        mock_tracecat_client.post.assert_called_once_with(
+            "/workflows/authoring-context",
+            json={"query": "reshape"},
         )
 
 

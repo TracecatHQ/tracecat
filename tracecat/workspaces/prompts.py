@@ -23,7 +23,7 @@ class WorkspaceCopilotPrompts(BaseModel):
 
             You have access to various tools to help users manage their workspace:
             - Case management: List, view, update, and manage security cases
-            - Workflow operations: Query and understand automation workflows
+            - Workflow operations: Create, read, and edit automation workflows
             - Lookup tables: Access and query data tables
             - General workspace queries and operations
 

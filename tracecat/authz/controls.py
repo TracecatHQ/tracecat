@@ -168,6 +168,78 @@ class HasRole(Protocol):
     role: Role
 
 
+def check_scopes(
+    role: Role | None,
+    *scopes: str,
+    require_all: bool = True,
+) -> None:
+    """Assert that ``role`` holds the required scope(s), or raise.
+
+    Shared scope-enforcement used both by the ``require_scope`` decorator and by
+    imperative call sites where the role is only available at call time (e.g. an
+    MCP tool that resolves a workspace role before invoking a shared service
+    method that is intentionally left unscoped).
+
+    When ``role`` is ``None`` the role is taken from the current request context
+    (``ctx_role``), matching the decorator's implicit behavior.
+
+    Platform superusers (``"*"`` scope) bypass all checks.
+
+    Args:
+        role: The role to check. If ``None``, falls back to ``ctx_role.get()``.
+        *scopes: The scope(s) required for access.
+        require_all: If True (default), all scopes must be present. If False,
+            any one of the scopes is sufficient.
+
+    Raises:
+        ScopeDeniedError: If the role doesn't have the required scope(s).
+    """
+    required = set(scopes)
+    if not required:
+        return
+
+    role = role or ctx_role.get()
+    if role is None:
+        raise ScopeDeniedError(
+            required_scopes=list(required), missing_scopes=list(required)
+        )
+
+    user_scopes = role.scopes
+    if user_scopes is None:
+        raise ScopeDeniedError(
+            required_scopes=list(required), missing_scopes=list(required)
+        )
+
+    # Platform superuser has "*" scope - bypass all checks
+    if "*" in user_scopes:
+        return
+
+    if require_all:
+        missing = get_missing_scopes(user_scopes, required)
+        if missing:
+            logger.warning(
+                "Scope check failed - missing required scopes",
+                required_scopes=list(required),
+                missing_scopes=list(missing),
+            )
+            raise ScopeDeniedError(
+                required_scopes=list(required),
+                missing_scopes=list(missing),
+            )
+    else:
+        if not has_any_scope(user_scopes, required):
+            logger.warning(
+                "Scope check failed - none of required scopes present",
+                required_scopes=list(required),
+            )
+            raise ScopeDeniedError(
+                required_scopes=list(required),
+                missing_scopes=list(required),
+            )
+
+    logger.debug("Scope check passed", required_scopes=list(required))
+
+
 # =============================================================================
 # Scope-based Authorization Decorator
 # =============================================================================
@@ -260,52 +332,6 @@ def require_scope(*scopes: str, require_all: bool = True) -> Callable[[T], T]:
     """
     required = set(scopes)
 
-    def check_scopes(method_role: Role | None = None) -> None:
-        # Empty required scopes means no restrictions
-        if not required:
-            return
-
-        role = method_role or ctx_role.get()
-        if role is None:
-            raise ScopeDeniedError(
-                required_scopes=list(required), missing_scopes=list(required)
-            )
-
-        user_scopes = role.scopes
-        if user_scopes is None:
-            raise ScopeDeniedError(
-                required_scopes=list(required), missing_scopes=list(required)
-            )
-
-        # Platform superuser has "*" scope - bypass all checks
-        if "*" in user_scopes:
-            return
-
-        if require_all:
-            missing = get_missing_scopes(user_scopes, required)
-            if missing:
-                logger.warning(
-                    "Scope check failed - missing required scopes",
-                    required_scopes=list(required),
-                    missing_scopes=list(missing),
-                )
-                raise ScopeDeniedError(
-                    required_scopes=list(required),
-                    missing_scopes=list(missing),
-                )
-        else:
-            if not has_any_scope(user_scopes, required):
-                logger.warning(
-                    "Scope check failed - none of required scopes present",
-                    required_scopes=list(required),
-                )
-                raise ScopeDeniedError(
-                    required_scopes=list(required),
-                    missing_scopes=list(required),
-                )
-
-        logger.debug("Scope check passed", required_scopes=list(required))
-
     def decorator(fn: T) -> T:
         if asyncio.iscoroutinefunction(fn):
 
@@ -316,7 +342,7 @@ def require_scope(*scopes: str, require_all: bool = True) -> Callable[[T], T]:
                 )
                 if method_role is None and isinstance(role := kwargs.get("role"), Role):
                     method_role = role
-                check_scopes(method_role=method_role)
+                check_scopes(method_role, *required, require_all=require_all)
                 return await fn(*args, **kwargs)
 
             _attach_wrapped_signature(async_wrapper, fn)
@@ -331,7 +357,7 @@ def require_scope(*scopes: str, require_all: bool = True) -> Callable[[T], T]:
                 )
                 if method_role is None and isinstance(role := kwargs.get("role"), Role):
                     method_role = role
-                check_scopes(method_role=method_role)
+                check_scopes(method_role, *required, require_all=require_all)
                 return fn(*args, **kwargs)
 
             _attach_wrapped_signature(wrapper, fn)

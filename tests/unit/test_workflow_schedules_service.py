@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.auth.types import Role
+from tracecat.authz.scopes import EDITOR_SCOPES
 from tracecat.db.models import Schedule, Workflow
+from tracecat.exceptions import ScopeDeniedError
 from tracecat.identifiers import WorkspaceID
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.workflow.schedules import bridge
@@ -118,3 +122,65 @@ async def test_delete_schedule_deletes_existing_schedule(
     result = await session.execute(select(Schedule).where(Schedule.id == schedule.id))
     assert result.scalar_one_or_none() is None
     assert deleted_temporal_schedule_ids == [schedule.id]
+
+
+def _editor_role(svc_role) -> Role:
+    """A workspace-editor role: workflow:update + schedule:create, no schedule:delete."""
+    return svc_role.model_copy(update={"scopes": EDITOR_SCOPES})
+
+
+@pytest.mark.anyio
+async def test_replace_schedules_allowed_for_workflow_editor(
+    session: AsyncSession, svc_role, monkeypatch
+):
+    """Editing schedules through the workflow-edit surface is gated by
+    workflow:update, so an editor without the admin-only schedule:delete scope
+    can replace schedules (regression for the edit_workflow RBAC failure)."""
+    workflow, schedule = await _create_workflow_with_schedule(
+        session, svc_role.workspace_id
+    )
+
+    async def _delete_schedule(schedule_id):
+        return None
+
+    async def _create_schedule(*, schedule_id, **kwargs):
+        return SimpleNamespace(id=str(schedule_id))
+
+    monkeypatch.setattr(bridge, "delete_schedule", _delete_schedule)
+    monkeypatch.setattr(bridge, "create_schedule", _create_schedule)
+
+    editor_role = _editor_role(svc_role)
+    assert "schedule:delete" not in (editor_role.scopes or frozenset())
+    service = WorkflowSchedulesService(session, role=editor_role)
+
+    await service.replace_schedules(
+        WorkflowUUID.new(workflow.id),
+        [
+            ScheduleCreate(
+                workflow_id=WorkflowUUID.new(workflow.id),
+                every=timedelta(hours=2),
+                inputs={},
+                status="offline",
+                timeout=0,
+            )
+        ],
+    )
+
+    remaining = await service.list_schedules(workflow_id=WorkflowUUID.new(workflow.id))
+    assert len(remaining) == 1
+    # The pre-existing schedule was deleted and the new one created.
+    assert remaining[0].id != schedule.id
+    assert remaining[0].every == timedelta(hours=2)
+
+
+@pytest.mark.anyio
+async def test_delete_schedule_still_requires_admin_scope(
+    session: AsyncSession, svc_role
+):
+    """The standalone delete_schedule surface keeps its schedule:delete gate;
+    the workflow-edit replacement path must not have weakened it."""
+    _, schedule = await _create_workflow_with_schedule(session, svc_role.workspace_id)
+    service = WorkflowSchedulesService(session, role=_editor_role(svc_role))
+
+    with pytest.raises(ScopeDeniedError):
+        await service.delete_schedule(schedule.id)

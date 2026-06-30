@@ -133,10 +133,8 @@ async def execute(
 @registry.register(
     namespace="core.workflow",
     description=(
-        "Create a new empty workflow in the current workspace and return its id "
-        "and title. Use this when the user asks to create, scaffold, or start a new "
-        "workflow. The workflow starts empty (only a trigger) and can be edited in "
-        "the workflow builder afterwards."
+        "Create a new workflow, optionally pre-filled from `definition_yaml`. "
+        "Read the `tracecat-manage-workflows` skill first."
     ),
     default_title="Create workflow",
     display_group="Workflows",
@@ -146,17 +144,129 @@ async def create_workflow(
     title: Annotated[
         str | None,
         Doc(
-            "Title for the new workflow (3-100 characters). If omitted, a "
-            "timestamped title is used."
+            "Title for the new workflow (3-100 characters). For an empty create "
+            "a timestamped title is used when omitted; with `definition_yaml` "
+            "the title must come from here or a `title:` in the YAML."
         ),
     ] = None,
     description: Annotated[
         str | None,
         Doc("Optional description for the new workflow (up to 1000 characters)."),
     ] = None,
+    definition_yaml: Annotated[
+        str | None,
+        Doc(
+            "Optional full workflow definition as YAML (actions, layout, case "
+            "trigger). When provided, the workflow is created with these actions "
+            "instead of being empty. The complete workflow belongs under a "
+            "top-level `definition:` key. Schedules are not created here — add "
+            "them afterwards with `edit_workflow`."
+        ),
+    ] = None,
 ) -> dict[str, Any]:
-    """Create a new empty workflow and return ``{"id", "title"}``."""
-    return await ctx.workflows.aio.create_workflow(title=title, description=description)
+    """Create a workflow and return ``{"id", "title"}``."""
+    return await ctx.workflows.aio.create_workflow(
+        title=title, description=description, definition_yaml=definition_yaml
+    )
+
+
+@registry.register(
+    namespace="core.workflow",
+    description=(
+        "Read a workflow's editable draft (`draft_revision` + `draft_document`). "
+        "Call before `edit_workflow`. See the `tracecat-manage-workflows` skill."
+    ),
+    default_title="Get workflow",
+    display_group="Workflows",
+)
+async def get_workflow(
+    *,
+    workflow_id: Annotated[
+        str,
+        Doc("The workflow ID to read (short `wf_...` or full format)."),
+    ],
+) -> dict[str, Any]:
+    """Read a workflow's editable draft document and revision."""
+    return await ctx.workflows.aio.get_workflow(workflow_id=workflow_id)
+
+
+@registry.register(
+    namespace="core.workflow",
+    description=(
+        "Edit a workflow's draft with RFC 6902 JSON Patch ops (get_workflow → "
+        "patch → edit_workflow). Read the `tracecat-manage-workflows` skill first."
+    ),
+    default_title="Edit workflow",
+    display_group="Workflows",
+)
+async def edit_workflow(
+    *,
+    workflow_id: Annotated[
+        str,
+        Doc("The workflow ID to edit (short `wf_...` or full format)."),
+    ],
+    base_revision: Annotated[
+        str,
+        Doc(
+            "The `draft_revision` returned by `get_workflow`. The edit is "
+            "rejected with a conflict if the draft changed since then."
+        ),
+    ],
+    patch_ops: Annotated[
+        list[dict[str, Any]],
+        Doc(
+            "RFC 6902 JSON Patch operations to apply to the draft document. Each "
+            'op is an object like {"op": "add", "path": "/definition/actions/-", '
+            '"value": {...}}. Supported ops: add, remove, replace, move, copy, '
+            "test."
+        ),
+    ],
+    validate_only: Annotated[
+        bool,
+        Doc("When true, validate the patch without persisting changes."),
+    ] = False,
+) -> dict[str, Any]:
+    """Apply JSON Patch edits to a workflow draft and return the new revision."""
+    return await ctx.workflows.aio.edit_workflow(
+        workflow_id=workflow_id,
+        base_revision=base_revision,
+        patch_ops=patch_ops,
+        validate_only=validate_only,
+    )
+
+
+@registry.register(
+    namespace="core.workflow",
+    description=(
+        "Get action schemas, required secrets, and example args before writing "
+        "an action's `args:`. Resolve by `action_names` or `query`. See the "
+        "`tracecat-manage-workflows` skill."
+    ),
+    default_title="Get workflow authoring context",
+    display_group="Workflows",
+)
+async def get_authoring_context(
+    *,
+    action_names: Annotated[
+        list[str] | None,
+        Doc(
+            "Fully qualified action names to fetch context for (e.g. "
+            "`['core.http_request', 'ai.agent']`). Takes precedence over `query`."
+        ),
+    ] = None,
+    query: Annotated[
+        str | None,
+        Doc(
+            "Search string to resolve actions by name/description when "
+            "`action_names` is not provided."
+        ),
+    ] = None,
+) -> dict[str, Any]:
+    """Return action schemas, secret/variable hints, and example args."""
+    return await ctx.workflows.aio.get_authoring_context(
+        action_names=action_names,
+        query=query,
+    )
 
 
 @registry.register(

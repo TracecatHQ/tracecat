@@ -309,6 +309,18 @@ class WorkflowEditResponse(BaseModel):
     validate_only: bool = False
 
 
+class WorkflowAuthoringContextRequest(BaseModel):
+    """Request body for authoring-context lookup.
+
+    Resolve actions either by explicit ``action_names`` or, when none are
+    given, by ``query`` search. Both may be omitted to fetch only the workspace
+    variable/secret hints.
+    """
+
+    action_names: list[str] | None = None
+    query: str | None = None
+
+
 class ActionSecretRequirement(BaseModel):
     name: str
     required_keys: list[str] = Field(default_factory=list)
