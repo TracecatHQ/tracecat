@@ -12,6 +12,10 @@ You manage workflows through these tools in the `core.workflow` namespace:
 - `core.workflow.edit_workflow` — apply RFC 6902 JSON Patch operations to the draft.
 - `core.workflow.get_authoring_context` — look up real action arg schemas, secrets, and examples
   before writing an action's `args:` (see "Getting action arguments right" below).
+- `core.workflow.get_webhook` / `core.workflow.update_webhook` — read or enable/disable the
+  workflow's **webhook** trigger (see "Triggers" below).
+- `core.workflow.get_case_trigger` / `core.workflow.update_case_trigger` — read or configure the
+  workflow's **case** trigger (see "Triggers" below).
 
 A workflow's **draft** is its current editable state — the same thing shown in the workflow
 builder. Reading and editing always operate on the draft. There is no separate save step for the
@@ -99,6 +103,38 @@ edit_workflow(
 Editable top-level paths are `/metadata`, `/definition`, `/layout`, `/schedules`, `/case_trigger`.
 Action paths live under `/definition/actions/...`.
 
+## Triggers — how a workflow runs
+
+A workflow's actions define *what* it does; a **trigger** defines *when* it runs. Adding actions
+does not make a workflow runnable on its own — set up a trigger when the user wants the workflow to
+fire on an event.
+
+Tracecat has two configurable triggers, each with its own dedicated tools. **Do not configure
+triggers through `edit_workflow` JSON patches** — use the trigger tools below.
+
+- **Webhook** — run the workflow when an HTTP request hits its webhook URL.
+  - `get_webhook(workflow_id)` returns the `status` (`"online"`/`"offline"`), the public `url`, and
+    the allowed `methods`.
+  - `update_webhook(workflow_id, status="online")` enables it; `status="offline"` disables it.
+    Enabling makes the workflow triggerable at its `url` — surface that URL to the user.
+- **Case trigger** — run the workflow when a case event occurs (e.g. a case is created).
+  - `get_case_trigger(workflow_id)` returns `status`, `event_types`, and `tag_filters`.
+  - `update_case_trigger(workflow_id, status=..., event_types=[...], tag_filters=[...])` configures
+    it. To enable (`status="online"`) you MUST also pass a non-empty `event_types`, e.g.
+    `["case_created", "status_changed"]`.
+
+Two rules that are easy to get wrong:
+
+1. **The case trigger is NOT in the editable draft.** Even though `get_workflow` shows a
+   `case_trigger` section and `/case_trigger` is listed as an editable path, a JSON patch that adds
+   or replaces `/case_trigger` is rejected. The ONLY supported way to configure a case trigger is
+   `update_case_trigger`. (`get_workflow`'s `case_trigger` is read-only context.)
+2. **`tag_filters` must reference tags that already exist.** Passing an unknown tag ref fails with
+   "Case tag(s) not found". If the user wants to filter on a tag that does not exist yet, create the
+   tag first (or drop the filter) — do not guess tag refs.
+
+See [triggers](references/triggers.md) for the full event-type list and worked examples.
+
 ## Action namespaces — NOT everything is `core.`
 
 Every `action:` name starts with exactly one of these three top-level namespaces. There are
@@ -164,6 +200,29 @@ and it is **not** a reason to ask the user to check their sidebar.
 
 Never drop a capability, downgrade to an HTTP/Python placeholder, or ask the user to debug their
 workspace because of a name error. Correct the name and keep the intended action.
+
+## Expressions — `${{ ... }}`
+
+Action `args` reference runtime data with template expressions like `${{ TRIGGER.indicator }}` or
+`${{ ACTIONS.fetch.result.data }}`. Three rules catch people out:
+
+1. **Namespaces are UPPERCASE.** `${{ ACTIONS.x }}`, `${{ TRIGGER.x }}`, `${{ SECRETS.x }}`,
+   `${{ VARS.x }}`, `${{ ENV.x }}` — `${{ actions.x }}` (lowercase) is a parse error.
+
+2. **Don't trust the draft read-back to "resolve" an expression.** When you write an expression and
+   then `get_workflow`, the stored value may display as `None`. The platform evaluates the
+   expression against an empty context at author time (there is no live trigger yet), so it renders
+   as `None` even though the expression is stored correctly and resolves to the real value at
+   runtime. A `None` in the read-back does NOT mean the wiring is wrong — confirm correctness by
+   re-reading the action's `args` string, not by the resolved value.
+
+3. **Typed fields need a `-> str` cast.** A field validated as a string (e.g. a `case_id`) rejects a
+   bare `${{ TRIGGER.id }}`, because at author time the expression resolves to `None` and
+   `None` is not a string. Cast it: `${{ TRIGGER.id -> str }}`. At author time `str(None) == "None"`
+   passes the string check; at runtime `str(real_value)` yields the real value. Use `-> str` for any
+   expression going into a required string field.
+
+See [expressions](references/expressions.md) for more.
 
 ## Getting action arguments right
 
