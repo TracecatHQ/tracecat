@@ -195,6 +195,7 @@ async def get_session(
                 else None
             ),
             harness_type=agent_session.harness_type,
+            last_error=agent_session.last_error,
             created_at=agent_session.created_at,
             updated_at=agent_session.updated_at,
             last_stream_id=agent_session.last_stream_id,
@@ -277,6 +278,7 @@ async def get_session_vercel(
                 else None
             ),
             harness_type=agent_session.harness_type,
+            last_error=agent_session.last_error,
             created_at=agent_session.created_at,
             updated_at=agent_session.updated_at,
             last_stream_id=agent_session.last_stream_id,

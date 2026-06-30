@@ -124,10 +124,21 @@ class ApplyApprovalResultsActivityInputs(BaseModel):
 
 
 class EmitSessionErrorInputs(BaseModel):
+    role: Role
     session_id: uuid.UUID
     workspace_id: uuid.UUID
     message: str
     active_stream_id: uuid.UUID | None = None
+    # When False, only persist last_error and skip the SSE stream. The runtime
+    # error path has already streamed the error inline via the loopback, so it
+    # persists-only; pre-stream failures stream too.
+    should_stream: bool = True
+
+
+# Cap stored error summaries so a runaway traceback can't bloat the session row
+# or the inbox payload. The detail banner only needs a short, human-readable
+# reason.
+MAX_LAST_ERROR_LEN = 2000
 
 
 def _stored_user_mcp_tool_policy(
@@ -473,11 +484,42 @@ class AgentActivities:
 
     @activity.defn
     async def emit_session_error(self, args: EmitSessionErrorInputs) -> None:
-        """Push a terminal error onto the session's SSE stream.
+        """Finalize a terminal agent error.
 
-        Used by workflow outer-scope handlers to surface pre-runtime failures
-        to the chat UI, since those happen before the loopback is wired up.
+        Persists ``last_error`` on the session (the sole durable run-outcome
+        signal the inbox reads) and, for pre-stream failures, also pushes the
+        error onto the SSE stream since those happen before the loopback is
+        wired up. The runtime path streams inline already and passes
+        ``should_stream=False`` to persist-only.
+
+        Best-effort: a persistence failure must not mask the agent's real error
+        or abort propagation, so it is logged and swallowed.
         """
+        from tracecat.agent.session.service import AgentSessionService
+
+        ctx_role.set(args.role)
+        try:
+            async with AgentSessionService.with_session(role=args.role) as service:
+                agent_session = await service.get_session(args.session_id)
+                if agent_session is not None:
+                    agent_session.last_error = args.message[:MAX_LAST_ERROR_LEN]
+                    service.session.add(agent_session)
+                    await service.session.commit()
+                else:
+                    logger.warning(
+                        "Cannot persist error for unknown agent session",
+                        session_id=str(args.session_id),
+                    )
+        except Exception as e:
+            logger.warning(
+                "Failed to persist terminal agent session error",
+                session_id=str(args.session_id),
+                error=str(e),
+            )
+
+        if not args.should_stream:
+            return
+
         stream = await AgentStream.new(
             session_id=args.session_id,
             workspace_id=args.workspace_id,

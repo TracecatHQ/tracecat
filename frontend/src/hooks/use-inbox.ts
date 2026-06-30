@@ -184,6 +184,10 @@ function inboxItemToSessionItem(item: InboxItemRead): InboxSessionItem {
     pendingApprovalCount:
       (item.metadata?.pending_count as number) ??
       (item.status === "pending" ? 1 : 0),
+    lastError:
+      typeof item.metadata?.last_error === "string"
+        ? item.metadata.last_error
+        : null,
   }
 }
 

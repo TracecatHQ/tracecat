@@ -109,6 +109,7 @@ import {
 import type { ModelInfo } from "@/lib/chat"
 import {
   ENTITY_TO_INVALIDATION,
+  getSessionLastError,
   toUIMessage,
   transformMessages,
 } from "@/lib/chat"
@@ -385,6 +386,22 @@ export function ChatSessionPane({
     onData,
     resume,
   })
+
+  // Prefer the live streaming error; fall back to the persisted last_error so a
+  // reopened session whose last run failed still surfaces why (the live error
+  // only exists during/right after the failing run).
+  //
+  // Suppress the persisted error the moment a new turn starts — optimistically
+  // on submit, before the backend clears last_error — because the new run will
+  // produce its own outcome (a fresh error or a reply) that supersedes it.
+  // The live error is always the current run's, so it is never suppressed.
+  const hasNewTurnStarted =
+    optimisticMessageText !== null ||
+    status === "submitted" ||
+    status === "streaming"
+  const persistedError =
+    hasNewTurnStarted || !chat ? null : getSessionLastError(chat)
+  const displayedError = lastError ?? persistedError
 
   // useChat seeds `messages` only on mount. Re-seed when the server transcript
   // *advances* (e.g. an approval resolves), but never on a plain mismatch — post
@@ -1265,7 +1282,7 @@ export function ChatSessionPane({
   const showEmptyHero =
     isWorkspaceChat &&
     !isReadonly &&
-    !lastError &&
+    !displayedError &&
     !optimisticMessageText &&
     !isWaitingForResponse &&
     !transformedMessages.some(messageHasVisibleParts)
@@ -1292,10 +1309,14 @@ export function ChatSessionPane({
             resize={status === "streaming" ? "instant" : "smooth"}
           >
             <ConversationContent className={chatContentCenterClass}>
-              {lastError && (
+              {displayedError && (
                 <Alert variant="destructive" className="mb-4">
-                  <AlertTitle>Unable to continue with this model</AlertTitle>
-                  <AlertDescription>{lastError}</AlertDescription>
+                  <AlertTitle>
+                    {lastError
+                      ? "Unable to continue with this model"
+                      : "Last run failed"}
+                  </AlertTitle>
+                  <AlertDescription>{displayedError}</AlertDescription>
                 </Alert>
               )}
               {optimisticMessageText ? (

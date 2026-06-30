@@ -1372,9 +1372,15 @@ class AgentSessionService(BaseWorkspaceService):
             )
 
             # Pin run_id (approval lookups) and the per-turn stream id before
-            # launching the workflow.
+            # launching the workflow. Clear last_error in the same transaction
+            # that records the new run id: create_session_activity also clears
+            # it, but that runs inside the workflow on the agent worker. If the
+            # worker is queued/unavailable after a retry, the stale last_error
+            # would otherwise make _resolve_live_statuses report the old failure
+            # for a turn that is actually starting.
             agent_session.curr_run_id = run_id
             agent_session.active_stream_id = stream_id
+            agent_session.last_error = None
             self.session.add(agent_session)
             await self.session.commit()
 

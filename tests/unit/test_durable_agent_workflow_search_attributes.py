@@ -17,6 +17,7 @@ from tracecat_ee.agent.workflows.durable import (
     EMIT_PRE_STREAM_SESSION_ERRORS_PATCH,
     FINALIZE_TURN_PATCH,
     LOAD_TERMINAL_MESSAGE_HISTORY_PATCH,
+    PERSIST_SESSION_ERROR_PATCH,
     UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,
     AgentWorkflowArgs,
     DurableAgentWorkflow,
@@ -240,7 +241,7 @@ async def test_run_skips_activity_error_emission_without_patch_marker() -> None:
     with (
         patch(
             "tracecat_ee.agent.workflows.durable.workflow.patched",
-            side_effect=[False, False, False],
+            side_effect=[False, False, False, False],
         ) as patched_mock,
         patch(
             "tracecat_ee.agent.workflows.durable.workflow.unsafe.is_replaying",
@@ -252,21 +253,26 @@ async def test_run_skips_activity_error_emission_without_patch_marker() -> None:
             "_run_with_agent_executor",
             AsyncMock(side_effect=activity_error),
         ),
-        patch.object(
-            workflow_instance,
-            "_emit_session_error",
+        # Let the real _finalize_session_error run so its patch-gated
+        # early-return is exercised; mock only the actual scheduling call.
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.execute_activity_method",
             AsyncMock(),
-        ) as emit_error_mock,
+        ) as execute_activity_mock,
     ):
         with pytest.raises(ActivityError):
             await workflow_instance.run(workflow_args)
 
+    # Legacy replay (all patches off) on the pre-stream error path: should_stream
+    # resolves False, and _finalize_session_error early-returns before scheduling
+    # emit_session_error, preserving the legacy command shape.
     assert patched_mock.call_args_list == [
         ((UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,),),
         ((EMIT_PRE_STREAM_SESSION_ERRORS_PATCH,),),
+        ((PERSIST_SESSION_ERROR_PATCH,),),
         ((FINALIZE_TURN_PATCH,),),
     ]
-    emit_error_mock.assert_not_awaited()
+    execute_activity_mock.assert_not_awaited()
 
 
 @pytest.mark.anyio

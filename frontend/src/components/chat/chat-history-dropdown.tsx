@@ -5,6 +5,7 @@ import { Check, ChevronDown, Loader2 } from "lucide-react"
 import { useState } from "react"
 
 import type { AgentSessionsListSessionsResponse } from "@/client"
+import { ChatLastErrorIndicator } from "@/components/chat/chat-last-error-indicator"
 import { Button } from "@/components/ui/button"
 import {
   Command,
@@ -108,7 +109,12 @@ export function ChatHistoryDropdown({
                     className="flex items-start justify-between gap-2 py-2 text-xs"
                   >
                     <div className="flex min-w-0 flex-col">
-                      <span className="truncate font-medium">{chat.title}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="truncate font-medium">
+                          {chat.title}
+                        </span>
+                        <ChatLastErrorIndicator session={chat} />
+                      </div>
                       <span className="text-xs text-muted-foreground">
                         {formatDistanceToNow(new Date(chat.created_at), {
                           addSuffix: true,

@@ -158,6 +158,12 @@ export interface InboxSessionItem {
   statusPriority: number
   statusTone: AgentStatusTone
   pendingApprovalCount: number
+  /**
+   * Terminal error summary for the most recent run, when it failed.
+   * Surfaced because terminal errors are not persisted into the replayable
+   * message history, so the detail pane has nothing else to show on reopen.
+   */
+  lastError: string | null
 }
 
 export function enrichAgentSession(

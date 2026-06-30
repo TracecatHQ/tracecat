@@ -3,6 +3,7 @@
 import { MessageCircle, Plus } from "lucide-react"
 import { useState } from "react"
 import { $AgentSessionEntity, type AgentSessionEntity } from "@/client"
+import { ChatLastErrorIndicator } from "@/components/chat/chat-last-error-indicator"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -128,7 +129,10 @@ export function ChatList({
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{chat.title}</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="font-medium truncate">{chat.title}</p>
+                      <ChatLastErrorIndicator session={chat} />
+                    </div>
                     <p className="text-xs text-muted-foreground">
                       {new Date(chat.created_at).toLocaleString()}
                     </p>

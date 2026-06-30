@@ -122,6 +122,9 @@ BUILD_AGENT_TOOL_DEFINITIONS_PATCH = (
 EMIT_PRE_STREAM_SESSION_ERRORS_PATCH = (
     "tracecat_ee.agent.workflows.durable.emit_pre_stream_session_errors"
 )
+PERSIST_SESSION_ERROR_PATCH = (
+    "tracecat_ee.agent.workflows.durable.persist_session_error"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -824,17 +827,25 @@ class DurableAgentWorkflow:
 
         try:
             cfg = await self._build_config(args)
+            # Success needs no write: last_error was already cleared at turn
+            # start, and last_error is the only persisted run-outcome signal.
             return await self._run_with_agent_executor(args, cfg)
         except ActivityError as e:
-            if workflow.patched(EMIT_PRE_STREAM_SESSION_ERRORS_PATCH):
-                await self._emit_session_error(_activity_error_message(e))
+            # Pre-stream failure: persist last_error and stream it (the loopback
+            # was not yet wired up to surface it inline).
+            await self._finalize_session_error(
+                _activity_error_message(e),
+                should_stream=workflow.patched(EMIT_PRE_STREAM_SESSION_ERRORS_PATCH),
+            )
             raise
         except ApplicationError as e:
-            if e.type == AGENT_TOOL_DEFINITION_ERROR or (
+            # Runtime errors stream inline via the loopback, so persist-only.
+            # Pre-stream errors (tool-definition / pre-runtime) stream too.
+            should_stream = e.type == AGENT_TOOL_DEFINITION_ERROR or (
                 e.type != AGENT_RUNTIME_EXECUTION_ERROR
                 and workflow.patched(EMIT_PRE_STREAM_SESSION_ERRORS_PATCH)
-            ):
-                await self._emit_session_error(e.message)
+            )
+            await self._finalize_session_error(e.message, should_stream=should_stream)
             raise
         finally:
             # Terminal boundary only: approval-pause awaits inside the executor
@@ -874,11 +885,25 @@ class DurableAgentWorkflow:
                 error=str(exc),
             )
 
-    async def _emit_session_error(self, message: str) -> None:
+    async def _finalize_session_error(
+        self, message: str, *, should_stream: bool
+    ) -> None:
+        """Persist last_error (and optionally stream it) on terminal failure.
+
+        Replay-gated and best-effort: the activity swallows its own persistence
+        failures, and we guard the schedule so finalizing never masks the
+        agent's real error or aborts the workflow's own error propagation.
+        """
+        if not workflow.patched(PERSIST_SESSION_ERROR_PATCH):
+            # Pre-patch histories kept their original pre-stream-only behavior,
+            # so preserve that command shape on replay.
+            if not should_stream:
+                return
         try:
             await workflow.execute_activity_method(
                 AgentActivities.emit_session_error,
                 EmitSessionErrorInputs(
+                    role=self.role,
                     session_id=self.session_id,
                     workspace_id=self.workspace_id,
                     message=message,
@@ -886,13 +911,14 @@ class DurableAgentWorkflow:
                     # suffixed key, so the error/done markers must land there.
                     # None falls back to the per-session key for non-chat turns.
                     active_stream_id=self.active_stream_id,
+                    should_stream=should_stream,
                 ),
                 start_to_close_timeout=timedelta(seconds=10),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
         except ActivityError as emit_error:
             logger.warning(
-                "Failed to emit terminal agent session error",
+                "Failed to finalize terminal agent session error",
                 session_id=self.session_id,
                 error=str(emit_error),
             )

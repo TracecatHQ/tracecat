@@ -133,6 +133,10 @@ class AgentSessionRead(BaseModel):
     agents_binding: ResolvedAgentsConfig | None = None
     # Harness
     harness_type: str | None
+    # Terminal error of the most recent run, present iff it failed (errors are
+    # run-ending). The detail pane reads this to show why the run failed, since
+    # terminal errors are not persisted into the replayable message history.
+    last_error: str | None = None
     # Stream tracking
     last_stream_id: str | None = None
     artifacts: list[Artifact] = Field(default_factory=list)
