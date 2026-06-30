@@ -38,7 +38,7 @@ class FakeVcsServer:
         role: Any,
     ) -> VcsSyncTransport:
         del session, role
-        if provider != VcsProvider.GITHUB:
+        if provider not in {VcsProvider.GITHUB, VcsProvider.GITLAB}:
             raise TracecatValidationError(f"Unsupported fake VCS provider: {provider}")
         return FakeVcsTransport(server=self)
 

@@ -2,7 +2,7 @@
 
 import { ArrowUpIcon, GitPullRequestIcon, Loader2Icon } from "lucide-react"
 import { useEffect, useState } from "react"
-import type { GitBranchInfo } from "@/client"
+import type { GitBranchInfo, VcsProvider } from "@/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -12,6 +12,7 @@ import {
   WorkspaceSyncBranchSelector,
 } from "@/components/workspace-sync/branch-target-selector"
 import {
+  getReviewRequestLabel,
   getWorkspaceSyncPushButtonLabel,
   getWorkspaceSyncPushOutcome,
   getWorkspaceSyncPushResultLabel,
@@ -28,6 +29,7 @@ import { getApiErrorDetail } from "@/lib/errors"
 interface WorkspaceSyncPushTabProps {
   workspaceId: string
   persistedGitUrl: string | undefined
+  provider: VcsProvider
   repoDisplayName: string | null
   repoBranches: GitBranchInfo[] | undefined
   baseBranch: string | undefined
@@ -42,6 +44,7 @@ interface WorkspaceSyncPushTabProps {
 export function WorkspaceSyncPushTab({
   workspaceId,
   persistedGitUrl,
+  provider,
   repoDisplayName,
   repoBranches,
   baseBranch,
@@ -76,6 +79,7 @@ export function WorkspaceSyncPushTab({
     refetchPreview: refetchExportPreview,
   } = useWorkspaceSyncExportPreview(workspaceId, {
     compareRef: exportCompareRef,
+    provider,
     enabled: false,
   })
   const visibleExportPreview = exportPreviewRequested
@@ -96,7 +100,12 @@ export function WorkspaceSyncPushTab({
     outcome: pushOutcome,
     defaultBranch: baseBranch,
     allowDirectPush: false,
+    provider,
   })
+  const reviewRequestTitle =
+    getReviewRequestLabel(provider) === "merge request"
+      ? "Merge request"
+      : "Pull request"
   const exportDisabled =
     exportWorkspaceIsPending ||
     branchesIsLoading ||
@@ -107,7 +116,7 @@ export function WorkspaceSyncPushTab({
 
   useEffect(() => {
     setExportPreviewRequested(false)
-  }, [exportCompareRef, persistedGitUrl])
+  }, [exportCompareRef, persistedGitUrl, provider])
 
   async function onExport() {
     try {
@@ -116,11 +125,11 @@ export function WorkspaceSyncPushTab({
         branch: targetBranch,
         create_pr: pushOutcome.createPr,
         include_schedules: false,
-        provider: "github",
+        provider,
       })
       toast({
         title: result.commit.pr_url
-          ? "Pull request ready"
+          ? `${reviewRequestTitle} ready`
           : "Workspace config pushed",
         description:
           result.commit.pr_url ?? result.commit.sha ?? result.commit.message,
@@ -200,6 +209,7 @@ export function WorkspaceSyncPushTab({
             {getWorkspaceSyncPushResultLabel({
               outcome: pushOutcome,
               defaultBranch: baseBranch,
+              provider,
             })}
           </span>
         </div>
@@ -221,6 +231,7 @@ export function WorkspaceSyncPushTab({
             outcome: pushOutcome,
             isCreatingBranch,
             isPending: exportWorkspaceIsPending,
+            provider,
           })}
         </Button>
       </div>

@@ -319,16 +319,22 @@ import {
   type VariableUpdate,
   type VcsGetGithubAppCredentialsStatusResponse,
   type VcsGetGithubAppManifestResponse,
+  type VcsGetGitlabTokenCredentialsStatusResponse,
   type VcsSaveGithubAppCredentialsData,
   type VcsSaveGithubAppCredentialsResponse,
+  type VcsSaveGitlabTokenCredentialsData,
+  type VcsSaveGitlabTokenCredentialsResponse,
   variablesCreateVariable,
   variablesDeleteVariableById,
   variablesListVariables,
   variablesUpdateVariableById,
   vcsDeleteGithubAppCredentials,
+  vcsDeleteGitlabTokenCredentials,
   vcsGetGithubAppCredentialsStatus,
   vcsGetGithubAppManifest,
+  vcsGetGitlabTokenCredentialsStatus,
   vcsSaveGithubAppCredentials,
+  vcsSaveGitlabTokenCredentials,
   type WebhookUpdate,
   type WorkflowDirectoryItem,
   type WorkflowExecutionCreate,
@@ -2651,7 +2657,10 @@ export function useGitHubAppCredentialsStatus() {
 /**
  * Fetch repositories granted to the configured GitHub App installation.
  */
-export function useGitHubAppRepositories(workspaceId: string) {
+export function useGitHubAppRepositories(
+  workspaceId: string,
+  options?: { enabled?: boolean }
+) {
   const {
     data: repositories,
     isLoading: repositoriesIsLoading,
@@ -2661,7 +2670,7 @@ export function useGitHubAppRepositories(workspaceId: string) {
     queryKey: ["github-app-repositories", workspaceId],
     queryFn: async () =>
       await workflowsListWorkflowRepositories({ workspaceId }),
-    enabled: Boolean(workspaceId),
+    enabled: Boolean(workspaceId) && options?.enabled !== false,
     retry: false,
   })
 
@@ -2723,6 +2732,67 @@ export function useDeleteGitHubAppCredentials() {
       })
       queryClient.invalidateQueries({
         queryKey: ["github-app-repositories"],
+      })
+    },
+  })
+
+  return {
+    deleteCredentials,
+  }
+}
+
+export function useGitLabTokenCredentialsStatus() {
+  const {
+    data: credentialsStatus,
+    isLoading: credentialsStatusIsLoading,
+    error: credentialsStatusError,
+    refetch: refetchCredentialsStatus,
+  } = useQuery<VcsGetGitlabTokenCredentialsStatusResponse>({
+    queryKey: ["gitlab-token-credentials-status"],
+    queryFn: async () => await vcsGetGitlabTokenCredentialsStatus(),
+  })
+
+  return {
+    credentialsStatus,
+    credentialsStatusIsLoading,
+    credentialsStatusError,
+    refetchCredentialsStatus,
+  }
+}
+
+export function useGitLabTokenCredentials() {
+  const queryClient = useQueryClient()
+
+  const saveCredentials = useMutation<
+    VcsSaveGitlabTokenCredentialsResponse,
+    ApiError,
+    VcsSaveGitlabTokenCredentialsData["requestBody"]
+  >({
+    mutationFn: async (data) => {
+      return await vcsSaveGitlabTokenCredentials({ requestBody: data })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["gitlab-token-credentials-status"],
+      })
+    },
+  })
+
+  return {
+    saveCredentials,
+  }
+}
+
+export function useDeleteGitLabTokenCredentials() {
+  const queryClient = useQueryClient()
+
+  const deleteCredentials = useMutation<void, ApiError>({
+    mutationFn: async () => {
+      await vcsDeleteGitlabTokenCredentials()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["gitlab-token-credentials-status"],
       })
     },
   })

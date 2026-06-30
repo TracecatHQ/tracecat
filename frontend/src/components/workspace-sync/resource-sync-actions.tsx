@@ -7,7 +7,7 @@ import {
   LayersIcon,
 } from "lucide-react"
 import { type ReactNode, useEffect, useMemo, useState } from "react"
-import type { ResourceRef, SyncResourceType } from "@/client"
+import type { ResourceRef, SyncResourceType, VcsProvider } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -35,6 +35,8 @@ import {
   getWorkspaceSyncPreviewResourceTotal,
 } from "@/components/workspace-sync/push-resource-manifest"
 import {
+  getReviewRequestAbbreviation,
+  getReviewRequestLabel,
   getWorkspaceSyncPushButtonLabel,
   getWorkspaceSyncPushOutcome,
   getWorkspaceSyncPushResultLabel,
@@ -77,6 +79,7 @@ export function WorkspaceResourceSyncActions({
   const { exportWorkspace, exportWorkspaceIsPending } =
     useWorkspaceSyncExport(workspaceId)
   const gitRepoUrl = workspace?.settings?.git_repo_url || undefined
+  const provider: VcsProvider = workspace?.settings?.git_provider ?? "github"
   const {
     branches: repoBranches,
     branchesIsLoading,
@@ -84,6 +87,7 @@ export function WorkspaceResourceSyncActions({
   } = useRepositoryBranches(workspaceId, {
     enabled: open && Boolean(workspace?.settings?.git_repo_url),
     gitRepoUrl,
+    provider,
     limit: 200,
   })
 
@@ -111,6 +115,7 @@ export function WorkspaceResourceSyncActions({
     useWorkspaceSyncExportPreview(workspaceId, {
       resources: resourceRefs,
       compareRef,
+      provider,
       enabled: false,
     })
   const [previewRequested, setPreviewRequested] = useState(false)
@@ -131,7 +136,11 @@ export function WorkspaceResourceSyncActions({
     outcome: pushOutcome,
     defaultBranch: baseBranch,
     allowDirectPush: false,
+    provider,
   })
+  const reviewRequestLabel = getReviewRequestLabel(provider)
+  const reviewRequestTitle =
+    reviewRequestLabel === "merge request" ? "Merge request" : "Pull request"
   const previewErrorMessage = previewError
     ? (getApiErrorDetail(previewError) ?? "Request failed")
     : undefined
@@ -155,7 +164,7 @@ export function WorkspaceResourceSyncActions({
 
   useEffect(() => {
     setPreviewRequested(false)
-  }, [compareRef])
+  }, [compareRef, provider])
 
   if (!canPushWorkspaceSync) {
     return null
@@ -172,19 +181,19 @@ export function WorkspaceResourceSyncActions({
         branch: targetBranch,
         create_pr: pushOutcome.createPr,
         include_schedules: false,
-        provider: "github",
+        provider,
         resources: resourceRefs,
       })
       const prUrl = result.commit.pr_url
       toast({
-        title: prUrl ? "Pull request ready" : "Push complete",
+        title: prUrl ? `${reviewRequestTitle} ready` : "Push complete",
         description: result.commit.message ?? result.commit.sha ?? undefined,
         action: prUrl ? (
           <ToastAction
-            altText="Open pull request"
+            altText={`Open ${reviewRequestLabel}`}
             onClick={() => window.open(prUrl, "_blank", "noopener,noreferrer")}
           >
-            View PR
+            View {getReviewRequestAbbreviation(provider)}
           </ToastAction>
         ) : undefined,
       })
@@ -235,6 +244,7 @@ export function WorkspaceResourceSyncActions({
               targetBranch={targetBranch}
               defaultBranch={baseBranch}
               outcome={pushOutcome}
+              provider={provider}
             />
 
             <PushResourcePreview
@@ -320,6 +330,7 @@ export function WorkspaceResourceSyncActions({
                 outcome: pushOutcome,
                 isCreatingBranch,
                 isPending: exportWorkspaceIsPending,
+                provider,
               })}
             </Button>
           </div>
@@ -335,6 +346,7 @@ interface PushFlowProps {
   targetBranch: string
   defaultBranch: string | undefined
   outcome: ReturnType<typeof getWorkspaceSyncPushOutcome>
+  provider: VcsProvider
 }
 
 /**
@@ -348,6 +360,7 @@ function PushFlow({
   targetBranch,
   defaultBranch,
   outcome,
+  provider,
 }: PushFlowProps) {
   return (
     <div className="flex items-stretch gap-2 rounded-lg border bg-muted/30 p-3">
@@ -390,7 +403,11 @@ function PushFlow({
           )
         }
         title="Result"
-        value={getWorkspaceSyncPushResultLabel({ outcome, defaultBranch })}
+        value={getWorkspaceSyncPushResultLabel({
+          outcome,
+          defaultBranch,
+          provider,
+        })}
       />
     </div>
   )

@@ -4032,6 +4032,30 @@ export type GitHubWebhookAttributes = {
   active: boolean
 }
 
+/**
+ * Request to register or update GitLab token credentials.
+ */
+export type GitLabTokenCredentialsRequest = {
+  /**
+   * Base URL for GitLab.com or a self-managed GitLab instance.
+   */
+  base_url?: string
+  /**
+   * GitLab personal/project/group access token with api scope.
+   */
+  token: string
+}
+
+/**
+ * Status of GitLab token credentials.
+ */
+export type GitLabTokenCredentialsStatus = {
+  exists: boolean
+  is_corrupted?: boolean
+  base_url?: string | null
+  created_at?: string | null
+}
+
 export type GitSettingsRead = {
   git_allowed_domains: Array<string>
   git_repo_url?: string | null
@@ -9471,6 +9495,7 @@ export type WorkspaceReadMinimal = {
 }
 
 export type WorkspaceSettingsRead = {
+  git_provider?: VcsProvider | null
   git_repo_url?: string | null
   workflow_unlimited_timeout_enabled?: boolean | null
   workflow_default_timeout_seconds?: number | null
@@ -9488,6 +9513,7 @@ export type WorkspaceSettingsRead = {
 }
 
 export type WorkspaceSettingsUpdate = {
+  git_provider?: VcsProvider | null
   git_repo_url?: string | null
   /**
    * Allow workflows to run indefinitely without timeout constraints. When enabled, individual workflow timeout settings are ignored.
@@ -10499,6 +10525,10 @@ export type WorkflowsListWorkflowCommitsData = {
    * Maximum number of commits to return
    */
   limit?: number
+  /**
+   * VCS provider for the configured repository.
+   */
+  provider?: VcsProvider
   workspaceId: string
 }
 
@@ -10509,6 +10539,10 @@ export type WorkflowsListWorkflowBranchesData = {
    * Maximum number of branches to return
    */
   limit?: number
+  /**
+   * VCS provider for the configured repository.
+   */
+  provider?: VcsProvider
   workspaceId: string
 }
 
@@ -13259,6 +13293,19 @@ export type VcsDeleteGithubAppCredentialsResponse = void
 
 export type VcsGetGithubAppCredentialsStatusResponse =
   GitHubAppCredentialsStatus
+
+export type VcsSaveGitlabTokenCredentialsData = {
+  requestBody: GitLabTokenCredentialsRequest
+}
+
+export type VcsSaveGitlabTokenCredentialsResponse = {
+  [key: string]: string
+}
+
+export type VcsDeleteGitlabTokenCredentialsResponse = void
+
+export type VcsGetGitlabTokenCredentialsStatusResponse =
+  GitLabTokenCredentialsStatus
 
 export type UsersGetMyScopesData = {
   workspaceId?: string | null
@@ -19545,6 +19592,41 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: GitHubAppCredentialsStatus
+      }
+    }
+  }
+  "/organization/vcs/gitlab/credentials": {
+    post: {
+      req: VcsSaveGitlabTokenCredentialsData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+      }
+    }
+  }
+  "/organization/vcs/gitlab/credentials/status": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: GitLabTokenCredentialsStatus
       }
     }
   }

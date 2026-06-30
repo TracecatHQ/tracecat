@@ -13547,6 +13547,68 @@ export const $GitHubWebhookAttributes = {
   description: "Type definition for GitHub webhook attributes.",
 } as const
 
+export const $GitLabTokenCredentialsRequest = {
+  properties: {
+    base_url: {
+      type: "string",
+      title: "Base Url",
+      description: "Base URL for GitLab.com or a self-managed GitLab instance.",
+      default: "https://gitlab.com",
+    },
+    token: {
+      type: "string",
+      format: "password",
+      title: "Token",
+      description: "GitLab personal/project/group access token with api scope.",
+      writeOnly: true,
+    },
+  },
+  type: "object",
+  required: ["token"],
+  title: "GitLabTokenCredentialsRequest",
+  description: "Request to register or update GitLab token credentials.",
+} as const
+
+export const $GitLabTokenCredentialsStatus = {
+  properties: {
+    exists: {
+      type: "boolean",
+      title: "Exists",
+    },
+    is_corrupted: {
+      type: "boolean",
+      title: "Is Corrupted",
+      default: false,
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+    },
+    created_at: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: ["exists"],
+  title: "GitLabTokenCredentialsStatus",
+  description: "Status of GitLab token credentials.",
+} as const
+
 export const $GitSettingsRead = {
   properties: {
     git_allowed_domains: {
@@ -31898,6 +31960,16 @@ export const $WorkspaceReadMinimal = {
 
 export const $WorkspaceSettingsRead = {
   properties: {
+    git_provider: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/VcsProvider",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
     git_repo_url: {
       anyOf: [
         {
@@ -32001,6 +32073,16 @@ export const $WorkspaceSettingsRead = {
 
 export const $WorkspaceSettingsUpdate = {
   properties: {
+    git_provider: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/VcsProvider",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
     git_repo_url: {
       anyOf: [
         {

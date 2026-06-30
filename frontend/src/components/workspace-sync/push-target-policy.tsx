@@ -1,6 +1,7 @@
 "use client"
 
 import { GitBranchIcon, GitPullRequestIcon } from "lucide-react"
+import type { VcsProvider } from "@/client"
 import { ToggleTabs } from "@/components/ui/toggle-tabs"
 import { cn } from "@/lib/utils"
 
@@ -24,12 +25,14 @@ interface WorkspaceSyncPushButtonLabelOptions {
   outcome: WorkspaceSyncPushOutcome
   isCreatingBranch: boolean
   isPending: boolean
+  provider?: VcsProvider
 }
 
 interface WorkspaceSyncPushMessageOptions {
   outcome: WorkspaceSyncPushOutcome
   defaultBranch: string | undefined
   allowDirectPush?: boolean
+  provider?: VcsProvider
 }
 
 interface WorkspaceSyncPushModeTabsProps {
@@ -64,7 +67,9 @@ export function getWorkspaceSyncPushButtonLabel({
   outcome,
   isCreatingBranch,
   isPending,
+  provider = "github",
 }: WorkspaceSyncPushButtonLabelOptions): string {
+  const reviewRequestAbbreviation = getReviewRequestAbbreviation(provider)
   if (isPending) {
     return "Pushing..."
   }
@@ -72,17 +77,18 @@ export function getWorkspaceSyncPushButtonLabel({
     return "Push directly"
   }
   if (isCreatingBranch) {
-    return "Push & open PR"
+    return `Push & open ${reviewRequestAbbreviation}`
   }
-  return "Update branch & open PR"
+  return `Update branch & open ${reviewRequestAbbreviation}`
 }
 
 export function getWorkspaceSyncPushResultLabel({
   outcome,
   defaultBranch,
+  provider = "github",
 }: WorkspaceSyncPushMessageOptions): string {
   if (outcome.willCreatePr) {
-    return `PR into ${defaultBranch ?? "default branch"}`
+    return `${getReviewRequestAbbreviation(provider)} into ${defaultBranch ?? "default branch"}`
   }
   if (outcome.isPullRequestBlocked) {
     return "Choose a non-default branch"
@@ -94,20 +100,30 @@ export function getWorkspaceSyncPushWarning({
   outcome,
   defaultBranch,
   allowDirectPush = true,
+  provider = "github",
 }: WorkspaceSyncPushMessageOptions): string | null {
+  const reviewRequestLabel = getReviewRequestLabel(provider)
   if (outcome.isPullRequestBlocked) {
     if (!allowDirectPush) {
-      return `Select or create a non-default branch to open a pull request into ${defaultBranch ?? "the default branch"}.`
+      return `Select or create a non-default branch to open a ${reviewRequestLabel} into ${defaultBranch ?? "the default branch"}.`
     }
-    return `Select or create a non-default branch to open a pull request into ${defaultBranch ?? "the default branch"}, or switch to direct push.`
+    return `Select or create a non-default branch to open a ${reviewRequestLabel} into ${defaultBranch ?? "the default branch"}, or switch to direct push.`
   }
   if (!outcome.createPr && outcome.targetIsDefault) {
-    return `This commits directly to ${defaultBranch ?? "the default branch"}. No pull request will be created.`
+    return `This commits directly to ${defaultBranch ?? "the default branch"}. No ${reviewRequestLabel} will be created.`
   }
   if (!outcome.createPr) {
-    return "This commits directly to the selected branch. No pull request will be created."
+    return `This commits directly to the selected branch. No ${reviewRequestLabel} will be created.`
   }
   return null
+}
+
+export function getReviewRequestAbbreviation(provider: VcsProvider): string {
+  return provider === "gitlab" ? "MR" : "PR"
+}
+
+export function getReviewRequestLabel(provider: VcsProvider): string {
+  return provider === "gitlab" ? "merge request" : "pull request"
 }
 
 /**

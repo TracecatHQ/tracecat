@@ -1314,6 +1314,68 @@ async def test_export_workspace_commits_mapping_changes(
 
 
 @pytest.mark.anyio
+async def test_gitlab_export_uses_gitlab_transport_and_mapping_context(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    projection = WorkspaceProjection(
+        manifest=WorkspaceManifest(),
+        spec=WorkspaceSpec(),
+        files={MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())},
+    )
+    transport = AsyncMock()
+    transport.write_files.return_value = CommitInfo(
+        status=PushStatus.COMMITTED,
+        sha="c" * 40,
+        ref="sync/workspace",
+        base_ref="main",
+        pr_url=None,
+        pr_number=None,
+        pr_reused=False,
+        message="Committed workspace sync changes.",
+    )
+    providers_seen: list[VcsProvider] = []
+
+    async def workspace_git_url(*, provider: VcsProvider) -> GitUrl:
+        providers_seen.append(provider)
+        return GitUrl(
+            host="gitlab.example.test",
+            org="TracecatHQ/platform",
+            repo="sync",
+        )
+
+    async def project_workspace(**_kwargs: Any) -> WorkspaceProjection:
+        assert workspace_sync_service._mapping_provider is VcsProvider.GITLAB
+        return projection
+
+    def transport_factory(
+        provider: VcsProvider,
+        *,
+        session: Any,
+        role: Any,
+    ) -> Any:
+        del session, role
+        providers_seen.append(provider)
+        return transport
+
+    workspace_sync_service._workspace_git_url = workspace_git_url
+    workspace_sync_service.project_workspace = project_workspace
+    workspace_sync_service._transport_factory = transport_factory
+
+    result = await workspace_sync_service.export_workspace(
+        WorkspaceSyncExportRequest(
+            message="Push workspace",
+            branch="sync/workspace",
+            create_pr=True,
+            provider=VcsProvider.GITLAB,
+        )
+    )
+
+    assert result.files == [MANIFEST_FILENAME]
+    assert providers_seen == [VcsProvider.GITLAB, VcsProvider.GITLAB]
+    assert workspace_sync_service._mapping_provider is VcsProvider.GITHUB
+
+
+@pytest.mark.anyio
 async def test_full_export_deletes_stale_sync_files(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:
@@ -1643,11 +1705,11 @@ async def test_github_read_files_uses_commit_tree_sha(
     assert MANIFEST_FILENAME in snapshot.files
 
 
-def test_gitlab_and_bitbucket_transports_are_explicitly_unsupported() -> None:
-    for provider in (VcsProvider.GITLAB, VcsProvider.BITBUCKET):
-        error = unsupported_transport(provider)
-        assert isinstance(error, TracecatValidationError)
-        assert provider.value in str(error)
+def test_bitbucket_transport_is_explicitly_unsupported() -> None:
+    error = unsupported_transport(VcsProvider.BITBUCKET)
+
+    assert isinstance(error, TracecatValidationError)
+    assert VcsProvider.BITBUCKET.value in str(error)
 
 
 def _legacy_workflow_yaml(source_id: str, *, title: str) -> str:

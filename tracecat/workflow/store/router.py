@@ -26,6 +26,7 @@ from tracecat.workflow.store.schemas import (
     WorkflowSyncPullRequest,
 )
 from tracecat.workflow.store.service import WorkflowStoreService
+from tracecat.workspace_sync.enums import VcsProvider
 from tracecat.workspace_sync.schemas import (
     WorkspaceSyncExportPreview,
     WorkspaceSyncExportPreviewRequest,
@@ -33,7 +34,6 @@ from tracecat.workspace_sync.schemas import (
     WorkspaceSyncExportResult,
 )
 from tracecat.workspace_sync.service import WorkspaceSyncService
-from tracecat.workspace_sync.enums import VcsProvider
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 

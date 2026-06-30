@@ -211,10 +211,12 @@ export function useRepositoryBranches(
   workspaceId: string,
   options?: {
     gitRepoUrl?: string
+    provider?: VcsProvider
     limit?: number
     enabled?: boolean
   }
 ) {
+  const provider = options?.provider ?? "github"
   const {
     data: branches,
     isLoading: branchesIsLoading,
@@ -224,6 +226,7 @@ export function useRepositoryBranches(
       "workflow-sync-branches",
       workspaceId,
       options?.gitRepoUrl ?? "__workspace_repo__",
+      provider,
       options?.limit ?? 200,
     ],
     queryFn: async (): Promise<GitBranchInfo[]> => {
@@ -233,6 +236,7 @@ export function useRepositoryBranches(
 
       return await workflowsListWorkflowBranches({
         limit: options?.limit ?? 200,
+        provider,
         workspaceId,
       })
     },
@@ -254,11 +258,13 @@ export function useRepositoryCommits(
   workspaceId: string,
   options?: {
     gitRepoUrl?: string
+    provider?: VcsProvider
     branch?: string
     limit?: number
     enabled?: boolean
   }
 ) {
+  const provider = options?.provider ?? "github"
   const {
     data: commits,
     isLoading: commitsIsLoading,
@@ -268,6 +274,7 @@ export function useRepositoryCommits(
       "repository_commits",
       workspaceId,
       options?.gitRepoUrl ?? "__workspace_repo__",
+      provider,
       options?.branch ?? "main",
       options?.limit ?? 10,
     ],
@@ -279,6 +286,7 @@ export function useRepositoryCommits(
       const response = await workflowsListWorkflowCommits({
         branch: options?.branch ?? "main",
         limit: options?.limit ?? 10,
+        provider,
         workspaceId,
       })
 

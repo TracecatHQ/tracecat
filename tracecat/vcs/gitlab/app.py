@@ -26,6 +26,14 @@ class GitLabError(TracecatException):
     """GitLab operation error."""
 
 
+class GitLabApiError(GitLabError):
+    """GitLab REST API operation error with structured status code."""
+
+    def __init__(self, message: str, *, status_code: int, detail: Any | None = None):
+        super().__init__(message, detail=detail)
+        self.status_code = status_code
+
+
 class GitLabTokenSecretState(StrEnum):
     """State of the stored GitLab token org secret."""
 
