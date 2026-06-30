@@ -1312,6 +1312,28 @@ class AgentPresetService(BaseWorkspaceService):
         return result.scalars().first()
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def get_active_version(
+        self,
+        *,
+        preset_id: uuid.UUID,
+        version_id: uuid.UUID,
+    ) -> AgentPresetVersion | None:
+        """Get a preset version only when its preset is active."""
+        stmt = (
+            select(AgentPresetVersion)
+            .join(AgentPreset, AgentPresetVersion.preset_id == AgentPreset.id)
+            .where(
+                AgentPresetVersion.workspace_id == self.workspace_id,
+                AgentPresetVersion.id == version_id,
+                AgentPresetVersion.preset_id == preset_id,
+                AgentPreset.workspace_id == self.workspace_id,
+                AgentPreset.archived_at.is_(None),
+            )
+        )
+        result = await self.session.execute(stmt)
+        return result.scalars().first()
+
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_version_by_number(
         self, *, preset_id: uuid.UUID, version: int
     ) -> AgentPresetVersion | None:

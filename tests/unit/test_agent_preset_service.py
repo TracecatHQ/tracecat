@@ -2177,11 +2177,16 @@ class TestAgentPresetService:
             include_archived=True,
         )
         version = await agent_preset_service.get_version(version_id)
+        active_version = await agent_preset_service.get_active_version(
+            preset_id=preset_id,
+            version_id=version_id,
+        )
 
         assert deleted_preset is None
         assert archived_preset is not None
         assert archived_preset.archived_at is not None
         assert version is not None
+        assert active_version is None
 
     async def test_delete_preset_deactivates_channel_tokens(
         self,
