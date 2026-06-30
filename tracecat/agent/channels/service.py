@@ -542,13 +542,14 @@ class AgentChannelService(BaseWorkspaceService):
     ) -> AgentChannelToken:
         set_fields = params.model_dump(exclude_unset=True)
         validated_config: SlackChannelTokenConfig | None = None
+        next_config: dict[str, Any] | None = None
         channel_type = ChannelType(token.channel_type)
 
         if "config" in set_fields and set_fields["config"] is not None:
             validated_config = self._validate_channel_config(
                 channel_type, set_fields["config"]
             )
-            token.config = self.serialize_channel_config_for_storage(
+            next_config = self.serialize_channel_config_for_storage(
                 channel_type=channel_type,
                 config=validated_config,
             )
@@ -569,9 +570,11 @@ class AgentChannelService(BaseWorkspaceService):
             raise TracecatValidationError(
                 "Cannot activate token without Slack bot token"
             )
-        if next_is_active:
+        if next_is_active or next_config is not None:
             await self._require_workspace_preset(token.agent_preset_id, lock=True)
 
+        if next_config is not None:
+            token.config = next_config
         if "is_active" in set_fields:
             token.is_active = next_is_active
 

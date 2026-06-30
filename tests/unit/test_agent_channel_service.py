@@ -272,6 +272,43 @@ async def test_update_token_rejects_reactivating_archived_preset(
 
 
 @pytest.mark.anyio
+async def test_update_token_rejects_config_update_for_archived_preset(
+    agent_channel_service: AgentChannelService,
+    agent_preset: AgentPreset,
+) -> None:
+    token = await agent_channel_service.create_token(
+        AgentChannelTokenCreate(
+            agent_preset_id=agent_preset.id,
+            channel_type=ChannelType.SLACK,
+            config=SlackChannelTokenConfig(
+                slack_bot_token=PENDING_SLACK_BOT_TOKEN,
+                slack_client_id="12345.67890",
+                slack_client_secret="client-secret",
+                slack_signing_secret="signing-secret",
+            ),
+            is_active=False,
+        )
+    )
+    agent_preset.archived_at = datetime.now(UTC)
+    agent_channel_service.session.add(agent_preset)
+    await agent_channel_service.session.commit()
+
+    with pytest.raises(TracecatNotFoundError, match="not found in workspace"):
+        await agent_channel_service.update_token(
+            token,
+            AgentChannelTokenUpdate(
+                config=SlackChannelTokenConfig(
+                    slack_bot_token=PENDING_SLACK_BOT_TOKEN,
+                    slack_client_id="updated-client-id",
+                    slack_client_secret="updated-client-secret",
+                    slack_signing_secret="updated-signing-secret",
+                ),
+                is_active=False,
+            ),
+        )
+
+
+@pytest.mark.anyio
 async def test_update_token_locks_preset_when_reactivating(
     agent_channel_service: AgentChannelService,
     agent_preset: AgentPreset,
