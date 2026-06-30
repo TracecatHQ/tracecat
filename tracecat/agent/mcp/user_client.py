@@ -23,6 +23,39 @@ from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.logger import logger
 
 
+def _http_status_code_from_exception(error: BaseException) -> int | None:
+    """Best-effort extraction of an HTTP status code from a transport error."""
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        response = getattr(current, "response", None)
+        status_code = getattr(response, "status_code", None)
+        if isinstance(status_code, int):
+            return status_code
+        status_code = getattr(current, "status_code", None)
+        if isinstance(status_code, int):
+            return status_code
+        current = current.__cause__ or current.__context__
+    return None
+
+
+class MCPToolDiscoveryError(RuntimeError):
+    """Raised when strict user MCP discovery fails for one configured server."""
+
+    def __init__(self, server_name: str, cause: BaseException):
+        self.server_name = server_name
+        self.status_code = _http_status_code_from_exception(cause)
+
+        message = f"Failed to discover tools from user MCP server '{server_name}'"
+        if self.status_code is not None:
+            message += f" (HTTP {self.status_code})"
+        cause_message = str(cause)
+        if cause_message:
+            message += f": {cause_message}"
+        super().__init__(message)
+
+
 def _create_transport(
     url: str,
     transport_type: Literal["http", "sse"],
@@ -101,15 +134,16 @@ class UserMCPClient:
                 server_tools = await self._discover_server_tools(server_name, config)
                 tools.update(server_tools)
             except Exception as e:
+                status_code = _http_status_code_from_exception(e)
                 logger.error(
                     "Failed to discover tools from user MCP server",
                     server_name=server_name,
+                    http_status_code=status_code,
+                    error_type=type(e).__name__,
                     error=str(e),
                 )
                 if fail_on_error:
-                    raise RuntimeError(
-                        f"Failed to discover tools from user MCP server '{server_name}'"
-                    ) from e
+                    raise MCPToolDiscoveryError(server_name, e) from e
 
         logger.info(
             "Discovered user MCP tools",
