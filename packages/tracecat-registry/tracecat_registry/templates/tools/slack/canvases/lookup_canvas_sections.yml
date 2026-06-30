@@ -1,0 +1,24 @@
+type: action
+definition:
+  title: Lookup canvas sections
+  description: Find Slack canvas sections matching the provided criteria.
+  display_group: Slack
+  doc_url: https://docs.slack.dev/reference/methods/canvases.sections.lookup/
+  namespace: tools.slack
+  name: lookup_canvas_sections
+  expects:
+    canvas_id:
+      type: str
+      description: Encoded ID of the canvas to search.
+    criteria:
+      type: dict[str, Any]
+      description: Filtering criteria used to find matching sections.
+  steps:
+    - ref: lookup_canvas_sections
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: canvases.sections.lookup
+        params:
+          canvas_id: ${{ inputs.canvas_id }}
+          criteria: ${{ inputs.criteria }}
+  returns: ${{ steps.lookup_canvas_sections.result }}
