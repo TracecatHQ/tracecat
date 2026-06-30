@@ -189,6 +189,7 @@ class CasesClient:
         order_by: str | Unset = UNSET,
         sort: Literal["asc", "desc"] | Unset = UNSET,
         include_rows: bool | Unset = UNSET,
+        include_payload: bool | Unset = UNSET,
     ) -> types.CaseListResponse:
         """List cases using default server-side filtering.
 
@@ -213,6 +214,8 @@ class CasesClient:
             params["sort"] = sort
         if is_set(include_rows):
             params["include_rows"] = include_rows
+        if is_set(include_payload):
+            params["include_payload"] = include_payload
 
         return await self._client.get("/cases", params=params)
 
@@ -236,6 +239,7 @@ class CasesClient:
         updated_after: datetime | str | Unset = UNSET,
         updated_before: datetime | str | Unset = UNSET,
         include_rows: bool | Unset = UNSET,
+        include_payload: bool | Unset = UNSET,
     ) -> types.CaseListResponse:
         """Search cases with filtering and pagination."""
         params: dict[str, Any] = {"limit": limit}
@@ -285,6 +289,10 @@ class CasesClient:
                 if isinstance(updated_before, datetime)
                 else updated_before
             )
+        if is_set(include_rows):
+            params["include_rows"] = include_rows
+        if is_set(include_payload):
+            params["include_payload"] = include_payload
 
         return await self._client.get("/cases/search", params=params)
 

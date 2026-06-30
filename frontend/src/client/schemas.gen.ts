@@ -8289,6 +8289,18 @@ export const $CaseReadMinimal = {
       ],
       title: "Field Values",
     },
+    payload: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Payload",
+    },
     num_tasks_completed: {
       type: "integer",
       title: "Num Tasks Completed",

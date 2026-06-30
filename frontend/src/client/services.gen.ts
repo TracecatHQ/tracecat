@@ -9458,6 +9458,7 @@ export const tablesImportCsv = (
  * @param data.includeRows Include linked table rows
  * @param data.fieldIds Include only the requested custom field IDs
  * @param data.includeDurations Include case duration values
+ * @param data.includePayload Include case payload
  * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
  * @throws ApiError
  */
@@ -9479,6 +9480,7 @@ export const casesListCases = (
       include_rows: data.includeRows,
       field_ids: data.fieldIds,
       include_durations: data.includeDurations,
+      include_payload: data.includePayload,
     },
     errors: {
       422: "Validation Error",
@@ -9537,6 +9539,7 @@ export const casesCreateCase = (
  * @param data.includeRows Include linked table rows
  * @param data.fieldIds Include only the requested custom field IDs
  * @param data.includeDurations Include case duration values
+ * @param data.includePayload Include case payload
  * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
  * @throws ApiError
  */
@@ -9570,6 +9573,7 @@ export const casesSearchCases = (
       include_rows: data.includeRows,
       field_ids: data.fieldIds,
       include_durations: data.includeDurations,
+      include_payload: data.includePayload,
     },
     errors: {
       422: "Validation Error",
