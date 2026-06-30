@@ -524,6 +524,12 @@ class AgentChannelService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def require_active_preset_for_token(
+        self, token: AgentChannelToken, *, lock: bool = False
+    ) -> None:
+        """Ensure a channel token still belongs to an active preset."""
+        await self._require_workspace_preset(token.agent_preset_id, lock=lock)
+
     async def get_active_token_for_preset(
         self, *, agent_preset_id: uuid.UUID, channel_type: ChannelType
     ) -> AgentChannelToken | None:
