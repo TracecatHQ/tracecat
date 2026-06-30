@@ -22,6 +22,15 @@ Tracecat MCP turns any coding agent into a security automation architect and eng
 
 <McpInstallation />
 
+### Multi-organization self-hosted deployments
+
+MCP auth follows the active Tracecat organization selected in the browser. If
+you deep-link a specific organization during auth, keep
+`org=<organization-slug>` on the MCP continuation URL. Tracecat validates that
+the signed-in user belongs to that organization before issuing the MCP token,
+and stores the org context with the resume transaction so MCP auth can complete
+across multiple replicas.
+
 ## Personal access tokens
 
 OAuth is the default. For clients or environments that cannot complete a browser

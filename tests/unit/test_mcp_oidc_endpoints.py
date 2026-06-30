@@ -463,6 +463,70 @@ async def test_authorize_redirects_to_login_when_no_session(
 
 
 @pytest.mark.anyio
+async def test_authorize_login_redirect_preserves_org_hint(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stored: list[ResumeTransaction] = []
+
+    async def _store_resume(txn: ResumeTransaction) -> None:
+        stored.append(txn)
+
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.resolve_authorize_session",
+        AsyncMock(return_value=SessionNeedsAction(action=NeedsAction.LOGIN)),
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.store_resume_transaction", _store_resume
+    )
+
+    response = client.get(
+        "/authorize",
+        params=_authorize_params(org="acme-security"),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    location = response.headers["location"]
+    assert location.startswith(f"{_TEST_APP_URL}/oauth/mcp/continue?")
+    query = _location_query_params(location)
+    assert query["txn"]
+    assert query["org"] == ["acme-security"]
+    assert stored[0].authorize_params["org"] == "acme-security"
+
+
+@pytest.mark.anyio
+async def test_authorize_passes_org_hint_to_session_resolver(
+    client: TestClient,
+    mock_user: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resolver = AsyncMock(
+        return_value=SessionResult(
+            user=cast(User, mock_user), organization_id=uuid.uuid4()
+        )
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.resolve_authorize_session",
+        resolver,
+    )
+    monkeypatch.setattr("tracecat.mcp.oidc.endpoints.store_auth_code", AsyncMock())
+
+    response = client.get(
+        "/authorize",
+        params=_authorize_params(org="acme-security"),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    resolver.assert_awaited_once()
+    call = resolver.await_args
+    assert call is not None
+    assert call.kwargs["organization_hint"] == "acme-security"
+    assert call.kwargs["request"] is not None
+
+
+@pytest.mark.anyio
 async def test_authorize_issues_code_on_valid_session(
     client: TestClient,
     mock_user: SimpleNamespace,
@@ -1396,6 +1460,38 @@ async def test_authorize_resume_rejects_ip_mismatch(
 
 
 @pytest.mark.anyio
+async def test_authorize_resume_rejects_malformed_authorize_params(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    authorize_params = _authorize_params()
+    authorize_params.pop("code_challenge")
+    txn = ResumeTransaction(
+        transaction_id="txn-malformed",
+        authorize_params=authorize_params,
+        created_at=time.time(),
+        bound_ip=_TESTCLIENT_IP_HASH,
+    )
+    resolver = AsyncMock()
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.load_and_delete_resume_transaction",
+        AsyncMock(return_value=txn),
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.resolve_authorize_session",
+        resolver,
+    )
+
+    response = client.get("/authorize/resume", params={"txn": "txn-malformed"})
+
+    assert response.status_code == 400
+    body = response.json()
+    assert body["error"] == "invalid_request"
+    assert "missing required OAuth parameters" in body["error_description"]
+    resolver.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_authorize_resume_replays_authorize_on_success(
     client: TestClient,
     mock_user: SimpleNamespace,
@@ -1432,6 +1528,86 @@ async def test_authorize_resume_replays_authorize_on_success(
     location = response.headers["location"]
     assert "code=" in location
     assert "state=resumed-state" in location
+
+
+@pytest.mark.anyio
+async def test_authorize_resume_replays_stored_org_hint(
+    client: TestClient,
+    mock_user: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resolver = AsyncMock(
+        return_value=SessionResult(
+            user=cast(User, mock_user), organization_id=uuid.uuid4()
+        )
+    )
+    txn = ResumeTransaction(
+        transaction_id="txn-org",
+        authorize_params=_authorize_params(state="resumed-state", org="acme-security"),
+        created_at=time.time(),
+        bound_ip=_TESTCLIENT_IP_HASH,
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.load_and_delete_resume_transaction",
+        AsyncMock(return_value=txn),
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.resolve_authorize_session",
+        resolver,
+    )
+    monkeypatch.setattr("tracecat.mcp.oidc.endpoints.store_auth_code", AsyncMock())
+
+    response = client.get(
+        "/authorize/resume",
+        params={"txn": "txn-org"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    resolver.assert_awaited_once()
+    call = resolver.await_args
+    assert call is not None
+    assert call.kwargs["organization_hint"] == "acme-security"
+
+
+@pytest.mark.anyio
+async def test_authorize_resume_query_org_overrides_stored_org_hint(
+    client: TestClient,
+    mock_user: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resolver = AsyncMock(
+        return_value=SessionResult(
+            user=cast(User, mock_user), organization_id=uuid.uuid4()
+        )
+    )
+    txn = ResumeTransaction(
+        transaction_id="txn-org",
+        authorize_params=_authorize_params(state="resumed-state", org="old-org"),
+        created_at=time.time(),
+        bound_ip=_TESTCLIENT_IP_HASH,
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.load_and_delete_resume_transaction",
+        AsyncMock(return_value=txn),
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.resolve_authorize_session",
+        resolver,
+    )
+    monkeypatch.setattr("tracecat.mcp.oidc.endpoints.store_auth_code", AsyncMock())
+
+    response = client.get(
+        "/authorize/resume",
+        params={"txn": "txn-org", "org": "new-org"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    resolver.assert_awaited_once()
+    call = resolver.await_args
+    assert call is not None
+    assert call.kwargs["organization_hint"] == "new-org"
 
 
 @pytest.mark.anyio
