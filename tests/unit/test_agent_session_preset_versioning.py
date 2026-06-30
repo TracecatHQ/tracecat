@@ -40,7 +40,10 @@ def _build_service() -> tuple[_TestAgentSessionService, SimpleNamespace, Role]:
         service_id="tracecat-api",
         workspace_id=workspace_id,
         organization_id=uuid.uuid4(),
-        scopes=frozenset({"agent:execute"}),
+        # action:*:execute lets _resolve_workspace_chat_actions keep the full
+        # default tool set; per-action scope filtering is covered independently
+        # in test_chat_tools.py.
+        scopes=frozenset({"agent:execute", "action:*:execute"}),
     )
     session = SimpleNamespace(
         add=Mock(),

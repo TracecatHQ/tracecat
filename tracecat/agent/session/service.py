@@ -91,6 +91,7 @@ from tracecat.chat.schemas import (
 from tracecat.chat.service import ChatService
 from tracecat.chat.tools import (
     filter_workspace_chat_tools_for_entitlements,
+    filter_workspace_chat_tools_for_scopes,
     get_default_tools,
 )
 from tracecat.db.models import (
@@ -187,6 +188,12 @@ class AgentSessionService(BaseWorkspaceService):
         defaults = await self._get_default_tools(AgentSessionEntity.WORKSPACE_CHAT)
         extras = agent_session.tools or []
         merged = list(dict.fromkeys([*defaults, *extras]))
+        # Chat tools execute under the executor service principal, which the
+        # internal API routes authorize against the service allowlist rather than
+        # the chat user's RBAC. Enforce the caller's workflow scopes here -- the
+        # last point where the user's real role is available -- so `agent:execute`
+        # alone cannot grant workflow create/read/update via these tools.
+        merged = filter_workspace_chat_tools_for_scopes(merged, role=self.role)
         return await self._workspace_chat_tools_for_entitlements(merged)
 
     async def _resolve_session_mcp_servers(

@@ -284,6 +284,79 @@ class TestWorkflowsClientPublish:
         mock_tracecat_client.post.assert_called_once_with("/workflows/wf_abc/publish")
 
 
+class TestWorkflowsClientWebhook:
+    """Tests for WorkflowsClient webhook methods."""
+
+    @pytest.mark.anyio
+    async def test_get_webhook_hits_webhook_route(
+        self, workflows_client: WorkflowsClient, mock_tracecat_client: MagicMock
+    ):
+        """get_webhook reads the workflow webhook endpoint."""
+        mock_tracecat_client.get.return_value = {
+            "status": "online",
+            "url": "https://example/webhook",
+        }
+
+        result = await workflows_client.get_webhook(workflow_id="wf_abc")
+
+        assert result["status"] == "online"
+        mock_tracecat_client.get.assert_called_once_with("/workflows/wf_abc/webhook")
+
+    @pytest.mark.anyio
+    async def test_update_webhook_patches_webhook_route(
+        self, workflows_client: WorkflowsClient, mock_tracecat_client: MagicMock
+    ):
+        """update_webhook PATCHes the webhook endpoint with the status body."""
+        mock_tracecat_client.patch.return_value = None
+
+        await workflows_client.update_webhook(workflow_id="wf_abc", status="online")
+
+        mock_tracecat_client.patch.assert_called_once_with(
+            "/workflows/wf_abc/webhook",
+            json={"status": "online"},
+        )
+
+
+class TestWorkflowsClientCaseTrigger:
+    """Tests for WorkflowsClient case-trigger methods."""
+
+    @pytest.mark.anyio
+    async def test_get_case_trigger_hits_case_trigger_route(
+        self, workflows_client: WorkflowsClient, mock_tracecat_client: MagicMock
+    ):
+        """get_case_trigger reads the workflow case-trigger endpoint."""
+        mock_tracecat_client.get.return_value = {
+            "status": "online",
+            "event_types": ["case_created"],
+            "tag_filters": [],
+        }
+
+        result = await workflows_client.get_case_trigger(workflow_id="wf_abc")
+
+        assert result["status"] == "online"
+        mock_tracecat_client.get.assert_called_once_with(
+            "/workflows/wf_abc/case-trigger"
+        )
+
+    @pytest.mark.anyio
+    async def test_update_case_trigger_omits_unset_fields(
+        self, workflows_client: WorkflowsClient, mock_tracecat_client: MagicMock
+    ):
+        """update_case_trigger PATCHes only the provided fields."""
+        mock_tracecat_client.patch.return_value = None
+
+        await workflows_client.update_case_trigger(
+            workflow_id="wf_abc",
+            status="online",
+            event_types=["case_created"],
+        )
+
+        mock_tracecat_client.patch.assert_called_once_with(
+            "/workflows/wf_abc/case-trigger",
+            json={"status": "online", "event_types": ["case_created"]},
+        )
+
+
 class TestWorkflowsClientGetAuthoringContext:
     """Tests for WorkflowsClient.get_authoring_context()."""
 
