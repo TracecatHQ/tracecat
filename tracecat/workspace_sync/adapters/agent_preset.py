@@ -247,7 +247,11 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         versions_by_preset_id: Mapping[uuid.UUID, set[int]] | None = None,
     ) -> ResourceProjection:
         """Build sync specs from eager-loaded preset rows."""
-        assigner = await self.source_id_assigner(workspace_service)
+        assigner = await self.source_id_assigner(
+            workspace_service,
+            model=AgentPreset,
+            row_filters=(AgentPreset.archived_at.is_(None),),
+        )
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
         for preset in presets:

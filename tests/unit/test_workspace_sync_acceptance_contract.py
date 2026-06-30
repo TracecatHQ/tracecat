@@ -2314,6 +2314,54 @@ async def test_project_workspace_omits_archived_agent_presets(
 
 
 @pytest.mark.anyio
+async def test_project_workspace_reuses_source_id_from_archived_agent_mapping(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    archived_preset = AgentPreset(
+        workspace_id=svc_role.workspace_id,
+        slug="qa-identity",
+        name="QA archived identity",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        agents={"enabled": False},
+        archived_at=datetime.now(UTC),
+    )
+    active_preset = AgentPreset(
+        workspace_id=svc_role.workspace_id,
+        slug="qa-identity",
+        name="QA active identity",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        agents={"enabled": False},
+    )
+    session.add_all([archived_preset, active_preset])
+    await session.flush()
+    session.add(
+        WorkspaceSyncResourceMapping(
+            workspace_id=svc_role.workspace_id,
+            provider=VcsProvider.GITHUB.value,
+            resource_type=SyncResourceType.AGENT_PRESET.value,
+            source_id="qa-identity",
+            source_path=f"{AGENT_PRESET_ROOT}/qa-identity/preset.yml",
+            local_id=archived_preset.id,
+        )
+    )
+    await session.flush()
+
+    projection = await service.project_workspace(create_missing_mappings=False)
+
+    path = f"{AGENT_PRESET_ROOT}/qa-identity/preset.yml"
+    assert path in projection.files
+    assert f"{AGENT_PRESET_ROOT}/qa-identity-1/preset.yml" not in projection.files
+    spec = yaml.safe_load(projection.files[path])
+    assert spec["id"] == "qa-identity"
+    assert spec["slug"] == "qa-identity"
+    assert spec["name"] == "QA active identity"
+
+
+@pytest.mark.anyio
 async def test_project_workspace_preserves_table_source_id_after_rename(
     session: AsyncSession,
     svc_role: Role,
