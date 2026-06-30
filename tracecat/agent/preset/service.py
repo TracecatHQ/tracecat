@@ -49,6 +49,7 @@ from tracecat.db.models import (
     AgentPresetSkill,
     AgentPresetVersion,
     AgentPresetVersionSkill,
+    Skill,
     SkillVersion,
 )
 from tracecat.dsl.common import create_default_execution_context
@@ -71,6 +72,8 @@ from tracecat.pagination import (
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets import secrets_manager
 from tracecat.service import BaseWorkspaceService, requires_entitlement
+from tracecat.settings.schemas import VersionedResourceResolutionStrategy
+from tracecat.settings.service import get_versioned_resource_resolution_strategy
 from tracecat.tiers.enums import Entitlement
 
 if TYPE_CHECKING:
@@ -103,6 +106,15 @@ class AgentPresetService(BaseWorkspaceService):
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role=role)
         self.skills = SkillService(session, role=self.role)
+
+    async def use_latest_resource_versions(self) -> bool:
+        """Return whether preset dependencies should resolve to current versions."""
+
+        strategy = await get_versioned_resource_resolution_strategy(
+            role=self.role,
+            session=self.session,
+        )
+        return strategy is VersionedResourceResolutionStrategy.LATEST
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_presets(self) -> Sequence[AgentPreset]:
@@ -1578,6 +1590,7 @@ class AgentPresetService(BaseWorkspaceService):
     async def _version_to_agent_config(
         self, version: AgentPresetVersion
     ) -> AgentConfig:
+        use_latest_resource_versions = await self.use_latest_resource_versions()
         # Resolve refs only — no headers / stdio env. The resulting
         # AgentConfig is safe to cross Temporal boundaries. Trusted callers
         # (build_tool_definitions, trusted MCP server) re-resolve secrets
@@ -1585,7 +1598,8 @@ class AgentPresetService(BaseWorkspaceService):
         mcp_servers = await self.resolve_mcp_integration_refs(version.mcp_integrations)
         model_settings: dict[str, Any] = {}
         resolved_skills = await self.skills.get_resolved_skill_refs_for_preset_version(
-            version.id
+            version.id,
+            use_latest_versions=use_latest_resource_versions,
         )
         duplicate_skill_names = sorted(
             name
@@ -1606,6 +1620,20 @@ class AgentPresetService(BaseWorkspaceService):
         # Only disable parallel tool calls if tools will be present
         if version.actions or mcp_servers:
             model_settings["parallel_tool_calls"] = False
+        agents = AgentSubagentsConfig.model_validate(version.agents)
+        if use_latest_resource_versions:
+            resolved_agents = await resolve_agents_config(
+                self,
+                agents=agents,
+                parent_preset_id=version.preset_id,
+                include_runtime_config=False,
+                follow_latest_versions=True,
+            )
+            binding = resolved_agents.to_agents_binding()
+            agents = AgentSubagentsConfig(
+                enabled=binding.enabled,
+                subagents=list(binding.subagents),
+            )
         return AgentConfig(
             model_name=version.model_name,
             model_provider=version.model_provider,
@@ -1617,7 +1645,7 @@ class AgentPresetService(BaseWorkspaceService):
             namespaces=version.namespaces,
             tool_approvals=version.tool_approvals,
             mcp_servers=mcp_servers,
-            agents=AgentSubagentsConfig.model_validate(version.agents),
+            agents=agents,
             retries=version.retries,
             model_settings=model_settings,
             enable_thinking=version.enable_thinking,
@@ -1631,19 +1659,50 @@ class AgentPresetService(BaseWorkspaceService):
         """Create and flush a new immutable version from the preset head."""
         if not preset_locked:
             await self._lock_preset_for_versioning(preset.id)
-        duplicate_name_stmt = (
-            select(
-                SkillVersion.name,
-                func.count(AgentPresetSkill.id).label("binding_count"),
+        if await self.use_latest_resource_versions():
+            duplicate_name_stmt = (
+                select(
+                    SkillVersion.name,
+                    func.count(AgentPresetSkill.id).label("binding_count"),
+                )
+                .join(
+                    Skill,
+                    sa.and_(
+                        AgentPresetSkill.workspace_id == Skill.workspace_id,
+                        AgentPresetSkill.skill_id == Skill.id,
+                    ),
+                )
+                .join(
+                    SkillVersion,
+                    sa.and_(
+                        SkillVersion.workspace_id == Skill.workspace_id,
+                        SkillVersion.skill_id == Skill.id,
+                        SkillVersion.id == Skill.current_version_id,
+                    ),
+                )
+                .where(
+                    AgentPresetSkill.workspace_id == self.workspace_id,
+                    AgentPresetSkill.preset_id == preset.id,
+                )
+                .group_by(SkillVersion.name)
+                .having(func.count(AgentPresetSkill.id) > 1)
             )
-            .join(SkillVersion, AgentPresetSkill.skill_version_id == SkillVersion.id)
-            .where(
-                AgentPresetSkill.workspace_id == self.workspace_id,
-                AgentPresetSkill.preset_id == preset.id,
+        else:
+            duplicate_name_stmt = (
+                select(
+                    SkillVersion.name,
+                    func.count(AgentPresetSkill.id).label("binding_count"),
+                )
+                .join(
+                    SkillVersion, AgentPresetSkill.skill_version_id == SkillVersion.id
+                )
+                .where(
+                    AgentPresetSkill.workspace_id == self.workspace_id,
+                    AgentPresetSkill.preset_id == preset.id,
+                )
+                .group_by(SkillVersion.name)
+                .having(func.count(AgentPresetSkill.id) > 1)
             )
-            .group_by(SkillVersion.name)
-            .having(func.count(AgentPresetSkill.id) > 1)
-        )
         duplicate_names = sorted(
             name
             for name, _count in (await self.session.execute(duplicate_name_stmt))

@@ -8,7 +8,7 @@ from fastapi import status
 from fastapi.testclient import TestClient
 
 from tracecat.auth.types import Role
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatSettingsError, TracecatValidationError
 from tracecat.registry.repositories.schemas import GitBranchInfo
 from tracecat.vcs.github.app import GitHubAppError
 from tracecat.workflow.store.schemas import WorkflowDslPublishResult
@@ -184,18 +184,7 @@ async def test_list_workflow_branches_success(
     test_admin_role: Role,
 ) -> None:
     """Test GET /workflows/sync/branches returns branch list."""
-    with (
-        patch("tracecat.workflow.store.router.WorkspaceService") as mock_workspace_cls,
-        patch("tracecat.workflow.store.router.WorkflowSyncService") as mock_sync_cls,
-    ):
-        mock_workspace_svc = AsyncMock()
-        mock_workspace = Mock()
-        mock_workspace.settings = {
-            "git_repo_url": "git+ssh://git@github.com/test-org/test-repo.git"
-        }
-        mock_workspace_svc.get_workspace.return_value = mock_workspace
-        mock_workspace_cls.return_value = mock_workspace_svc
-
+    with patch("tracecat.workflow.store.router.WorkspaceSyncService") as mock_sync_cls:
         mock_sync_svc = AsyncMock()
         mock_sync_svc.list_branches.return_value = [
             GitBranchInfo(name="main", is_default=True),
@@ -222,12 +211,12 @@ async def test_list_workflow_branches_missing_repo_returns_400(
     test_admin_role: Role,
 ) -> None:
     """Test GET /workflows/sync/branches returns 400 when repo URL is missing."""
-    with patch("tracecat.workflow.store.router.WorkspaceService") as mock_workspace_cls:
-        mock_workspace_svc = AsyncMock()
-        mock_workspace = Mock()
-        mock_workspace.settings = {}
-        mock_workspace_svc.get_workspace.return_value = mock_workspace
-        mock_workspace_cls.return_value = mock_workspace_svc
+    with patch("tracecat.workflow.store.router.WorkspaceSyncService") as mock_sync_cls:
+        mock_sync_svc = AsyncMock()
+        mock_sync_svc.list_branches.side_effect = TracecatSettingsError(
+            "Git repository URL not configured for this workspace."
+        )
+        mock_sync_cls.return_value = mock_sync_svc
 
         response = client.get(
             "/workflows/sync/branches",
@@ -244,18 +233,7 @@ async def test_list_workflow_branches_github_error_returns_400(
     test_admin_role: Role,
 ) -> None:
     """Test GET /workflows/sync/branches maps GitHub errors to 400."""
-    with (
-        patch("tracecat.workflow.store.router.WorkspaceService") as mock_workspace_cls,
-        patch("tracecat.workflow.store.router.WorkflowSyncService") as mock_sync_cls,
-    ):
-        mock_workspace_svc = AsyncMock()
-        mock_workspace = Mock()
-        mock_workspace.settings = {
-            "git_repo_url": "git+ssh://git@github.com/test-org/test-repo.git"
-        }
-        mock_workspace_svc.get_workspace.return_value = mock_workspace
-        mock_workspace_cls.return_value = mock_workspace_svc
-
+    with patch("tracecat.workflow.store.router.WorkspaceSyncService") as mock_sync_cls:
         mock_sync_svc = AsyncMock()
         mock_sync_svc.list_branches.side_effect = GitHubAppError(
             "Unable to access repository"

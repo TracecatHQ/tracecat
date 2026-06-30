@@ -7,7 +7,7 @@ from uuid import UUID
 
 from tracecat_registry import types
 from tracecat_registry import types as registry_types
-from tracecat_registry.sdk.agents import AgentConfig, RankableItem
+from tracecat_registry.sdk.agents import AgentConfig, CursorPage, RankableItem
 from tracecat_registry.sdk.client import TracecatClient
 from tracecat_registry.sdk.types import CasePriority, CaseSeverity, CaseStatus, Unset
 
@@ -94,6 +94,62 @@ class _AgentsAsync:
         self,
         slug: str,
     ) -> None: ...
+    async def list_skills(
+        self,
+        *,
+        limit: int = ...,
+        cursor: str | None = ...,
+        reverse: bool = ...,
+    ) -> CursorPage: ...
+    async def create_skill(
+        self,
+        *,
+        name: str,
+        description: str | None = ...,
+    ) -> dict[str, Any]: ...
+    async def get_skill(
+        self,
+        skill_id: str,
+        *,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    async def list_skill_versions(
+        self,
+        *,
+        skill_id: str,
+        skill_uuid: str | uuid.UUID | None = ...,
+        limit: int = ...,
+        cursor: str | None = ...,
+        reverse: bool = ...,
+    ) -> CursorPage: ...
+    async def get_skill_version(
+        self,
+        *,
+        skill_id: str,
+        version_id: str | uuid.UUID,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    async def publish_skill_version(
+        self,
+        *,
+        skill_id: str,
+        files: list[dict[str, Any]],
+        skill_uuid: str | uuid.UUID | None = ...,
+        base_version_id: str | None = ...,
+    ) -> dict[str, Any]: ...
+    async def restore_skill_version(
+        self,
+        *,
+        skill_id: str,
+        version_id: str | uuid.UUID,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    async def archive_skill(
+        self,
+        skill_id: str,
+        *,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> None: ...
 
 class _Agents:
     @property
@@ -177,6 +233,62 @@ class _Agents:
     def delete_preset(
         self,
         slug: str,
+    ) -> None: ...
+    def list_skills(
+        self,
+        *,
+        limit: int = ...,
+        cursor: str | None = ...,
+        reverse: bool = ...,
+    ) -> CursorPage: ...
+    def create_skill(
+        self,
+        *,
+        name: str,
+        description: str | None = ...,
+    ) -> dict[str, Any]: ...
+    def get_skill(
+        self,
+        skill_id: str,
+        *,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    def list_skill_versions(
+        self,
+        *,
+        skill_id: str,
+        skill_uuid: str | uuid.UUID | None = ...,
+        limit: int = ...,
+        cursor: str | None = ...,
+        reverse: bool = ...,
+    ) -> CursorPage: ...
+    def get_skill_version(
+        self,
+        *,
+        skill_id: str,
+        version_id: str | uuid.UUID,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    def publish_skill_version(
+        self,
+        *,
+        skill_id: str,
+        files: list[dict[str, Any]],
+        skill_uuid: str | uuid.UUID | None = ...,
+        base_version_id: str | None = ...,
+    ) -> dict[str, Any]: ...
+    def restore_skill_version(
+        self,
+        *,
+        skill_id: str,
+        version_id: str | uuid.UUID,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    def archive_skill(
+        self,
+        skill_id: str,
+        *,
+        skill_uuid: str | uuid.UUID | None = ...,
     ) -> None: ...
 
 class _CasesAsync:
@@ -846,6 +958,31 @@ class _TablesAsync:
         self,
         name: str,
     ) -> types.TableRead: ...
+    async def update_table(
+        self,
+        *,
+        name: str,
+        new_name: str,
+    ) -> types.TableRead: ...
+    async def create_column(
+        self,
+        *,
+        table: str,
+        column: dict[str, Any],
+    ) -> types.TableRead: ...
+    async def update_column(
+        self,
+        *,
+        table: str,
+        column: str,
+        update: dict[str, Any],
+    ) -> types.TableRead: ...
+    async def delete_column(
+        self,
+        *,
+        table: str,
+        column: str,
+    ) -> types.TableRead: ...
     async def lookup(
         self,
         *,
@@ -930,6 +1067,31 @@ class _Tables:
     def get_table_metadata(
         self,
         name: str,
+    ) -> types.TableRead: ...
+    def update_table(
+        self,
+        *,
+        name: str,
+        new_name: str,
+    ) -> types.TableRead: ...
+    def create_column(
+        self,
+        *,
+        table: str,
+        column: dict[str, Any],
+    ) -> types.TableRead: ...
+    def update_column(
+        self,
+        *,
+        table: str,
+        column: str,
+        update: dict[str, Any],
+    ) -> types.TableRead: ...
+    def delete_column(
+        self,
+        *,
+        table: str,
+        column: str,
     ) -> types.TableRead: ...
     def lookup(
         self,
@@ -1066,6 +1228,12 @@ class _WorkflowsAsync:
         self,
         workflow_execution_id: str,
     ) -> dict[str, Any]: ...
+    async def create_workflow(
+        self,
+        *,
+        title: str | None = ...,
+        description: str | None = ...,
+    ) -> dict[str, Any]: ...
 
 class _Workflows:
     @property
@@ -1085,6 +1253,12 @@ class _Workflows:
     def get_status(
         self,
         workflow_execution_id: str,
+    ) -> dict[str, Any]: ...
+    def create_workflow(
+        self,
+        *,
+        title: str | None = ...,
+        description: str | None = ...,
     ) -> dict[str, Any]: ...
 
 agents: _Agents

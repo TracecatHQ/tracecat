@@ -59,6 +59,7 @@ with workflow.unsafe.imports_passed_through():
         CreateSessionInput,
         LoadSessionInput,
         LoadSessionMessagesInput,
+        LoadSessionResult,
         PendingToolResult,
         ReconcileToolResultsInput,
         create_session_activity,
@@ -67,7 +68,11 @@ with workflow.unsafe.imports_passed_through():
         reconcile_tool_results_activity,
     )
     from tracecat.agent.session.types import AgentSessionEntity
-    from tracecat.agent.subagents import has_manual_tool_approvals
+    from tracecat.agent.subagents import (
+        AgentSubagentsConfig,
+        ResolvedAgentsConfig,
+        has_manual_tool_approvals,
+    )
     from tracecat.agent.tokens import (
         InternalToolContext,
         LLMRouteClaim,
@@ -425,6 +430,27 @@ UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH = (
 # marker have aged out, then use workflow.deprecate_patch(...) before removing
 # the marker entirely in a later cleanup.
 LOAD_TERMINAL_MESSAGE_HISTORY_PATCH = "durable-agent-load-terminal-message-history-v1"
+PRESERVE_RESUMED_AGENT_BINDINGS_PATCH = (
+    "durable-agent-preserve-resumed-agent-bindings-v1"
+)
+
+
+def _agents_config_from_binding(
+    binding: ResolvedAgentsConfig,
+) -> AgentSubagentsConfig:
+    return AgentSubagentsConfig.model_validate(binding.model_dump(mode="json"))
+
+
+def _preserved_agents_binding(
+    load_result: LoadSessionResult,
+) -> ResolvedAgentsConfig | None:
+    if not load_result.found:
+        return None
+    if load_result.agents_binding is not None:
+        return load_result.agents_binding
+    if load_result.has_resume_state:
+        return ResolvedAgentsConfig()
+    return None
 
 
 @workflow.defn
@@ -578,18 +604,23 @@ class DurableAgentWorkflow:
         self,
         args: AgentWorkflowArgs,
         cfg: AgentConfig,
+        *,
+        agents: AgentSubagentsConfig | None = None,
+        follow_latest_versions: bool | None = None,
     ) -> ResolvedAgentsRuntimeConfig:
-        if not cfg.agents.enabled:
+        agents_config = agents if agents is not None else cfg.agents
+        if not agents_config.enabled:
             return ResolvedAgentsRuntimeConfig()
-        if not cfg.agents.subagents:
+        if not agents_config.subagents:
             return ResolvedAgentsRuntimeConfig(enabled=True)
         return await workflow.execute_activity(
             resolve_agents_config_activity,
             ResolveAgentsConfigActivityInput(
                 role=self.role,
-                agents=cfg.agents,
+                agents=agents_config,
                 parent_preset_id=args.agent_preset_id,
                 parent_slug=args.agent_args.preset_slug,
+                follow_latest_versions=follow_latest_versions,
             ),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
@@ -873,7 +904,28 @@ class DurableAgentWorkflow:
         curr_run_id = AgentWorkflowID.from_workflow_id(
             workflow.info().workflow_id
         ).session_id
-        agents_result = await self._resolve_agents_config(args, cfg)
+        load_result: LoadSessionResult | None = None
+        if workflow.patched(PRESERVE_RESUMED_AGENT_BINDINGS_PATCH):
+            # Load session topology before resolving agents. A resumed session's
+            # stored binding is the stable runtime contract, even if the preset
+            # now follows a newer child version.
+            load_result = await workflow.execute_activity(
+                load_session_activity,
+                LoadSessionInput(role=self.role, session_id=self.session_id),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+            if preserved_binding := _preserved_agents_binding(load_result):
+                agents_result = await self._resolve_agents_config(
+                    args,
+                    cfg,
+                    agents=_agents_config_from_binding(preserved_binding),
+                    follow_latest_versions=False,
+                )
+            else:
+                agents_result = await self._resolve_agents_config(args, cfg)
+        else:
+            agents_result = await self._resolve_agents_config(args, cfg)
 
         # Create or get the AgentSession - idempotent, safe to call on resume
         # Persist the active workflow token as curr_run_id for approval lookups.
@@ -929,14 +981,16 @@ class DurableAgentWorkflow:
             registry_lock_origins=list(root_registry_lock.origins.keys()),
         )
 
-        # Load existing session metadata for resume. sdk_session_data is legacy
-        # replay compatibility only; new activity executions leave it unset.
-        load_result = await workflow.execute_activity(
-            load_session_activity,
-            LoadSessionInput(role=self.role, session_id=self.session_id),
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=RETRY_POLICIES["activity:fail_fast"],
-        )
+        if load_result is None:
+            # Legacy command order for histories without the binding-preservation
+            # patch marker. sdk_session_data is replay compatibility only; new
+            # activity executions leave it unset.
+            load_result = await workflow.execute_activity(
+                load_session_activity,
+                LoadSessionInput(role=self.role, session_id=self.session_id),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
 
         if load_result.found and load_result.sdk_session_id:
             logger.info(

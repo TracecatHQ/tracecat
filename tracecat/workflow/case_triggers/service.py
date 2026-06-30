@@ -117,12 +117,43 @@ class CaseTriggersService(BaseWorkspaceService):
         create_missing_tags: bool = False,
         commit: bool = True,
     ) -> CaseTrigger:
+        return await self._upsert_case_trigger(
+            workflow_id,
+            params,
+            create_missing_tags=create_missing_tags,
+            commit=commit,
+        )
+
+    async def sync_case_trigger(
+        self,
+        workflow_id: WorkflowID,
+        params: CaseTriggerConfig,
+        *,
+        create_missing_tags: bool = False,
+        commit: bool = True,
+    ) -> CaseTrigger:
+        """Apply case-trigger config from sync without checking entitlements."""
+        return await self._upsert_case_trigger(
+            workflow_id,
+            params,
+            create_missing_tags=create_missing_tags,
+            commit=commit,
+        )
+
+    async def _upsert_case_trigger(
+        self,
+        workflow_id: WorkflowID,
+        params: CaseTriggerConfig,
+        *,
+        create_missing_tags: bool = False,
+        commit: bool = True,
+    ) -> CaseTrigger:
         await self._lock_workflow(workflow_id)
         try:
             case_trigger = await self._ensure_case_trigger_exists(
                 workflow_id, commit=commit
             )
-            return await self.update_case_trigger(
+            return await self._update_case_trigger(
                 workflow_id,
                 CaseTriggerUpdate(
                     status=params.status,
@@ -153,6 +184,21 @@ class CaseTriggersService(BaseWorkspaceService):
 
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def update_case_trigger(
+        self,
+        workflow_id: WorkflowID,
+        params: CaseTriggerUpdate,
+        *,
+        create_missing_tags: bool = False,
+        commit: bool = True,
+    ) -> CaseTrigger:
+        return await self._update_case_trigger(
+            workflow_id,
+            params,
+            create_missing_tags=create_missing_tags,
+            commit=commit,
+        )
+
+    async def _update_case_trigger(
         self,
         workflow_id: WorkflowID,
         params: CaseTriggerUpdate,

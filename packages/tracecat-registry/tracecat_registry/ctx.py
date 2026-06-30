@@ -1,6 +1,7 @@
-"""Registry SDK facade for run_python scripts.
+"""Registry SDK facade.
 
-This module is intentionally shaped for inline scripts:
+This is the standard way to reach platform services from registry code. It is
+used both by built-in registry actions and by inline ``run_python`` scripts:
 
     from tracecat_registry import ctx
 

@@ -25,6 +25,7 @@ const appFormSchema = z.object({
   app_workflow_export_enabled: z.boolean(),
   app_create_workspace_on_register: z.boolean(),
   app_action_form_mode_enabled: z.boolean(),
+  app_versioned_resource_resolution_strategy: z.enum(["pinned", "latest"]),
 })
 
 type AppFormValues = z.infer<typeof appFormSchema>
@@ -52,6 +53,8 @@ export function OrgSettingsAppForm() {
         appSettings?.app_create_workspace_on_register ?? false,
       app_action_form_mode_enabled:
         appSettings?.app_action_form_mode_enabled ?? true,
+      app_versioned_resource_resolution_strategy:
+        appSettings?.app_versioned_resource_resolution_strategy ?? "latest",
     },
   })
 
@@ -66,6 +69,8 @@ export function OrgSettingsAppForm() {
           app_create_workspace_on_register:
             data.app_create_workspace_on_register,
           app_action_form_mode_enabled: data.app_action_form_mode_enabled,
+          app_versioned_resource_resolution_strategy:
+            data.app_versioned_resource_resolution_strategy,
         },
       })
     } catch {
@@ -213,6 +218,31 @@ export function OrgSettingsAppForm() {
                 <Switch
                   checked={field.value}
                   onCheckedChange={field.onChange}
+                />
+              </FormControl>
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="app_versioned_resource_resolution_strategy"
+          render={({ field }) => (
+            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <FormLabel>Use latest versioned resources</FormLabel>
+                <FormDescription>
+                  Resolve supported versioned resource dependencies to their
+                  current versions instead of the versions saved on the parent
+                  resource.
+                </FormDescription>
+              </div>
+              <FormControl>
+                <Switch
+                  checked={field.value === "latest"}
+                  onCheckedChange={(checked) =>
+                    field.onChange(checked ? "latest" : "pinned")
+                  }
                 />
               </FormControl>
             </FormItem>

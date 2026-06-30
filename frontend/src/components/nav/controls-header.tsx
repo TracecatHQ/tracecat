@@ -148,6 +148,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { WorkspaceResourceSyncActions } from "@/components/workspace-sync/resource-sync-actions"
 import { AddWorkspaceMember } from "@/components/workspaces/add-workspace-member"
 import {
   NewVariableDialog,
@@ -211,6 +212,11 @@ function WorkflowsActions() {
         view={catalogView}
         workflowsHref={workflowsHref}
         tagsHref={tagsHref}
+      />
+      <WorkspaceResourceSyncActions
+        label="workflows"
+        branchSlug="workflows"
+        resources={["workflow"]}
       />
       {catalogView === WorkflowsCatalogViewMode.Tags ? (
         <AddWorkflowTag />
@@ -294,6 +300,11 @@ function TablesActions() {
 
   return (
     <>
+      <WorkspaceResourceSyncActions
+        label="tables"
+        branchSlug="tables"
+        resources={["table"]}
+      />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="sm" className="h-7 bg-white">
@@ -403,7 +414,16 @@ function IntegrationsActions() {
 }
 
 function SkillsActions() {
-  return <CreateSkillButton />
+  return (
+    <>
+      <WorkspaceResourceSyncActions
+        label="skills"
+        branchSlug="skills"
+        resources={["skill"]}
+      />
+      <CreateSkillButton />
+    </>
+  )
 }
 
 function BreadcrumbEntityPage({
@@ -611,6 +631,11 @@ function AgentsActions() {
         agentsHref={agentsHref}
         tagsHref={tagsHref}
       />
+      <WorkspaceResourceSyncActions
+        label="agents"
+        branchSlug="agents"
+        resources={["agent_preset"]}
+      />
       {agentActionControls}
     </>
   )
@@ -686,6 +711,40 @@ function CasesActions() {
   const durationsHref = workspaceId
     ? `/workspaces/${workspaceId}/cases/durations`
     : undefined
+  let syncActions: ReactNode = null
+  if (view === CasesViewMode.CustomFields) {
+    syncActions = (
+      <WorkspaceResourceSyncActions
+        label="case custom fields"
+        branchSlug="case-fields"
+        resources={["case_field"]}
+      />
+    )
+  } else if (view === CasesViewMode.Durations) {
+    syncActions = (
+      <WorkspaceResourceSyncActions
+        label="case durations"
+        branchSlug="case-durations"
+        resources={["case_duration"]}
+      />
+    )
+  } else if (view === CasesViewMode.Tags) {
+    syncActions = (
+      <WorkspaceResourceSyncActions
+        label="case tags"
+        branchSlug="case-tags"
+        resources={["case_tag"]}
+      />
+    )
+  } else if (view === CasesViewMode.Dropdowns) {
+    syncActions = (
+      <WorkspaceResourceSyncActions
+        label="case dropdowns"
+        branchSlug="case-dropdowns"
+        resources={["case_dropdown"]}
+      />
+    )
+  }
 
   return (
     <>
@@ -698,6 +757,7 @@ function CasesActions() {
         closureRequirementsHref={closureRequirementsHref}
         durationsHref={durationsHref}
       />
+      {syncActions}
       {view === CasesViewMode.CustomFields ? (
         <AddCustomField />
       ) : view === CasesViewMode.Durations ? (
@@ -1609,23 +1669,30 @@ function CredentialsActions() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const canCreateSecrets = useScopeCheck("secret:create")
 
-  if (canCreateSecrets !== true) {
-    return null
-  }
-
   return (
     <>
-      <Button
-        variant="outline"
-        size="sm"
-        className="h-7 bg-white"
-        onClick={() => setDialogOpen(true)}
-      >
-        <Plus className="mr-1 h-3.5 w-3.5" />
-        Add credential
-      </Button>
-
-      <CreateCredentialDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+      <WorkspaceResourceSyncActions
+        label="credential metadata"
+        branchSlug="credentials"
+        resources={["secret_metadata"]}
+      />
+      {canCreateSecrets === true && (
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 bg-white"
+            onClick={() => setDialogOpen(true)}
+          >
+            <Plus className="mr-1 h-3.5 w-3.5" />
+            Add credential
+          </Button>
+          <CreateCredentialDialog
+            open={dialogOpen}
+            onOpenChange={setDialogOpen}
+          />
+        </>
+      )}
     </>
   )
 }
@@ -1721,14 +1788,21 @@ function McpAccessActions() {
 
 function VariablesActions() {
   return (
-    <NewVariableDialog>
-      <NewVariableDialogTrigger asChild>
-        <Button variant="outline" size="sm" className="h-7 bg-white">
-          <Plus className="mr-1 h-3.5 w-3.5" />
-          Add variable
-        </Button>
-      </NewVariableDialogTrigger>
-    </NewVariableDialog>
+    <>
+      <WorkspaceResourceSyncActions
+        label="variables"
+        branchSlug="variables"
+        resources={["variable"]}
+      />
+      <NewVariableDialog>
+        <NewVariableDialogTrigger asChild>
+          <Button variant="outline" size="sm" className="h-7 bg-white">
+            <Plus className="mr-1 h-3.5 w-3.5" />
+            Add variable
+          </Button>
+        </NewVariableDialogTrigger>
+      </NewVariableDialog>
+    </>
   )
 }
 
@@ -1879,6 +1953,11 @@ function TableBreadcrumb({
 function TableDetailsActions() {
   return (
     <>
+      <WorkspaceResourceSyncActions
+        label="tables"
+        branchSlug="tables"
+        resources={["table"]}
+      />
       <TableSelectionActionsBar />
       <TableLinkRowsToCaseCommand />
       <TableInsertButton />
@@ -1978,6 +2057,13 @@ function getPageConfig(
             workspaceId={workspaceId}
           />
         ),
+        actions: (
+          <WorkspaceResourceSyncActions
+            label="agents"
+            branchSlug="agents"
+            resources={["agent_preset"]}
+          />
+        ),
       }
     }
 
@@ -2063,7 +2149,16 @@ function getPageConfig(
         title: (
           <SkillsBreadcrumb workspaceId={workspaceId} skillId={skillMatch[1]} />
         ),
-        actions: <SkillsDetailActions />,
+        actions: (
+          <>
+            <WorkspaceResourceSyncActions
+              label="skills"
+              branchSlug="skills"
+              resources={["skill"]}
+            />
+            <SkillsDetailActions />
+          </>
+        ),
       }
     }
     return {

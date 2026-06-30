@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: Set canvas access
+  description: Set access to a Slack canvas for specified channels or users.
+  display_group: Slack
+  doc_url: https://docs.slack.dev/reference/methods/canvases.access.set/
+  namespace: tools.slack
+  name: set_canvas_access
+  expects:
+    canvas_id:
+      type: str
+      description: Encoded ID of the canvas to update access for.
+    access_level:
+      type: str
+      description: Desired access level. Valid values are read, write, or owner.
+    channel_ids:
+      type: list[str] | None
+      description: List of channels to update access for. Do not provide with user_ids.
+      default: null
+    user_ids:
+      type: list[str] | None
+      description: List of users to update access for. Do not provide with channel_ids.
+      default: null
+  steps:
+    - ref: set_canvas_access
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: canvases.access.set
+        params:
+          canvas_id: ${{ inputs.canvas_id }}
+          access_level: ${{ inputs.access_level }}
+          channel_ids: ${{ inputs.channel_ids }}
+          user_ids: ${{ inputs.user_ids }}
+  returns: ${{ steps.set_canvas_access.result }}

@@ -102,9 +102,7 @@ class TestDeduplicateTransform:
 
         items = [{"id": 1, "v": "a"}, {"id": 2, "v": "b"}]
 
-        with patch(
-            "tracecat_registry.core.transform.get_context", return_value=mock_ctx
-        ):
+        with patch("tracecat_registry.ctx.get_context", return_value=mock_ctx):
             result = await deduplicate(items, keys=["id"], persist=True)
 
         mock_dedup_client.create_digests.assert_called_once()
@@ -116,9 +114,7 @@ class TestDeduplicateTransform:
         """persist=False does within-call dedup only, no SDK call."""
         mock_ctx = MagicMock()
 
-        with patch(
-            "tracecat_registry.core.transform.get_context", return_value=mock_ctx
-        ):
+        with patch("tracecat_registry.ctx.get_context", return_value=mock_ctx):
             result = await deduplicate(
                 [{"id": 1}, {"id": 1}, {"id": 2}],
                 keys=["id"],
@@ -140,9 +136,7 @@ class TestDeduplicateTransform:
         mock_ctx = MagicMock()
         mock_ctx.deduplicate = mock_dedup_client
 
-        with patch(
-            "tracecat_registry.core.transform.get_context", return_value=mock_ctx
-        ):
+        with patch("tracecat_registry.ctx.get_context", return_value=mock_ctx):
             result = await is_duplicate({"id": 1}, keys=["id"])
 
         assert result is True
@@ -157,9 +151,7 @@ class TestDeduplicateTransform:
         mock_ctx = MagicMock()
         mock_ctx.deduplicate = mock_dedup_client
 
-        with patch(
-            "tracecat_registry.core.transform.get_context", return_value=mock_ctx
-        ):
+        with patch("tracecat_registry.ctx.get_context", return_value=mock_ctx):
             result = await is_duplicate({"id": 99}, keys=["id"])
 
         assert result is False
@@ -169,9 +161,7 @@ class TestDeduplicateTransform:
         """Empty input returns empty list without calling SDK."""
         mock_ctx = MagicMock()
 
-        with patch(
-            "tracecat_registry.core.transform.get_context", return_value=mock_ctx
-        ):
+        with patch("tracecat_registry.ctx.get_context", return_value=mock_ctx):
             result = await deduplicate([], keys=["id"], persist=True)
 
         assert result == []

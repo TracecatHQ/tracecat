@@ -14,6 +14,7 @@ from tracecat.cases.enums import CaseEventType
 from tracecat.dsl.common import DSLInput
 from tracecat.identifiers.workflow import WorkflowID, WorkflowIDShort
 from tracecat.store import Source
+from tracecat.workspace_sync.enums import VcsProvider
 
 # TODO(deps): This is only supported starting pydantic 2.11+
 WorkflowSource = Source[WorkflowID]
@@ -90,6 +91,16 @@ class WorkflowSyncPullRequest(BaseModel):
     dry_run: bool = Field(
         default=False,
         description="Validate only, don't perform actual import",
+    )
+
+    sync_schedules: bool = Field(
+        default=False,
+        description="Apply schedule definitions from Git. Defaults off to preserve destination schedules.",
+    )
+
+    provider: VcsProvider = Field(
+        default=VcsProvider.GITHUB,
+        description="VCS provider for the configured repository.",
     )
 
 

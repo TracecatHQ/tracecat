@@ -2204,9 +2204,17 @@ class SkillService(BaseWorkspaceService):
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_resolved_skill_refs_for_preset_version(
-        self, preset_version_id: uuid.UUID
+        self,
+        preset_version_id: uuid.UUID,
+        *,
+        use_latest_versions: bool = False,
     ) -> list[ResolvedSkillRef]:
-        """Return exact skill refs for an immutable preset version."""
+        """Return skill refs for an immutable preset version."""
+
+        if use_latest_versions:
+            return await self._get_latest_skill_refs_for_preset_version(
+                preset_version_id
+            )
 
         stmt = (
             select(
@@ -2236,6 +2244,79 @@ class SkillService(BaseWorkspaceService):
             for skill_id, skill_name, skill_version_id, manifest_sha256 in rows
             if skill_name is not None
         ]
+
+    async def _get_latest_skill_refs_for_preset_version(
+        self, preset_version_id: uuid.UUID
+    ) -> list[ResolvedSkillRef]:
+        """Return current skill versions for a preset version's skill IDs."""
+
+        stmt = (
+            select(
+                AgentPresetVersionSkill.skill_id,
+                Skill.name,
+                Skill.current_version_id,
+                SkillVersion.name,
+                SkillVersion.manifest_sha256,
+            )
+            .join(
+                Skill,
+                sa.and_(
+                    AgentPresetVersionSkill.workspace_id == Skill.workspace_id,
+                    AgentPresetVersionSkill.skill_id == Skill.id,
+                ),
+            )
+            .outerjoin(
+                SkillVersion,
+                sa.and_(
+                    SkillVersion.workspace_id == Skill.workspace_id,
+                    SkillVersion.skill_id == Skill.id,
+                    SkillVersion.id == Skill.current_version_id,
+                ),
+            )
+            .where(
+                AgentPresetVersionSkill.workspace_id == self.workspace_id,
+                AgentPresetVersionSkill.preset_version_id == preset_version_id,
+            )
+            .order_by(
+                SkillVersion.name.asc().nulls_last(),
+                Skill.name.asc(),
+                AgentPresetVersionSkill.skill_id.asc(),
+            )
+        )
+        rows = (await self.session.execute(stmt)).tuples().all()
+        resolved: list[ResolvedSkillRef] = []
+        missing_current: list[str] = []
+        for (
+            skill_id,
+            skill_name,
+            current_version_id,
+            current_version_name,
+            manifest_sha256,
+        ) in rows:
+            if current_version_id is None:
+                missing_current.append(f"{skill_name} ({skill_id})")
+                continue
+            if current_version_name is None:
+                self._raise_missing_version_name(skill_version_id=current_version_id)
+            resolved.append(
+                ResolvedSkillRef(
+                    skill_id=skill_id,
+                    skill_name=current_version_name,
+                    skill_version_id=current_version_id,
+                    manifest_sha256=manifest_sha256,
+                )
+            )
+
+        if missing_current:
+            raise TracecatValidationError(
+                "Some skills have no current published version",
+                detail={
+                    "code": "skill_not_published",
+                    "skills": sorted(missing_current),
+                    "preset_version_id": str(preset_version_id),
+                },
+            )
+        return resolved
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_resolved_skill_ref(

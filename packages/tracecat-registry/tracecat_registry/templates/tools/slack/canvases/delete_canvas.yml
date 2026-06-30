@@ -1,0 +1,20 @@
+type: action
+definition:
+  title: Delete canvas
+  description: Delete a Slack canvas.
+  display_group: Slack
+  doc_url: https://docs.slack.dev/reference/methods/canvases.delete/
+  namespace: tools.slack
+  name: delete_canvas
+  expects:
+    canvas_id:
+      type: str
+      description: Encoded ID of the canvas to delete.
+  steps:
+    - ref: delete_canvas
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: canvases.delete
+        params:
+          canvas_id: ${{ inputs.canvas_id }}
+  returns: ${{ steps.delete_canvas.result }}

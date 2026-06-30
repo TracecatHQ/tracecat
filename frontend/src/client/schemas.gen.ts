@@ -4435,6 +4435,10 @@ export const $AppSettingsRead = {
       type: "boolean",
       title: "App Action Form Mode Enabled",
     },
+    app_versioned_resource_resolution_strategy: {
+      $ref: "#/components/schemas/VersionedResourceResolutionStrategy",
+      default: "latest",
+    },
   },
   type: "object",
   required: [
@@ -4489,6 +4493,12 @@ export const $AppSettingsUpdate = {
       description:
         "Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.",
       default: true,
+    },
+    app_versioned_resource_resolution_strategy: {
+      $ref: "#/components/schemas/VersionedResourceResolutionStrategy",
+      description:
+        "How versioned resource references are resolved when a feature supports both pinned and latest dependency resolution.",
+      default: "latest",
     },
   },
   type: "object",
@@ -10100,6 +10110,68 @@ export const $CommentUpdatedEventRead = {
   required: ["comment_id", "thread_root_id", "created_at"],
   title: "CommentUpdatedEventRead",
   description: "Event for when a top-level comment is updated.",
+} as const
+
+export const $CommitInfo = {
+  properties: {
+    status: {
+      $ref: "#/components/schemas/PushStatus",
+    },
+    sha: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Sha",
+    },
+    ref: {
+      type: "string",
+      title: "Ref",
+    },
+    base_ref: {
+      type: "string",
+      title: "Base Ref",
+    },
+    pr_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Pr Url",
+    },
+    pr_number: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Pr Number",
+    },
+    pr_reused: {
+      type: "boolean",
+      title: "Pr Reused",
+      default: false,
+    },
+    message: {
+      type: "string",
+      title: "Message",
+      default: "",
+    },
+  },
+  type: "object",
+  required: ["status", "sha", "ref", "base_ref"],
+  title: "CommitInfo",
 } as const
 
 export const $ContinueRunRequest = {
@@ -18984,6 +19056,58 @@ export const $PullDiagnostic = {
   title: "PullDiagnostic",
 } as const
 
+export const $PullResourceDiff = {
+  properties: {
+    resource_type: {
+      type: "string",
+      title: "Resource Type",
+    },
+    source_id: {
+      type: "string",
+      title: "Source Id",
+    },
+    source_path: {
+      type: "string",
+      title: "Source Path",
+    },
+    change_type: {
+      type: "string",
+      enum: ["added", "modified", "deleted"],
+      title: "Change Type",
+    },
+    title: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Title",
+    },
+    diff: {
+      type: "string",
+      title: "Diff",
+    },
+    truncated: {
+      type: "boolean",
+      title: "Truncated",
+      default: false,
+    },
+  },
+  type: "object",
+  required: [
+    "resource_type",
+    "source_id",
+    "source_path",
+    "change_type",
+    "title",
+    "diff",
+  ],
+  title: "PullResourceDiff",
+} as const
+
 export const $PullResult = {
   properties: {
     success: {
@@ -19013,6 +19137,62 @@ export const $PullResult = {
       type: "string",
       title: "Message",
     },
+    resource_counts: {
+      anyOf: [
+        {
+          additionalProperties: {
+            $ref: "#/components/schemas/ResourcePullCount",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Resource Counts",
+    },
+    resource_diffs: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/PullResourceDiff",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Resource Diffs",
+    },
+    files: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Files",
+    },
+    resources: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/SyncPreviewResource",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Resources",
+    },
   },
   type: "object",
   required: [
@@ -19024,6 +19204,13 @@ export const $PullResult = {
     "message",
   ],
   title: "PullResult",
+} as const
+
+export const $PushStatus = {
+  type: "string",
+  enum: ["committed", "no_op"],
+  title: "PushStatus",
+  description: "Status of a push/commit operation.",
 } as const
 
 export const $RateLimitEvent = {
@@ -20337,6 +20524,62 @@ export const $ResolvedAttachedSubagentRef = {
   title: "ResolvedAttachedSubagentRef",
   description:
     "Persisted subagent ref with immutable preset/version identifiers.",
+} as const
+
+export const $ResourcePullCount = {
+  properties: {
+    found: {
+      type: "integer",
+      title: "Found",
+    },
+    imported: {
+      type: "integer",
+      title: "Imported",
+    },
+  },
+  type: "object",
+  required: ["found", "imported"],
+  title: "ResourcePullCount",
+} as const
+
+export const $ResourceRef = {
+  properties: {
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+      description: "Type of the referenced resource.",
+    },
+    source_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Source Id",
+      description: "Git source id of the resource, if referenced by source id.",
+    },
+    local_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Local Id",
+      description:
+        "Local database id of the resource, if referenced by local id.",
+    },
+  },
+  type: "object",
+  required: ["resource_type"],
+  title: "ResourceRef",
+  description:
+    "Reference to a single resource by type and either source or local id.",
 } as const
 
 export const $ResponseInteraction = {
@@ -23838,6 +24081,48 @@ export const $StringListFieldChange = {
   required: ["field"],
   title: "StringListFieldChange",
   description: "List diff for preset version fields.",
+} as const
+
+export const $SyncPreviewResource = {
+  properties: {
+    resource_type: {
+      type: "string",
+      title: "Resource Type",
+    },
+    source_id: {
+      type: "string",
+      title: "Source Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+  },
+  type: "object",
+  required: ["resource_type", "source_id", "name", "path"],
+  title: "SyncPreviewResource",
+} as const
+
+export const $SyncResourceType = {
+  type: "string",
+  enum: [
+    "workflow",
+    "agent_preset",
+    "skill",
+    "table",
+    "case_tag",
+    "case_field",
+    "case_dropdown",
+    "case_duration",
+    "variable",
+    "secret_metadata",
+  ],
+  title: "SyncResourceType",
+  description: "Kind of workspace resource that can be synced to and from Git.",
 } as const
 
 export const $SyntaxToken = {
@@ -27549,6 +27834,13 @@ export const $VariableUpdate = {
   title: "VariableUpdate",
 } as const
 
+export const $VcsProvider = {
+  type: "string",
+  enum: ["github", "gitlab", "bitbucket"],
+  title: "VcsProvider",
+  description: "Version control host backing a workspace sync repository.",
+} as const
+
 export const $VercelChatRequest = {
   properties: {
     kind: {
@@ -27651,6 +27943,12 @@ export const $VersionDiff = {
   ],
   title: "VersionDiff",
   description: "Result of comparing two registry versions.",
+} as const
+
+export const $VersionedResourceResolutionStrategy = {
+  type: "string",
+  enum: ["pinned", "latest"],
+  title: "VersionedResourceResolutionStrategy",
 } as const
 
 export const $VertexAICatalogCreate = {
@@ -31117,6 +31415,18 @@ export const $WorkflowSyncPullRequest = {
       description: "Validate only, don't perform actual import",
       default: false,
     },
+    sync_schedules: {
+      type: "boolean",
+      title: "Sync Schedules",
+      description:
+        "Apply schedule definitions from Git. Defaults off to preserve destination schedules.",
+      default: false,
+    },
+    provider: {
+      $ref: "#/components/schemas/VcsProvider",
+      description: "VCS provider for the configured repository.",
+      default: "github",
+    },
   },
   type: "object",
   required: ["commit_sha"],
@@ -31777,6 +32087,214 @@ export const $WorkspaceSettingsUpdate = {
   },
   type: "object",
   title: "WorkspaceSettingsUpdate",
+} as const
+
+export const $WorkspaceSyncExportPreview = {
+  properties: {
+    resource_counts: {
+      additionalProperties: {
+        type: "integer",
+      },
+      type: "object",
+      title: "Resource Counts",
+      description: "Count of resources to commit, keyed by resource type.",
+    },
+    files: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Files",
+      description: "Repository-relative paths the export would write.",
+    },
+    resources: {
+      items: {
+        $ref: "#/components/schemas/WorkspaceSyncPreviewResource",
+      },
+      type: "array",
+      title: "Resources",
+      description: "Displayable resources included in the export preview.",
+    },
+    resource_diffs: {
+      items: {
+        $ref: "#/components/schemas/PullResourceDiff",
+      },
+      type: "array",
+      title: "Resource Diffs",
+      description:
+        "Per-resource file diffs between the comparison ref and projected export.",
+    },
+  },
+  type: "object",
+  required: ["resource_counts", "files"],
+  title: "WorkspaceSyncExportPreview",
+  description: `Projection summary of the resources an export would commit.
+
+Mirrors the pull dry-run preview: it projects the selected resources
+locally without writing to Git or mutating sync mappings.`,
+} as const
+
+export const $WorkspaceSyncExportPreviewRequest = {
+  properties: {
+    resources: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/ResourceRef",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Resources",
+      description: "Specific resources to preview, or ``None`` for all.",
+    },
+    include_schedules: {
+      type: "boolean",
+      title: "Include Schedules",
+      description: "Whether to include workflow schedules in the preview.",
+      default: false,
+    },
+    compare_ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Compare Ref",
+      description:
+        "Repository ref to compare the projected export against. When omitted, the preview only returns the export manifest summary.",
+    },
+    provider: {
+      $ref: "#/components/schemas/VcsProvider",
+      description: "VCS provider to read the comparison ref from.",
+      default: "github",
+    },
+  },
+  type: "object",
+  title: "WorkspaceSyncExportPreviewRequest",
+  description:
+    "Request a dry-run projection of what an export would push to Git.",
+} as const
+
+export const $WorkspaceSyncExportRequest = {
+  properties: {
+    message: {
+      type: "string",
+      minLength: 1,
+      title: "Message",
+      description: "Commit message for the export.",
+    },
+    branch: {
+      type: "string",
+      title: "Branch",
+      description: "Target branch to commit to.",
+    },
+    create_pr: {
+      type: "boolean",
+      title: "Create Pr",
+      description: "Whether to open a pull request for the commit.",
+      default: false,
+    },
+    pr_base_branch: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Pr Base Branch",
+      description: "Base branch for the pull request, if created.",
+    },
+    resources: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/ResourceRef",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Resources",
+      description: "Specific resources to export, or ``None`` to export all.",
+    },
+    provider: {
+      $ref: "#/components/schemas/VcsProvider",
+      description: "VCS provider to push to.",
+      default: "github",
+    },
+    include_schedules: {
+      type: "boolean",
+      title: "Include Schedules",
+      description: "Whether to include workflow schedules in the export.",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["message", "branch"],
+  title: "WorkspaceSyncExportRequest",
+  description:
+    "Request to commit selected workspace resources to a Git branch.",
+} as const
+
+export const $WorkspaceSyncExportResult = {
+  properties: {
+    commit: {
+      $ref: "#/components/schemas/CommitInfo",
+      description: "Metadata for the commit that was created.",
+    },
+    files: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Files",
+      description: "Repository-relative paths written by the export.",
+    },
+  },
+  type: "object",
+  required: ["commit", "files"],
+  title: "WorkspaceSyncExportResult",
+  description:
+    "Outcome of a workspace export: the commit made and files written.",
+} as const
+
+export const $WorkspaceSyncPreviewResource = {
+  properties: {
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+      description: "Type of resource included in the preview.",
+    },
+    source_id: {
+      type: "string",
+      title: "Source Id",
+      description: "Stable Git source id for the resource.",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+      description: "Human-readable resource name.",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+      description: "Primary repository path written for the resource.",
+    },
+  },
+  type: "object",
+  required: ["resource_type", "source_id", "name", "path"],
+  title: "WorkspaceSyncPreviewResource",
+  description: "One resource included in a workspace sync export preview.",
 } as const
 
 export const $WorkspaceUpdate = {

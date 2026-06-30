@@ -60,6 +60,11 @@ from tracecat.agent.executor.activity import (
     AgentExecutorResult,
     ToolExecutionResult,
 )
+from tracecat.agent.preset.activities import ResolveAgentsConfigActivityInput
+from tracecat.agent.preset.resolver import (
+    ResolvedAgentsRuntimeConfig,
+    ResolvedSubagentConfig,
+)
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.session.activities import (
     CreateSessionInput,
@@ -77,8 +82,14 @@ from tracecat.agent.session.activities import (
 )
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.subagents import (
+    AgentSubagentsConfig,
+    ResolvedAgentsConfig,
+    ResolvedAttachedSubagentRef,
+)
 from tracecat.agent.tokens import UserMCPServerClaim
 from tracecat.agent.types import AgentConfig
+from tracecat.agent.workflow_config import agent_config_to_payload
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.chat.schemas import ChatMessage
@@ -502,6 +513,7 @@ async def test_agent_workflow_streams_tool_definition_error(
 
     activities = [
         create_mock_create_session_activity(),
+        create_mock_load_session_activity(),
         mock_build_tool_definitions,
         mock_emit_session_error,
     ]
@@ -672,6 +684,143 @@ async def test_agent_workflow_simple_execution(
         assert result.message_history == session_messages
 
     assert [input.session_id for input in message_load_inputs] == [mock_session_id]
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_agent_workflow_preserves_stored_subagent_binding_on_resume(
+    svc_role: Role,
+    temporal_client: Client,
+    agent_worker_factory,
+    mock_session_id: uuid.UUID,
+) -> None:
+    queue = f"test-agent-queue-{mock_session_id}"
+    child_preset_id = uuid.uuid4()
+    stored_version_id = uuid.uuid4()
+    latest_version_id = uuid.uuid4()
+    stored_ref = ResolvedAttachedSubagentRef(
+        preset="analyst",
+        preset_version=1,
+        preset_id=child_preset_id,
+        preset_version_id=stored_version_id,
+    )
+    latest_ref = ResolvedAttachedSubagentRef(
+        preset="analyst",
+        preset_version=2,
+        preset_id=child_preset_id,
+        preset_version_id=latest_version_id,
+    )
+    stored_binding = ResolvedAgentsConfig(enabled=True, subagents=[stored_ref])
+    latest_agents_config = AgentSubagentsConfig(enabled=True, subagents=[latest_ref])
+    resolve_inputs: list[ResolveAgentsConfigActivityInput] = []
+    create_inputs: list[CreateSessionInput] = []
+    agent_inputs: list[AgentExecutorInput] = []
+
+    @activity.defn(name="load_session_activity")
+    async def mock_load_session_activity(
+        input: LoadSessionInput,
+    ) -> LoadSessionResult:
+        assert input.session_id == mock_session_id
+        return LoadSessionResult(
+            found=True,
+            sdk_session_id="sdk-session",
+            agents_binding=stored_binding,
+            has_resume_state=True,
+        )
+
+    @activity.defn(name="resolve_agents_config_activity")
+    async def mock_resolve_agents_config_activity(
+        input: ResolveAgentsConfigActivityInput,
+    ) -> ResolvedAgentsRuntimeConfig:
+        resolve_inputs.append(input)
+        assert input.follow_latest_versions is False
+        assert len(input.agents.subagents) == 1
+        resolved_ref = input.agents.subagents[0]
+        assert isinstance(resolved_ref, ResolvedAttachedSubagentRef)
+        assert resolved_ref.preset_version_id == stored_version_id
+
+        return ResolvedAgentsRuntimeConfig(
+            enabled=True,
+            subagents=[
+                ResolvedSubagentConfig(
+                    binding=stored_ref,
+                    description="Stored analyst",
+                    prompt="Complete the delegated analysis.",
+                    config=agent_config_to_payload(
+                        AgentConfig(
+                            model_name="claude-3-5-sonnet-20241022",
+                            model_provider="anthropic",
+                            actions=[],
+                        )
+                    ),
+                )
+            ],
+        )
+
+    @activity.defn(name="create_session_activity")
+    async def mock_create_session_activity(
+        input: CreateSessionInput,
+    ) -> CreateSessionResult:
+        create_inputs.append(input)
+        assert input.agents_binding == stored_binding
+        return CreateSessionResult(session_id=input.session_id, success=True)
+
+    @activity.defn(name="run_agent_activity")
+    async def mock_run_agent_activity(
+        input: AgentExecutorInput,
+    ) -> AgentExecutorResult:
+        agent_inputs.append(input)
+        return AgentExecutorResult(success=True, output={"status": "ok"})
+
+    workflow_args = AgentWorkflowArgs(
+        role=svc_role,
+        agent_args=RunAgentArgs(
+            session_id=mock_session_id,
+            user_prompt="Continue the existing session",
+            config=AgentConfig(
+                model_name="claude-3-5-sonnet-20241022",
+                model_provider="anthropic",
+                actions=[],
+                agents=latest_agents_config,
+            ),
+        ),
+        entity_type=AgentSessionEntity.WORKFLOW,
+        entity_id=uuid.uuid4(),
+    )
+
+    activities = [
+        mock_load_session_activity,
+        mock_resolve_agents_config_activity,
+        mock_create_session_activity,
+        create_mock_load_session_messages_activity(),
+        create_mock_build_tool_definitions_activity(),
+        mock_run_agent_activity,
+        create_mock_execute_action_activity(),
+        create_mock_reconcile_tool_results_activity(),
+        *ApprovalManager.get_activities(),
+    ]
+
+    async with agent_worker_factory(
+        temporal_client, task_queue=queue, custom_activities=activities
+    ):
+        result = await temporal_client.execute_workflow(
+            DurableAgentWorkflow.run,
+            workflow_args,
+            id=AgentWorkflowID(mock_session_id),
+            task_queue=queue,
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            execution_timeout=timedelta(seconds=30),
+        )
+
+    assert result.session_id == mock_session_id
+    assert result.output == {"status": "ok"}
+    assert len(resolve_inputs) == 1
+    assert resolve_inputs[0].agents.subagents == [stored_ref]
+    assert len(create_inputs) == 1
+    assert create_inputs[0].agents_binding == stored_binding
+    assert len(agent_inputs) == 1
+    assert agent_inputs[0].sdk_session_id == "sdk-session"
+    assert [subagent.alias for subagent in agent_inputs[0].subagents] == ["analyst"]
 
 
 @pytest.mark.anyio
