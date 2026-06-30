@@ -148,7 +148,7 @@ describe("workspace sync repository queries", () => {
     ).toBeDefined()
   })
 
-  it("passes provider through branch requests", async () => {
+  it("omits provider from branch requests (server derives it)", async () => {
     const wrapper = createWrapper(queryClient)
 
     renderHook(
@@ -164,13 +164,12 @@ describe("workspace sync repository queries", () => {
     await waitFor(() => {
       expect(mockWorkflowsListWorkflowBranches).toHaveBeenCalledWith({
         limit: 50,
-        provider: "gitlab",
         workspaceId: "workspace-1",
       })
     })
   })
 
-  it("passes provider through commit requests", async () => {
+  it("omits provider from commit requests (server derives it)", async () => {
     const wrapper = createWrapper(queryClient)
 
     renderHook(
@@ -188,7 +187,6 @@ describe("workspace sync repository queries", () => {
       expect(mockWorkflowsListWorkflowCommits).toHaveBeenCalledWith({
         branch: "release",
         limit: 25,
-        provider: "gitlab",
         workspaceId: "workspace-1",
       })
     })

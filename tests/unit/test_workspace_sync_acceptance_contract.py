@@ -932,7 +932,6 @@ async def test_source_export_target_pull_preserves_projected_workspace(
                 message="Push source workspace",
                 branch="sync/source-to-target",
                 create_pr=False,
-                provider=provider,
             )
         )
         assert first_export.commit.status is PushStatus.COMMITTED
@@ -967,7 +966,6 @@ async def test_source_export_target_pull_preserves_projected_workspace(
                 message="Push source workspace update",
                 branch="sync/source-to-target",
                 create_pr=False,
-                provider=provider,
             )
         )
         assert second_export.commit.status is PushStatus.COMMITTED

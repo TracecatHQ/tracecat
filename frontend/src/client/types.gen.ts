@@ -9414,10 +9414,6 @@ export type WorkflowSyncPullRequest = {
    * Apply schedule definitions from Git. Defaults off to preserve destination schedules.
    */
   sync_schedules?: boolean
-  /**
-   * VCS provider for the configured repository.
-   */
-  provider?: VcsProvider
 }
 
 export type WorkflowTagCreate = {
@@ -9600,10 +9596,6 @@ export type WorkspaceSyncExportPreviewRequest = {
    * Repository ref to compare the projected export against. When omitted, the preview only returns the export manifest summary.
    */
   compare_ref?: string | null
-  /**
-   * VCS provider to read the comparison ref from.
-   */
-  provider?: VcsProvider
 }
 
 /**
@@ -9630,10 +9622,6 @@ export type WorkspaceSyncExportRequest = {
    * Specific resources to export, or ``None`` to export all.
    */
   resources?: Array<ResourceRef> | null
-  /**
-   * VCS provider to push to.
-   */
-  provider?: VcsProvider
   /**
    * Whether to include workflow schedules in the export.
    */
@@ -10545,10 +10533,6 @@ export type WorkflowsListWorkflowCommitsData = {
    * Maximum number of commits to return
    */
   limit?: number
-  /**
-   * VCS provider for the configured repository.
-   */
-  provider?: VcsProvider
   workspaceId: string
 }
 
@@ -10559,10 +10543,6 @@ export type WorkflowsListWorkflowBranchesData = {
    * Maximum number of branches to return
    */
   limit?: number
-  /**
-   * VCS provider for the configured repository.
-   */
-  provider?: VcsProvider
   workspaceId: string
 }
 

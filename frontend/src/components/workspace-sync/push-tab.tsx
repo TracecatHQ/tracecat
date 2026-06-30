@@ -125,7 +125,6 @@ export function WorkspaceSyncPushTab({
         branch: targetBranch,
         create_pr: pushOutcome.createPr,
         include_schedules: false,
-        provider,
       })
       toast({
         title: result.commit.pr_url

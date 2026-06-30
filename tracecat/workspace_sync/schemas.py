@@ -19,7 +19,7 @@ from tracecat.workflow.store.schemas import (
     RemoteWorkflowTag,
     WorkflowDslPublishResult,
 )
-from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
+from tracecat.workspace_sync.enums import SyncResourceType
 
 MANIFEST_FILENAME = "tracecat.json"
 WORKFLOW_ROOT = "workflows"
@@ -867,9 +867,6 @@ class WorkspaceSyncExportRequest(BaseModel):
         default=None,
         description="Specific resources to export, or ``None`` to export all.",
     )
-    provider: VcsProvider = Field(
-        default=VcsProvider.GITHUB, description="VCS provider to push to."
-    )
     include_schedules: bool = Field(
         default=False,
         description="Whether to include workflow schedules in the export.",
@@ -902,10 +899,6 @@ class WorkspaceSyncExportPreviewRequest(BaseModel):
             "Repository ref to compare the projected export against. When omitted, "
             "the preview only returns the export manifest summary."
         ),
-    )
-    provider: VcsProvider = Field(
-        default=VcsProvider.GITHUB,
-        description="VCS provider to read the comparison ref from.",
     )
 
 

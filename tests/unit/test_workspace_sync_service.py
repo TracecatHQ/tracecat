@@ -1372,7 +1372,6 @@ async def test_gitlab_export_uses_gitlab_transport_and_mapping_context(
             message="Push workspace",
             branch="sync/workspace",
             create_pr=True,
-            provider=VcsProvider.GITLAB,
         )
     )
 

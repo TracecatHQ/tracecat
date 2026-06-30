@@ -94,7 +94,6 @@ export function WorkspaceSyncPullTab({
       const result = await pullWorkflows({
         commit_sha: effectivePullSha,
         dry_run: true,
-        provider,
         sync_schedules: syncSchedules,
       })
       setPullPreview(result)
@@ -128,7 +127,6 @@ export function WorkspaceSyncPullTab({
     try {
       const result = await pullWorkflows({
         commit_sha: effectivePullSha,
-        provider,
         sync_schedules: syncSchedules,
       })
       setPullResult(result)

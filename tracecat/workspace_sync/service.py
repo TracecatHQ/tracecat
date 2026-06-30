@@ -163,6 +163,40 @@ class WorkspaceSyncService(SyncMappingService):
         super().__init__(session=session, role=role, mapping_provider=provider)
         self._transport_factory = transport_factory
 
+    @classmethod
+    async def for_workspace(
+        cls,
+        session: AsyncSession,
+        role: Role,
+        *,
+        transport_factory: VcsTransportFactory | None = None,
+    ) -> WorkspaceSyncService:
+        """Construct the service using the provider configured in workspace settings.
+
+        The VCS provider is workspace state (``git_provider``), not a request
+        input: it selects which organization VCS connection this workspace syncs
+        through and must agree with the ``git_repo_url`` resolved from the same
+        settings. Resolving it here keeps a single server-side source of truth
+        rather than trusting a client-supplied value.
+        """
+        workspace_id = role.workspace_id
+        if workspace_id is None:
+            raise TracecatNotFoundError("Workspace not found")
+        workspace = await WorkspaceService(session=session, role=role).get_workspace(
+            workspace_id
+        )
+        if workspace is None:
+            raise TracecatNotFoundError("Workspace not found")
+        settings = workspace.settings
+        raw_provider = settings.get("git_provider") if settings else None
+        provider = VcsProvider(raw_provider) if raw_provider else VcsProvider.GITHUB
+        return cls(
+            session,
+            role,
+            provider=provider,
+            transport_factory=transport_factory,
+        )
+
     async def export_workspace(
         self,
         params: WorkspaceSyncExportRequest,

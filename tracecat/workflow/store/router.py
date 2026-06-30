@@ -26,7 +26,6 @@ from tracecat.workflow.store.schemas import (
     WorkflowSyncPullRequest,
 )
 from tracecat.workflow.store.service import WorkflowStoreService
-from tracecat.workspace_sync.enums import VcsProvider
 from tracecat.workspace_sync.schemas import (
     WorkspaceSyncExportPreview,
     WorkspaceSyncExportPreviewRequest,
@@ -138,10 +137,6 @@ async def list_workflow_commits(
         ge=config.TRACECAT__LIMIT_MIN,
         le=config.TRACECAT__LIMIT_CURSOR_MAX,
     ),
-    provider: VcsProvider = Query(
-        default=VcsProvider.GITHUB,
-        description="VCS provider for the configured repository.",
-    ),
 ) -> list[GitCommitInfo]:
     """Get commit list for the configured workspace repository.
 
@@ -155,8 +150,8 @@ async def list_workflow_commits(
         )
 
     try:
-        sync_service = WorkspaceSyncService(
-            session=session, role=role, provider=provider
+        sync_service = await WorkspaceSyncService.for_workspace(
+            session=session, role=role
         )
         return await sync_service.list_commits(
             branch=branch,
@@ -202,10 +197,6 @@ async def list_workflow_branches(
         ge=config.TRACECAT__LIMIT_MIN,
         le=config.TRACECAT__LIMIT_CURSOR_MAX,
     ),
-    provider: VcsProvider = Query(
-        default=VcsProvider.GITHUB,
-        description="VCS provider for the configured repository.",
-    ),
 ) -> list[GitBranchInfo]:
     """Get branch list for the configured workspace repository."""
     if not role.workspace_id:
@@ -215,8 +206,8 @@ async def list_workflow_branches(
         )
 
     try:
-        sync_service = WorkspaceSyncService(
-            session=session, role=role, provider=provider
+        sync_service = await WorkspaceSyncService.for_workspace(
+            session=session, role=role
         )
         return await sync_service.list_branches(limit=limit)
     except HTTPException:
@@ -261,9 +252,7 @@ async def export_workspace_sync(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Workspace ID is required",
         )
-    sync_service = WorkspaceSyncService(
-        session=session, role=role, provider=params.provider
-    )
+    sync_service = await WorkspaceSyncService.for_workspace(session=session, role=role)
     try:
         return await sync_service.export_workspace(params)
     except TracecatNotFoundError as e:
@@ -296,9 +285,7 @@ async def preview_export_workspace_sync(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Workspace ID is required",
         )
-    sync_service = WorkspaceSyncService(
-        session=session, role=role, provider=params.provider
-    )
+    sync_service = await WorkspaceSyncService.for_workspace(session=session, role=role)
     try:
         return await sync_service.preview_export_workspace(params)
     except TracecatNotFoundError as e:
@@ -342,8 +329,8 @@ async def pull_workflows(
             commit_sha=params.commit_sha,
             dry_run=params.dry_run,
         )
-        sync_service = WorkspaceSyncService(
-            session=session, role=role, provider=params.provider
+        sync_service = await WorkspaceSyncService.for_workspace(
+            session=session, role=role
         )
         return await sync_service.pull(
             options=pull_options,

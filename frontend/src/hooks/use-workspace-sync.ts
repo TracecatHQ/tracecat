@@ -21,7 +21,6 @@ interface WorkflowPullOptions {
   commit_sha: string
   dry_run?: boolean
   sync_schedules?: boolean
-  provider?: VcsProvider
 }
 
 /**
@@ -41,7 +40,6 @@ export function useWorkflowSync(workspaceId: string) {
         commit_sha: options.commit_sha,
         dry_run: options.dry_run ?? false,
         sync_schedules: options.sync_schedules ?? false,
-        provider: options.provider ?? "github",
       }
 
       const response = await workflowsPullWorkflows({
@@ -185,7 +183,6 @@ export function useWorkspaceSyncExportPreview(
           resources: isFullWorkspacePreview ? undefined : normalizedResources,
           include_schedules: includeSchedules,
           compare_ref: compareRef,
-          provider,
         },
       })
     },
@@ -236,7 +233,6 @@ export function useRepositoryBranches(
 
       return await workflowsListWorkflowBranches({
         limit: options?.limit ?? 200,
-        provider,
         workspaceId,
       })
     },
@@ -286,7 +282,6 @@ export function useRepositoryCommits(
       const response = await workflowsListWorkflowCommits({
         branch: options?.branch ?? "main",
         limit: options?.limit ?? 10,
-        provider,
         workspaceId,
       })
 

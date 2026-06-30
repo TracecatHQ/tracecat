@@ -31528,11 +31528,6 @@ export const $WorkflowSyncPullRequest = {
         "Apply schedule definitions from Git. Defaults off to preserve destination schedules.",
       default: false,
     },
-    provider: {
-      $ref: "#/components/schemas/VcsProvider",
-      description: "VCS provider for the configured repository.",
-      default: "github",
-    },
   },
   type: "object",
   required: ["commit_sha"],
@@ -32296,11 +32291,6 @@ export const $WorkspaceSyncExportPreviewRequest = {
       description:
         "Repository ref to compare the projected export against. When omitted, the preview only returns the export manifest summary.",
     },
-    provider: {
-      $ref: "#/components/schemas/VcsProvider",
-      description: "VCS provider to read the comparison ref from.",
-      default: "github",
-    },
   },
   type: "object",
   title: "WorkspaceSyncExportPreviewRequest",
@@ -32353,11 +32343,6 @@ export const $WorkspaceSyncExportRequest = {
       ],
       title: "Resources",
       description: "Specific resources to export, or ``None`` to export all.",
-    },
-    provider: {
-      $ref: "#/components/schemas/VcsProvider",
-      description: "VCS provider to push to.",
-      default: "github",
     },
     include_schedules: {
       type: "boolean",

@@ -82,8 +82,8 @@ class WorkflowStoreService(BaseWorkspaceService):
             include_schedules=False,
         )
 
-        sync_service = WorkspaceSyncService(
-            session=self.session, role=self.role, provider=export_params.provider
+        sync_service = await WorkspaceSyncService.for_workspace(
+            session=self.session, role=self.role
         )
         export_result = await sync_service.export_workflow(
             workflow=workflow,

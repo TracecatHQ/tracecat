@@ -190,7 +190,7 @@ async def test_list_workflow_branches_success(
             GitBranchInfo(name="main", is_default=True),
             GitBranchInfo(name="feature/workflow-publish", is_default=False),
         ]
-        mock_sync_cls.return_value = mock_sync_svc
+        mock_sync_cls.for_workspace = AsyncMock(return_value=mock_sync_svc)
 
         response = client.get(
             "/workflows/sync/branches",
@@ -216,7 +216,7 @@ async def test_list_workflow_branches_missing_repo_returns_400(
         mock_sync_svc.list_branches.side_effect = TracecatSettingsError(
             "Git repository URL not configured for this workspace."
         )
-        mock_sync_cls.return_value = mock_sync_svc
+        mock_sync_cls.for_workspace = AsyncMock(return_value=mock_sync_svc)
 
         response = client.get(
             "/workflows/sync/branches",
@@ -238,7 +238,7 @@ async def test_list_workflow_branches_github_error_returns_400(
         mock_sync_svc.list_branches.side_effect = GitHubAppError(
             "Unable to access repository"
         )
-        mock_sync_cls.return_value = mock_sync_svc
+        mock_sync_cls.for_workspace = AsyncMock(return_value=mock_sync_svc)
 
         response = client.get(
             "/workflows/sync/branches",

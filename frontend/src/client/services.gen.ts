@@ -3273,7 +3273,6 @@ export const workflowsListWorkflowRepositories = (
  * @param data.workspaceId
  * @param data.branch Branch name to fetch commits from
  * @param data.limit Maximum number of commits to return
- * @param data.provider VCS provider for the configured repository.
  * @returns GitCommitInfo Successful Response
  * @throws ApiError
  */
@@ -3289,7 +3288,6 @@ export const workflowsListWorkflowCommits = (
     query: {
       branch: data.branch,
       limit: data.limit,
-      provider: data.provider,
     },
     errors: {
       422: "Validation Error",
@@ -3303,7 +3301,6 @@ export const workflowsListWorkflowCommits = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.limit Maximum number of branches to return
- * @param data.provider VCS provider for the configured repository.
  * @returns GitBranchInfo Successful Response
  * @throws ApiError
  */
@@ -3318,7 +3315,6 @@ export const workflowsListWorkflowBranches = (
     },
     query: {
       limit: data.limit,
-      provider: data.provider,
     },
     errors: {
       422: "Validation Error",

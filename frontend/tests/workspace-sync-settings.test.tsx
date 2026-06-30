@@ -564,7 +564,6 @@ describe("WorkspaceSyncSettings", () => {
       expect(mockPullWorkflows).toHaveBeenCalledWith({
         commit_sha: commitSha,
         dry_run: true,
-        provider: "github",
         sync_schedules: false,
       })
     })

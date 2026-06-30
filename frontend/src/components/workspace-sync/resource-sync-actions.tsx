@@ -181,7 +181,6 @@ export function WorkspaceResourceSyncActions({
         branch: targetBranch,
         create_pr: pushOutcome.createPr,
         include_schedules: false,
-        provider,
         resources: resourceRefs,
       })
       const prUrl = result.commit.pr_url

@@ -5,10 +5,11 @@ from __future__ import annotations
 import asyncio
 import base64
 import itertools
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, Protocol
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import httpx
 from github.GithubException import GithubException
@@ -664,8 +665,7 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         ref: str,
     ) -> VcsTreeSnapshot:
         """Read the manifest and managed resource files at ``ref``."""
-        credentials = await self._credentials()
-        async with self._client(credentials) as client:
+        async with self._authed_client(url) as client:
             return await self._read_files_with_client(client=client, url=url, ref=ref)
 
     async def write_files(
@@ -682,8 +682,7 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         """Commit ``files`` to ``branch``, optionally opening a merge request."""
         message = self._normalize_commit_message(files, message)
 
-        credentials = await self._credentials()
-        async with self._client(credentials) as client:
+        async with self._authed_client(url) as client:
             project_id = _gitlab_project_id(url)
             branches = await self._list_branches_with_client(
                 client=client,
@@ -822,8 +821,7 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         limit: int = 10,
     ) -> list[GitCommitInfo]:
         """Return up to ``limit`` most recent commits on ``branch``."""
-        credentials = await self._credentials()
-        async with self._client(credentials) as client:
+        async with self._authed_client(url) as client:
             project_id = _gitlab_project_id(url)
             commits_params: GitLabListCommitsParams = {"ref_name": branch}
             raw_commits = await self._gitlab_list(
@@ -855,8 +853,7 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         limit: int = 100,
     ) -> list[GitBranchInfo]:
         """Return up to ``limit`` branches, flagging the repository default."""
-        credentials = await self._credentials()
-        async with self._client(credentials) as client:
+        async with self._authed_client(url) as client:
             return await self._list_branches_with_client(
                 client=client,
                 url=url,
@@ -877,6 +874,29 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             headers={"PRIVATE-TOKEN": credentials.token.get_secret_value()},
             timeout=30.0,
         )
+
+    @asynccontextmanager
+    async def _authed_client(self, url: GitUrl) -> AsyncIterator[httpx.AsyncClient]:
+        """Yield an authenticated client, asserting the repo lives on the instance.
+
+        The API host comes from the organization GitLab connection's ``base_url``
+        while the project path comes from the workspace ``git_repo_url``. Guarding
+        that they reference the same host prevents a workspace URL from silently
+        resolving against a different GitLab instance than the one the token
+        authenticates to.
+        """
+        credentials = await self._credentials()
+        expected_host = _gitlab_instance_host(credentials.base_url)
+        repo_host = _gitlab_instance_host(url.host)
+        if expected_host and repo_host != expected_host:
+            raise TracecatValidationError(
+                f"Workspace repository host '{url.host}' does not match the "
+                f"configured GitLab instance '{expected_host}'. Update the "
+                "workspace Git URL or the organization GitLab connection so they "
+                "reference the same host."
+            )
+        async with self._client(credentials) as client:
+            yield client
 
     async def _read_files_with_client(
         self,
@@ -1144,6 +1164,15 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             return response.json()
         except ValueError as e:
             raise GitLabError("GitLab response was not valid JSON") from e
+
+
+def _gitlab_instance_host(value: str) -> str:
+    """Return the lowercased ``host[:port]`` for a GitLab URL or bare host."""
+    parsed = urlparse(value if "://" in value else f"//{value}")
+    host = (parsed.hostname or "").lower()
+    if parsed.port:
+        return f"{host}:{parsed.port}"
+    return host
 
 
 def _gitlab_project_id(url: GitUrl) -> str:
