@@ -223,7 +223,7 @@ function GitLabConnectionDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>GitLab credentials</DialogTitle>
+          <DialogTitle>GitLab workspace sync credential</DialogTitle>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -248,7 +248,7 @@ function GitLabConnectionDialog({
               name="token"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Token</FormLabel>
+                  <FormLabel>Credential token</FormLabel>
                   <FormControl>
                     <Input
                       type="password"
@@ -258,8 +258,10 @@ function GitLabConnectionDialog({
                     />
                   </FormControl>
                   <FormDescription>
-                    Requires GitLab API access for branch, commit, and merge
-                    request operations.
+                    Use a GitLab project or group access token with the api
+                    scope. Tracecat stores this token as the GitLab credential
+                    for workspace sync; prefer it over a personal access token
+                    for long-lived sync.
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

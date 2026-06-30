@@ -10,13 +10,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from tracecat.auth.types import Role
 from tracecat.service import BaseWorkspaceService
 from tracecat.workspace_sync.adapters import (
     NON_WORKFLOW_RESOURCE_ADAPTERS,
     ProjectedResource,
     workspace_spec_from_maps,
 )
-from tracecat.workspace_sync.enums import SyncResourceType
+from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.schemas import WorkspaceSpec
 
 __all__ = [
@@ -40,6 +43,22 @@ class WorkspaceResourceProjector(BaseWorkspaceService):
     """Project non-workflow workspace config resources into sync specs."""
 
     service_name = "workspace_resource_projector"
+
+    def __init__(
+        self,
+        session: AsyncSession,
+        role: Role | None = None,
+        *,
+        mapping_provider: VcsProvider = VcsProvider.GITHUB,
+    ) -> None:
+        """Initialize the projector with the provider namespace for sync mappings."""
+        super().__init__(session=session, role=role)
+        self._mapping_provider = mapping_provider
+
+    @property
+    def _mapping_provider_value(self) -> str:
+        """Provider value used for workspace sync resource mappings."""
+        return self._mapping_provider.value
 
     async def project_non_workflow_resources(
         self,

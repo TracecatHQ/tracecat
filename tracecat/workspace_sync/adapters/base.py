@@ -168,6 +168,16 @@ _TEMP_NAME_PREFIX = "__tracecat_sync_tmp_"
 """Prefix for placeholder names rows are parked under during a rename swap."""
 
 
+def _sync_mapping_provider_value(workspace_service: BaseWorkspaceService) -> str:
+    """Return the VCS provider namespace for workspace sync resource mappings."""
+    provider = getattr(workspace_service, "_mapping_provider_value", None)
+    if isinstance(provider, str):
+        return provider
+    if isinstance(provider, VcsProvider):
+        return provider.value
+    return VcsProvider.GITHUB.value
+
+
 def find_duplicates(values: Iterable[str]) -> list[str]:
     """Return the sorted distinct values that appear more than once."""
     seen: set[str] = set()
@@ -506,7 +516,8 @@ class ResourceAdapter(ABC):
             WorkspaceSyncResourceMapping.source_id,
         ).where(
             WorkspaceSyncResourceMapping.workspace_id == workspace_service.workspace_id,
-            WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
+            WorkspaceSyncResourceMapping.provider
+            == _sync_mapping_provider_value(workspace_service),
             WorkspaceSyncResourceMapping.resource_type == self.resource_type.value,
         )
         return dict((await workspace_service.session.execute(stmt)).tuples().all())
@@ -519,7 +530,8 @@ class ResourceAdapter(ABC):
         """Resolve a single ``source_id`` to its mapped ``local_id``, if any."""
         stmt = select(WorkspaceSyncResourceMapping.local_id).where(
             WorkspaceSyncResourceMapping.workspace_id == workspace_service.workspace_id,
-            WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
+            WorkspaceSyncResourceMapping.provider
+            == _sync_mapping_provider_value(workspace_service),
             WorkspaceSyncResourceMapping.resource_type == self.resource_type.value,
             WorkspaceSyncResourceMapping.source_id == source_id,
         )
@@ -543,7 +555,8 @@ class ResourceAdapter(ABC):
             WorkspaceSyncResourceMapping.local_id,
         ).where(
             WorkspaceSyncResourceMapping.workspace_id == workspace_service.workspace_id,
-            WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
+            WorkspaceSyncResourceMapping.provider
+            == _sync_mapping_provider_value(workspace_service),
             WorkspaceSyncResourceMapping.resource_type == self.resource_type.value,
             WorkspaceSyncResourceMapping.source_id.in_(source_id_values),
         )

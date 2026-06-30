@@ -914,6 +914,18 @@ async def test_source_export_target_pull_preserves_projected_workspace(
             provider=provider,
         )
         assert source_pull.success is True
+        source_table = await session.scalar(
+            select(Table).where(
+                Table.workspace_id == svc_role.workspace_id,
+                Table.name == "qa_indicators",
+            )
+        )
+        assert source_table is not None
+        with source_service._mapping_provider_scope(provider):
+            table_source_ids = await TABLE_RESOURCE_ADAPTER.source_ids_by_local_id(
+                source_service
+            )
+        assert table_source_ids.get(source_table.id) == "qa_indicators"
 
         first_export = await source_service.export_workspace(
             WorkspaceSyncExportRequest(
@@ -940,6 +952,19 @@ async def test_source_export_target_pull_preserves_projected_workspace(
         # Exercise a representative update batch before the second push/pull:
         # mapped-resource renames, metadata edits, and one new resource.
         await _mutate_source_workspace_for_roundtrip_update(session, role=svc_role)
+        renamed_source_table = await session.scalar(
+            select(Table).where(
+                Table.workspace_id == svc_role.workspace_id,
+                Table.name == "qa_indicators_roundtrip",
+            )
+        )
+        assert renamed_source_table is not None
+        assert renamed_source_table.id == source_table.id
+        with source_service._mapping_provider_scope(provider):
+            renamed_table_source_ids = (
+                await TABLE_RESOURCE_ADAPTER.source_ids_by_local_id(source_service)
+            )
+        assert renamed_table_source_ids.get(renamed_source_table.id) == "qa_indicators"
         second_export = await source_service.export_workspace(
             WorkspaceSyncExportRequest(
                 message="Push source workspace update",
@@ -950,12 +975,19 @@ async def test_source_export_target_pull_preserves_projected_workspace(
         )
         assert second_export.commit.status is PushStatus.COMMITTED
         assert second_export.commit.sha is not None
+        with source_service._mapping_provider_scope(provider):
+            source_projection = await source_service.project_workspace(
+                create_missing_mappings=False
+            )
+        assert f"{TABLE_ROOT}/qa_indicators/table.yml" in source_projection.files
+        assert (
+            f"{TABLE_ROOT}/qa_indicators_roundtrip/table.yml"
+            not in source_projection.files
+        )
         # Confirm the fake VCS commit stores exactly what source projection emits.
         assert (
             fake_vcs.repo_files(git_url, ref=second_export.commit.sha)
-            == (
-                await source_service.project_workspace(create_missing_mappings=False)
-            ).files
+            == source_projection.files
         )
 
         second_target_pull = await target_service.pull(

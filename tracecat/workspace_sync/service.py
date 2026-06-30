@@ -913,6 +913,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
                     imported_resources = await WorkspaceResourceImportService(
                         session=self.session,
                         role=self.role,
+                        mapping_provider=self._mapping_provider,
                     ).import_non_workflow_resources(snapshot.spec)
                 await workflow_importer.import_workflows(
                     remote_workflows,
@@ -1331,6 +1332,7 @@ class WorkspaceSyncService(BaseWorkspaceService):
             projection = await WorkspaceResourceProjector(
                 session=self.session,
                 role=self.role,
+                mapping_provider=self._mapping_provider,
             ).project_non_workflow_resources(resource_types=entitled_resource_types)
             return await self._augment_full_workspace_version_closure(
                 projection,

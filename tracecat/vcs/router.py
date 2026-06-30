@@ -244,11 +244,9 @@ async def save_gitlab_token_credentials(
     """Save GitLab token credentials (create if new or update existing)."""
     try:
         gitlab_service = GitLabTokenService(session=session, role=role)
-        credentials, was_created = (
-            await gitlab_service.save_gitlab_token_credentials(
-                base_url=request.base_url,
-                token=request.token,
-            )
+        credentials, was_created = await gitlab_service.save_gitlab_token_credentials(
+            base_url=request.base_url,
+            token=request.token,
         )
         action = "created" if was_created else "updated"
         return {
