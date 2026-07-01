@@ -2257,6 +2257,7 @@ class SkillService(BaseWorkspaceService):
                 AgentPresetVersionSkill.skill_id,
                 Skill.name,
                 Skill.current_version_id,
+                Skill.archived_at,
                 SkillVersion.name,
                 SkillVersion.manifest_sha256,
             )
@@ -2287,14 +2288,19 @@ class SkillService(BaseWorkspaceService):
         )
         rows = (await self.session.execute(stmt)).tuples().all()
         resolved: list[ResolvedSkillRef] = []
+        archived_skills: list[str] = []
         missing_current: list[str] = []
         for (
             skill_id,
             skill_name,
             current_version_id,
+            archived_at,
             current_version_name,
             manifest_sha256,
         ) in rows:
+            if archived_at is not None:
+                archived_skills.append(f"{skill_name} ({skill_id})")
+                continue
             if current_version_id is None:
                 missing_current.append(f"{skill_name} ({skill_id})")
                 continue
@@ -2309,6 +2315,15 @@ class SkillService(BaseWorkspaceService):
                 )
             )
 
+        if archived_skills:
+            raise TracecatValidationError(
+                "Some skills are archived and cannot be resolved",
+                detail={
+                    "code": "skill_archived",
+                    "skills": sorted(archived_skills),
+                    "preset_version_id": str(preset_version_id),
+                },
+            )
         if missing_current:
             raise TracecatValidationError(
                 "Some skills have no current published version",
