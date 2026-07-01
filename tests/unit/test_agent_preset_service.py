@@ -2246,6 +2246,37 @@ class TestAgentPresetService:
         assert version is not None
         assert active_version is None
 
+    async def test_resolve_pinned_version_rejects_archived_preset(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Pinned version resolution should not bypass archived preset state."""
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params
+        )
+        preset_id = created_preset.id
+        version_id = created_preset.current_version_id
+        assert version_id is not None
+
+        await agent_preset_service.delete_preset(created_preset)
+
+        with pytest.raises(
+            TracecatNotFoundError,
+            match=f"Agent preset '{preset_id}' not found",
+        ):
+            await agent_preset_service.resolve_agent_preset_config(
+                preset_id=preset_id,
+                preset_version_id=version_id,
+            )
+        with pytest.raises(
+            TracecatNotFoundError,
+            match=f"Agent preset version with ID '{version_id}' not found",
+        ):
+            await agent_preset_service.resolve_agent_preset_config(
+                preset_version_id=version_id,
+            )
+
     async def test_delete_preset_deactivates_channel_tokens(
         self,
         agent_preset_service: AgentPresetService,
@@ -2452,7 +2483,7 @@ class TestAgentPresetService:
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Archived child versions remain resolvable for historical parents."""
+        """Historical subagent references do not block archive or remain runnable."""
         child = await agent_preset_service.create_preset(
             agent_preset_create_params.model_copy(
                 update={"name": "Historical Child", "slug": "historical-child"}
@@ -2478,17 +2509,16 @@ class TestAgentPresetService:
         )
 
         await agent_preset_service.delete_preset(child)
-        resolved_agents = await resolve_agents_config(
-            agent_preset_service,
-            agents=AgentSubagentsConfig.model_validate(parent_v1.agents),
-            parent_preset_id=parent.id,
-            parent_slug=parent.slug,
-            include_runtime_config=True,
-        )
 
         assert await agent_preset_service.get_preset(child.id) is None
-        assert resolved_agents.enabled is True
-        assert resolved_agents.subagents[0].binding.preset_id == child.id
+        with pytest.raises(TracecatNotFoundError):
+            await resolve_agents_config(
+                agent_preset_service,
+                agents=AgentSubagentsConfig.model_validate(parent_v1.agents),
+                parent_preset_id=parent.id,
+                parent_slug=parent.slug,
+                include_runtime_config=True,
+            )
 
         with pytest.raises(TracecatNotFoundError):
             await agent_preset_service.create_preset(
