@@ -228,7 +228,10 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         """Build the base eager-loaded preset projection query."""
         return (
             select(AgentPreset)
-            .where(AgentPreset.workspace_id == workspace_service.workspace_id)
+            .where(
+                AgentPreset.workspace_id == workspace_service.workspace_id,
+                AgentPreset.archived_at.is_(None),
+            )
             .options(
                 selectinload(AgentPreset.folder),
                 selectinload(AgentPreset.tags),
@@ -409,6 +412,8 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             owner_label="preset",
             error_cls=TracecatValidationError,
             options=(selectinload(AgentPreset.tags),),
+            row_predicates=(AgentPreset.archived_at.is_(None),),
+            availability_predicates=(AgentPreset.archived_at.is_(None),),
         )
         imported: list[ImportedResource] = []
         preset_by_source_id: dict[str, AgentPreset] = {}
@@ -651,6 +656,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             .where(
                 AgentPreset.workspace_id == workspace_service.workspace_id,
                 AgentPreset.slug == spec.slug,
+                AgentPreset.archived_at.is_(None),
             )
             .options(selectinload(AgentPreset.tags))
         )
@@ -667,6 +673,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             source_id=source_id,
             model=AgentPreset,
             options=(selectinload(AgentPreset.tags),),
+            row_predicates=(AgentPreset.archived_at.is_(None),),
         )
 
     async def _ensure_agent_folder(
