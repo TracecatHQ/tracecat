@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from tracecat.auth.dependencies import OrgUserRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.exceptions import EntitlementRequired
 from tracecat.logger import logger
 from tracecat.vcs.github.app import GitHubAppError, GitHubAppService
 from tracecat.vcs.github.flows import handle_manifest_conversion
@@ -270,6 +271,8 @@ async def save_gitlab_token_credentials(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Failed to save GitLab token credentials: {str(e)}",
         ) from e
+    except EntitlementRequired:
+        raise
     except Exception as e:
         logger.error(
             "Error saving GitLab token credentials",
@@ -299,6 +302,8 @@ async def delete_gitlab_token_credentials(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Failed to delete GitLab token credentials: {str(e)}",
         ) from e
+    except EntitlementRequired:
+        raise
     except Exception as e:
         logger.error("Error deleting GitLab token credentials", error=str(e))
         raise HTTPException(
@@ -319,6 +324,8 @@ async def get_gitlab_token_credentials_status(
         gitlab_service = GitLabTokenService(session=session, role=role)
         status_data = await gitlab_service.get_gitlab_token_credentials_status()
         return GitLabTokenCredentialsStatus(**status_data)
+    except EntitlementRequired:
+        raise
     except Exception as e:
         logger.error(
             "Error getting GitLab token credentials status",
