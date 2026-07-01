@@ -2041,13 +2041,13 @@ class TestSkillService:
         ):
             await skill_service.archive_skill(created.id)
 
-    async def test_archive_blocks_when_preset_history_references_skill(
+    async def test_archive_allows_when_only_preset_history_references_skill(
         self,
         session: AsyncSession,
         svc_role: Role,
         skill_service: SkillService,
     ) -> None:
-        """Archiving is blocked while preset history still references the skill."""
+        """Archiving only cares about active preset-head skill bindings."""
 
         created = await skill_service.create_skill(SkillCreate(name="history-skill"))
         skill_version = await skill_service.publish_skill(created.id)
@@ -2070,10 +2070,46 @@ class TestSkillService:
         )
         await preset_service.update_preset(preset, AgentPresetUpdate(skills=None))
 
-        with pytest.raises(
-            TracecatValidationError, match="still referenced by a preset"
-        ):
-            await skill_service.archive_skill(created.id)
+        await skill_service.archive_skill(created.id)
+
+        archived = await skill_service.get_skill(created.id, include_archived=True)
+        assert archived is not None
+        assert archived.archived_at is not None
+
+    async def test_archive_allows_when_only_archived_preset_references_skill(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        skill_service: SkillService,
+    ) -> None:
+        """Archived preset heads should not count as active skill usage."""
+
+        created = await skill_service.create_skill(SkillCreate(name="archived-preset"))
+        skill_version = await skill_service.publish_skill(created.id)
+
+        preset_service = AgentPresetService(session=session, role=svc_role)
+        preset = await preset_service.create_preset(
+            AgentPresetCreate(
+                name="Archived preset",
+                description="Preset archived with skill use",
+                instructions="Use the skill",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=created.id,
+                        skill_version_id=skill_version.id,
+                    )
+                ],
+            )
+        )
+
+        await preset_service.delete_preset(preset)
+        await skill_service.archive_skill(created.id)
+
+        archived = await skill_service.get_skill(created.id, include_archived=True)
+        assert archived is not None
+        assert archived.archived_at is not None
 
     async def test_archive_skill_locks_skill_row(
         self,

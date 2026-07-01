@@ -266,6 +266,7 @@ async def handle_slack_oauth_callback(
             token = await service.get_token(token_id)
             if token is None:
                 raise TracecatNotFoundError(f"Channel token '{token_id}' not found")
+            await service.require_active_preset_for_token(token, lock=True)
 
             slack_config = service.parse_stored_channel_config(
                 channel_type=ChannelType(token.channel_type),
