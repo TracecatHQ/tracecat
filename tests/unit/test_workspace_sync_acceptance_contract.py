@@ -3420,6 +3420,95 @@ async def test_pull_agent_preset_ignores_archived_source_id_mapping(
 
 
 @pytest.mark.anyio
+async def test_pull_agent_preset_reconciles_archived_source_mapping_with_active_slug(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    archived_preset = AgentPreset(
+        workspace_id=svc_role.workspace_id,
+        slug="qa-identity",
+        name="QA archived identity",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        agents={"enabled": False},
+        archived_at=datetime.now(UTC),
+    )
+    active_preset = AgentPreset(
+        workspace_id=svc_role.workspace_id,
+        slug="qa-identity",
+        name="QA active identity",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        agents={"enabled": False},
+    )
+    session.add_all([archived_preset, active_preset])
+    await session.flush()
+    session.add_all(
+        [
+            WorkspaceSyncResourceMapping(
+                workspace_id=svc_role.workspace_id,
+                provider=VcsProvider.GITHUB.value,
+                resource_type=SyncResourceType.AGENT_PRESET.value,
+                source_id="qa-identity",
+                source_path=f"{AGENT_PRESET_ROOT}/qa-identity/preset.yml",
+                local_id=archived_preset.id,
+            ),
+            WorkspaceSyncResourceMapping(
+                workspace_id=svc_role.workspace_id,
+                provider=VcsProvider.GITHUB.value,
+                resource_type=SyncResourceType.AGENT_PRESET.value,
+                source_id="qa-identity-active",
+                source_path=f"{AGENT_PRESET_ROOT}/qa-identity-active/preset.yml",
+                local_id=active_preset.id,
+            ),
+        ]
+    )
+    await session.flush()
+
+    transport = AsyncMock()
+    transport.read_files.return_value = VcsTreeSnapshot(
+        commit_sha="i" * 40,
+        tree_sha="tree-1",
+        files=_agent_preset_git_tree(
+            source_id="qa-identity",
+            slug="qa-identity",
+            name="QA active identity from Git",
+        ),
+    )
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
+    )
+
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        result = await service.pull(options=PullOptions(commit_sha="i" * 40))
+
+    assert result.success is True
+    await session.refresh(active_preset)
+    assert active_preset.name == "QA active identity from Git"
+    assert active_preset.id != archived_preset.id
+
+    source_mapping = await _mapping_for(
+        session,
+        role=svc_role,
+        resource_type=SyncResourceType.AGENT_PRESET,
+        source_id="qa-identity",
+    )
+    old_active_mapping = await _mapping_for(
+        session,
+        role=svc_role,
+        resource_type=SyncResourceType.AGENT_PRESET,
+        source_id="qa-identity-active",
+    )
+    assert source_mapping is not None
+    assert source_mapping.local_id == active_preset.id
+    assert old_active_mapping is None
+
+
+@pytest.mark.anyio
 async def test_pull_unpublished_agent_preset_clears_current_version(
     session: AsyncSession,
     svc_role: Role,

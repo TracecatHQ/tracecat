@@ -25,6 +25,7 @@ from tracecat.db.models import (
     AgentTagLink,
     Skill,
     SkillVersion,
+    WorkspaceSyncResourceMapping,
 )
 from tracecat.exceptions import TracecatValidationError
 from tracecat.service import BaseWorkspaceService
@@ -38,7 +39,7 @@ from tracecat.workspace_sync.adapters.base import (
     ResourceProjection,
     path_parts,
 )
-from tracecat.workspace_sync.enums import SyncResourceType
+from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.schemas import (
     AGENT_PRESET_ROOT,
     AgentPresetResourceSpec,
@@ -732,8 +733,11 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             )
             return preset
 
-        # No mapping yet: fall back to adopting an existing preset by slug.
-        return await workspace_service.session.scalar(
+        # No active mapped row: fall back to adopting an existing active preset
+        # by slug. If the source id still points at an archived row and this
+        # active preset already has a different mapping, clear that old active
+        # mapping before the pull upserts this source id to the adopted row.
+        preset = await workspace_service.session.scalar(
             select(AgentPreset)
             .where(
                 AgentPreset.workspace_id == workspace_service.workspace_id,
@@ -742,6 +746,46 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             )
             .options(selectinload(AgentPreset.tags))
         )
+        if preset is not None:
+            await self._reconcile_adopted_preset_mapping(
+                workspace_service,
+                source_id=source_id,
+                preset=preset,
+            )
+        return preset
+
+    async def _reconcile_adopted_preset_mapping(
+        self,
+        workspace_service: BaseWorkspaceService,
+        *,
+        source_id: str,
+        preset: AgentPreset,
+    ) -> None:
+        """Drop a conflicting stale mapping before adopting ``preset``."""
+        source_mapping = await workspace_service.session.scalar(
+            select(WorkspaceSyncResourceMapping).where(
+                WorkspaceSyncResourceMapping.workspace_id
+                == workspace_service.workspace_id,
+                WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
+                WorkspaceSyncResourceMapping.resource_type == self.resource_type.value,
+                WorkspaceSyncResourceMapping.source_id == source_id,
+            )
+        )
+        if source_mapping is None or source_mapping.local_id == preset.id:
+            return
+
+        active_mapping = await workspace_service.session.scalar(
+            select(WorkspaceSyncResourceMapping).where(
+                WorkspaceSyncResourceMapping.workspace_id
+                == workspace_service.workspace_id,
+                WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
+                WorkspaceSyncResourceMapping.resource_type == self.resource_type.value,
+                WorkspaceSyncResourceMapping.local_id == preset.id,
+            )
+        )
+        if active_mapping is not None and active_mapping.id != source_mapping.id:
+            await workspace_service.session.delete(active_mapping)
+            await workspace_service.session.flush()
 
     async def _preset_by_source_id(
         self,
