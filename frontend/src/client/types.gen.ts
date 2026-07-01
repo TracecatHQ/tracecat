@@ -4676,6 +4676,15 @@ export type InteractionStatus =
 export type InteractionType = "approval" | "response"
 
 /**
+ * Response model for a bulk invitation request.
+ */
+export type InvitationBatchResult = {
+  results: Array<BatchInvitationItemResult>
+  created_count: number
+  skipped_count: number
+}
+
+/**
  * Invitation lifecycle status.
  */
 export type InvitationStatus = "pending" | "accepted" | "revoked"
@@ -5271,15 +5280,6 @@ export type OrgInvitationAccept = {
 export type OrgInvitationBatchCreate = {
   emails: Array<string>
   role_id: string
-}
-
-/**
- * Response model for a bulk organization invitation request.
- */
-export type OrgInvitationBatchResult = {
-  results: Array<BatchInvitationItemResult>
-  created_count: number
-  skipped_count: number
 }
 
 /**
@@ -9487,15 +9487,6 @@ export type WorkflowUpdate = {
   error_handler?: string | null
 }
 
-/**
- * Per-email outcome of a bulk workspace invitation request.
- */
-export type WorkspaceBatchInvitationItemResult = {
-  email: string
-  status: BatchInviteStatus
-  reason?: string | null
-}
-
 export type WorkspaceCreate = {
   name: string
   settings?: WorkspaceSettingsUpdate | null
@@ -9515,15 +9506,6 @@ export type WorkspaceInvitationAccept = {
 export type WorkspaceInvitationBatchCreate = {
   emails: Array<string>
   role_id: string
-}
-
-/**
- * Response schema for a bulk workspace invitation request.
- */
-export type WorkspaceInvitationBatchResult = {
-  results: Array<WorkspaceBatchInvitationItemResult>
-  created_count: number
-  skipped_count: number
 }
 
 /**
@@ -10126,7 +10108,7 @@ export type WorkspacesCreateWorkspaceInvitationsBulkData = {
 }
 
 export type WorkspacesCreateWorkspaceInvitationsBulkResponse =
-  WorkspaceInvitationBatchResult
+  InvitationBatchResult
 
 export type WorkspacesGetWorkspaceInvitationTokenData = {
   invitationId: string
@@ -11002,7 +10984,7 @@ export type OrganizationCreateInvitationsBulkData = {
   requestBody: OrgInvitationBatchCreate
 }
 
-export type OrganizationCreateInvitationsBulkResponse = OrgInvitationBatchResult
+export type OrganizationCreateInvitationsBulkResponse = InvitationBatchResult
 
 export type OrganizationResendInvitationData = {
   invitationId: string
@@ -14120,7 +14102,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: WorkspaceInvitationBatchResult
+        200: InvitationBatchResult
         /**
          * Validation Error
          */
@@ -15661,7 +15643,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: OrgInvitationBatchResult
+        200: InvitationBatchResult
         /**
          * Validation Error
          */

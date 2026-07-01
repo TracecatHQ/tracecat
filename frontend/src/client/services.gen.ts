@@ -1611,12 +1611,12 @@ export const workspacesRevokeWorkspaceInvitation = (
  *
  * Valid emails are invited; already-members and emails with a live pending
  * invitation are skipped and reported per-email. When email is configured,
- * invitation emails are sent (best-effort) for created invites; otherwise the
- * admin shares the copy-paste invitation links.
+ * invitation emails are sent (best-effort, out of the request path) for created
+ * invites; otherwise the admin shares the copy-paste invitation links.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody
- * @returns WorkspaceInvitationBatchResult Successful Response
+ * @returns InvitationBatchResult Successful Response
  * @throws ApiError
  */
 export const workspacesCreateWorkspaceInvitationsBulk = (
@@ -4490,11 +4490,11 @@ export const organizationListInvitations = (
  *
  * Valid emails are invited; already-members and emails with a live pending
  * invitation are skipped and reported per-email. When email is configured,
- * invitation emails are sent (best-effort) for created invites; otherwise the
- * admin shares the copy-paste invitation links.
+ * invitation emails are sent (best-effort, out of the request path) for created
+ * invites; otherwise the admin shares the copy-paste invitation links.
  * @param data The data for the request.
  * @param data.requestBody
- * @returns OrgInvitationBatchResult Successful Response
+ * @returns InvitationBatchResult Successful Response
  * @throws ApiError
  */
 export const organizationCreateInvitationsBulk = (

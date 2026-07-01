@@ -6,7 +6,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 from tracecat.identifiers import OrganizationID, UserID
 from tracecat.invitations.enums import InvitationStatus
-from tracecat.invitations.types import MAX_BULK_INVITE_EMAILS, BatchInviteStatus
+from tracecat.invitations.types import MAX_BULK_INVITE_EMAILS
 
 # Members
 
@@ -82,22 +82,6 @@ class OrgInvitationBatchCreate(BaseModel):
 
     emails: list[EmailStr] = Field(min_length=1, max_length=MAX_BULK_INVITE_EMAILS)
     role_id: UUID
-
-
-class BatchInvitationItemResult(BaseModel):
-    """Per-email outcome of a bulk invitation request."""
-
-    email: str
-    status: BatchInviteStatus
-    reason: str | None = None
-
-
-class OrgInvitationBatchResult(BaseModel):
-    """Response model for a bulk organization invitation request."""
-
-    results: list[BatchInvitationItemResult]
-    created_count: int
-    skipped_count: int
 
 
 class OrgInvitationRead(BaseModel):

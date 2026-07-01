@@ -1022,20 +1022,13 @@ async def sso_acs(
     # accept_invitation auto-creates the org membership when needed and verifies
     # the invitee email, so a leaked token cannot enroll a different account.
     if workspace_invitation is not None:
-        from tracecat.auth.types import Role
         from tracecat.workspaces.service import WorkspaceService
 
         try:
-            accept_role = Role(
-                type="user",
+            ws_membership = await WorkspaceService.accept_invitation_for_user(
+                db_session,
                 user_id=user.id,
-                organization_id=organization_id,
-                service_id="tracecat-api",
-            )
-            ws_service = WorkspaceService(db_session, role=accept_role)
-            ws_membership = await ws_service.accept_invitation(
-                workspace_invitation.token,
-                user.id,
+                token=workspace_invitation.token,
             )
             logger.info(
                 "Accepted pending workspace invitation during SAML login",

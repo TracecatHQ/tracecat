@@ -639,6 +639,89 @@ async def test_reconcile_group_members_fans_out(
     assert await _get_membership(session, workspace, actor_user) is not None
 
 
+async def test_reconcile_users_for_workspace_mixed_paths(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    actor_user: User,
+    workspace_editor_role: DBRole,
+) -> None:
+    """One set-based pass keeps users with a path and drops users without one.
+
+    member_user holds a direct ws-scoped assignment; actor_user holds a stale
+    Membership row with no remaining RBAC path (the post-group-delete shape).
+    """
+    session.add(
+        UserRoleAssignment(
+            organization_id=organization.id,
+            user_id=member_user.id,
+            workspace_id=workspace.id,
+            role_id=workspace_editor_role.id,
+        )
+    )
+    session.add(Membership(user_id=actor_user.id, workspace_id=workspace.id))
+    await session.commit()
+
+    await membership_service.reconcile_users_for_workspace(
+        [member_user.id, actor_user.id], workspace.id
+    )
+
+    assert await _get_membership(session, workspace, member_user) is not None
+    assert await _get_membership(session, workspace, actor_user) is None
+
+
+async def test_reconcile_users_for_workspace_is_idempotent(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    workspace_editor_role: DBRole,
+) -> None:
+    """Running the batch reconcile twice (with duplicate ids) converges to one row."""
+    session.add(
+        UserRoleAssignment(
+            organization_id=organization.id,
+            user_id=member_user.id,
+            workspace_id=workspace.id,
+            role_id=workspace_editor_role.id,
+        )
+    )
+    await session.commit()
+
+    await membership_service.reconcile_users_for_workspace(
+        [member_user.id, member_user.id], workspace.id
+    )
+    await membership_service.reconcile_users_for_workspace(
+        [member_user.id], workspace.id
+    )
+
+    rows = (
+        (
+            await session.execute(
+                select(Membership).where(
+                    Membership.workspace_id == workspace.id,
+                    Membership.user_id == member_user.id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 1
+
+
+async def test_reconcile_users_for_workspace_empty_is_noop(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    workspace: Workspace,
+) -> None:
+    """An empty user list must not touch the database."""
+    await membership_service.reconcile_users_for_workspace([], workspace.id)
+
+
 async def test_list_workspace_members_flags_group_derived_role(
     session: AsyncSession,
     membership_service: MembershipService,

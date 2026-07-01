@@ -563,47 +563,20 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     ) -> None:
         """Accept a workspace invitation by token during registration.
 
-        Derives the organization from the invitation's workspace so a
-        :class:`WorkspaceService` can be constructed without prior org context,
-        mirroring the workspace accept router. Raises on a genuinely unknown
-        token so the caller logs it as not-found.
+        Delegates to :meth:`WorkspaceService.accept_invitation_for_user`, which
+        resolves the organization from the invitation's workspace and verifies
+        the invitee email (a leaked token cannot enroll a different account).
+        Raises on a genuinely unknown token so the caller logs it as not-found.
         """
-        from tracecat.auth.types import Role
-        from tracecat.db.models import Invitation, Workspace
         from tracecat.workspaces.service import WorkspaceService
 
-        row = (
-            await session.execute(
-                select(Invitation.email, Workspace.organization_id)
-                .join(Workspace, Invitation.workspace_id == Workspace.id)  # pyright: ignore[reportArgumentType]
-                .where(Invitation.token == token)
-            )
-        ).first()
-        if row is None:
-            raise TracecatNotFoundError("Invitation not found")
-        invitation_email, org_id = row
-
-        # The workspace accept service does not verify the invitee email, so
-        # enforce it here: registration accepts a token on the new user's behalf
-        # and must not let a token join a workspace invited to another address.
-        if user.email.lower() != invitation_email.lower():
-            raise TracecatAuthorizationError(
-                "This invitation was sent to a different email address"
-            )
-
-        accept_role = Role(
-            type="user",
-            user_id=user.id,
-            organization_id=org_id,
-            service_id="tracecat-api",
+        membership = await WorkspaceService.accept_invitation_for_user(
+            session, user_id=user.id, token=token
         )
-        service = WorkspaceService(session, role=accept_role)
-        membership = await service.accept_invitation(token, user.id)
         self.logger.info(
             "Workspace invitation accepted during registration",
             user_id=str(user.id),
             email=user.email,
-            org_id=str(org_id),
             workspace_id=str(membership.workspace_id),
         )
 

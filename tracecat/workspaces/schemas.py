@@ -10,8 +10,8 @@ from tracecat.core.schemas import Schema
 from tracecat.git.constants import GIT_SSH_URL_REGEX
 from tracecat.identifiers import InvitationID, OrganizationID, UserID, WorkspaceID
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.types import MAX_BULK_INVITE_EMAILS
 from tracecat.workspace_sync.enums import VcsProvider
-from tracecat.invitations.types import MAX_BULK_INVITE_EMAILS, BatchInviteStatus
 
 # === Workspace === #
 
@@ -178,22 +178,6 @@ class WorkspaceInvitationBatchCreate(Schema):
 
     emails: list[EmailStr] = Field(min_length=1, max_length=MAX_BULK_INVITE_EMAILS)
     role_id: str  # UUID as string for API compatibility
-
-
-class WorkspaceBatchInvitationItemResult(Schema):
-    """Per-email outcome of a bulk workspace invitation request."""
-
-    email: str
-    status: BatchInviteStatus
-    reason: str | None = None
-
-
-class WorkspaceInvitationBatchResult(Schema):
-    """Response schema for a bulk workspace invitation request."""
-
-    results: list[WorkspaceBatchInvitationItemResult]
-    created_count: int
-    skipped_count: int
 
 
 class WorkspaceInvitationTokenRead(Schema):

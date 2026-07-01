@@ -2,13 +2,18 @@ import asyncio
 import functools
 import inspect
 import re
+import uuid
 from collections.abc import Callable, Coroutine
 from fnmatch import fnmatch
 from typing import Any, Protocol, TypeVar, cast, runtime_checkable
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
-from tracecat.exceptions import ScopeDeniedError
+from tracecat.db.models import RoleScope, Scope
+from tracecat.exceptions import ScopeDeniedError, TracecatAuthorizationError
 from tracecat.logger import logger
 
 T = TypeVar("T", bound=Callable[..., Coroutine[Any, Any, Any] | Any])
@@ -165,6 +170,40 @@ def can_manage_role_scopes(actor: Role | None, target_scopes: set[str]) -> bool:
         return True
     actor_scopes = (actor.scopes if actor else None) or frozenset()
     return has_all_scopes(actor_scopes, target_scopes)
+
+
+async def check_no_role_escalation(
+    session: AsyncSession, actor: Role | None, role_id: uuid.UUID
+) -> None:
+    """Prevent inviting/assigning a role that grants more access than the actor.
+
+    The target role's scopes must be a subset of the actor's effective scopes.
+    Decided by scopes (not slugs) so custom roles are handled correctly.
+    Superusers and holders of the ``"*"`` scope bypass the check.
+
+    Args:
+        session: Database session used to look up the target role's scopes.
+        actor: The role making the request (its ``scopes`` are the effective set).
+        role_id: The role the actor wants to invite/assign with.
+
+    Raises:
+        TracecatAuthorizationError: If the target role grants any scope the
+            actor does not hold.
+    """
+    # Skip the scope query entirely for unrestricted actors.
+    if has_unrestricted_scope(actor):
+        return
+
+    result = await session.execute(
+        select(Scope.name)
+        .join(RoleScope, RoleScope.scope_id == Scope.id)
+        .where(RoleScope.role_id == role_id)
+    )
+    target_scopes = set(result.scalars().all())
+    if not can_manage_role_scopes(actor, target_scopes):
+        raise TracecatAuthorizationError(
+            "Cannot invite with a role that grants more access than your own"
+        )
 
 
 def has_any_scope(user_scopes: frozenset[str], required_scopes: set[str]) -> bool:

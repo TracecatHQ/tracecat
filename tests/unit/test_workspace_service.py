@@ -28,8 +28,8 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.invitations.enums import InvitationStatus
-from tracecat.workspace_sync.enums import VcsProvider
 from tracecat.invitations.types import BatchInviteStatus
+from tracecat.workspace_sync.enums import VcsProvider
 from tracecat.workspaces.schemas import (
     WorkspaceInvitationCreate,
     WorkspaceSearch,

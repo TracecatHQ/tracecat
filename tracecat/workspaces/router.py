@@ -3,6 +3,7 @@ from typing import Annotated
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     HTTPException,
     status,
@@ -24,8 +25,6 @@ from tracecat.db.dependencies import AsyncDBSession, AsyncDBSessionBypass
 from tracecat.db.models import Invitation, Organization, User, Workspace
 from tracecat.db.models import Role as DBRole
 from tracecat.email.client import (
-    InvitationEmail,
-    build_accept_url,
     is_email_configured,
     send_invitation_emails_batch,
 )
@@ -37,15 +36,21 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.identifiers import InvitationID, UserID, WorkspaceID
+from tracecat.invitations.emails import (
+    build_created_invitation_emails,
+    build_single_invitation_email,
+    inviter_display_name_and_email,
+)
 from tracecat.invitations.enums import InvitationStatus
-from tracecat.invitations.types import BatchInviteStatus
+from tracecat.invitations.schemas import (
+    InvitationBatchResult,
+    build_batch_result,
+)
 from tracecat.logger import logger
 from tracecat.workspaces.schemas import (
-    WorkspaceBatchInvitationItemResult,
     WorkspaceCreate,
     WorkspaceInvitationAccept,
     WorkspaceInvitationBatchCreate,
-    WorkspaceInvitationBatchResult,
     WorkspaceInvitationCreate,
     WorkspaceInvitationList,
     WorkspaceInvitationRead,
@@ -160,19 +165,6 @@ async def search_workspaces(
     return [WorkspaceReadMinimal(id=ws.id, name=ws.name) for ws in workspaces]
 
 
-def _inviter_display_name_and_email(
-    user: User | None,
-) -> tuple[str | None, str | None]:
-    """Build display name/email pair for inviter fields."""
-    if user is None:
-        return None, None
-    if user.first_name or user.last_name:
-        name = " ".join(p for p in (user.first_name, user.last_name) if p)
-    else:
-        name = user.email
-    return name, user.email
-
-
 # Public, token-based invitation routes (no workspace context until the invite
 # is accepted). These are NOT nested under /{workspace_id}; the token identifies
 # the invite. They mirror the organization invitation token/accept endpoints so
@@ -232,7 +224,7 @@ async def list_my_pending_workspace_invitations(
         inviter = (
             inviters_by_id.get(invitation.invited_by) if invitation.invited_by else None
         )
-        inviter_name, inviter_email = _inviter_display_name_and_email(inviter)
+        inviter_name, inviter_email = inviter_display_name_and_email(inviter)
 
         pending.append(
             WorkspacePendingInvitationRead(
@@ -283,7 +275,7 @@ async def get_workspace_invitation_by_token(
         inviter = await session.scalar(
             select(User).where(User.id == invitation.invited_by)  # pyright: ignore[reportArgumentType]
         )
-        inviter_name, inviter_email = _inviter_display_name_and_email(inviter)
+        inviter_name, inviter_email = inviter_display_name_and_email(inviter)
 
     email_matches: bool | None = None
     if user is not None:
@@ -320,23 +312,13 @@ async def accept_workspace_invitation(
     """
     assert role.user_id is not None
 
-    # The accepting user has no org context yet (AuthenticatedUserOnly). Derive
-    # the organization from the invitation's workspace so WorkspaceService can be
-    # constructed; acceptance itself re-validates the token atomically.
-    org_id = await session.scalar(
-        select(Workspace.organization_id)
-        .join(Invitation, Invitation.workspace_id == Workspace.id)  # pyright: ignore[reportArgumentType]
-        .where(Invitation.token == params.token)
-    )
-    if org_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found"
-        )
-
-    accept_role = role.model_copy(update={"organization_id": org_id})
-    service = WorkspaceService(session, role=accept_role)
+    # The accepting user has no org context yet (AuthenticatedUserOnly). The
+    # shared entry point resolves the org from the invitation's workspace and
+    # re-validates the token atomically.
     try:
-        await service.accept_invitation(params.token, role.user_id)
+        await WorkspaceService.accept_invitation_for_user(
+            session, user_id=role.user_id, token=params.token
+        )
         return {"message": "Invitation accepted successfully"}
     except TracecatAuthorizationError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
@@ -672,13 +654,14 @@ async def create_workspace_invitations_bulk(
     workspace_id: WorkspaceID,
     params: WorkspaceInvitationBatchCreate,
     session: AsyncDBSession,
-) -> WorkspaceInvitationBatchResult:
+    background_tasks: BackgroundTasks,
+) -> InvitationBatchResult:
     """Create workspace invitations in bulk.
 
     Valid emails are invited; already-members and emails with a live pending
     invitation are skipped and reported per-email. When email is configured,
-    invitation emails are sent (best-effort) for created invites; otherwise the
-    admin shares the copy-paste invitation links.
+    invitation emails are sent (best-effort, out of the request path) for created
+    invites; otherwise the admin shares the copy-paste invitation links.
     """
     service = WorkspaceService(session, role=role)
     try:
@@ -703,33 +686,15 @@ async def create_workspace_invitations_bulk(
             detail=str(e),
         ) from e
 
-    created = [i for i in items if i.status == BatchInviteStatus.CREATED]
-    if created and is_email_configured():
+    if is_email_configured():
         workspace_name = await service.get_workspace_name(workspace_id)
-        await send_invitation_emails_batch(
-            [
-                InvitationEmail(
-                    to=i.email,
-                    accept_url=build_accept_url(i.token),  # type: ignore[arg-type]
-                    context_name=workspace_name,
-                    kind="workspace",
-                )
-                for i in created
-                if i.token
-            ]
+        messages = build_created_invitation_emails(
+            items, context_name=workspace_name, kind="workspace"
         )
+        if messages:
+            background_tasks.add_task(send_invitation_emails_batch, messages)
 
-    created_count = sum(1 for i in items if i.status == BatchInviteStatus.CREATED)
-    return WorkspaceInvitationBatchResult(
-        results=[
-            WorkspaceBatchInvitationItemResult(
-                email=i.email, status=i.status, reason=i.reason
-            )
-            for i in items
-        ],
-        created_count=created_count,
-        skipped_count=len(items) - created_count,
-    )
+    return build_batch_result(items)
 
 
 @router.get("/{workspace_id}/invitations/{invitation_id}/token")
@@ -765,6 +730,7 @@ async def resend_workspace_invitation(
     workspace_id: WorkspaceID,
     invitation_id: InvitationID,
     session: AsyncDBSession,
+    background_tasks: BackgroundTasks,
 ) -> None:
     """Re-send the invitation email for a pending workspace invitation."""
     if not is_email_configured():
@@ -783,13 +749,10 @@ async def resend_workspace_invitation(
         ) from e
 
     workspace_name = await service.get_workspace_name(workspace_id)
-    await send_invitation_emails_batch(
-        [
-            InvitationEmail(
-                to=invitation.email,
-                accept_url=build_accept_url(invitation.token),
-                context_name=workspace_name,
-                kind="workspace",
-            )
-        ]
+    message = build_single_invitation_email(
+        to=invitation.email,
+        token=invitation.token,
+        context_name=workspace_name,
+        kind="workspace",
     )
+    background_tasks.add_task(send_invitation_emails_batch, [message])

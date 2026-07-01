@@ -15177,6 +15177,30 @@ export const $InteractionType = {
   title: "InteractionType",
 } as const
 
+export const $InvitationBatchResult = {
+  properties: {
+    results: {
+      items: {
+        $ref: "#/components/schemas/BatchInvitationItemResult",
+      },
+      type: "array",
+      title: "Results",
+    },
+    created_count: {
+      type: "integer",
+      title: "Created Count",
+    },
+    skipped_count: {
+      type: "integer",
+      title: "Skipped Count",
+    },
+  },
+  type: "object",
+  required: ["results", "created_count", "skipped_count"],
+  title: "InvitationBatchResult",
+  description: "Response model for a bulk invitation request.",
+} as const
+
 export const $InvitationStatus = {
   type: "string",
   enum: ["pending", "accepted", "revoked"],
@@ -17177,30 +17201,6 @@ export const $OrgInvitationBatchCreate = {
   required: ["emails", "role_id"],
   title: "OrgInvitationBatchCreate",
   description: "Request body for creating organization invitations in bulk.",
-} as const
-
-export const $OrgInvitationBatchResult = {
-  properties: {
-    results: {
-      items: {
-        $ref: "#/components/schemas/BatchInvitationItemResult",
-      },
-      type: "array",
-      title: "Results",
-    },
-    created_count: {
-      type: "integer",
-      title: "Created Count",
-    },
-    skipped_count: {
-      type: "integer",
-      title: "Skipped Count",
-    },
-  },
-  type: "object",
-  required: ["results", "created_count", "skipped_count"],
-  title: "OrgInvitationBatchResult",
-  description: "Response model for a bulk organization invitation request.",
 } as const
 
 export const $OrgInvitationCreate = {
@@ -31855,33 +31855,6 @@ export const $WorkflowUpdate = {
   title: "WorkflowUpdate",
 } as const
 
-export const $WorkspaceBatchInvitationItemResult = {
-  properties: {
-    email: {
-      type: "string",
-      title: "Email",
-    },
-    status: {
-      $ref: "#/components/schemas/BatchInviteStatus",
-    },
-    reason: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Reason",
-    },
-  },
-  type: "object",
-  required: ["email", "status"],
-  title: "WorkspaceBatchInvitationItemResult",
-  description: "Per-email outcome of a bulk workspace invitation request.",
-} as const
-
 export const $WorkspaceCreate = {
   properties: {
     name: {
@@ -31952,30 +31925,6 @@ export const $WorkspaceInvitationBatchCreate = {
   required: ["emails", "role_id"],
   title: "WorkspaceInvitationBatchCreate",
   description: "Request schema for creating workspace invitations in bulk.",
-} as const
-
-export const $WorkspaceInvitationBatchResult = {
-  properties: {
-    results: {
-      items: {
-        $ref: "#/components/schemas/WorkspaceBatchInvitationItemResult",
-      },
-      type: "array",
-      title: "Results",
-    },
-    created_count: {
-      type: "integer",
-      title: "Created Count",
-    },
-    skipped_count: {
-      type: "integer",
-      title: "Skipped Count",
-    },
-  },
-  type: "object",
-  required: ["results", "created_count", "skipped_count"],
-  title: "WorkspaceInvitationBatchResult",
-  description: "Response schema for a bulk workspace invitation request.",
 } as const
 
 export const $WorkspaceInvitationCreate = {

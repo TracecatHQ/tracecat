@@ -148,6 +148,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { WorkspaceResourceSyncActions } from "@/components/workspace-sync/resource-sync-actions"
 import {
   NewVariableDialog,
   NewVariableDialogTrigger,
