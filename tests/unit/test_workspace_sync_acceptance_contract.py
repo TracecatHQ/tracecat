@@ -5369,6 +5369,7 @@ async def _mapping_for(
     role: Role,
     resource_type: SyncResourceType,
     source_id: str,
+    provider: VcsProvider = VcsProvider.GITHUB,
 ) -> WorkspaceSyncResourceMapping | None:
     """Look up a workspace's sync mapping for one Git source identifier."""
     workspace_id = role.workspace_id
@@ -5376,7 +5377,7 @@ async def _mapping_for(
     return await session.scalar(
         select(WorkspaceSyncResourceMapping).where(
             WorkspaceSyncResourceMapping.workspace_id == workspace_id,
-            WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
+            WorkspaceSyncResourceMapping.provider == provider.value,
             WorkspaceSyncResourceMapping.resource_type == resource_type.value,
             WorkspaceSyncResourceMapping.source_id == source_id,
         )
