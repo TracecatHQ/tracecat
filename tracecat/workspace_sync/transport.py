@@ -38,6 +38,7 @@ from tracecat.vcs.gitlab.types import (
     GitLabListCommitsParams,
     GitLabListMergeRequestsParams,
     GitLabMergeRequest,
+    GitLabProject,
     GitLabTreeEntry,
     GitLabTreeParams,
 )
@@ -689,16 +690,8 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             project_id = _gitlab_project_id(url)
             base_branch_name = pr_base_branch or url.ref
             if base_branch_name is None:
-                branches = await self._list_branches_with_client(
-                    client=client,
-                    url=url,
-                    limit=None,
-                )
-                base_branch_name = (
-                    next((item.name for item in branches if item.is_default), None)
-                    or (branches[0].name if branches else None)
-                    or "main"
-                )
+                project = await self._get_project(client=client, project_id=project_id)
+                base_branch_name = project.default_branch or "main"
             if create_pr and branch == base_branch_name:
                 raise TracecatValidationError(
                     "create_pr exports must target a non-base branch"
@@ -989,6 +982,20 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             "GET",
             f"/projects/{project_id}/repository/branches/{quote(branch, safe='')}",
             model=GitLabBranch,
+        )
+
+    async def _get_project(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        project_id: str,
+    ) -> GitLabProject:
+        """Return a GitLab project object or raise a structured API error."""
+        return await self._gitlab_model(
+            client,
+            "GET",
+            f"/projects/{project_id}",
+            model=GitLabProject,
         )
 
     async def _create_branch(

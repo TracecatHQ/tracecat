@@ -77,6 +77,8 @@ class _MockGitLabApi:
 
         subpath = raw_path[len(prefix) :]
         try:
+            if request.method == "GET" and subpath == "":
+                return self._json({"default_branch": self.default_branch})
             if request.method == "GET" and subpath == "/repository/branches":
                 page = int(request.url.params.get("page", "1"))
                 per_page = int(request.url.params.get("per_page", "100"))
@@ -651,7 +653,7 @@ async def test_gitlab_transport_skips_branch_list_when_base_is_explicit(
 
 
 @pytest.mark.anyio
-async def test_gitlab_transport_resolves_default_branch_beyond_first_page() -> None:
+async def test_gitlab_transport_resolves_default_base_without_branch_scan() -> None:
     api = _MockGitLabApi(
         project_path="group/subgroup/project",
         files={MANIFEST_FILENAME: _manifest(), "workflows/a.yml": "main"},
@@ -684,6 +686,10 @@ async def test_gitlab_transport_resolves_default_branch_beyond_first_page() -> N
         )
 
     assert result.status is PushStatus.COMMITTED
+    project_path = f"/api/v4/projects/{api.encoded_project_path}"
+    branch_list_path = f"{project_path}/repository/branches"
+    assert ("GET", project_path) in api.requests
+    assert ("GET", branch_list_path) not in api.requests
     assert api.merge_request_payloads[0]["target_branch"] == "zz-default"
 
 

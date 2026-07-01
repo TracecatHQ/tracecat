@@ -99,6 +99,14 @@ class GitLabBranch(BaseModel):
     default: bool = False
 
 
+class GitLabProject(BaseModel):
+    """A GitLab project."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    default_branch: str | None = None
+
+
 class GitLabMergeRequest(BaseModel):
     """A GitLab merge request."""
 
