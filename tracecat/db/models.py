@@ -116,6 +116,15 @@ class TimestampMixin:
     )
 
 
+class ArchiveMixin:
+    """Mixin for models hidden from active product surfaces."""
+
+    archived_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+    )
+
+
 class InvitationMixin:
     """Mixin for invitation columns shared between workspace and organization invitations."""
 
@@ -3480,12 +3489,18 @@ class AgentTagLink(Base):
     )
 
 
-class AgentPreset(WorkspaceModel):
+class AgentPreset(ArchiveMixin, WorkspaceModel):
     """Database model for storing reusable agent preset configurations."""
 
     __tablename__ = "agent_preset"
     __table_args__ = (
-        UniqueConstraint("workspace_id", "slug", name="uq_agent_preset_workspace_slug"),
+        Index(
+            "uq_agent_preset_workspace_slug",
+            "workspace_id",
+            "slug",
+            unique=True,
+            postgresql_where=text("archived_at IS NULL"),
+        ),
         Index("ix_agent_preset_workspace_folder", "workspace_id", "folder_id"),
     )
 
@@ -3737,7 +3752,7 @@ class AgentPresetVersion(WorkspaceModel):
     )
 
 
-class Skill(WorkspaceModel):
+class Skill(ArchiveMixin, WorkspaceModel):
     """Workspace-scoped logical skill with mutable draft and immutable versions."""
 
     __tablename__ = "skill"
@@ -3774,12 +3789,6 @@ class Skill(WorkspaceModel):
         nullable=True,
         doc="Cached description parsed from root SKILL.md frontmatter",
     )
-    archived_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True),
-        nullable=True,
-        doc="Timestamp for archived skills",
-    )
-
     workspace: Mapped[Workspace] = relationship(back_populates="skills")
     current_version: Mapped[SkillVersion | None] = relationship(
         "SkillVersion",

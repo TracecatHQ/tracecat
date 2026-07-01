@@ -179,8 +179,11 @@ async def get_agent_preset_version(
 ) -> AgentPresetVersionRead:
     """Retrieve an immutable agent preset version."""
     service = AgentPresetService(session, role=role)
-    version = await service.get_version(version_id)
-    if version is None or version.preset_id != preset_id:
+    version = await service.get_active_version(
+        preset_id=preset_id,
+        version_id=version_id,
+    )
+    if version is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset version '{version_id}' not found",
@@ -203,14 +206,20 @@ async def compare_agent_preset_versions(
 ) -> AgentPresetVersionDiff:
     """Compare two preset versions belonging to the same preset."""
     service = AgentPresetService(session, role=role)
-    base_version = await service.get_version(version_id)
-    compare_version = await service.get_version(compare_to)
-    if base_version is None or base_version.preset_id != preset_id:
+    base_version = await service.get_active_version(
+        preset_id=preset_id,
+        version_id=version_id,
+    )
+    compare_version = await service.get_active_version(
+        preset_id=preset_id,
+        version_id=compare_to,
+    )
+    if base_version is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset version '{version_id}' not found",
         )
-    if compare_version is None or compare_version.preset_id != preset_id:
+    if compare_version is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset version '{compare_to}' not found",
