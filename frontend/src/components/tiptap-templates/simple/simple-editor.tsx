@@ -461,6 +461,12 @@ export interface SimpleEditorProps {
    */
   toolbarStatus?: React.ReactNode
   /**
+   * Render Mermaid code blocks as diagrams when this editable editor is blurred.
+   * Read-only editors always render Mermaid diagrams.
+   * @default false
+   */
+  renderMermaidWhenBlurred?: boolean
+  /**
    * Auto focus behaviour.
    * @default false
    */
@@ -484,6 +490,7 @@ export function SimpleEditor({
   onShortcutFallback,
   onFocus,
   toolbarStatus,
+  renderMermaidWhenBlurred = false,
   autoFocus = false,
   style,
 }: SimpleEditorProps) {
@@ -507,7 +514,9 @@ export function SimpleEditor({
         },
       }),
       HorizontalRule,
-      MermaidCodeBlock,
+      MermaidCodeBlock.configure({
+        renderWhenBlurred: renderMermaidWhenBlurred,
+      }),
       Table.configure({
         resizable: false,
       }),
@@ -543,7 +552,7 @@ export function SimpleEditor({
         },
       }),
     ],
-    []
+    [renderMermaidWhenBlurred]
   )
 
   const editor = useEditor({

@@ -1,7 +1,8 @@
 "use client"
 
-import { CodeBlock } from "@tiptap/extension-code-block"
+import { CodeBlock, type CodeBlockOptions } from "@tiptap/extension-code-block"
 import {
+  type Editor,
   mergeAttributes,
   NodeViewContent,
   type NodeViewProps,
@@ -10,6 +11,31 @@ import {
 } from "@tiptap/react"
 import * as React from "react"
 import { cn } from "@/lib/utils"
+
+type MermaidCodeBlockOptions = CodeBlockOptions & {
+  renderWhenBlurred: boolean
+}
+
+type MermaidRenderState = {
+  isEditable: boolean
+  isFocused: boolean
+  language: string
+  renderWhenBlurred: boolean
+}
+
+/** Returns whether a code block should be shown as a Mermaid diagram. */
+export function shouldRenderMermaidDiagram({
+  isEditable,
+  isFocused,
+  language,
+  renderWhenBlurred,
+}: MermaidRenderState) {
+  if (language.toLowerCase() !== "mermaid") {
+    return false
+  }
+
+  return !isEditable || (renderWhenBlurred && !isFocused)
+}
 
 function getMermaidChartId(chart: string) {
   let hash = 0
@@ -100,10 +126,42 @@ function MermaidDiagram({ chart }: { chart: string }) {
   )
 }
 
+function getMermaidOptions(
+  editor: Editor
+): Pick<MermaidCodeBlockOptions, "renderWhenBlurred"> {
+  const extension = editor.extensionManager.extensions.find(
+    (item) => item.name === "codeBlock"
+  )
+  const options = extension?.options as Partial<MermaidCodeBlockOptions>
+
+  return {
+    renderWhenBlurred: options.renderWhenBlurred === true,
+  }
+}
+
 function MermaidCodeBlockView({ editor, node }: NodeViewProps) {
+  const [isFocused, setIsFocused] = React.useState(editor.isFocused)
   const language = String(node.attrs.language ?? "").toLowerCase()
   const chart = node.textContent
-  const shouldRenderDiagram = !editor.isEditable && language === "mermaid"
+  const { renderWhenBlurred } = getMermaidOptions(editor)
+  const shouldRenderDiagram = shouldRenderMermaidDiagram({
+    isEditable: editor.isEditable,
+    isFocused,
+    language,
+    renderWhenBlurred,
+  })
+
+  React.useEffect(() => {
+    const updateFocus = () => setIsFocused(editor.isFocused)
+
+    editor.on("focus", updateFocus)
+    editor.on("blur", updateFocus)
+
+    return () => {
+      editor.off("focus", updateFocus)
+      editor.off("blur", updateFocus)
+    }
+  }, [editor])
 
   if (shouldRenderDiagram) {
     return (
@@ -128,7 +186,21 @@ function MermaidCodeBlockView({ editor, node }: NodeViewProps) {
 }
 
 /** Tiptap code block extension that renders Mermaid fences in read-only views. */
-export const MermaidCodeBlock = CodeBlock.extend({
+export const MermaidCodeBlock = CodeBlock.extend<MermaidCodeBlockOptions>({
+  addOptions() {
+    return {
+      languageClassPrefix: "language-",
+      exitOnTripleEnter: true,
+      exitOnArrowDown: true,
+      defaultLanguage: null,
+      enableTabIndentation: false,
+      tabSize: 4,
+      HTMLAttributes: {},
+      ...this.parent?.(),
+      renderWhenBlurred: false,
+    }
+  },
+
   addNodeView() {
     return ReactNodeViewRenderer(MermaidCodeBlockView)
   },
