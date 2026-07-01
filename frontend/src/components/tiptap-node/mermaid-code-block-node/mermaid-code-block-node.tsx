@@ -446,7 +446,7 @@ function MermaidCodeBlockView({ editor, node }: NodeViewProps) {
       as="pre"
       className={cn(language && `language-${language}`)}
     >
-      <NodeViewContent />
+      <NodeViewContent<"code"> as="code" />
     </NodeViewWrapper>
   )
 }
