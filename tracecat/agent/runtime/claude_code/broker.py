@@ -31,6 +31,19 @@ class ConcurrentSessionTurnError(RuntimeError):
     """Raised when a second concurrent turn is started for the same session."""
 
 
+@dataclass(slots=True)
+class ActiveTurn:
+    """Bookkeeping for a broker-managed turn, keyed by session id.
+
+    ``runtime`` starts as ``None`` because the task is registered before the
+    session's ``ClaudeAgentRuntime`` is constructed (path mapping/hydration
+    happens first), then attached once available.
+    """
+
+    task: asyncio.Task[None]
+    runtime: ClaudeAgentRuntime | None = None
+
+
 @dataclass(frozen=True, slots=True)
 class ClaudeTurnRequest:
     """All inputs needed for one broker-managed Claude turn."""
@@ -51,7 +64,7 @@ class ClaudeRuntimeBroker:
     def __init__(self) -> None:
         self._closed = False
         self._leased_sessions: set[str] = set()
-        self._active_turns: dict[str, asyncio.Task[None]] = {}
+        self._active_turns: dict[str, ActiveTurn] = {}
         self._lock = asyncio.Lock()
 
     async def start(self) -> None:
@@ -62,7 +75,7 @@ class ClaudeRuntimeBroker:
         """Cancel any remaining active turns and reject future work."""
         async with self._lock:
             self._closed = True
-            active_tasks = list(self._active_turns.values())
+            active_tasks = [active.task for active in self._active_turns.values()]
         for task in active_tasks:
             task.cancel()
         for task in active_tasks:
@@ -126,7 +139,7 @@ class ClaudeRuntimeBroker:
                 raise ConcurrentSessionTurnError(
                     f"Session {session_key} already has an active turn"
                 )
-            self._active_turns[session_key] = current_task
+            self._active_turns[session_key] = ActiveTurn(task=current_task)
 
         try:
             await handler.prepare()
@@ -176,18 +189,36 @@ class ClaudeRuntimeBroker:
                 if artifact_prompt_fragment
                 else (),
             )
+            async with self._lock:
+                active = self._active_turns.get(session_key)
+                if active is not None and active.task is current_task:
+                    active.runtime = runtime
             await runtime.run(request.init_payload)
         finally:
             async with self._lock:
-                if self._active_turns.get(session_key) is current_task:
+                active = self._active_turns.get(session_key)
+                if active is not None and active.task is current_task:
                     self._active_turns.pop(session_key, None)
 
     async def cancel_turn(self, session_id: str) -> None:
         """Cancel an active turn for the provided session, if one exists."""
         async with self._lock:
-            task = self._active_turns.get(session_id)
-        if task is not None:
-            task.cancel()
+            active = self._active_turns.get(session_id)
+        if active is not None:
+            active.task.cancel()
+
+    async def interrupt_turn(self, session_id: str, reason: str) -> None:
+        """Gracefully interrupt an active turn's Claude SDK client, if any.
+
+        No-op if the turn hasn't constructed its runtime yet (still hydrating
+        the work dir) - the caller's timeout/hard-cancel fallback covers that
+        narrow window.
+        """
+        async with self._lock:
+            active = self._active_turns.get(session_id)
+        if active is None or active.runtime is None:
+            return
+        await active.runtime.interrupt(reason=reason)
 
     @staticmethod
     def _build_path_mapping(*, session_id: str) -> AgentSandboxPathMapping:

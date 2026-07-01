@@ -65,6 +65,7 @@ class StreamEventType(StrEnum):
     # System/status events
     COMPACTION = "compaction"
     ARTIFACT = "artifact"
+    CANCELLED = "cancelled"
 
     # Control events
     ERROR = "error"
@@ -257,6 +258,14 @@ class UnifiedStreamEvent:
             type=StreamEventType.COMPACTION,
             metadata=event_metadata,
         )
+
+    @classmethod
+    def cancelled_event(cls, *, reason: str | None = None) -> UnifiedStreamEvent:
+        """Factory method for creating turn-cancelled status events."""
+        metadata: dict[str, Any] = {}
+        if reason is not None:
+            metadata["reason"] = reason
+        return cls(type=StreamEventType.CANCELLED, metadata=metadata)
 
     @classmethod
     def tool_result_event(

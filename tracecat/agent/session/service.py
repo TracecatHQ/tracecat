@@ -56,6 +56,7 @@ from tracecat.agent.runtime.claude_code.session_lines import (
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.session.schemas import (
+    AgentSessionCancelResponse,
     AgentSessionCreate,
     AgentSessionRead,
     AgentSessionUpdate,
@@ -104,7 +105,11 @@ from tracecat.db.models import (
 )
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import RETRY_POLICIES
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.exceptions import (
+    TracecatConflictError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.identifiers import UserID
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
@@ -1487,8 +1492,10 @@ class AgentSessionService(BaseWorkspaceService):
                 return TurnLifecycleResult(TurnLifecycle.RUNNING, curr_run_id)
             case WorkflowExecutionStatus.COMPLETED:
                 return TurnLifecycleResult(TurnLifecycle.COMPLETED, curr_run_id)
+            case WorkflowExecutionStatus.CANCELED:
+                return TurnLifecycleResult(TurnLifecycle.CANCELLED, curr_run_id)
             case _:
-                # FAILED | TERMINATED | CANCELED | TIMED_OUT
+                # FAILED | TERMINATED | TIMED_OUT
                 return TurnLifecycleResult(TurnLifecycle.FAILED, curr_run_id)
 
     async def validate_turn_request(
@@ -1678,6 +1685,61 @@ class AgentSessionService(BaseWorkspaceService):
         )
 
         return None
+
+    async def request_cancel(
+        self,
+        session_id: uuid.UUID,
+        *,
+        reason: Literal["user_cancel"] = "user_cancel",
+    ) -> AgentSessionCancelResponse:
+        """Request graceful cancellation for the active agent workflow turn.
+
+        Raises:
+            TracecatNotFoundError: If no session exists with this ID.
+            TracecatConflictError: If the session has no active (RUNNING) turn.
+        """
+        from tracecat_ee.agent.types import AgentWorkflowID
+        from tracecat_ee.agent.workflows.durable import (
+            DurableAgentWorkflow,
+            WorkflowCancelRequest,
+        )
+
+        agent_session = await self.get_session(session_id)
+        if agent_session is None:
+            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+
+        lifecycle, curr_run_id = await self.get_turn_lifecycle(agent_session)
+        if lifecycle is not TurnLifecycle.RUNNING or curr_run_id is None:
+            raise TracecatConflictError(
+                "Agent session does not have an active turn",
+                detail={"lifecycle": lifecycle.value},
+            )
+
+        client = await get_temporal_client()
+        workflow_id = AgentWorkflowID(curr_run_id)
+        handle = client.get_workflow_handle_for(
+            DurableAgentWorkflow.run,
+            str(workflow_id),
+        )
+
+        logger.info(
+            "Requesting agent turn cancellation",
+            workflow_id=str(workflow_id),
+            session_id=str(session_id),
+            run_id=str(curr_run_id),
+            reason=reason,
+        )
+
+        await handle.execute_update(
+            DurableAgentWorkflow.request_cancel,
+            WorkflowCancelRequest(reason=reason),
+        )
+
+        return AgentSessionCancelResponse(
+            session_id=session_id,
+            run_id=curr_run_id,
+            reason=reason,
+        )
 
     @contextlib.asynccontextmanager
     async def _build_agent_config(

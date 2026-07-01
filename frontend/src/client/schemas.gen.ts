@@ -3378,6 +3378,44 @@ export const $AgentSessionArtifactsRead = {
   description: "Response schema for persisted agent session artifacts.",
 } as const
 
+export const $AgentSessionCancelRequest = {
+  properties: {
+    reason: {
+      type: "string",
+      const: "user_cancel",
+      title: "Reason",
+      default: "user_cancel",
+    },
+  },
+  type: "object",
+  title: "AgentSessionCancelRequest",
+  description: "Request schema for cancelling the active agent session turn.",
+} as const
+
+export const $AgentSessionCancelResponse = {
+  properties: {
+    session_id: {
+      type: "string",
+      format: "uuid",
+      title: "Session Id",
+    },
+    run_id: {
+      type: "string",
+      format: "uuid",
+      title: "Run Id",
+    },
+    reason: {
+      type: "string",
+      title: "Reason",
+    },
+  },
+  type: "object",
+  required: ["session_id", "run_id", "reason"],
+  title: "AgentSessionCancelResponse",
+  description:
+    "Response schema for an accepted agent session cancellation request.",
+} as const
+
 export const $AgentSessionCreate = {
   properties: {
     id: {
