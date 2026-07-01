@@ -10,10 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from tracecat.service import BaseWorkspaceService
 from tracecat.workspace_sync.adapters import (
     NON_WORKFLOW_RESOURCE_ADAPTERS,
     ProjectedResource,
+    SyncMappingService,
     workspace_spec_from_maps,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
@@ -36,7 +36,7 @@ class WorkspaceResourceProjection:
     """Flattened identities linking each ``source_id`` to its ``local_id``."""
 
 
-class WorkspaceResourceProjector(BaseWorkspaceService):
+class WorkspaceResourceProjector(SyncMappingService):
     """Project non-workflow workspace config resources into sync specs."""
 
     service_name = "workspace_resource_projector"

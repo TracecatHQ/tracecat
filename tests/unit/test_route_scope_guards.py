@@ -503,6 +503,9 @@ async def test_integration_scope_guards(
         (vcs_router.save_github_app_credentials, "org:settings:update"),
         (vcs_router.delete_github_app_credentials, "org:settings:delete"),
         (vcs_router.get_github_app_credentials_status, "org:settings:read"),
+        (vcs_router.save_gitlab_token_credentials, "org:settings:update"),
+        (vcs_router.delete_gitlab_token_credentials, "org:settings:delete"),
+        (vcs_router.get_gitlab_token_credentials_status, "org:settings:read"),
     ],
 )
 async def test_vcs_scope_guards(endpoint: AsyncEndpoint, required_scope: str) -> None:

@@ -239,15 +239,24 @@ class TestCaseFieldsService:
         )
         session.add(definition)
         await session.flush()
-        mapping = WorkspaceSyncResourceMapping(
+        old_local_id = uuid.uuid5(definition.id, "external_ref")
+        github_mapping = WorkspaceSyncResourceMapping(
             workspace_id=svc_role.workspace_id,
             provider=VcsProvider.GITHUB.value,
             resource_type=SyncResourceType.CASE_FIELD.value,
             source_id="external_ref",
             source_path="case_fields/external_ref.yml",
-            local_id=uuid.uuid5(definition.id, "external_ref"),
+            local_id=old_local_id,
         )
-        session.add(mapping)
+        gitlab_mapping = WorkspaceSyncResourceMapping(
+            workspace_id=svc_role.workspace_id,
+            provider=VcsProvider.GITLAB.value,
+            resource_type=SyncResourceType.CASE_FIELD.value,
+            source_id="external_ref",
+            source_path="case_fields/external_ref.yml",
+            local_id=old_local_id,
+        )
+        session.add_all([github_mapping, gitlab_mapping])
         await session.flush()
 
         with patch.object(case_fields_service.editor, "update_column"):
@@ -256,10 +265,15 @@ class TestCaseFieldsService:
                 CaseFieldUpdate(name="vendor_ticket_id"),
             )
 
-        await session.refresh(mapping)
-        assert mapping.source_id == "external_ref"
-        assert mapping.source_path == "case_fields/external_ref.yml"
-        assert mapping.local_id == uuid.uuid5(definition.id, "vendor_ticket_id")
+        new_local_id = uuid.uuid5(definition.id, "vendor_ticket_id")
+        await session.refresh(github_mapping)
+        await session.refresh(gitlab_mapping)
+        assert github_mapping.source_id == "external_ref"
+        assert github_mapping.source_path == "case_fields/external_ref.yml"
+        assert github_mapping.local_id == new_local_id
+        assert gitlab_mapping.source_id == "external_ref"
+        assert gitlab_mapping.source_path == "case_fields/external_ref.yml"
+        assert gitlab_mapping.local_id == new_local_id
 
     async def test_update_field_required_on_closure_without_schema_entry(
         self, case_fields_service: CaseFieldsService

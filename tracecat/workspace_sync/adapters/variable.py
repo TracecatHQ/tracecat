@@ -9,7 +9,6 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from tracecat.db.models import WorkspaceVariable
-from tracecat.service import BaseWorkspaceService
 from tracecat.workspace_sync.adapters.base import (
     EnvironmentScopedManifestAdapter,
     ImportedResource,
@@ -17,6 +16,7 @@ from tracecat.workspace_sync.adapters.base import (
     ProjectedResource,
     ResourceDependencyRefs,
     ResourceProjection,
+    SyncMappingService,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
@@ -49,7 +49,7 @@ class VariableAdapter(EnvironmentScopedManifestAdapter):
     import_identity_noun = "target"
 
     async def project(
-        self, workspace_service: BaseWorkspaceService
+        self, workspace_service: SyncMappingService
     ) -> ResourceProjection:
         """Project workspace variables into specs, recording key names but no values."""
         stmt = self._projection_stmt(workspace_service)
@@ -60,7 +60,7 @@ class VariableAdapter(EnvironmentScopedManifestAdapter):
 
     async def project_dependency_refs(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         refs: ResourceDependencyRefs,
     ) -> ResourceProjection:
         """Project variables selected directly or referenced by name."""
@@ -100,7 +100,7 @@ class VariableAdapter(EnvironmentScopedManifestAdapter):
         return await self._projection_from_variables(workspace_service, variables)
 
     def _projection_stmt(
-        self, workspace_service: BaseWorkspaceService
+        self, workspace_service: SyncMappingService
     ) -> sa.Select[tuple[WorkspaceVariable]]:
         """Build the base variable projection query."""
         return (
@@ -115,7 +115,7 @@ class VariableAdapter(EnvironmentScopedManifestAdapter):
 
     async def _projection_from_variables(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         variables: list[WorkspaceVariable],
     ) -> ResourceProjection:
         """Build sync specs from variable rows."""
@@ -141,7 +141,7 @@ class VariableAdapter(EnvironmentScopedManifestAdapter):
 
     async def import_specs(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         """Reconcile variable specs into the database, preserving existing values.
@@ -210,7 +210,7 @@ class VariableAdapter(EnvironmentScopedManifestAdapter):
 
     async def _variable_for_import(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         *,
         source_id: str,
         spec: VariableResourceSpec,
@@ -244,7 +244,7 @@ class VariableAdapter(EnvironmentScopedManifestAdapter):
 
     async def _variable_by_source_id(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         *,
         source_id: str,
     ) -> WorkspaceVariable | None:

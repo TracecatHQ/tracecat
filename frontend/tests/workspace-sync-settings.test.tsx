@@ -9,6 +9,7 @@ import type {
   GitCommitInfo,
   GitHubAppRepository,
   PullResult,
+  VcsProvider,
   WorkspaceRead,
   WorkspaceSyncExportPreview,
 } from "@/client"
@@ -103,11 +104,13 @@ const workspace = {
 
 function setupHooks({
   gitRepoUrl = null,
+  gitProvider = null,
   repositoryHook = {},
   branches = [],
   commits = [],
 }: {
   gitRepoUrl?: string | null
+  gitProvider?: VcsProvider | null
   repositoryHook?: Partial<ReturnType<typeof useGitHubAppRepositories>>
   branches?: GitBranchInfo[]
   commits?: GitCommitInfo[]
@@ -156,6 +159,7 @@ function setupHooks({
     ...workspace,
     settings: {
       ...workspace.settings,
+      git_provider: gitProvider,
       git_repo_url: gitRepoUrl,
     },
   }
@@ -182,7 +186,69 @@ describe("WorkspaceSyncSettings", () => {
     await waitFor(() => {
       expect(mockUpdateWorkspace).toHaveBeenCalledWith({
         settings: {
+          git_provider: "github",
           git_repo_url: customUrl,
+        },
+      })
+    })
+  })
+
+  it("saves a GitLab manual URL and suppresses the GitHub repository picker", async () => {
+    const user = userEvent.setup()
+    render(
+      <WorkspaceSyncSettings
+        workspace={setupHooks({ gitProvider: "gitlab" })}
+      />
+    )
+
+    expect(useGitHubAppRepositories).toHaveBeenCalledWith("workspace-1", {
+      enabled: false,
+    })
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument()
+    expect(screen.getByLabelText("Remote repository URL")).toHaveAttribute(
+      "placeholder",
+      "git+ssh://git@gitlab.com/my-org/my-group/my-repo.git"
+    )
+
+    const gitlabUrl =
+      "git+ssh://git@gitlab.com/test-org/subgroup/custom-repo.git"
+    await user.type(screen.getByLabelText("Remote repository URL"), gitlabUrl)
+    await user.click(screen.getByRole("button", { name: "Save" }))
+
+    await waitFor(() => {
+      expect(mockUpdateWorkspace).toHaveBeenCalledWith({
+        settings: {
+          git_provider: "gitlab",
+          git_repo_url: gitlabUrl,
+        },
+      })
+    })
+  })
+
+  it("requires an explicit supported provider choice for unsupported persisted providers", async () => {
+    const user = userEvent.setup()
+    render(
+      <WorkspaceSyncSettings
+        workspace={setupHooks({ gitProvider: "bitbucket" })}
+      />
+    )
+
+    expect(
+      screen.getByText(/The saved provider "bitbucket" is not supported/)
+    ).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
+
+    await user.click(screen.getByRole("button", { name: "GitLab" }))
+    const gitlabUrl =
+      "git+ssh://git@gitlab.com/test-org/subgroup/custom-repo.git"
+    await user.type(screen.getByLabelText("Remote repository URL"), gitlabUrl)
+    await user.click(screen.getByRole("button", { name: "Save" }))
+
+    await waitFor(() => {
+      expect(mockUpdateWorkspace).toHaveBeenCalledWith({
+        settings: {
+          git_provider: "gitlab",
+          git_repo_url: gitlabUrl,
         },
       })
     })
@@ -201,6 +267,7 @@ describe("WorkspaceSyncSettings", () => {
     await waitFor(() => {
       expect(mockUpdateWorkspace).toHaveBeenCalledWith({
         settings: {
+          git_provider: "github",
           git_repo_url: repositories[0].git_url,
         },
       })
@@ -220,6 +287,7 @@ describe("WorkspaceSyncSettings", () => {
     await waitFor(() => {
       expect(mockUpdateWorkspace).toHaveBeenCalledWith({
         settings: {
+          git_provider: "github",
           git_repo_url: `${repositories[1].git_url}@trunk`,
         },
       })
@@ -323,6 +391,38 @@ describe("WorkspaceSyncSettings", () => {
     expect(screen.getByRole("button", { name: "Select" })).toHaveAttribute(
       "aria-current",
       "true"
+    )
+  })
+
+  it("passes the persisted GitLab provider into repository health checks", () => {
+    const gitlabUrl =
+      "git+ssh://git@gitlab.com/test-org/subgroup/custom-repo.git"
+    render(
+      <WorkspaceSyncSettings
+        workspace={setupHooks({
+          gitRepoUrl: gitlabUrl,
+          gitProvider: "gitlab",
+          branches: [{ name: "main", is_default: true }],
+        })}
+      />
+    )
+
+    expect(useGitHubAppRepositories).toHaveBeenCalledWith("workspace-1", {
+      enabled: false,
+    })
+    expect(useRepositoryBranches).toHaveBeenCalledWith(
+      "workspace-1",
+      expect.objectContaining({
+        gitRepoUrl: gitlabUrl,
+        provider: "gitlab",
+      })
+    )
+    expect(useRepositoryCommits).toHaveBeenCalledWith(
+      "workspace-1",
+      expect.objectContaining({
+        gitRepoUrl: gitlabUrl,
+        provider: "gitlab",
+      })
     )
   })
 

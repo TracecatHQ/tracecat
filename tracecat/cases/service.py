@@ -134,7 +134,7 @@ from tracecat.tables.service import (
     validate_identifier,
 )
 from tracecat.tiers.enums import Entitlement
-from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
+from tracecat.workspace_sync.enums import SyncResourceType
 
 
 def _normalize_filter_values(values: Any) -> list[Any]:
@@ -1424,7 +1424,7 @@ class CaseFieldsService(CustomFieldsService):
         old_field_id: str,
         new_field_id: str,
     ) -> None:
-        """Move a case-field sync mapping to the renamed schema key."""
+        """Move case-field sync mappings to the renamed schema key."""
         definition = await self.session.scalar(
             sa.select(CaseFields).where(CaseFields.workspace_id == self.workspace_id)
         )
@@ -1432,20 +1432,23 @@ class CaseFieldsService(CustomFieldsService):
             return
 
         old_local_id = uuid.uuid5(definition.id, old_field_id)
-        mapping = await self.session.scalar(
-            sa.select(WorkspaceSyncResourceMapping).where(
-                WorkspaceSyncResourceMapping.workspace_id == self.workspace_id,
-                WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
-                WorkspaceSyncResourceMapping.resource_type
-                == SyncResourceType.CASE_FIELD.value,
-                WorkspaceSyncResourceMapping.local_id == old_local_id,
+        mappings = (
+            await self.session.scalars(
+                sa.select(WorkspaceSyncResourceMapping).where(
+                    WorkspaceSyncResourceMapping.workspace_id == self.workspace_id,
+                    WorkspaceSyncResourceMapping.resource_type
+                    == SyncResourceType.CASE_FIELD.value,
+                    WorkspaceSyncResourceMapping.local_id == old_local_id,
+                )
             )
-        )
-        if mapping is None:
+        ).all()
+        if not mappings:
             return
 
-        mapping.local_id = uuid.uuid5(definition.id, new_field_id)
-        self.session.add(mapping)
+        new_local_id = uuid.uuid5(definition.id, new_field_id)
+        for mapping in mappings:
+            mapping.local_id = new_local_id
+            self.session.add(mapping)
         await self.session.flush()
 
     @require_scope("case:delete")

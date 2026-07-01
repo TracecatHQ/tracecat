@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, SecretStr
 
 from tracecat.vcs.github.manifest import GitHubAppManifest
@@ -43,3 +45,41 @@ class GitHubAppManifestResponse(BaseModel):
 
     manifest: GitHubAppManifest
     instructions: list[str]
+
+
+class GitHubAppCredentialsSaveResponse(BaseModel):
+    """Response after creating or updating GitHub App credentials."""
+
+    message: str
+    action: Literal["created", "updated"]
+    app_id: str
+
+
+class GitLabTokenCredentialsRequest(BaseModel):
+    """Request to register or update GitLab token credentials."""
+
+    base_url: str = Field(
+        default="https://gitlab.com",
+        description="Base URL for GitLab.com or a self-managed GitLab instance.",
+    )
+    token: SecretStr = Field(
+        ...,
+        description="GitLab personal/project/group access token with api scope.",
+    )
+
+
+class GitLabTokenCredentialsStatus(BaseModel):
+    """Status of GitLab token credentials."""
+
+    exists: bool
+    is_corrupted: bool = False
+    base_url: str | None = None
+    created_at: str | None = None
+
+
+class GitLabTokenCredentialsSaveResponse(BaseModel):
+    """Response after creating or updating GitLab token credentials."""
+
+    message: str
+    action: Literal["created", "updated"]
+    base_url: str

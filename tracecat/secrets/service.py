@@ -379,9 +379,13 @@ class SecretsService(BaseOrgService):
         return await self._get_github_app_org_secret()
 
     @require_scope("org:secret:create")
-    @audit_log(resource_type="organization_secret", action="create")
     async def create_org_secret(self, params: SecretCreate) -> None:
         """Create a new organization secret."""
+        await self._create_org_secret(params)
+
+    @audit_log(resource_type="organization_secret", action="create")
+    async def _create_org_secret(self, params: SecretCreate) -> None:
+        """Create an organization secret for callers with their own access gate."""
         if params.type == SecretType.SSH_KEY:
             validate_ssh_key_values(params.keys)
         elif params.type == SecretType.MTLS:
@@ -401,18 +405,28 @@ class SecretsService(BaseOrgService):
         await self.session.commit()
 
     @require_scope("org:secret:update")
-    @audit_log(resource_type="organization_secret", action="update")
     async def update_org_secret(
         self, secret: OrganizationSecret, params: SecretUpdate
     ) -> None:
+        await self._update_org_secret(secret=secret, params=params)
+
+    @audit_log(resource_type="organization_secret", action="update")
+    async def _update_org_secret(
+        self, secret: OrganizationSecret, params: SecretUpdate
+    ) -> None:
+        """Update an organization secret for callers with their own access gate."""
         await self._update_secret(secret=secret, params=params)
 
     @require_scope("org:secret:delete")
+    async def delete_org_secret(self, org_secret: OrganizationSecret) -> None:
+        await self._delete_org_secret(org_secret)
+
     @audit_log(
         resource_type="organization_secret",
         action="delete",
     )
-    async def delete_org_secret(self, org_secret: OrganizationSecret) -> None:
+    async def _delete_org_secret(self, org_secret: OrganizationSecret) -> None:
+        """Delete an organization secret for callers with their own access gate."""
         await self._delete_secret(org_secret)
 
     @require_scope("org:secret:read")

@@ -14,13 +14,13 @@ from tracecat.cases.enums import CaseFieldKind
 from tracecat.cases.schemas import CaseFieldCreate, CaseFieldUpdate
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import CaseFields
-from tracecat.service import BaseWorkspaceService
 from tracecat.tables.enums import SqlType
 from tracecat.workspace_sync.adapters.base import (
     FlatManifestAdapter,
     ImportedResource,
     ProjectedResource,
     ResourceProjection,
+    SyncMappingService,
     find_duplicates,
     sql_type,
 )
@@ -50,7 +50,7 @@ class CaseFieldAdapter(FlatManifestAdapter):
     import_identity_noun = "name"
 
     async def project(
-        self, workspace_service: BaseWorkspaceService
+        self, workspace_service: SyncMappingService
     ) -> ResourceProjection:
         """Project each entry of the workspace case fields schema into a spec."""
         # All case fields live in one workspace-wide schema row; absence means
@@ -87,7 +87,7 @@ class CaseFieldAdapter(FlatManifestAdapter):
 
     async def import_specs(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         """Reconcile field specs, creating new columns or updating schema entries."""
@@ -191,7 +191,7 @@ class CaseFieldAdapter(FlatManifestAdapter):
 
     async def _field_id_for_import(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         *,
         definition: CaseFields | None,
         current_schema: Mapping[str, Any],
@@ -214,7 +214,7 @@ class CaseFieldAdapter(FlatManifestAdapter):
 
     async def _release_changing_mapped_fields(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         *,
         field_service: CaseFieldsService,
         fields: Mapping[str, CaseFieldResourceSpec],

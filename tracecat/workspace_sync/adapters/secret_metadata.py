@@ -10,7 +10,6 @@ from tracecat.db.models import Secret
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretKeyValue
 from tracecat.secrets.service import SecretsService
-from tracecat.service import BaseWorkspaceService
 from tracecat.workspace_sync.adapters.base import (
     EnvironmentScopedManifestAdapter,
     ImportedResource,
@@ -18,6 +17,7 @@ from tracecat.workspace_sync.adapters.base import (
     ProjectedResource,
     ResourceDependencyRefs,
     ResourceProjection,
+    SyncMappingService,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
@@ -41,7 +41,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
     import_identity_noun = "target"
 
     async def project(
-        self, workspace_service: BaseWorkspaceService
+        self, workspace_service: SyncMappingService
     ) -> ResourceProjection:
         """Project secrets into specs, emitting only key names, not their values."""
         stmt = self._projection_stmt(workspace_service)
@@ -50,7 +50,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
 
     async def project_dependency_refs(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         refs: ResourceDependencyRefs,
     ) -> ResourceProjection:
         """Project secret metadata selected directly or referenced by name."""
@@ -88,7 +88,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
         return await self._projection_from_secrets(workspace_service, secrets)
 
     def _projection_stmt(
-        self, workspace_service: BaseWorkspaceService
+        self, workspace_service: SyncMappingService
     ) -> sa.Select[tuple[Secret]]:
         """Build the base secret metadata projection query."""
         return (
@@ -99,7 +99,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
 
     async def _projection_from_secrets(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         secrets: list[Secret],
     ) -> ResourceProjection:
         """Build sync specs from secret rows."""
@@ -133,7 +133,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
 
     async def import_specs(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         """Reconcile secret metadata specs, preserving existing key values.
@@ -226,7 +226,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
 
     async def _secret_for_import(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         *,
         source_id: str,
         spec: SecretMetadataResourceSpec,
@@ -257,7 +257,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
 
     async def _secret_by_source_id(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         *,
         source_id: str,
     ) -> Secret | None:

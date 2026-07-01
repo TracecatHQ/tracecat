@@ -28,7 +28,6 @@ from tracecat.db.models import (
     SkillVersionFile,
 )
 from tracecat.exceptions import TracecatValidationError
-from tracecat.service import BaseWorkspaceService
 from tracecat.storage import blob
 from tracecat.sync import PullDiagnostic, serializable_validation_errors
 from tracecat.workspace_sync.adapters.base import (
@@ -38,6 +37,7 @@ from tracecat.workspace_sync.adapters.base import (
     ProjectedResource,
     ResourceDependencyRefs,
     ResourceProjection,
+    SyncMappingService,
     path_parts,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
@@ -310,7 +310,7 @@ class SkillAdapter(DirectoryManifestAdapter):
                 )
 
     async def project(
-        self, workspace_service: BaseWorkspaceService
+        self, workspace_service: SyncMappingService
     ) -> ResourceProjection:
         """Project skills and the version snapshots needed to preserve pins."""
         stmt = self._projection_stmt(workspace_service)
@@ -326,7 +326,7 @@ class SkillAdapter(DirectoryManifestAdapter):
 
     async def project_dependency_refs(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         refs: ResourceDependencyRefs,
     ) -> ResourceProjection:
         """Project skills selected directly or referenced by slug."""
@@ -370,7 +370,7 @@ class SkillAdapter(DirectoryManifestAdapter):
         )
 
     def _projection_stmt(
-        self, workspace_service: BaseWorkspaceService
+        self, workspace_service: SyncMappingService
     ) -> sa.Select[tuple[Skill]]:
         """Build the base eager-loaded skill projection query."""
         return (
@@ -385,7 +385,7 @@ class SkillAdapter(DirectoryManifestAdapter):
 
     async def _projection_from_skills(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         skills: list[Skill],
         versions_by_skill_id: Mapping[uuid.UUID, set[int]] | None = None,
     ) -> ResourceProjection:
@@ -420,7 +420,7 @@ class SkillAdapter(DirectoryManifestAdapter):
 
     async def _exported_bound_versions_by_skill(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
     ) -> dict[uuid.UUID, set[int]]:
         """Return skill versions bound by exported agent preset state."""
         head_stmt = (
@@ -458,7 +458,7 @@ class SkillAdapter(DirectoryManifestAdapter):
 
     async def _version_specs_for_skill(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         *,
         skill: Skill,
         version_numbers: set[int],
@@ -505,7 +505,7 @@ class SkillAdapter(DirectoryManifestAdapter):
 
     async def _skill_version_rows(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         version_id: uuid.UUID,
     ) -> list[tuple[SkillVersionFile, SkillBlob]]:
         """Return a version's files joined to their blobs, ordered by path."""
@@ -529,7 +529,7 @@ class SkillAdapter(DirectoryManifestAdapter):
 
     async def import_specs(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         """Reconcile skill specs into the local database.
@@ -626,7 +626,7 @@ class SkillAdapter(DirectoryManifestAdapter):
 
     async def _upsert_skill_version(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         skill_service: SkillService,
         *,
         skill: Skill,
@@ -719,7 +719,7 @@ class SkillAdapter(DirectoryManifestAdapter):
 
     async def _skill_for_import(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         *,
         source_id: str,
         spec: SkillResourceSpec,
@@ -758,7 +758,7 @@ class SkillAdapter(DirectoryManifestAdapter):
 
     async def _skill_by_source_id(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         *,
         source_id: str,
     ) -> Skill | None:

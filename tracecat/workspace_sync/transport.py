@@ -5,12 +5,17 @@ from __future__ import annotations
 import asyncio
 import base64
 import itertools
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 from typing import Any, Protocol
+from urllib.parse import quote, urlparse
 
+import httpx
 from github.GithubException import GithubException
 from github.InputGitTreeElement import InputGitTreeElement
+from pydantic import BaseModel
+from pydantic import ValidationError as PydanticValidationError
 
 from tracecat.db.models import User
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -19,6 +24,24 @@ from tracecat.registry.repositories.schemas import GitBranchInfo, GitCommitInfo
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import CommitInfo, PushStatus
 from tracecat.vcs.github.app import GitHubAppError, GitHubAppService
+from tracecat.vcs.gitlab.app import GitLabApiError, GitLabError, GitLabTokenService
+from tracecat.vcs.gitlab.schemas import GitLabTokenCredentials
+from tracecat.vcs.gitlab.types import (
+    GitLabBranch,
+    GitLabCommit,
+    GitLabCommitAction,
+    GitLabCompareParams,
+    GitLabCompareResult,
+    GitLabCreateBranchParams,
+    GitLabCreateCommitPayload,
+    GitLabCreateMergeRequestPayload,
+    GitLabListCommitsParams,
+    GitLabListMergeRequestsParams,
+    GitLabMergeRequest,
+    GitLabProject,
+    GitLabTreeEntry,
+    GitLabTreeParams,
+)
 from tracecat.workspace_sync.enums import VcsProvider
 from tracecat.workspace_sync.schemas import (
     MANIFEST_FILENAME,
@@ -39,6 +62,8 @@ class VcsTreeSnapshot:
     """SHA of the commit's root tree, when the provider exposes it."""
     files: dict[str, str]
     """Map of repository path to decoded UTF-8 file content."""
+    blob_paths: frozenset[str] = field(default_factory=frozenset)
+    """All blob paths present in the tree, including non-UTF-8 blobs."""
 
 
 class VcsSyncTransport(Protocol):
@@ -100,7 +125,7 @@ def unsupported_transport(provider: VcsProvider) -> TracecatValidationError:
     """Build the error raised for providers without a sync transport yet."""
     return TracecatValidationError(
         f"{provider.value} workspace sync is not implemented yet. "
-        "GitLab and Bitbucket will use token-backed VCS transports in a later pass."
+        "Bitbucket will use a token-backed VCS transport in a later pass."
     )
 
 
@@ -118,7 +143,9 @@ def vcs_transport_for_provider(
     match provider:
         case VcsProvider.GITHUB:
             return GitHubWorkspaceSyncTransport(session=session, role=role)
-        case VcsProvider.GITLAB | VcsProvider.BITBUCKET:
+        case VcsProvider.GITLAB:
+            return GitLabWorkspaceSyncTransport(session=session, role=role)
+        case VcsProvider.BITBUCKET:
             raise unsupported_transport(provider)
 
 
@@ -135,8 +162,102 @@ def _path_is_under_roots(path: str, roots: Sequence[str]) -> bool:
 _GITHUB_BLOB_CONCURRENCY = 8
 """Maximum concurrent GitHub blob/content calls during sync reads and writes."""
 
+_GITLAB_PAGE_SIZE = 100
+"""GitLab REST page size used for workspace sync reads."""
 
-class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
+_GITLAB_BLOB_CONCURRENCY = 8
+"""Maximum concurrent GitLab blob calls during sync reads."""
+
+
+class BaseWorkspaceSyncTransport(BaseWorkspaceService):
+    """Shared, provider-neutral helpers for workspace sync transports.
+
+    The GitHub and GitLab transports differ in how they authenticate, list
+    blobs, and write commits, but agree on which files a snapshot contains, how
+    export inputs are validated, and what the generated PR/MR body says. Those
+    provider-neutral pieces live here so both transports stay in lockstep.
+    """
+
+    @staticmethod
+    def _normalize_commit_message(files: dict[str, str], message: str) -> str:
+        """Validate export inputs and return the stripped commit message."""
+        if not files:
+            raise ValueError("At least one file is required for workspace sync export")
+        message = message.strip()
+        if not message:
+            raise ValueError("A non-empty commit message is required")
+        return message
+
+    async def _select_snapshot_files(
+        self,
+        *,
+        blob_paths: Sequence[str],
+        fetch_text: Callable[[str], Awaitable[str | None]],
+    ) -> dict[str, str]:
+        """Decode the manifest and managed-resource blobs from a commit tree.
+
+        ``blob_paths`` lists every blob path in the tree; ``fetch_text`` loads and
+        UTF-8 decodes one path, returning ``None`` for binary blobs. The manifest
+        (when present) selects the resource roots; only paths under those roots
+        are read. Shared by the GitHub and GitLab readers, which differ only in
+        how blobs are listed and fetched.
+        """
+        paths = set(blob_paths)
+
+        async def fetch_path(path: str) -> tuple[str, str | None]:
+            """Fetch ``path`` and preserve its identity through gather."""
+            return path, await fetch_text(path)
+
+        files: dict[str, str] = {}
+        resource_roots = manifest_resource_roots(WorkspaceManifest())
+        if MANIFEST_FILENAME in paths:
+            manifest_content = await fetch_text(MANIFEST_FILENAME)
+            if manifest_content is not None:
+                files[MANIFEST_FILENAME] = manifest_content
+                try:
+                    manifest = workspace_manifest_from_json(manifest_content)
+                    resource_roots = manifest_resource_roots(manifest)
+                except Exception:
+                    pass
+
+        resource_paths = [
+            path
+            for path in sorted(paths)
+            if path != MANIFEST_FILENAME
+            and any(path.startswith(f"{root}/") for root in resource_roots)
+        ]
+        for path, content in await asyncio.gather(
+            *(fetch_path(path) for path in resource_paths)
+        ):
+            if content is not None:
+                files[path] = content
+        return files
+
+    async def _sync_request_body(self) -> str:
+        """Render the shared PR/MR description with workspace attribution."""
+        workspace = await WorkspaceService(
+            session=self.session,
+            role=self.role,
+        ).get_workspace(self.workspace_id)
+        if workspace is None:
+            raise TracecatNotFoundError("Workspace not found")
+
+        current_user = None
+        if self.role.user_id is not None:
+            try:
+                current_user = await self.session.get(User, self.role.user_id)
+            except Exception:
+                current_user = None
+
+        published_by = current_user.email if current_user else "<unknown>"
+        return (
+            "Automated workspace sync from Tracecat\n\n"
+            f"**Workspace:** {workspace.name}\n"
+            f"**Published by:** {published_by}"
+        )
+
+
+class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
     """GitHub App transport for workspace sync."""
 
     service_name = "workspace_github_sync"
@@ -182,37 +303,15 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
                 except UnicodeDecodeError:
                     return None
 
-            async def fetch_path(path: str) -> tuple[str, str | None]:
-                """Fetch ``path`` and preserve its identity through gather."""
-                return path, await fetch_text(path)
-
-            files: dict[str, str] = {}
-            resource_roots = manifest_resource_roots(WorkspaceManifest())
-            if MANIFEST_FILENAME in blob_shas:
-                manifest_content = await fetch_text(MANIFEST_FILENAME)
-                if manifest_content is not None:
-                    files[MANIFEST_FILENAME] = manifest_content
-                    try:
-                        manifest = workspace_manifest_from_json(manifest_content)
-                        resource_roots = manifest_resource_roots(manifest)
-                    except Exception:
-                        pass
-
-            resource_paths = [
-                path
-                for path in sorted(blob_shas)
-                if path != MANIFEST_FILENAME
-                and any(path.startswith(f"{root}/") for root in resource_roots)
-            ]
-            for path, content in await asyncio.gather(
-                *(fetch_path(path) for path in resource_paths)
-            ):
-                if content is not None:
-                    files[path] = content
+            files = await self._select_snapshot_files(
+                blob_paths=list(blob_shas),
+                fetch_text=fetch_text,
+            )
             return VcsTreeSnapshot(
                 commit_sha=commit.sha,
                 tree_sha=tree_sha,
                 files=files,
+                blob_paths=frozenset(blob_shas),
             )
         except GithubException as e:
             raise GitHubAppError(f"GitHub API error: {e.status} - {e.data}") from e
@@ -239,11 +338,7 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
         reusing or opening a pull request when ``create_pr`` is set and the
         branch diverges from its base.
         """
-        if not files:
-            raise ValueError("At least one file is required for workspace sync export")
-        message = message.strip()
-        if not message:
-            raise ValueError("A non-empty commit message is required")
+        message = self._normalize_commit_message(files, message)
 
         gh_svc = GitHubAppService(session=self.session, role=self.role)
         gh = await gh_svc.get_github_client_for_repo(url)
@@ -537,29 +632,10 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
         if existing_pr is not None:
             return existing_pr.html_url, existing_pr.number, True
 
-        workspace = await WorkspaceService(
-            session=self.session,
-            role=self.role,
-        ).get_workspace(self.workspace_id)
-        if workspace is None:
-            raise TracecatNotFoundError("Workspace not found")
-
-        current_user = None
-        if self.role.user_id is not None:
-            try:
-                current_user = await self.session.get(User, self.role.user_id)
-            except Exception:
-                current_user = None
-
-        published_by = current_user.email if current_user else "<unknown>"
         pr = await asyncio.to_thread(
             repo.create_pull,
             title=title,
-            body=(
-                "Automated workspace sync from Tracecat\n\n"
-                f"**Workspace:** {workspace.name}\n"
-                f"**Published by:** {published_by}"
-            ),
+            body=await self._sync_request_body(),
             head=branch_name,
             base=base_branch_name,
         )
@@ -579,3 +655,617 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceService):
             branch_name,
         )
         return (getattr(comparison, "ahead_by", None) or 0) > 0
+
+
+class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
+    """GitLab token-backed REST transport for workspace sync."""
+
+    service_name = "workspace_gitlab_sync"
+
+    async def read_files(
+        self,
+        *,
+        url: GitUrl,
+        ref: str,
+    ) -> VcsTreeSnapshot:
+        """Read the manifest and managed resource files at ``ref``."""
+        async with self._authed_client(url) as client:
+            return await self._read_files_with_client(client=client, url=url, ref=ref)
+
+    async def write_files(
+        self,
+        *,
+        url: GitUrl,
+        files: dict[str, str],
+        message: str,
+        branch: str,
+        create_pr: bool,
+        pr_base_branch: str | None = None,
+        delete_missing_paths_under: Sequence[str] = (),
+    ) -> CommitInfo:
+        """Commit ``files`` to ``branch``, optionally opening a merge request."""
+        message = self._normalize_commit_message(files, message)
+
+        async with self._authed_client(url) as client:
+            project_id = _gitlab_project_id(url)
+            base_branch_name = pr_base_branch or url.ref
+            if base_branch_name is None:
+                project = await self._get_project(client=client, project_id=project_id)
+                base_branch_name = project.default_branch or "main"
+            if create_pr and branch == base_branch_name:
+                raise TracecatValidationError(
+                    "create_pr exports must target a non-base branch"
+                )
+
+            await self._get_branch(
+                client=client,
+                project_id=project_id,
+                branch=base_branch_name,
+            )
+            try:
+                await self._get_branch(
+                    client=client,
+                    project_id=project_id,
+                    branch=branch,
+                )
+            except GitLabApiError as e:
+                if e.status_code != 404:
+                    raise
+                await self._create_branch(
+                    client=client,
+                    project_id=project_id,
+                    branch=branch,
+                    ref=base_branch_name,
+                )
+
+            current = await self._read_files_with_client(
+                client=client,
+                url=url,
+                ref=branch,
+            )
+            current_blob_paths = current.blob_paths or frozenset(current.files)
+            changed_files = {
+                path: content
+                for path, content in sorted(files.items())
+                if current.files.get(path) != content
+            }
+            managed_roots = _normalized_roots(delete_missing_paths_under)
+            stale_paths = {
+                path
+                for path in current_blob_paths
+                if path not in files and _path_is_under_roots(path, managed_roots)
+            }
+
+            pr_url: str | None = None
+            pr_number: int | None = None
+            pr_reused = False
+            if not changed_files and not stale_paths:
+                branch_has_commits = await self._branch_has_commits_between(
+                    client=client,
+                    project_id=project_id,
+                    base_branch_name=base_branch_name,
+                    branch_name=branch,
+                )
+                if create_pr and branch_has_commits:
+                    pr_url, pr_number, pr_reused = await self._upsert_merge_request(
+                        client=client,
+                        project_id=project_id,
+                        title=message,
+                        branch_name=branch,
+                        base_branch_name=base_branch_name,
+                    )
+                return CommitInfo(
+                    status=PushStatus.NO_OP,
+                    sha=None,
+                    ref=branch,
+                    base_ref=base_branch_name,
+                    pr_url=pr_url,
+                    pr_number=pr_number,
+                    pr_reused=pr_reused,
+                    message="No changes detected; nothing to commit.",
+                )
+
+            actions: list[GitLabCommitAction] = []
+            for path, content in sorted(changed_files.items()):
+                actions.append(
+                    {
+                        "action": "update" if path in current_blob_paths else "create",
+                        "file_path": path,
+                        "content": content,
+                    }
+                )
+            for path in sorted(stale_paths):
+                actions.append({"action": "delete", "file_path": path})
+
+            commit_payload: GitLabCreateCommitPayload = {
+                "branch": branch,
+                "commit_message": message,
+                "actions": actions,
+            }
+            commit = await self._gitlab_model(
+                client,
+                "POST",
+                f"/projects/{project_id}/repository/commits",
+                model=GitLabCommit,
+                json=commit_payload,
+            )
+            commit_sha = commit.id
+
+            if create_pr:
+                pr_url, pr_number, pr_reused = await self._upsert_merge_request(
+                    client=client,
+                    project_id=project_id,
+                    title=message,
+                    branch_name=branch,
+                    base_branch_name=base_branch_name,
+                )
+
+            return CommitInfo(
+                status=PushStatus.COMMITTED,
+                sha=commit_sha,
+                ref=branch,
+                base_ref=base_branch_name,
+                pr_url=pr_url,
+                pr_number=pr_number,
+                pr_reused=pr_reused,
+                message="Committed workspace sync changes.",
+            )
+
+    async def list_commits(
+        self,
+        *,
+        url: GitUrl,
+        branch: str = "main",
+        limit: int = 10,
+    ) -> list[GitCommitInfo]:
+        """Return up to ``limit`` most recent commits on ``branch``."""
+        async with self._authed_client(url) as client:
+            project_id = _gitlab_project_id(url)
+            commits_params: GitLabListCommitsParams = {"ref_name": branch}
+            raw_commits = await self._gitlab_list(
+                client,
+                f"/projects/{project_id}/repository/commits",
+                model=GitLabCommit,
+                params=commits_params,
+                limit=limit,
+            )
+        return [
+            GitCommitInfo(
+                sha=commit.id,
+                message=commit.message or commit.title or "",
+                author=commit.author_name or "Unknown",
+                author_email=commit.author_email or "",
+                date=commit.authored_date
+                or commit.committed_date
+                or commit.created_at
+                or "",
+                tags=[],
+            )
+            for commit in raw_commits
+        ]
+
+    async def list_branches(
+        self,
+        *,
+        url: GitUrl,
+        limit: int = 100,
+    ) -> list[GitBranchInfo]:
+        """Return up to ``limit`` branches, flagging the repository default."""
+        async with self._authed_client(url) as client:
+            return await self._list_branches_with_client(
+                client=client,
+                url=url,
+                limit=limit,
+            )
+
+    async def _credentials(self) -> GitLabTokenCredentials:
+        """Load organization GitLab token credentials."""
+        return await GitLabTokenService(
+            session=self.session,
+            role=self.role,
+        ).get_gitlab_token_credentials()
+
+    def _client(self, credentials: GitLabTokenCredentials) -> httpx.AsyncClient:
+        """Build an authenticated GitLab REST API client."""
+        return httpx.AsyncClient(
+            base_url=f"{credentials.base_url}/api/v4",
+            headers={"PRIVATE-TOKEN": credentials.token.get_secret_value()},
+            timeout=30.0,
+        )
+
+    @asynccontextmanager
+    async def _authed_client(self, url: GitUrl) -> AsyncIterator[httpx.AsyncClient]:
+        """Yield an authenticated client, asserting the repo lives on the instance.
+
+        The API host comes from the organization GitLab connection's ``base_url``
+        while the project path comes from the workspace ``git_repo_url``. Guarding
+        that they reference the same host prevents a workspace URL from silently
+        resolving against a different GitLab instance than the one the token
+        authenticates to.
+
+        Dedicated SSH host aliases (for example ``ssh.gitlab.example.test`` or
+        ``altssh.gitlab.com``) are allowed as subdomains of the configured
+        instance host, and ports are ignored so custom SSH ports still match.
+        """
+        credentials = await self._credentials()
+        expected_host = _gitlab_instance_host(credentials.base_url)
+        repo_host = _gitlab_instance_host(url.host)
+        if expected_host and not (
+            repo_host == expected_host or repo_host.endswith(f".{expected_host}")
+        ):
+            raise TracecatValidationError(
+                f"Workspace repository host '{url.host}' does not match the "
+                f"configured GitLab instance '{expected_host}'. Update the "
+                "workspace Git URL or the organization GitLab connection so they "
+                "reference the same host."
+            )
+        async with self._client(credentials) as client:
+            yield client
+
+    async def _read_files_with_client(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        url: GitUrl,
+        ref: str,
+    ) -> VcsTreeSnapshot:
+        """Read workspace sync files with an existing GitLab client."""
+        project_id = _gitlab_project_id(url)
+        commit = await self._gitlab_model(
+            client,
+            "GET",
+            f"/projects/{project_id}/repository/commits/{quote(ref, safe='')}",
+            model=GitLabCommit,
+        )
+        commit_sha = commit.id
+
+        tree_params: GitLabTreeParams = {"recursive": "true", "ref": commit_sha}
+        tree_entries = await self._gitlab_list(
+            client,
+            f"/projects/{project_id}/repository/tree",
+            model=GitLabTreeEntry,
+            params=tree_params,
+        )
+        blob_shas = {
+            entry.path: entry.id for entry in tree_entries if entry.type == "blob"
+        }
+        blob_semaphore = asyncio.Semaphore(_GITLAB_BLOB_CONCURRENCY)
+
+        async def fetch_text(path: str) -> str | None:
+            """Fetch a blob raw payload and decode it as UTF-8."""
+            async with blob_semaphore:
+                response = await self._gitlab_response(
+                    client,
+                    "GET",
+                    f"/projects/{project_id}/repository/blobs/{quote(blob_shas[path], safe='')}/raw",
+                )
+            try:
+                return response.content.decode("utf-8")
+            except UnicodeDecodeError:
+                return None
+
+        files = await self._select_snapshot_files(
+            blob_paths=list(blob_shas),
+            fetch_text=fetch_text,
+        )
+        return VcsTreeSnapshot(
+            commit_sha=commit_sha,
+            tree_sha=None,
+            files=files,
+            blob_paths=frozenset(blob_shas),
+        )
+
+    async def _list_branches_with_client(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        url: GitUrl,
+        limit: int | None,
+    ) -> list[GitBranchInfo]:
+        """List branches using an existing GitLab client."""
+        project_id = _gitlab_project_id(url)
+        branch_path = f"/projects/{project_id}/repository/branches"
+        raw_branches = await self._gitlab_branches_including_default(
+            client,
+            branch_path,
+            limit=limit,
+        )
+        return [
+            GitBranchInfo(name=branch.name, is_default=branch.default)
+            for branch in raw_branches
+        ]
+
+    async def _get_branch(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        project_id: str,
+        branch: str,
+    ) -> GitLabBranch:
+        """Return a GitLab branch object or raise a structured API error."""
+        return await self._gitlab_model(
+            client,
+            "GET",
+            f"/projects/{project_id}/repository/branches/{quote(branch, safe='')}",
+            model=GitLabBranch,
+        )
+
+    async def _get_project(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        project_id: str,
+    ) -> GitLabProject:
+        """Return a GitLab project object or raise a structured API error."""
+        return await self._gitlab_model(
+            client,
+            "GET",
+            f"/projects/{project_id}",
+            model=GitLabProject,
+        )
+
+    async def _create_branch(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        project_id: str,
+        branch: str,
+        ref: str,
+    ) -> None:
+        """Create ``branch`` from ``ref``."""
+        create_branch_params: GitLabCreateBranchParams = {"branch": branch, "ref": ref}
+        await self._gitlab_json(
+            client,
+            "POST",
+            f"/projects/{project_id}/repository/branches",
+            params=create_branch_params,
+        )
+
+    async def _gitlab_branches_including_default(
+        self,
+        client: httpx.AsyncClient,
+        path: str,
+        *,
+        limit: int | None,
+    ) -> list[GitLabBranch]:
+        """Collect branches, continuing past ``limit`` until the default is known."""
+        if limit is not None and limit <= 0:
+            return []
+
+        branches: list[GitLabBranch] = []
+        default_branch: GitLabBranch | None = None
+        page = 1
+        while True:
+            response = await self._gitlab_response(
+                client,
+                "GET",
+                path,
+                params={"page": page, "per_page": _GITLAB_PAGE_SIZE},
+            )
+            data = self._json(response)
+            if not isinstance(data, list):
+                raise GitLabError("GitLab list response was invalid")
+            try:
+                page_branches = [GitLabBranch.model_validate(item) for item in data]
+            except PydanticValidationError as e:
+                raise GitLabError("GitLab list response was invalid") from e
+
+            if default_branch is None:
+                default_branch = next(
+                    (branch for branch in page_branches if branch.default),
+                    None,
+                )
+
+            if limit is None:
+                branches.extend(page_branches)
+            else:
+                remaining = limit - len(branches)
+                if remaining > 0:
+                    branches.extend(page_branches[:remaining])
+
+            next_page = response.headers.get("x-next-page")
+            if limit is not None and len(branches) >= limit and default_branch:
+                break
+            if not next_page:
+                break
+            try:
+                page = int(next_page)
+            except ValueError as e:
+                raise GitLabError("GitLab pagination response was invalid") from e
+
+        if (
+            limit is not None
+            and default_branch is not None
+            and all(branch.name != default_branch.name for branch in branches)
+        ):
+            branches = [*branches[: limit - 1], default_branch]
+        return branches
+
+    async def _upsert_merge_request(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        project_id: str,
+        title: str,
+        branch_name: str,
+        base_branch_name: str,
+    ) -> tuple[str | None, int | None, bool]:
+        """Reuse or open the sync merge request for ``branch_name``."""
+        list_mr_params: GitLabListMergeRequestsParams = {
+            "state": "opened",
+            "source_branch": branch_name,
+            "target_branch": base_branch_name,
+        }
+        existing = await self._gitlab_list(
+            client,
+            f"/projects/{project_id}/merge_requests",
+            model=GitLabMergeRequest,
+            params=list_mr_params,
+            limit=1,
+        )
+        if existing:
+            mr = existing[0]
+            return mr.web_url, mr.iid, True
+
+        create_mr_payload: GitLabCreateMergeRequestPayload = {
+            "source_branch": branch_name,
+            "target_branch": base_branch_name,
+            "title": title,
+            "description": await self._sync_request_body(),
+        }
+        mr = await self._gitlab_model(
+            client,
+            "POST",
+            f"/projects/{project_id}/merge_requests",
+            model=GitLabMergeRequest,
+            json=create_mr_payload,
+        )
+        return mr.web_url, mr.iid, False
+
+    async def _branch_has_commits_between(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        project_id: str,
+        base_branch_name: str,
+        branch_name: str,
+    ) -> bool:
+        """Return whether ``branch_name`` is ahead of ``base_branch_name``."""
+        compare_params: GitLabCompareParams = {
+            "from": base_branch_name,
+            "to": branch_name,
+        }
+        comparison = await self._gitlab_model(
+            client,
+            "GET",
+            f"/projects/{project_id}/repository/compare",
+            model=GitLabCompareResult,
+            params=compare_params,
+        )
+        return bool(comparison.commits)
+
+    async def _gitlab_list[ModelT: BaseModel](
+        self,
+        client: httpx.AsyncClient,
+        path: str,
+        *,
+        model: type[ModelT],
+        params: Mapping[str, Any] | None = None,
+        limit: int | None = None,
+    ) -> list[ModelT]:
+        """Collect and validate a paginated GitLab list response."""
+        results: list[ModelT] = []
+        page = 1
+        while True:
+            page_params = {
+                **(params or {}),
+                "page": page,
+                "per_page": _GITLAB_PAGE_SIZE,
+            }
+            response = await self._gitlab_response(
+                client,
+                "GET",
+                path,
+                params=page_params,
+            )
+            data = self._json(response)
+            if not isinstance(data, list):
+                raise GitLabError("GitLab list response was invalid")
+            try:
+                results.extend(model.model_validate(item) for item in data)
+            except PydanticValidationError as e:
+                raise GitLabError("GitLab list response was invalid") from e
+            if limit is not None and len(results) >= limit:
+                return results[:limit]
+            next_page = response.headers.get("x-next-page")
+            if not next_page:
+                return results
+            try:
+                page = int(next_page)
+            except ValueError as e:
+                raise GitLabError("GitLab pagination response was invalid") from e
+
+    async def _gitlab_model[ModelT: BaseModel](
+        self,
+        client: httpx.AsyncClient,
+        method: str,
+        path: str,
+        *,
+        model: type[ModelT],
+        **kwargs: Any,
+    ) -> ModelT:
+        """Return a GitLab JSON response validated against ``model``."""
+        data = await self._gitlab_json(client, method, path, **kwargs)
+        if not isinstance(data, dict):
+            raise GitLabError(f"GitLab {model.__name__} response was invalid")
+        try:
+            return model.model_validate(data)
+        except PydanticValidationError as e:
+            raise GitLabError(f"GitLab {model.__name__} response was invalid") from e
+
+    async def _gitlab_json(
+        self,
+        client: httpx.AsyncClient,
+        method: str,
+        path: str,
+        **kwargs: Any,
+    ) -> Any:
+        """Return a decoded GitLab JSON response."""
+        response = await self._gitlab_response(client, method, path, **kwargs)
+        if response.status_code == 204 or not response.content:
+            return None
+        return self._json(response)
+
+    async def _gitlab_response(
+        self,
+        client: httpx.AsyncClient,
+        method: str,
+        path: str,
+        **kwargs: Any,
+    ) -> httpx.Response:
+        """Return a GitLab response, raising structured API errors."""
+        try:
+            response = await client.request(method, path, **kwargs)
+        except httpx.HTTPError as e:
+            raise GitLabError(f"GitLab API request failed: {str(e)}") from e
+        if response.status_code >= 400:
+            message = _gitlab_error_message(response)
+            raise GitLabApiError(
+                f"GitLab API error: {response.status_code} - {message}",
+                status_code=response.status_code,
+                detail={"status_code": response.status_code, "message": message},
+            )
+        return response
+
+    def _json(self, response: httpx.Response) -> Any:
+        """Decode a GitLab JSON response."""
+        try:
+            return response.json()
+        except ValueError as e:
+            raise GitLabError("GitLab response was not valid JSON") from e
+
+
+def _gitlab_instance_host(value: str) -> str:
+    """Return the lowercased hostname for a GitLab URL or bare host."""
+    parsed = urlparse(value if "://" in value else f"//{value}")
+    return (parsed.hostname or "").lower()
+
+
+def _gitlab_project_id(url: GitUrl) -> str:
+    """Return GitLab's URL-encoded ``namespace/project`` identifier."""
+    return quote(f"{url.org}/{url.repo}", safe="")
+
+
+def _gitlab_error_message(response: httpx.Response) -> str:
+    """Extract a readable GitLab error without branching on error strings."""
+    try:
+        payload = response.json()
+    except ValueError:
+        return response.text[:500]
+    if isinstance(payload, dict):
+        message = payload.get("message") or payload.get("error_description")
+        if isinstance(message, str):
+            return message
+        if isinstance(message, dict):
+            return str(message)
+    return str(payload)

@@ -7,7 +7,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from tracecat.db.models import CaseDropdownDefinition, CaseDropdownOption
-from tracecat.service import BaseWorkspaceService
 from tracecat.tiers.enums import Entitlement
 from tracecat.workspace_sync.adapters.base import (
     FlatManifestAdapter,
@@ -15,6 +14,7 @@ from tracecat.workspace_sync.adapters.base import (
     NameSwapPlan,
     ProjectedResource,
     ResourceProjection,
+    SyncMappingService,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
@@ -37,7 +37,7 @@ class CaseDropdownAdapter(FlatManifestAdapter):
     root = CASE_DROPDOWN_ROOT
 
     async def project(
-        self, workspace_service: BaseWorkspaceService
+        self, workspace_service: SyncMappingService
     ) -> ResourceProjection:
         """Project case dropdown definitions, with their options, into specs."""
         # Eager-load options so each definition serializes in one pass; order by
@@ -90,7 +90,7 @@ class CaseDropdownAdapter(FlatManifestAdapter):
 
     async def import_specs(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         workspace_spec: WorkspaceSpec,
     ) -> list[ImportedResource]:
         """Reconcile dropdown specs, syncing each definition's options in place."""
@@ -174,7 +174,7 @@ class CaseDropdownAdapter(FlatManifestAdapter):
 
     async def _dropdown_for_import(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         *,
         source_id: str,
         swap: NameSwapPlan[CaseDropdownDefinition],
@@ -223,7 +223,7 @@ class CaseDropdownAdapter(FlatManifestAdapter):
 
     async def _dropdown_by_source_id(
         self,
-        workspace_service: BaseWorkspaceService,
+        workspace_service: SyncMappingService,
         *,
         source_id: str,
     ) -> CaseDropdownDefinition | None:

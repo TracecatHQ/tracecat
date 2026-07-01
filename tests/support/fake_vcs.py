@@ -38,7 +38,7 @@ class FakeVcsServer:
         role: Any,
     ) -> VcsSyncTransport:
         del session, role
-        if provider != VcsProvider.GITHUB:
+        if provider not in {VcsProvider.GITHUB, VcsProvider.GITLAB}:
             raise TracecatValidationError(f"Unsupported fake VCS provider: {provider}")
         return FakeVcsTransport(server=self)
 
@@ -66,6 +66,7 @@ class FakeVcsTransport:
             commit_sha=commit.sha,
             tree_sha=commit.tree_sha,
             files=dict(commit.files),
+            blob_paths=frozenset(commit.files),
         )
 
     async def write_files(

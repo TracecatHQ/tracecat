@@ -7,17 +7,17 @@ order.
 
 from __future__ import annotations
 
-from tracecat.service import BaseWorkspaceService
 from tracecat.workspace_sync.adapters import (
     NON_WORKFLOW_IMPORT_ADAPTERS,
     ImportedResource,
+    SyncMappingService,
 )
 from tracecat.workspace_sync.schemas import WorkspaceSpec
 
 __all__ = ["ImportedResource", "WorkspaceResourceImportService"]
 
 
-class WorkspaceResourceImportService(BaseWorkspaceService):
+class WorkspaceResourceImportService(SyncMappingService):
     """Reconcile non-workflow workspace sync resource specs into the DB."""
 
     service_name = "workspace_resource_import"

@@ -788,14 +788,18 @@ import type {
   VariablesUpdateVariableByIdData,
   VariablesUpdateVariableByIdResponse,
   VcsDeleteGithubAppCredentialsResponse,
+  VcsDeleteGitlabTokenCredentialsResponse,
   VcsGetGithubAppCredentialsStatusResponse,
   VcsGetGithubAppManifestResponse,
+  VcsGetGitlabTokenCredentialsStatusResponse,
   VcsGithubAppInstallCallbackData,
   VcsGithubAppInstallCallbackResponse,
   VcsGithubWebhookData,
   VcsGithubWebhookResponse,
   VcsSaveGithubAppCredentialsData,
   VcsSaveGithubAppCredentialsResponse,
+  VcsSaveGitlabTokenCredentialsData,
+  VcsSaveGitlabTokenCredentialsResponse,
   WatchtowerDisableWatchtowerAgentData,
   WatchtowerDisableWatchtowerAgentResponse,
   WatchtowerEnableWatchtowerAgentData,
@@ -3261,7 +3265,7 @@ export const workflowsListWorkflowRepositories = (
 
 /**
  * List Workflow Commits
- * Get commit list for workflow repository via GitHub App.
+ * Get commit list for the configured workspace repository.
  *
  * Returns a list of commits from the repository configured in workspace settings,
  * suitable for use in workflow pull operations.
@@ -3293,7 +3297,7 @@ export const workflowsListWorkflowCommits = (
 
 /**
  * List Workflow Branches
- * Get branch list for workflow repository via GitHub App.
+ * Get branch list for the configured workspace repository.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.limit Maximum number of branches to return
@@ -11975,7 +11979,7 @@ export const vcsGithubWebhook = (
  * Save GitHub App credentials (register new or update existing).
  * @param data The data for the request.
  * @param data.requestBody
- * @returns string Successful Response
+ * @returns GitHubAppCredentialsSaveResponse Successful Response
  * @throws ApiError
  */
 export const vcsSaveGithubAppCredentials = (
@@ -12017,6 +12021,56 @@ export const vcsGetGithubAppCredentialsStatus =
     return __request(OpenAPI, {
       method: "GET",
       url: "/organization/vcs/github/credentials/status",
+    })
+  }
+
+/**
+ * Save Gitlab Token Credentials
+ * Save GitLab token credentials (create if new or update existing).
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns GitLabTokenCredentialsSaveResponse Successful Response
+ * @throws ApiError
+ */
+export const vcsSaveGitlabTokenCredentials = (
+  data: VcsSaveGitlabTokenCredentialsData
+): CancelablePromise<VcsSaveGitlabTokenCredentialsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/vcs/gitlab/credentials",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Gitlab Token Credentials
+ * Delete GitLab token credentials.
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const vcsDeleteGitlabTokenCredentials =
+  (): CancelablePromise<VcsDeleteGitlabTokenCredentialsResponse> => {
+    return __request(OpenAPI, {
+      method: "DELETE",
+      url: "/organization/vcs/gitlab/credentials",
+    })
+  }
+
+/**
+ * Get Gitlab Token Credentials Status
+ * Get the status of GitLab token credentials.
+ * @returns GitLabTokenCredentialsStatus Successful Response
+ * @throws ApiError
+ */
+export const vcsGetGitlabTokenCredentialsStatus =
+  (): CancelablePromise<VcsGetGitlabTokenCredentialsStatusResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/vcs/gitlab/credentials/status",
     })
   }
 

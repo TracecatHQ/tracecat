@@ -832,9 +832,31 @@ async def test_project_workspace_exports_supported_non_workflow_resources(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("provider", "repo_url", "git_url"),
+    [
+        (
+            VcsProvider.GITHUB,
+            "git+ssh://git@github.com/TracecatHQ/git-sync-qa.git",
+            GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa"),
+        ),
+        (
+            VcsProvider.GITLAB,
+            "git+ssh://git@gitlab.example.test/TracecatHQ/platform/git-sync-qa.git",
+            GitUrl(
+                host="gitlab.example.test",
+                org="TracecatHQ/platform",
+                repo="git-sync-qa",
+            ),
+        ),
+    ],
+)
 async def test_source_export_target_pull_preserves_projected_workspace(
     session: AsyncSession,
     svc_role: Role,
+    provider: VcsProvider,
+    repo_url: str,
+    git_url: GitUrl,
 ) -> None:
     """Round-trip a workspace through VCS and assert target parity.
 
@@ -845,32 +867,34 @@ async def test_source_export_target_pull_preserves_projected_workspace(
     metadata edits, and an added resource.
     """
     assert svc_role.workspace_id is not None
-    repo_url = "git+ssh://git@github.com/TracecatHQ/git-sync-qa.git"
-    git_url = GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
     fake_vcs = FakeVcsServer()
     await _set_workspace_git_repo_url(
         session,
         workspace_id=svc_role.workspace_id,
         repo_url=repo_url,
+        provider=provider,
     )
     target_role = await _create_workspace_role(
         session,
         source_role=svc_role,
         workspace_name="target-workspace",
         repo_url=repo_url,
+        provider=provider,
     )
     source_service = WorkspaceSyncService(
         session=session,
         role=svc_role,
+        provider=provider,
         transport_factory=fake_vcs.transport_factory,
     )
     target_service = WorkspaceSyncService(
         session=session,
         role=target_role,
+        provider=provider,
         transport_factory=fake_vcs.transport_factory,
     )
     seed_transport = fake_vcs.transport_factory(
-        VcsProvider.GITHUB,
+        provider,
         session=session,
         role=svc_role,
     )
@@ -888,9 +912,20 @@ async def test_source_export_target_pull_preserves_projected_workspace(
         AsyncMock(return_value=RegistryLock(origins={}, actions={})),
     ):
         source_pull = await source_service.pull(
-            options=PullOptions(commit_sha=seed_commit.sha)
+            options=PullOptions(commit_sha=seed_commit.sha),
         )
         assert source_pull.success is True
+        source_table = await session.scalar(
+            select(Table).where(
+                Table.workspace_id == svc_role.workspace_id,
+                Table.name == "qa_indicators",
+            )
+        )
+        assert source_table is not None
+        table_source_ids = await TABLE_RESOURCE_ADAPTER.source_ids_by_local_id(
+            source_service
+        )
+        assert table_source_ids.get(source_table.id) == "qa_indicators"
 
         first_export = await source_service.export_workspace(
             WorkspaceSyncExportRequest(
@@ -903,14 +938,29 @@ async def test_source_export_target_pull_preserves_projected_workspace(
         assert first_export.commit.sha is not None
 
         first_target_pull = await target_service.pull(
-            options=PullOptions(commit_sha=first_export.commit.sha)
+            options=PullOptions(commit_sha=first_export.commit.sha),
         )
         assert first_target_pull.success is True
-        await _assert_projected_workspaces_match(source_service, target_service)
+        await _assert_projected_workspaces_match(
+            source_service,
+            target_service,
+        )
 
         # Exercise a representative update batch before the second push/pull:
         # mapped-resource renames, metadata edits, and one new resource.
         await _mutate_source_workspace_for_roundtrip_update(session, role=svc_role)
+        renamed_source_table = await session.scalar(
+            select(Table).where(
+                Table.workspace_id == svc_role.workspace_id,
+                Table.name == "qa_indicators_roundtrip",
+            )
+        )
+        assert renamed_source_table is not None
+        assert renamed_source_table.id == source_table.id
+        renamed_table_source_ids = await TABLE_RESOURCE_ADAPTER.source_ids_by_local_id(
+            source_service
+        )
+        assert renamed_table_source_ids.get(renamed_source_table.id) == "qa_indicators"
         second_export = await source_service.export_workspace(
             WorkspaceSyncExportRequest(
                 message="Push source workspace update",
@@ -920,20 +970,29 @@ async def test_source_export_target_pull_preserves_projected_workspace(
         )
         assert second_export.commit.status is PushStatus.COMMITTED
         assert second_export.commit.sha is not None
+        source_projection = await source_service.project_workspace(
+            create_missing_mappings=False
+        )
+        assert f"{TABLE_ROOT}/qa_indicators/table.yml" in source_projection.files
+        assert (
+            f"{TABLE_ROOT}/qa_indicators_roundtrip/table.yml"
+            not in source_projection.files
+        )
         # Confirm the fake VCS commit stores exactly what source projection emits.
         assert (
             fake_vcs.repo_files(git_url, ref=second_export.commit.sha)
-            == (
-                await source_service.project_workspace(create_missing_mappings=False)
-            ).files
+            == source_projection.files
         )
 
         second_target_pull = await target_service.pull(
-            options=PullOptions(commit_sha=second_export.commit.sha)
+            options=PullOptions(commit_sha=second_export.commit.sha),
         )
 
     assert second_target_pull.success is True
-    await _assert_projected_workspaces_match(source_service, target_service)
+    await _assert_projected_workspaces_match(
+        source_service,
+        target_service,
+    )
 
 
 @pytest.mark.anyio
@@ -5157,6 +5216,7 @@ async def _set_workspace_git_repo_url(
     *,
     workspace_id: uuid.UUID,
     repo_url: str,
+    provider: VcsProvider = VcsProvider.GITHUB,
 ) -> None:
     workspace = await session.scalar(
         select(Workspace).where(Workspace.id == workspace_id)
@@ -5164,6 +5224,7 @@ async def _set_workspace_git_repo_url(
     assert workspace is not None
     workspace.settings = {
         **(workspace.settings or {}),
+        "git_provider": provider,
         "git_repo_url": repo_url,
     }
     session.add(workspace)
@@ -5176,12 +5237,13 @@ async def _create_workspace_role(
     source_role: Role,
     workspace_name: str,
     repo_url: str,
+    provider: VcsProvider = VcsProvider.GITHUB,
 ) -> Role:
     assert source_role.organization_id is not None
     workspace = Workspace(
         name=workspace_name,
         organization_id=source_role.organization_id,
-        settings={"git_repo_url": repo_url},
+        settings={"git_provider": provider, "git_repo_url": repo_url},
     )
     session.add(workspace)
     await session.flush()
@@ -5288,7 +5350,10 @@ async def _assert_projected_workspaces_match(
     source_service: WorkspaceSyncService,
     target_service: WorkspaceSyncService,
 ) -> None:
-    """Compare canonical sync files, not DB IDs or other local-only state."""
+    """Compare canonical sync files, not DB IDs or other local-only state.
+
+    Each service projects under the provider it was constructed with.
+    """
     source_projection = await source_service.project_workspace(
         create_missing_mappings=False
     )
@@ -5304,6 +5369,7 @@ async def _mapping_for(
     role: Role,
     resource_type: SyncResourceType,
     source_id: str,
+    provider: VcsProvider = VcsProvider.GITHUB,
 ) -> WorkspaceSyncResourceMapping | None:
     """Look up a workspace's sync mapping for one Git source identifier."""
     workspace_id = role.workspace_id
@@ -5311,7 +5377,7 @@ async def _mapping_for(
     return await session.scalar(
         select(WorkspaceSyncResourceMapping).where(
             WorkspaceSyncResourceMapping.workspace_id == workspace_id,
-            WorkspaceSyncResourceMapping.provider == VcsProvider.GITHUB.value,
+            WorkspaceSyncResourceMapping.provider == provider.value,
             WorkspaceSyncResourceMapping.resource_type == resource_type.value,
             WorkspaceSyncResourceMapping.source_id == source_id,
         )
@@ -5325,6 +5391,7 @@ async def _assert_mapping_targets(
     resource_type: SyncResourceType,
     source_id: str,
     local_id: uuid.UUID,
+    provider: VcsProvider = VcsProvider.GITHUB,
 ) -> None:
     """Assert a sync mapping exists and points at the expected local row."""
     mapping = await _mapping_for(
@@ -5332,6 +5399,7 @@ async def _assert_mapping_targets(
         role=role,
         resource_type=resource_type,
         source_id=source_id,
+        provider=provider,
     )
     assert mapping is not None
     assert mapping.local_id == local_id

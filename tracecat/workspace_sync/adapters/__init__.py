@@ -17,6 +17,7 @@ from tracecat.workspace_sync.adapters.base import (
     ProjectedResource,
     ResourceAdapter,
     ResourceProjection,
+    SyncMappingService,
 )
 from tracecat.workspace_sync.adapters.registry import (
     AGENT_PRESET_RESOURCE_ADAPTER,
@@ -58,5 +59,6 @@ __all__ = [
     "ProjectedResource",
     "ResourceAdapter",
     "ResourceProjection",
+    "SyncMappingService",
     "workspace_spec_from_maps",
 ]

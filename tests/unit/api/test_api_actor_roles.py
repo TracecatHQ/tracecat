@@ -555,6 +555,9 @@ def test_github_manifest_flow_routes_remain_user_only() -> None:
         (vcs_router.save_github_app_credentials, "role"),
         (vcs_router.delete_github_app_credentials, "role"),
         (vcs_router.get_github_app_credentials_status, "role"),
+        (vcs_router.save_gitlab_token_credentials, "role"),
+        (vcs_router.delete_gitlab_token_credentials, "role"),
+        (vcs_router.get_gitlab_token_credentials_status, "role"),
     ]
 
     for endpoint, role_param in endpoints:

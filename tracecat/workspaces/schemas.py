@@ -10,12 +10,14 @@ from tracecat.core.schemas import Schema
 from tracecat.git.constants import GIT_SSH_URL_REGEX
 from tracecat.identifiers import InvitationID, OrganizationID, UserID, WorkspaceID
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.workspace_sync.enums import VcsProvider
 
 # === Workspace === #
 
 
 # DTO
 class WorkspaceSettings(TypedDict):
+    git_provider: NotRequired[VcsProvider | None]
     git_repo_url: NotRequired[str | None]
     workflow_unlimited_timeout_enabled: NotRequired[bool | None]
     workflow_default_timeout_seconds: NotRequired[int | None]
@@ -26,6 +28,7 @@ class WorkspaceSettings(TypedDict):
 
 # Schema
 class WorkspaceSettingsRead(Schema):
+    git_provider: VcsProvider | None = None
     git_repo_url: str | None = None
     workflow_unlimited_timeout_enabled: bool | None = None
     workflow_default_timeout_seconds: int | None = None
@@ -51,6 +54,7 @@ class WorkspaceSettingsRead(Schema):
 
 
 class WorkspaceSettingsUpdate(Schema):
+    git_provider: VcsProvider | None = None
     git_repo_url: str | None = None
     workflow_unlimited_timeout_enabled: bool | None = Field(
         default=None,
@@ -73,6 +77,16 @@ class WorkspaceSettingsUpdate(Schema):
         default=None,
         description="Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.",
     )
+
+    @field_validator("git_provider")
+    @classmethod
+    def validate_git_provider(cls, value: VcsProvider | None) -> VcsProvider | None:
+        """Restrict writable workspace sync providers to implemented transports."""
+        if value is VcsProvider.BITBUCKET:
+            raise ValueError(
+                "bitbucket workspace sync is not implemented yet. Use github or gitlab."
+            )
+        return value
 
     @field_validator("git_repo_url", mode="before")
     @classmethod

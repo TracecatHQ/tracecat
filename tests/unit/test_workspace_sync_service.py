@@ -20,6 +20,7 @@ from tracecat.dsl.schemas import ActionStatement
 from tracecat.exceptions import (
     EntitlementRequired,
     ScopeDeniedError,
+    TracecatSettingsError,
     TracecatValidationError,
 )
 from tracecat.git.types import GitUrl
@@ -1314,6 +1315,97 @@ async def test_export_workspace_commits_mapping_changes(
 
 
 @pytest.mark.anyio
+async def test_gitlab_export_uses_gitlab_transport_and_mapping_context(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    projection = WorkspaceProjection(
+        manifest=WorkspaceManifest(),
+        spec=WorkspaceSpec(),
+        files={MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())},
+    )
+    transport = AsyncMock()
+    transport.write_files.return_value = CommitInfo(
+        status=PushStatus.COMMITTED,
+        sha="c" * 40,
+        ref="sync/workspace",
+        base_ref="main",
+        pr_url=None,
+        pr_number=None,
+        pr_reused=False,
+        message="Committed workspace sync changes.",
+    )
+    providers_seen: list[VcsProvider] = []
+    service = WorkspaceSyncService(
+        session=workspace_sync_service.session,
+        role=workspace_sync_service.role,
+        provider=VcsProvider.GITLAB,
+    )
+
+    async def workspace_git_url() -> GitUrl:
+        providers_seen.append(service._mapping_provider)
+        return GitUrl(
+            host="gitlab.example.test",
+            org="TracecatHQ/platform",
+            repo="sync",
+        )
+
+    async def project_workspace(**_kwargs: Any) -> WorkspaceProjection:
+        # The provider is fixed at construction, so mapping reads stay on GitLab.
+        assert service._mapping_provider is VcsProvider.GITLAB
+        return projection
+
+    def transport_factory(
+        provider: VcsProvider,
+        *,
+        session: Any,
+        role: Any,
+    ) -> Any:
+        del session, role
+        providers_seen.append(provider)
+        return transport
+
+    service._workspace_git_url = workspace_git_url
+    service.project_workspace = project_workspace
+    service._transport_factory = transport_factory
+
+    result = await service.export_workspace(
+        WorkspaceSyncExportRequest(
+            message="Push workspace",
+            branch="sync/workspace",
+            create_pr=True,
+        )
+    )
+
+    assert result.files == [MANIFEST_FILENAME]
+    assert providers_seen == [VcsProvider.GITLAB, VcsProvider.GITLAB]
+    assert service._mapping_provider is VcsProvider.GITLAB
+
+
+@pytest.mark.anyio
+async def test_for_workspace_rejects_malformed_git_provider(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    workspace = SimpleNamespace(settings={"git_provider": "gitlab-self-managed"})
+    workspace_service = AsyncMock()
+    workspace_service.get_workspace.return_value = workspace
+
+    with patch(
+        "tracecat.workspace_sync.service.WorkspaceService",
+        return_value=workspace_service,
+    ):
+        with pytest.raises(TracecatSettingsError) as exc_info:
+            await WorkspaceSyncService.for_workspace(
+                session=workspace_sync_service.session,
+                role=workspace_sync_service.role,
+            )
+
+    assert "Unsupported Git provider configured" in str(exc_info.value)
+    workspace_service.get_workspace.assert_awaited_once_with(
+        workspace_sync_service.role.workspace_id
+    )
+
+
+@pytest.mark.anyio
 async def test_full_export_deletes_stale_sync_files(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:
@@ -1643,11 +1735,11 @@ async def test_github_read_files_uses_commit_tree_sha(
     assert MANIFEST_FILENAME in snapshot.files
 
 
-def test_gitlab_and_bitbucket_transports_are_explicitly_unsupported() -> None:
-    for provider in (VcsProvider.GITLAB, VcsProvider.BITBUCKET):
-        error = unsupported_transport(provider)
-        assert isinstance(error, TracecatValidationError)
-        assert provider.value in str(error)
+def test_bitbucket_transport_is_explicitly_unsupported() -> None:
+    error = unsupported_transport(VcsProvider.BITBUCKET)
+
+    assert isinstance(error, TracecatValidationError)
+    assert VcsProvider.BITBUCKET.value in str(error)
 
 
 def _legacy_workflow_yaml(source_id: str, *, title: str) -> str:

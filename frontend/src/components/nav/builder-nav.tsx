@@ -1,7 +1,6 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useQuery } from "@tanstack/react-query"
 import {
   AlertTriangleIcon,
   ChevronDownIcon,
@@ -22,12 +21,12 @@ import React from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type {
-  GitBranchInfo,
   ValidationDetail,
   ValidationResult,
+  VcsProvider,
   WorkflowDslPublish,
 } from "@/client"
-import { ApiError, workflowsListWorkflowBranches } from "@/client"
+import { ApiError } from "@/client"
 import { ExportMenuItem } from "@/components/export-workflow-dropdown-item"
 import { Spinner } from "@/components/loading/spinner"
 import {
@@ -94,6 +93,7 @@ import {
 } from "@/components/workspace-sync/push-target-policy"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
+import { useRepositoryBranches } from "@/hooks/use-workspace-sync"
 import type { TracecatApiError } from "@/lib/errors"
 import {
   useCreateDraftWorkflowExecution,
@@ -192,6 +192,8 @@ export function BuilderNav() {
         <WorkflowSaveActions
           workflow={workflow}
           workspaceId={workspaceId}
+          provider={workspace.settings?.git_provider ?? "github"}
+          gitRepoUrl={workspace.settings?.git_repo_url || undefined}
           validationErrors={validationErrors}
           onSave={handleCommit}
           onPublish={publishWorkflow}
@@ -581,12 +583,16 @@ export function WorkflowManualTrigger({
 function WorkflowSaveActions({
   workflow,
   workspaceId,
+  provider,
+  gitRepoUrl,
   validationErrors,
   onSave,
   onPublish,
 }: {
   workflow: { version?: number | null; git_sync_branch?: string | null }
   workspaceId: string
+  provider: VcsProvider
+  gitRepoUrl?: string
   validationErrors: ValidationResult[] | null
   onSave: () => Promise<void>
   onPublish: (params: WorkflowDslPublish) => Promise<unknown>
@@ -602,18 +608,13 @@ function WorkflowSaveActions({
     () => buildRandomSyncBranchName("sync/workflow"),
     []
   )
-  const { data: repoBranches, isLoading: branchesLoading } = useQuery<
-    Array<GitBranchInfo>,
-    ApiError
-  >({
-    queryKey: ["workflow-sync-branches", workspaceId],
-    queryFn: async () =>
-      await workflowsListWorkflowBranches({
-        workspaceId,
-        limit: 200,
-      }),
-    enabled: isGitSyncEnabled && publishOpen,
-  })
+  const { branches: repoBranches, branchesIsLoading: branchesLoading } =
+    useRepositoryBranches(workspaceId, {
+      enabled: isGitSyncEnabled && publishOpen,
+      gitRepoUrl,
+      provider,
+      limit: 200,
+    })
   const hasBranches = (repoBranches?.length ?? 0) > 0
 
   const publishForm = useForm<TPublishForm>({
@@ -688,6 +689,7 @@ function WorkflowSaveActions({
   const pushWarning = getWorkspaceSyncPushWarning({
     outcome: pushOutcome,
     defaultBranch,
+    provider,
   })
   const publishDisabled =
     isPublishing ||
@@ -883,6 +885,7 @@ function WorkflowSaveActions({
                     <WorkspaceSyncPushModeTabs
                       value={pushMode}
                       onValueChange={setPushMode}
+                      provider={provider}
                     />
                   </div>
                   <WorkspaceSyncPushWarning
@@ -911,6 +914,7 @@ function WorkflowSaveActions({
                           outcome: pushOutcome,
                           isCreatingBranch,
                           isPending: false,
+                          provider,
                         })}
                       </>
                     )}

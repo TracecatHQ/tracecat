@@ -8,7 +8,7 @@ import {
   PencilIcon,
 } from "lucide-react"
 import { useState } from "react"
-import type { WorkspaceRead } from "@/client"
+import type { VcsProvider, WorkspaceRead } from "@/client"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -41,11 +41,15 @@ export function WorkspaceSyncSettings({
   workspace,
 }: WorkspaceSyncSettingsProps) {
   const persistedGitUrl = workspace.settings?.git_repo_url || undefined
+  const persistedProvider: VcsProvider =
+    workspace.settings?.git_provider ?? "github"
   const {
     repositories = [],
     repositoriesIsLoading,
     repositoriesError,
-  } = useGitHubAppRepositories(workspace.id)
+  } = useGitHubAppRepositories(workspace.id, {
+    enabled: persistedProvider === "github",
+  })
 
   const [isEditingConnection, setIsEditingConnection] = useState(false)
   const [mode, setMode] = useState<SyncMode>("push")
@@ -57,6 +61,7 @@ export function WorkspaceSyncSettings({
   } = useRepositoryBranches(workspace.id, {
     enabled: Boolean(persistedGitUrl),
     gitRepoUrl: persistedGitUrl,
+    provider: persistedProvider,
     limit: 200,
   })
   const baseBranch = getWorkspaceSyncBaseBranch(persistedGitUrl, repoBranches)
@@ -66,6 +71,7 @@ export function WorkspaceSyncSettings({
     {
       branch: baseBranch,
       gitRepoUrl: persistedGitUrl,
+      provider: persistedProvider,
       limit: 20,
       enabled: Boolean(persistedGitUrl) && Boolean(baseBranch),
     }
@@ -80,6 +86,7 @@ export function WorkspaceSyncSettings({
         <WorkspaceSyncConnectionForm
           workspaceId={workspace.id}
           persistedGitUrl={persistedGitUrl}
+          persistedProvider={persistedProvider}
           repositories={repositories}
           repositoriesIsLoading={repositoriesIsLoading}
           repositoriesError={repositoriesError}
@@ -139,6 +146,7 @@ export function WorkspaceSyncSettings({
             <WorkspaceSyncPushTab
               workspaceId={workspace.id}
               persistedGitUrl={persistedGitUrl}
+              provider={persistedProvider}
               repoDisplayName={repoDisplayName}
               repoBranches={repoBranches}
               baseBranch={baseBranch}
@@ -150,6 +158,7 @@ export function WorkspaceSyncSettings({
           <TabsContent value="pull" className="space-y-4">
             <WorkspaceSyncPullTab
               workspaceId={workspace.id}
+              provider={persistedProvider}
               commits={commits}
               commitsIsLoading={commitsIsLoading}
               commitsError={commitsError}

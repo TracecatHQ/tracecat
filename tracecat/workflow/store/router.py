@@ -16,6 +16,7 @@ from tracecat.identifiers.workflow import AnyWorkflowIDPath
 from tracecat.logger import logger
 from tracecat.registry.repositories.schemas import GitBranchInfo, GitCommitInfo
 from tracecat.sync import PullOptions, PullResult
+from tracecat.vcs.exceptions import VcsProviderError
 from tracecat.vcs.github.app import GitHubAppError, GitHubAppService
 from tracecat.vcs.github.schemas import GitHubAppRepository
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
@@ -85,7 +86,7 @@ async def publish_workflow(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
-    except GitHubAppError as e:
+    except VcsProviderError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
@@ -137,7 +138,7 @@ async def list_workflow_commits(
         le=config.TRACECAT__LIMIT_CURSOR_MAX,
     ),
 ) -> list[GitCommitInfo]:
-    """Get commit list for workflow repository via GitHub App.
+    """Get commit list for the configured workspace repository.
 
     Returns a list of commits from the repository configured in workspace settings,
     suitable for use in workflow pull operations.
@@ -149,7 +150,9 @@ async def list_workflow_commits(
         )
 
     try:
-        sync_service = WorkspaceSyncService(session=session, role=role)
+        sync_service = await WorkspaceSyncService.for_workspace(
+            session=session, role=role
+        )
         return await sync_service.list_commits(
             branch=branch,
             limit=limit,
@@ -161,7 +164,11 @@ async def list_workflow_commits(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
-    except (TracecatSettingsError, TracecatValidationError, GitHubAppError) as e:
+    except (
+        TracecatSettingsError,
+        TracecatValidationError,
+        VcsProviderError,
+    ) as e:
         logger.error("Git sync error fetching commits", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -190,7 +197,7 @@ async def list_workflow_branches(
         le=config.TRACECAT__LIMIT_CURSOR_MAX,
     ),
 ) -> list[GitBranchInfo]:
-    """Get branch list for workflow repository via GitHub App."""
+    """Get branch list for the configured workspace repository."""
     if not role.workspace_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -198,7 +205,9 @@ async def list_workflow_branches(
         )
 
     try:
-        sync_service = WorkspaceSyncService(session=session, role=role)
+        sync_service = await WorkspaceSyncService.for_workspace(
+            session=session, role=role
+        )
         return await sync_service.list_branches(limit=limit)
     except HTTPException:
         raise
@@ -207,7 +216,11 @@ async def list_workflow_branches(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
-    except (TracecatSettingsError, TracecatValidationError, GitHubAppError) as e:
+    except (
+        TracecatSettingsError,
+        TracecatValidationError,
+        VcsProviderError,
+    ) as e:
         logger.error("Git sync error fetching branches", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -237,15 +250,21 @@ async def export_workspace_sync(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Workspace ID is required",
         )
-    sync_service = WorkspaceSyncService(session=session, role=role)
     try:
+        sync_service = await WorkspaceSyncService.for_workspace(
+            session=session, role=role
+        )
         return await sync_service.export_workspace(params)
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
-    except (TracecatSettingsError, TracecatValidationError, GitHubAppError) as e:
+    except (
+        TracecatSettingsError,
+        TracecatValidationError,
+        VcsProviderError,
+    ) as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
@@ -265,15 +284,21 @@ async def preview_export_workspace_sync(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Workspace ID is required",
         )
-    sync_service = WorkspaceSyncService(session=session, role=role)
     try:
+        sync_service = await WorkspaceSyncService.for_workspace(
+            session=session, role=role
+        )
         return await sync_service.preview_export_workspace(params)
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
-    except (TracecatSettingsError, TracecatValidationError, GitHubAppError) as e:
+    except (
+        TracecatSettingsError,
+        TracecatValidationError,
+        VcsProviderError,
+    ) as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
@@ -304,10 +329,11 @@ async def pull_workflows(
             commit_sha=params.commit_sha,
             dry_run=params.dry_run,
         )
-        sync_service = WorkspaceSyncService(session=session, role=role)
+        sync_service = await WorkspaceSyncService.for_workspace(
+            session=session, role=role
+        )
         return await sync_service.pull(
             options=pull_options,
-            provider=params.provider,
             sync_schedules=params.sync_schedules,
         )
     except ValueError as e:
@@ -323,7 +349,11 @@ async def pull_workflows(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
-    except (TracecatSettingsError, TracecatValidationError, GitHubAppError) as e:
+    except (
+        TracecatSettingsError,
+        TracecatValidationError,
+        VcsProviderError,
+    ) as e:
         logger.error("Git sync error during workflow pull", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

@@ -13299,6 +13299,28 @@ export const $GitHubAppCredentialsRequest = {
   description: "Request to register or update GitHub App credentials.",
 } as const
 
+export const $GitHubAppCredentialsSaveResponse = {
+  properties: {
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    action: {
+      type: "string",
+      enum: ["created", "updated"],
+      title: "Action",
+    },
+    app_id: {
+      type: "string",
+      title: "App Id",
+    },
+  },
+  type: "object",
+  required: ["message", "action", "app_id"],
+  title: "GitHubAppCredentialsSaveResponse",
+  description: "Response after creating or updating GitHub App credentials.",
+} as const
+
 export const $GitHubAppCredentialsStatus = {
   properties: {
     exists: {
@@ -13557,6 +13579,90 @@ export const $GitHubWebhookAttributes = {
   required: ["url", "active"],
   title: "GitHubWebhookAttributes",
   description: "Type definition for GitHub webhook attributes.",
+} as const
+
+export const $GitLabTokenCredentialsRequest = {
+  properties: {
+    base_url: {
+      type: "string",
+      title: "Base Url",
+      description: "Base URL for GitLab.com or a self-managed GitLab instance.",
+      default: "https://gitlab.com",
+    },
+    token: {
+      type: "string",
+      format: "password",
+      title: "Token",
+      description: "GitLab personal/project/group access token with api scope.",
+      writeOnly: true,
+    },
+  },
+  type: "object",
+  required: ["token"],
+  title: "GitLabTokenCredentialsRequest",
+  description: "Request to register or update GitLab token credentials.",
+} as const
+
+export const $GitLabTokenCredentialsSaveResponse = {
+  properties: {
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    action: {
+      type: "string",
+      enum: ["created", "updated"],
+      title: "Action",
+    },
+    base_url: {
+      type: "string",
+      title: "Base Url",
+    },
+  },
+  type: "object",
+  required: ["message", "action", "base_url"],
+  title: "GitLabTokenCredentialsSaveResponse",
+  description: "Response after creating or updating GitLab token credentials.",
+} as const
+
+export const $GitLabTokenCredentialsStatus = {
+  properties: {
+    exists: {
+      type: "boolean",
+      title: "Exists",
+    },
+    is_corrupted: {
+      type: "boolean",
+      title: "Is Corrupted",
+      default: false,
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+    },
+    created_at: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: ["exists"],
+  title: "GitLabTokenCredentialsStatus",
+  description: "Status of GitLab token credentials.",
 } as const
 
 export const $GitSettingsRead = {
@@ -31434,11 +31540,6 @@ export const $WorkflowSyncPullRequest = {
         "Apply schedule definitions from Git. Defaults off to preserve destination schedules.",
       default: false,
     },
-    provider: {
-      $ref: "#/components/schemas/VcsProvider",
-      description: "VCS provider for the configured repository.",
-      default: "github",
-    },
   },
   type: "object",
   required: ["commit_sha"],
@@ -31910,6 +32011,16 @@ export const $WorkspaceReadMinimal = {
 
 export const $WorkspaceSettingsRead = {
   properties: {
+    git_provider: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/VcsProvider",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
     git_repo_url: {
       anyOf: [
         {
@@ -32013,6 +32124,16 @@ export const $WorkspaceSettingsRead = {
 
 export const $WorkspaceSettingsUpdate = {
   properties: {
+    git_provider: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/VcsProvider",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
     git_repo_url: {
       anyOf: [
         {
@@ -32182,11 +32303,6 @@ export const $WorkspaceSyncExportPreviewRequest = {
       description:
         "Repository ref to compare the projected export against. When omitted, the preview only returns the export manifest summary.",
     },
-    provider: {
-      $ref: "#/components/schemas/VcsProvider",
-      description: "VCS provider to read the comparison ref from.",
-      default: "github",
-    },
   },
   type: "object",
   title: "WorkspaceSyncExportPreviewRequest",
@@ -32239,11 +32355,6 @@ export const $WorkspaceSyncExportRequest = {
       ],
       title: "Resources",
       description: "Specific resources to export, or ``None`` to export all.",
-    },
-    provider: {
-      $ref: "#/components/schemas/VcsProvider",
-      description: "VCS provider to push to.",
-      default: "github",
     },
     include_schedules: {
       type: "boolean",

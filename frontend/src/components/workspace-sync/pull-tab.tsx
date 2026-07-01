@@ -9,7 +9,7 @@ import {
   XCircleIcon,
 } from "lucide-react"
 import { useEffect, useState } from "react"
-import type { GitCommitInfo, PullResult } from "@/client"
+import type { GitCommitInfo, PullResult, VcsProvider } from "@/client"
 import { CommitSelector } from "@/components/registry/commit-selector"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -29,6 +29,7 @@ import { cn } from "@/lib/utils"
 
 interface WorkspaceSyncPullTabProps {
   workspaceId: string
+  provider: VcsProvider
   commits: GitCommitInfo[] | undefined
   commitsIsLoading: boolean
   commitsError: Error | null
@@ -40,6 +41,7 @@ interface WorkspaceSyncPullTabProps {
  */
 export function WorkspaceSyncPullTab({
   workspaceId,
+  provider,
   commits,
   commitsIsLoading,
   commitsError,
@@ -78,7 +80,7 @@ export function WorkspaceSyncPullTab({
     setPullPreview(null)
     setPullPreviewOptions(null)
     setPullResult(null)
-  }, [effectivePullSha, syncSchedules])
+  }, [effectivePullSha, provider, syncSchedules])
 
   async function handlePreviewPull() {
     if (!effectivePullSha) {

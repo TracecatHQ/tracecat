@@ -3966,6 +3966,17 @@ export type GitHubAppCredentialsRequest = {
 }
 
 /**
+ * Response after creating or updating GitHub App credentials.
+ */
+export type GitHubAppCredentialsSaveResponse = {
+  message: string
+  action: "created" | "updated"
+  app_id: string
+}
+
+export type action2 = "created" | "updated"
+
+/**
  * Status of GitHub App credentials.
  */
 export type GitHubAppCredentialsStatus = {
@@ -4033,6 +4044,39 @@ export type GitHubAppRepository = {
 export type GitHubWebhookAttributes = {
   url: string
   active: boolean
+}
+
+/**
+ * Request to register or update GitLab token credentials.
+ */
+export type GitLabTokenCredentialsRequest = {
+  /**
+   * Base URL for GitLab.com or a self-managed GitLab instance.
+   */
+  base_url?: string
+  /**
+   * GitLab personal/project/group access token with api scope.
+   */
+  token: string
+}
+
+/**
+ * Response after creating or updating GitLab token credentials.
+ */
+export type GitLabTokenCredentialsSaveResponse = {
+  message: string
+  action: "created" | "updated"
+  base_url: string
+}
+
+/**
+ * Status of GitLab token credentials.
+ */
+export type GitLabTokenCredentialsStatus = {
+  exists: boolean
+  is_corrupted?: boolean
+  base_url?: string | null
+  created_at?: string | null
 }
 
 export type GitSettingsRead = {
@@ -9373,10 +9417,6 @@ export type WorkflowSyncPullRequest = {
    * Apply schedule definitions from Git. Defaults off to preserve destination schedules.
    */
   sync_schedules?: boolean
-  /**
-   * VCS provider for the configured repository.
-   */
-  provider?: VcsProvider
 }
 
 export type WorkflowTagCreate = {
@@ -9474,6 +9514,7 @@ export type WorkspaceReadMinimal = {
 }
 
 export type WorkspaceSettingsRead = {
+  git_provider?: VcsProvider | null
   git_repo_url?: string | null
   workflow_unlimited_timeout_enabled?: boolean | null
   workflow_default_timeout_seconds?: number | null
@@ -9491,6 +9532,7 @@ export type WorkspaceSettingsRead = {
 }
 
 export type WorkspaceSettingsUpdate = {
+  git_provider?: VcsProvider | null
   git_repo_url?: string | null
   /**
    * Allow workflows to run indefinitely without timeout constraints. When enabled, individual workflow timeout settings are ignored.
@@ -9557,10 +9599,6 @@ export type WorkspaceSyncExportPreviewRequest = {
    * Repository ref to compare the projected export against. When omitted, the preview only returns the export manifest summary.
    */
   compare_ref?: string | null
-  /**
-   * VCS provider to read the comparison ref from.
-   */
-  provider?: VcsProvider
 }
 
 /**
@@ -9587,10 +9625,6 @@ export type WorkspaceSyncExportRequest = {
    * Specific resources to export, or ``None`` to export all.
    */
   resources?: Array<ResourceRef> | null
-  /**
-   * VCS provider to push to.
-   */
-  provider?: VcsProvider
   /**
    * Whether to include workflow schedules in the export.
    */
@@ -13262,14 +13296,25 @@ export type VcsSaveGithubAppCredentialsData = {
   requestBody: GitHubAppCredentialsRequest
 }
 
-export type VcsSaveGithubAppCredentialsResponse = {
-  [key: string]: string
-}
+export type VcsSaveGithubAppCredentialsResponse =
+  GitHubAppCredentialsSaveResponse
 
 export type VcsDeleteGithubAppCredentialsResponse = void
 
 export type VcsGetGithubAppCredentialsStatusResponse =
   GitHubAppCredentialsStatus
+
+export type VcsSaveGitlabTokenCredentialsData = {
+  requestBody: GitLabTokenCredentialsRequest
+}
+
+export type VcsSaveGitlabTokenCredentialsResponse =
+  GitLabTokenCredentialsSaveResponse
+
+export type VcsDeleteGitlabTokenCredentialsResponse = void
+
+export type VcsGetGitlabTokenCredentialsStatusResponse =
+  GitLabTokenCredentialsStatus
 
 export type UsersGetMyScopesData = {
   workspaceId?: string | null
@@ -19531,9 +19576,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: {
-          [key: string]: string
-        }
+        201: GitHubAppCredentialsSaveResponse
         /**
          * Validation Error
          */
@@ -19556,6 +19599,39 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: GitHubAppCredentialsStatus
+      }
+    }
+  }
+  "/organization/vcs/gitlab/credentials": {
+    post: {
+      req: VcsSaveGitlabTokenCredentialsData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: GitLabTokenCredentialsSaveResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+      }
+    }
+  }
+  "/organization/vcs/gitlab/credentials/status": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: GitLabTokenCredentialsStatus
       }
     }
   }
