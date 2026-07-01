@@ -46,6 +46,9 @@ class RegistryArtifactBuildResult:
     artifact_size_bytes: int
 
 
+_REPRODUCIBLE_SQUASHFS_TIMESTAMP = "0"
+
+
 def _compute_file_hash(file_path: Path) -> str:
     """Compute SHA256 hash of a file."""
     sha256_hash = hashlib.sha256()
@@ -96,7 +99,7 @@ def _copy_squashfs_entry(
         if dest.is_symlink() or dest.is_file():
             dest.unlink()
         dest.mkdir(parents=True, exist_ok=True)
-        for child in path.iterdir():
+        for child in sorted(path.iterdir(), key=lambda child: child.name):
             _copy_squashfs_entry(
                 child,
                 dest / child.name,
@@ -143,7 +146,7 @@ def _create_squashfs_image(
         # TemporaryDirectory creates a 0700 root, which would make the mounted
         # SquashFS unreadable to non-root executor processes after -all-root.
         staging_dir.chmod(0o755)
-        for path, arcname in entries:
+        for path, arcname in sorted(entries, key=lambda entry: entry[1]):
             _copy_squashfs_entry(
                 path,
                 staging_dir / arcname,
@@ -157,8 +160,20 @@ def _create_squashfs_image(
             "-noappend",
             "-comp",
             "gzip",
+            "-Xcompression-level",
+            "6",
             "-no-xattrs",
             "-all-root",
+            "-root-mode",
+            "755",
+            "-reproducible",
+            "-mkfs-time",
+            _REPRODUCIBLE_SQUASHFS_TIMESTAMP,
+            "-all-time",
+            _REPRODUCIBLE_SQUASHFS_TIMESTAMP,
+            "-root-time",
+            _REPRODUCIBLE_SQUASHFS_TIMESTAMP,
+            "-no-hardlinks",
             "-processors",
             str(config.TRACECAT__REGISTRY_SYNC_SQUASHFS_PROCESSORS),
             "-mem",

@@ -1633,6 +1633,11 @@ class BaseRegistryVersion(Base):
         nullable=False,
         doc="S3 URI to the compressed tarball venv for action execution",
     )
+    artifact_hash: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+        doc="SHA-256 content hash of the registry execution artifact",
+    )
 
 
 class RegistryVersion(OrganizationModel, BaseRegistryVersion):

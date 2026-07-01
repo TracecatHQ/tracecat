@@ -20,7 +20,12 @@ from tracecat.registry.actions.schemas import (
 from tracecat.registry.artifact_keys import get_artifact_local_dir
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.sync.artifact import RegistryArtifactBuildResult
-from tracecat.registry.sync.prebuilt import write_prebuilt_registry_manifest
+from tracecat.registry.sync.prebuilt import (
+    PrebuiltRegistryArtifactMetadata,
+    load_prebuilt_registry_artifact_metadata,
+    write_prebuilt_registry_artifact_metadata,
+    write_prebuilt_registry_manifest,
+)
 from tracecat.registry.sync.runner import (
     ActionDiscoveryError,
     RegistrySyncRunner,
@@ -79,6 +84,29 @@ def test_write_prebuilt_registry_manifest_is_compact(tmp_path: Path) -> None:
     assert "\n" not in manifest_text
     assert "  " not in manifest_text
     assert RegistryVersionManifest.model_validate_json(manifest_text) == manifest
+
+
+def test_write_prebuilt_registry_artifact_metadata_is_compact(tmp_path: Path) -> None:
+    metadata = PrebuiltRegistryArtifactMetadata(
+        artifact_hash="a" * 64,
+        artifact_size_bytes=123,
+    )
+
+    metadata_path = write_prebuilt_registry_artifact_metadata(
+        artifact_dir=tmp_path,
+        metadata=metadata,
+    )
+
+    metadata_text = metadata_path.read_text()
+    assert "\n" not in metadata_text
+    assert "  " not in metadata_text
+    assert (
+        load_prebuilt_registry_artifact_metadata(
+            root=tmp_path.parent,
+            prefix=tmp_path.name,
+        )
+        == metadata
+    )
 
 
 def test_registry_sync_request_ignores_legacy_ssh_key() -> None:
@@ -161,6 +189,7 @@ async def test_runner_passes_resolved_commit_sha_to_discovery(
     )
     upload_tarball.assert_awaited_once()
     assert result.commit_sha == "resolved-sha"
+    assert result.artifact_hash == artifact_result.content_hash
 
 
 @pytest.mark.anyio
@@ -406,6 +435,7 @@ async def test_runner_falls_back_to_discovery_when_prebuilt_manifest_is_invalid(
     result = await runner.run(request)
 
     assert result.tarball_uri.endswith("/site-packages.squashfs")
+    assert result.artifact_hash == artifact_result.content_hash
     build_tarball_venv.assert_awaited_once()
     discover_actions.assert_awaited_once_with(
         repository_id=repository_id,
@@ -633,6 +663,7 @@ async def test_runner_uses_prebuilt_manifest_without_discovery(
     result = await runner.run(request)
 
     assert result.tarball_uri.endswith("/site-packages.squashfs")
+    assert result.artifact_hash == artifact_result.content_hash
     assert len(result.actions) == 1
     assert result.actions[0].default_title == "Prebuilt title"
     build_tarball_venv.assert_awaited_once()
