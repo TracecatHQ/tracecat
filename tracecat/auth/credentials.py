@@ -172,6 +172,25 @@ async def compute_effective_scopes(role: Role) -> frozenset[str]:
     return scopes
 
 
+async def compute_attributed_user_scopes(role: Role) -> frozenset[str] | None:
+    """Effective RBAC scopes of the human user a service role acts for.
+
+    Executor/service roles carry ``user_id`` when the call chain originated
+    from an attributed user action (e.g. a workspace-chat tool call routed
+    through the executor). Service roles authorize against a static allowlist
+    (``SERVICE_PRINCIPAL_SCOPES``), so data-read gates evaluated against them
+    always pass; use this to evaluate such gates against the real caller
+    instead. Returns ``None`` when there is no attributed user (schedules,
+    webhooks, subflows) or the role is not a service principal — callers
+    should then fall back to the role's own scopes.
+    """
+    if role.type != "service" or role.user_id is None or role.organization_id is None:
+        return None
+    return await _compute_effective_scopes_cached(
+        role.user_id, role.organization_id, role.workspace_id
+    )
+
+
 @alru_cache(maxsize=10000, ttl=30)
 async def _compute_effective_scopes_cached(
     user_id: uuid.UUID,

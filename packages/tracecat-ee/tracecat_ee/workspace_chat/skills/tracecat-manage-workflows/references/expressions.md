@@ -1,7 +1,10 @@
 # Expressions in action args
 
 Action `args` reference runtime data with template expressions: `${{ <namespace>.<path> }}`.
-The value is resolved when the workflow runs. Three things commonly trip up authoring.
+The `<path>` part is a **JSONPath** expression — dotted segments (`TRIGGER.alert.severity`),
+bracket indexing (`ACTIONS.fetch.result.data[0]`), quoted keys for names with special characters
+(`TRIGGER["alert-id"]`), and wildcards (`ACTIONS.fetch.result.items[*].name`) all work. The value
+is resolved when the workflow runs. Three things commonly trip up authoring.
 
 ## 1. Namespaces are UPPERCASE
 
@@ -47,3 +50,54 @@ case_id: ${{ TRIGGER.id -> str }}
 
 Supported cast types: `str`, `int`, `float`, `bool`, `datetime`. Use `-> str` for any expression
 feeding a required string field; use the matching type for numeric/boolean/datetime fields.
+
+## Full expression grammar
+
+The exact grammar the platform parses inside `${{ ... }}` (Lark, LALR). Use it to check operator
+support and precedence when composing anything beyond a plain path lookup:
+
+```lark
+?root: expression
+     | trailing_typecast_expression        // <expr> -> str|int|float|bool
+     | iterator                            // for var.x in <expr>
+
+// Precedence, loosest to tightest:
+//   ternary (a if cond else b)
+//   ||   &&   not
+//   ==  !=  >  >=  <  <=
+//   in / not in
+//   is / is not
+//   +  -
+//   *  /  %
+//   unary -  +
+//   indexing expr[expr], typecast int(expr), parens
+
+?context: actions | secrets | vars | env | local_vars | trigger
+        | function                          // FN.<name>(args...)
+
+actions:  "ACTIONS" <jsonpath>              // e.g. ACTIONS.fetch.result.data[0]
+secrets:  "SECRETS" .name.key
+vars:     "VARS" .path
+env:      "ENV" <jsonpath>
+trigger:  "TRIGGER" [<jsonpath>]            // bare TRIGGER is the whole payload
+local_vars: "var" <jsonpath>                // loop variable inside `for` iterators
+function: "FN." name["." transform] "(" [expression ("," expression)*] ")"
+
+literal: 'single' | "double" quoted strings
+       | True | False | None
+       | integers and floats
+
+list: "[" expr ("," expr)* "]"
+dict: "{" "key": expr ("," "key": expr)* "}"
+
+// <jsonpath> segments: .name  .*  ."quoted name"  [index]  [*]  ..
+```
+
+Notes:
+
+- Boolean operators are `&&` / `||` / `not` — not `and` / `or`.
+- Equality/comparison, `in` / `not in`, `is` / `is not`, arithmetic (`+ - * / %`), unary minus,
+  ternary (`x if cond else y`), list/dict literals, and indexing are all supported.
+- Typecasts come in two forms: function-style `int(<expr>)` inline, or trailing `<expr> -> int`
+  applied to the whole expression.
+- Booleans are Python-style `True` / `False`, and null is `None` (not `true` / `null`).

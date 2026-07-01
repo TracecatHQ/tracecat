@@ -3239,7 +3239,7 @@ async def test_load_oauth_inventory_includes_only_connected(monkeypatch):
     )
 
     inventory = await authoring_context.load_oauth_inventory(
-        cast(Any, SimpleNamespace())
+        cast(Any, SimpleNamespace(scopes=frozenset({"integration:read"})))
     )
 
     assert inventory == {
@@ -8517,8 +8517,8 @@ async def test_get_agent_preset_authoring_context_includes_output_type_guidance(
     async def _secret_inventory(_role: Any) -> dict[str, set[str]]:
         return {"slack": {"TOKEN"}}
 
-    async def _integrations_inventory(_role: Any) -> dict[str, Any]:
-        return {"mcp_integrations": [], "oauth_providers": [], "notes": []}
+    async def _integrations_inventory(_role: Any) -> Any:
+        return mcp_server.IntegrationsInventoryResponse()
 
     class _Model:
         def __init__(self, name: str, provider: str) -> None:

@@ -20,6 +20,10 @@ You manage workflows through these tools in the `core.workflow` namespace:
   version with `use_draft=False`). See "Running a workflow" below.
 - `core.workflow.publish` — commit the current draft as a new version (see "Running a workflow").
 
+Do **NOT** call `core.workflow.execute` from chat. It is a workflow **action** that runs a child
+workflow from inside another workflow's definition (a subflow step) — it is not a chat tool. To run
+a workflow from chat, use `core.workflow.run`.
+
 A workflow's **draft** is its current editable state — the same thing shown in the workflow
 builder. Reading and editing always operate on the draft. There is no separate save step for the
 draft itself; every successful `edit_workflow` updates the live draft.
@@ -67,6 +71,11 @@ definition:
         params:
           q: ${{ TRIGGER.indicator }}
 ```
+
+The `entrypoint.expects` block declares the workflow's **trigger input schema** — the fields a
+trigger payload (or `run` `inputs`) must provide, validated before dispatch. See
+[expects](references/expects.md) for the field shape, the type grammar, and how defaults make
+fields optional.
 
 `create_workflow` returns the new workflow's `id` and `title`. After creating from YAML, call
 `get_workflow` to confirm the actions landed before making further edits.
@@ -159,8 +168,8 @@ run(workflow_id="wf_...", use_draft=False, version=3)  # runs a specific publish
 ```
 
 - `inputs` is the trigger payload (arbitrary JSON). It is validated against the workflow's
-  `entrypoint.expects` schema before dispatch — a mismatch returns a fixable error naming the bad
-  field, so shape `inputs` to that schema.
+  `entrypoint.expects` schema (see [expects](references/expects.md)) before dispatch — a mismatch
+  returns a fixable error naming the bad field, so shape `inputs` to that schema.
 - A **broken draft** (empty graph, invalid actions) returns a validation error instead of running.
   Fix the draft (see "Editing a workflow") and retry; you do not need to publish to run a draft.
 - `run` returns `{workflow_id, workflow_execution_id, status: "STARTED"}` and returns immediately —

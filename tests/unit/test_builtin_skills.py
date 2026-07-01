@@ -31,6 +31,19 @@ class TestReservedSkillNamespace:
         skill = SkillCreate(name="my-custom-skill")
         assert skill.name == "my-custom-skill"
 
+    def test_lookup_name_accepts_reserved_prefix(self):
+        # Legacy skills named before the prefix was reserved must remain
+        # addressable by name — only create/publish paths reject the prefix.
+        from pydantic import TypeAdapter
+
+        from tracecat.agent.skill.schemas import SkillName
+
+        adapter = TypeAdapter(SkillName)
+        assert (
+            adapter.validate_python(f"{RESERVED_SKILL_NAME_PREFIX}legacy")
+            == f"{RESERVED_SKILL_NAME_PREFIX}legacy"
+        )
+
     def test_reserved_prefix_matches_ee_constant(self):
         # Keep the core validator prefix in sync with the EE package constant.
         from tracecat_ee.workspace_chat.skills import BUILTIN_SKILL_NAME_PREFIX
@@ -171,3 +184,52 @@ class TestStageBuiltinSkills:
             ["not-prefixed", "tracecat-does-not-exist"]
         ).stage(skills_dir)
         assert list(skills_dir.iterdir()) == []
+
+
+class TestStageResolvedSkillsCollision:
+    """Resolved skills staged after built-ins skip name collisions."""
+
+    @pytest.mark.anyio
+    async def test_skips_resolved_skill_colliding_with_builtin(
+        self, tmp_path: Path, monkeypatch
+    ):
+        import uuid
+        from contextlib import asynccontextmanager
+
+        from tracecat.agent.executor import activity as activity_mod
+
+        skills_dir = tmp_path / "skills"
+        staged = skills_dir / "tracecat-manage-workflows"
+        staged.mkdir(parents=True)
+        (staged / "SKILL.md").write_text("builtin content")
+
+        @asynccontextmanager
+        async def _fake_with_session(*, role=None):  # noqa: ANN001
+            yield object()
+
+        monkeypatch.setattr(
+            activity_mod.SkillService, "with_session", _fake_with_session
+        )
+
+        resolved = SimpleNamespace(
+            skill_name="tracecat-manage-workflows",
+            manifest_sha256="0" * 64,
+            skill_version_id=uuid.uuid4(),
+        )
+
+        async def _fail_materialize(**kwargs: Any):
+            raise AssertionError("colliding skill must not be materialized")
+
+        fake = SimpleNamespace(
+            input=SimpleNamespace(
+                config=SimpleNamespace(resolved_skills=[resolved]),
+                role=object(),
+            ),
+            _ensure_cached_skill_dir=_fail_materialize,
+        )
+        stage = SandboxedAgentExecutor._stage_resolved_skills.__get__(fake)
+        await stage(skills_dir)
+
+        # The staged built-in is untouched and nothing new was copied.
+        assert (staged / "SKILL.md").read_text() == "builtin content"
+        assert list(skills_dir.iterdir()) == [staged]

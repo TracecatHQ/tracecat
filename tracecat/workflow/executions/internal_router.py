@@ -28,6 +28,7 @@ from tracecat.agent.authoring_context import (
     build_secret_hints,
     build_variable_hints,
 )
+from tracecat.auth.credentials import compute_attributed_user_scopes
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
@@ -725,14 +726,28 @@ async def get_authoring_context(
     by ``query`` search; with neither, returns only the workspace
     variable/secret hints.
     """
+    # This route authenticates the executor service principal, whose static
+    # allowlist includes secret:read/integration:read/variable:read — so the
+    # data-read gates in the context builders would always pass regardless of
+    # the human caller's RBAC. When the executor token attributes a user (chat
+    # tool calls do), evaluate those gates against that user's real scopes so
+    # secret/variable/OAuth inventory is never enumerated to an author whose
+    # own role could not read it. Unattributed machine calls (schedules,
+    # subflows) keep the service scopes and current behavior.
+    user_scopes = await compute_attributed_user_scopes(role)
+    context_role = (
+        role.model_copy(update={"scopes": user_scopes})
+        if user_scopes is not None
+        else role
+    )
     actions = await build_action_contexts(
-        role=role,
+        role=context_role,
         action_names=params.action_names,
         query=params.query,
     )
-    variable_hints = await build_variable_hints(role=role)
-    secret_hints = await build_secret_hints(role=role)
-    enabled_models = await build_enabled_models(role=role)
+    variable_hints = await build_variable_hints(role=context_role)
+    secret_hints = await build_secret_hints(role=context_role)
+    enabled_models = await build_enabled_models(role=context_role)
     return WorkflowAuthoringContextResponse(
         actions=actions,
         variable_hints=variable_hints,
