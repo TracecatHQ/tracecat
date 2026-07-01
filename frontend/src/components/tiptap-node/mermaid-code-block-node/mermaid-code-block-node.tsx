@@ -26,66 +26,130 @@ type MermaidRenderState = {
 const MERMAID_FONT_FAMILY =
   'var(--font-sans), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
 
+const MERMAID_TEXT_COLOR = "#18181b"
+const MERMAID_MUTED_TEXT_COLOR = "#71717a"
+const MERMAID_LINE_COLOR = "#71717a"
+const MERMAID_BORDER_COLOR = "#d4d4d8"
+const MERMAID_SURFACE_COLOR = "#f4f4f5"
+const MERMAID_SURFACE_SUBTLE_COLOR = "#fafafa"
+const MERMAID_ACCENT_COLOR = "#3b82f6"
+
+/**
+ * Cool pastel ramp shared by section scales (`cScale*`), pie slices, and git
+ * branches. Mermaid falls back to rainbow defaults for any index left unset,
+ * so all twelve slots are defined.
+ */
+const MERMAID_CATEGORICAL_COLORS = [
+  "#dbeafe", // blue-100
+  "#bfdbfe", // blue-200
+  "#93c5fd", // blue-300
+  "#c7d2fe", // indigo-200
+  "#a5b4fc", // indigo-300
+  "#bae6fd", // sky-200
+  "#7dd3fc", // sky-300
+  "#e0e7ff", // indigo-100
+  "#e0f2fe", // sky-100
+  "#ddd6fe", // violet-200
+  "#c4b5fd", // violet-300
+  "#e4e4e7", // zinc-200
+] as const
+
+function getMermaidScaleVariables() {
+  const variables: Record<string, string> = {}
+
+  MERMAID_CATEGORICAL_COLORS.forEach((color, index) => {
+    variables[`cScale${index}`] = color
+    variables[`cScaleLabel${index}`] = MERMAID_TEXT_COLOR
+    variables[`pie${index + 1}`] = color
+
+    if (index < 8) {
+      variables[`git${index}`] = color
+      variables[`gitBranchLabel${index}`] = MERMAID_TEXT_COLOR
+    }
+  })
+
+  return variables
+}
+
 const MERMAID_THEME_VARIABLES = {
   fontFamily: MERMAID_FONT_FAMILY,
+  fontSize: "12px",
   background: "#ffffff",
-  mainBkg: "#f4f4f5",
-  secondBkg: "#f8fafc",
+  mainBkg: MERMAID_SURFACE_COLOR,
+  secondBkg: MERMAID_SURFACE_SUBTLE_COLOR,
   tertiaryColor: "#ffffff",
-  primaryColor: "#f4f4f5",
-  secondaryColor: "#f8fafc",
-  primaryBorderColor: "#a1a1aa",
-  secondaryBorderColor: "#cbd5e1",
-  tertiaryBorderColor: "#d4d4d8",
-  primaryTextColor: "#18181b",
-  secondaryTextColor: "#18181b",
-  tertiaryTextColor: "#18181b",
-  textColor: "#18181b",
-  titleColor: "#18181b",
-  darkTextColor: "#18181b",
-  lineColor: "#71717a",
-  nodeBorder: "#a1a1aa",
-  clusterBkg: "#fafafa",
-  clusterBorder: "#d4d4d8",
-  defaultLinkColor: "#71717a",
+  primaryColor: MERMAID_SURFACE_COLOR,
+  secondaryColor: MERMAID_SURFACE_SUBTLE_COLOR,
+  primaryBorderColor: MERMAID_BORDER_COLOR,
+  secondaryBorderColor: MERMAID_BORDER_COLOR,
+  tertiaryBorderColor: MERMAID_BORDER_COLOR,
+  primaryTextColor: MERMAID_TEXT_COLOR,
+  secondaryTextColor: MERMAID_TEXT_COLOR,
+  tertiaryTextColor: MERMAID_TEXT_COLOR,
+  textColor: MERMAID_TEXT_COLOR,
+  titleColor: MERMAID_TEXT_COLOR,
+  darkTextColor: MERMAID_TEXT_COLOR,
+  lineColor: MERMAID_LINE_COLOR,
+  arrowheadColor: MERMAID_LINE_COLOR,
+  nodeBorder: MERMAID_BORDER_COLOR,
+  clusterBkg: MERMAID_SURFACE_SUBTLE_COLOR,
+  clusterBorder: "#e4e4e7",
+  defaultLinkColor: MERMAID_LINE_COLOR,
   edgeLabelBackground: "#ffffff",
-  actorBkg: "#f4f4f5",
-  actorBorder: "#a1a1aa",
-  actorTextColor: "#18181b",
-  actorLineColor: "#71717a",
-  signalColor: "#52525b",
-  signalTextColor: "#18181b",
-  labelBoxBkgColor: "#f4f4f5",
-  labelBoxBorderColor: "#a1a1aa",
-  labelTextColor: "#18181b",
-  loopTextColor: "#18181b",
-  noteBkgColor: "#fafafa",
-  noteBorderColor: "#d4d4d8",
-  noteTextColor: "#18181b",
+  actorBkg: MERMAID_SURFACE_COLOR,
+  actorBorder: MERMAID_BORDER_COLOR,
+  actorTextColor: MERMAID_TEXT_COLOR,
+  actorLineColor: MERMAID_LINE_COLOR,
+  signalColor: MERMAID_LINE_COLOR,
+  signalTextColor: MERMAID_TEXT_COLOR,
+  labelBoxBkgColor: MERMAID_SURFACE_COLOR,
+  labelBoxBorderColor: MERMAID_BORDER_COLOR,
+  labelTextColor: MERMAID_TEXT_COLOR,
+  loopTextColor: MERMAID_TEXT_COLOR,
+  noteBkgColor: MERMAID_SURFACE_SUBTLE_COLOR,
+  noteBorderColor: MERMAID_BORDER_COLOR,
+  noteTextColor: MERMAID_TEXT_COLOR,
   activationBkgColor: "#e4e4e7",
-  activationBorderColor: "#a1a1aa",
-  sectionBkgColor: "#f4f4f5",
+  activationBorderColor: MERMAID_BORDER_COLOR,
+  sectionBkgColor: MERMAID_SURFACE_COLOR,
   altSectionBkgColor: "#ffffff",
-  taskBkgColor: "#f4f4f5",
-  taskTextColor: "#18181b",
-  taskTextOutsideColor: "#18181b",
-  taskBorderColor: "#a1a1aa",
-  activeTaskBkgColor: "#dbeafe",
-  activeTaskBorderColor: "#93c5fd",
+  taskBkgColor: "#dbeafe",
+  taskTextColor: MERMAID_TEXT_COLOR,
+  taskTextOutsideColor: MERMAID_TEXT_COLOR,
+  taskBorderColor: "#93c5fd",
+  activeTaskBkgColor: "#93c5fd",
+  activeTaskBorderColor: "#60a5fa",
   doneTaskBkgColor: "#e4e4e7",
-  doneTaskBorderColor: "#a1a1aa",
+  doneTaskBorderColor: MERMAID_BORDER_COLOR,
   critBkgColor: "#fee2e2",
   critBorderColor: "#fca5a5",
+  todayLineColor: "#f87171",
   gridColor: "#e4e4e7",
-  cScale0: "#e4e4e7",
-  cScale1: "#dbeafe",
-  cScale2: "#bfdbfe",
-  cScale3: "#93c5fd",
-  pie1: "#e4e4e7",
-  pie2: "#dbeafe",
-  pie3: "#bfdbfe",
-  pie4: "#93c5fd",
-  pie5: "#cbd5e1",
+  pieOpacity: "1",
+  pieStrokeColor: "#ffffff",
+  pieOuterStrokeColor: "#e4e4e7",
+  quadrantPointFill: MERMAID_ACCENT_COLOR,
+  quadrantPointTextFill: MERMAID_TEXT_COLOR,
+  ...getMermaidScaleVariables(),
+  xyChart: {
+    backgroundColor: "#ffffff",
+    titleColor: MERMAID_TEXT_COLOR,
+    xAxisTitleColor: MERMAID_TEXT_COLOR,
+    xAxisLabelColor: MERMAID_MUTED_TEXT_COLOR,
+    xAxisTickColor: MERMAID_BORDER_COLOR,
+    xAxisLineColor: MERMAID_BORDER_COLOR,
+    yAxisTitleColor: MERMAID_TEXT_COLOR,
+    yAxisLabelColor: MERMAID_MUTED_TEXT_COLOR,
+    yAxisTickColor: MERMAID_BORDER_COLOR,
+    yAxisLineColor: MERMAID_BORDER_COLOR,
+    plotColorPalette: [
+      MERMAID_ACCENT_COLOR,
+      "#93c5fd",
+      "#a5b4fc",
+      "#7dd3fc",
+      "#c7d2fe",
+    ].join(","),
+  },
 } as const
 
 /** Returns whether a code block should be shown as a Mermaid diagram. */
@@ -117,7 +181,7 @@ function getScopedMermaidCss(svgId: string) {
   return `
 #${svgId} {
   background: transparent !important;
-  color: #18181b !important;
+  color: ${MERMAID_TEXT_COLOR} !important;
   font-family: ${MERMAID_FONT_FAMILY} !important;
 }
 
@@ -130,14 +194,25 @@ function getScopedMermaidCss(svgId: string) {
   text-shadow: none !important;
 }
 
+/*
+ * Editor prose styles match p/span inside HTML labels directly and override
+ * the font size Mermaid measured node boxes with, clipping label text.
+ */
+#${svgId} foreignObject div,
+#${svgId} foreignObject span,
+#${svgId} foreignObject p {
+  font-size: inherit !important;
+  margin: 0 !important;
+}
+
 #${svgId} .edgeLabel,
 #${svgId} .label,
 #${svgId} .label text,
 #${svgId} .nodeLabel,
 #${svgId} .legend text,
 #${svgId} .titleText {
-  color: #18181b !important;
-  fill: #18181b !important;
+  color: ${MERMAID_TEXT_COLOR} !important;
+  fill: ${MERMAID_TEXT_COLOR} !important;
 }
 
 #${svgId} .flowchart-link,
@@ -147,36 +222,62 @@ function getScopedMermaidCss(svgId: string) {
 #${svgId} .relation,
 #${svgId} .edge-thickness-normal,
 #${svgId} .edge-thickness-thick {
-  stroke: #71717a !important;
+  stroke: ${MERMAID_LINE_COLOR} !important;
 }
 
+/* Timeline node boxes draw a darker bottom edge that reads as a shadow. */
 #${svgId} [class^="node-line"],
 #${svgId} [class*=" node-line"] {
-  stroke: #a1a1aa !important;
+  stroke: transparent !important;
 }
 
-#${svgId} .bar-plot-0 rect,
-#${svgId} .bar-plot-1 rect,
-#${svgId} .bar-plot-2 rect {
-  fill: #dbeafe !important;
-  stroke: #93c5fd !important;
+/* The timeline spine is drawn with a hardcoded thick black stroke. */
+#${svgId} .lineWrapper line {
+  stroke: ${MERMAID_BORDER_COLOR} !important;
+  stroke-width: 2px !important;
 }
 
-#${svgId} .nodes .node rect {
-  fill: #64748b !important;
-  stroke: #475569 !important;
+/* Timeline arrowheads fall back to near-black. */
+#${svgId}[aria-roledescription="timeline"] marker path {
+  fill: #a1a1aa !important;
 }
 
-#${svgId} .line-plot-0 path,
-#${svgId} .line-plot-1 path,
-#${svgId} .line-plot-2 path {
-  stroke: #2563eb !important;
+/* Mindmap edges are drawn up to 11px thick. */
+#${svgId}[aria-roledescription="mindmap"] .edge {
+  stroke: ${MERMAID_BORDER_COLOR} !important;
+  stroke-width: 2px !important;
 }
 
-#${svgId} .links path,
+/* Round node-like rectangles; rx/ry are CSS geometry properties in SVG2. */
+#${svgId} .node rect,
+#${svgId} .cluster rect,
+#${svgId} rect.actor,
+#${svgId} rect.note,
+#${svgId} .labelBox {
+  rx: 6px;
+  ry: 6px;
+}
+
+#${svgId} [class^="bar-plot"] rect,
+#${svgId} [class*=" bar-plot"] rect {
+  rx: 3px;
+  ry: 3px;
+}
+
+/* Sankey nodes and links fall back to d3 rainbow colors. */
+#${svgId}[aria-roledescription="sankey"] .node rect {
+  fill: #60a5fa !important;
+  stroke: none !important;
+  rx: 2px;
+  ry: 2px;
+}
+
+#${svgId}[aria-roledescription="sankey"] .links path {
+  stroke: #bfdbfe !important;
+}
+
 #${svgId} stop {
   stop-color: #bfdbfe !important;
-  stroke: #93c5fd !important;
 }
 `
 }
@@ -186,6 +287,27 @@ function addScopedMermaidCss(svg: string, svgId: string) {
     "</svg>",
     `<style>${getScopedMermaidCss(svgId)}</style></svg>`
   )
+}
+
+const TIMELINE_NODE_BKG_PATH =
+  /M0 ([\d.]+) v(-[\d.]+) q0,-5[,\s]5,-5 h([\d.]+) q5,0[,\s]5,5 v([\d.]+) H0 Z/g
+
+/**
+ * Timeline node backgrounds are paths with rounded top corners and square
+ * bottom corners (the bottom edge was meant to be covered by the node line,
+ * which is hidden here). Redraw them rounded on all four corners.
+ */
+function roundTimelineNodeCorners(svg: string) {
+  return svg.replace(TIMELINE_NODE_BKG_PATH, (match, bottomY, _v, width) => {
+    const y = Number.parseFloat(bottomY)
+    const w = Number.parseFloat(width)
+
+    if (!Number.isFinite(y) || !Number.isFinite(w) || y <= 5) {
+      return match
+    }
+
+    return `M0 ${y} v${-(y - 5)} q0,-5,5,-5 h${w} q5,0,5,5 v${y - 5} q0,5,-5,5 h${-w} q-5,0,-5,-5 Z`
+  })
 }
 
 function MermaidDiagram({ chart }: { chart: string }) {
@@ -213,7 +335,9 @@ function MermaidDiagram({ chart }: { chart: string }) {
         const result = await mermaid.render(chartId, chart)
 
         if (isMounted) {
-          setSvg(addScopedMermaidCss(result.svg, chartId))
+          setSvg(
+            addScopedMermaidCss(roundTimelineNodeCorners(result.svg), chartId)
+          )
         }
       } catch (renderError) {
         if (isMounted) {
