@@ -17,6 +17,8 @@ from tracecat import config
 from tracecat.agent.adapter import vercel
 from tracecat.agent.session.schemas import (
     AgentSessionArtifactsRead,
+    AgentSessionCancelRequest,
+    AgentSessionCancelResponse,
     AgentSessionCreate,
     AgentSessionForkRequest,
     AgentSessionRead,
@@ -42,7 +44,11 @@ from tracecat.chat.schemas import (
     ContinueRunRequest,
 )
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.exceptions import EntitlementRequired, TracecatNotFoundError
+from tracecat.exceptions import (
+    EntitlementRequired,
+    TracecatConflictError,
+    TracecatNotFoundError,
+)
 from tracecat.logger import logger
 
 router = APIRouter(prefix="/agent/sessions", tags=["agent-sessions"])
@@ -672,9 +678,10 @@ async def stream_session_events(
 
     message_id = _bubble_id(session_id, curr_run_id)
 
-    # FAILED | TERMINATED (incl. failed-to-start): the workflow will not produce a
-    # terminal frame, so emit one ourselves and let the client refetch DB history.
-    if lifecycle is TurnLifecycle.FAILED:
+    # FAILED | TERMINATED (incl. failed-to-start) | CANCELLED: the workflow will
+    # not produce a terminal frame, so emit one ourselves and let the client
+    # refetch DB history.
+    if lifecycle in (TurnLifecycle.FAILED, TurnLifecycle.CANCELLED):
         finished = await AgentStream.new(
             session_id=session_id, workspace_id=workspace_id, stream_id=active_stream_id
         )
@@ -762,4 +769,29 @@ async def fork_session(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
+        ) from e
+
+
+@router.post("/{session_id}/cancel")
+@require_scope("agent:execute")
+async def cancel_session(
+    session_id: uuid.UUID,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    request: AgentSessionCancelRequest | None = None,
+) -> AgentSessionCancelResponse:
+    """Request graceful cancellation for the active agent session turn."""
+    svc = AgentSessionService(session, role)
+    reason = request.reason if request else "user_cancel"
+    try:
+        return await svc.request_cancel(session_id, reason=reason)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except TracecatConflictError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=e.detail or str(e),
         ) from e

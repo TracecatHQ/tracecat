@@ -16,12 +16,20 @@ class TurnLifecycle(StrEnum):
     - COMPLETED: turn done; canonical history is in the DB (-> 204).
     - FAILED: workflow failed/terminated (incl. failed-to-start); emit a
       terminal error frame + done so the client doesn't hang.
+    - CANCELLED: workflow's own Temporal execution status is CANCELED
+      (e.g. an operator called handle.cancel()/handle.terminate() directly).
+      This is defense-in-depth only: a normal user-initiated cancel goes
+      through the `request_cancel` workflow update, which lets the workflow
+      return normally, so get_turn_lifecycle reports it as COMPLETED, not
+      CANCELLED. The real "was this turn cancelled" signal for clients is
+      the `data-cancelled` stream event emitted mid-turn, not this value.
     """
 
     NONE = "none"
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class TurnLifecycleResult(NamedTuple):
