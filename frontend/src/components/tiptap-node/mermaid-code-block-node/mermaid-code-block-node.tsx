@@ -149,6 +149,35 @@ function getScopedMermaidCss(svgId: string) {
 #${svgId} .edge-thickness-thick {
   stroke: #71717a !important;
 }
+
+#${svgId} [class^="node-line"],
+#${svgId} [class*=" node-line"] {
+  stroke: #a1a1aa !important;
+}
+
+#${svgId} .bar-plot-0 rect,
+#${svgId} .bar-plot-1 rect,
+#${svgId} .bar-plot-2 rect {
+  fill: #dbeafe !important;
+  stroke: #93c5fd !important;
+}
+
+#${svgId} .nodes .node rect {
+  fill: #64748b !important;
+  stroke: #475569 !important;
+}
+
+#${svgId} .line-plot-0 path,
+#${svgId} .line-plot-1 path,
+#${svgId} .line-plot-2 path {
+  stroke: #2563eb !important;
+}
+
+#${svgId} .links path,
+#${svgId} stop {
+  stop-color: #bfdbfe !important;
+  stroke: #93c5fd !important;
+}
 `
 }
 
