@@ -303,6 +303,10 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             workspace_service,
             [version.id for version in version_rows],
         )
+        subagents_by_version_id = await self._subagent_refs_for_versions(
+            workspace_service,
+            version_rows,
+        )
         versions: dict[int, AgentPresetVersionResourceSpec] = {}
         for version in version_rows:
             versions[version.version] = AgentPresetVersionResourceSpec(
@@ -312,7 +316,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 tool_approvals=version.tool_approvals or {},
                 actions=sorted(version.actions or []),
                 skills=skill_bindings_by_version_id.get(version.id, []),
-                subagents=_subagent_refs(version.agents),
+                subagents=subagents_by_version_id.get(version.id, []),
                 catalog_id=version.catalog_id,
                 model_name=version.model_name,
                 model_provider=version.model_provider,
@@ -325,6 +329,35 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 enable_internet_access=version.enable_internet_access,
             )
         return versions
+
+    async def _subagent_refs_for_versions(
+        self,
+        workspace_service: BaseWorkspaceService,
+        versions: list[AgentPresetVersion],
+    ) -> dict[uuid.UUID, list[AgentPresetSubagentRef]]:
+        """Return exportable subagent refs grouped by preset version id."""
+        refs_by_version_id = {
+            version.id: _subagent_refs(version.agents) for version in versions
+        }
+        slugs = {ref.slug for refs in refs_by_version_id.values() for ref in refs}
+        if not slugs:
+            return refs_by_version_id
+
+        active_slugs = set(
+            (
+                await workspace_service.session.scalars(
+                    select(AgentPreset.slug).where(
+                        AgentPreset.workspace_id == workspace_service.workspace_id,
+                        AgentPreset.slug.in_(slugs),
+                        AgentPreset.archived_at.is_(None),
+                    )
+                )
+            ).all()
+        )
+        return {
+            version_id: [ref for ref in refs if ref.slug in active_slugs]
+            for version_id, refs in refs_by_version_id.items()
+        }
 
     async def _skill_bindings_for_versions(
         self,

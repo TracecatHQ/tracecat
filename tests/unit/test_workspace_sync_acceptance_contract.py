@@ -1732,6 +1732,139 @@ async def test_export_omits_archived_historical_skill_bindings(
 
 
 @pytest.mark.anyio
+async def test_export_omits_archived_historical_subagent_refs(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    repo_url = "git+ssh://git@github.com/TracecatHQ/git-sync-archived-subagent-qa.git"
+    git_url = GitUrl(
+        host="github.com",
+        org="TracecatHQ",
+        repo="git-sync-archived-subagent-qa",
+    )
+    fake_vcs = FakeVcsServer()
+    assert svc_role.workspace_id is not None
+    await _set_workspace_git_repo_url(
+        session,
+        workspace_id=svc_role.workspace_id,
+        repo_url=repo_url,
+    )
+    service = WorkspaceSyncService(
+        session=session,
+        role=svc_role,
+        transport_factory=fake_vcs.transport_factory,
+    )
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{WORKFLOW_ROOT}/workflow-pins-parent/definition.yml": _yaml(
+            _workflow_spec(
+                source_id="workflow-pins-parent",
+                title="workflow-pins-parent",
+                alias="workflow-pins-parent",
+                folder_path="QA/Root",
+                actions=[
+                    {
+                        "ref": "triage",
+                        "action": "ai.preset_agent",
+                        "args": {
+                            "preset_slug": "qa-parent",
+                            "preset_version": 1,
+                            "prompt": "Use the historical parent version.",
+                        },
+                    }
+                ],
+            )
+        ),
+        f"{AGENT_PRESET_ROOT}/qa-parent/preset.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset",
+                "id": "qa-parent",
+                "slug": "qa-parent",
+                "name": "QA parent",
+                "current_version": 2,
+            }
+        ),
+        f"{AGENT_PRESET_ROOT}/qa-parent/versions/1.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset_version",
+                "version_number": 1,
+                "name": "QA parent",
+                "subagents": [{"slug": "qa-child", "version": 1}],
+            }
+        ),
+        f"{AGENT_PRESET_ROOT}/qa-parent/versions/2.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset_version",
+                "version_number": 2,
+                "name": "QA parent",
+                "subagents": [],
+            }
+        ),
+        f"{AGENT_PRESET_ROOT}/qa-child/preset.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset",
+                "id": "qa-child",
+                "slug": "qa-child",
+                "name": "QA child",
+                "current_version": 1,
+            }
+        ),
+        f"{AGENT_PRESET_ROOT}/qa-child/versions/1.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset_version",
+                "version_number": 1,
+                "name": "QA child",
+            }
+        ),
+    }
+    seed_transport = fake_vcs.transport_factory(
+        VcsProvider.GITHUB,
+        session=session,
+        role=svc_role,
+    )
+    seed_commit = await seed_transport.write_files(
+        url=git_url,
+        files=files,
+        message="Seed archived historical subagent",
+        branch="seed/archived-historical-subagent",
+        create_pr=False,
+    )
+    assert seed_commit.sha is not None
+    with patch(
+        "tracecat.workflow.management.management.RegistryLockService.resolve_lock_with_bindings",
+        AsyncMock(return_value=RegistryLock(origins={}, actions={})),
+    ):
+        pull = await service.pull(options=PullOptions(commit_sha=seed_commit.sha))
+    assert pull.success is True
+
+    child = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "qa-child",
+        )
+    )
+    assert child is not None
+    child.archived_at = datetime.now(UTC)
+    session.add(child)
+    await session.flush()
+
+    projection = await service.project_workspace(create_missing_mappings=False)
+
+    parent_version_1 = yaml.safe_load(
+        projection.files[f"{AGENT_PRESET_ROOT}/qa-parent/versions/1.yml"]
+    )
+    assert parent_version_1.get("subagents", []) == []
+    assert not any(
+        path.startswith(f"{AGENT_PRESET_ROOT}/qa-child/") for path in projection.files
+    )
+
+
+@pytest.mark.anyio
 async def test_single_workflow_export_includes_dependency_closure(
     session: AsyncSession,
     svc_role: Role,
