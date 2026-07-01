@@ -609,12 +609,12 @@ class AgentPresetService(BaseWorkspaceService):
         elif slug is not None:
             preset = await self.get_preset_by_slug(slug)
 
-        if preset is None and preset_version_id is None:
+        if preset is None and (preset_id is not None or slug is not None):
             detail = slug if slug is not None else str(preset_id)
             raise TracecatNotFoundError(f"Agent preset '{detail}' not found")
 
         if preset_version_id is not None:
-            version = await self.get_version(preset_version_id)
+            version = await self.get_active_version_by_id(preset_version_id)
             if version is None:
                 raise TracecatNotFoundError(
                     f"Agent preset version with ID '{preset_version_id}' not found"
@@ -1326,6 +1326,25 @@ class AgentPresetService(BaseWorkspaceService):
                 AgentPresetVersion.workspace_id == self.workspace_id,
                 AgentPresetVersion.id == version_id,
                 AgentPresetVersion.preset_id == preset_id,
+                AgentPreset.workspace_id == self.workspace_id,
+                AgentPreset.archived_at.is_(None),
+            )
+        )
+        result = await self.session.execute(stmt)
+        return result.scalars().first()
+
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def get_active_version_by_id(
+        self,
+        version_id: uuid.UUID,
+    ) -> AgentPresetVersion | None:
+        """Get a preset version by ID only when its parent preset is active."""
+        stmt = (
+            select(AgentPresetVersion)
+            .join(AgentPreset, AgentPresetVersion.preset_id == AgentPreset.id)
+            .where(
+                AgentPresetVersion.workspace_id == self.workspace_id,
+                AgentPresetVersion.id == version_id,
                 AgentPreset.workspace_id == self.workspace_id,
                 AgentPreset.archived_at.is_(None),
             )
