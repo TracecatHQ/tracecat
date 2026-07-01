@@ -188,6 +188,8 @@ from tracecat.mcp.json_patch import apply_json_patch_operations, validate_patch_
 from tracecat.mcp.middleware import (
     MCPInputSizeLimitMiddleware,
     MCPTimeoutMiddleware,
+    SentryMCPMiddleware,
+    UnexpectedToolError,
     WatchtowerMonitorMiddleware,
     get_mcp_client_id,
 )
@@ -3136,6 +3138,7 @@ mcp.add_middleware(MCPTimeoutMiddleware())
 mcp.add_middleware(
     ErrorHandlingMiddleware(include_traceback=False, transform_errors=True)
 )
+mcp.add_middleware(SentryMCPMiddleware())
 mcp.add_middleware(
     LoggingMiddleware(methods=["tools/call"], include_payload_length=True)
 )
@@ -4071,7 +4074,9 @@ async def list_workspaces(
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to list workspaces", error=str(e))
-        raise ToolError(f"Failed to list workspaces: {e}") from None
+        raise UnexpectedToolError(
+            f"Failed to list workspaces: {e}", original_exception=e
+        ) from None
 
 
 @mcp.tool()

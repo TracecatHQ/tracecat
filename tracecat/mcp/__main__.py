@@ -17,6 +17,7 @@ from tracecat.mcp.config import (
     TRACECAT_MCP__STARTUP_MAX_ATTEMPTS,
     TRACECAT_MCP__STARTUP_RETRY_DELAY_SECONDS,
 )
+from tracecat.observability.sentry import capture_exception, init_sentry
 
 
 def _run_mcp_server() -> None:
@@ -33,6 +34,7 @@ def _run_mcp_server() -> None:
 
 def main() -> None:
     """Start the MCP server with bounded startup retries."""
+    init_sentry("mcp")
     max_attempts = max(TRACECAT_MCP__STARTUP_MAX_ATTEMPTS, 1)
     for attempt in range(1, max_attempts + 1):
         try:
@@ -45,6 +47,13 @@ def main() -> None:
             should_retry = attempt < max_attempts
             error = str(e)
             if not should_retry:
+                capture_exception(
+                    e,
+                    tags={
+                        "mcp.startup_attempt": attempt,
+                        "mcp.max_attempts": max_attempts,
+                    },
+                )
                 logger.error(
                     "MCP server failed to start after maximum startup attempts",
                     attempts=max_attempts,
