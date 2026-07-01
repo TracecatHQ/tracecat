@@ -40,6 +40,7 @@ from tracecat.agent.skill.service import SkillService
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
     ResolvedAgentsConfig,
+    ResolvedAttachedSubagentRef,
 )
 from tracecat.agent.types import (
     AgentConfig,
@@ -677,9 +678,22 @@ class AgentPresetService(BaseWorkspaceService):
         parent_slug: str,
     ) -> dict[str, Any]:
         """Resolve and validate a preset's subagent configuration."""
+        config = AgentSubagentsConfig.model_validate({} if agents is None else agents)
+        # Persisted refs (e.g. restored historical configs) already carry preset
+        # ids; validate them before resolution, which would otherwise surface an
+        # archived child as a generic version-not-found error.
+        persisted_refs = [
+            ref
+            for ref in config.subagents
+            if isinstance(ref, ResolvedAttachedSubagentRef)
+        ]
+        if persisted_refs:
+            await self._lock_active_subagent_presets(
+                ResolvedAgentsConfig(enabled=True, subagents=persisted_refs)
+            )
         resolved = await resolve_agents_config(
             self,
-            agents=agents,
+            agents=config,
             parent_preset_id=parent_preset_id,
             parent_slug=parent_slug,
         )
