@@ -7,8 +7,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 # Maximum emails accepted in a single bulk invitation request. Bounds request
-# size at both the schema (validation) and service (defensive) layers, and
-# matches the Resend batch-send limit so a request maps to one provider call.
+# size at both the schema (validation) and service (defensive) layers.
 MAX_BULK_INVITE_EMAILS = 100
 
 

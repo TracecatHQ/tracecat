@@ -1,6 +1,7 @@
 """Tests for bulk invitations + email configuration gating."""
 
 import uuid
+from email.message import Message
 
 import pytest
 from sqlalchemy import select
@@ -21,7 +22,13 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.db.models import Role as DBRole
-from tracecat.email.client import build_accept_url, is_email_configured
+from tracecat.email import client
+from tracecat.email.client import (
+    InvitationEmail,
+    build_accept_url,
+    is_email_configured,
+    send_invitation_emails_batch,
+)
 from tracecat.email.templates import render_invitation_email
 from tracecat.exceptions import TracecatAuthorizationError, TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
@@ -312,23 +319,41 @@ class TestBatchCreateInvitations:
         assert items[0].status == BatchInviteStatus.CREATED
 
 
-class TestEmailConfiguration:
-    def test_not_configured_without_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(config, "TRACECAT__RESEND_API_KEY", "")
-        monkeypatch.setattr(config, "TRACECAT__RESEND_FROM_EMAIL", "")
-        assert is_email_configured() is False
+def _set_smtp_config(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    host: str = "",
+    user: str = "",
+    password: str = "",
+    email_from: str = "",
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__SMTP_HOST", host)
+    monkeypatch.setattr(config, "TRACECAT__SMTP_USER", user)
+    monkeypatch.setattr(config, "TRACECAT__SMTP_PASSWORD", password)
+    monkeypatch.setattr(config, "TRACECAT__EMAIL_FROM", email_from)
 
-    def test_not_configured_with_key_but_no_from(
+
+class TestEmailConfiguration:
+    def test_not_configured_when_nothing_set(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(config, "TRACECAT__RESEND_API_KEY", "re_x")
-        monkeypatch.setattr(config, "TRACECAT__RESEND_FROM_EMAIL", "")
+        _set_smtp_config(monkeypatch)
         assert is_email_configured() is False
 
-    def test_configured_with_both(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(config, "TRACECAT__RESEND_API_KEY", "re_x")
-        monkeypatch.setattr(
-            config, "TRACECAT__RESEND_FROM_EMAIL", "invites@example.com"
+    def test_not_configured_when_partially_set(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Host set but password/user/from missing -> disabled.
+        _set_smtp_config(monkeypatch, host="smtp.example.com")
+        assert is_email_configured() is False
+
+    def test_configured_when_all_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _set_smtp_config(
+            monkeypatch,
+            host="smtp.example.com",
+            user="relay",
+            password="secret",
+            email_from="invites@example.com",
         )
         assert is_email_configured() is True
 
@@ -607,3 +632,115 @@ class TestWorkspaceBulkInvite:
             )
         )
         assert len(result.scalars().all()) == 1
+
+
+class _FakeSMTP:
+    """Records connect/send/quit calls for a single SMTP session."""
+
+    instances: list["_FakeSMTP"] = []
+
+    def __init__(self, **kwargs: object) -> None:
+        self.kwargs = kwargs
+        self.connected = False
+        self.logged_in = False
+        self.quit_called = False
+        self.sent_messages: list[Message] = []
+        self.fail_recipients: set[str] = set()
+        _FakeSMTP.instances.append(self)
+
+    async def connect(self) -> None:
+        self.connected = True
+
+    async def login(self, username: str, password: str) -> None:
+        self.logged_in = True
+
+    async def quit(self) -> None:
+        self.quit_called = True
+
+    async def send_message(
+        self, message: Message, sender: str, recipients: list[str]
+    ) -> None:
+        if any(r in self.fail_recipients for r in recipients):
+            raise RuntimeError("bad recipient")
+        self.sent_messages.append(message)
+
+
+class TestSMTPClient:
+    @pytest.fixture(autouse=True)
+    def _reset(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _FakeSMTP.instances.clear()
+        monkeypatch.setattr(client.aiosmtplib, "SMTP", _FakeSMTP)
+        _set_smtp_config(
+            monkeypatch,
+            host="smtp.example.com",
+            user="relay",
+            password="secret",
+            email_from="invites@example.com",
+        )
+
+    def _messages(self, n: int) -> list[InvitationEmail]:
+        return [
+            InvitationEmail(
+                to=f"user{i}@example.com",
+                accept_url=f"https://app.example.com/invitations/accept?token=t{i}",
+                context_name="Acme",
+                kind="organization",
+            )
+            for i in range(n)
+        ]
+
+    @pytest.mark.anyio
+    async def test_single_connection_for_batch(self) -> None:
+        await send_invitation_emails_batch(self._messages(3))
+        assert len(_FakeSMTP.instances) == 1
+        smtp = _FakeSMTP.instances[0]
+        assert smtp.connected and smtp.logged_in and smtp.quit_called
+        assert len(smtp.sent_messages) == 3
+
+    @pytest.mark.anyio
+    async def test_per_message_failure_does_not_stop_rest(self) -> None:
+        messages = self._messages(3)
+        original_init = _FakeSMTP.__init__
+
+        def _init(self: _FakeSMTP, **kwargs: object) -> None:
+            original_init(self, **kwargs)
+            self.fail_recipients = {"user1@example.com"}
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(_FakeSMTP, "__init__", _init)
+            await send_invitation_emails_batch(messages)
+
+        smtp = _FakeSMTP.instances[0]
+        # 3 attempted, 1 failed -> 2 delivered, connection still closed.
+        assert len(smtp.sent_messages) == 2
+        assert smtp.quit_called
+
+    @pytest.mark.anyio
+    async def test_nothing_sent_when_unconfigured(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _set_smtp_config(monkeypatch)  # clear config
+        await send_invitation_emails_batch(self._messages(2))
+        assert _FakeSMTP.instances == []
+
+    @pytest.mark.anyio
+    async def test_headers_land_on_mime_message(self) -> None:
+        transport = client.SMTPTransport(
+            host="smtp.example.com", port=587, username="relay", password="secret"
+        )
+        async with transport:
+            await transport.send(
+                client.OutboundEmail(
+                    to=["user@example.com"],
+                    subject="Hello",
+                    html="<p>hi</p>",
+                    text="hi",
+                    from_addr="invites@example.com",
+                    headers={"X-Custom": "value", "Reply-To": "noreply@example.com"},
+                )
+            )
+        mime = _FakeSMTP.instances[0].sent_messages[0]
+        assert mime["X-Custom"] == "value"
+        assert mime["Reply-To"] == "noreply@example.com"
+        assert mime["Subject"] == "Hello"
+        assert mime["To"] == "user@example.com"

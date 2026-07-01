@@ -176,11 +176,11 @@ resource "aws_iam_policy" "api_only_secrets_access" {
   })
 }
 
-# Resend API key is API-only; scope it away from worker/MCP/LiteLLM roles.
-resource "aws_iam_policy" "resend_secrets_access" {
-  count       = var.resend_api_key_arn != null ? 1 : 0
-  name        = "${var.iam_name_prefix}ResendSecretsAccessPolicy"
-  description = "Policy for accessing the Resend API key secret (API service only)"
+# SMTP password is API-only; scope it away from worker/MCP/LiteLLM roles.
+resource "aws_iam_policy" "smtp_secrets_access" {
+  count       = var.smtp_password_arn != null ? 1 : 0
+  name        = "${var.iam_name_prefix}SmtpSecretsAccessPolicy"
+  description = "Policy for accessing the SMTP password secret (API service only)"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -188,7 +188,7 @@ resource "aws_iam_policy" "resend_secrets_access" {
       {
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
-        Resource = [var.resend_api_key_arn]
+        Resource = [var.smtp_password_arn]
       }
     ]
   })
@@ -271,9 +271,9 @@ resource "aws_iam_role_policy_attachment" "api_execution_api_only_secrets" {
   role       = aws_iam_role.api_execution.name
 }
 
-resource "aws_iam_role_policy_attachment" "api_execution_resend_secrets" {
-  count      = var.resend_api_key_arn != null ? 1 : 0
-  policy_arn = aws_iam_policy.resend_secrets_access[0].arn
+resource "aws_iam_role_policy_attachment" "api_execution_smtp_secrets" {
+  count      = var.smtp_password_arn != null ? 1 : 0
+  policy_arn = aws_iam_policy.smtp_secrets_access[0].arn
   role       = aws_iam_role.api_execution.name
 }
 
