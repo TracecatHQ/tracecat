@@ -13,6 +13,24 @@ from typing import Any, Literal
 type ArtifactEventOp = Literal["upsert", "remove"]
 
 
+@dataclass(frozen=True, slots=True)
+class VercelFrameCursor:
+    """Browser SSE cursor for a Vercel frame fanned out from one Redis entry."""
+
+    redis_id: str
+    frame_index: int
+
+
+def parse_vercel_frame_cursor(event_id: str | None) -> VercelFrameCursor | None:
+    """Parse ``<redis-id>:<frame-index>`` cursors emitted by the Vercel adapter."""
+    if not event_id:
+        return None
+    redis_id, separator, frame_index = event_id.rpartition(":")
+    if not separator or not redis_id or not frame_index.isdecimal():
+        return None
+    return VercelFrameCursor(redis_id=redis_id, frame_index=int(frame_index))
+
+
 class HarnessType(StrEnum):
     """Supported agent harnesses."""
 

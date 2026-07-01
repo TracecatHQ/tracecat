@@ -351,7 +351,7 @@ class TestAgentWorkerSingleTenant:
 
             # Verify Redis stream key format
             redis_client = await get_redis_client()
-            stream_key = StreamKey(workspace_id, session_id)
+            stream_key = StreamKey(workspace_id=workspace_id, session_id=session_id)
 
             # Read events from stream (may be empty with mocked executor)
             _ = await redis_client.xrange(stream_key)

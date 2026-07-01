@@ -1108,6 +1108,53 @@ async def test_search_cases_hydrates_requested_fields_and_durations(
 
 
 @pytest.mark.anyio
+async def test_search_cases_forwards_include_payload(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_case: Case,
+) -> None:
+    """Test GET /cases/search forwards the include_payload flag to the service."""
+    with patch.object(cases_router, "CasesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_case_read = CaseReadMinimal(
+            id=mock_case.id,
+            created_at=mock_case.created_at,
+            updated_at=mock_case.updated_at,
+            short_id=mock_case.short_id,
+            summary=mock_case.summary,
+            status=mock_case.status,
+            priority=mock_case.priority,
+            severity=mock_case.severity,
+            assignee=None,
+            tags=[],
+            dropdown_values=[],
+            payload={"alert_id": "abc-123"},
+            num_tasks_completed=0,
+            num_tasks_total=0,
+        )
+        mock_svc.search_cases.return_value = CursorPaginatedResponse(
+            items=[mock_case_read],
+            next_cursor=None,
+            prev_cursor=None,
+            has_more=False,
+            has_previous=False,
+        )
+        MockService.return_value = mock_svc
+
+        response = client.get(
+            "/cases/search",
+            params=[
+                ("workspace_id", str(test_admin_role.workspace_id)),
+                ("include_payload", "true"),
+            ],
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["items"][0]["payload"] == {"alert_id": "abc-123"}
+        assert mock_svc.search_cases.call_args.kwargs["include_payload"] is True
+
+
+@pytest.mark.anyio
 async def test_search_cases_validates_field_ids_even_when_page_is_empty(
     client: TestClient,
     test_admin_role: Role,

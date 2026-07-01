@@ -140,6 +140,9 @@ module "ecs" {
   worker_cpu                               = var.worker_cpu
   worker_memory                            = var.worker_memory
   worker_desired_count                     = var.worker_desired_count
+  worker_threadpool_max_workers            = var.worker_threadpool_max_workers
+  worker_max_concurrent_activities         = var.worker_max_concurrent_activities
+  worker_max_concurrent_workflow_tasks     = var.worker_max_concurrent_workflow_tasks
   agent_worker_cpu                         = var.agent_worker_cpu
   agent_worker_memory                      = var.agent_worker_memory
   agent_worker_desired_count               = var.agent_worker_desired_count

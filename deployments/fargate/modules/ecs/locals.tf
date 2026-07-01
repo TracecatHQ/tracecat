@@ -119,6 +119,10 @@ locals {
         TRACECAT__EXECUTOR_CLIENT_TIMEOUT = var.executor_client_timeout
         TEMPORAL__CLUSTER_QUEUE           = local.temporal_cluster_queue
         SENTRY_DSN                        = var.sentry_dsn
+        # Worker concurrency tuning (see tracecat/dsl/worker.py)
+        TEMPORAL__THREADPOOL_MAX_WORKERS        = var.worker_threadpool_max_workers
+        TEMPORAL__MAX_CONCURRENT_ACTIVITIES     = var.worker_max_concurrent_activities
+        TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS = var.worker_max_concurrent_workflow_tasks
       }
     ) :
     { name = k, value = tostring(v) } if v != null

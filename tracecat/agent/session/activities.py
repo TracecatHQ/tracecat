@@ -80,6 +80,7 @@ class ReconcileToolResultsInput(BaseModel):
     workspace_id: uuid.UUID
     role: Role
     pending_results: list[PendingToolResult]
+    active_stream_id: uuid.UUID | None = None
 
 
 class ReconcileToolResultsResult(BaseModel):
@@ -245,7 +246,7 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                 session_id=input.session_id,
                 workspace_id=input.role.workspace_id,
             )
-            await stream.reset_for_new_turn()
+            await stream.clear_buffer()
 
         return CreateSessionResult(session_id=input.session_id, success=True)
 
@@ -333,7 +334,11 @@ async def load_session_messages_activity(
 
     try:
         async with AgentSessionService.with_session(role=input.role) as service:
-            messages = await service.list_messages(input.session_id)
+            # Terminal load: this runs before finalize_turn clears curr_run_id,
+            # so include the just-completed turn's rows in message_history.
+            messages = await service.list_messages(
+                input.session_id, include_active=True
+            )
         return LoadSessionMessagesResult(messages=messages)
 
     except Exception as e:
@@ -355,6 +360,7 @@ async def reconcile_tool_results_activity(
     stream = await AgentStream.new(
         session_id=input.session_id,
         workspace_id=input.workspace_id,
+        stream_id=input.active_stream_id,
     )
 
     for pending in input.pending_results:
@@ -435,6 +441,36 @@ async def reconcile_tool_results_activity(
     return ReconcileToolResultsResult(results=results)
 
 
+class FinalizeTurnInput(BaseModel):
+    """Input for finalize_turn_activity."""
+
+    role: Role
+    session_id: uuid.UUID
+    run_id: uuid.UUID
+
+
+@activity.defn
+async def finalize_turn_activity(input: FinalizeTurnInput) -> None:
+    """Clear active-turn pointers at terminal (compare-and-clear by run_id).
+
+    Idempotent and replay-safe: nulls curr_run_id/active_stream_id only while the
+    session still points at this run, so a stale terminal never clears a newer
+    live turn.
+    """
+    ctx_role.set(input.role)
+    try:
+        async with AgentSessionService.with_session(role=input.role) as service:
+            await service.finalize_turn(input.session_id, input.run_id)
+    except Exception as e:
+        logger.warning(
+            "Failed to finalize agent turn pointers",
+            session_id=str(input.session_id),
+            run_id=str(input.run_id),
+            error=str(e),
+        )
+        raise
+
+
 def get_session_activities() -> list:
     """Get all session-related activities for worker registration."""
     return [
@@ -442,4 +478,5 @@ def get_session_activities() -> list:
         load_session_activity,
         load_session_messages_activity,
         reconcile_tool_results_activity,
+        finalize_turn_activity,
     ]

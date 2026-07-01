@@ -461,7 +461,10 @@ export function useVercelChat({
     return url.toString()
   }, [chatId, workspaceId])
 
-  // Use Vercel's useChat hook for streaming
+  // Use Vercel's useChat hook for streaming. On reconnect the server replays the
+  // whole active turn from the start (it hides the active run's DB rows mid-turn,
+  // so Redis is the sole source for the live assistant); we therefore do not send
+  // a Last-Event-ID cursor.
   const chat = aiSdk.useChat({
     id: chatId,
     resume: !!chatId && resume,

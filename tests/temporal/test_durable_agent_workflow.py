@@ -76,6 +76,7 @@ from tracecat.agent.session.activities import (
     ReconcileToolResultsInput,
     ReconcileToolResultsResult,
     create_session_activity,
+    finalize_turn_activity,
     load_session_activity,
     load_session_messages_activity,
     reconcile_tool_results_activity,
@@ -964,15 +965,16 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
         async def append(self, event: Any) -> None:
             del event
 
-        async def reset_for_new_turn(self) -> None:
+        async def clear_buffer(self) -> None:
             return None
 
     async def fake_agent_stream_new(
         *,
         session_id: uuid.UUID,
         workspace_id: uuid.UUID,
+        stream_id: uuid.UUID | None = None,
     ) -> _FakeStream:
-        del session_id, workspace_id
+        del session_id, workspace_id, stream_id
         return _FakeStream()
 
     monkeypatch.setattr(
@@ -1136,12 +1138,19 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
             }
         )
 
+    # curr_run_id must match the workflow-derived run id (the workflow launches
+    # with id=AgentWorkflowID(mock_session_id), so create_session_activity sets
+    # curr_run_id=mock_session_id). This exercises _finalize_turn's compare-and-
+    # clear at terminal and the pause invariant below. (active_stream_id is the
+    # chat path's per-turn pivot; workflow-initiated sessions stay per-session
+    # and intentionally leave it null.)
     workflow_args = AgentWorkflowArgs(
         role=svc_role,
         agent_args=RunAgentArgs(
             session_id=mock_session_id,
             user_prompt="Make a test HTTP request",
             config=agent_config_with_approvals,
+            curr_run_id=mock_session_id,
         ),
         entity_type=AgentSessionEntity.WORKFLOW,
         entity_id=uuid.uuid4(),
@@ -1155,6 +1164,7 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
             load_session_activity,
             load_session_messages_activity,
             reconcile_tool_results_activity,
+            finalize_turn_activity,
             mock_build_tool_definitions,
             mock_record_approval_requests,
             mock_apply_approval_decisions,
@@ -1189,6 +1199,16 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
         )
 
         await asyncio.wait_for(approval_request_recorded.wait(), timeout=10)
+
+        # Paused at approval: the terminal `finally` has NOT run, so curr_run_id
+        # must still be set. Guards the invariant that _finalize_turn fires only
+        # at a true terminal, never on an approval pause (which awaits inside the
+        # executor loop).
+        async with AgentSessionService.with_session(role=svc_role) as svc:
+            paused_session = await svc.get_session(mock_session_id)
+            assert paused_session is not None
+            assert paused_session.curr_run_id is not None
+
         await wf_handle.execute_update(
             DurableAgentWorkflow.set_approvals,
             WorkflowApprovalSubmission(
@@ -1200,6 +1220,12 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
         result = await wf_handle.result()
 
     assert result.session_id == mock_session_id
+
+    # After terminal, the finally cleared the active-turn pointers.
+    async with AgentSessionService.with_session(role=svc_role) as svc:
+        done_session = await svc.get_session(mock_session_id)
+        assert done_session is not None
+        assert done_session.curr_run_id is None
     assert agent_executor_task_queues == [
         agent_executor_queue,
         agent_executor_queue,
@@ -1919,15 +1945,16 @@ async def test_agent_workflow_does_not_retry_approved_tool_failures(
         async def append(self, event: Any) -> None:
             del event
 
-        async def reset_for_new_turn(self) -> None:
+        async def clear_buffer(self) -> None:
             return None
 
     async def fake_agent_stream_new(
         *,
         session_id: uuid.UUID,
         workspace_id: uuid.UUID,
+        stream_id: uuid.UUID | None = None,
     ) -> _FakeStream:
-        del session_id, workspace_id
+        del session_id, workspace_id, stream_id
         return _FakeStream()
 
     monkeypatch.setattr(

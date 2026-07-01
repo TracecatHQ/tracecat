@@ -103,6 +103,7 @@ async def test_initialize_stream_sink_falls_back_to_redis_on_external_lookup_err
     stream_new.assert_awaited_once_with(
         session_id=loopback_input.session_id,
         workspace_id=loopback_input.workspace_id,
+        stream_id=loopback_input.active_stream_id,
     )
 
 
@@ -153,6 +154,7 @@ async def test_emit_terminal_error_uses_redis_when_external_lookup_errors(
     stream_new.assert_awaited_once_with(
         session_id=loopback_input.session_id,
         workspace_id=loopback_input.workspace_id,
+        stream_id=loopback_input.active_stream_id,
     )
     fake_stream.error.assert_awaited_once_with("runtime exited before connect")
     fake_stream.done.assert_awaited_once()
