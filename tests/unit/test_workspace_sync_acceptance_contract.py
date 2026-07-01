@@ -13,6 +13,7 @@ import re
 import uuid
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -829,6 +830,101 @@ async def test_project_workspace_exports_supported_non_workflow_resources(
     assert parent_version["instructions"] == (
         "Use the enrichment skill and escalate high severity."
     )
+
+
+@pytest.mark.anyio
+async def test_agent_preset_projection_excludes_archived_presets(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(
+        _expanded_full_git_tree(include_schedules=False),
+        commit_sha="d" * 40,
+    )
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+    parent_preset = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "qa-triage-parent",
+        )
+    )
+    assert parent_preset is not None
+    parent_preset.archived_at = datetime.now(UTC)
+    session.add(parent_preset)
+    await session.flush()
+
+    projection = await service.project_workspace()
+
+    assert f"{AGENT_PRESET_ROOT}/qa-triage-parent/preset.yml" not in projection.files
+    assert not any(
+        path.startswith(f"{AGENT_PRESET_ROOT}/qa-triage-parent/versions/")
+        for path in projection.files
+    )
+
+
+@pytest.mark.anyio
+async def test_agent_preset_import_ignores_archived_source_id_mapping(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    workspace_id = svc_role.workspace_id
+    assert workspace_id is not None
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(
+        _expanded_selected_git_tree(),
+        commit_sha="d" * 40,
+    )
+    assert diagnostics == []
+    archived_preset = AgentPreset(
+        workspace_id=workspace_id,
+        slug="qa-triage-parent",
+        name="Archived QA triage",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        archived_at=datetime.now(UTC),
+    )
+    session.add(archived_preset)
+    await session.flush()
+    session.add(
+        WorkspaceSyncResourceMapping(
+            workspace_id=workspace_id,
+            provider=VcsProvider.GITHUB.value,
+            resource_type=SyncResourceType.AGENT_PRESET.value,
+            source_id="qa-triage-parent",
+            source_path=f"{AGENT_PRESET_ROOT}/qa-triage-parent/preset.yml",
+            local_id=archived_preset.id,
+        )
+    )
+    await session.flush()
+
+    imported_resources = await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+
+    imported_parent = next(
+        resource
+        for resource in imported_resources
+        if resource.resource_type is SyncResourceType.AGENT_PRESET
+        and resource.source_id == "qa-triage-parent"
+    )
+    assert imported_parent.local_id != archived_preset.id
+    active_parent = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == workspace_id,
+            AgentPreset.slug == "qa-triage-parent",
+            AgentPreset.archived_at.is_(None),
+        )
+    )
+    assert active_parent is not None
+    assert imported_parent.local_id == active_parent.id
+    await session.refresh(archived_preset)
+    assert archived_preset.archived_at is not None
 
 
 @pytest.mark.anyio
