@@ -6,18 +6,17 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
 from pydantic import UUID4
-from sqlalchemy import bindparam, cast, delete, func, select, update
+from sqlalchemy import bindparam, cast, func, select, update
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only, noload, selectinload
 
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.controls import (
-    can_manage_role_scopes,
+    check_no_role_escalation,
     has_scope,
-    has_unrestricted_scope,
     require_scope,
 )
 from tracecat.authz.enums import OwnerType
@@ -29,8 +28,6 @@ from tracecat.db.models import (
     Membership,
     OrganizationMembership,
     Ownership,
-    RoleScope,
-    Scope,
     User,
     UserRoleAssignment,
     Workspace,
@@ -40,7 +37,6 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
-    TracecatConflictError,
     TracecatException,
     TracecatManagementError,
     TracecatNotFoundError,
@@ -48,11 +44,8 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import InvitationID, UserID, WorkspaceID
 from tracecat.invitations.enums import InvitationStatus
-from tracecat.invitations.types import (
-    MAX_BULK_INVITE_EMAILS,
-    BatchInviteItem,
-    BatchInviteStatus,
-)
+from tracecat.invitations.service import batch_upsert_invitations
+from tracecat.invitations.types import BatchInviteItem
 from tracecat.service import BaseOrgService
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 from tracecat.workspaces.schemas import (
@@ -303,32 +296,6 @@ class WorkspaceService(BaseOrgService):
 
     # === Invitation Management === #
 
-    async def _check_no_role_escalation(self, role_id: uuid.UUID) -> None:
-        """Prevent inviting with a role that grants more access than the inviter.
-
-        The target role's scopes must be a subset of the inviter's effective
-        scopes. Decided by scopes (not slugs) so custom roles are handled
-        correctly. Superusers and holders of the "*" scope bypass the check.
-
-        Raises:
-            TracecatAuthorizationError: If the target role grants any scope the
-                inviter does not hold.
-        """
-        # Skip the scope query entirely for unrestricted actors.
-        if has_unrestricted_scope(self.role):
-            return
-
-        result = await self.session.execute(
-            select(Scope.name)
-            .join(RoleScope, RoleScope.scope_id == Scope.id)
-            .where(RoleScope.role_id == role_id)
-        )
-        target_scopes = set(result.scalars().all())
-        if not can_manage_role_scopes(self.role, target_scopes):
-            raise TracecatAuthorizationError(
-                "Cannot invite with a role that grants more access than your own"
-            )
-
     @staticmethod
     def _generate_invitation_token() -> str:
         """Generate a unique 64-character token for invitation magic links."""
@@ -379,7 +346,7 @@ class WorkspaceService(BaseOrgService):
 
         # Prevent privilege escalation: cannot invite at a role granting more
         # access than the inviter holds.
-        await self._check_no_role_escalation(role_id)
+        await check_no_role_escalation(self.session, self.role, role_id)
 
         # Check for existing pending invitation that hasn't expired
         now = datetime.now(UTC)
@@ -476,18 +443,6 @@ class WorkspaceService(BaseOrgService):
         except ValueError as e:
             raise TracecatValidationError("Invalid role ID format") from e
 
-        # Defensive bound for direct (non-route) callers; the request schema
-        # enforces the same limit at the API boundary.
-        if len(emails) > MAX_BULK_INVITE_EMAILS:
-            raise TracecatValidationError(
-                f"Cannot invite more than {MAX_BULK_INVITE_EMAILS} emails at once"
-            )
-
-        # Normalize + dedup (case-insensitive, order-preserving).
-        normalized = list(dict.fromkeys(e.strip().lower() for e in emails if e.strip()))
-        if not normalized:
-            return []
-
         # Validate role belongs to this organization.
         role_result = await self.session.execute(
             select(DBRole).where(
@@ -500,11 +455,13 @@ class WorkspaceService(BaseOrgService):
 
         # Prevent privilege escalation: cannot invite at a role granting more
         # access than the inviter holds. Applies to the whole request.
-        await self._check_no_role_escalation(role_uuid)
+        await check_no_role_escalation(self.session, self.role, role_uuid)
 
         # Pre-filter existing workspace members (not covered by the
-        # (workspace_id, email) unique constraint on invitations).
-        member_result = await self.session.execute(
+        # (workspace_id, email) unique constraint on invitations). The shared
+        # implementation binds the normalized email set into this statement.
+        normalized = list(dict.fromkeys(e.strip().lower() for e in emails if e.strip()))
+        member_email_stmt = (
             select(func.lower(User.email))
             .join(Membership, Membership.user_id == User.id)
             .where(
@@ -512,131 +469,18 @@ class WorkspaceService(BaseOrgService):
                 func.lower(User.email).in_(normalized),
             )
         )
-        existing_members = set(member_result.scalars().all())
-
-        to_insert = [e for e in normalized if e not in existing_members]
-        now = datetime.now(UTC)
-        expires_at = now + timedelta(days=7)
-
-        # Canonicalize legacy mixed-case rows before the upsert. The unique
-        # constraint on (workspace_id, email) is case-sensitive, so a
-        # pre-existing row stored as e.g. "Foo@x.com" (created by the old
-        # single-invite path before emails were normalized) would not match the
-        # ON CONFLICT target for the normalized "foo@x.com" and would let the
-        # upsert insert a second live pending invitation for the same address.
-        # Rewrite any such non-canonical rows to their lowercase form so the
-        # ON CONFLICT target reliably catches them; this preserves the row's
-        # status/expiry so the upsert's "leave live pending invites untouched"
-        # semantics still hold.
-        if to_insert:
-            # Guard against the pathological case where both a canonical row
-            # ("foo@x.com") and a non-canonical row ("Foo@x.com") already exist:
-            # lowercasing the latter would violate the unique constraint, so
-            # drop the non-canonical duplicates that already have a canonical
-            # sibling first.
-            canonical_existing = await self.session.execute(
-                select(Invitation.email).where(
-                    Invitation.workspace_id == workspace_id,
-                    Invitation.email.in_(to_insert),
-                )
-            )
-            canonical_emails = set(canonical_existing.scalars().all())
-            if canonical_emails:
-                await self.session.execute(
-                    delete(Invitation).where(
-                        Invitation.workspace_id == workspace_id,
-                        Invitation.email != func.lower(Invitation.email),
-                        func.lower(Invitation.email).in_(canonical_emails),
-                    )
-                )
-            await self.session.execute(
-                update(Invitation)
-                .where(
-                    Invitation.workspace_id == workspace_id,
-                    func.lower(Invitation.email).in_(to_insert),
-                    Invitation.email != func.lower(Invitation.email),
-                )
-                .values(email=func.lower(Invitation.email))
-            )
-            await self.session.flush()
-
-        upserted: dict[str, tuple[uuid.UUID, str]] = {}
-        if to_insert:
-            values = [
-                {
-                    "id": uuid.uuid4(),
-                    "workspace_id": workspace_id,
-                    "email": email,
-                    "role_id": role_uuid,
-                    "invited_by": self.role.user_id,
-                    "token": self._generate_invitation_token(),
-                    "status": InvitationStatus.PENDING,
-                    "expires_at": expires_at,
-                }
-                for email in to_insert
-            ]
-            stmt = (
-                pg_insert(Invitation)
-                .values(values)
-                .on_conflict_do_update(
-                    index_elements=["workspace_id", "email"],
-                    set_={
-                        "role_id": role_uuid,
-                        "invited_by": self.role.user_id,
-                        "token": pg_insert(Invitation).excluded.token,
-                        "status": InvitationStatus.PENDING,
-                        "expires_at": expires_at,
-                        "accepted_at": None,
-                    },
-                    where=(
-                        (Invitation.status != InvitationStatus.PENDING)
-                        | (Invitation.expires_at <= now)
-                    ),
-                )
-                .returning(Invitation.id, Invitation.email, Invitation.token)
-            )
-            try:
-                result = await self.session.execute(stmt)
-                for inv_id, email, token in result.all():
-                    upserted[email] = (inv_id, token)
-                await self.session.commit()
-            except IntegrityError as e:
-                # Translate constraint violations into a domain conflict error.
-                await self.session.rollback()
-                raise TracecatConflictError(
-                    "Could not create invitations due to a conflicting "
-                    "invitation. Please retry."
-                ) from e
-
-        items: list[BatchInviteItem] = []
-        for email in normalized:
-            if email in existing_members:
-                items.append(
-                    BatchInviteItem(
-                        email=email,
-                        status=BatchInviteStatus.SKIPPED,
-                        reason="Already a member of this workspace",
-                    )
-                )
-            elif email in upserted:
-                inv_id, token = upserted[email]
-                items.append(
-                    BatchInviteItem(
-                        email=email,
-                        status=BatchInviteStatus.CREATED,
-                        invitation_id=inv_id,
-                        token=token,
-                    )
-                )
-            else:
-                items.append(
-                    BatchInviteItem(
-                        email=email,
-                        status=BatchInviteStatus.SKIPPED,
-                        reason="A pending invitation already exists",
-                    )
-                )
-        return items
+        return await batch_upsert_invitations(
+            self.session,
+            model=Invitation,
+            emails=emails,
+            role_id=role_uuid,
+            invited_by=self.role.user_id,
+            conflict_cols=["workspace_id", "email"],
+            scope_filter=Invitation.workspace_id == workspace_id,
+            member_email_stmt=member_email_stmt,
+            member_skip_reason="Already a member of this workspace",
+            extra_insert_values={"workspace_id": workspace_id},
+        )
 
     async def list_invitations(
         self,
@@ -681,6 +525,51 @@ class WorkspaceService(BaseOrgService):
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
 
+    @classmethod
+    async def accept_invitation_for_user(
+        cls,
+        session: AsyncSession,
+        *,
+        user_id: UserID,
+        token: str,
+    ) -> Membership:
+        """Accept a workspace invitation on behalf of ``user_id`` without prior context.
+
+        Resolves the invitation's organization from its workspace, builds a
+        user-scoped :class:`Role`, and delegates to :meth:`accept_invitation`.
+        Callers that lack organization context (registration, SAML login, the
+        public accept route) share this single entry point.
+
+        Args:
+            session: Database session.
+            user_id: The user accepting the invitation.
+            token: The invitation token.
+
+        Returns:
+            The created workspace membership.
+
+        Raises:
+            TracecatNotFoundError: If the invitation/token is unknown.
+            TracecatAuthorizationError: If the invitee email does not match.
+            TracecatValidationError: If the invitation is expired or invalid.
+        """
+        org_id = await session.scalar(
+            select(Workspace.organization_id)
+            .join(Invitation, Invitation.workspace_id == Workspace.id)  # pyright: ignore[reportArgumentType]
+            .where(Invitation.token == token)
+        )
+        if org_id is None:
+            raise TracecatNotFoundError("Invitation not found")
+
+        accept_role = Role(
+            type="user",
+            user_id=user_id,
+            organization_id=org_id,
+            service_id="tracecat-api",
+        )
+        service = cls(session, role=accept_role)
+        return await service.accept_invitation(token, user_id)
+
     @audit_log(resource_type="workspace_invitation", action="accept")
     async def accept_invitation(
         self,
@@ -717,12 +606,12 @@ class WorkspaceService(BaseOrgService):
 
         # Verify the accepting user's email matches the invitation so a leaked
         # token can't enroll a different account.
-        user = await self.session.scalar(
-            select(User).where(User.id == user_id)  # pyright: ignore[reportArgumentType]
+        user_email = await self.session.scalar(
+            select(User.email).where(User.id == user_id)  # pyright: ignore[reportArgumentType, reportCallIssue]
         )
-        if user is None:
+        if user_email is None:
             raise TracecatAuthorizationError("User not found")
-        if user.email.lower() != invitation.email.lower():
+        if user_email.lower() != invitation.email.lower():
             raise TracecatAuthorizationError(
                 "This invitation was sent to a different email address"
             )
@@ -880,18 +769,7 @@ class WorkspaceService(BaseOrgService):
             TracecatNotFoundError: If the invitation is not found.
             TracecatAuthorizationError: If the invitation is not pending.
         """
-        statement = select(Invitation).where(
-            Invitation.id == invitation_id,
-            Invitation.workspace_id == workspace_id,
-        )
-        result = await self.session.execute(statement)
-        invitation = result.scalar_one_or_none()
-        if invitation is None:
-            raise TracecatNotFoundError("Invitation not found")
-        if invitation.status != InvitationStatus.PENDING:
-            raise TracecatAuthorizationError(
-                f"Cannot get token for invitation with status '{invitation.status}'"
-            )
+        invitation = await self.get_pending_invitation(workspace_id, invitation_id)
         return invitation.token
 
     @require_scope("workspace:member:invite")

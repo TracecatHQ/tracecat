@@ -940,6 +940,56 @@ class TestRBACMembershipReconcile:
 
         assert await self._membership(session, workspace, user) is not None
 
+    async def test_deleting_group_reconciles_all_members_per_workspace(
+        self,
+        session: AsyncSession,
+        org: Organization,
+        role: Role,
+        user: User,
+        workspace: Workspace,
+        seeded_scopes: list[Scope],
+    ):
+        """The batched post-delete reconcile handles mixed retention in one pass.
+
+        Two members, one workspace: `user` keeps an independent direct path and
+        must retain membership; `other` has no remaining path and must lose it.
+        """
+        other = User(
+            id=uuid.uuid4(),
+            email=f"other-member-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="test",
+        )
+        session.add(other)
+        await session.flush()
+        session.add(OrganizationMembership(user_id=other.id, organization_id=org.id))
+        await session.commit()
+
+        service = RBACService(session, role=role)
+        custom_role = await service.create_role(
+            name="WS Role", scope_ids=[seeded_scopes[0].id]
+        )
+        group = await service.create_group(name="WS Group")
+        await service.add_group_member(group.id, user.id)
+        await service.add_group_member(group.id, other.id)
+        await service.create_group_role_assignment(
+            group_id=group.id,
+            role_id=custom_role.id,
+            workspace_id=workspace.id,
+        )
+        # Independent direct path for `user` only.
+        await service.create_user_assignment(
+            user_id=user.id,
+            role_id=custom_role.id,
+            workspace_id=workspace.id,
+        )
+        assert await self._membership(session, workspace, user) is not None
+        assert await self._membership(session, workspace, other) is not None
+
+        await service.delete_group(group.id)
+
+        assert await self._membership(session, workspace, user) is not None
+        assert await self._membership(session, workspace, other) is None
+
 
 async def _role_with_scopes(
     session: AsyncSession,

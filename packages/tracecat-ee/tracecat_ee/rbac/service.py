@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Sequence
 from uuid import UUID
 
@@ -429,12 +430,17 @@ class RBACService(BaseOrgService):
         await self.session.commit()
 
         # Post-delete reconcile: drops membership for members with no remaining
-        # path to the workspace, leaves it for those who still hold one.
-        membership_svc = MembershipService(self.session)
+        # path to the workspace, leaves it for those who still hold one. One
+        # set-based pass per workspace, not one reconcile per (member, workspace)
+        # pair — a large group would otherwise pay ~6 round trips and a commit
+        # per pair.
+        by_workspace: defaultdict[UUID, list[UUID]] = defaultdict(list)
         for user_id, workspace_id in affected:
-            if workspace_id is None:
-                continue
-            await membership_svc.reconcile_workspace_membership(user_id, workspace_id)
+            if workspace_id is not None:
+                by_workspace[workspace_id].append(user_id)
+        membership_svc = MembershipService(self.session)
+        for workspace_id, user_ids in by_workspace.items():
+            await membership_svc.reconcile_users_for_workspace(user_ids, workspace_id)
 
     @require_scope("org:rbac:update")
     @audit_log(
@@ -501,7 +507,12 @@ class RBACService(BaseOrgService):
     async def _reconcile_user_for_group_workspaces(
         self, user_id: UUID, group_id: UUID
     ) -> None:
-        """Reconcile a user against every workspace a group holds a ws-scoped role for."""
+        """Reconcile a user against every workspace a group holds a ws-scoped role for.
+
+        Bounded by the group's workspace assignment count, so a per-workspace
+        loop is fine here. Callers that change many users at once should batch
+        per workspace via ``MembershipService.reconcile_users_for_workspace``.
+        """
         workspace_ids = (
             (
                 await self.session.execute(

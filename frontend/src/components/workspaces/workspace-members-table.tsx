@@ -79,6 +79,35 @@ type WorkspaceMemberRow = {
   invitation_id?: string
 }
 
+/**
+ * A disabled dropdown item that still shows an explanatory tooltip.
+ *
+ * A disabled element does not emit the pointer or focus events Radix needs, so
+ * it cannot itself be the tooltip trigger. Wrap the disabled item in a focusable
+ * span and make the span the trigger so the explanation still shows on
+ * hover/focus.
+ */
+function DisabledItemWithTooltip({
+  label,
+  tooltip,
+}: {
+  label: string
+  tooltip: string
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span tabIndex={0}>
+          <DropdownMenuItem disabled onSelect={(e) => e.preventDefault()}>
+            {label}
+          </DropdownMenuItem>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{tooltip}</TooltipContent>
+    </Tooltip>
+  )
+}
+
 export function WorkspaceMembersTable({
   workspace,
 }: {
@@ -419,28 +448,10 @@ export function WorkspaceMembersTable({
 
                       {canUpdateMembers &&
                         (viaGroup ? (
-                          <Tooltip>
-                            {/*
-                             * A disabled element does not emit the pointer or
-                             * focus events Radix needs, so it cannot itself be
-                             * the tooltip trigger. Wrap the disabled item in a
-                             * focusable span and make the span the trigger so
-                             * the explanation still shows on hover/focus.
-                             */}
-                            <TooltipTrigger asChild>
-                              <span tabIndex={0}>
-                                <DropdownMenuItem
-                                  disabled
-                                  onSelect={(e) => e.preventDefault()}
-                                >
-                                  Change role
-                                </DropdownMenuItem>
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              Role is managed through the group.
-                            </TooltipContent>
-                          </Tooltip>
+                          <DisabledItemWithTooltip
+                            label="Change role"
+                            tooltip="Role is managed through the group."
+                          />
                         ) : (
                           <DialogTrigger asChild>
                             <DropdownMenuItem
@@ -456,26 +467,10 @@ export function WorkspaceMembersTable({
 
                       {canRemoveMembers &&
                         (viaGroup ? (
-                          <Tooltip>
-                            {/*
-                             * Disabled elements swallow the events Radix needs
-                             * to open a tooltip, so the disabled item is wrapped
-                             * in a focusable span that acts as the trigger.
-                             */}
-                            <TooltipTrigger asChild>
-                              <span tabIndex={0}>
-                                <DropdownMenuItem
-                                  disabled
-                                  onSelect={(e) => e.preventDefault()}
-                                >
-                                  Remove from workspace
-                                </DropdownMenuItem>
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              Remove the user from the group to revoke access.
-                            </TooltipContent>
-                          </Tooltip>
+                          <DisabledItemWithTooltip
+                            label="Remove from workspace"
+                            tooltip="Remove the user from the group to revoke access."
+                          />
                         ) : (
                           <AlertDialogTrigger asChild>
                             <DropdownMenuItem

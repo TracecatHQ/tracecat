@@ -13,7 +13,10 @@ from sqlalchemy.sql import ColumnElement
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.contexts import ctx_role
-from tracecat.db.locks import derive_lock_key_from_parts, pg_advisory_xact_lock
+from tracecat.db.locks import (
+    derive_lock_key_from_parts,
+    pg_advisory_xact_lock_many,
+)
 from tracecat.db.models import (
     GroupMember,
     GroupRoleAssignment,
@@ -302,91 +305,78 @@ class MembershipService(BaseService):
     ) -> None:
         """Upsert/delete Membership(user, W) to match workspace-scoped RBAC.
 
-        The row must exist iff the user holds at least one ws-scoped role path
-        (direct or via group). Idempotent, serialized per (user, W) by a
-        transaction-scoped advisory lock, and committed here. Runs inside a
-        temporary ws-scoped RLS context so org-scoped callers (RBAC routes) can
-        still write the row under enforce mode. The caller commits the RBAC
-        writes that motivated the reconcile.
+        Single-pair convenience over :meth:`reconcile_users_for_workspace`,
+        which holds the invariant logic.
         """
-        lock_key = derive_lock_key_from_parts(
-            "membership", str(user_id), str(workspace_id)
-        )
-        async with workspace_rls_context(self.session, workspace_id):
-            await pg_advisory_xact_lock(self.session, lock_key)
-            has_path = await self.session.scalar(
-                select(workspace_scoped_path_exists(user_id, workspace_id))
-            )
-            if has_path:
-                await self.session.execute(
-                    pg_insert(Membership)
-                    .values(user_id=user_id, workspace_id=workspace_id)
-                    .on_conflict_do_nothing(
-                        index_elements=[Membership.user_id, Membership.workspace_id]
-                    )
-                )
-            else:
-                await self.session.execute(
-                    delete(Membership).where(
-                        Membership.user_id == user_id,
-                        Membership.workspace_id == workspace_id,
-                    )
-                )
-            # Commit releases the transaction-scoped advisory lock.
-            await self.session.commit()
-        logger.debug(
-            "Reconciled workspace membership",
-            user_id=user_id,
-            workspace_id=workspace_id,
-            is_member=bool(has_path),
-        )
+        await self.reconcile_users_for_workspace([user_id], workspace_id)
 
     async def reconcile_group_members(
         self, group_id: uuid.UUID, workspace_id: WorkspaceID
     ) -> None:
         """Reconcile every member of a group against one workspace.
 
-        Fans a group role-assignment change out to all current members. Set-based
-        (upsert + delete) under one group-level advisory lock, so it stays O(1)
-        round trips even under bulk syncs (SCIM). Runs in a temporary ws-scoped
-        RLS context so org-scoped RBAC routes can write the rows under enforce
-        mode.
+        Fans a group role-assignment change out to all current members via
+        :meth:`reconcile_users_for_workspace`, which holds the invariant logic.
         """
-        group_member_ids = select(GroupMember.user_id).where(
-            GroupMember.group_id == group_id
+        member_ids = (
+            (
+                await self.session.execute(
+                    select(GroupMember.user_id).where(GroupMember.group_id == group_id)
+                )
+            )
+            .scalars()
+            .all()
         )
+        await self.reconcile_users_for_workspace(member_ids, workspace_id)
 
-        lock_key = derive_lock_key_from_parts(
-            "membership_group", str(group_id), str(workspace_id)
-        )
+    async def reconcile_users_for_workspace(
+        self, user_ids: Sequence[UserID], workspace_id: WorkspaceID
+    ) -> None:
+        """Reconcile Membership rows for a set of users against one workspace.
+
+        The single implementation of the membership invariant: a row exists iff
+        the user holds at least one ws-scoped role path (direct or via group).
+        Set-based — one upsert + one delete + one commit for the whole batch —
+        and idempotent. Serialized against concurrent reconciles by per-(user,
+        W) transaction-scoped advisory locks, acquired in sorted order in one
+        statement. Runs inside a temporary ws-scoped RLS context so org-scoped
+        callers (RBAC routes) can write the rows under enforce mode. The caller
+        commits the RBAC writes that motivated the reconcile.
+        """
+        if not user_ids:
+            return
+        lock_keys = [
+            derive_lock_key_from_parts("membership", str(user_id), str(workspace_id))
+            for user_id in set(user_ids)
+        ]
         async with workspace_rls_context(self.session, workspace_id):
-            # Transaction-scoped lock; released by this method's commit.
-            await pg_advisory_xact_lock(self.session, lock_key)
-            # Materialize membership for members that now hold a ws-scoped path.
+            # Transaction-scoped locks; released by this method's commit.
+            await pg_advisory_xact_lock_many(self.session, lock_keys)
+            # Materialize membership for users that hold a ws-scoped path.
             await self.session.execute(
                 pg_insert(Membership)
                 .from_select(
                     ["user_id", "workspace_id"],
-                    select(GroupMember.user_id, literal(workspace_id)).where(
-                        GroupMember.group_id == group_id,
-                        workspace_scoped_path_exists(GroupMember.user_id, workspace_id),
+                    select(User.id, literal(workspace_id)).where(  # pyright: ignore[reportCallIssue,reportArgumentType]
+                        User.id.in_(user_ids),  # pyright: ignore[reportAttributeAccessIssue]
+                        workspace_scoped_path_exists(User.id, workspace_id),  # pyright: ignore[reportArgumentType]
                     ),
                 )
                 .on_conflict_do_nothing(
                     index_elements=[Membership.user_id, Membership.workspace_id]
                 )
             )
-            # Drop membership for members that no longer hold any ws-scoped path.
+            # Drop membership for users with no remaining ws-scoped path.
             await self.session.execute(
                 delete(Membership).where(
                     Membership.workspace_id == workspace_id,
-                    Membership.user_id.in_(group_member_ids),
+                    Membership.user_id.in_(user_ids),
                     ~workspace_scoped_path_exists(Membership.user_id, workspace_id),
                 )
             )
             await self.session.commit()
         logger.debug(
-            "Reconciled group members",
-            group_id=group_id,
+            "Reconciled users for workspace",
+            user_count=len(set(user_ids)),
             workspace_id=workspace_id,
         )

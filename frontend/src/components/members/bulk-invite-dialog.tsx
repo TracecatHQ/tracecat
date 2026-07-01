@@ -6,6 +6,7 @@ import { PlusIcon } from "@radix-ui/react-icons"
 import { type ReactNode, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
+import type { BatchInvitationItemResult, InvitationBatchResult } from "@/client"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -47,18 +48,6 @@ interface RoleOption {
   name: string
 }
 
-type BulkInviteResultRow = {
-  email: string
-  status: string
-  reason?: string | null
-}
-
-interface BulkInviteResult {
-  results: BulkInviteResultRow[]
-  created_count: number
-  skipped_count: number
-}
-
 interface BulkInviteDialogProps {
   /** Title shown in the dialog header. */
   title: string
@@ -72,7 +61,7 @@ interface BulkInviteDialogProps {
   onSubmit: (params: {
     emails: string[]
     role_id: string
-  }) => Promise<BulkInviteResult>
+  }) => Promise<InvitationBatchResult>
   /** Whether the submit mutation is in flight. */
   isPending: boolean
   /** Optional custom trigger; defaults to an "Invite member" button. */
@@ -95,7 +84,7 @@ export function BulkInviteDialog({
 }: BulkInviteDialogProps) {
   const [open, setOpen] = useState(false)
   const [invalidEmails, setInvalidEmails] = useState<string[]>([])
-  const [skipped, setSkipped] = useState<BulkInviteResultRow[]>([])
+  const [skipped, setSkipped] = useState<BatchInvitationItemResult[]>([])
 
   const form = useForm<BulkInviteFormValues>({
     resolver: zodResolver(bulkInviteFormSchema),
