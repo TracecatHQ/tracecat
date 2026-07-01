@@ -100,6 +100,52 @@ describe("workspace sync repository queries", () => {
     ).toBeDefined()
   })
 
+  it("keys branch queries by provider", () => {
+    const wrapper = createWrapper(queryClient)
+
+    renderHook(
+      () =>
+        useRepositoryBranches("workspace-1", {
+          enabled: false,
+          gitRepoUrl: "git+ssh://git@example.com/test/repo.git",
+          provider: "github",
+        }),
+      { wrapper }
+    )
+    renderHook(
+      () =>
+        useRepositoryBranches("workspace-1", {
+          enabled: false,
+          gitRepoUrl: "git+ssh://git@example.com/test/repo.git",
+          provider: "gitlab",
+        }),
+      { wrapper }
+    )
+
+    expect(
+      queryClient.getQueryCache().find({
+        queryKey: [
+          "workflow-sync-branches",
+          "workspace-1",
+          "git+ssh://git@example.com/test/repo.git",
+          "github",
+          200,
+        ],
+      })
+    ).toBeDefined()
+    expect(
+      queryClient.getQueryCache().find({
+        queryKey: [
+          "workflow-sync-branches",
+          "workspace-1",
+          "git+ssh://git@example.com/test/repo.git",
+          "gitlab",
+          200,
+        ],
+      })
+    ).toBeDefined()
+  })
+
   it("keys commit queries by configured git URL", () => {
     const wrapper = createWrapper(queryClient)
 
