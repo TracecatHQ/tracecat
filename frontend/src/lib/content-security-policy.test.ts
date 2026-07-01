@@ -40,6 +40,12 @@ describe("buildContentSecurityPolicy", () => {
     expect(connectSrc).not.toContain("/v1")
   })
 
+  it("allows blob fetches for local prompt attachments", () => {
+    const connectSrc = getConnectSrc(buildContentSecurityPolicy({}))
+
+    expect(connectSrc).toContain("blob:")
+  })
+
   it("allows the configured presigned blob storage origin", () => {
     const policy = buildContentSecurityPolicy({
       NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT:

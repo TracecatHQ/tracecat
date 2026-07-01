@@ -45,6 +45,7 @@ export function buildContentSecurityPolicy(
 function getConnectSrc(env: ContentSecurityPolicyEnv): string {
   return [
     "connect-src 'self'",
+    "blob:",
     getUrlOrigin(env.NEXT_PUBLIC_API_URL),
     getUrlOrigin(env.NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT),
     readEnvValue(env.NEXT_PUBLIC_POSTHOG_KEY)
