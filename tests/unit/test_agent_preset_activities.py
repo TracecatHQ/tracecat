@@ -136,6 +136,7 @@ async def test_resolve_preset_subagent_configs_resolves_version_id_ref() -> None
         tool_approvals={},
     )
     service.resolve_agent_preset_version = AsyncMock(return_value=version)
+    service._lock_active_subagent_presets = AsyncMock()  # type: ignore[method-assign]
 
     result = await service._resolve_preset_subagent_configs(
         AgentSubagentsConfig(
