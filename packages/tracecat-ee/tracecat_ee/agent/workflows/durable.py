@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -1052,34 +1051,24 @@ class DurableAgentWorkflow:
             heartbeat_timeout=timedelta(seconds=60),
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
-        cancel_wait_task = asyncio.create_task(
-            workflow.wait_condition(lambda: self._cancel_requested)
+        # ActivityHandle is an asyncio.Task subclass, so .done() is valid.
+        # Neither wait_condition nor the handle poll emits history commands,
+        # so this race stays replay-safe.
+        await workflow.wait_condition(
+            lambda: activity_handle.done() or self._cancel_requested
         )
-        try:
-            done, _pending = await asyncio.wait(
-                [activity_handle, cancel_wait_task],
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-
-            if activity_handle in done:
-                return await activity_handle
-
+        if not activity_handle.done():
             activity_handle.cancel()
-            try:
-                return await activity_handle
-            except ActivityError as e:
-                if self._cancel_requested and isinstance(
-                    e.cause, TemporalCancelledError
-                ):
-                    return AgentExecutorResult(
-                        success=True,
-                        cancelled=True,
-                        cancelled_reason=self._cancel_reason or "user_cancel",
-                    )
-                raise
-        finally:
-            if not cancel_wait_task.done():
-                cancel_wait_task.cancel()
+        try:
+            return await activity_handle
+        except ActivityError as e:
+            if self._cancel_requested and isinstance(e.cause, TemporalCancelledError):
+                return AgentExecutorResult(
+                    success=True,
+                    cancelled=True,
+                    cancelled_reason=self._cancel_reason or "user_cancel",
+                )
+            raise
 
     async def _run_with_agent_executor(
         self, args: AgentWorkflowArgs, cfg: AgentConfig
@@ -1241,13 +1230,9 @@ class DurableAgentWorkflow:
                     session_id=self.session_id,
                     reason=result.cancelled_reason,
                 )
-                message_history = await self._load_terminal_message_history(result)
-                return AgentOutput(
-                    output=None,
-                    message_history=message_history,
-                    duration=(datetime.now(UTC) - info.start_time).total_seconds(),
-                    usage=RunUsage(requests=0, input_tokens=0, output_tokens=0),
-                    session_id=self.session_id,
+                # Executor loopback already emitted the cancelled notice.
+                return await self._cancelled_turn_output(
+                    result, info, emit_cancelled=False
                 )
 
             if not result.success:
@@ -1305,14 +1290,8 @@ class DurableAgentWorkflow:
                         }
                     )
                     await self.approvals.handle_decisions()
-                    await self._emit_session_cancelled()
-                    message_history = await self._load_terminal_message_history(result)
-                    return AgentOutput(
-                        output=None,
-                        message_history=message_history,
-                        duration=(datetime.now(UTC) - info.start_time).total_seconds(),
-                        usage=RunUsage(requests=0, input_tokens=0, output_tokens=0),
-                        session_id=self.session_id,
+                    return await self._cancelled_turn_output(
+                        result, info, emit_cancelled=True
                     )
                 # Persist approval decisions to DB (atomic with chat messages)
                 await self.approvals.handle_decisions()
@@ -1322,14 +1301,8 @@ class DurableAgentWorkflow:
                         session_id=self.session_id,
                         reason=self._cancel_reason,
                     )
-                    await self._emit_session_cancelled()
-                    message_history = await self._load_terminal_message_history(result)
-                    return AgentOutput(
-                        output=None,
-                        message_history=message_history,
-                        duration=(datetime.now(UTC) - info.start_time).total_seconds(),
-                        usage=RunUsage(requests=0, input_tokens=0, output_tokens=0),
-                        session_id=self.session_id,
+                    return await self._cancelled_turn_output(
+                        result, info, emit_cancelled=True
                     )
 
                 # Execute approved tools and reconcile the SDK transcript.
@@ -1343,14 +1316,8 @@ class DurableAgentWorkflow:
                         session_id=self.session_id,
                         reason=self._cancel_reason,
                     )
-                    await self._emit_session_cancelled()
-                    message_history = await self._load_terminal_message_history(result)
-                    return AgentOutput(
-                        output=None,
-                        message_history=message_history,
-                        duration=(datetime.now(UTC) - info.start_time).total_seconds(),
-                        usage=RunUsage(requests=0, input_tokens=0, output_tokens=0),
-                        session_id=self.session_id,
+                    return await self._cancelled_turn_output(
+                        result, info, emit_cancelled=True
                     )
 
                 tool_results: list[ToolExecutionResult] = []
@@ -1416,6 +1383,31 @@ class DurableAgentWorkflow:
                 ),
                 session_id=self.session_id,
             )
+
+    async def _cancelled_turn_output(
+        self,
+        result: AgentExecutorResult,
+        info: workflow.Info,
+        *,
+        emit_cancelled: bool,
+    ) -> AgentOutput:
+        """Build the terminal output for a cancelled turn.
+
+        The executor-cancel loopback already emitted the cancelled notice, so
+        that path passes emit_cancelled=False. Approval-wait cancels have not
+        emitted yet and must do so before loading history to preserve the
+        activity command order at every call site.
+        """
+        if emit_cancelled:
+            await self._emit_session_cancelled()
+        message_history = await self._load_terminal_message_history(result)
+        return AgentOutput(
+            output=None,
+            message_history=message_history,
+            duration=(datetime.now(UTC) - info.start_time).total_seconds(),
+            usage=RunUsage(requests=0, input_tokens=0, output_tokens=0),
+            session_id=self.session_id,
+        )
 
     async def _load_terminal_message_history(
         self,
