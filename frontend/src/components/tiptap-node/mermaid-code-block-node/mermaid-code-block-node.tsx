@@ -23,6 +23,71 @@ type MermaidRenderState = {
   renderWhenBlurred: boolean
 }
 
+const MERMAID_FONT_FAMILY =
+  'var(--font-sans), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+
+const MERMAID_THEME_VARIABLES = {
+  fontFamily: MERMAID_FONT_FAMILY,
+  background: "#ffffff",
+  mainBkg: "#f4f4f5",
+  secondBkg: "#f8fafc",
+  tertiaryColor: "#ffffff",
+  primaryColor: "#f4f4f5",
+  secondaryColor: "#f8fafc",
+  primaryBorderColor: "#a1a1aa",
+  secondaryBorderColor: "#cbd5e1",
+  tertiaryBorderColor: "#d4d4d8",
+  primaryTextColor: "#18181b",
+  secondaryTextColor: "#18181b",
+  tertiaryTextColor: "#18181b",
+  textColor: "#18181b",
+  titleColor: "#18181b",
+  darkTextColor: "#18181b",
+  lineColor: "#71717a",
+  nodeBorder: "#a1a1aa",
+  clusterBkg: "#fafafa",
+  clusterBorder: "#d4d4d8",
+  defaultLinkColor: "#71717a",
+  edgeLabelBackground: "#ffffff",
+  actorBkg: "#f4f4f5",
+  actorBorder: "#a1a1aa",
+  actorTextColor: "#18181b",
+  actorLineColor: "#71717a",
+  signalColor: "#52525b",
+  signalTextColor: "#18181b",
+  labelBoxBkgColor: "#f4f4f5",
+  labelBoxBorderColor: "#a1a1aa",
+  labelTextColor: "#18181b",
+  loopTextColor: "#18181b",
+  noteBkgColor: "#fafafa",
+  noteBorderColor: "#d4d4d8",
+  noteTextColor: "#18181b",
+  activationBkgColor: "#e4e4e7",
+  activationBorderColor: "#a1a1aa",
+  sectionBkgColor: "#f4f4f5",
+  altSectionBkgColor: "#ffffff",
+  taskBkgColor: "#f4f4f5",
+  taskTextColor: "#18181b",
+  taskTextOutsideColor: "#18181b",
+  taskBorderColor: "#a1a1aa",
+  activeTaskBkgColor: "#dbeafe",
+  activeTaskBorderColor: "#93c5fd",
+  doneTaskBkgColor: "#e4e4e7",
+  doneTaskBorderColor: "#a1a1aa",
+  critBkgColor: "#fee2e2",
+  critBorderColor: "#fca5a5",
+  gridColor: "#e4e4e7",
+  cScale0: "#e4e4e7",
+  cScale1: "#dbeafe",
+  cScale2: "#bfdbfe",
+  cScale3: "#93c5fd",
+  pie1: "#e4e4e7",
+  pie2: "#dbeafe",
+  pie3: "#bfdbfe",
+  pie4: "#93c5fd",
+  pie5: "#cbd5e1",
+} as const
+
 /** Returns whether a code block should be shown as a Mermaid diagram. */
 export function shouldRenderMermaidDiagram({
   isEditable,
@@ -48,6 +113,52 @@ function getMermaidChartId(chart: string) {
   return `case-mermaid-${Math.abs(hash)}-${Math.random().toString(36).slice(2, 9)}`
 }
 
+function getScopedMermaidCss(svgId: string) {
+  return `
+#${svgId} {
+  background: transparent !important;
+  color: #18181b !important;
+  font-family: ${MERMAID_FONT_FAMILY} !important;
+}
+
+#${svgId} *,
+#${svgId} foreignObject *,
+#${svgId} span {
+  box-shadow: none !important;
+  filter: none !important;
+  font-family: ${MERMAID_FONT_FAMILY} !important;
+  text-shadow: none !important;
+}
+
+#${svgId} .edgeLabel,
+#${svgId} .label,
+#${svgId} .label text,
+#${svgId} .nodeLabel,
+#${svgId} .legend text,
+#${svgId} .titleText {
+  color: #18181b !important;
+  fill: #18181b !important;
+}
+
+#${svgId} .flowchart-link,
+#${svgId} .messageLine0,
+#${svgId} .messageLine1,
+#${svgId} .transition,
+#${svgId} .relation,
+#${svgId} .edge-thickness-normal,
+#${svgId} .edge-thickness-thick {
+  stroke: #71717a !important;
+}
+`
+}
+
+function addScopedMermaidCss(svg: string, svgId: string) {
+  return svg.replace(
+    "</svg>",
+    `<style>${getScopedMermaidCss(svgId)}</style></svg>`
+  )
+}
+
 function MermaidDiagram({ chart }: { chart: string }) {
   const [svg, setSvg] = React.useState("")
   const [error, setError] = React.useState<string | null>(null)
@@ -64,14 +175,16 @@ function MermaidDiagram({ chart }: { chart: string }) {
         mermaid.initialize({
           startOnLoad: false,
           securityLevel: "strict",
-          theme: "default",
-          fontFamily: "monospace",
+          theme: "base",
+          themeVariables: MERMAID_THEME_VARIABLES,
+          fontFamily: MERMAID_FONT_FAMILY,
           suppressErrorRendering: true,
         })
-        const result = await mermaid.render(getMermaidChartId(chart), chart)
+        const chartId = getMermaidChartId(chart)
+        const result = await mermaid.render(chartId, chart)
 
         if (isMounted) {
-          setSvg(result.svg)
+          setSvg(addScopedMermaidCss(result.svg, chartId))
         }
       } catch (renderError) {
         if (isMounted) {
@@ -119,7 +232,7 @@ function MermaidDiagram({ chart }: { chart: string }) {
   return (
     <div
       aria-label="Mermaid diagram"
-      className="overflow-x-auto p-4 [&_svg]:mx-auto [&_svg]:max-w-full"
+      className="max-w-full overflow-x-auto p-4 [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-w-none"
       dangerouslySetInnerHTML={{ __html: svg }}
       role="img"
     />
