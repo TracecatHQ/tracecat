@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from tracecat_registry.sdk.types import UNSET, Unset, is_set
 
@@ -43,6 +46,46 @@ class WorkflowExecutionTimeout(Exception):
         super().__init__(
             f"Timeout waiting for workflow execution {workflow_execution_id} after {timeout}s"
         )
+
+
+class JsonPatchOperation(BaseModel):
+    """A single RFC 6902 JSON Patch operation.
+
+    Mirrors the server-side model so agent tool schemas expose the operation
+    structure (``op`` enum, required ``path``) instead of a free-form object.
+    """
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    op: Literal["add", "remove", "replace", "move", "copy", "test"]
+    path: str
+    from_: str | None = Field(default=None, alias="from")
+    value: Any | None = None
+
+    @model_validator(mode="after")
+    def validate_operation_shape(self) -> JsonPatchOperation:
+        has_value = "value" in self.model_fields_set
+        match self.op:
+            case "add" | "replace" | "test":
+                if not has_value:
+                    raise ValueError(
+                        f"Patch operation {self.op!r} requires field 'value'"
+                    )
+            case "move" | "copy":
+                if self.from_ is None:
+                    raise ValueError(
+                        f"Patch operation {self.op!r} requires field 'from'"
+                    )
+        return self
+
+    def to_json_patch(self) -> dict[str, Any]:
+        """Serialize to canonical RFC 6902 wire format."""
+        data: dict[str, Any] = {"op": self.op, "path": self.path}
+        if self.from_ is not None:
+            data["from"] = self.from_
+        if self.op in ("add", "replace", "test"):
+            data["value"] = self.value
+        return data
 
 
 class WorkflowsClient:
@@ -112,7 +155,7 @@ class WorkflowsClient:
         *,
         workflow_id: str,
         base_revision: str,
-        patch_ops: list[dict[str, Any]],
+        patch_ops: Sequence[JsonPatchOperation | dict[str, Any]],
         validate_only: bool = False,
     ) -> dict[str, Any]:
         """Edit a workflow draft using RFC 6902 JSON Patch operations.
@@ -123,9 +166,12 @@ class WorkflowsClient:
 
         Args:
             workflow_id: Workflow UUID (short ``wf_...`` or full format).
-            base_revision: The ``draft_revision`` the patch is computed against.
+            base_revision: The ``draft_revision`` the patch is computed against
+                (an opaque content-hash string, not a version number).
             patch_ops: RFC 6902 JSON Patch operations restricted to the editable
                 sections (metadata, definition, layout, schedules, case_trigger).
+                Each op may be a :class:`JsonPatchOperation` or an equivalent
+                dict.
             validate_only: When True, validate the patch without persisting.
 
         Returns:
@@ -137,11 +183,14 @@ class WorkflowsClient:
             TracecatValidationError: If the patch is invalid.
             TracecatAPIError: For other API errors.
         """
+        normalized_ops = [
+            JsonPatchOperation.model_validate(op).to_json_patch() for op in patch_ops
+        ]
         return await self._client.patch(
             f"/workflows/{workflow_id}/edit-document",
             json={
                 "base_revision": base_revision,
-                "patch_ops": patch_ops,
+                "patch_ops": normalized_ops,
                 "validate_only": validate_only,
             },
         )
@@ -270,7 +319,7 @@ class WorkflowsClient:
         *,
         workflow_id: str,
         status: Literal["online", "offline"],
-    ) -> None:
+    ) -> dict[str, Any]:
         """Enable or disable a workflow's webhook trigger.
 
         Args:
@@ -278,6 +327,10 @@ class WorkflowsClient:
             status: ``"online"`` to enable the webhook (the workflow becomes
                 triggerable via its webhook ``url``) or ``"offline"`` to disable
                 it.
+
+        Returns:
+            The updated webhook configuration, as returned by
+            :meth:`get_webhook`.
 
         Raises:
             TracecatNotFoundError: If the workflow does not exist.
@@ -287,6 +340,7 @@ class WorkflowsClient:
             f"/workflows/{workflow_id}/webhook",
             json={"status": status},
         )
+        return await self.get_webhook(workflow_id=workflow_id)
 
     async def get_case_trigger(self, *, workflow_id: str) -> dict[str, Any]:
         """Read a workflow's case-trigger configuration.
@@ -311,7 +365,7 @@ class WorkflowsClient:
         status: Literal["online", "offline"] | None = None,
         event_types: list[str] | None = None,
         tag_filters: list[str] | None = None,
-    ) -> None:
+    ) -> dict[str, Any]:
         """Configure a workflow's case trigger.
 
         This is the only supported way to set a case trigger. The case-trigger
@@ -326,6 +380,11 @@ class WorkflowsClient:
                 ``["case_created", "status_changed"]``).
             tag_filters: Optional case-tag refs to restrict which cases fire the
                 trigger.
+
+        Returns:
+            The updated (merged) case-trigger configuration, as returned by
+            :meth:`get_case_trigger`. Because omitted args leave fields
+            unchanged, this reflects the full resulting config.
 
         Raises:
             TracecatNotFoundError: If the workflow does not exist.
@@ -344,6 +403,7 @@ class WorkflowsClient:
             f"/workflows/{workflow_id}/case-trigger",
             json=data,
         )
+        return await self.get_case_trigger(workflow_id=workflow_id)
 
     async def execute(
         self,

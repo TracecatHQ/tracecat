@@ -13,6 +13,7 @@ from typing_extensions import Doc
 from tracecat_registry import ActionIsInterfaceError, ctx, registry
 from tracecat_registry.context import get_context
 from tracecat_registry.sdk.workflows import (
+    JsonPatchOperation,
     WorkflowExecutionError,
     WorkflowExecutionTimeout,
 )
@@ -20,7 +21,11 @@ from tracecat_registry.sdk.workflows import (
 
 @registry.register(
     namespace="core.workflow",
-    description="Execute a subflow.",
+    description=(
+        "Execute a published workflow by alias as a subflow. For testing "
+        "unpublished draft edits during authoring, use `core.workflow.run` "
+        "instead."
+    ),
     default_title="Execute subflow",
     display_group="Workflows",
 )
@@ -208,17 +213,18 @@ async def edit_workflow(
     base_revision: Annotated[
         str,
         Doc(
-            "The `draft_revision` returned by `get_workflow`. The edit is "
-            "rejected with a conflict if the draft changed since then."
+            "The `draft_revision` returned by `get_workflow` — an opaque "
+            "content-hash string, not a version number. The edit is rejected "
+            "with a conflict if the draft changed since then."
         ),
     ],
     patch_ops: Annotated[
-        list[dict[str, Any]],
+        list[JsonPatchOperation],
         Doc(
             "RFC 6902 JSON Patch operations to apply to the draft document. Each "
             'op is an object like {"op": "add", "path": "/definition/actions/-", '
-            '"value": {...}}. Supported ops: add, remove, replace, move, copy, '
-            "test."
+            '"value": {...}}. `add`/`replace`/`test` require `value`; '
+            "`move`/`copy` require `from`."
         ),
     ],
     validate_only: Annotated[
@@ -296,7 +302,8 @@ async def get_webhook(
     namespace="core.workflow",
     description=(
         "Enable (`online`) or disable (`offline`) a workflow's webhook trigger. "
-        "See the `tracecat-manage-workflows` skill."
+        "Returns the updated webhook config (no need to call `get_webhook` "
+        "afterwards). See the `tracecat-manage-workflows` skill."
     ),
     default_title="Update workflow webhook",
     display_group="Workflows",
@@ -315,9 +322,10 @@ async def update_webhook(
         ),
     ],
 ) -> dict[str, Any]:
-    """Enable or disable a workflow's webhook trigger."""
-    await ctx.workflows.aio.update_webhook(workflow_id=workflow_id, status=status)
-    return {"workflow_id": workflow_id, "status": status}
+    """Enable or disable a workflow's webhook trigger and return the updated config."""
+    return await ctx.workflows.aio.update_webhook(
+        workflow_id=workflow_id, status=status
+    )
 
 
 @registry.register(
@@ -345,7 +353,9 @@ async def get_case_trigger(
     description=(
         "Configure a workflow's case trigger (status, event_types, tag_filters). "
         "This is the ONLY way to set a case trigger — it is NOT editable via "
-        "`edit_workflow` JSON patches. See the `tracecat-manage-workflows` skill."
+        "`edit_workflow` JSON patches. Returns the full merged config (no need "
+        "to call `get_case_trigger` afterwards). See the "
+        "`tracecat-manage-workflows` skill."
     ),
     default_title="Update workflow case trigger",
     display_group="Workflows",
@@ -378,14 +388,13 @@ async def update_case_trigger(
         ),
     ] = None,
 ) -> dict[str, Any]:
-    """Configure a workflow's case trigger."""
-    await ctx.workflows.aio.update_case_trigger(
+    """Configure a workflow's case trigger and return the merged config."""
+    return await ctx.workflows.aio.update_case_trigger(
         workflow_id=workflow_id,
         status=status,
         event_types=event_types,
         tag_filters=tag_filters,
     )
-    return {"workflow_id": workflow_id}
 
 
 @registry.register(
@@ -412,11 +421,12 @@ async def publish(
 @registry.register(
     namespace="core.workflow",
     description=(
-        "Run a workflow and return the execution id. By default runs the current "
-        "draft (your unpublished edits) so you can test changes before "
+        "Run a workflow by ID and return the execution id. By default runs the "
+        "current draft (your unpublished edits) so you can test changes before "
         "publishing; set `use_draft=False` to run a published version instead. "
-        "A broken draft returns a fixable validation error. Read the "
-        "`tracecat-manage-workflows` skill."
+        "A broken draft returns a fixable validation error. Use this while "
+        "authoring; use `core.workflow.execute` to invoke a published workflow "
+        "by alias as a subflow. Read the `tracecat-manage-workflows` skill."
     ),
     default_title="Run workflow",
     display_group="Workflows",
