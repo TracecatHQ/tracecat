@@ -104,7 +104,7 @@ class TestSessionActivities:
         """Test that get_session_activities returns a list of activity functions."""
         activities = get_session_activities()
         assert isinstance(activities, list)
-        assert len(activities) == 4
+        assert len(activities) == 5
 
         # All returned items should have the temporal activity definition
         for activity in activities:
@@ -120,6 +120,7 @@ class TestSessionActivities:
         assert "load_session_activity" in activity_names
         assert "load_session_messages_activity" in activity_names
         assert "reconcile_tool_results_activity" in activity_names
+        assert "finalize_turn_activity" in activity_names
 
 
 class TestBuildToolDefinitionsActivity:
@@ -1156,7 +1157,9 @@ class TestLoadSessionMessagesActivity:
         assert isinstance(result, LoadSessionMessagesResult)
         assert result.messages == expected_messages
         assert result.error is None
-        mock_service.list_messages.assert_awaited_once_with(mock_session_id)
+        mock_service.list_messages.assert_awaited_once_with(
+            mock_session_id, include_active=True
+        )
 
     @pytest.mark.anyio
     @patch("tracecat.agent.session.activities.AgentSessionService.with_session")

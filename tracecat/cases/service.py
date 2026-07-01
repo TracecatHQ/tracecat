@@ -390,6 +390,7 @@ class CasesService(BaseWorkspaceService):
         | None = None,
         sort: Literal["asc", "desc"] | None = None,
         include_durations: bool = False,
+        include_payload: bool = False,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """Search cases with cursor-based pagination and filtering."""
         paginator = BaseCursorPaginator(self.session)
@@ -665,6 +666,7 @@ class CasesService(BaseWorkspaceService):
                     tags=tag_reads,
                     dropdown_values=dropdown_reads,
                     durations=duration_reads,
+                    payload=case.payload if include_payload else None,
                     num_tasks_completed=task_counts[case.id]["completed"],
                     num_tasks_total=task_counts[case.id]["total"],
                 )
@@ -777,6 +779,7 @@ class CasesService(BaseWorkspaceService):
         | None = None,
         sort: Literal["asc", "desc"] | None = None,
         include_durations: bool = False,
+        include_payload: bool = False,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """List cases with a simplified default search query."""
         return await self.search_cases(
@@ -784,6 +787,7 @@ class CasesService(BaseWorkspaceService):
             order_by=order_by,
             sort=sort,
             include_durations=include_durations,
+            include_payload=include_payload,
         )
 
     async def get_case(

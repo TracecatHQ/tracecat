@@ -485,6 +485,39 @@ variable "worker_desired_count" {
   default     = 2
 }
 
+variable "worker_threadpool_max_workers" {
+  type        = number
+  description = "Activity thread-pool size per DSL worker task (TEMPORAL__THREADPOOL_MAX_WORKERS). Bounds concurrent CPU-bound sync activities competing for the GIL."
+  default     = 100
+
+  validation {
+    condition     = var.worker_threadpool_max_workers > 0 && floor(var.worker_threadpool_max_workers) == var.worker_threadpool_max_workers
+    error_message = "worker_threadpool_max_workers must be a positive integer."
+  }
+}
+
+variable "worker_max_concurrent_activities" {
+  type        = number
+  description = "Max concurrent activities per DSL worker task (TEMPORAL__MAX_CONCURRENT_ACTIVITIES)."
+  default     = 100
+
+  validation {
+    condition     = var.worker_max_concurrent_activities > 0 && floor(var.worker_max_concurrent_activities) == var.worker_max_concurrent_activities
+    error_message = "worker_max_concurrent_activities must be a positive integer."
+  }
+}
+
+variable "worker_max_concurrent_workflow_tasks" {
+  type        = number
+  description = "Max concurrent workflow tasks per DSL worker task (TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS)."
+  default     = 100
+
+  validation {
+    condition     = var.worker_max_concurrent_workflow_tasks >= 2 && floor(var.worker_max_concurrent_workflow_tasks) == var.worker_max_concurrent_workflow_tasks
+    error_message = "worker_max_concurrent_workflow_tasks must be an integer greater than or equal to 2."
+  }
+}
+
 variable "agent_worker_cpu" {
   type    = string
   default = "2048"

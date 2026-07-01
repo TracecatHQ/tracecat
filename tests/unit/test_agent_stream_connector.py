@@ -15,7 +15,34 @@ from tracecat.redis.client import RedisClient
 
 
 @pytest.mark.anyio
-async def test_abort_new_turn_clears_buffer_and_saved_cursor() -> None:
+async def test_per_turn_stream_key_includes_stream_id() -> None:
+    workspace_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    stream_id = uuid.uuid4()
+    client = SimpleNamespace(delete=AsyncMock(return_value=1))
+
+    per_turn = AgentStream(
+        client=cast(RedisClient, client),
+        workspace_id=workspace_id,
+        session_id=session_id,
+        stream_id=stream_id,
+    )
+    per_session = AgentStream(
+        client=cast(RedisClient, client),
+        workspace_id=workspace_id,
+        session_id=session_id,
+    )
+
+    assert per_turn._stream_key == (
+        f"agent-stream:{workspace_id}:{session_id}:{stream_id}"
+    )
+    assert per_session._stream_key == f"agent-stream:{workspace_id}:{session_id}"
+    # A new turn's key never collides with a prior turn's key.
+    assert per_turn._stream_key != per_session._stream_key
+
+
+@pytest.mark.anyio
+async def test_clear_buffer_deletes_key_without_cursor_write() -> None:
     workspace_id = uuid.uuid4()
     session_id = uuid.uuid4()
     client = SimpleNamespace(delete=AsyncMock(return_value=1))
@@ -25,12 +52,28 @@ async def test_abort_new_turn_clears_buffer_and_saved_cursor() -> None:
         session_id=session_id,
     )
 
-    stream._set_last_stream_id = AsyncMock()
-
-    await stream.abort_new_turn()
+    await stream.clear_buffer()
 
     client.delete.assert_awaited_once_with(stream._stream_key)
-    stream._set_last_stream_id.assert_awaited_once_with(None)
+
+
+@pytest.mark.anyio
+async def test_min_entry_id_returns_oldest_or_none() -> None:
+    workspace_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    client = SimpleNamespace(
+        xrange=AsyncMock(return_value=[("1717426372768-0", {})]),
+    )
+    stream = AgentStream(
+        client=cast(RedisClient, client),
+        workspace_id=workspace_id,
+        session_id=session_id,
+    )
+
+    assert await stream.min_entry_id() == "1717426372768-0"
+
+    client.xrange = AsyncMock(return_value=[])
+    assert await stream.min_entry_id() is None
 
 
 @pytest.mark.anyio
@@ -67,8 +110,6 @@ async def test_stream_events_yields_artifact_unified_event() -> None:
         session_id=session_id,
     )
 
-    stream._set_last_stream_id = AsyncMock()
-
     events = [
         event
         async for event in stream._stream_events(
@@ -91,7 +132,7 @@ async def test_stream_events_yields_artifact_unified_event() -> None:
 
 
 @pytest.mark.anyio
-async def test_stream_events_clears_buffer_after_terminal_marker() -> None:
+async def test_stream_events_expires_buffer_after_terminal_marker() -> None:
     workspace_id = uuid.uuid4()
     session_id = uuid.uuid4()
     raw_client = SimpleNamespace(expire=AsyncMock(return_value=None))
@@ -120,8 +161,6 @@ async def test_stream_events_clears_buffer_after_terminal_marker() -> None:
         session_id=session_id,
     )
 
-    stream._set_last_stream_id = AsyncMock()
-
     events = [
         event
         async for event in stream._stream_events(
@@ -132,7 +171,7 @@ async def test_stream_events_clears_buffer_after_terminal_marker() -> None:
 
     assert isinstance(event, StreamEnd)
 
-    stream._set_last_stream_id.assert_awaited_once_with(None)
+    # Readers never write last_stream_id; terminal only shortens the buffer TTL.
     raw_client.expire.assert_awaited_once_with(
         name=stream._stream_key,
         time=stream.COMPLETED_STREAM_TTL_SECONDS,
@@ -140,7 +179,7 @@ async def test_stream_events_clears_buffer_after_terminal_marker() -> None:
 
 
 @pytest.mark.anyio
-async def test_stream_events_preserves_cursor_when_stream_not_completed() -> None:
+async def test_stream_events_does_not_expire_when_not_completed() -> None:
     workspace_id = uuid.uuid4()
     session_id = uuid.uuid4()
     raw_client = SimpleNamespace(expire=AsyncMock(return_value=None))
@@ -170,7 +209,6 @@ async def test_stream_events_preserves_cursor_when_stream_not_completed() -> Non
     )
 
     stop_condition = AsyncMock(side_effect=[False, True])
-    stream._set_last_stream_id = AsyncMock()
 
     events = [
         event async for event in stream._stream_events(stop_condition, last_id="0-0")
@@ -178,5 +216,4 @@ async def test_stream_events_preserves_cursor_when_stream_not_completed() -> Non
 
     assert len(events) == 1
     assert isinstance(events[0], StreamDelta)
-    stream._set_last_stream_id.assert_awaited()
     raw_client.expire.assert_not_awaited()

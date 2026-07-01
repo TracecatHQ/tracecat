@@ -130,7 +130,7 @@ from tracecat.cases.service import (
 )
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
-from tracecat.chat.schemas import BasicChatRequest, ChatRequest
+from tracecat.chat.schemas import BasicChatRequest
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import (
     Action,
@@ -9468,9 +9468,12 @@ async def _collect_agent_response(
     workspace_id: uuid.UUID,
     timeout: float,
     last_id: str,
+    stream_id: uuid.UUID | None = None,
 ) -> str | AgentAwaitingApprovalResponse:
     """Poll Redis agent stream and return text output or pending approval state."""
-    stream = await AgentStream.new(session_id, workspace_id)
+    stream = await AgentStream.new(
+        session_id=session_id, workspace_id=workspace_id, stream_id=stream_id
+    )
     text_parts: list[str] = []
     approval_items: dict[str, AgentApprovalItemResponse] = {}
 
@@ -9622,21 +9625,25 @@ async def run_agent_preset(
                     agent_preset_version_id=version.id,
                 )
             )
-            # BasicChatRequest is handled at runtime by run_turn's match statement
-            # but not included in the ChatRequest type alias
+            # Mint the stream id in the caller so the producer (run_turn pins
+            # this id) and the consumer (below) share the same suffixed key.
+            stream_id = uuid.uuid4()
             await svc.run_turn(
-                session.id, cast(ChatRequest, BasicChatRequest(message=prompt))
+                session.id,
+                BasicChatRequest(message=prompt),
+                active_stream_id=stream_id,
             )
 
         # Collect text from Redis stream
         if role.workspace_id is None:
             raise ToolError("Workspace ID is required")
-        start_id = session.last_stream_id or "0-0"
+        # The fresh per-turn key is empty before this run, so read from 0-0.
         return await _collect_agent_response(
             session.id,
             role.workspace_id,
             timeout,
-            start_id,
+            "0-0",
+            stream_id,
         )
     except ToolError:
         raise

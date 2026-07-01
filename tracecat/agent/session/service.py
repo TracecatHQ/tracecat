@@ -57,7 +57,11 @@ from tracecat.agent.session.schemas import (
     AgentSessionUpdate,
 )
 from tracecat.agent.session.title_generator import generate_session_title
-from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.session.types import (
+    AgentSessionEntity,
+    TurnLifecycle,
+    TurnLifecycleResult,
+)
 from tracecat.agent.subagents import (
     ResolvedAgentsConfig,
 )
@@ -771,6 +775,59 @@ class AgentSessionService(BaseWorkspaceService):
         await self.session.refresh(agent_session)
         return agent_session
 
+    async def finalize_turn(
+        self,
+        session_id: uuid.UUID,
+        run_id: uuid.UUID,
+    ) -> None:
+        """Clear the active-turn pointers at terminal (compare-and-clear).
+
+        Nulls ``curr_run_id`` and ``active_stream_id`` only while the session
+        still points at ``run_id``. The compare guards against a newer turn that
+        already overwrote these pointers: a stale terminal must not clear the
+        live turn's state. Nulling ``curr_run_id`` is what flips the mid-turn DB
+        filter off (final rows become visible) and makes reconnect resolve to
+        NONE -> 204.
+        """
+        stmt = (
+            update(AgentSession)
+            .where(
+                AgentSession.id == session_id,
+                AgentSession.workspace_id == self.workspace_id,
+                AgentSession.curr_run_id == run_id,
+            )
+            .values(curr_run_id=None, active_stream_id=None)
+        )
+        await self.session.execute(stmt)
+        await self.session.commit()
+
+    async def clear_active_turn(
+        self,
+        session_id: uuid.UUID,
+        *,
+        expected_stream_id: uuid.UUID,
+    ) -> None:
+        """Clear active-turn pointers on turn-startup failure (compare-and-clear).
+
+        The workflow never started, so we drop the pointers optimistically
+        written by ``run_turn``. Compare on ``active_stream_id`` (minted per turn
+        at the HTTP layer) so a newer turn that already overwrote these pointers
+        between our optimistic write and this cleanup is not clobbered: turns are
+        not serialized, so a concurrent turn can pin its own pointers in that
+        window. Only clear while the session still points at our stream id.
+        """
+        stmt = (
+            update(AgentSession)
+            .where(
+                AgentSession.id == session_id,
+                AgentSession.workspace_id == self.workspace_id,
+                AgentSession.active_stream_id == expected_stream_id,
+            )
+            .values(curr_run_id=None, active_stream_id=None)
+        )
+        await self.session.execute(stmt)
+        await self.session.commit()
+
     # =========================================================================
     # Session History Management (for Claude SDK session persistence)
     # =========================================================================
@@ -980,14 +1037,23 @@ class AgentSessionService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Session with ID {session_id} not found")
         return source
 
-    async def _emit_noop_continuation_done(self, *, session_id: uuid.UUID) -> None:
+    async def _emit_noop_continuation_done(
+        self,
+        *,
+        session_id: uuid.UUID,
+        active_stream_id: uuid.UUID | None,
+    ) -> None:
         """Emit an end marker so duplicate/no-op continuations don't hang SSE clients."""
         if self.workspace_id is None:
             return
         try:
             redis_client = await get_redis_client()
             await redis_client.xadd(
-                str(StreamKey(self.workspace_id, session_id)),
+                StreamKey(
+                    workspace_id=self.workspace_id,
+                    session_id=session_id,
+                    stream_id=active_stream_id,
+                ),
                 {
                     tokens.DATA_KEY: orjson.dumps(
                         {tokens.END_TOKEN: tokens.END_TOKEN_VALUE},
@@ -1186,6 +1252,8 @@ class AgentSessionService(BaseWorkspaceService):
         self,
         session_id: uuid.UUID,
         request: ChatRequest | ContinueRunRequest | BasicChatRequest,
+        *,
+        active_stream_id: uuid.UUID | None = None,
     ) -> ChatResponse | None:
         """Run a session turn by spawning a DurableAgentWorkflow.
 
@@ -1194,6 +1262,10 @@ class AgentSessionService(BaseWorkspaceService):
 
         Args:
             session_id: The ID of the session.
+            active_stream_id: Per-turn stream id minted by the HTTP layer. Pinned
+                into the workflow input and onto the session row so the producer
+                and reader share the same per-turn Redis key. Defaults to a freshly
+                minted id for callers that don't manage their own stream.
             request: Either a ChatRequest (start) or ContinueRunRequest (continue).
 
         Returns:
@@ -1271,10 +1343,17 @@ class AgentSessionService(BaseWorkspaceService):
                     self.session, self.role, Entitlement.AGENT_ADDONS
                 )
             run_id = uuid.uuid4()
+            # Per-turn stream id: use the HTTP-minted id when provided, else mint
+            # one. Pinned into the workflow input so the worker producer writes to
+            # the same per-turn Redis key the reader joins (immune to the
+            # stale-turn overwrite race).
+            stream_id = active_stream_id or uuid.uuid4()
 
             args = RunAgentArgs(
                 user_prompt=user_prompt or "",
                 session_id=session_id,
+                active_stream_id=stream_id,
+                curr_run_id=run_id,
                 config=agent_config,
             )
 
@@ -1292,8 +1371,10 @@ class AgentSessionService(BaseWorkspaceService):
                 agent_preset_version_id=agent_session.agent_preset_version_id,
             )
 
-            # Update session with current run_id for approval lookups
+            # Pin run_id (approval lookups) and the per-turn stream id before
+            # launching the workflow.
             agent_session.curr_run_id = run_id
+            agent_session.active_stream_id = stream_id
             self.session.add(agent_session)
             await self.session.commit()
 
@@ -1320,9 +1401,65 @@ class AgentSessionService(BaseWorkspaceService):
                 ),
             )
 
-        # Return ChatResponse with session_id for streaming
+        # Return ChatResponse with session_id for streaming. Surface run_id so the
+        # HTTP layer builds the stable bubble id from the value we just minted
+        # rather than re-reading curr_run_id, which finalize_turn may clear before
+        # the post-run refresh on a fast turn.
         stream_url = f"/api/agent/sessions/{session_id}/stream"
-        return ChatResponse(stream_url=stream_url, chat_id=session_id)
+        return ChatResponse(
+            stream_url=stream_url, chat_id=session_id, curr_run_id=run_id
+        )
+
+    async def get_turn_lifecycle(
+        self, agent_session: AgentSession
+    ) -> TurnLifecycleResult:
+        """Resolve the live turn lifecycle from Temporal (cold reconnect path).
+
+        Temporal owns lifecycle - we never cache it in the DB. Returns the
+        decision plus the run id used to compute it (None when there is no
+        current run). On any describe error we fall back to FAILED so a
+        reconnecting client gets a terminal frame instead of hanging.
+        """
+        from temporalio.client import WorkflowExecutionStatus
+        from temporalio.service import RPCError
+        from tracecat_ee.agent.types import AgentWorkflowID
+        from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
+
+        curr_run_id = agent_session.curr_run_id
+        if curr_run_id is None:
+            return TurnLifecycleResult(TurnLifecycle.NONE, None)
+
+        client = await get_temporal_client()
+        handle = client.get_workflow_handle_for(
+            DurableAgentWorkflow.run, AgentWorkflowID(curr_run_id)
+        )
+        try:
+            description = await handle.describe()
+        except RPCError:
+            # Workflow history already gone / never started -> treat as failed so
+            # the client receives a terminal frame and refetches DB history.
+            logger.warning(
+                "Failed to describe agent workflow for reconnect",
+                session_id=str(agent_session.id),
+                run_id=str(curr_run_id),
+            )
+            return TurnLifecycleResult(TurnLifecycle.FAILED, curr_run_id)
+
+        match description.status:
+            case (
+                WorkflowExecutionStatus.RUNNING
+                | WorkflowExecutionStatus.CONTINUED_AS_NEW
+            ):
+                # CONTINUED_AS_NEW is not currently reachable - DurableAgentWorkflow
+                # loops turns internally rather than calling continue_as_new - but
+                # treat it as still-running (not failed) for consistency with how
+                # the inbox provider classifies Temporal workflow statuses.
+                return TurnLifecycleResult(TurnLifecycle.RUNNING, curr_run_id)
+            case WorkflowExecutionStatus.COMPLETED:
+                return TurnLifecycleResult(TurnLifecycle.COMPLETED, curr_run_id)
+            case _:
+                # FAILED | TERMINATED | CANCELED | TIMED_OUT
+                return TurnLifecycleResult(TurnLifecycle.FAILED, curr_run_id)
 
     async def validate_turn_request(
         self,
@@ -1397,7 +1534,10 @@ class AgentSessionService(BaseWorkspaceService):
                 run_id=str(curr_run_id),
                 source=source,
             )
-            await self._emit_noop_continuation_done(session_id=session_id)
+            await self._emit_noop_continuation_done(
+                session_id=session_id,
+                active_stream_id=agent_session.active_stream_id,
+            )
             return None
 
         # Build ApprovalMap from the request decisions
@@ -1454,7 +1594,10 @@ class AgentSessionService(BaseWorkspaceService):
                         source=source,
                         dedup_key=dedup_key,
                     )
-                    await self._emit_noop_continuation_done(session_id=session_id)
+                    await self._emit_noop_continuation_done(
+                        session_id=session_id,
+                        active_stream_id=agent_session.active_stream_id,
+                    )
                     return None
             except Exception as exc:
                 logger.warning(
@@ -1731,6 +1874,7 @@ class AgentSessionService(BaseWorkspaceService):
         session_id: uuid.UUID,
         *,
         kinds: Sequence[MessageKind] | None = None,
+        include_active: bool = False,
     ) -> list[ChatMessage]:
         """Retrieve session messages, optionally filtered by message kind.
 
@@ -1741,6 +1885,12 @@ class AgentSessionService(BaseWorkspaceService):
         Args:
             session_id: The session UUID (could be AgentSession.id or Chat.id).
             kinds: Optional list of message kinds to filter by.
+            include_active: When True, do not hide the active turn's rows. The
+                mid-turn filter exists for live UI reads (the assistant streams
+                from Redis). Terminal loads that build ``AgentOutput`` must set
+                this True: they run before ``finalize_turn`` clears
+                ``curr_run_id``, so the default filter would otherwise omit the
+                just-completed turn from the returned ``message_history``.
 
         Returns:
             List of ChatMessage objects (parent messages + current if forked).
@@ -1763,6 +1913,18 @@ class AgentSessionService(BaseWorkspaceService):
             .where(AgentSessionHistory.session_id.in_(session_ids))
             .order_by(AgentSessionHistory.surrogate_id)
         )
+        # While a turn is live (curr_run_id set), the active run's partial rows
+        # are durability-only - the live assistant streams from Redis. Hide them
+        # here so the active assistant has exactly one source (no dedupe). The
+        # gate is the cheap curr_run_id pointer; terminal nulls it (see
+        # finish/fail paths), at which point the final rows become visible.
+        if not include_active and agent_session.curr_run_id is not None:
+            all_history_stmt = all_history_stmt.where(
+                or_(
+                    AgentSessionHistory.curr_run_id.is_(None),
+                    AgentSessionHistory.curr_run_id != agent_session.curr_run_id,
+                )
+            )
         all_history_result = await self.session.execute(all_history_stmt)
         all_entries = list(all_history_result.scalars().all())
 
@@ -2010,12 +2172,19 @@ class AgentSessionService(BaseWorkspaceService):
             },
         }
 
+        # Tag the inserted tool_result with the active run id so the mid-turn
+        # filter hides it alongside its (also active-run-tagged) assistant
+        # tool_use row. A NULL tag would leave this row visible while the
+        # matching tool_use stays hidden, rendering a dangling/duplicate tool
+        # result on a mid-turn DB reload until terminal cleanup. Terminal nulls
+        # curr_run_id, at which point both rows become visible together.
         self.session.add(
             AgentSessionHistory(
                 session_id=session_id,
                 workspace_id=self.workspace_id,
                 content=entry_content,
                 kind=MessageKind.CHAT_MESSAGE.value,
+                curr_run_id=session.curr_run_id,
             )
         )
         await self.session.commit()

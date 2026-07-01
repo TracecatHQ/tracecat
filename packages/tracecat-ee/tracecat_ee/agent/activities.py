@@ -127,6 +127,7 @@ class EmitSessionErrorInputs(BaseModel):
     session_id: uuid.UUID
     workspace_id: uuid.UUID
     message: str
+    active_stream_id: uuid.UUID | None = None
 
 
 def _stored_user_mcp_tool_policy(
@@ -478,7 +479,9 @@ class AgentActivities:
         to the chat UI, since those happen before the loopback is wired up.
         """
         stream = await AgentStream.new(
-            session_id=args.session_id, workspace_id=args.workspace_id
+            session_id=args.session_id,
+            workspace_id=args.workspace_id,
+            stream_id=args.active_stream_id,
         )
         await stream.error(args.message)
         await stream.done()
