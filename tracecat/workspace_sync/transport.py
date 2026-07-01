@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequenc
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, Protocol
-from urllib.parse import quote, urlparse
+from urllib.parse import quote
 
 import httpx
 from github.GithubException import GithubException
@@ -874,25 +874,9 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         )
 
     @asynccontextmanager
-    async def _authed_client(self, url: GitUrl) -> AsyncIterator[httpx.AsyncClient]:
-        """Yield an authenticated client, asserting the repo lives on the instance.
-
-        The API host comes from the organization GitLab connection's ``base_url``
-        while the project path comes from the workspace ``git_repo_url``. Guarding
-        that they reference the same host prevents a workspace URL from silently
-        resolving against a different GitLab instance than the one the token
-        authenticates to.
-        """
+    async def _authed_client(self, _url: GitUrl) -> AsyncIterator[httpx.AsyncClient]:
+        """Yield an authenticated client for the configured GitLab instance."""
         credentials = await self._credentials()
-        expected_host = _gitlab_instance_host(credentials.base_url)
-        repo_host = _gitlab_instance_host(url.host)
-        if expected_host and repo_host != expected_host:
-            raise TracecatValidationError(
-                f"Workspace repository host '{url.host}' does not match the "
-                f"configured GitLab instance '{expected_host}'. Update the "
-                "workspace Git URL or the organization GitLab connection so they "
-                "reference the same host."
-            )
         async with self._client(credentials) as client:
             yield client
 
@@ -1237,12 +1221,6 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             return response.json()
         except ValueError as e:
             raise GitLabError("GitLab response was not valid JSON") from e
-
-
-def _gitlab_instance_host(value: str) -> str:
-    """Return the lowercased hostname for a GitLab URL or bare host."""
-    parsed = urlparse(value if "://" in value else f"//{value}")
-    return (parsed.hostname or "").lower()
 
 
 def _gitlab_project_id(url: GitUrl) -> str:

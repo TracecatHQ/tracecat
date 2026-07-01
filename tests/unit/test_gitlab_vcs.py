@@ -324,6 +324,14 @@ def _git_url_with_ssh_port() -> GitUrl:
     )
 
 
+def _git_url_with_ssh_alias() -> GitUrl:
+    return GitUrl(
+        host="ssh.gitlab.example.test",
+        org="group/subgroup",
+        repo="project",
+    )
+
+
 def _manifest() -> str:
     return canonical_json_text(WorkspaceManifest())
 
@@ -422,6 +430,19 @@ async def test_gitlab_transport_allows_repo_ssh_port_on_same_instance() -> None:
     transport = _MockGitLabTransport(api=api)
 
     snapshot = await transport.read_files(url=_git_url_with_ssh_port(), ref="main")
+
+    assert snapshot.commit_sha == "0" * 39 + "1"
+
+
+@pytest.mark.anyio
+async def test_gitlab_transport_allows_repo_ssh_host_alias() -> None:
+    api = _MockGitLabApi(
+        project_path="group/subgroup/project",
+        files={MANIFEST_FILENAME: _manifest()},
+    )
+    transport = _MockGitLabTransport(api=api)
+
+    snapshot = await transport.read_files(url=_git_url_with_ssh_alias(), ref="main")
 
     assert snapshot.commit_sha == "0" * 39 + "1"
 
