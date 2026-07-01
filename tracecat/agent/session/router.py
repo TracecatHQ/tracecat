@@ -784,6 +784,15 @@ async def cancel_session(
     svc = AgentSessionService(session, role)
     reason = request.reason if request else "user_cancel"
     try:
+        agent_session = await svc.get_session(session_id)
+        if agent_session is None:
+            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+        await _require_workspace_chat_entitlement_for_session_tree(
+            svc=svc,
+            session=session,
+            role=role,
+            agent_session=agent_session,
+        )
         return await svc.request_cancel(session_id, reason=reason)
     except TracecatNotFoundError as e:
         raise HTTPException(

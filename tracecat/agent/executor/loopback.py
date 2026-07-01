@@ -383,9 +383,16 @@ class LoopbackHandler:
         if not self._result.cancelled or self._interrupt_notice_emitted:
             return
         self._interrupt_notice_emitted = True
-        await stream_sink.append(
-            UnifiedStreamEvent.cancelled_event(reason=self._result.cancelled_reason)
-        )
+        try:
+            await stream_sink.append(
+                UnifiedStreamEvent.cancelled_event(reason=self._result.cancelled_reason)
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to emit cancellation advisory event",
+                session_id=self.input.session_id,
+                error=str(e),
+            )
 
     async def emit_terminal_error(self, error: str) -> bool:
         """Emit a terminal error through the resolved stream sink.

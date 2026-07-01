@@ -111,6 +111,7 @@ with workflow.unsafe.imports_passed_through():
         BuildAgentToolDefsArgs,
         BuildToolDefsArgs,
         BuildToolDefsResult,
+        EmitSessionCancelledInputs,
         EmitSessionErrorInputs,
         ExecuteRemoteMCPToolArgs,
     )
@@ -916,6 +917,38 @@ class DurableAgentWorkflow:
                 error=str(emit_error),
             )
 
+    async def _emit_session_cancelled(self) -> None:
+        """Emit the advisory cancelled-turn stream event for approval-wait cancels.
+
+        Cancellation during the mid-turn executor activity flows through the
+        loopback handler, which emits this notice itself. Cancelling while
+        waiting on approval decisions never starts (or has already finished)
+        that activity, so the workflow must emit the notice directly here to
+        keep the chat UI's "Chat stopped" signal consistent across both
+        cancellation paths.
+        """
+        try:
+            await workflow.execute_activity_method(
+                AgentActivities.emit_session_cancelled,
+                EmitSessionCancelledInputs(
+                    session_id=self.session_id,
+                    workspace_id=self.workspace_id,
+                    reason=self._cancel_reason or "user_cancel",
+                    # Chat turns pin a per-turn stream id; the client reads the
+                    # suffixed key, so the cancelled/done markers must land there.
+                    # None falls back to the per-session key for non-chat turns.
+                    active_stream_id=self.active_stream_id,
+                ),
+                start_to_close_timeout=timedelta(seconds=10),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+        except ActivityError as emit_error:
+            logger.warning(
+                "Failed to emit agent session cancelled notice",
+                session_id=self.session_id,
+                error=str(emit_error),
+            )
+
     @workflow.update
     def set_approvals(self, submission: WorkflowApprovalSubmission) -> None:
         submission = WorkflowApprovalSubmission.model_validate(submission)
@@ -990,7 +1023,7 @@ class DurableAgentWorkflow:
             start_to_close_timeout=timedelta(
                 seconds=config.TRACECAT__AGENT_SANDBOX_TIMEOUT
             ),
-            heartbeat_timeout=timedelta(seconds=10),
+            heartbeat_timeout=timedelta(seconds=60),
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
         cancel_wait_task = asyncio.create_task(
@@ -1246,6 +1279,7 @@ class DurableAgentWorkflow:
                         }
                     )
                     await self.approvals.handle_decisions()
+                    await self._emit_session_cancelled()
                     message_history = await self._load_terminal_message_history(result)
                     return AgentOutput(
                         output=None,
@@ -1262,6 +1296,7 @@ class DurableAgentWorkflow:
                         session_id=self.session_id,
                         reason=self._cancel_reason,
                     )
+                    await self._emit_session_cancelled()
                     message_history = await self._load_terminal_message_history(result)
                     return AgentOutput(
                         output=None,
@@ -1282,6 +1317,7 @@ class DurableAgentWorkflow:
                         session_id=self.session_id,
                         reason=self._cancel_reason,
                     )
+                    await self._emit_session_cancelled()
                     message_history = await self._load_terminal_message_history(result)
                     return AgentOutput(
                         output=None,
