@@ -225,16 +225,9 @@ class DSLScheduler:
         dst_ref, edge_type = adj
         return dst_ref, edge_type.value
 
-    def _scope_is_descendant(self, scope: str, ancestor_scope: str) -> bool:
-        curr_scope = scope
-        while curr_scope is not None:
-            if curr_scope == ancestor_scope:
-                return True
-            curr_scope = self.scope_hierarchy.get(curr_scope)
-        return False
-
     def _build_loop_regions(self) -> dict[str, LoopRegion]:
-        regions: dict[str, LoopRegion] = {}
+        # Phase 1: validate each loop.end and map loop scope -> end ref.
+        loop_end_by_scope: dict[str, str] = {}
         for stmt in self.dsl.actions:
             if stmt.action != PlatformAction.LOOP_END:
                 continue
@@ -260,23 +253,37 @@ class DSLScheduler:
                 raise RuntimeError(
                     f"Loop end action {stmt.ref!r} does not match a loop start action"
                 )
-            if loop_scope in regions:
+            if loop_scope in loop_end_by_scope:
                 raise RuntimeError(
                     f"Loop start action {loop_scope!r} has multiple loop end actions"
                 )
+            loop_end_by_scope[loop_scope] = stmt.ref
 
-            members = frozenset(
-                ref
-                for ref, scope in self.action_scopes.items()
-                if self._scope_is_descendant(scope, loop_scope)
-            )
-            regions[loop_scope] = LoopRegion(
+        # Phase 2: assign membership in a single pass over all actions. Walk each
+        # action's scope chain upward once; every loop scope on the chain claims
+        # the action. O(actions x depth) total, vs O(loops x actions x depth)
+        # from re-walking the chain per loop.
+        members_by_scope: dict[str, set[str]] = {
+            scope: set() for scope in loop_end_by_scope
+        }
+        for ref, scope in self.action_scopes.items():
+            curr_scope: str | None = scope
+            while curr_scope is not None:
+                if (members := members_by_scope.get(curr_scope)) is not None:
+                    members.add(ref)
+                curr_scope = self.scope_hierarchy.get(curr_scope)
+
+        return {
+            loop_scope: LoopRegion(
                 start_ref=loop_scope,
-                end_ref=stmt.ref,
+                end_ref=end_ref,
                 scope_ref=loop_scope,
-                members=members | {stmt.ref},
+                # The end ref's own scope is the parent (it closes the loop scope),
+                # so it never appears in members_by_scope via the walk above.
+                members=frozenset(members_by_scope[loop_scope] | {end_ref}),
             )
-        return regions
+            for loop_scope, end_ref in loop_end_by_scope.items()
+        }
 
     @staticmethod
     def _stream_within(stream_id: StreamID, base_stream_id: StreamID) -> bool:
