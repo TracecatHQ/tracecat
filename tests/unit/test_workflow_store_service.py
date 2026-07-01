@@ -85,7 +85,10 @@ async def test_publish_workflow_uses_workspace_sync_service(
         ),
     )
 
-    with patch("tracecat.workflow.store.service.WorkspaceSyncService") as sync_cls:
+    with patch(
+        "tracecat.workflow.store.service.WorkspaceSyncService.for_workspace",
+        new_callable=AsyncMock,
+    ) as for_workspace:
         sync_service = AsyncMock()
         sync_service.export_workflow.return_value = WorkspaceSyncExportResult(
             commit=CommitInfo(
@@ -97,7 +100,7 @@ async def test_publish_workflow_uses_workspace_sync_service(
             ),
             files=[],
         )
-        sync_cls.return_value = sync_service
+        for_workspace.return_value = sync_service
 
         result = await workflow_store_service.publish_workflow_dsl(
             workflow_id=workflow_id,
@@ -107,6 +110,10 @@ async def test_publish_workflow_uses_workspace_sync_service(
         )
 
     assert result.branch == "feature/test"
+    for_workspace.assert_awaited_once_with(
+        session=workflow_store_service.session,
+        role=workflow_store_service.role,
+    )
     call_kwargs = sync_service.export_workflow.call_args.kwargs
     assert call_kwargs["workflow"] is workflow
     assert call_kwargs["dsl"] is sample_dsl
@@ -210,7 +217,10 @@ async def test_publish_workflow_legacy_branch_still_creates_pr(
     workflow_id = WorkflowUUID.new_uuid4()
     workflow = _workflow_fixture(workflow_id, case_trigger=None)
 
-    with patch("tracecat.workflow.store.service.WorkspaceSyncService") as sync_cls:
+    with patch(
+        "tracecat.workflow.store.service.WorkspaceSyncService.for_workspace",
+        new_callable=AsyncMock,
+    ) as for_workspace:
         sync_service = AsyncMock()
         sync_service.export_workflow.return_value = WorkspaceSyncExportResult(
             commit=CommitInfo(
@@ -224,7 +234,7 @@ async def test_publish_workflow_legacy_branch_still_creates_pr(
             ),
             files=[],
         )
-        sync_cls.return_value = sync_service
+        for_workspace.return_value = sync_service
 
         await workflow_store_service.publish_workflow_dsl(
             workflow_id=workflow_id,
@@ -233,6 +243,10 @@ async def test_publish_workflow_legacy_branch_still_creates_pr(
             workflow=cast(Workflow, workflow),
         )
 
+    for_workspace.assert_awaited_once_with(
+        session=workflow_store_service.session,
+        role=workflow_store_service.role,
+    )
     params = sync_service.export_workflow.call_args.kwargs["params"]
     assert params.branch.startswith("tracecat-sync-")
     assert params.create_pr is True
@@ -253,7 +267,10 @@ async def test_publish_workflow_includes_configured_case_trigger(
         ),
     )
 
-    with patch("tracecat.workflow.store.service.WorkspaceSyncService") as sync_cls:
+    with patch(
+        "tracecat.workflow.store.service.WorkspaceSyncService.for_workspace",
+        new_callable=AsyncMock,
+    ) as for_workspace:
         sync_service = AsyncMock()
         sync_service.export_workflow.return_value = WorkspaceSyncExportResult(
             commit=CommitInfo(
@@ -265,7 +282,7 @@ async def test_publish_workflow_includes_configured_case_trigger(
             ),
             files=[],
         )
-        sync_cls.return_value = sync_service
+        for_workspace.return_value = sync_service
 
         await workflow_store_service.publish_workflow_dsl(
             workflow_id=workflow_id,
@@ -274,4 +291,8 @@ async def test_publish_workflow_includes_configured_case_trigger(
             workflow=cast(Workflow, workflow),
         )
 
+    for_workspace.assert_awaited_once_with(
+        session=workflow_store_service.session,
+        role=workflow_store_service.role,
+    )
     sync_service.export_workflow.assert_awaited_once()
