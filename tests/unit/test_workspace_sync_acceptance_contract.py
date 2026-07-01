@@ -62,6 +62,7 @@ from tracecat.tables.schemas import TableUpdate
 from tracecat.tables.service import BaseTablesService
 from tracecat.workflow.store.schemas import RemoteWorkflowDefinition
 from tracecat.workspace_sync.adapters import (
+    AGENT_PRESET_RESOURCE_ADAPTER,
     TABLE_RESOURCE_ADAPTER,
     WORKSPACE_RESOURCE_ADAPTERS,
 )
@@ -81,6 +82,7 @@ from tracecat.workspace_sync.schemas import (
     TABLE_ROOT,
     VARIABLE_ROOT,
     WORKFLOW_ROOT,
+    AgentPresetSubagentRef,
     ResourceRef,
     SkillFileSpec,
     SkillResourceSpec,
@@ -925,6 +927,113 @@ async def test_agent_preset_import_ignores_archived_source_id_mapping(
     assert imported_parent.local_id == active_parent.id
     await session.refresh(archived_preset)
     assert archived_preset.archived_at is not None
+
+
+@pytest.mark.anyio
+async def test_agent_preset_import_resolves_subagent_to_active_preset(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Subagent slug resolution must skip an archived preset holding the slug."""
+    workspace_id = svc_role.workspace_id
+    assert workspace_id is not None
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(
+        _expanded_selected_git_tree(),
+        commit_sha="d" * 40,
+    )
+    assert diagnostics == []
+    # An archived preset keeps its slug and a resolvable current version, so an
+    # unfiltered slug lookup could bind it as the parent's subagent target.
+    archived_child = AgentPreset(
+        workspace_id=workspace_id,
+        slug="qa-evidence-child",
+        name="Archived QA evidence child",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        archived_at=datetime.now(UTC),
+    )
+    session.add(archived_child)
+    await session.flush()
+    archived_version = AgentPresetVersion(
+        workspace_id=workspace_id,
+        preset_id=archived_child.id,
+        version=1,
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+    )
+    session.add(archived_version)
+    await session.flush()
+    archived_child.current_version_id = archived_version.id
+    session.add(archived_child)
+    await session.flush()
+
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+
+    active_child = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == workspace_id,
+            AgentPreset.slug == "qa-evidence-child",
+            AgentPreset.archived_at.is_(None),
+        )
+    )
+    assert active_child is not None
+    assert active_child.id != archived_child.id
+    parent_preset = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == workspace_id,
+            AgentPreset.slug == "qa-triage-parent",
+            AgentPreset.archived_at.is_(None),
+        )
+    )
+    assert parent_preset is not None
+    assert parent_preset.agents["enabled"] is True
+    assert [
+        subagent["preset_id"] for subagent in parent_preset.agents["subagents"]
+    ] == [str(active_child.id)]
+
+
+@pytest.mark.anyio
+async def test_agent_preset_subagent_target_skips_archived_preset(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """A subagent slug held only by an archived preset must not resolve."""
+    workspace_id = svc_role.workspace_id
+    assert workspace_id is not None
+    archived_child = AgentPreset(
+        workspace_id=workspace_id,
+        slug="qa-archived-only-child",
+        name="Archived QA child",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        archived_at=datetime.now(UTC),
+    )
+    session.add(archived_child)
+    await session.flush()
+    archived_version = AgentPresetVersion(
+        workspace_id=workspace_id,
+        preset_id=archived_child.id,
+        version=1,
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+    )
+    session.add(archived_version)
+    await session.flush()
+    archived_child.current_version_id = archived_version.id
+    session.add(archived_child)
+    await session.flush()
+    importer = WorkspaceResourceImportService(session=session, role=svc_role)
+
+    target = await AGENT_PRESET_RESOURCE_ADAPTER._resolved_subagent_target(
+        importer,
+        AgentPresetSubagentRef(slug="qa-archived-only-child"),
+    )
+
+    assert target is None
 
 
 @pytest.mark.anyio
