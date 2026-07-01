@@ -3,7 +3,6 @@
 import { CodeBlock, type CodeBlockOptions } from "@tiptap/extension-code-block"
 import {
   type Editor,
-  mergeAttributes,
   NodeViewContent,
   type NodeViewProps,
   NodeViewWrapper,
@@ -469,13 +468,5 @@ export const MermaidCodeBlock = CodeBlock.extend<MermaidCodeBlockOptions>({
 
   addNodeView() {
     return ReactNodeViewRenderer(MermaidCodeBlockView)
-  },
-
-  renderHTML({ HTMLAttributes }) {
-    return [
-      "pre",
-      mergeAttributes(this.options.HTMLAttributes, HTMLAttributes),
-      ["code", 0],
-    ]
   },
 })
