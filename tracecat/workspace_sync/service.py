@@ -189,7 +189,12 @@ class WorkspaceSyncService(SyncMappingService):
             raise TracecatNotFoundError("Workspace not found")
         settings = workspace.settings
         raw_provider = settings.get("git_provider") if settings else None
-        provider = VcsProvider(raw_provider) if raw_provider else VcsProvider.GITHUB
+        try:
+            provider = VcsProvider(raw_provider) if raw_provider else VcsProvider.GITHUB
+        except ValueError as e:
+            raise TracecatSettingsError(
+                f"Unsupported Git provider configured for this workspace: {raw_provider}"
+            ) from e
         return cls(
             session,
             role,
@@ -204,7 +209,7 @@ class WorkspaceSyncService(SyncMappingService):
         """Export selected or all syncable resources to a branch and optional PR."""
         self._require_workspace_sync_scope()
         self._validate_export_params(params)
-        url = await self._workspace_git_url(provider=self._mapping_provider)
+        url = await self._workspace_git_url()
         resource_ids = await self._local_ids_from_resource_refs(params.resources)
         projection = await self.project_workspace(
             resource_ids=resource_ids,
@@ -218,7 +223,7 @@ class WorkspaceSyncService(SyncMappingService):
             full_workspace_export=resource_ids is None,
             resource_ids=resource_ids,
         )
-        transport = self._transport_for_provider(self._mapping_provider)
+        transport = self._transport_for_provider()
         commit = await transport.write_files(
             url=url,
             files=projection.files,
@@ -256,8 +261,8 @@ class WorkspaceSyncService(SyncMappingService):
         self._validate_projected_workspace_dependencies(projection.spec)
         resource_diffs: list[PullResourceDiff] = []
         if params.compare_ref:
-            url = await self._workspace_git_url(provider=self._mapping_provider)
-            transport = self._transport_for_provider(self._mapping_provider)
+            url = await self._workspace_git_url()
+            transport = self._transport_for_provider()
             remote_tree = await transport.read_files(url=url, ref=params.compare_ref)
             delete_missing_paths_under = await self._export_delete_roots(
                 projection,
@@ -291,7 +296,7 @@ class WorkspaceSyncService(SyncMappingService):
         """
         self._require_workflow_export_scope()
         self._validate_export_params(params)
-        url = await self._workspace_git_url(provider=self._mapping_provider)
+        url = await self._workspace_git_url()
         projection = await self.project_workspace(
             workflow_ids=[WorkflowUUID.new(workflow.id)],
             include_schedules=params.include_schedules,
@@ -299,7 +304,7 @@ class WorkspaceSyncService(SyncMappingService):
             workflow_dsl_overrides={workflow.id: dsl},
         )
         self._validate_projected_workspace_dependencies(projection.spec)
-        transport = self._transport_for_provider(self._mapping_provider)
+        transport = self._transport_for_provider()
         commit = await transport.write_files(
             url=url,
             files=projection.files,
@@ -348,8 +353,8 @@ class WorkspaceSyncService(SyncMappingService):
             )
 
         # Read the repository tree at that commit and parse it into a spec.
-        url = await self._workspace_git_url(provider=self._mapping_provider)
-        transport = self._transport_for_provider(self._mapping_provider)
+        url = await self._workspace_git_url()
+        transport = self._transport_for_provider()
         remote_tree = await transport.read_files(url=url, ref=options.commit_sha)
         snapshot, diagnostics = await self.parse_files(
             remote_tree.files,
@@ -644,8 +649,8 @@ class WorkspaceSyncService(SyncMappingService):
     ) -> list[GitCommitInfo]:
         """List recent commits on ``branch`` for the workspace repository."""
         self._require_sync_operation_scope()
-        url = await self._workspace_git_url(provider=self._mapping_provider)
-        transport = self._transport_for_provider(self._mapping_provider)
+        url = await self._workspace_git_url()
+        transport = self._transport_for_provider()
         return await transport.list_commits(url=url, branch=branch, limit=limit)
 
     async def list_branches(
@@ -655,15 +660,15 @@ class WorkspaceSyncService(SyncMappingService):
     ) -> list[GitBranchInfo]:
         """List branches for the workspace repository."""
         self._require_sync_operation_scope()
-        url = await self._workspace_git_url(provider=self._mapping_provider)
-        transport = self._transport_for_provider(self._mapping_provider)
+        url = await self._workspace_git_url()
+        transport = self._transport_for_provider()
         return await transport.list_branches(url=url, limit=limit)
 
-    def _transport_for_provider(self, provider: VcsProvider) -> VcsSyncTransport:
-        """Build the VCS transport for ``provider`` using the configured factory."""
+    def _transport_for_provider(self) -> VcsSyncTransport:
+        """Build the VCS transport for the workspace provider using the factory."""
         factory = self._transport_factory or vcs_transport_for_provider
         return factory(
-            provider,
+            self._mapping_provider,
             session=self.session,
             role=self.role,
         )
@@ -1988,12 +1993,13 @@ class WorkspaceSyncService(SyncMappingService):
         """Return whether ``spec`` carries any non-workflow resource."""
         return any(adapter.specs(spec) for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS)
 
-    async def _workspace_git_url(self, *, provider: VcsProvider) -> GitUrl:
+    async def _workspace_git_url(self) -> GitUrl:
         """Resolve the workspace's configured Git repository URL.
 
         Raises :class:`TracecatSettingsError` when no URL is configured or it is
         invalid, and :class:`TracecatValidationError` for unsupported providers.
         """
+        provider = self._mapping_provider
         workspace = await self._workspace()
         repo_url = (
             workspace.settings.get("git_repo_url") if workspace.settings else None

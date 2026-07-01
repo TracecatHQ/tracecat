@@ -109,7 +109,7 @@ class GitLabTokenService(BaseOrgService):
 
         match secret_state:
             case GitLabTokenSecretState.MISSING:
-                await secrets_service.create_org_secret(
+                await secrets_service._create_org_secret(
                     SecretCreate(
                         name=GITLAB_TOKEN_SECRET_NAME,
                         type=SecretType.CUSTOM,
@@ -125,7 +125,7 @@ class GitLabTokenService(BaseOrgService):
                     raise GitLabError(
                         "Stored GitLab token credentials could not be recovered."
                     )
-                await secrets_service.update_org_secret(
+                await secrets_service._update_org_secret(
                     secret,
                     SecretUpdate(keys=secret_keys),
                 )
@@ -144,10 +144,10 @@ class GitLabTokenService(BaseOrgService):
         """Delete GitLab token credentials for the organization."""
         try:
             secrets_service = SecretsService(session=self.session, role=self.role)
-            secret = await secrets_service.get_org_secret_by_name(
+            secret = await secrets_service._get_org_secret_by_name(
                 GITLAB_TOKEN_SECRET_NAME
             )
-            await secrets_service.delete_org_secret(secret)
+            await secrets_service._delete_org_secret(secret)
             self.logger.info("Deleted GitLab token credentials")
         except TracecatNotFoundError as e:
             raise GitLabError(
@@ -157,6 +157,7 @@ class GitLabTokenService(BaseOrgService):
             raise GitLabError("Failed to delete GitLab token credentials") from e
 
     @requires_entitlement(Entitlement.GIT_SYNC)
+    @require_scope("org:settings:read")
     async def get_gitlab_token_credentials_status(self) -> dict[str, Any]:
         """Return GitLab credential status without exposing the token."""
         secret_state, secret, credentials = await self._get_gitlab_token_secret_state()

@@ -6,6 +6,7 @@ import json
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, patch
 from urllib.parse import quote, unquote
@@ -16,8 +17,11 @@ from pydantic import SecretStr
 
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES
+from tracecat.exceptions import ScopeDeniedError, TracecatNotFoundError
 from tracecat.git.types import GitUrl
+from tracecat.secrets.schemas import SecretKeyValue
 from tracecat.sync import PushStatus
+from tracecat.vcs.gitlab.app import GITLAB_TOKEN_SECRET_NAME, GitLabTokenService
 from tracecat.vcs.gitlab.schemas import GitLabTokenCredentials
 from tracecat.workspace_sync.schemas import MANIFEST_FILENAME, WorkspaceManifest
 from tracecat.workspace_sync.serialization import canonical_json_text
@@ -314,6 +318,17 @@ def _manifest() -> str:
     return canonical_json_text(WorkspaceManifest())
 
 
+def _gitlab_settings_role(*scopes: str) -> Role:
+    return Role(
+        type="user",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        service_id="tracecat-api",
+        scopes=frozenset(scopes),
+    )
+
+
 @pytest.mark.anyio
 async def test_gitlab_transport_encodes_nested_project_path_and_lists_refs() -> None:
     api = _MockGitLabApi(
@@ -535,3 +550,100 @@ async def test_gitlab_transport_resolves_default_branch_beyond_first_page() -> N
 
     assert result.status is PushStatus.COMMITTED
     assert api.merge_request_payloads[0]["target_branch"] == "zz-default"
+
+
+@pytest.mark.anyio
+async def test_gitlab_token_save_creates_org_secret_with_settings_scope() -> None:
+    created_params: list[Any] = []
+
+    class FakeSecretsService:
+        def __init__(self, *, session: Any, role: Role) -> None:
+            del session, role
+
+        async def _get_org_secret_by_name(
+            self, secret_name: str, environment: str | None = None
+        ) -> Any:
+            del secret_name, environment
+            raise TracecatNotFoundError("missing")
+
+        async def _create_org_secret(self, params: Any) -> None:
+            created_params.append(params)
+
+    service = GitLabTokenService(
+        session=AsyncMock(),
+        role=_gitlab_settings_role("org:settings:update"),
+    )
+
+    with (
+        patch.object(service, "require_entitlement", new=AsyncMock()),
+        patch("tracecat.vcs.gitlab.app.SecretsService", FakeSecretsService),
+    ):
+        credentials, was_created = await service.save_gitlab_token_credentials(
+            base_url="https://gitlab.example.test",
+            token=SecretStr("new-token"),
+        )
+
+    assert credentials.base_url == "https://gitlab.example.test"
+    assert was_created is True
+    assert created_params[0].name == GITLAB_TOKEN_SECRET_NAME
+
+
+@pytest.mark.anyio
+async def test_gitlab_token_save_updates_org_secret_with_settings_scope() -> None:
+    existing_secret = SimpleNamespace(id=uuid.uuid4(), encrypted_keys=b"encrypted")
+    updated_calls: list[tuple[Any, Any]] = []
+
+    class FakeSecretsService:
+        def __init__(self, *, session: Any, role: Role) -> None:
+            del session, role
+
+        async def _get_org_secret_by_name(
+            self, secret_name: str, environment: str | None = None
+        ) -> Any:
+            del secret_name, environment
+            return existing_secret
+
+        def decrypt_keys(self, encrypted_keys: bytes) -> list[SecretKeyValue]:
+            assert encrypted_keys == b"encrypted"
+            return [
+                SecretKeyValue(
+                    key="base_url",
+                    value=SecretStr("https://gitlab.example.test"),
+                ),
+                SecretKeyValue(key="token", value=SecretStr("old-token")),
+            ]
+
+        async def _update_org_secret(self, secret: Any, params: Any) -> None:
+            updated_calls.append((secret, params))
+
+    service = GitLabTokenService(
+        session=AsyncMock(),
+        role=_gitlab_settings_role("org:settings:update"),
+    )
+
+    with (
+        patch.object(service, "require_entitlement", new=AsyncMock()),
+        patch("tracecat.vcs.gitlab.app.SecretsService", FakeSecretsService),
+    ):
+        credentials, was_created = await service.save_gitlab_token_credentials(
+            base_url="https://gitlab.example.test",
+            token=SecretStr("new-token"),
+        )
+
+    assert credentials.token.get_secret_value() == "new-token"
+    assert was_created is False
+    assert updated_calls[0][0] is existing_secret
+
+
+@pytest.mark.anyio
+async def test_gitlab_token_status_requires_settings_read_scope() -> None:
+    service = GitLabTokenService(
+        session=AsyncMock(),
+        role=_gitlab_settings_role(),
+    )
+
+    with patch.object(service, "require_entitlement", new=AsyncMock()):
+        with pytest.raises(ScopeDeniedError) as exc_info:
+            await service.get_gitlab_token_credentials_status()
+
+    assert "org:settings:read" in exc_info.value.missing_scopes

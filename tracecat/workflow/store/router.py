@@ -252,8 +252,10 @@ async def export_workspace_sync(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Workspace ID is required",
         )
-    sync_service = await WorkspaceSyncService.for_workspace(session=session, role=role)
     try:
+        sync_service = await WorkspaceSyncService.for_workspace(
+            session=session, role=role
+        )
         return await sync_service.export_workspace(params)
     except TracecatNotFoundError as e:
         raise HTTPException(
@@ -285,8 +287,10 @@ async def preview_export_workspace_sync(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Workspace ID is required",
         )
-    sync_service = await WorkspaceSyncService.for_workspace(session=session, role=role)
     try:
+        sync_service = await WorkspaceSyncService.for_workspace(
+            session=session, role=role
+        )
         return await sync_service.preview_export_workspace(params)
     except TracecatNotFoundError as e:
         raise HTTPException(

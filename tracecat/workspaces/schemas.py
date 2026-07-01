@@ -78,6 +78,16 @@ class WorkspaceSettingsUpdate(Schema):
         description="Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.",
     )
 
+    @field_validator("git_provider")
+    @classmethod
+    def validate_git_provider(cls, value: VcsProvider | None) -> VcsProvider | None:
+        """Restrict writable workspace sync providers to implemented transports."""
+        if value is VcsProvider.BITBUCKET:
+            raise ValueError(
+                "bitbucket workspace sync is not implemented yet. Use github or gitlab."
+            )
+        return value
+
     @field_validator("git_repo_url", mode="before")
     @classmethod
     def validate_git_repo_url(cls, value: str | None) -> str | None:

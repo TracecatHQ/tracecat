@@ -20,6 +20,7 @@ from tracecat.dsl.schemas import ActionStatement
 from tracecat.exceptions import (
     EntitlementRequired,
     ScopeDeniedError,
+    TracecatSettingsError,
     TracecatValidationError,
 )
 from tracecat.git.types import GitUrl
@@ -1340,8 +1341,8 @@ async def test_gitlab_export_uses_gitlab_transport_and_mapping_context(
         provider=VcsProvider.GITLAB,
     )
 
-    async def workspace_git_url(*, provider: VcsProvider) -> GitUrl:
-        providers_seen.append(provider)
+    async def workspace_git_url() -> GitUrl:
+        providers_seen.append(service._mapping_provider)
         return GitUrl(
             host="gitlab.example.test",
             org="TracecatHQ/platform",
@@ -1378,6 +1379,30 @@ async def test_gitlab_export_uses_gitlab_transport_and_mapping_context(
     assert result.files == [MANIFEST_FILENAME]
     assert providers_seen == [VcsProvider.GITLAB, VcsProvider.GITLAB]
     assert service._mapping_provider is VcsProvider.GITLAB
+
+
+@pytest.mark.anyio
+async def test_for_workspace_rejects_malformed_git_provider(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    workspace = SimpleNamespace(settings={"git_provider": "gitlab-self-managed"})
+    workspace_service = AsyncMock()
+    workspace_service.get_workspace.return_value = workspace
+
+    with patch(
+        "tracecat.workspace_sync.service.WorkspaceService",
+        return_value=workspace_service,
+    ):
+        with pytest.raises(TracecatSettingsError) as exc_info:
+            await WorkspaceSyncService.for_workspace(
+                session=workspace_sync_service.session,
+                role=workspace_sync_service.role,
+            )
+
+    assert "Unsupported Git provider configured" in str(exc_info.value)
+    workspace_service.get_workspace.assert_awaited_once_with(
+        workspace_sync_service.role.workspace_id
+    )
 
 
 @pytest.mark.anyio

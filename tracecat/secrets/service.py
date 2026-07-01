@@ -382,6 +382,10 @@ class SecretsService(BaseOrgService):
     @audit_log(resource_type="organization_secret", action="create")
     async def create_org_secret(self, params: SecretCreate) -> None:
         """Create a new organization secret."""
+        await self._create_org_secret(params)
+
+    async def _create_org_secret(self, params: SecretCreate) -> None:
+        """Create an organization secret for callers with their own access gate."""
         if params.type == SecretType.SSH_KEY:
             validate_ssh_key_values(params.keys)
         elif params.type == SecretType.MTLS:
@@ -405,6 +409,12 @@ class SecretsService(BaseOrgService):
     async def update_org_secret(
         self, secret: OrganizationSecret, params: SecretUpdate
     ) -> None:
+        await self._update_org_secret(secret=secret, params=params)
+
+    async def _update_org_secret(
+        self, secret: OrganizationSecret, params: SecretUpdate
+    ) -> None:
+        """Update an organization secret for callers with their own access gate."""
         await self._update_secret(secret=secret, params=params)
 
     @require_scope("org:secret:delete")
@@ -413,6 +423,10 @@ class SecretsService(BaseOrgService):
         action="delete",
     )
     async def delete_org_secret(self, org_secret: OrganizationSecret) -> None:
+        await self._delete_org_secret(org_secret)
+
+    async def _delete_org_secret(self, org_secret: OrganizationSecret) -> None:
+        """Delete an organization secret for callers with their own access gate."""
         await self._delete_secret(org_secret)
 
     @require_scope("org:secret:read")

@@ -247,3 +247,37 @@ async def test_list_workflow_branches_github_error_returns_400(
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert "Unable to access repository" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    ("path", "payload"),
+    [
+        (
+            "/workflows/sync/export",
+            {"message": "Sync workspace", "branch": "sync/workspace"},
+        ),
+        ("/workflows/sync/export/preview", {}),
+    ],
+)
+@pytest.mark.anyio
+async def test_workspace_sync_export_routes_map_service_construction_errors_to_400(
+    client: TestClient,
+    test_admin_role: Role,
+    path: str,
+    payload: dict[str, object],
+) -> None:
+    with patch("tracecat.workflow.store.router.WorkspaceSyncService") as mock_sync_cls:
+        mock_sync_cls.for_workspace = AsyncMock(
+            side_effect=TracecatSettingsError(
+                "Unsupported Git provider configured for this workspace: unknown"
+            )
+        )
+
+        response = client.post(
+            path,
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json=payload,
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "Unsupported Git provider configured" in response.json()["detail"]

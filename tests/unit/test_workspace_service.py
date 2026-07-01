@@ -27,6 +27,7 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.workspace_sync.enums import VcsProvider
 from tracecat.workspaces.schemas import (
     WorkspaceInvitationCreate,
     WorkspaceSearch,
@@ -520,6 +521,14 @@ def test_workspace_settings_update_rejects_invalid_git_urls(invalid_url: str) ->
         WorkspaceSettingsUpdate(git_repo_url=invalid_url)
 
     assert "Must be a valid Git SSH URL" in str(exc_info.value)
+
+
+def test_workspace_settings_update_rejects_unsupported_git_provider() -> None:
+    """Workspace settings should reject providers without sync transport support."""
+    with pytest.raises(ValueError) as exc_info:
+        WorkspaceSettingsUpdate(git_provider=VcsProvider.BITBUCKET)
+
+    assert "bitbucket workspace sync is not implemented yet" in str(exc_info.value)
 
 
 # =============================================================================
