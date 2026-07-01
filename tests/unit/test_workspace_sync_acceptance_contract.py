@@ -14,14 +14,16 @@ import uuid
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
 import yaml
 from pydantic import SecretStr, ValidationError
 from pydantic_core import PydanticSerializationError
-from sqlalchemy import select
+from sqlalchemy import delete, select
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.support.fake_vcs import FakeVcsServer
@@ -66,7 +68,8 @@ from tracecat.workspace_sync.adapters import (
     TABLE_RESOURCE_ADAPTER,
     WORKSPACE_RESOURCE_ADAPTERS,
 )
-from tracecat.workspace_sync.adapters.base import VersionedSlug
+from tracecat.workspace_sync.adapters.agent_preset import AgentPresetAdapter
+from tracecat.workspace_sync.adapters.base import SyncMappingService, VersionedSlug
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.importer import WorkspaceResourceImportService
 from tracecat.workspace_sync.resources import workflow_references
@@ -82,6 +85,7 @@ from tracecat.workspace_sync.schemas import (
     TABLE_ROOT,
     VARIABLE_ROOT,
     WORKFLOW_ROOT,
+    AgentPresetSkillBinding,
     AgentPresetSubagentRef,
     ResourceRef,
     SkillFileSpec,
@@ -157,6 +161,16 @@ def workspace_sync_service() -> WorkspaceSyncService:
         scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-api"],
     )
     return WorkspaceSyncService(session=session, role=role)
+
+
+class _ScalarRecorder:
+    def __init__(self, *results: Any) -> None:
+        self._results = list(results)
+        self.statements: list[Any] = []
+
+    async def scalar(self, statement: Any) -> Any:
+        self.statements.append(statement)
+        return self._results.pop(0)
 
 
 def test_sync_resource_type_declares_expanded_resource_contract() -> None:
@@ -1670,6 +1684,176 @@ async def test_round_trip_preserves_presets_pinning_different_skill_versions(
 
 
 @pytest.mark.anyio
+async def test_export_ignores_archived_preset_skill_version_pins(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(
+        _versioned_agent_skill_git_tree(),
+        commit_sha="4" * 40,
+    )
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+
+    agent_x = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "agent-x",
+        )
+    )
+    assert agent_x is not None
+    agent_x.archived_at = datetime.now(UTC)
+    session.add(agent_x)
+    await session.flush()
+
+    projection = await service.project_workspace(create_missing_mappings=False)
+
+    assert f"{SKILL_ROOT}/skill-a/versions/1/version.yml" not in projection.files
+    assert f"{SKILL_ROOT}/skill-a/versions/1/files/SKILL.md" not in projection.files
+    assert f"{SKILL_ROOT}/skill-a/versions/2/version.yml" in projection.files
+    assert f"{SKILL_ROOT}/skill-a/versions/2/files/SKILL.md" in projection.files
+
+
+@pytest.mark.anyio
+async def test_agent_preset_import_ignores_archived_skill_bindings(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    skill_id = uuid.uuid4()
+    version_id = uuid.uuid4()
+    archived_skill = Skill(
+        id=skill_id,
+        workspace_id=svc_role.workspace_id,
+        name="skill-a",
+        draft_revision=0,
+        description="Archived helper",
+        archived_at=datetime.now(UTC),
+    )
+    session.add(archived_skill)
+    await session.flush()
+    archived_version = SkillVersion(
+        id=version_id,
+        workspace_id=svc_role.workspace_id,
+        skill_id=skill_id,
+        version=1,
+        manifest_sha256="a" * 64,
+        file_count=0,
+        total_size_bytes=0,
+        name="Skill A",
+        description="Archived helper",
+    )
+    session.add(archived_version)
+    await session.flush()
+    archived_skill.current_version_id = version_id
+    session.add(archived_skill)
+    await session.flush()
+
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{AGENT_PRESET_ROOT}/agent-x/preset.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset",
+                "id": "agent-x",
+                "slug": "agent-x",
+                "name": "Agent X",
+                "current_version": 1,
+            }
+        ),
+        f"{AGENT_PRESET_ROOT}/agent-x/versions/1.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset_version",
+                "version_number": 1,
+                "name": "Agent X",
+                "skills": [{"slug": "skill-a"}],
+            }
+        ),
+    }
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="3" * 40)
+
+    assert [diagnostic.message for diagnostic in diagnostics] == [
+        "Agent preset references missing skill slug 'skill-a'"
+    ]
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+
+    preset = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "agent-x",
+        )
+    )
+    assert preset is not None
+    head_bindings = (
+        await session.scalars(
+            select(AgentPresetSkill).where(
+                AgentPresetSkill.workspace_id == svc_role.workspace_id,
+                AgentPresetSkill.preset_id == preset.id,
+            )
+        )
+    ).all()
+    assert head_bindings == []
+    version_bindings = (
+        await session.scalars(
+            select(AgentPresetVersionSkill).where(
+                AgentPresetVersionSkill.workspace_id == svc_role.workspace_id,
+                AgentPresetVersionSkill.preset_version_id == preset.current_version_id,
+            )
+        )
+    ).all()
+    assert version_bindings == []
+
+
+@pytest.mark.anyio
+async def test_agent_preset_import_locks_resolved_skill_binding_target() -> None:
+    adapter = AgentPresetAdapter()
+    workspace_id = uuid.uuid4()
+    skill_id = uuid.uuid4()
+    version_id = uuid.uuid4()
+    skill = Skill(
+        id=skill_id,
+        workspace_id=workspace_id,
+        name="skill-a",
+        current_version_id=version_id,
+        draft_revision=0,
+        description="Active helper",
+    )
+    version = SkillVersion(
+        id=version_id,
+        workspace_id=workspace_id,
+        skill_id=skill_id,
+        version=1,
+        manifest_sha256="b" * 64,
+        file_count=0,
+        total_size_bytes=0,
+        name="Skill A",
+        description="Active helper",
+    )
+    session = _ScalarRecorder(skill, version)
+    service = cast(
+        SyncMappingService,
+        SimpleNamespace(session=session, workspace_id=workspace_id),
+    )
+
+    resolved = await adapter._skill_binding_targets(
+        service, AgentPresetSkillBinding(slug="skill-a")
+    )
+
+    assert resolved == (skill, version)
+    skill_lookup = str(session.statements[0].compile(dialect=postgresql.dialect()))
+    assert "skill.archived_at IS NULL" in skill_lookup
+    assert "FOR UPDATE" in skill_lookup
+
+
+@pytest.mark.anyio
 async def test_full_workspace_export_includes_workflow_pinned_version_closure(
     session: AsyncSession,
     svc_role: Role,
@@ -1748,6 +1932,252 @@ async def test_full_workspace_export_includes_workflow_pinned_version_closure(
     assert f"{AGENT_PRESET_ROOT}/agent-x/versions/2.yml" in exported_files
     assert f"{SKILL_ROOT}/skill-a/versions/1/version.yml" in exported_files
     assert f"{SKILL_ROOT}/skill-a/versions/2/version.yml" in exported_files
+
+
+@pytest.mark.anyio
+async def test_export_omits_archived_historical_skill_bindings(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    repo_url = "git+ssh://git@github.com/TracecatHQ/git-sync-archived-skill-qa.git"
+    git_url = GitUrl(
+        host="github.com",
+        org="TracecatHQ",
+        repo="git-sync-archived-skill-qa",
+    )
+    fake_vcs = FakeVcsServer()
+    assert svc_role.workspace_id is not None
+    await _set_workspace_git_repo_url(
+        session,
+        workspace_id=svc_role.workspace_id,
+        repo_url=repo_url,
+    )
+    service = WorkspaceSyncService(
+        session=session,
+        role=svc_role,
+        transport_factory=fake_vcs.transport_factory,
+    )
+    seed_transport = fake_vcs.transport_factory(
+        VcsProvider.GITHUB,
+        session=session,
+        role=svc_role,
+    )
+    seed_commit = await seed_transport.write_files(
+        url=git_url,
+        files=_workflow_pinned_agent_version_git_tree(),
+        message="Seed archived historical skill binding",
+        branch="seed/archived-historical-skill",
+        create_pr=False,
+    )
+    assert seed_commit.sha is not None
+    with patch(
+        "tracecat.workflow.management.management.RegistryLockService.resolve_lock_with_bindings",
+        AsyncMock(return_value=RegistryLock(origins={}, actions={})),
+    ):
+        pull = await service.pull(options=PullOptions(commit_sha=seed_commit.sha))
+    assert pull.success is True
+
+    skill = await session.scalar(
+        select(Skill).where(
+            Skill.workspace_id == svc_role.workspace_id,
+            Skill.name == "skill-a",
+        )
+    )
+    agent_x = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "agent-x",
+        )
+    )
+    assert skill is not None
+    assert agent_x is not None
+    current_version = await session.scalar(
+        select(AgentPresetVersion).where(
+            AgentPresetVersion.workspace_id == svc_role.workspace_id,
+            AgentPresetVersion.preset_id == agent_x.id,
+            AgentPresetVersion.version == 2,
+        )
+    )
+    assert current_version is not None
+    await session.execute(
+        delete(AgentPresetSkill).where(
+            AgentPresetSkill.workspace_id == svc_role.workspace_id,
+            AgentPresetSkill.preset_id == agent_x.id,
+        )
+    )
+    await session.execute(
+        delete(AgentPresetVersionSkill).where(
+            AgentPresetVersionSkill.workspace_id == svc_role.workspace_id,
+            AgentPresetVersionSkill.preset_version_id == current_version.id,
+        )
+    )
+    skill.archived_at = datetime.now(UTC)
+    session.add(skill)
+    await session.flush()
+
+    projection = await service.project_workspace(create_missing_mappings=False)
+
+    version_1 = yaml.safe_load(
+        projection.files[f"{AGENT_PRESET_ROOT}/agent-x/versions/1.yml"]
+    )
+    assert version_1.get("skills", []) == []
+    assert not any(
+        path.startswith(f"{SKILL_ROOT}/skill-a/") for path in projection.files
+    )
+
+
+@pytest.mark.anyio
+async def test_export_omits_archived_historical_subagent_refs(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    repo_url = "git+ssh://git@github.com/TracecatHQ/git-sync-archived-subagent-qa.git"
+    git_url = GitUrl(
+        host="github.com",
+        org="TracecatHQ",
+        repo="git-sync-archived-subagent-qa",
+    )
+    fake_vcs = FakeVcsServer()
+    assert svc_role.workspace_id is not None
+    await _set_workspace_git_repo_url(
+        session,
+        workspace_id=svc_role.workspace_id,
+        repo_url=repo_url,
+    )
+    service = WorkspaceSyncService(
+        session=session,
+        role=svc_role,
+        transport_factory=fake_vcs.transport_factory,
+    )
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{WORKFLOW_ROOT}/workflow-pins-parent/definition.yml": _yaml(
+            _workflow_spec(
+                source_id="workflow-pins-parent",
+                title="workflow-pins-parent",
+                alias="workflow-pins-parent",
+                folder_path="QA/Root",
+                actions=[
+                    {
+                        "ref": "triage",
+                        "action": "ai.preset_agent",
+                        "args": {
+                            "preset_slug": "qa-parent",
+                            "preset_version": 1,
+                            "prompt": "Use the historical parent version.",
+                        },
+                    }
+                ],
+            )
+        ),
+        f"{AGENT_PRESET_ROOT}/qa-parent/preset.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset",
+                "id": "qa-parent",
+                "slug": "qa-parent",
+                "name": "QA parent",
+                "current_version": 2,
+            }
+        ),
+        f"{AGENT_PRESET_ROOT}/qa-parent/versions/1.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset_version",
+                "version_number": 1,
+                "name": "QA parent",
+                "subagents": [{"slug": "qa-child", "version": 1}],
+            }
+        ),
+        f"{AGENT_PRESET_ROOT}/qa-parent/versions/2.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset_version",
+                "version_number": 2,
+                "name": "QA parent",
+                "subagents": [],
+            }
+        ),
+        f"{AGENT_PRESET_ROOT}/qa-child/preset.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset",
+                "id": "qa-child",
+                "slug": "qa-child",
+                "name": "QA child",
+                "current_version": 1,
+            }
+        ),
+        f"{AGENT_PRESET_ROOT}/qa-child/versions/1.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset_version",
+                "version_number": 1,
+                "name": "QA child",
+            }
+        ),
+    }
+    seed_transport = fake_vcs.transport_factory(
+        VcsProvider.GITHUB,
+        session=session,
+        role=svc_role,
+    )
+    seed_commit = await seed_transport.write_files(
+        url=git_url,
+        files=files,
+        message="Seed archived historical subagent",
+        branch="seed/archived-historical-subagent",
+        create_pr=False,
+    )
+    assert seed_commit.sha is not None
+    with patch(
+        "tracecat.workflow.management.management.RegistryLockService.resolve_lock_with_bindings",
+        AsyncMock(return_value=RegistryLock(origins={}, actions={})),
+    ):
+        pull = await service.pull(options=PullOptions(commit_sha=seed_commit.sha))
+    assert pull.success is True
+
+    child = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "qa-child",
+        )
+    )
+    assert child is not None
+    child.archived_at = datetime.now(UTC)
+    session.add(child)
+    await session.flush()
+    replacement_child = AgentPreset(
+        workspace_id=svc_role.workspace_id,
+        slug="qa-child",
+        name="Replacement QA child",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        agents={"enabled": False},
+    )
+    session.add(replacement_child)
+    await session.flush()
+    replacement_version = AgentPresetVersion(
+        workspace_id=svc_role.workspace_id,
+        preset_id=replacement_child.id,
+        version=1,
+        instructions="Replacement child instructions",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        agents={"enabled": False},
+    )
+    session.add(replacement_version)
+    await session.flush()
+    replacement_child.current_version_id = replacement_version.id
+    session.add(replacement_child)
+    await session.flush()
+
+    projection = await service.project_workspace(create_missing_mappings=False)
+
+    parent_version_1 = yaml.safe_load(
+        projection.files[f"{AGENT_PRESET_ROOT}/qa-parent/versions/1.yml"]
+    )
+    assert parent_version_1.get("subagents", []) == []
 
 
 @pytest.mark.anyio
@@ -2573,6 +3003,92 @@ async def test_project_workspace_preserves_agent_preset_source_id_after_rename(
 
 
 @pytest.mark.anyio
+async def test_project_workspace_omits_archived_agent_presets(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(
+        _agent_preset_git_tree(
+            source_id="qa-archived",
+            slug="qa-archived",
+            name="QA archived",
+        ),
+        commit_sha="a" * 40,
+    )
+
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+
+    preset = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "qa-archived",
+        )
+    )
+    assert preset is not None
+    preset.archived_at = datetime.now(UTC)
+    session.add(preset)
+    await session.flush()
+
+    projection = await service.project_workspace(create_missing_mappings=False)
+
+    assert f"{AGENT_PRESET_ROOT}/qa-archived/preset.yml" not in projection.files
+    assert f"{AGENT_PRESET_ROOT}/qa-archived/versions/1.yml" not in projection.files
+
+
+@pytest.mark.anyio
+async def test_project_workspace_reuses_source_id_from_archived_agent_mapping(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    archived_preset = AgentPreset(
+        workspace_id=svc_role.workspace_id,
+        slug="qa-identity",
+        name="QA archived identity",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        agents={"enabled": False},
+        archived_at=datetime.now(UTC),
+    )
+    active_preset = AgentPreset(
+        workspace_id=svc_role.workspace_id,
+        slug="qa-identity",
+        name="QA active identity",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        agents={"enabled": False},
+    )
+    session.add_all([archived_preset, active_preset])
+    await session.flush()
+    session.add(
+        WorkspaceSyncResourceMapping(
+            workspace_id=svc_role.workspace_id,
+            provider=VcsProvider.GITHUB.value,
+            resource_type=SyncResourceType.AGENT_PRESET.value,
+            source_id="qa-identity",
+            source_path=f"{AGENT_PRESET_ROOT}/qa-identity/preset.yml",
+            local_id=archived_preset.id,
+        )
+    )
+    await session.flush()
+
+    projection = await service.project_workspace(create_missing_mappings=False)
+
+    path = f"{AGENT_PRESET_ROOT}/qa-identity/preset.yml"
+    assert path in projection.files
+    assert f"{AGENT_PRESET_ROOT}/qa-identity-1/preset.yml" not in projection.files
+    spec = yaml.safe_load(projection.files[path])
+    assert spec["id"] == "qa-identity"
+    assert spec["slug"] == "qa-identity"
+    assert spec["name"] == "QA active identity"
+
+
+@pytest.mark.anyio
 async def test_project_workspace_preserves_table_source_id_after_rename(
     session: AsyncSession,
     svc_role: Role,
@@ -3116,6 +3632,175 @@ async def test_pull_agent_preset_slug_rename_reuses_source_id_mapping(
     assert presets[0].id == first_preset_id
     assert presets[0].slug == "qa-identity-renamed"
     assert presets[0].name == "QA identity renamed"
+
+
+@pytest.mark.anyio
+async def test_pull_agent_preset_ignores_archived_source_id_mapping(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    archived_preset = AgentPreset(
+        workspace_id=svc_role.workspace_id,
+        slug="qa-identity",
+        name="QA archived identity",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        agents={"enabled": False},
+        archived_at=datetime.now(UTC),
+    )
+    session.add(archived_preset)
+    await session.flush()
+    session.add(
+        WorkspaceSyncResourceMapping(
+            workspace_id=svc_role.workspace_id,
+            provider=VcsProvider.GITHUB.value,
+            resource_type=SyncResourceType.AGENT_PRESET.value,
+            source_id="qa-identity",
+            source_path=f"{AGENT_PRESET_ROOT}/qa-identity/preset.yml",
+            local_id=archived_preset.id,
+        )
+    )
+    await session.flush()
+
+    transport = AsyncMock()
+    transport.read_files.return_value = VcsTreeSnapshot(
+        commit_sha="h" * 40,
+        tree_sha="tree-1",
+        files=_agent_preset_git_tree(
+            source_id="qa-identity",
+            slug="qa-identity",
+            name="QA active identity",
+        ),
+    )
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
+    )
+
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        result = await service.pull(options=PullOptions(commit_sha="h" * 40))
+
+    assert result.success is True
+    presets = list(
+        (
+            await session.scalars(
+                select(AgentPreset).where(
+                    AgentPreset.workspace_id == svc_role.workspace_id,
+                    AgentPreset.slug == "qa-identity",
+                )
+            )
+        ).all()
+    )
+    active_presets = [preset for preset in presets if preset.archived_at is None]
+    archived_presets = [preset for preset in presets if preset.archived_at is not None]
+    assert len(active_presets) == 1
+    assert len(archived_presets) == 1
+    active_preset = active_presets[0]
+    assert active_preset.id != archived_preset.id
+    assert active_preset.name == "QA active identity"
+
+    mapping = await session.scalar(
+        select(WorkspaceSyncResourceMapping).where(
+            WorkspaceSyncResourceMapping.workspace_id == svc_role.workspace_id,
+            WorkspaceSyncResourceMapping.resource_type
+            == SyncResourceType.AGENT_PRESET.value,
+            WorkspaceSyncResourceMapping.source_id == "qa-identity",
+        )
+    )
+    assert mapping is not None
+    assert mapping.local_id == active_preset.id
+
+
+@pytest.mark.anyio
+async def test_pull_agent_preset_reconciles_archived_source_mapping_with_active_slug(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    archived_preset = AgentPreset(
+        workspace_id=svc_role.workspace_id,
+        slug="qa-identity",
+        name="QA archived identity",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        agents={"enabled": False},
+        archived_at=datetime.now(UTC),
+    )
+    active_preset = AgentPreset(
+        workspace_id=svc_role.workspace_id,
+        slug="qa-identity",
+        name="QA active identity",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        agents={"enabled": False},
+    )
+    session.add_all([archived_preset, active_preset])
+    await session.flush()
+    session.add_all(
+        [
+            WorkspaceSyncResourceMapping(
+                workspace_id=svc_role.workspace_id,
+                provider=VcsProvider.GITHUB.value,
+                resource_type=SyncResourceType.AGENT_PRESET.value,
+                source_id="qa-identity",
+                source_path=f"{AGENT_PRESET_ROOT}/qa-identity/preset.yml",
+                local_id=archived_preset.id,
+            ),
+            WorkspaceSyncResourceMapping(
+                workspace_id=svc_role.workspace_id,
+                provider=VcsProvider.GITHUB.value,
+                resource_type=SyncResourceType.AGENT_PRESET.value,
+                source_id="qa-identity-active",
+                source_path=f"{AGENT_PRESET_ROOT}/qa-identity-active/preset.yml",
+                local_id=active_preset.id,
+            ),
+        ]
+    )
+    await session.flush()
+
+    transport = AsyncMock()
+    transport.read_files.return_value = VcsTreeSnapshot(
+        commit_sha="i" * 40,
+        tree_sha="tree-1",
+        files=_agent_preset_git_tree(
+            source_id="qa-identity",
+            slug="qa-identity",
+            name="QA active identity from Git",
+        ),
+    )
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
+    )
+
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        result = await service.pull(options=PullOptions(commit_sha="i" * 40))
+
+    assert result.success is True
+    await session.refresh(active_preset)
+    assert active_preset.name == "QA active identity from Git"
+    assert active_preset.id != archived_preset.id
+
+    source_mapping = await _mapping_for(
+        session,
+        role=svc_role,
+        resource_type=SyncResourceType.AGENT_PRESET,
+        source_id="qa-identity",
+    )
+    old_active_mapping = await _mapping_for(
+        session,
+        role=svc_role,
+        resource_type=SyncResourceType.AGENT_PRESET,
+        source_id="qa-identity-active",
+    )
+    assert source_mapping is not None
+    assert source_mapping.local_id == active_preset.id
+    assert old_active_mapping is None
 
 
 @pytest.mark.anyio
@@ -4286,6 +4971,152 @@ async def test_agent_preset_import_resolves_parent_before_child_order(
     assert parent.agents["subagents"][0]["preset_version_id"] == str(
         child.current_version_id
     )
+
+
+@pytest.mark.anyio
+async def test_agent_preset_import_resolves_subagents_to_active_preset(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    archived_child = AgentPreset(
+        workspace_id=svc_role.workspace_id,
+        slug="z-child",
+        name="Archived Z child",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        agents={"enabled": False},
+        archived_at=datetime.now(UTC),
+    )
+    session.add(archived_child)
+    await session.flush()
+    archived_version = AgentPresetVersion(
+        workspace_id=svc_role.workspace_id,
+        preset_id=archived_child.id,
+        version=1,
+        instructions="Archived instructions",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        agents={"enabled": False},
+    )
+    session.add(archived_version)
+    await session.flush()
+    archived_child.current_version_id = archived_version.id
+    session.add(archived_child)
+    await session.flush()
+
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{AGENT_PRESET_ROOT}/a-parent/preset.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset",
+                "id": "a-parent",
+                "slug": "a-parent",
+                "name": "A parent",
+                "current_version": 1,
+            }
+        ),
+        f"{AGENT_PRESET_ROOT}/a-parent/versions/1.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset_version",
+                "version_number": 1,
+                "name": "A parent",
+                "subagents": [{"slug": "z-child"}],
+            }
+        ),
+        f"{AGENT_PRESET_ROOT}/z-child/preset.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset",
+                "id": "z-child",
+                "slug": "z-child",
+                "name": "Active Z child",
+                "current_version": 1,
+            }
+        ),
+        f"{AGENT_PRESET_ROOT}/z-child/versions/1.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset_version",
+                "version_number": 1,
+                "name": "Active Z child",
+            }
+        ),
+    }
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="k" * 40)
+
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+
+    parent = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "a-parent",
+            AgentPreset.archived_at.is_(None),
+        )
+    )
+    active_child = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "z-child",
+            AgentPreset.archived_at.is_(None),
+        )
+    )
+    assert parent is not None
+    assert active_child is not None
+    assert active_child.current_version_id is not None
+    assert parent.agents["enabled"] is True
+    imported_subagent = parent.agents["subagents"][0]
+    assert imported_subagent["preset_id"] == str(active_child.id)
+    assert imported_subagent["preset_version_id"] == str(
+        active_child.current_version_id
+    )
+
+
+@pytest.mark.anyio
+async def test_agent_preset_import_locks_resolved_subagent_target() -> None:
+    adapter = AgentPresetAdapter()
+    workspace_id = uuid.uuid4()
+    child_id = uuid.uuid4()
+    version_id = uuid.uuid4()
+    child = AgentPreset(
+        id=child_id,
+        workspace_id=workspace_id,
+        slug="z-child",
+        name="Z child",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        agents={"enabled": False},
+        current_version_id=version_id,
+    )
+    version = AgentPresetVersion(
+        id=version_id,
+        workspace_id=workspace_id,
+        preset_id=child_id,
+        version=1,
+        instructions="Child instructions",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        agents={"enabled": False},
+    )
+    session = _ScalarRecorder(child, version)
+    service = cast(
+        SyncMappingService,
+        SimpleNamespace(session=session, workspace_id=workspace_id),
+    )
+
+    resolved = await adapter._resolved_subagent_target(
+        service, AgentPresetSubagentRef(slug="z-child")
+    )
+
+    assert resolved == (child, version)
+    child_lookup = str(session.statements[0].compile(dialect=postgresql.dialect()))
+    assert "FOR UPDATE" in child_lookup
 
 
 @pytest.mark.anyio

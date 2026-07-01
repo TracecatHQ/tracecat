@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any, cast
 
 import sqlalchemy as sa
@@ -24,6 +25,7 @@ from tracecat.db.models import (
     AgentTagLink,
     Skill,
     SkillVersion,
+    WorkspaceSyncResourceMapping,
 )
 from tracecat.exceptions import TracecatValidationError
 from tracecat.sync import PullDiagnostic, serializable_validation_errors
@@ -53,6 +55,12 @@ AGENT_PRESET_FILENAME = "preset.yml"
 AGENT_PRESET_VERSIONS_DIR = "versions"
 DEFAULT_AGENT_MODEL_NAME = "gpt-5.5"
 DEFAULT_AGENT_MODEL_PROVIDER = "openai"
+
+
+@dataclass(frozen=True, slots=True)
+class _SubagentExportRef:
+    ref: AgentPresetSubagentRef
+    preset_id: uuid.UUID | None
 
 
 class AgentPresetAdapter(DirectoryManifestAdapter):
@@ -247,7 +255,11 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         versions_by_preset_id: Mapping[uuid.UUID, set[int]] | None = None,
     ) -> ResourceProjection:
         """Build sync specs from eager-loaded preset rows."""
-        assigner = await self.source_id_assigner(workspace_service)
+        assigner = await self.source_id_assigner(
+            workspace_service,
+            model=AgentPreset,
+            row_predicates=(AgentPreset.archived_at.is_(None),),
+        )
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
         for preset in presets:
@@ -299,6 +311,10 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             workspace_service,
             [version.id for version in version_rows],
         )
+        subagents_by_version_id = await self._subagent_refs_for_versions(
+            workspace_service,
+            version_rows,
+        )
         versions: dict[int, AgentPresetVersionResourceSpec] = {}
         for version in version_rows:
             versions[version.version] = AgentPresetVersionResourceSpec(
@@ -308,7 +324,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 tool_approvals=version.tool_approvals or {},
                 actions=sorted(version.actions or []),
                 skills=skill_bindings_by_version_id.get(version.id, []),
-                subagents=_subagent_refs(version.agents),
+                subagents=subagents_by_version_id.get(version.id, []),
                 catalog_id=version.catalog_id,
                 model_name=version.model_name,
                 model_provider=version.model_provider,
@@ -321,6 +337,72 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 enable_internet_access=version.enable_internet_access,
             )
         return versions
+
+    async def _subagent_refs_for_versions(
+        self,
+        workspace_service: SyncMappingService,
+        versions: list[AgentPresetVersion],
+    ) -> dict[uuid.UUID, list[AgentPresetSubagentRef]]:
+        """Return exportable subagent refs grouped by preset version id."""
+        refs_by_version_id = {
+            version.id: _subagent_export_refs(version.agents) for version in versions
+        }
+        preset_ids = {
+            export_ref.preset_id
+            for refs in refs_by_version_id.values()
+            for export_ref in refs
+            if export_ref.preset_id is not None
+        }
+        legacy_slugs = {
+            export_ref.ref.slug
+            for refs in refs_by_version_id.values()
+            for export_ref in refs
+            if export_ref.preset_id is None
+        }
+        if not preset_ids and not legacy_slugs:
+            return {version_id: [] for version_id in refs_by_version_id}
+
+        active_ids: set[uuid.UUID] = set()
+        if preset_ids:
+            active_ids = set(
+                (
+                    await workspace_service.session.scalars(
+                        select(AgentPreset.id).where(
+                            AgentPreset.workspace_id == workspace_service.workspace_id,
+                            AgentPreset.id.in_(preset_ids),
+                            AgentPreset.archived_at.is_(None),
+                        )
+                    )
+                ).all()
+            )
+
+        active_slugs = (
+            set(
+                (
+                    await workspace_service.session.scalars(
+                        select(AgentPreset.slug).where(
+                            AgentPreset.workspace_id == workspace_service.workspace_id,
+                            AgentPreset.slug.in_(legacy_slugs),
+                            AgentPreset.archived_at.is_(None),
+                        )
+                    )
+                ).all()
+            )
+            if legacy_slugs
+            else set()
+        )
+        return {
+            version_id: [
+                export_ref.ref
+                for export_ref in refs
+                if (
+                    export_ref.preset_id in active_ids
+                    if export_ref.preset_id is not None
+                    else export_ref.ref.slug in active_slugs
+                )
+            ]
+            for version_id, refs in refs_by_version_id.items()
+        }
 
     async def _skill_bindings_for_versions(
         self,
@@ -345,6 +427,8 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             .where(
                 AgentPresetVersionSkill.workspace_id == workspace_service.workspace_id,
                 AgentPresetVersionSkill.preset_version_id.in_(version_ids),
+                Skill.workspace_id == workspace_service.workspace_id,
+                Skill.archived_at.is_(None),
             )
             .order_by(
                 AgentPresetVersionSkill.preset_version_id.asc(),
@@ -650,8 +734,11 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             )
             return preset
 
-        # No mapping yet: fall back to adopting an existing preset by slug.
-        return await workspace_service.session.scalar(
+        # No active mapped row: fall back to adopting an existing active preset
+        # by slug. If the source id still points at an archived row and this
+        # active preset already has a different mapping, clear that old active
+        # mapping before the pull upserts this source id to the adopted row.
+        preset = await workspace_service.session.scalar(
             select(AgentPreset)
             .where(
                 AgentPreset.workspace_id == workspace_service.workspace_id,
@@ -660,6 +747,48 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             )
             .options(selectinload(AgentPreset.tags))
         )
+        if preset is not None:
+            await self._reconcile_adopted_preset_mapping(
+                workspace_service,
+                source_id=source_id,
+                preset=preset,
+            )
+        return preset
+
+    async def _reconcile_adopted_preset_mapping(
+        self,
+        workspace_service: SyncMappingService,
+        *,
+        source_id: str,
+        preset: AgentPreset,
+    ) -> None:
+        """Drop a conflicting stale mapping before adopting ``preset``."""
+        source_mapping = await workspace_service.session.scalar(
+            select(WorkspaceSyncResourceMapping).where(
+                WorkspaceSyncResourceMapping.workspace_id
+                == workspace_service.workspace_id,
+                WorkspaceSyncResourceMapping.provider
+                == workspace_service._mapping_provider_value,
+                WorkspaceSyncResourceMapping.resource_type == self.resource_type.value,
+                WorkspaceSyncResourceMapping.source_id == source_id,
+            )
+        )
+        if source_mapping is None or source_mapping.local_id == preset.id:
+            return
+
+        active_mapping = await workspace_service.session.scalar(
+            select(WorkspaceSyncResourceMapping).where(
+                WorkspaceSyncResourceMapping.workspace_id
+                == workspace_service.workspace_id,
+                WorkspaceSyncResourceMapping.provider
+                == workspace_service._mapping_provider_value,
+                WorkspaceSyncResourceMapping.resource_type == self.resource_type.value,
+                WorkspaceSyncResourceMapping.local_id == preset.id,
+            )
+        )
+        if active_mapping is not None and active_mapping.id != source_mapping.id:
+            await workspace_service.session.delete(active_mapping)
+            await workspace_service.session.flush()
 
     async def _preset_by_source_id(
         self,
@@ -815,11 +944,13 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         # presets keep their slug, so exclude them to avoid binding an archived
         # child that runtime resolution would reject.
         child = await workspace_service.session.scalar(
-            select(AgentPreset).where(
+            select(AgentPreset)
+            .where(
                 AgentPreset.workspace_id == workspace_service.workspace_id,
                 AgentPreset.slug == subagent.slug,
                 AgentPreset.archived_at.is_(None),
             )
+            .with_for_update()
         )
         if child is None:
             return None
@@ -1090,10 +1221,13 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         """
         # Resolve the skill by its slug (stored as `name`) in this workspace.
         skill = await workspace_service.session.scalar(
-            select(Skill).where(
+            select(Skill)
+            .where(
                 Skill.workspace_id == workspace_service.workspace_id,
                 Skill.name == binding.slug,
+                Skill.archived_at.is_(None),
             )
+            .with_for_update()
         )
         if skill is None:
             return None, None
@@ -1112,8 +1246,8 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         return skill, version
 
 
-def _subagent_refs(agents: dict[str, Any]) -> list[AgentPresetSubagentRef]:
-    """Extract slug-only subagent refs from a preset's ``agents`` config.
+def _subagent_export_refs(agents: dict[str, Any]) -> list[_SubagentExportRef]:
+    """Extract exportable subagent refs from a preset's ``agents`` config.
 
     Returns an empty list when the config is missing or fails to validate.
     """
@@ -1124,16 +1258,22 @@ def _subagent_refs(agents: dict[str, Any]) -> list[AgentPresetSubagentRef]:
     except Exception:
         return []
     # Project to slug-keyed refs, sorted by slug for deterministic output.
-    return [
-        AgentPresetSubagentRef(
-            slug=subagent.preset,
-            version=subagent.preset_version,
-            name=subagent.name,
-            description=subagent.description,
-            max_turns=subagent.max_turns,
+    refs: list[_SubagentExportRef] = []
+    for subagent in sorted(config.subagents, key=lambda item: item.preset):
+        preset_id = getattr(subagent, "preset_id", None)
+        refs.append(
+            _SubagentExportRef(
+                ref=AgentPresetSubagentRef(
+                    slug=subagent.preset,
+                    version=subagent.preset_version,
+                    name=subagent.name,
+                    description=subagent.description,
+                    max_turns=subagent.max_turns,
+                ),
+                preset_id=preset_id if isinstance(preset_id, uuid.UUID) else None,
+            )
         )
-        for subagent in sorted(config.subagents, key=lambda item: item.preset)
-    ]
+    return refs
 
 
 def _parse_preset_version_relpath(relpath: str) -> int | None:

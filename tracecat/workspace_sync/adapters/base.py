@@ -527,6 +527,9 @@ class ResourceAdapter(ABC):
     async def source_ids_by_local_id(
         self,
         workspace_service: SyncMappingService,
+        *,
+        model: type[_WorkspaceRow] | None = None,
+        row_predicates: Sequence[Any] = (),
     ) -> dict[uuid.UUID, str]:
         """Load this resource type's ``local_id`` -> ``source_id`` sync mappings.
 
@@ -542,6 +545,12 @@ class ResourceAdapter(ABC):
             == workspace_service._mapping_provider_value,
             WorkspaceSyncResourceMapping.resource_type == self.resource_type.value,
         )
+        if model is not None:
+            stmt = stmt.join(model, WorkspaceSyncResourceMapping.local_id == model.id)
+            stmt = stmt.where(
+                model.workspace_id == workspace_service.workspace_id,
+                *row_predicates,
+            )
         return dict((await workspace_service.session.execute(stmt)).tuples().all())
 
     async def local_id_for_source_id(
@@ -585,14 +594,22 @@ class ResourceAdapter(ABC):
         return dict((await workspace_service.session.execute(stmt)).tuples().all())
 
     async def source_id_assigner(
-        self, workspace_service: SyncMappingService
+        self,
+        workspace_service: SyncMappingService,
+        *,
+        model: type[_WorkspaceRow] | None = None,
+        row_predicates: Sequence[Any] = (),
     ) -> _SourceIdAssigner:
         """Build a :class:`_SourceIdAssigner` seeded with this type's mappings.
 
         Reuses each row's already-assigned source id during projection and mints
         fresh, collision-free ids for unmapped rows.
         """
-        mapped = await self.source_ids_by_local_id(workspace_service)
+        mapped = await self.source_ids_by_local_id(
+            workspace_service,
+            model=model,
+            row_predicates=row_predicates,
+        )
         return _SourceIdAssigner(mapped=mapped, reserved=set(mapped.values()))
 
     async def _row_by_source_id[ModelT: _WorkspaceRow](
@@ -797,7 +814,8 @@ class ResourceAdapter(ABC):
             existing = (
                 await workspace_service.session.scalars(
                     select(plan.column).where(
-                        plan.model.workspace_id == workspace_service.workspace_id
+                        plan.model.workspace_id == workspace_service.workspace_id,
+                        *plan.availability_predicates,
                     )
                 )
             ).all()
@@ -806,7 +824,8 @@ class ResourceAdapter(ABC):
         rows = (
             await workspace_service.session.execute(
                 select(scope_column, plan.column).where(
-                    plan.model.workspace_id == workspace_service.workspace_id
+                    plan.model.workspace_id == workspace_service.workspace_id,
+                    *plan.availability_predicates,
                 )
             )
         ).tuples()
