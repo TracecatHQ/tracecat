@@ -684,17 +684,18 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
 
         async with self._authed_client(url) as client:
             project_id = _gitlab_project_id(url)
-            branches = await self._list_branches_with_client(
-                client=client,
-                url=url,
-                limit=None,
-            )
-            default_branch = (
-                next((item.name for item in branches if item.is_default), None)
-                or (branches[0].name if branches else None)
-                or "main"
-            )
-            base_branch_name = pr_base_branch or url.ref or default_branch
+            base_branch_name = pr_base_branch or url.ref
+            if base_branch_name is None:
+                branches = await self._list_branches_with_client(
+                    client=client,
+                    url=url,
+                    limit=None,
+                )
+                base_branch_name = (
+                    next((item.name for item in branches if item.is_default), None)
+                    or (branches[0].name if branches else None)
+                    or "main"
+                )
             if create_pr and branch == base_branch_name:
                 raise TracecatValidationError(
                     "create_pr exports must target a non-base branch"

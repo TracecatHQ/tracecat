@@ -49,6 +49,7 @@ class _MockGitLabApi:
         self.encoded_project_path = quote(project_path, safe="")
         self.default_branch = default_branch
         self.raw_paths: list[str] = []
+        self.requests: list[tuple[str, str]] = []
         self.commit_payloads: list[dict[str, Any]] = []
         self.merge_request_payloads: list[dict[str, Any]] = []
         self._counter = 0
@@ -67,6 +68,7 @@ class _MockGitLabApi:
     def response(self, request: httpx.Request) -> httpx.Response:
         raw_path = request.url.raw_path.split(b"?", maxsplit=1)[0].decode()
         self.raw_paths.append(raw_path)
+        self.requests.append((request.method, raw_path))
         prefix = f"/api/v4/projects/{self.encoded_project_path}"
         if not raw_path.startswith(prefix):
             return httpx.Response(404, json={"message": "Project Not Found"})
@@ -541,6 +543,64 @@ async def test_gitlab_transport_creates_merge_request_after_commit() -> None:
     assert result.pr_reused is False
     assert api.merge_request_payloads[0]["source_branch"] == "sync/workspace"
     assert api.merge_request_payloads[0]["target_branch"] == "main"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("url", "pr_base_branch"),
+    [
+        (_git_url(), "release/base"),
+        (
+            GitUrl(
+                host="gitlab.example.test",
+                org="group/subgroup",
+                repo="project",
+                ref="release/base",
+            ),
+            None,
+        ),
+    ],
+    ids=["pr-base-branch", "url-ref"],
+)
+async def test_gitlab_transport_skips_branch_list_when_base_is_explicit(
+    url: GitUrl,
+    pr_base_branch: str | None,
+) -> None:
+    api = _MockGitLabApi(
+        project_path="group/subgroup/project",
+        files={MANIFEST_FILENAME: _manifest(), "workflows/a.yml": "base"},
+        default_branch="zz-default",
+    )
+    api.create_branch("release/base", "zz-default")
+    for index in range(105):
+        api.create_branch(f"branch-{index:03d}", "zz-default")
+    transport = _MockGitLabTransport(api=api)
+
+    with patch("tracecat.workspace_sync.transport.WorkspaceService") as workspace_cls:
+        workspace_service = AsyncMock()
+        workspace_service.get_workspace.return_value = type(
+            "WorkspaceStub",
+            (),
+            {"name": "Sync workspace"},
+        )()
+        workspace_cls.return_value = workspace_service
+
+        result = await transport.write_files(
+            url=url,
+            files={MANIFEST_FILENAME: _manifest(), "workflows/a.yml": "branch"},
+            message="Sync workspace",
+            branch="sync/workspace",
+            create_pr=True,
+            pr_base_branch=pr_base_branch,
+            delete_missing_paths_under=("workflows",),
+        )
+
+    branch_list_path = (
+        f"/api/v4/projects/{api.encoded_project_path}/repository/branches"
+    )
+    assert ("GET", branch_list_path) not in api.requests
+    assert result.status is PushStatus.COMMITTED
+    assert api.merge_request_payloads[0]["target_branch"] == "release/base"
 
 
 @pytest.mark.anyio
