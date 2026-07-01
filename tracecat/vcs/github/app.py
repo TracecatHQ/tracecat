@@ -21,6 +21,7 @@ from tracecat.secrets.schemas import SecretCreate, SecretKeyValue, SecretUpdate
 from tracecat.secrets.service import SecretsService
 from tracecat.service import BaseOrgService, requires_entitlement
 from tracecat.tiers.enums import Entitlement
+from tracecat.vcs.exceptions import VcsProviderError
 from tracecat.vcs.github.schemas import (
     GitHubAppConfig,
     GitHubAppCredentials,
@@ -28,7 +29,7 @@ from tracecat.vcs.github.schemas import (
 )
 
 
-class GitHubAppError(TracecatException):
+class GitHubAppError(VcsProviderError):
     """GitHub App operation error."""
 
 

@@ -17,12 +17,13 @@ from tracecat.secrets.schemas import SecretCreate, SecretKeyValue, SecretUpdate
 from tracecat.secrets.service import SecretsService
 from tracecat.service import BaseOrgService, requires_entitlement
 from tracecat.tiers.enums import Entitlement
+from tracecat.vcs.exceptions import VcsProviderError
 from tracecat.vcs.gitlab.schemas import GitLabTokenCredentials
 
 GITLAB_TOKEN_SECRET_NAME = "gitlab-token-credentials"
 
 
-class GitLabError(TracecatException):
+class GitLabError(VcsProviderError):
     """GitLab operation error."""
 
 

@@ -16,9 +16,9 @@ from tracecat.identifiers.workflow import AnyWorkflowIDPath
 from tracecat.logger import logger
 from tracecat.registry.repositories.schemas import GitBranchInfo, GitCommitInfo
 from tracecat.sync import PullOptions, PullResult
+from tracecat.vcs.exceptions import VcsProviderError
 from tracecat.vcs.github.app import GitHubAppError, GitHubAppService
 from tracecat.vcs.github.schemas import GitHubAppRepository
-from tracecat.vcs.gitlab.app import GitLabError
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.store.schemas import (
     WorkflowDslPublish,
@@ -86,7 +86,7 @@ async def publish_workflow(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
-    except GitHubAppError as e:
+    except VcsProviderError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
@@ -167,8 +167,7 @@ async def list_workflow_commits(
     except (
         TracecatSettingsError,
         TracecatValidationError,
-        GitHubAppError,
-        GitLabError,
+        VcsProviderError,
     ) as e:
         logger.error("Git sync error fetching commits", exc_info=True)
         raise HTTPException(
@@ -220,8 +219,7 @@ async def list_workflow_branches(
     except (
         TracecatSettingsError,
         TracecatValidationError,
-        GitHubAppError,
-        GitLabError,
+        VcsProviderError,
     ) as e:
         logger.error("Git sync error fetching branches", exc_info=True)
         raise HTTPException(
@@ -265,8 +263,7 @@ async def export_workspace_sync(
     except (
         TracecatSettingsError,
         TracecatValidationError,
-        GitHubAppError,
-        GitLabError,
+        VcsProviderError,
     ) as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -300,8 +297,7 @@ async def preview_export_workspace_sync(
     except (
         TracecatSettingsError,
         TracecatValidationError,
-        GitHubAppError,
-        GitLabError,
+        VcsProviderError,
     ) as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -356,8 +352,7 @@ async def pull_workflows(
     except (
         TracecatSettingsError,
         TracecatValidationError,
-        GitHubAppError,
-        GitLabError,
+        VcsProviderError,
     ) as e:
         logger.error("Git sync error during workflow pull", exc_info=True)
         raise HTTPException(
