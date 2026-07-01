@@ -1167,6 +1167,64 @@ class TestAgentPresetService:
         assert detail["code"] == "skill_archived"
         assert str(created_skill.id) in str(detail["skills"])
 
+    async def test_resolve_config_rejects_archived_skill_in_pinned_mode(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        svc_admin_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Pinned-resource mode refuses archived skills from historical versions."""
+
+        settings_service = SettingsService(session=session, role=svc_admin_role)
+        await settings_service.update_app_settings(
+            AppSettingsUpdate(
+                app_versioned_resource_resolution_strategy=(
+                    VersionedResourceResolutionStrategy.PINNED
+                )
+            )
+        )
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(name="pinned-archived-skill")
+        )
+        skill_version = await skill_service.publish_skill(created_skill.id)
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Pinned archived skill preset",
+                description="Preset with a historical skill binding",
+                instructions="Use the selected skill",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=created_skill.id,
+                        skill_version_id=skill_version.id,
+                    )
+                ],
+            )
+        )
+        historical_version = await agent_preset_service.get_current_version_for_preset(
+            created_preset
+        )
+        await agent_preset_service.update_preset(
+            created_preset,
+            AgentPresetUpdate(skills=None),
+        )
+        await skill_service.archive_skill(created_skill.id)
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await agent_preset_service.resolve_agent_preset_config(
+                preset_id=created_preset.id,
+                preset_version_id=historical_version.id,
+            )
+
+        detail = exc_info.value.detail
+        assert detail is not None
+        assert detail["code"] == "skill_archived"
+        assert str(created_skill.id) in str(detail["skills"])
+
     async def test_list_versions_returns_metadata_without_skill_lookups(
         self,
         configure_minio_for_skills,

@@ -2224,10 +2224,18 @@ class SkillService(BaseWorkspaceService):
                 SkillVersion.name,
                 AgentPresetVersionSkill.skill_version_id,
                 SkillVersion.manifest_sha256,
+                Skill.archived_at,
             )
             .join(
                 SkillVersion,
                 AgentPresetVersionSkill.skill_version_id == SkillVersion.id,
+            )
+            .join(
+                Skill,
+                sa.and_(
+                    AgentPresetVersionSkill.workspace_id == Skill.workspace_id,
+                    AgentPresetVersionSkill.skill_id == Skill.id,
+                ),
             )
             .where(
                 AgentPresetVersionSkill.workspace_id == self.workspace_id,
@@ -2236,16 +2244,38 @@ class SkillService(BaseWorkspaceService):
             .order_by(SkillVersion.name.asc(), AgentPresetVersionSkill.skill_id.asc())
         )
         rows = (await self.session.execute(stmt)).tuples().all()
-        return [
-            ResolvedSkillRef(
-                skill_id=skill_id,
-                skill_name=skill_name,
-                skill_version_id=skill_version_id,
-                manifest_sha256=manifest_sha256,
+        resolved: list[ResolvedSkillRef] = []
+        archived_skills: list[str] = []
+        for (
+            skill_id,
+            skill_name,
+            skill_version_id,
+            manifest_sha256,
+            archived_at,
+        ) in rows:
+            if skill_name is None:
+                continue
+            if archived_at is not None:
+                archived_skills.append(f"{skill_name} ({skill_id})")
+                continue
+            resolved.append(
+                ResolvedSkillRef(
+                    skill_id=skill_id,
+                    skill_name=skill_name,
+                    skill_version_id=skill_version_id,
+                    manifest_sha256=manifest_sha256,
+                )
             )
-            for skill_id, skill_name, skill_version_id, manifest_sha256 in rows
-            if skill_name is not None
-        ]
+        if archived_skills:
+            raise TracecatValidationError(
+                "Some skills are archived and cannot be resolved",
+                detail={
+                    "code": "skill_archived",
+                    "skills": sorted(archived_skills),
+                    "preset_version_id": str(preset_version_id),
+                },
+            )
+        return resolved
 
     async def _get_latest_skill_refs_for_preset_version(
         self, preset_version_id: uuid.UUID
