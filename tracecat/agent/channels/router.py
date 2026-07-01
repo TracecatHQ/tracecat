@@ -43,6 +43,8 @@ from tracecat.feature_flags import is_feature_enabled
 from tracecat.feature_flags.enums import FeatureFlag
 from tracecat.logger import logger
 
+_SLACK_CHANNEL_CONFIG_INACTIVE_MESSAGE = "Channel configuration is no longer active"
+
 
 def _require_agent_channels_enabled() -> None:
     if not is_feature_enabled(FeatureFlag.AGENT_CHANNELS):
@@ -297,11 +299,16 @@ async def handle_slack_oauth_callback(
                 ),
             )
     except (TracecatNotFoundError, TracecatValidationError) as exc:
+        message = (
+            _SLACK_CHANNEL_CONFIG_INACTIVE_MESSAGE
+            if isinstance(exc, TracecatNotFoundError)
+            else str(exc)
+        )
         return RedirectResponse(
             _build_callback_redirect_url(
                 base_url=return_url,
                 status="error",
-                message=str(exc),
+                message=message,
             )
         )
     except SlackApiError as exc:
