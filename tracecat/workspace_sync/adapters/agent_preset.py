@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any, cast
 
 import sqlalchemy as sa
@@ -53,6 +54,12 @@ AGENT_PRESET_FILENAME = "preset.yml"
 AGENT_PRESET_VERSIONS_DIR = "versions"
 DEFAULT_AGENT_MODEL_NAME = "gpt-5.5"
 DEFAULT_AGENT_MODEL_PROVIDER = "openai"
+
+
+@dataclass(frozen=True, slots=True)
+class _SubagentExportRef:
+    ref: AgentPresetSubagentRef
+    preset_id: uuid.UUID | None
 
 
 class AgentPresetAdapter(DirectoryManifestAdapter):
@@ -337,25 +344,62 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
     ) -> dict[uuid.UUID, list[AgentPresetSubagentRef]]:
         """Return exportable subagent refs grouped by preset version id."""
         refs_by_version_id = {
-            version.id: _subagent_refs(version.agents) for version in versions
+            version.id: _subagent_export_refs(version.agents) for version in versions
         }
-        slugs = {ref.slug for refs in refs_by_version_id.values() for ref in refs}
-        if not slugs:
-            return refs_by_version_id
+        preset_ids = {
+            export_ref.preset_id
+            for refs in refs_by_version_id.values()
+            for export_ref in refs
+            if export_ref.preset_id is not None
+        }
+        legacy_slugs = {
+            export_ref.ref.slug
+            for refs in refs_by_version_id.values()
+            for export_ref in refs
+            if export_ref.preset_id is None
+        }
+        if not preset_ids and not legacy_slugs:
+            return {version_id: [] for version_id in refs_by_version_id}
 
-        active_slugs = set(
-            (
-                await workspace_service.session.scalars(
-                    select(AgentPreset.slug).where(
-                        AgentPreset.workspace_id == workspace_service.workspace_id,
-                        AgentPreset.slug.in_(slugs),
-                        AgentPreset.archived_at.is_(None),
+        active_ids: set[uuid.UUID] = set()
+        if preset_ids:
+            active_ids = set(
+                (
+                    await workspace_service.session.scalars(
+                        select(AgentPreset.id).where(
+                            AgentPreset.workspace_id == workspace_service.workspace_id,
+                            AgentPreset.id.in_(preset_ids),
+                            AgentPreset.archived_at.is_(None),
+                        )
                     )
-                )
-            ).all()
+                ).all()
+            )
+
+        active_slugs = (
+            set(
+                (
+                    await workspace_service.session.scalars(
+                        select(AgentPreset.slug).where(
+                            AgentPreset.workspace_id == workspace_service.workspace_id,
+                            AgentPreset.slug.in_(legacy_slugs),
+                            AgentPreset.archived_at.is_(None),
+                        )
+                    )
+                ).all()
+            )
+            if legacy_slugs
+            else set()
         )
         return {
-            version_id: [ref for ref in refs if ref.slug in active_slugs]
+            version_id: [
+                export_ref.ref
+                for export_ref in refs
+                if (
+                    export_ref.preset_id in active_ids
+                    if export_ref.preset_id is not None
+                    else export_ref.ref.slug in active_slugs
+                )
+            ]
             for version_id, refs in refs_by_version_id.items()
         }
 
@@ -1153,8 +1197,8 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         return skill, version
 
 
-def _subagent_refs(agents: dict[str, Any]) -> list[AgentPresetSubagentRef]:
-    """Extract slug-only subagent refs from a preset's ``agents`` config.
+def _subagent_export_refs(agents: dict[str, Any]) -> list[_SubagentExportRef]:
+    """Extract exportable subagent refs from a preset's ``agents`` config.
 
     Returns an empty list when the config is missing or fails to validate.
     """
@@ -1165,16 +1209,22 @@ def _subagent_refs(agents: dict[str, Any]) -> list[AgentPresetSubagentRef]:
     except Exception:
         return []
     # Project to slug-keyed refs, sorted by slug for deterministic output.
-    return [
-        AgentPresetSubagentRef(
-            slug=subagent.preset,
-            version=subagent.preset_version,
-            name=subagent.name,
-            description=subagent.description,
-            max_turns=subagent.max_turns,
+    refs: list[_SubagentExportRef] = []
+    for subagent in sorted(config.subagents, key=lambda item: item.preset):
+        preset_id = getattr(subagent, "preset_id", None)
+        refs.append(
+            _SubagentExportRef(
+                ref=AgentPresetSubagentRef(
+                    slug=subagent.preset,
+                    version=subagent.preset_version,
+                    name=subagent.name,
+                    description=subagent.description,
+                    max_turns=subagent.max_turns,
+                ),
+                preset_id=preset_id if isinstance(preset_id, uuid.UUID) else None,
+            )
         )
-        for subagent in sorted(config.subagents, key=lambda item: item.preset)
-    ]
+    return refs
 
 
 def _parse_preset_version_relpath(relpath: str) -> int | None:

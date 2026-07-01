@@ -1852,6 +1852,30 @@ async def test_export_omits_archived_historical_subagent_refs(
     child.archived_at = datetime.now(UTC)
     session.add(child)
     await session.flush()
+    replacement_child = AgentPreset(
+        workspace_id=svc_role.workspace_id,
+        slug="qa-child",
+        name="Replacement QA child",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        agents={"enabled": False},
+    )
+    session.add(replacement_child)
+    await session.flush()
+    replacement_version = AgentPresetVersion(
+        workspace_id=svc_role.workspace_id,
+        preset_id=replacement_child.id,
+        version=1,
+        instructions="Replacement child instructions",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        agents={"enabled": False},
+    )
+    session.add(replacement_version)
+    await session.flush()
+    replacement_child.current_version_id = replacement_version.id
+    session.add(replacement_child)
+    await session.flush()
 
     projection = await service.project_workspace(create_missing_mappings=False)
 
@@ -1859,9 +1883,6 @@ async def test_export_omits_archived_historical_subagent_refs(
         projection.files[f"{AGENT_PRESET_ROOT}/qa-parent/versions/1.yml"]
     )
     assert parent_version_1.get("subagents", []) == []
-    assert not any(
-        path.startswith(f"{AGENT_PRESET_ROOT}/qa-child/") for path in projection.files
-    )
 
 
 @pytest.mark.anyio
