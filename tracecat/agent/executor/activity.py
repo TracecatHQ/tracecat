@@ -666,7 +666,8 @@ class SandboxedAgentExecutor:
                 raise
 
             self._apply_loopback_result(result, handler.build_result())
-            result.success = True
+            if result.error is None:
+                result.success = True
             result.cancelled = True
             result.cancelled_reason = reason
         finally:

@@ -1448,6 +1448,153 @@ class TestSandboxedAgentExecutorHelpers:
         mock_with_session.assert_not_called()
 
 
+class TestSandboxedAgentExecutorCancellation:
+    """Tests for the graceful-cancellation branch in ``_run_with_broker``.
+
+    A cancelled turn must not be reported as a successful turn when the
+    interrupted runtime actually finished with an error - only the fact that
+    the cancellation itself was processed should be signaled via
+    ``result.cancelled``.
+    """
+
+    @pytest.fixture
+    def executor_input(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+    ) -> AgentExecutorInput:
+        return AgentExecutorInput(
+            session_id=mock_session_id,
+            workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            user_prompt="Test prompt",
+            config=mock_agent_config,
+            role=mock_role,
+            mcp_auth_token="mock-jwt-token",
+            llm_gateway_auth_token="mock-llm-token",
+        )
+
+    async def _run_cancelled_turn(
+        self,
+        executor: SandboxedAgentExecutor,
+        *,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        loopback_result: LoopbackResult,
+    ) -> AgentExecutorResult:
+        """Drive ``_run_with_broker`` and cancel it before the turn completes."""
+        from tracecat.agent.executor.loopback import LoopbackHandler, LoopbackInput
+
+        job_dir = tmp_path / "job"
+        job_dir.mkdir()
+        executor._job_dir = job_dir
+        executor._llm_proxy = AsyncMock()
+
+        handler = LoopbackHandler(
+            input=LoopbackInput(
+                session_id=executor.input.session_id,
+                workspace_id=executor.input.workspace_id,
+            )
+        )
+
+        interrupted = asyncio.Event()
+
+        class FakeBroker:
+            def session_turn_lease(self, _session_id: str):
+                @asynccontextmanager
+                async def lease():
+                    yield
+
+                return lease()
+
+            async def run_turn_in_session_lease(
+                self, _request: Any, _handler: Any
+            ) -> None:
+                # Blocks until interrupted, mirroring a live runtime turn that
+                # keeps running until the graceful interrupt lands.
+                await interrupted.wait()
+
+            async def interrupt_turn(self, _session_id: str, _reason: str) -> None:
+                # Simulate the loopback handler observing the interrupted
+                # runtime's remaining events, including a terminal error, then
+                # let the in-flight broker turn task finish.
+                handler._result = loopback_result
+                interrupted.set()
+
+            async def cancel_turn(self, _session_id: str) -> None:
+                pass
+
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.get_claude_runtime_broker",
+            lambda: FakeBroker(),
+        )
+
+        result = AgentExecutorResult(success=False, terminal_stream_error_emitted=False)
+
+        async def run_it() -> None:
+            await executor._run_with_broker(
+                result=result,
+                handler=handler,
+                init_payload=executor._build_runtime_init_payload(),
+                socket_dir=job_dir / "sockets",
+                llm_socket_path=job_dir / "sockets" / "llm.sock",
+                artifact_working_set=None,
+            )
+
+        task = asyncio.create_task(run_it())
+        # Yield control so the executor reaches the broker's blocking wait
+        # before cancellation is delivered.
+        for _ in range(5):
+            await asyncio.sleep(0)
+        task.cancel()
+        await task
+        return result
+
+    @pytest.mark.anyio
+    async def test_cancellation_preserves_error_when_interrupted_turn_failed(
+        self,
+        executor_input: AgentExecutorInput,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """A cancelled turn that ended with a runtime error must stay success=False."""
+        executor = SandboxedAgentExecutor(input=executor_input)
+
+        result = await self._run_cancelled_turn(
+            executor,
+            monkeypatch=monkeypatch,
+            tmp_path=tmp_path,
+            loopback_result=LoopbackResult(success=False, error="runtime crashed"),
+        )
+
+        assert result.cancelled is True
+        assert result.cancelled_reason == "user_cancel"
+        assert result.error == "runtime crashed"
+        assert result.success is False
+
+    @pytest.mark.anyio
+    async def test_cancellation_reports_success_when_interrupted_turn_clean(
+        self,
+        executor_input: AgentExecutorInput,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """A cancelled turn with no runtime error is still a clean cancellation."""
+        executor = SandboxedAgentExecutor(input=executor_input)
+
+        result = await self._run_cancelled_turn(
+            executor,
+            monkeypatch=monkeypatch,
+            tmp_path=tmp_path,
+            loopback_result=LoopbackResult(success=False, error=None),
+        )
+
+        assert result.cancelled is True
+        assert result.cancelled_reason == "user_cancel"
+        assert result.error is None
+        assert result.success is True
+
+
 class TestSandboxedAgentExecutorFilesystemPersistence:
     """Tests for feature-flagged agent work-dir hydration and snapshotting."""
 

@@ -1708,6 +1708,12 @@ class AgentSessionService(BaseWorkspaceService):
         if agent_session is None:
             raise TracecatNotFoundError(f"Session with ID {session_id} not found")
 
+        if (
+            AgentSessionEntity(agent_session.entity_type)
+            is AgentSessionEntity.WORKSPACE_CHAT
+        ):
+            await self.require_entitlement(Entitlement.WORKSPACE_CHAT)
+
         lifecycle, curr_run_id = await self.get_turn_lifecycle(agent_session)
         if lifecycle is not TurnLifecycle.RUNNING or curr_run_id is None:
             raise TracecatConflictError(

@@ -18,6 +18,7 @@ from tracecat.agent.common.stream_types import (
     UnifiedStreamEvent,
 )
 from tracecat.agent.session.router import (
+    cancel_session,
     fork_session,
     get_session,
     get_session_vercel,
@@ -26,7 +27,10 @@ from tracecat.agent.session.router import (
     send_message,
     stream_session_events,
 )
-from tracecat.agent.session.schemas import AgentSessionForkRequest
+from tracecat.agent.session.schemas import (
+    AgentSessionCancelRequest,
+    AgentSessionForkRequest,
+)
 from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
 from tracecat.artifacts.schemas import CaseArtifact
 from tracecat.auth.types import Role
@@ -1042,6 +1046,46 @@ async def test_fork_session_requires_entitlement_for_workspace_chat_parent() -> 
             )
 
     fake_svc.fork_session.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_cancel_session_requires_entitlement_for_workspace_chat_parent() -> None:
+    agent_session = _agent_session_stub(
+        entity_type=AgentSessionEntity.WORKSPACE_CHAT,
+        curr_run_id=uuid.uuid4(),
+    )
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=agent_session.workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute"}),
+    )
+    fake_svc = SimpleNamespace(
+        get_session=AsyncMock(return_value=agent_session),
+        request_cancel=AsyncMock(return_value=None),
+    )
+
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService",
+            return_value=fake_svc,
+        ),
+        patch(
+            "tracecat.agent.session.router.require_workspace_chat_entitlement_for_entity",
+            AsyncMock(side_effect=_deny_workspace_chat_entitlement),
+        ),
+    ):
+        raw_cancel_session = cast(Any, cancel_session).__wrapped__
+        with pytest.raises(EntitlementRequired):
+            await raw_cancel_session(
+                session_id=agent_session.id,
+                role=role,
+                session=AsyncMock(),
+                request=AgentSessionCancelRequest(),
+            )
+
+    fake_svc.request_cancel.assert_not_awaited()
 
 
 def _make_stream_role(workspace_id: uuid.UUID) -> Role:
