@@ -22,7 +22,7 @@ import pytest
 import yaml
 from pydantic import SecretStr, ValidationError
 from pydantic_core import PydanticSerializationError
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1637,6 +1637,98 @@ async def test_full_workspace_export_includes_workflow_pinned_version_closure(
     assert f"{AGENT_PRESET_ROOT}/agent-x/versions/2.yml" in exported_files
     assert f"{SKILL_ROOT}/skill-a/versions/1/version.yml" in exported_files
     assert f"{SKILL_ROOT}/skill-a/versions/2/version.yml" in exported_files
+
+
+@pytest.mark.anyio
+async def test_export_omits_archived_historical_skill_bindings(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    repo_url = "git+ssh://git@github.com/TracecatHQ/git-sync-archived-skill-qa.git"
+    git_url = GitUrl(
+        host="github.com",
+        org="TracecatHQ",
+        repo="git-sync-archived-skill-qa",
+    )
+    fake_vcs = FakeVcsServer()
+    assert svc_role.workspace_id is not None
+    await _set_workspace_git_repo_url(
+        session,
+        workspace_id=svc_role.workspace_id,
+        repo_url=repo_url,
+    )
+    service = WorkspaceSyncService(
+        session=session,
+        role=svc_role,
+        transport_factory=fake_vcs.transport_factory,
+    )
+    seed_transport = fake_vcs.transport_factory(
+        VcsProvider.GITHUB,
+        session=session,
+        role=svc_role,
+    )
+    seed_commit = await seed_transport.write_files(
+        url=git_url,
+        files=_workflow_pinned_agent_version_git_tree(),
+        message="Seed archived historical skill binding",
+        branch="seed/archived-historical-skill",
+        create_pr=False,
+    )
+    assert seed_commit.sha is not None
+    with patch(
+        "tracecat.workflow.management.management.RegistryLockService.resolve_lock_with_bindings",
+        AsyncMock(return_value=RegistryLock(origins={}, actions={})),
+    ):
+        pull = await service.pull(options=PullOptions(commit_sha=seed_commit.sha))
+    assert pull.success is True
+
+    skill = await session.scalar(
+        select(Skill).where(
+            Skill.workspace_id == svc_role.workspace_id,
+            Skill.name == "skill-a",
+        )
+    )
+    agent_x = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "agent-x",
+        )
+    )
+    assert skill is not None
+    assert agent_x is not None
+    current_version = await session.scalar(
+        select(AgentPresetVersion).where(
+            AgentPresetVersion.workspace_id == svc_role.workspace_id,
+            AgentPresetVersion.preset_id == agent_x.id,
+            AgentPresetVersion.version == 2,
+        )
+    )
+    assert current_version is not None
+    await session.execute(
+        delete(AgentPresetSkill).where(
+            AgentPresetSkill.workspace_id == svc_role.workspace_id,
+            AgentPresetSkill.preset_id == agent_x.id,
+        )
+    )
+    await session.execute(
+        delete(AgentPresetVersionSkill).where(
+            AgentPresetVersionSkill.workspace_id == svc_role.workspace_id,
+            AgentPresetVersionSkill.preset_version_id == current_version.id,
+        )
+    )
+    skill.archived_at = datetime.now(UTC)
+    session.add(skill)
+    await session.flush()
+
+    projection = await service.project_workspace(create_missing_mappings=False)
+
+    version_1 = yaml.safe_load(
+        projection.files[f"{AGENT_PRESET_ROOT}/agent-x/versions/1.yml"]
+    )
+    assert version_1.get("skills", []) == []
+    assert not any(
+        path.startswith(f"{SKILL_ROOT}/skill-a/") for path in projection.files
+    )
 
 
 @pytest.mark.anyio

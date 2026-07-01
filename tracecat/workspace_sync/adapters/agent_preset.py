@@ -349,6 +349,8 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             .where(
                 AgentPresetVersionSkill.workspace_id == workspace_service.workspace_id,
                 AgentPresetVersionSkill.preset_version_id.in_(version_ids),
+                Skill.workspace_id == workspace_service.workspace_id,
+                Skill.archived_at.is_(None),
             )
             .order_by(
                 AgentPresetVersionSkill.preset_version_id.asc(),
