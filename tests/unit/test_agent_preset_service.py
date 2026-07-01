@@ -13,6 +13,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
+from tracecat.agent.channels.schemas import (
+    AgentChannelTokenCreate,
+    ChannelType,
+    SlackChannelTokenConfig,
+)
+from tracecat.agent.channels.service import PENDING_SLACK_BOT_TOKEN, AgentChannelService
+from tracecat.agent.preset.resolver import resolve_agents_config
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetSkillBindingBase,
@@ -27,11 +34,16 @@ from tracecat.agent.skill.schemas import (
     SkillDraftUpsertTextFileOp,
 )
 from tracecat.agent.skill.service import SkillService
-from tracecat.agent.subagents import AgentSubagentsConfig, ResolvedAttachedSubagentRef
+from tracecat.agent.subagents import (
+    AgentSubagentsConfig,
+    ResolvedAgentsConfig,
+    ResolvedAttachedSubagentRef,
+)
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.db.models import (
     AgentCatalog,
+    AgentChannelToken,
     AgentModelAccess,
     AgentPreset,
     AgentPresetVersion,
@@ -1708,7 +1720,7 @@ class TestAgentPresetService:
             )
         )
 
-        original_lock = agent_preset_service._lock_preset_for_versioning
+        original_lock = agent_preset_service._lock_preset_row
         original_get_specs = agent_preset_service._get_head_skill_binding_specs
         original_replace = agent_preset_service._replace_head_skill_bindings
         call_order: list[str] = []
@@ -1732,7 +1744,7 @@ class TestAgentPresetService:
 
         monkeypatch.setattr(
             agent_preset_service,
-            "_lock_preset_for_versioning",
+            "_lock_preset_row",
             instrumented_lock,
         )
         monkeypatch.setattr(
@@ -1830,7 +1842,7 @@ class TestAgentPresetService:
             AgentPresetUpdate(skills=[]),
         )
 
-        original_lock = agent_preset_service._lock_preset_for_versioning
+        original_lock = agent_preset_service._lock_preset_row
         original_restore = (
             agent_preset_service._restore_head_skill_bindings_from_version
         )
@@ -1848,7 +1860,7 @@ class TestAgentPresetService:
 
         monkeypatch.setattr(
             agent_preset_service,
-            "_lock_preset_for_versioning",
+            "_lock_preset_row",
             instrumented_lock,
         )
         monkeypatch.setattr(
@@ -1908,6 +1920,54 @@ class TestAgentPresetService:
 
         with pytest.raises(TracecatValidationError, match="not found"):
             await agent_preset_service.restore_version(created_preset, version_1)
+
+    async def test_restore_version_rejects_archived_subagent_bindings(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Restoring a version cannot make archived subagents active again."""
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Restored Child", "slug": "restored-child"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Restored Parent",
+                    "slug": "restored-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": child.slug}],
+                        }
+                    ),
+                }
+            )
+        )
+        version_with_child = await agent_preset_service.get_current_version_for_preset(
+            parent
+        )
+        await agent_preset_service.update_preset(
+            parent,
+            AgentPresetUpdate(agents=AgentSubagentsConfig()),
+        )
+        version_without_child = (
+            await agent_preset_service.get_current_version_for_preset(parent)
+        )
+
+        await agent_preset_service.delete_preset(child)
+
+        with pytest.raises(
+            TracecatValidationError,
+            match="archived or missing subagent",
+        ):
+            await agent_preset_service.restore_version(parent, version_with_child)
+
+        await agent_preset_service.session.refresh(parent)
+        assert parent.current_version_id == version_without_child.id
+        assert parent.agents == {"enabled": False, "subagents": []}
 
     async def test_restore_version_locks_skill_bindings_during_validation(
         self,
@@ -2099,19 +2159,197 @@ class TestAgentPresetService:
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Test deleting a preset."""
+        """Deleting a preset archives it without deleting historical versions."""
         # Create preset
         created_preset = await agent_preset_service.create_preset(
             agent_preset_create_params
         )
         preset_id = created_preset.id
+        version_id = created_preset.current_version_id
+        assert version_id is not None
 
         # Delete preset
         await agent_preset_service.delete_preset(created_preset)
 
-        # Verify deletion
         deleted_preset = await agent_preset_service.get_preset(preset_id)
+        archived_preset = await agent_preset_service.get_preset(
+            preset_id,
+            include_archived=True,
+        )
+        version = await agent_preset_service.get_version(version_id)
+        active_version = await agent_preset_service.get_active_version(
+            preset_id=preset_id,
+            version_id=version_id,
+        )
+
         assert deleted_preset is None
+        assert archived_preset is not None
+        assert archived_preset.archived_at is not None
+        assert version is not None
+        assert active_version is None
+
+    async def test_delete_preset_deactivates_channel_tokens(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Archiving a preset should disable external channel ingress."""
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params
+        )
+        token = AgentChannelToken(
+            workspace_id=agent_preset_service.workspace_id,
+            agent_preset_id=created_preset.id,
+            channel_type="slack",
+            config={},
+            is_active=True,
+        )
+        agent_preset_service.session.add(token)
+        await agent_preset_service.session.commit()
+
+        await agent_preset_service.delete_preset(created_preset)
+
+        await agent_preset_service.session.refresh(token)
+        assert token.is_active is False
+
+    async def test_delete_preset_removes_pending_slack_channel_tokens(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        svc_role: Role,
+    ) -> None:
+        """Archiving a preset should cancel unfinished Slack OAuth installs."""
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params
+        )
+        channel_service = AgentChannelService(
+            agent_preset_service.session, role=svc_role
+        )
+        pending_token = await channel_service.create_token(
+            AgentChannelTokenCreate(
+                agent_preset_id=created_preset.id,
+                channel_type=ChannelType.SLACK,
+                config=SlackChannelTokenConfig(
+                    slack_bot_token=PENDING_SLACK_BOT_TOKEN,
+                    slack_client_id="client-id",
+                    slack_client_secret="client-secret",
+                    slack_signing_secret="signing-secret",
+                ),
+                is_active=False,
+            )
+        )
+        inactive_token = await channel_service.create_token(
+            AgentChannelTokenCreate(
+                agent_preset_id=created_preset.id,
+                channel_type=ChannelType.SLACK,
+                config=SlackChannelTokenConfig(
+                    slack_bot_token="xoxb-existing-token",
+                    slack_client_id="client-id",
+                    slack_client_secret="client-secret",
+                    slack_signing_secret="signing-secret",
+                ),
+                is_active=False,
+            )
+        )
+        assert pending_token.config["slack_bot_token"] != PENDING_SLACK_BOT_TOKEN
+
+        await agent_preset_service.delete_preset(created_preset)
+
+        deleted_pending = await agent_preset_service.session.scalar(
+            select(AgentChannelToken).where(AgentChannelToken.id == pending_token.id)
+        )
+        remaining_inactive = await agent_preset_service.session.scalar(
+            select(AgentChannelToken).where(AgentChannelToken.id == inactive_token.id)
+        )
+        assert deleted_pending is None
+        assert remaining_inactive is not None
+        assert remaining_inactive.is_active is False
+
+    async def test_update_preset_rejects_archived_preset(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Archived presets cannot be mutated through a stale model instance."""
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params
+        )
+        await agent_preset_service.delete_preset(created_preset)
+
+        with pytest.raises(TracecatNotFoundError, match="not found"):
+            await agent_preset_service.update_preset(
+                created_preset,
+                AgentPresetUpdate(name="Archived update"),
+            )
+
+    async def test_restore_version_rejects_archived_preset(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Archived presets cannot be restored through a stale model instance."""
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params
+        )
+        current_version = await agent_preset_service.get_current_version_for_preset(
+            created_preset
+        )
+        await agent_preset_service.delete_preset(created_preset)
+
+        with pytest.raises(TracecatNotFoundError, match="not found"):
+            await agent_preset_service.restore_version(created_preset, current_version)
+
+    async def test_create_version_rejects_archived_preset(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Version creation refuses archived preset heads."""
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params
+        )
+        await agent_preset_service.delete_preset(created_preset)
+
+        with pytest.raises(TracecatNotFoundError, match="not found"):
+            await agent_preset_service._create_version_from_preset(created_preset)
+
+    async def test_delete_preset_locks_target_before_subagent_reference_check(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Preset deletion serializes with restore before checking active refs."""
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params
+        )
+        call_order: list[str] = []
+        original_lock = agent_preset_service._lock_preset_row
+        original_ensure = agent_preset_service._ensure_not_referenced_as_subagent
+
+        async def instrumented_lock(preset_id: uuid.UUID) -> None:
+            call_order.append("lock")
+            await original_lock(preset_id)
+
+        async def instrumented_ensure(preset: AgentPreset) -> None:
+            call_order.append("reference_check")
+            await original_ensure(preset)
+
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_lock_preset_row",
+            instrumented_lock,
+        )
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_ensure_not_referenced_as_subagent",
+            instrumented_ensure,
+        )
+
+        await agent_preset_service.delete_preset(created_preset)
+
+        assert call_order[:2] == ["lock", "reference_check"]
+        assert call_order.count("lock") == 1
 
     async def test_delete_preset_blocks_when_referenced_as_subagent_in_head(
         self,
@@ -2148,16 +2386,15 @@ class TestAgentPresetService:
         assert exc_info.value.detail == {
             "code": "preset_in_use_as_subagent",
             "head_reference_count": 1,
-            "history_reference_count": 1,
         }
         assert await agent_preset_service.get_preset(child.id) is not None
 
-    async def test_delete_preset_blocks_when_referenced_as_subagent_in_history(
+    async def test_delete_preset_archives_when_only_referenced_as_subagent_in_history(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Deleting a preset is blocked while another preset version references it."""
+        """Archived child versions remain resolvable for historical parents."""
         child = await agent_preset_service.create_preset(
             agent_preset_create_params.model_copy(
                 update={"name": "Historical Child", "slug": "historical-child"}
@@ -2177,22 +2414,39 @@ class TestAgentPresetService:
                 }
             )
         )
+        parent_v1 = await agent_preset_service.get_current_version_for_preset(parent)
         await agent_preset_service.update_preset(
             parent, AgentPresetUpdate(agents=AgentSubagentsConfig())
         )
 
-        with pytest.raises(
-            TracecatValidationError,
-            match="still referenced as a subagent",
-        ) as exc_info:
-            await agent_preset_service.delete_preset(child)
+        await agent_preset_service.delete_preset(child)
+        resolved_agents = await resolve_agents_config(
+            agent_preset_service,
+            agents=AgentSubagentsConfig.model_validate(parent_v1.agents),
+            parent_preset_id=parent.id,
+            parent_slug=parent.slug,
+            include_runtime_config=True,
+        )
 
-        assert exc_info.value.detail == {
-            "code": "preset_in_use_as_subagent",
-            "head_reference_count": 0,
-            "history_reference_count": 1,
-        }
-        assert await agent_preset_service.get_preset(child.id) is not None
+        assert await agent_preset_service.get_preset(child.id) is None
+        assert resolved_agents.enabled is True
+        assert resolved_agents.subagents[0].binding.preset_id == child.id
+
+        with pytest.raises(TracecatNotFoundError):
+            await agent_preset_service.create_preset(
+                agent_preset_create_params.model_copy(
+                    update={
+                        "name": "New Parent",
+                        "slug": "new-parent",
+                        "agents": AgentSubagentsConfig.model_validate(
+                            {
+                                "enabled": True,
+                                "subagents": [{"preset": child.slug}],
+                            }
+                        ),
+                    }
+                )
+            )
 
     async def test_delete_preset_ignores_resolved_reference_with_reused_slug(
         self,
@@ -2232,6 +2486,13 @@ class TestAgentPresetService:
         await agent_preset_service.delete_preset(new_child)
 
         assert await agent_preset_service.get_preset(new_child.id) is None
+        assert (
+            await agent_preset_service.get_preset(
+                new_child.id,
+                include_archived=True,
+            )
+            is not None
+        )
         with pytest.raises(
             TracecatValidationError,
             match="still referenced as a subagent",
@@ -2277,6 +2538,21 @@ class TestAgentPresetService:
             match="Agent preset slug 'test-agent-preset' is already in use",
         ):
             await agent_preset_service.create_preset(agent_preset_create_params)
+
+    async def test_archived_preset_releases_slug(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Archived presets should not reserve slugs for new presets."""
+        archived = await agent_preset_service.create_preset(agent_preset_create_params)
+        await agent_preset_service.delete_preset(archived)
+
+        recreated = await agent_preset_service.create_preset(agent_preset_create_params)
+
+        assert recreated.id != archived.id
+        assert recreated.slug == archived.slug
+        assert await agent_preset_service.get_preset(archived.id) is None
 
     async def test_slug_normalization(
         self,
@@ -2504,6 +2780,51 @@ class TestAgentPresetService:
         ):
             await agent_preset_service.create_preset(parent_params)
 
+    async def test_create_parent_rechecks_subagent_before_saving_head(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Subagent children must still be active when the parent head is saved."""
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Race Child", "slug": "race-child"}
+            )
+        )
+        original_lock = agent_preset_service._lock_active_subagent_presets
+
+        async def archive_child_then_lock(agents: ResolvedAgentsConfig) -> None:
+            child.archived_at = datetime.now(UTC)
+            agent_preset_service.session.add(child)
+            await agent_preset_service.session.flush()
+            await original_lock(agents)
+
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_lock_active_subagent_presets",
+            archive_child_then_lock,
+        )
+
+        with pytest.raises(
+            TracecatValidationError,
+            match="archived or missing subagent",
+        ):
+            await agent_preset_service.create_preset(
+                agent_preset_create_params.model_copy(
+                    update={
+                        "name": "Race Parent",
+                        "slug": "race-parent",
+                        "agents": AgentSubagentsConfig.model_validate(
+                            {
+                                "enabled": True,
+                                "subagents": [{"preset": child.slug}],
+                            }
+                        ),
+                    }
+                )
+            )
+
     async def test_create_parent_allows_pinned_subagent_with_reused_parent_slug(
         self,
         agent_preset_service: AgentPresetService,
@@ -2642,6 +2963,53 @@ class TestAgentPresetService:
                 "Subagent preset 'approval-child' uses manual approvals, "
                 "which are not supported for subagents yet."
             ),
+        ):
+            await agent_preset_service.update_preset(
+                parent,
+                AgentPresetUpdate(
+                    agents=AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": child.slug}],
+                        }
+                    )
+                ),
+            )
+
+    async def test_update_parent_rechecks_subagent_before_saving_head(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Updating a parent cannot attach a child archived after resolution."""
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Update Race Child", "slug": "update-race-child"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Update Race Parent", "slug": "update-race-parent"}
+            )
+        )
+        original_lock = agent_preset_service._lock_active_subagent_presets
+
+        async def archive_child_then_lock(agents: ResolvedAgentsConfig) -> None:
+            child.archived_at = datetime.now(UTC)
+            agent_preset_service.session.add(child)
+            await agent_preset_service.session.flush()
+            await original_lock(agents)
+
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_lock_active_subagent_presets",
+            archive_child_then_lock,
+        )
+
+        with pytest.raises(
+            TracecatValidationError,
+            match="archived or missing subagent",
         ):
             await agent_preset_service.update_preset(
                 parent,
