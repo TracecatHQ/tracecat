@@ -25,19 +25,20 @@ interface WorkspaceSyncPushButtonLabelOptions {
   outcome: WorkspaceSyncPushOutcome
   isCreatingBranch: boolean
   isPending: boolean
-  provider?: VcsProvider
+  provider: VcsProvider
 }
 
 interface WorkspaceSyncPushMessageOptions {
   outcome: WorkspaceSyncPushOutcome
   defaultBranch: string | undefined
   allowDirectPush?: boolean
-  provider?: VcsProvider
+  provider: VcsProvider
 }
 
 interface WorkspaceSyncPushModeTabsProps {
   value: WorkspaceSyncPushMode
   onValueChange: (value: WorkspaceSyncPushMode) => void
+  provider: VcsProvider
   size?: "sm" | "md" | "lg"
 }
 
@@ -67,7 +68,7 @@ export function getWorkspaceSyncPushButtonLabel({
   outcome,
   isCreatingBranch,
   isPending,
-  provider = "github",
+  provider,
 }: WorkspaceSyncPushButtonLabelOptions): string {
   const reviewRequestAbbreviation = getReviewRequestAbbreviation(provider)
   if (isPending) {
@@ -85,7 +86,7 @@ export function getWorkspaceSyncPushButtonLabel({
 export function getWorkspaceSyncPushResultLabel({
   outcome,
   defaultBranch,
-  provider = "github",
+  provider,
 }: WorkspaceSyncPushMessageOptions): string {
   if (outcome.willCreatePr) {
     return `${getReviewRequestAbbreviation(provider)} into ${defaultBranch ?? "default branch"}`
@@ -100,7 +101,7 @@ export function getWorkspaceSyncPushWarning({
   outcome,
   defaultBranch,
   allowDirectPush = true,
-  provider = "github",
+  provider,
 }: WorkspaceSyncPushMessageOptions): string | null {
   const reviewRequestLabel = getReviewRequestLabel(provider)
   if (outcome.isPullRequestBlocked) {
@@ -158,8 +159,10 @@ export function WorkspaceSyncPushWarning({
 export function WorkspaceSyncPushModeTabs({
   value,
   onValueChange,
+  provider,
   size = "sm",
 }: WorkspaceSyncPushModeTabsProps) {
+  const reviewRequestAbbreviation = getReviewRequestAbbreviation(provider)
   return (
     <ToggleTabs<WorkspaceSyncPushMode>
       value={value}
@@ -172,7 +175,7 @@ export function WorkspaceSyncPushModeTabs({
           content: (
             <span className="flex items-center gap-1.5">
               <GitPullRequestIcon className="size-3.5" />
-              Open PR
+              Open {reviewRequestAbbreviation}
             </span>
           ),
         },

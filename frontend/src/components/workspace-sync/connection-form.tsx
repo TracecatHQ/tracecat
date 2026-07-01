@@ -68,12 +68,16 @@ export function WorkspaceSyncConnectionForm({
   onClose,
 }: WorkspaceSyncConnectionFormProps) {
   const { updateWorkspace, isUpdating } = useWorkspaceSettings(workspaceId)
+  const initialProvider = toConnectionProvider(persistedProvider)
+  const hasUnsupportedPersistedProvider = initialProvider === undefined
+  const [hasConfirmedSupportedProvider, setHasConfirmedSupportedProvider] =
+    useState(!hasUnsupportedPersistedProvider)
 
   const form = useForm<SyncSettingsForm>({
     resolver: zodResolver(syncSettingsSchema),
     mode: "onChange",
     defaultValues: {
-      git_provider: toConnectionProvider(persistedProvider),
+      git_provider: initialProvider ?? "github",
       git_repo_url: persistedGitUrl ?? "",
     },
   })
@@ -120,9 +124,18 @@ export function WorkspaceSyncConnectionForm({
     setHasSelectedRepositoryInputMode(true)
     setRepositoryInputMode(mode)
   }
+  function handleProviderChange(provider: WorkspaceSyncConnectionProvider) {
+    setHasConfirmedSupportedProvider(true)
+    form.setValue("git_provider", provider, {
+      shouldDirty: true,
+      shouldValidate: true,
+    })
+  }
 
   const shouldShowRepositoryModeTabs =
     isGitHubProvider && hasRepositoryOptions && !repositoriesIsLoading
+  const mustChooseSupportedProvider =
+    hasUnsupportedPersistedProvider && !hasConfirmedSupportedProvider
   const shouldShowRepositorySelect =
     isGitHubProvider &&
     (repositoriesIsLoading ||
@@ -170,13 +183,19 @@ export function WorkspaceSyncConnectionForm({
               <FormLabel>Provider</FormLabel>
               <ToggleTabs<WorkspaceSyncConnectionProvider>
                 value={field.value}
-                onValueChange={field.onChange}
+                onValueChange={handleProviderChange}
                 showTooltips={false}
                 options={[
                   { value: "github", content: "GitHub" },
                   { value: "gitlab", content: "GitLab" },
                 ]}
               />
+              {mustChooseSupportedProvider && (
+                <FormDescription className="text-amber-700">
+                  The saved provider "{persistedProvider}" is not supported.
+                  Choose GitHub or GitLab before saving.
+                </FormDescription>
+              )}
               <FormMessage />
             </FormItem>
           )}
@@ -266,7 +285,11 @@ export function WorkspaceSyncConnectionForm({
         />
 
         <div className="flex items-center gap-2">
-          <Button type="submit" disabled={isUpdating} size="sm">
+          <Button
+            type="submit"
+            disabled={isUpdating || mustChooseSupportedProvider}
+            size="sm"
+          >
             {isUpdating ? "Saving..." : "Save"}
           </Button>
           {persistedGitUrl && (
@@ -326,6 +349,9 @@ function getRepositorySelectValue(
 
 function toConnectionProvider(
   provider: VcsProvider
-): WorkspaceSyncConnectionProvider {
-  return provider === "gitlab" ? "gitlab" : "github"
+): WorkspaceSyncConnectionProvider | undefined {
+  if (provider === "github" || provider === "gitlab") {
+    return provider
+  }
+  return undefined
 }

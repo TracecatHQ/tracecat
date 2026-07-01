@@ -25,6 +25,7 @@ import type {
   GitBranchInfo,
   ValidationDetail,
   ValidationResult,
+  VcsProvider,
   WorkflowDslPublish,
 } from "@/client"
 import { ApiError, workflowsListWorkflowBranches } from "@/client"
@@ -192,6 +193,7 @@ export function BuilderNav() {
         <WorkflowSaveActions
           workflow={workflow}
           workspaceId={workspaceId}
+          provider={workspace.settings?.git_provider ?? "github"}
           validationErrors={validationErrors}
           onSave={handleCommit}
           onPublish={publishWorkflow}
@@ -581,12 +583,14 @@ export function WorkflowManualTrigger({
 function WorkflowSaveActions({
   workflow,
   workspaceId,
+  provider,
   validationErrors,
   onSave,
   onPublish,
 }: {
   workflow: { version?: number | null; git_sync_branch?: string | null }
   workspaceId: string
+  provider: VcsProvider
   validationErrors: ValidationResult[] | null
   onSave: () => Promise<void>
   onPublish: (params: WorkflowDslPublish) => Promise<unknown>
@@ -688,6 +692,7 @@ function WorkflowSaveActions({
   const pushWarning = getWorkspaceSyncPushWarning({
     outcome: pushOutcome,
     defaultBranch,
+    provider,
   })
   const publishDisabled =
     isPublishing ||
@@ -883,6 +888,7 @@ function WorkflowSaveActions({
                     <WorkspaceSyncPushModeTabs
                       value={pushMode}
                       onValueChange={setPushMode}
+                      provider={provider}
                     />
                   </div>
                   <WorkspaceSyncPushWarning
@@ -911,6 +917,7 @@ function WorkflowSaveActions({
                           outcome: pushOutcome,
                           isCreatingBranch,
                           isPending: false,
+                          provider,
                         })}
                       </>
                     )}

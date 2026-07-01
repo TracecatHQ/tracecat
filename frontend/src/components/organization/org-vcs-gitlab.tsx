@@ -51,7 +51,7 @@ const gitLabTokenFormSchema = z.object({
     .trim()
     .url("Please enter a valid URL")
     .default("https://gitlab.com"),
-  token: z.string().min(1, "Token is required"),
+  token: z.string().trim().min(1, "Token is required"),
 })
 
 type GitLabTokenFormData = z.infer<typeof gitLabTokenFormSchema>
@@ -196,6 +196,7 @@ function GitLabConnectionDialog({
   onFormSuccess: () => void
 }) {
   const { saveCredentials } = useGitLabTokenCredentials()
+  const { toast } = useToast()
   const form = useForm<GitLabTokenFormData>({
     resolver: zodResolver(gitLabTokenFormSchema),
     defaultValues: {
@@ -215,8 +216,19 @@ function GitLabConnectionDialog({
   }, [existingBaseUrl, form, open])
 
   async function onSubmit(values: GitLabTokenFormData) {
-    await saveCredentials.mutateAsync(values)
-    onFormSuccess()
+    try {
+      await saveCredentials.mutateAsync(values)
+      onFormSuccess()
+    } catch (error) {
+      toast({
+        title: "Error",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Failed to save GitLab credentials",
+        variant: "destructive",
+      })
+    }
   }
 
   return (

@@ -2772,9 +2772,7 @@ export function useGitLabTokenCredentials() {
       return await vcsSaveGitlabTokenCredentials({ requestBody: data })
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["gitlab-token-credentials-status"],
-      })
+      invalidateGitLabTokenCredentialQueries(queryClient)
     },
   })
 
@@ -2791,15 +2789,25 @@ export function useDeleteGitLabTokenCredentials() {
       await vcsDeleteGitlabTokenCredentials()
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["gitlab-token-credentials-status"],
-      })
+      invalidateGitLabTokenCredentialQueries(queryClient)
     },
   })
 
   return {
     deleteCredentials,
   }
+}
+
+function invalidateGitLabTokenCredentialQueries(queryClient: QueryClient) {
+  queryClient.invalidateQueries({
+    queryKey: ["gitlab-token-credentials-status"],
+  })
+  queryClient.invalidateQueries({
+    queryKey: ["workflow-sync-branches"],
+  })
+  queryClient.invalidateQueries({
+    queryKey: ["repository_commits"],
+  })
 }
 
 export function useOrgAgentSettings() {
