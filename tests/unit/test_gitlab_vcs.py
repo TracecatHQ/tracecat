@@ -17,7 +17,11 @@ from pydantic import SecretStr
 
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES
-from tracecat.exceptions import ScopeDeniedError, TracecatNotFoundError
+from tracecat.exceptions import (
+    ScopeDeniedError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.git.types import GitUrl
 from tracecat.secrets.schemas import SecretKeyValue
 from tracecat.sync import PushStatus
@@ -332,6 +336,22 @@ def _git_url_with_ssh_alias() -> GitUrl:
     )
 
 
+def _git_url_with_foreign_host() -> GitUrl:
+    return GitUrl(
+        host="github.com",
+        org="group/subgroup",
+        repo="project",
+    )
+
+
+def _git_url_with_lookalike_host() -> GitUrl:
+    return GitUrl(
+        host="evilgitlab.example.test",
+        org="group/subgroup",
+        repo="project",
+    )
+
+
 def _manifest() -> str:
     return canonical_json_text(WorkspaceManifest())
 
@@ -445,6 +465,26 @@ async def test_gitlab_transport_allows_repo_ssh_host_alias() -> None:
     snapshot = await transport.read_files(url=_git_url_with_ssh_alias(), ref="main")
 
     assert snapshot.commit_sha == "0" * 39 + "1"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "url",
+    [
+        _git_url_with_foreign_host(),
+        _git_url_with_lookalike_host(),
+    ],
+    ids=["foreign_host", "lookalike_host"],
+)
+async def test_gitlab_transport_rejects_repo_host_mismatch(url: GitUrl) -> None:
+    api = _MockGitLabApi(
+        project_path="group/subgroup/project",
+        files={MANIFEST_FILENAME: _manifest()},
+    )
+    transport = _MockGitLabTransport(api=api)
+
+    with pytest.raises(TracecatValidationError):
+        await transport.read_files(url=url, ref="main")
 
 
 @pytest.mark.anyio
