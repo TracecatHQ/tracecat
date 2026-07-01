@@ -66,6 +66,7 @@ class FakeVcsTransport:
             commit_sha=commit.sha,
             tree_sha=commit.tree_sha,
             files=dict(commit.files),
+            blob_paths=frozenset(commit.files),
         )
 
     async def write_files(

@@ -7,7 +7,7 @@ import base64
 import itertools
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 from urllib.parse import quote, urlparse
 
@@ -61,6 +61,8 @@ class VcsTreeSnapshot:
     """SHA of the commit's root tree, when the provider exposes it."""
     files: dict[str, str]
     """Map of repository path to decoded UTF-8 file content."""
+    blob_paths: frozenset[str] = field(default_factory=frozenset)
+    """All blob paths present in the tree, including non-UTF-8 blobs."""
 
 
 class VcsSyncTransport(Protocol):
@@ -308,6 +310,7 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 commit_sha=commit.sha,
                 tree_sha=tree_sha,
                 files=files,
+                blob_paths=frozenset(blob_shas),
             )
         except GithubException as e:
             raise GitHubAppError(f"GitHub API error: {e.status} - {e.data}") from e
@@ -727,6 +730,7 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 url=url,
                 ref=branch,
             )
+            current_blob_paths = current.blob_paths or frozenset(current.files)
             changed_files = {
                 path: content
                 for path, content in sorted(files.items())
@@ -735,7 +739,7 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             managed_roots = _normalized_roots(delete_missing_paths_under)
             stale_paths = {
                 path
-                for path in current.files
+                for path in current_blob_paths
                 if path not in files and _path_is_under_roots(path, managed_roots)
             }
 
@@ -772,7 +776,7 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             for path, content in sorted(changed_files.items()):
                 actions.append(
                     {
-                        "action": "update" if path in current.files else "create",
+                        "action": "update" if path in current_blob_paths else "create",
                         "file_path": path,
                         "content": content,
                     }
@@ -949,6 +953,7 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             commit_sha=commit_sha,
             tree_sha=None,
             files=files,
+            blob_paths=frozenset(blob_shas),
         )
 
     async def _list_branches_with_client(

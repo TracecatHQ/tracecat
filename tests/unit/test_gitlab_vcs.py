@@ -27,12 +27,14 @@ from tracecat.workspace_sync.schemas import MANIFEST_FILENAME, WorkspaceManifest
 from tracecat.workspace_sync.serialization import canonical_json_text
 from tracecat.workspace_sync.transport import GitLabWorkspaceSyncTransport
 
+type _FileContent = str | bytes
+
 
 @dataclass(frozen=True)
 class _Commit:
     sha: str
     message: str
-    files: dict[str, str]
+    files: dict[str, _FileContent]
 
 
 class _MockGitLabApi:
@@ -42,7 +44,7 @@ class _MockGitLabApi:
         self,
         *,
         project_path: str,
-        files: Mapping[str, str],
+        files: Mapping[str, _FileContent],
         default_branch: str = "main",
     ) -> None:
         self.project_path = project_path
@@ -56,7 +58,7 @@ class _MockGitLabApi:
         self._commits: dict[str, _Commit] = {}
         self._branches: dict[str, str] = {}
         self._commit_branches: dict[str, str] = {}
-        self._blobs: dict[str, str] = {}
+        self._blobs: dict[str, _FileContent] = {}
         self._merge_requests: list[dict[str, Any]] = []
         initial = self._new_commit(
             branch=default_branch,
@@ -147,7 +149,11 @@ class _MockGitLabApi:
                 )
                 if blob_id not in self._blobs:
                     return httpx.Response(404, json={"message": "404 Blob Not Found"})
-                return httpx.Response(200, content=self._blobs[blob_id].encode())
+                content = self._blobs[blob_id]
+                return httpx.Response(
+                    200,
+                    content=content if isinstance(content, bytes) else content.encode(),
+                )
             if request.method == "POST" and subpath == "/repository/commits":
                 payload = json.loads(request.content.decode())
                 self.commit_payloads.append(payload)
@@ -240,7 +246,7 @@ class _MockGitLabApi:
         self._merge_requests.append(mr)
         return mr
 
-    def files_at_ref(self, ref: str) -> dict[str, str]:
+    def files_at_ref(self, ref: str) -> dict[str, _FileContent]:
         return dict(self._commit_at_ref(ref).files)
 
     def _commit_at_ref(self, ref: str) -> _Commit:
@@ -252,7 +258,7 @@ class _MockGitLabApi:
         *,
         branch: str,
         message: str,
-        files: dict[str, str],
+        files: dict[str, _FileContent],
     ) -> _Commit:
         self._counter += 1
         sha = f"{self._counter:040x}"
@@ -465,6 +471,47 @@ async def test_gitlab_transport_commits_create_update_delete_actions() -> None:
             "content": "new",
         },
         {"action": "delete", "file_path": "workflows/stale.yml"},
+    ]
+
+
+@pytest.mark.anyio
+async def test_gitlab_transport_uses_binary_blob_paths_for_write_actions() -> None:
+    api = _MockGitLabApi(
+        project_path="group/subgroup/project",
+        files={
+            MANIFEST_FILENAME: _manifest(),
+            "workflows/replace.yml": b"\xff\xfe",
+            "workflows/stale.bin": b"\x80\x81",
+            "README.md": "preserved",
+        },
+    )
+    transport = _MockGitLabTransport(api=api)
+
+    result = await transport.write_files(
+        url=_git_url(),
+        files={
+            MANIFEST_FILENAME: _manifest(),
+            "workflows/replace.yml": "text replacement",
+        },
+        message="Sync workspace",
+        branch="sync/workspace",
+        create_pr=False,
+        delete_missing_paths_under=("workflows",),
+    )
+
+    assert result.status is PushStatus.COMMITTED
+    assert api.files_at_ref("sync/workspace") == {
+        MANIFEST_FILENAME: _manifest(),
+        "workflows/replace.yml": "text replacement",
+        "README.md": "preserved",
+    }
+    assert api.commit_payloads[0]["actions"] == [
+        {
+            "action": "update",
+            "file_path": "workflows/replace.yml",
+            "content": "text replacement",
+        },
+        {"action": "delete", "file_path": "workflows/stale.bin"},
     ]
 
 
