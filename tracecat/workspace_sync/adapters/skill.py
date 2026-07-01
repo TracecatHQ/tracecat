@@ -425,11 +425,20 @@ class SkillAdapter(DirectoryManifestAdapter):
         """Return skill versions bound by exported agent preset state."""
         head_stmt = (
             select(SkillVersion.skill_id, SkillVersion.version)
+            .select_from(AgentPresetSkill)
             .join(
-                AgentPresetSkill,
+                AgentPreset,
+                AgentPreset.id == AgentPresetSkill.preset_id,
+            )
+            .join(
+                SkillVersion,
                 AgentPresetSkill.skill_version_id == SkillVersion.id,
             )
-            .where(AgentPresetSkill.workspace_id == workspace_service.workspace_id)
+            .where(
+                AgentPresetSkill.workspace_id == workspace_service.workspace_id,
+                AgentPreset.workspace_id == workspace_service.workspace_id,
+                AgentPreset.archived_at.is_(None),
+            )
         )
         current_version_stmt = (
             select(SkillVersion.skill_id, SkillVersion.version)
@@ -446,6 +455,7 @@ class SkillAdapter(DirectoryManifestAdapter):
             .where(
                 AgentPresetVersionSkill.workspace_id == workspace_service.workspace_id,
                 AgentPreset.workspace_id == workspace_service.workspace_id,
+                AgentPreset.archived_at.is_(None),
             )
         )
         versions_by_skill_id: dict[uuid.UUID, set[int]] = defaultdict(set)
