@@ -8,8 +8,8 @@ import json
 import uuid
 from collections import OrderedDict
 from collections.abc import AsyncGenerator, Sequence
-from dataclasses import dataclass
-from typing import Any, cast
+from dataclasses import dataclass, replace
+from typing import Any, Literal, cast
 
 import orjson
 import temporalio.api.enums.v1
@@ -131,12 +131,36 @@ class WorkflowExecutionStoredResult:
 
 
 @dataclass(frozen=True)
+class WorkflowResetActionContext:
+    source_event_id: int
+    action_ref: str
+    action_name: str
+    close_event_id: int | None = None
+
+
+@dataclass(frozen=True)
 class WorkflowExecutionsPage:
     items: list[WorkflowExecution]
     next_cursor: str | None
     prev_cursor: str | None
     has_more: bool
     has_previous: bool
+
+
+@dataclass(frozen=True)
+class WorkflowExecutionResetLineage:
+    has_been_reset: bool
+    is_reset_run: bool
+    original_run_id: str | None = None
+    reset_run_count: int = 0
+    reset_run_index: int | None = None
+
+
+@dataclass(frozen=True)
+class _WorkflowRunResetDescription:
+    execution: WorkflowExecution
+    first_run_id: str | None
+    reset_run_id: str | None
 
 
 def _unwrap_loop_control_result(value: Any) -> Any:
@@ -426,6 +450,150 @@ class WorkflowExecutionsService:
         if not clauses:
             return None
         return f"({' OR '.join(clauses)})"
+
+    @staticmethod
+    def _quote_temporal_visibility_value(value: str) -> str:
+        return value.replace("\\", "\\\\").replace("'", "\\'")
+
+    @staticmethod
+    def _build_exact_execution_ids_clause(
+        execution_ids: Sequence[WorkflowExecutionID],
+    ) -> str | None:
+        unique_ids = sorted({str(execution_id) for execution_id in execution_ids})
+        if not unique_ids:
+            return None
+        clauses = [
+            (
+                "WorkflowId = "
+                f"'{WorkflowExecutionsService._quote_temporal_visibility_value(execution_id)}'"
+            )
+            for execution_id in unique_ids
+        ]
+        return f"({' OR '.join(clauses)})"
+
+    async def _describe_reset_lineage_run(
+        self, execution: WorkflowExecution
+    ) -> _WorkflowRunResetDescription:
+        handle = self._client.get_workflow_handle(execution.id, run_id=execution.run_id)
+        description = await handle.describe()
+        raw_description = description.raw_description
+        execution_info = raw_description.workflow_execution_info
+        extended_info = raw_description.workflow_extended_info
+        first_run_id = execution_info.first_run_id or None
+        return _WorkflowRunResetDescription(
+            execution=execution,
+            first_run_id=first_run_id,
+            reset_run_id=extended_info.reset_run_id or None,
+        )
+
+    async def _describe_reset_lineage_runs(
+        self,
+        executions: Sequence[WorkflowExecution],
+        *,
+        concurrency_limit: int = 10,
+    ) -> list[_WorkflowRunResetDescription]:
+        semaphore = asyncio.Semaphore(max(1, concurrency_limit))
+
+        async def describe(
+            execution: WorkflowExecution,
+        ) -> _WorkflowRunResetDescription | None:
+            async with semaphore:
+                try:
+                    return await self._describe_reset_lineage_run(execution)
+                except RPCError as e:
+                    self.logger.warning(
+                        "Could not describe workflow run reset lineage",
+                        wf_exec_id=execution.id,
+                        run_id=execution.run_id,
+                        error=e,
+                    )
+                    return None
+
+        results = await asyncio.gather(
+            *(describe(execution) for execution in executions)
+        )
+        return [result for result in results if result is not None]
+
+    @staticmethod
+    def _build_reset_lineage_from_descriptions(
+        descriptions: Sequence[_WorkflowRunResetDescription],
+    ) -> dict[str, WorkflowExecutionResetLineage]:
+        if not descriptions:
+            return {}
+
+        sorted_descriptions = sorted(
+            descriptions, key=lambda item: item.execution.start_time
+        )
+        described_run_ids = {
+            description.execution.run_id for description in sorted_descriptions
+        }
+        reset_successor_run_ids = {
+            description.reset_run_id
+            for description in sorted_descriptions
+            if description.reset_run_id is not None
+        }
+        described_reset_run_ids = reset_successor_run_ids & described_run_ids
+        reset_descriptions = [
+            description
+            for description in sorted_descriptions
+            if description.execution.run_id in described_reset_run_ids
+        ]
+        reset_run_count = len(reset_successor_run_ids)
+        if reset_run_count == 0:
+            return {}
+
+        original_run_id = next(
+            (
+                description.first_run_id
+                for description in sorted_descriptions
+                if description.first_run_id
+            ),
+            sorted_descriptions[0].execution.run_id,
+        )
+        reset_index_by_run_id = {
+            description.execution.run_id: index
+            for index, description in enumerate(reset_descriptions, start=1)
+        }
+        return {
+            description.execution.run_id: WorkflowExecutionResetLineage(
+                has_been_reset=True,
+                is_reset_run=description.execution.run_id in described_reset_run_ids,
+                original_run_id=original_run_id,
+                reset_run_count=reset_run_count,
+                reset_run_index=reset_index_by_run_id.get(description.execution.run_id),
+            )
+            for description in sorted_descriptions
+        }
+
+    async def get_reset_lineage_by_run_id(
+        self, executions: Sequence[WorkflowExecution]
+    ) -> dict[str, WorkflowExecutionResetLineage]:
+        """Return reset lineage metadata keyed by Temporal run ID."""
+        execution_ids_clause = self._build_exact_execution_ids_clause(
+            [cast(WorkflowExecutionID, execution.id) for execution in executions]
+        )
+        if execution_ids_clause is None:
+            return {}
+
+        query = (
+            f"{TemporalSearchAttr.WORKSPACE_ID.value} = '{self.workspace_id}' "
+            f"AND {execution_ids_clause}"
+        )
+        runs_by_execution_id: dict[str, list[WorkflowExecution]] = {}
+        async for execution in self._client.list_workflows(query=query):
+            if not self._is_execution_visible_in_workspace(execution):
+                continue
+            runs_by_execution_id.setdefault(execution.id, []).append(execution)
+
+        lineage_by_run_id: dict[str, WorkflowExecutionResetLineage] = {}
+        for runs in runs_by_execution_id.values():
+            if len(runs) <= 1:
+                continue
+            descriptions = await self._describe_reset_lineage_runs(runs)
+            lineage_by_run_id.update(
+                self._build_reset_lineage_from_descriptions(descriptions)
+            )
+        return lineage_by_run_id
 
     async def list_executions_paginated(
         self,
@@ -1843,6 +2011,182 @@ class WorkflowExecutionsService:
         return event.event_type == EventType.EVENT_TYPE_WORKFLOW_TASK_COMPLETED
 
     @staticmethod
+    def _format_reset_action_ref(action_ref: str) -> str:
+        label = action_ref.replace("_", " ").replace("-", " ")
+        return " ".join(part.capitalize() for part in label.split()) or action_ref
+
+    @classmethod
+    def _reset_point_for_action(
+        cls,
+        *,
+        point: WorkflowExecutionResetPointRead,
+        action: WorkflowResetActionContext,
+        relation: Literal["after", "after_scheduling", "before"],
+        action_event_id: int,
+    ) -> WorkflowExecutionResetPointRead:
+        action_label = cls._format_reset_action_ref(action.action_ref)
+        match relation:
+            case "after":
+                label = f"After {action_label}"
+            case "after_scheduling":
+                label = f"After scheduling {action_label}"
+            case "before":
+                label = f"Before {action_label}"
+            case _:
+                label = point.label
+        return point.model_copy(
+            update={
+                "label": label,
+                "action_ref": action.action_ref,
+                "action_name": action.action_name,
+                "action_event_id": action_event_id,
+                "action_relation": relation,
+            }
+        )
+
+    @classmethod
+    def _annotate_reset_point(
+        cls,
+        point: WorkflowExecutionResetPointRead,
+        action_contexts: Sequence[WorkflowResetActionContext],
+        resettable_event_ids: Sequence[int],
+    ) -> WorkflowExecutionResetPointRead:
+        if point.is_start:
+            return point.model_copy(update={"label": "Workflow start"})
+        if not point.is_resettable:
+            return point
+
+        closed_actions = [
+            action
+            for action in action_contexts
+            if action.close_event_id is not None
+            and action.close_event_id <= point.event_id
+            and cls._first_resettable_after_event(
+                resettable_event_ids, action.close_event_id
+            )
+            == point.event_id
+        ]
+        if closed_actions:
+            action = max(
+                closed_actions,
+                key=lambda item: item.close_event_id or item.source_event_id,
+            )
+            return cls._reset_point_for_action(
+                point=point,
+                action=action,
+                relation="after",
+                action_event_id=action.close_event_id or action.source_event_id,
+            )
+
+        scheduled_actions = [
+            action
+            for action in action_contexts
+            if action.source_event_id <= point.event_id
+            and (
+                action.close_event_id is None or action.close_event_id > point.event_id
+            )
+            and cls._first_resettable_after_event(
+                resettable_event_ids, action.source_event_id
+            )
+            == point.event_id
+        ]
+        if scheduled_actions:
+            action = max(scheduled_actions, key=lambda item: item.source_event_id)
+            return cls._reset_point_for_action(
+                point=point,
+                action=action,
+                relation="after_scheduling",
+                action_event_id=action.source_event_id,
+            )
+
+        future_actions = [
+            action
+            for action in action_contexts
+            if action.source_event_id > point.event_id
+            and cls._last_resettable_before_event(
+                resettable_event_ids, action.source_event_id
+            )
+            == point.event_id
+        ]
+        if future_actions:
+            action = min(future_actions, key=lambda item: item.source_event_id)
+            return cls._reset_point_for_action(
+                point=point,
+                action=action,
+                relation="before",
+                action_event_id=action.source_event_id,
+            )
+        return point
+
+    @staticmethod
+    def _first_resettable_after_event(
+        resettable_event_ids: Sequence[int], event_id: int
+    ) -> int | None:
+        return next(
+            (
+                resettable_event_id
+                for resettable_event_id in resettable_event_ids
+                if resettable_event_id > event_id
+            ),
+            None,
+        )
+
+    @staticmethod
+    def _last_resettable_before_event(
+        resettable_event_ids: Sequence[int], event_id: int
+    ) -> int | None:
+        return next(
+            (
+                resettable_event_id
+                for resettable_event_id in reversed(resettable_event_ids)
+                if resettable_event_id < event_id
+            ),
+            None,
+        )
+
+    @staticmethod
+    async def _build_reset_action_contexts(
+        events: Sequence[HistoryEvent],
+    ) -> list[WorkflowResetActionContext]:
+        context_by_source_id: OrderedDict[int, WorkflowResetActionContext] = (
+            OrderedDict()
+        )
+        for event in events:
+            if is_scheduled_event(event):
+                try:
+                    source = await WorkflowExecutionEventCompact.from_source_event(
+                        event
+                    )
+                except (TypeError, ValueError, ValidationError) as e:
+                    logger.trace(
+                        "Skipping reset action context; source event could not be parsed",
+                        event_id=event.event_id,
+                        error=e,
+                    )
+                    continue
+                if source is None:
+                    continue
+                context_by_source_id[event.event_id] = WorkflowResetActionContext(
+                    source_event_id=event.event_id,
+                    action_ref=source.action_ref,
+                    action_name=source.action_name,
+                )
+                continue
+
+            if not (is_close_event(event) or is_error_event(event)):
+                continue
+            source_event_id = get_source_event_id(event)
+            if source_event_id is None:
+                continue
+            action_context = context_by_source_id.get(source_event_id)
+            if action_context is None:
+                continue
+            context_by_source_id[source_event_id] = replace(
+                action_context, close_event_id=event.event_id
+            )
+        return list(context_by_source_id.values())
+
+    @staticmethod
     def _to_temporal_reset_reapply_type(
         reapply_type: WorkflowExecutionResetReapplyType,
     ) -> ResetReapplyType.ValueType:
@@ -1864,11 +2208,13 @@ class WorkflowExecutionsService:
     ) -> list[WorkflowExecutionResetPointRead]:
         await self.require_execution(wf_exec_id)
         points: list[WorkflowExecutionResetPointRead] = []
+        events: list[HistoryEvent] = []
         first_resettable_event_id: int | None = None
         handle = self.handle(wf_exec_id)
         async for event in handle.fetch_history_events(
             event_filter_type=WorkflowHistoryEventFilterType.ALL_EVENT
         ):
+            events.append(event)
             resettable = self._is_resettable_event(event)
             if resettable and first_resettable_event_id is None:
                 first_resettable_event_id = event.event_id
@@ -1888,7 +2234,15 @@ class WorkflowExecutionsService:
         if first_resettable_event_id is not None:
             for point in points:
                 point.is_start = point.event_id == first_resettable_event_id
-        return points
+
+        action_contexts = await self._build_reset_action_contexts(events)
+        resettable_event_ids = [
+            point.event_id for point in points if point.is_resettable
+        ]
+        return [
+            self._annotate_reset_point(point, action_contexts, resettable_event_ids)
+            for point in points
+        ]
 
     async def _resolve_reset_event_id(
         self,

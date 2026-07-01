@@ -9164,6 +9164,22 @@ export type WorkflowExecutionResetPointRead = {
   event_type: string
   label: string
   /**
+   * Workflow action ref used to describe this reset point.
+   */
+  action_ref?: string | null
+  /**
+   * Workflow action name used to describe this reset point.
+   */
+  action_name?: string | null
+  /**
+   * Temporal source or close event id for the related action.
+   */
+  action_event_id?: number | null
+  /**
+   * How the reset checkpoint relates to the related action.
+   */
+  action_relation?: "after" | "after_scheduling" | "before" | null
+  /**
    * True when this point maps to the earliest resettable point.
    */
   is_start?: boolean
@@ -9337,6 +9353,26 @@ export type WorkflowRunReadMinimal = {
    * Workflow alias from workspace metadata or execution search attributes.
    */
   workflow_alias?: string | null
+  /**
+   * True when this run belongs to an execution that has reset runs.
+   */
+  has_been_reset?: boolean
+  /**
+   * True when this specific Temporal run was created by reset.
+   */
+  is_reset_run?: boolean
+  /**
+   * Temporal run ID of the original run in this reset lineage.
+   */
+  reset_original_run_id?: string | null
+  /**
+   * Number of reset-created runs in this execution lineage.
+   */
+  reset_run_count?: number
+  /**
+   * One-based index of this reset-created run in reset order.
+   */
+  reset_run_index?: number | null
 }
 
 /**
