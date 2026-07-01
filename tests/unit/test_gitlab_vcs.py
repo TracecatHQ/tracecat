@@ -354,6 +354,34 @@ async def test_gitlab_transport_encodes_nested_project_path_and_lists_refs() -> 
 
 
 @pytest.mark.anyio
+async def test_gitlab_transport_list_branches_includes_default_beyond_limit() -> None:
+    api = _MockGitLabApi(
+        project_path="group/subgroup/project",
+        files={MANIFEST_FILENAME: _manifest()},
+        default_branch="zz-default",
+    )
+    for index in range(105):
+        api.create_branch(f"branch-{index:03d}", "zz-default")
+    transport = _MockGitLabTransport(api=api)
+
+    branches = await transport.list_branches(url=_git_url(), limit=10)
+
+    assert len(branches) == 10
+    assert [(branch.name, branch.is_default) for branch in branches] == [
+        ("branch-000", False),
+        ("branch-001", False),
+        ("branch-002", False),
+        ("branch-003", False),
+        ("branch-004", False),
+        ("branch-005", False),
+        ("branch-006", False),
+        ("branch-007", False),
+        ("branch-008", False),
+        ("zz-default", True),
+    ]
+
+
+@pytest.mark.anyio
 async def test_gitlab_transport_reads_manifest_roots_and_blobs() -> None:
     api = _MockGitLabApi(
         project_path="group/subgroup/project",

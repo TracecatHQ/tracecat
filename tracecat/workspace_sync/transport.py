@@ -959,10 +959,10 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
     ) -> list[GitBranchInfo]:
         """List branches using an existing GitLab client."""
         project_id = _gitlab_project_id(url)
-        raw_branches = await self._gitlab_list(
+        branch_path = f"/projects/{project_id}/repository/branches"
+        raw_branches = await self._gitlab_branches_including_default(
             client,
-            f"/projects/{project_id}/repository/branches",
-            model=GitLabBranch,
+            branch_path,
             limit=limit,
         )
         return [
@@ -1001,6 +1001,66 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             f"/projects/{project_id}/repository/branches",
             params=create_branch_params,
         )
+
+    async def _gitlab_branches_including_default(
+        self,
+        client: httpx.AsyncClient,
+        path: str,
+        *,
+        limit: int | None,
+    ) -> list[GitLabBranch]:
+        """Collect branches, continuing past ``limit`` until the default is known."""
+        if limit is not None and limit <= 0:
+            return []
+
+        branches: list[GitLabBranch] = []
+        default_branch: GitLabBranch | None = None
+        page = 1
+        while True:
+            response = await self._gitlab_response(
+                client,
+                "GET",
+                path,
+                params={"page": page, "per_page": _GITLAB_PAGE_SIZE},
+            )
+            data = self._json(response)
+            if not isinstance(data, list):
+                raise GitLabError("GitLab list response was invalid")
+            try:
+                page_branches = [GitLabBranch.model_validate(item) for item in data]
+            except PydanticValidationError as e:
+                raise GitLabError("GitLab list response was invalid") from e
+
+            if default_branch is None:
+                default_branch = next(
+                    (branch for branch in page_branches if branch.default),
+                    None,
+                )
+
+            if limit is None:
+                branches.extend(page_branches)
+            else:
+                remaining = limit - len(branches)
+                if remaining > 0:
+                    branches.extend(page_branches[:remaining])
+
+            next_page = response.headers.get("x-next-page")
+            if limit is not None and len(branches) >= limit and default_branch:
+                break
+            if not next_page:
+                break
+            try:
+                page = int(next_page)
+            except ValueError as e:
+                raise GitLabError("GitLab pagination response was invalid") from e
+
+        if (
+            limit is not None
+            and default_branch is not None
+            and all(branch.name != default_branch.name for branch in branches)
+        ):
+            branches = [*branches[: limit - 1], default_branch]
+        return branches
 
     async def _upsert_merge_request(
         self,
