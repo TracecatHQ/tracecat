@@ -77,6 +77,14 @@ locals {
     TRACECAT__BLOB_STORAGE_BUCKET_AGENT       = aws_s3_bucket.agent.bucket
   }
 
+  tracecat_blob_storage_presigned_url_endpoints = join(",", [
+    "https://${aws_s3_bucket.attachments.bucket_regional_domain_name}",
+    "https://${aws_s3_bucket.registry.bucket_regional_domain_name}",
+    "https://${aws_s3_bucket.skills.bucket_regional_domain_name}",
+    "https://${aws_s3_bucket.workflow.bucket_regional_domain_name}",
+    "https://${aws_s3_bucket.agent.bucket_regional_domain_name}",
+  ])
+
   api_env = [
     for k, v in merge(
       local.tracecat_common_env,
@@ -272,7 +280,7 @@ locals {
       NEXT_PUBLIC_APP_ENV                             = var.tracecat_app_env
       NEXT_PUBLIC_APP_URL                             = local.public_app_url
       NEXT_PUBLIC_AUTH_TYPES                          = var.auth_types
-      NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = "https://${aws_s3_bucket.skills.bucket_regional_domain_name}"
+      NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = local.tracecat_blob_storage_presigned_url_endpoints
       NEXT_PUBLIC_SENTRY_DSN                          = var.sentry_dsn
       NEXT_SERVER_API_URL                             = local.internal_api_url
       NODE_ENV                                        = "production"

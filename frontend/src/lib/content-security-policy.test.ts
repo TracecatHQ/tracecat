@@ -64,6 +64,32 @@ describe("buildContentSecurityPolicy", () => {
     expect(imgSrc).not.toContain("/uploads")
   })
 
+  it("allows multiple configured presigned blob storage origins", () => {
+    const policy = buildContentSecurityPolicy({
+      NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT:
+        " https://tracecat-skills.s3.us-east-1.amazonaws.com/uploads, https://tracecat-attachments.s3.us-east-1.amazonaws.com/files , /s3, not-a-url ",
+    })
+    const connectSrc = getConnectSrc(policy)
+    const imgSrc = getImgSrc(policy)
+
+    expect(connectSrc).toContain(
+      "https://tracecat-skills.s3.us-east-1.amazonaws.com"
+    )
+    expect(connectSrc).toContain(
+      "https://tracecat-attachments.s3.us-east-1.amazonaws.com"
+    )
+    expect(connectSrc).not.toContain("/uploads")
+    expect(connectSrc).not.toContain("/files")
+    expect(connectSrc).not.toContain("/s3")
+    expect(connectSrc).not.toContain("not-a-url")
+    expect(imgSrc).toContain(
+      "https://tracecat-skills.s3.us-east-1.amazonaws.com"
+    )
+    expect(imgSrc).toContain(
+      "https://tracecat-attachments.s3.us-east-1.amazonaws.com"
+    )
+  })
+
   it("ignores relative public API URLs", () => {
     const policy = buildContentSecurityPolicy({
       NEXT_PUBLIC_API_URL: "/api",

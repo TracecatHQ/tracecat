@@ -47,7 +47,7 @@ function getConnectSrc(env: ContentSecurityPolicyEnv): string {
     "connect-src 'self'",
     "blob:",
     getUrlOrigin(env.NEXT_PUBLIC_API_URL),
-    getUrlOrigin(env.NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT),
+    ...getUrlOrigins(env.NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT),
     readEnvValue(env.NEXT_PUBLIC_POSTHOG_KEY)
       ? "https://*.posthog.com"
       : undefined,
@@ -60,7 +60,7 @@ function getConnectSrc(env: ContentSecurityPolicyEnv): string {
 function getImgSrc(env: ContentSecurityPolicyEnv): string {
   return [
     "img-src 'self' data:",
-    getUrlOrigin(env.NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT),
+    ...getUrlOrigins(env.NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT),
   ]
     .filter(Boolean)
     .join(" ")
@@ -90,6 +90,22 @@ function readSentryDsn(env: ContentSecurityPolicyEnv): string | undefined {
   return (
     readEnvValue(env.NEXT_PUBLIC_SENTRY_DSN) ?? readEnvValue(env.SENTRY_DSN)
   )
+}
+
+function getUrlOrigins(value: string | undefined): string[] {
+  const urls = readEnvValue(value)
+  if (!urls) {
+    return []
+  }
+
+  const origins = new Set<string>()
+  for (const url of urls.split(",")) {
+    const origin = getUrlOrigin(url)
+    if (origin) {
+      origins.add(origin)
+    }
+  }
+  return Array.from(origins)
 }
 
 function getUrlOrigin(value: string | undefined): string | undefined {
