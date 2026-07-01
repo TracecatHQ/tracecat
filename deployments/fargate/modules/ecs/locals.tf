@@ -94,9 +94,13 @@ locals {
         TRACECAT__AUTH_ALLOWED_DOMAINS     = var.auth_allowed_domains
         TRACECAT__AUTH_MIN_PASSWORD_LENGTH = var.auth_min_password_length
         TRACECAT__AUTH_SUPERADMIN_EMAIL    = var.auth_superadmin_email
-        # Resend is enabled only when both resend_api_key_arn and resend_from_email
-        # are set (see secrets.tf); a half-configured pair leaves Resend disabled.
-        TRACECAT__RESEND_FROM_EMAIL                = var.resend_from_email
+        # Email is enabled only when smtp_password_arn (see secrets.tf) plus
+        # smtp_host, smtp_user, and email_from are all set; a partial config
+        # leaves email delivery disabled.
+        TRACECAT__SMTP_HOST                       = var.smtp_host
+        TRACECAT__SMTP_PORT                       = tostring(var.smtp_port)
+        TRACECAT__SMTP_USER                       = var.smtp_user
+        TRACECAT__EMAIL_FROM                      = var.email_from
         TRACECAT__DB_ENDPOINT                      = local.core_db_hostname
         OIDC_ISSUER                                = var.oidc_issuer
         OIDC_SCOPES                                = var.oidc_scopes

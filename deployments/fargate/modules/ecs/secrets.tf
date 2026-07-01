@@ -60,11 +60,11 @@ data "aws_secretsmanager_secret" "saml_idp_metadata_url" {
   arn   = var.saml_idp_metadata_url_arn
 }
 
-# Email (Resend)
+# Email (SMTP relay)
 
-data "aws_secretsmanager_secret" "resend_api_key" {
-  count = var.resend_api_key_arn != null ? 1 : 0
-  arn   = var.resend_api_key_arn
+data "aws_secretsmanager_secret" "smtp_password" {
+  count = var.smtp_password_arn != null ? 1 : 0
+  arn   = var.smtp_password_arn
 }
 
 # Temporal UI authentication
@@ -129,9 +129,9 @@ data "aws_secretsmanager_secret_version" "saml_idp_metadata_url" {
   secret_id = data.aws_secretsmanager_secret.saml_idp_metadata_url[0].id
 }
 
-data "aws_secretsmanager_secret_version" "resend_api_key" {
-  count     = var.resend_api_key_arn != null ? 1 : 0
-  secret_id = data.aws_secretsmanager_secret.resend_api_key[0].id
+data "aws_secretsmanager_secret_version" "smtp_password" {
+  count     = var.smtp_password_arn != null ? 1 : 0
+  secret_id = data.aws_secretsmanager_secret.smtp_password[0].id
 }
 
 # Temporal UI secrets
@@ -254,10 +254,10 @@ locals {
     }
   ] : []
 
-  resend_api_key_secret = var.resend_api_key_arn != null ? [
+  smtp_password_secret = var.smtp_password_arn != null ? [
     {
-      name      = "TRACECAT__RESEND_API_KEY"
-      valueFrom = data.aws_secretsmanager_secret_version.resend_api_key[0].arn
+      name      = "TRACECAT__SMTP_PASSWORD"
+      valueFrom = data.aws_secretsmanager_secret_version.smtp_password[0].arn
     }
   ] : []
 
@@ -283,7 +283,7 @@ locals {
     local.oidc_client_secret_secret,
     local.user_auth_secret_secret,
     local.saml_idp_metadata_url_secret,
-    local.resend_api_key_secret
+    local.smtp_password_secret
   )
 
   tracecat_ui_secrets = [

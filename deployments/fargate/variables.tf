@@ -413,17 +413,35 @@ variable "saml_allow_unsolicited" {
   default     = false
 }
 
-# Email (Resend)
+# Email (SMTP relay)
 
-variable "resend_api_key_arn" {
+variable "smtp_password_arn" {
   type        = string
-  description = "The ARN of the secret containing the Resend API key (optional). When set with resend_from_email, the API sends invitation emails via Resend."
+  description = "The ARN of the secret containing the SMTP password (optional). When set with smtp_host, smtp_user, and email_from, the API sends invitation emails over SMTP."
   default     = null
 }
 
-variable "resend_from_email" {
+variable "smtp_host" {
   type        = string
-  description = "The 'from' email address for Resend invitation emails (optional)"
+  description = "The SMTP relay host for invitation emails (optional), e.g. smtp.resend.com"
+  default     = ""
+}
+
+variable "smtp_port" {
+  type        = number
+  description = "The SMTP relay port for invitation emails"
+  default     = 587
+}
+
+variable "smtp_user" {
+  type        = string
+  description = "The SMTP username for invitation emails (optional)"
+  default     = ""
+}
+
+variable "email_from" {
+  type        = string
+  description = "The 'from' email address for invitation emails (optional)"
   default     = ""
 }
 
