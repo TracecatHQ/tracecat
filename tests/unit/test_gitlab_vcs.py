@@ -34,9 +34,16 @@ class _Commit:
 class _MockGitLabApi:
     """Small in-memory subset of the GitLab REST API used by the transport."""
 
-    def __init__(self, *, project_path: str, files: Mapping[str, str]) -> None:
+    def __init__(
+        self,
+        *,
+        project_path: str,
+        files: Mapping[str, str],
+        default_branch: str = "main",
+    ) -> None:
         self.project_path = project_path
         self.encoded_project_path = quote(project_path, safe="")
+        self.default_branch = default_branch
         self.raw_paths: list[str] = []
         self.commit_payloads: list[dict[str, Any]] = []
         self.merge_request_payloads: list[dict[str, Any]] = []
@@ -47,11 +54,11 @@ class _MockGitLabApi:
         self._blobs: dict[str, str] = {}
         self._merge_requests: list[dict[str, Any]] = []
         initial = self._new_commit(
-            branch="main",
+            branch=default_branch,
             message="Initial commit",
             files=dict(files),
         )
-        self._branches["main"] = initial.sha
+        self._branches[default_branch] = initial.sha
 
     def response(self, request: httpx.Request) -> httpx.Response:
         raw_path = request.url.raw_path.split(b"?", maxsplit=1)[0].decode()
@@ -63,17 +70,29 @@ class _MockGitLabApi:
         subpath = raw_path[len(prefix) :]
         try:
             if request.method == "GET" and subpath == "/repository/branches":
+                page = int(request.url.params.get("page", "1"))
+                per_page = int(request.url.params.get("per_page", "100"))
+                branches = sorted(self._branches)
+                start = (page - 1) * per_page
+                end = start + per_page
+                next_page = str(page + 1) if end < len(branches) else ""
                 return self._json(
                     [
-                        {"name": branch, "default": branch == "main"}
-                        for branch in sorted(self._branches)
-                    ]
+                        {
+                            "name": branch,
+                            "default": branch == self.default_branch,
+                        }
+                        for branch in branches[start:end]
+                    ],
+                    headers={"x-next-page": next_page},
                 )
             if request.method == "GET" and subpath.startswith("/repository/branches/"):
                 branch = unquote(subpath.removeprefix("/repository/branches/"))
                 if branch not in self._branches:
                     return httpx.Response(404, json={"message": "404 Branch Not Found"})
-                return self._json({"name": branch, "default": branch == "main"})
+                return self._json(
+                    {"name": branch, "default": branch == self.default_branch}
+                )
             if request.method == "POST" and subpath == "/repository/branches":
                 branch = request.url.params["branch"]
                 ref = request.url.params["ref"]
@@ -237,8 +256,13 @@ class _MockGitLabApi:
         return commit
 
     @staticmethod
-    def _json(value: Any, *, status_code: int = 200) -> httpx.Response:
-        return httpx.Response(status_code, json=value)
+    def _json(
+        value: Any,
+        *,
+        status_code: int = 200,
+        headers: Mapping[str, str] | None = None,
+    ) -> httpx.Response:
+        return httpx.Response(status_code, json=value, headers=headers)
 
 
 class _MockGitLabTransport(GitLabWorkspaceSyncTransport):
@@ -273,6 +297,14 @@ class _MockGitLabTransport(GitLabWorkspaceSyncTransport):
 def _git_url() -> GitUrl:
     return GitUrl(
         host="gitlab.example.test",
+        org="group/subgroup",
+        repo="project",
+    )
+
+
+def _git_url_with_ssh_port() -> GitUrl:
+    return GitUrl(
+        host="gitlab.example.test:2222",
         org="group/subgroup",
         repo="project",
     )
@@ -326,6 +358,19 @@ async def test_gitlab_transport_reads_manifest_roots_and_blobs() -> None:
         MANIFEST_FILENAME: _manifest(),
         "workflows/a.yml": "workflow",
     }
+
+
+@pytest.mark.anyio
+async def test_gitlab_transport_allows_repo_ssh_port_on_same_instance() -> None:
+    api = _MockGitLabApi(
+        project_path="group/subgroup/project",
+        files={MANIFEST_FILENAME: _manifest()},
+    )
+    transport = _MockGitLabTransport(api=api)
+
+    snapshot = await transport.read_files(url=_git_url_with_ssh_port(), ref="main")
+
+    assert snapshot.commit_sha == "0" * 39 + "1"
 
 
 @pytest.mark.anyio
@@ -453,3 +498,40 @@ async def test_gitlab_transport_creates_merge_request_after_commit() -> None:
     assert result.pr_reused is False
     assert api.merge_request_payloads[0]["source_branch"] == "sync/workspace"
     assert api.merge_request_payloads[0]["target_branch"] == "main"
+
+
+@pytest.mark.anyio
+async def test_gitlab_transport_resolves_default_branch_beyond_first_page() -> None:
+    api = _MockGitLabApi(
+        project_path="group/subgroup/project",
+        files={MANIFEST_FILENAME: _manifest(), "workflows/a.yml": "main"},
+        default_branch="zz-default",
+    )
+    for index in range(105):
+        api.create_branch(f"branch-{index:03d}", "zz-default")
+    transport = _MockGitLabTransport(api=api)
+
+    with patch("tracecat.workspace_sync.transport.WorkspaceService") as workspace_cls:
+        workspace_service = AsyncMock()
+        workspace_service.get_workspace.return_value = type(
+            "WorkspaceStub",
+            (),
+            {"name": "Sync workspace"},
+        )()
+        workspace_cls.return_value = workspace_service
+
+        result = await transport.write_files(
+            url=GitUrl(
+                host="gitlab.example.test",
+                org="group/subgroup",
+                repo="project",
+            ),
+            files={MANIFEST_FILENAME: _manifest(), "workflows/a.yml": "branch"},
+            message="Sync workspace",
+            branch="sync/workspace",
+            create_pr=True,
+            delete_missing_paths_under=("workflows",),
+        )
+
+    assert result.status is PushStatus.COMMITTED
+    assert api.merge_request_payloads[0]["target_branch"] == "zz-default"

@@ -687,7 +687,7 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             branches = await self._list_branches_with_client(
                 client=client,
                 url=url,
-                limit=_GITLAB_PAGE_SIZE,
+                limit=None,
             )
             default_branch = (
                 next((item.name for item in branches if item.is_default), None)
@@ -955,7 +955,7 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         *,
         client: httpx.AsyncClient,
         url: GitUrl,
-        limit: int,
+        limit: int | None,
     ) -> list[GitBranchInfo]:
         """List branches using an existing GitLab client."""
         project_id = _gitlab_project_id(url)
@@ -1167,12 +1167,9 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
 
 
 def _gitlab_instance_host(value: str) -> str:
-    """Return the lowercased ``host[:port]`` for a GitLab URL or bare host."""
+    """Return the lowercased hostname for a GitLab URL or bare host."""
     parsed = urlparse(value if "://" in value else f"//{value}")
-    host = (parsed.hostname or "").lower()
-    if parsed.port:
-        return f"{host}:{parsed.port}"
-    return host
+    return (parsed.hostname or "").lower()
 
 
 def _gitlab_project_id(url: GitUrl) -> str:
