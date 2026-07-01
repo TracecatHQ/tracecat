@@ -5,13 +5,14 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from pydantic import TypeAdapter
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES
 from tracecat.db.models import (
+    Invitation,
     Membership,
     Organization,
     OrganizationMembership,
@@ -27,6 +28,7 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.types import BatchInviteStatus
 from tracecat.workspaces.schemas import (
     WorkspaceInvitationCreate,
     WorkspaceSearch,
@@ -1010,21 +1012,63 @@ class TestAcceptInvitation:
         # Accept once
         await service.accept_invitation(invitation.token, basic_user.id)
 
-        # Try to accept again with different user
-        another_user = User(
+        # Accepting again as the same (matching) user now hits the
+        # already-a-member guard before the status check.
+        with pytest.raises(
+            TracecatValidationError, match="already a member of this workspace"
+        ):
+            await service.accept_invitation(invitation.token, basic_user.id)
+
+    async def test_accept_invitation_email_mismatch(
+        self,
+        session: AsyncSession,
+        inv_org: Organization,
+        inv_workspace: Workspace,
+        admin_user: User,
+        basic_user: User,
+        rbac_roles: dict[str, str],
+    ):
+        """A token leaked to a different account cannot be accepted.
+
+        Without the email check, any authenticated user could join the
+        workspace (and be auto-added to the org) using a forwarded token.
+        """
+        role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
+        service = WorkspaceService(session, role=role)
+
+        # Invitation is addressed to basic_user's email.
+        params = WorkspaceInvitationCreate(
+            email=basic_user.email,
+            role_id=rbac_roles["workspace-editor"],
+        )
+        invitation = await service.create_invitation(inv_workspace.id, params)
+
+        # A different account holding the token must not be able to accept.
+        other_user = User(
             id=uuid.uuid4(),
-            email=f"another-{uuid.uuid4().hex[:8]}@example.com",
+            email=f"other-{uuid.uuid4().hex[:8]}@example.com",
             hashed_password="hashed",
             role=UserRole.BASIC,
             is_active=True,
             is_superuser=False,
             is_verified=True,
         )
-        session.add(another_user)
+        session.add(other_user)
         await session.commit()
 
-        with pytest.raises(TracecatValidationError, match="already been accepted"):
-            await service.accept_invitation(invitation.token, another_user.id)
+        with pytest.raises(TracecatAuthorizationError, match="different email address"):
+            await service.accept_invitation(invitation.token, other_user.id)
+
+        # The invitation stays pending and no membership is created.
+        await session.refresh(invitation)
+        assert invitation.status == InvitationStatus.PENDING
+        membership = await session.scalar(
+            select(Membership).where(
+                Membership.user_id == other_user.id,
+                Membership.workspace_id == inv_workspace.id,
+            )
+        )
+        assert membership is None
 
     async def test_accept_invitation_revoked(
         self,
@@ -1179,6 +1223,123 @@ class TestRevokeInvitation:
             TracecatValidationError, match="Cannot revoke invitation with status"
         ):
             await service.revoke_invitation(inv_workspace.id, invitation.id)
+
+
+@pytest.mark.anyio
+class TestBatchCreateInvitations:
+    """Tests for WorkspaceService.batch_create_invitations()."""
+
+    async def test_legacy_mixed_case_pending_is_refreshed_not_duplicated(
+        self,
+        session: AsyncSession,
+        inv_org: Organization,
+        inv_workspace: Workspace,
+        admin_user: User,
+        rbac_roles: dict[str, str],
+    ):
+        """A legacy mixed-case pending row must be reused, not duplicated.
+
+        Old single-invite rows could store a non-canonical email (e.g.
+        ``User@Example.com``). The case-sensitive (workspace_id, email) unique
+        constraint would otherwise let the lowercased bulk path insert a second
+        live pending row for the same address.
+        """
+        role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
+        service = WorkspaceService(session, role=role)
+
+        # Simulate a legacy mixed-case pending invitation (expired so the upsert
+        # is allowed to refresh it) created before email normalization.
+        legacy = Invitation(
+            workspace_id=inv_workspace.id,
+            email="User@Example.com",
+            role_id=uuid.UUID(rbac_roles["workspace-editor"]),
+            status=InvitationStatus.PENDING,
+            token=WorkspaceService._generate_invitation_token(),
+            expires_at=datetime.now(UTC) - timedelta(days=1),
+        )
+        session.add(legacy)
+        await session.commit()
+
+        items = await service.batch_create_invitations(
+            inv_workspace.id,
+            emails=["user@example.com"],
+            role_id=rbac_roles["workspace-editor"],
+        )
+
+        assert len(items) == 1
+        assert items[0].status == BatchInviteStatus.CREATED
+
+        # Exactly one invitation row remains, now canonicalized and refreshed.
+        # Read columns (not the ORM entity) to avoid the identity map returning
+        # the stale pre-upsert instance.
+        rows = (
+            await session.execute(
+                select(
+                    Invitation.email,
+                    Invitation.status,
+                    Invitation.expires_at,
+                ).where(
+                    Invitation.workspace_id == inv_workspace.id,
+                    func.lower(Invitation.email) == "user@example.com",
+                )
+            )
+        ).all()
+        assert len(rows) == 1
+        email, inv_status, expires_at = rows[0]
+        assert email == "user@example.com"
+        assert inv_status == InvitationStatus.PENDING
+        assert expires_at > datetime.now(UTC)
+
+    async def test_live_mixed_case_pending_is_left_untouched(
+        self,
+        session: AsyncSession,
+        inv_org: Organization,
+        inv_workspace: Workspace,
+        admin_user: User,
+        rbac_roles: dict[str, str],
+    ):
+        """A still-live legacy pending row is canonicalized but not refreshed.
+
+        Canonicalization must not resurrect or duplicate a live pending invite:
+        the address should be reported as already pending.
+        """
+        role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
+        service = WorkspaceService(session, role=role)
+
+        original_token = WorkspaceService._generate_invitation_token()
+        legacy = Invitation(
+            workspace_id=inv_workspace.id,
+            email="Live@Example.com",
+            role_id=uuid.UUID(rbac_roles["workspace-editor"]),
+            status=InvitationStatus.PENDING,
+            token=original_token,
+            expires_at=datetime.now(UTC) + timedelta(days=3),
+        )
+        session.add(legacy)
+        await session.commit()
+
+        items = await service.batch_create_invitations(
+            inv_workspace.id,
+            emails=["live@example.com"],
+            role_id=rbac_roles["workspace-editor"],
+        )
+
+        assert len(items) == 1
+        assert items[0].status == BatchInviteStatus.SKIPPED
+
+        rows = (
+            await session.execute(
+                select(Invitation.email, Invitation.token).where(
+                    Invitation.workspace_id == inv_workspace.id,
+                    func.lower(Invitation.email) == "live@example.com",
+                )
+            )
+        ).all()
+        assert len(rows) == 1
+        email, token = rows[0]
+        # Canonicalized, but the live invite itself is untouched.
+        assert email == "live@example.com"
+        assert token == original_token
 
 
 class TestTokenGeneration:

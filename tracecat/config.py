@@ -95,6 +95,19 @@ TRACECAT__PUBLIC_APP_URL = os.environ.get(
     "TRACECAT__PUBLIC_APP_URL", "http://localhost"
 )
 
+# Email (SMTP relay). When host, user, password, and from are all set,
+# invitation emails are sent over SMTP; otherwise the platform falls back to the
+# copy-paste invitation link flow. The provider (Resend, SES, self-hosted MTA,
+# ...) is a pure config swap: e.g. Resend uses smtp.resend.com:587 with user
+# "resend" and the API key as the password.
+TRACECAT__SMTP_HOST = (os.environ.get("TRACECAT__SMTP_HOST") or "").strip() or None
+TRACECAT__SMTP_PORT = int(os.environ.get("TRACECAT__SMTP_PORT") or 587)
+TRACECAT__SMTP_USER = (os.environ.get("TRACECAT__SMTP_USER") or "").strip() or None
+TRACECAT__SMTP_PASSWORD = (
+    os.environ.get("TRACECAT__SMTP_PASSWORD") or ""
+).strip() or None
+TRACECAT__EMAIL_FROM = (os.environ.get("TRACECAT__EMAIL_FROM") or "").strip() or None
+
 TRACECAT__LOOP_MAX_BATCH_SIZE = int(
     os.environ.get("TRACECAT__LOOP_MAX_BATCH_SIZE") or 64
 )

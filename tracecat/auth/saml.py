@@ -83,11 +83,13 @@ from tracecat.config import (
 )
 from tracecat.db.dependencies import AsyncDBSession, AsyncDBSessionBypass
 from tracecat.db.models import (
+    Invitation,
     OrganizationDomain,
     OrganizationInvitation,
     OrganizationMembership,
     SAMLRequestData,
     User,
+    Workspace,
 )
 from tracecat.db.rls import set_rls_context
 from tracecat.identifiers import OrganizationID
@@ -425,15 +427,55 @@ async def get_pending_org_invitation(
     return result.scalars().first()
 
 
+async def get_pending_workspace_invitation(
+    session: AsyncSession, organization_id: OrganizationID, email: str
+) -> Invitation | None:
+    """Return a pending, unexpired workspace invitation for the email if one exists.
+
+    Scoped to ``organization_id`` via the invitation's workspace so a SAML login
+    resolved to one org cannot be authorized by a workspace invitation belonging
+    to a different org.
+    """
+    normalized_email = email.strip().lower()
+    if not normalized_email:
+        return None
+    statement = (
+        select(Invitation)
+        .join(Workspace, Invitation.workspace_id == Workspace.id)  # pyright: ignore[reportArgumentType]
+        .where(
+            Workspace.organization_id == organization_id,
+            func.lower(Invitation.email) == normalized_email,
+            Invitation.status == InvitationStatus.PENDING,
+            Invitation.expires_at > datetime.now(UTC),
+        )
+        .order_by(Invitation.created_at.desc())
+    )
+    result = await session.execute(statement)
+    return result.scalars().first()
+
+
+@dataclass
+class AuthorizedEmail:
+    """Resolved SAML email candidate plus any invitations that authorize it."""
+
+    email: str
+    org_invitation: OrganizationInvitation | None = None
+    workspace_invitation: Invitation | None = None
+
+
 async def _select_authorized_email(
     session: AsyncSession, organization_id: OrganizationID, candidates: list[str]
-) -> tuple[str | None, OrganizationInvitation | None]:
+) -> AuthorizedEmail | None:
     """Pick the best SAML email candidate allowed by org policy.
 
     Selection order:
     1. First-user superadmin bootstrap candidate (default org only).
-    2. First allowlisted candidate that has a pending invitation.
+    2. First allowlisted candidate that has a pending org or workspace invitation.
     3. First allowlisted candidate without invitation (fallback).
+
+    A workspace invitation is honored only when the candidate already passes the
+    org domain allowlist, keeping it consistent with org invitations (a workspace
+    invite does not bypass domain policy).
     """
     active_domains = await _get_active_org_domains(session, organization_id)
     fallback_allowlisted_candidate: str | None = None
@@ -442,7 +484,7 @@ async def _select_authorized_email(
         if await is_superadmin_saml_bootstrap_allowed_for_org(
             session, organization_id, candidate
         ):
-            return candidate, None
+            return AuthorizedEmail(email=candidate)
 
         if "@" not in candidate:
             continue
@@ -457,17 +499,24 @@ async def _select_authorized_email(
         ):
             continue
 
-        pending_invitation = await get_pending_org_invitation(
+        org_invitation = await get_pending_org_invitation(
             session, organization_id, candidate
         )
-        if pending_invitation is not None:
-            return candidate, pending_invitation
+        workspace_invitation = await get_pending_workspace_invitation(
+            session, organization_id, candidate
+        )
+        if org_invitation is not None or workspace_invitation is not None:
+            return AuthorizedEmail(
+                email=candidate,
+                org_invitation=org_invitation,
+                workspace_invitation=workspace_invitation,
+            )
         if fallback_allowlisted_candidate is None:
             fallback_allowlisted_candidate = candidate
 
     if fallback_allowlisted_candidate is not None:
-        return fallback_allowlisted_candidate, None
-    return None, None
+        return AuthorizedEmail(email=fallback_allowlisted_candidate)
+    return None
 
 
 def _is_superadmin_bootstrap_email(email: str) -> bool:
@@ -501,16 +550,26 @@ async def is_superadmin_saml_bootstrap_allowed_for_org(
 def should_allow_saml_user_auto_provisioning(
     *,
     pending_invitation: OrganizationInvitation | None,
+    has_workspace_invitation: bool = False,
     is_first_superadmin_bootstrap: bool,
 ) -> bool:
-    """Allow SAML user creation only for invitees and first superadmin bootstrap."""
-    return pending_invitation is not None or is_first_superadmin_bootstrap
+    """Allow SAML user creation only for invitees and first superadmin bootstrap.
+
+    A pending workspace invitation authorizes provisioning just like an org
+    invitation: accepting it auto-creates the org membership.
+    """
+    return (
+        pending_invitation is not None
+        or has_workspace_invitation
+        or is_first_superadmin_bootstrap
+    )
 
 
 def should_allow_saml_org_access(
     *,
     has_existing_membership: bool,
     pending_invitation: OrganizationInvitation | None,
+    has_workspace_invitation: bool = False,
     is_first_superadmin_bootstrap: bool,
     is_platform_superuser: bool,
 ) -> bool:
@@ -519,6 +578,7 @@ def should_allow_saml_org_access(
     return (
         has_existing_membership
         or pending_invitation is not None
+        or has_workspace_invitation
         or is_first_superadmin_bootstrap
     )
 
@@ -880,27 +940,31 @@ async def sso_acs(
             detail="Authentication failed",
         )
 
-    email, pending_invitation = await _select_authorized_email(
+    authorized = await _select_authorized_email(
         db_session, organization_id, candidate_emails
     )
-    if email is None:
+    if authorized is None:
         logger.warning("SAML login denied by org domain allowlist/invitation checks")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Authentication failed",
         )
+    email = authorized.email
+    pending_invitation = authorized.org_invitation
+    workspace_invitation = authorized.workspace_invitation
 
     logger.info("SAML authentication successful")
 
     # Org-wide SAML auto-provisioning has been removed.
     # We only auto-provision user accounts for:
     # 1) The first-user superadmin bootstrap flow in the default org
-    # 2) Users with a pending invitation in the target organization
+    # 2) Users with a pending org or workspace invitation in the target org
     is_first_superadmin_bootstrap = await is_superadmin_saml_bootstrap_allowed_for_org(
         db_session, organization_id, email
     )
     allow_user_auto_provisioning = should_allow_saml_user_auto_provisioning(
         pending_invitation=pending_invitation,
+        has_workspace_invitation=workspace_invitation is not None,
         is_first_superadmin_bootstrap=is_first_superadmin_bootstrap,
     )
 
@@ -953,6 +1017,35 @@ async def sso_acs(
                 exc_info=True,
             )
 
+    # Accept a pending workspace invitation so a SAML-only-org invitee who was
+    # invited to a workspace (not the org directly) gains workspace membership.
+    # accept_invitation auto-creates the org membership when needed and verifies
+    # the invitee email, so a leaked token cannot enroll a different account.
+    if workspace_invitation is not None:
+        from tracecat.workspaces.service import WorkspaceService
+
+        try:
+            ws_membership = await WorkspaceService.accept_invitation_for_user(
+                db_session,
+                user_id=user.id,
+                token=workspace_invitation.token,
+            )
+            logger.info(
+                "Accepted pending workspace invitation during SAML login",
+                user_id=str(user.id),
+                email=email,
+                org_id=str(organization_id),
+                workspace_id=str(ws_membership.workspace_id),
+            )
+        except Exception:
+            await db_session.rollback()
+            logger.warning(
+                "Failed to accept workspace invitation during SAML login",
+                user_id=str(user.id),
+                email=email,
+                exc_info=True,
+            )
+
     # Ensure user can access this organization.
     membership_stmt = select(OrganizationMembership).where(
         OrganizationMembership.user_id == user.id,  # pyright: ignore[reportArgumentType]
@@ -965,6 +1058,7 @@ async def sso_acs(
     can_access_org = should_allow_saml_org_access(
         has_existing_membership=has_existing_membership,
         pending_invitation=pending_invitation,
+        has_workspace_invitation=workspace_invitation is not None,
         is_first_superadmin_bootstrap=is_first_superadmin_bootstrap,
         is_platform_superuser=bool(user.is_superuser),
     )

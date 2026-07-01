@@ -5660,6 +5660,40 @@ export const $AzureOpenAICatalogUpdate = {
   title: "AzureOpenAICatalogUpdate",
 } as const
 
+export const $BatchInvitationItemResult = {
+  properties: {
+    email: {
+      type: "string",
+      title: "Email",
+    },
+    status: {
+      $ref: "#/components/schemas/BatchInviteStatus",
+    },
+    reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Reason",
+    },
+  },
+  type: "object",
+  required: ["email", "status"],
+  title: "BatchInvitationItemResult",
+  description: "Per-email outcome of a bulk invitation request.",
+} as const
+
+export const $BatchInviteStatus = {
+  type: "string",
+  enum: ["created", "skipped"],
+  title: "BatchInviteStatus",
+  description: "Per-email outcome of a bulk invitation request.",
+} as const
+
 export const $BatchPositionUpdate = {
   properties: {
     actions: {
@@ -15004,6 +15038,30 @@ export const $InteractionType = {
   title: "InteractionType",
 } as const
 
+export const $InvitationBatchResult = {
+  properties: {
+    results: {
+      items: {
+        $ref: "#/components/schemas/BatchInvitationItemResult",
+      },
+      type: "array",
+      title: "Results",
+    },
+    created_count: {
+      type: "integer",
+      title: "Created Count",
+    },
+    skipped_count: {
+      type: "integer",
+      title: "Skipped Count",
+    },
+  },
+  type: "object",
+  required: ["results", "created_count", "skipped_count"],
+  title: "InvitationBatchResult",
+  description: "Response model for a bulk invitation request.",
+} as const
+
 export const $InvitationStatus = {
   type: "string",
   enum: ["pending", "accepted", "revoked"],
@@ -16980,6 +17038,30 @@ export const $OrgInvitationAccept = {
   title: "OrgInvitationAccept",
   description:
     "Request body for accepting an organization invitation via token.",
+} as const
+
+export const $OrgInvitationBatchCreate = {
+  properties: {
+    emails: {
+      items: {
+        type: "string",
+        format: "email",
+      },
+      type: "array",
+      maxItems: 100,
+      minItems: 1,
+      title: "Emails",
+    },
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+    },
+  },
+  type: "object",
+  required: ["emails", "role_id"],
+  title: "OrgInvitationBatchCreate",
+  description: "Request body for creating organization invitations in bulk.",
 } as const
 
 export const $OrgInvitationCreate = {
@@ -31675,6 +31757,42 @@ export const $WorkspaceCreate = {
   title: "WorkspaceCreate",
 } as const
 
+export const $WorkspaceInvitationAccept = {
+  properties: {
+    token: {
+      type: "string",
+      title: "Token",
+    },
+  },
+  type: "object",
+  required: ["token"],
+  title: "WorkspaceInvitationAccept",
+  description: "Request body for accepting a workspace invitation via token.",
+} as const
+
+export const $WorkspaceInvitationBatchCreate = {
+  properties: {
+    emails: {
+      items: {
+        type: "string",
+        format: "email",
+      },
+      type: "array",
+      maxItems: 100,
+      minItems: 1,
+      title: "Emails",
+    },
+    role_id: {
+      type: "string",
+      title: "Role Id",
+    },
+  },
+  type: "object",
+  required: ["emails", "role_id"],
+  title: "WorkspaceInvitationBatchCreate",
+  description: "Request schema for creating workspace invitations in bulk.",
+} as const
+
 export const $WorkspaceInvitationCreate = {
   properties: {
     email: {
@@ -31784,6 +31902,117 @@ export const $WorkspaceInvitationRead = {
   description: "Response schema for a workspace invitation.",
 } as const
 
+export const $WorkspaceInvitationReadMinimal = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    workspace_name: {
+      type: "string",
+      title: "Workspace Name",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    organization_slug: {
+      type: "string",
+      title: "Organization Slug",
+    },
+    inviter_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inviter Name",
+    },
+    inviter_email: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inviter Email",
+    },
+    role_name: {
+      type: "string",
+      title: "Role Name",
+    },
+    role_slug: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Role Slug",
+    },
+    status: {
+      $ref: "#/components/schemas/InvitationStatus",
+    },
+    expires_at: {
+      type: "string",
+      format: "date-time",
+      title: "Expires At",
+    },
+    email_matches: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Email Matches",
+    },
+  },
+  type: "object",
+  required: [
+    "workspace_id",
+    "workspace_name",
+    "organization_id",
+    "organization_slug",
+    "inviter_name",
+    "inviter_email",
+    "role_name",
+    "status",
+    "expires_at",
+  ],
+  title: "WorkspaceInvitationReadMinimal",
+  description: `Minimal response for public token-based workspace invitation lookup.
+
+Excludes sensitive fields like email, invited_by ID, and timestamps to
+reduce information disclosure when querying by token. Mirrors the
+organization invitation lookup so the shared accept page can render either.`,
+} as const
+
+export const $WorkspaceInvitationTokenRead = {
+  properties: {
+    token: {
+      type: "string",
+      title: "Token",
+    },
+  },
+  type: "object",
+  required: ["token"],
+  title: "WorkspaceInvitationTokenRead",
+  description:
+    "Response schema for a workspace invitation token (copy-link flow).",
+} as const
+
 export const $WorkspaceMember = {
   properties: {
     user_id: {
@@ -31822,10 +32051,20 @@ export const $WorkspaceMember = {
       type: "string",
       title: "Role Name",
     },
+    via_group: {
+      type: "boolean",
+      title: "Via Group",
+      default: false,
+    },
   },
   type: "object",
-  required: ["user_id", "first_name", "last_name", "email", "role_name"],
+  required: ["user_id", "email", "role_name"],
   title: "WorkspaceMember",
+  description: `An active workspace member backed by a real user account.
+
+Pending invitations are a separate concern: the members list endpoint
+returns only active members, and the UI merges in outstanding invitations
+(from the invitations endpoint) client-side for display.`,
 } as const
 
 export const $WorkspaceMembershipCreate = {
@@ -31857,6 +32096,92 @@ export const $WorkspaceMembershipRead = {
   type: "object",
   required: ["user_id", "workspace_id"],
   title: "WorkspaceMembershipRead",
+} as const
+
+export const $WorkspacePendingInvitationRead = {
+  properties: {
+    token: {
+      type: "string",
+      title: "Token",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    workspace_name: {
+      type: "string",
+      title: "Workspace Name",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    organization_slug: {
+      type: "string",
+      title: "Organization Slug",
+    },
+    inviter_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inviter Name",
+    },
+    inviter_email: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inviter Email",
+    },
+    role_name: {
+      type: "string",
+      title: "Role Name",
+    },
+    role_slug: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Role Slug",
+    },
+    expires_at: {
+      type: "string",
+      format: "date-time",
+      title: "Expires At",
+    },
+  },
+  type: "object",
+  required: [
+    "token",
+    "workspace_id",
+    "workspace_name",
+    "organization_id",
+    "organization_slug",
+    "inviter_name",
+    "inviter_email",
+    "role_name",
+    "expires_at",
+  ],
+  title: "WorkspacePendingInvitationRead",
+  description: `Pending workspace invitation visible to the invited authenticated user.
+
+Mirrors :class:\`OrgPendingInvitationRead\` so a post-signup invitations
+surface can render organization and workspace invites side by side.`,
 } as const
 
 export const $WorkspaceRead = {

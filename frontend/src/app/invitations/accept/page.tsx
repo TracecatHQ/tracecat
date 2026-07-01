@@ -8,8 +8,14 @@ import { useRouter, useSearchParams } from "next/navigation"
 import TracecatIcon from "public/icon.png"
 import { Suspense } from "react"
 import {
+  ApiError,
+  type InvitationStatus,
+  type OrgInvitationReadMinimal,
   organizationAcceptInvitation,
   organizationGetInvitationByToken,
+  type WorkspaceInvitationReadMinimal,
+  workspacesAcceptWorkspaceInvitation,
+  workspacesGetWorkspaceInvitationByToken,
 } from "@/client"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
@@ -24,6 +30,53 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { useAuth, useAuthActions } from "@/hooks/use-auth"
 
+/**
+ * Normalized view of an organization or workspace invitation. The accept page
+ * renders both from the same JSX; `kind` selects the accept endpoint and
+ * `contextName` is the org or workspace name to display.
+ */
+type InvitationView = {
+  kind: "organization" | "workspace"
+  contextName: string
+  organizationSlug: string
+  inviterName: string | null
+  inviterEmail: string | null
+  roleName: string
+  status: InvitationStatus
+  expiresAt: string
+  emailMatches?: boolean | null
+}
+
+/** Normalize an organization invitation into the shared view model. */
+function toOrgView(inv: OrgInvitationReadMinimal): InvitationView {
+  return {
+    kind: "organization",
+    contextName: inv.organization_name,
+    organizationSlug: inv.organization_slug,
+    inviterName: inv.inviter_name,
+    inviterEmail: inv.inviter_email,
+    roleName: inv.role_name,
+    status: inv.status,
+    expiresAt: inv.expires_at,
+    emailMatches: inv.email_matches,
+  }
+}
+
+/** Normalize a workspace invitation into the shared view model. */
+function toWorkspaceView(inv: WorkspaceInvitationReadMinimal): InvitationView {
+  return {
+    kind: "workspace",
+    contextName: inv.workspace_name,
+    organizationSlug: inv.organization_slug,
+    inviterName: inv.inviter_name,
+    inviterEmail: inv.inviter_email,
+    roleName: inv.role_name,
+    status: inv.status,
+    expiresAt: inv.expires_at,
+    emailMatches: inv.email_matches,
+  }
+}
+
 function AcceptInvitationContent() {
   const searchParams = useSearchParams()
   const token = searchParams?.get("token") ?? null
@@ -32,28 +85,46 @@ function AcceptInvitationContent() {
   const { user, userIsLoading } = useAuth()
   const { logout } = useAuthActions()
 
-  // Fetch invitation details
+  // Fetch invitation details. The accept link is shared between organization
+  // and workspace invitations (same /invitations/accept?token=... URL with an
+  // opaque token), so resolve the organization invite first and fall back to
+  // the workspace invite when the token is not an org token. The resolved
+  // `kind` drives which accept endpoint we call.
   const {
     data: invitation,
     isLoading: invitationIsLoading,
     error: invitationError,
   } = useQuery({
     queryKey: ["invitation", token],
-    queryFn: async () => {
+    queryFn: async (): Promise<InvitationView> => {
       if (!token) {
         throw new Error("No invitation token provided")
       }
-      return await organizationGetInvitationByToken({ token })
+      try {
+        const org = await organizationGetInvitationByToken({ token })
+        return toOrgView(org)
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) {
+          const ws = await workspacesGetWorkspaceInvitationByToken({ token })
+          return toWorkspaceView(ws)
+        }
+        throw error
+      }
     },
     enabled: !!token,
     retry: false,
   })
 
-  // Accept invitation mutation
+  // Accept invitation mutation. Routes to the matching endpoint by kind.
   const acceptMutation = useMutation({
     mutationFn: async () => {
       if (!token) {
         throw new Error("No invitation token")
+      }
+      if (invitation?.kind === "workspace") {
+        return await workspacesAcceptWorkspaceInvitation({
+          requestBody: { token },
+        })
       }
       return await organizationAcceptInvitation({
         requestBody: { token },
@@ -63,7 +134,7 @@ function AcceptInvitationContent() {
       queryClient.invalidateQueries({ queryKey: ["auth"] })
       toast({
         title: "Invitation accepted",
-        description: `You've joined ${invitation?.organization_name}`,
+        description: `You've joined ${invitation?.contextName}`,
       })
       router.push("/workspaces")
     },
@@ -165,8 +236,12 @@ function AcceptInvitationContent() {
   }
 
   // Check if invitation is expired
-  const expiresAt = new Date(invitation.expires_at)
+  const expiresAt = new Date(invitation.expiresAt)
   const isExpired = expiresAt < new Date()
+
+  // Label for the org/workspace name field, matching the invitation kind.
+  const contextLabel =
+    invitation.kind === "workspace" ? "Workspace" : "Organization"
 
   if (isExpired) {
     return (
@@ -191,24 +266,24 @@ function AcceptInvitationContent() {
   // User not authenticated - show sign in prompt
   if (!user) {
     const returnUrl = `/invitations/accept?token=${token}`
-    const signInPath = `/sign-in?returnUrl=${encodeURIComponent(returnUrl)}&org=${encodeURIComponent(invitation.organization_slug)}`
+    const signInPath = `/sign-in?returnUrl=${encodeURIComponent(returnUrl)}&org=${encodeURIComponent(invitation.organizationSlug)}`
     return (
       <Card className="w-full max-w-md">
         <CardHeader className="items-center text-center">
           <Image src={TracecatIcon} alt="Tracecat" className="mb-4 size-16" />
           <CardTitle>You&apos;ve been invited!</CardTitle>
           <CardDescription>
-            {invitation.inviter_name ? (
+            {invitation.inviterName ? (
               <>
-                <strong>{invitation.inviter_name}</strong> has invited you to
-                join <strong>{invitation.organization_name}</strong> as a{" "}
-                <strong>{invitation.role_name}</strong>.
+                <strong>{invitation.inviterName}</strong> has invited you to
+                join <strong>{invitation.contextName}</strong> as a{" "}
+                <strong>{invitation.roleName}</strong>.
               </>
             ) : (
               <>
                 You&apos;ve been invited to join{" "}
-                <strong>{invitation.organization_name}</strong> as a{" "}
-                <strong>{invitation.role_name}</strong>.
+                <strong>{invitation.contextName}</strong> as a{" "}
+                <strong>{invitation.roleName}</strong>.
               </>
             )}
           </CardDescription>
@@ -217,23 +292,19 @@ function AcceptInvitationContent() {
           <div className="rounded-lg border bg-muted/50 p-4">
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Organization</span>
-                <span className="font-medium">
-                  {invitation.organization_name}
-                </span>
+                <span className="text-muted-foreground">{contextLabel}</span>
+                <span className="font-medium">{invitation.contextName}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Role</span>
                 <span className="font-medium capitalize">
-                  {invitation.role_name}
+                  {invitation.roleName}
                 </span>
               </div>
-              {invitation.inviter_email && (
+              {invitation.inviterEmail && (
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Invited by</span>
-                  <span className="font-medium">
-                    {invitation.inviter_email}
-                  </span>
+                  <span className="font-medium">{invitation.inviterEmail}</span>
                 </div>
               )}
               <div className="flex justify-between">
@@ -255,7 +326,7 @@ function AcceptInvitationContent() {
   }
 
   // User authenticated but email doesn't match
-  if (invitation.email_matches === false) {
+  if (invitation.emailMatches === false) {
     return (
       <Card className="w-full max-w-md">
         <CardHeader className="items-center text-center">
@@ -270,10 +341,8 @@ function AcceptInvitationContent() {
           <div className="rounded-lg border bg-muted/50 p-4">
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Organization</span>
-                <span className="font-medium">
-                  {invitation.organization_name}
-                </span>
+                <span className="text-muted-foreground">{contextLabel}</span>
+                <span className="font-medium">{invitation.contextName}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Signed in as</span>
@@ -288,7 +357,7 @@ function AcceptInvitationContent() {
             onClick={() => {
               const returnUrl = `/invitations/accept?token=${token}`
               logout(
-                `/sign-in?returnUrl=${encodeURIComponent(returnUrl)}&org=${encodeURIComponent(invitation.organization_slug)}`
+                `/sign-in?returnUrl=${encodeURIComponent(returnUrl)}&org=${encodeURIComponent(invitation.organizationSlug)}`
               )
             }}
           >
@@ -307,17 +376,18 @@ function AcceptInvitationContent() {
     <Card className="w-full max-w-md">
       <CardHeader className="items-center text-center">
         <UserPlus className="mb-4 size-12 text-primary" />
-        <CardTitle>Join {invitation.organization_name}</CardTitle>
+        <CardTitle>Join {invitation.contextName}</CardTitle>
         <CardDescription>
-          {invitation.inviter_name ? (
+          {invitation.inviterName ? (
             <>
-              <strong>{invitation.inviter_name}</strong> has invited you to join
-              this organization as a <strong>{invitation.role_name}</strong>.
+              <strong>{invitation.inviterName}</strong> has invited you to join
+              this {invitation.kind} as a <strong>{invitation.roleName}</strong>
+              .
             </>
           ) : (
             <>
-              You&apos;ve been invited to join this organization as a{" "}
-              <strong>{invitation.role_name}</strong>.
+              You&apos;ve been invited to join this {invitation.kind} as a{" "}
+              <strong>{invitation.roleName}</strong>.
             </>
           )}
         </CardDescription>
@@ -326,21 +396,19 @@ function AcceptInvitationContent() {
         <div className="rounded-lg border bg-muted/50 p-4">
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Organization</span>
-              <span className="font-medium">
-                {invitation.organization_name}
-              </span>
+              <span className="text-muted-foreground">{contextLabel}</span>
+              <span className="font-medium">{invitation.contextName}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Role</span>
               <span className="font-medium capitalize">
-                {invitation.role_name}
+                {invitation.roleName}
               </span>
             </div>
-            {invitation.inviter_email && (
+            {invitation.inviterEmail && (
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Invited by</span>
-                <span className="font-medium">{invitation.inviter_email}</span>
+                <span className="font-medium">{invitation.inviterEmail}</span>
               </div>
             )}
             <div className="flex justify-between">

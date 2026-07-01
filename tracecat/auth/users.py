@@ -56,7 +56,11 @@ from tracecat.db.models import (
     OrganizationMembership,
     User,
 )
-from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.organization.domains import normalize_domain
@@ -392,6 +396,11 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     async def _accept_invitation_atomically(self, user: User) -> OrganizationID | None:
         """Accept an invitation during registration if a token was provided.
 
+        The registration token may be an organization invite or a workspace
+        invite (both share the same accept link). Resolve the org invite first
+        and fall back to the workspace invite when the token is not an org
+        token, mirroring the shared accept page's org-then-workspace lookup.
+
         Errors during invitation acceptance are logged but do NOT fail registration.
         This ensures users can still register even if the invitation is invalid/expired.
         """
@@ -406,23 +415,26 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 
         try:
             async with get_async_session_bypass_rls_context_manager() as session:
-                membership = await accept_invitation_for_user(
-                    session, user_id=user.id, token=token
-                )
-                self.logger.info(
-                    "Invitation accepted during registration",
-                    user_id=str(user.id),
-                    email=user.email,
-                    org_id=str(membership.organization_id),
-                )
-                return membership.organization_id
+                try:
+                    membership = await accept_invitation_for_user(
+                        session, user_id=user.id, token=token
+                    )
+                    self.logger.info(
+                        "Invitation accepted during registration",
+                        user_id=str(user.id),
+                        email=user.email,
+                        org_id=str(membership.organization_id),
+                    )
+                except TracecatNotFoundError:
+                    # Not an org token — try the workspace invite path.
+                    await self._accept_workspace_invitation(session, user, token)
         except TracecatNotFoundError:
             self.logger.warning(
                 "Invitation token not found during registration",
                 user_id=str(user.id),
                 email=user.email,
             )
-        except TracecatAuthorizationError as e:
+        except (TracecatAuthorizationError, TracecatValidationError) as e:
             self.logger.warning(
                 "Invitation acceptance failed during registration",
                 user_id=str(user.id),
@@ -545,6 +557,28 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                         audit_sink=audit_sink,
                         error=str(exc),
                     )
+
+    async def _accept_workspace_invitation(
+        self, session: AsyncSession, user: User, token: str
+    ) -> None:
+        """Accept a workspace invitation by token during registration.
+
+        Delegates to :meth:`WorkspaceService.accept_invitation_for_user`, which
+        resolves the organization from the invitation's workspace and verifies
+        the invitee email (a leaked token cannot enroll a different account).
+        Raises on a genuinely unknown token so the caller logs it as not-found.
+        """
+        from tracecat.workspaces.service import WorkspaceService
+
+        membership = await WorkspaceService.accept_invitation_for_user(
+            session, user_id=user.id, token=token
+        )
+        self.logger.info(
+            "Workspace invitation accepted during registration",
+            user_id=str(user.id),
+            email=user.email,
+            workspace_id=str(membership.workspace_id),
+        )
 
     async def on_after_forgot_password(
         self, user: User, token: str, request: Request | None = None

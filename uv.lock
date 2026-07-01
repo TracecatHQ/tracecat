@@ -257,6 +257,15 @@ wheels = [
 ]
 
 [[package]]
+name = "aiosmtplib"
+version = "5.1.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b9/25/d36d056e62a1dc3dd51ce76e7647c62966702193dc91eafa7fd4e1006a91/aiosmtplib-5.1.2.tar.gz", hash = "sha256:04a0ea3c678f5b719f998f290dce010ca512e1385836d3944206299df03b060f", size = 71031, upload-time = "2026-06-20T15:00:48.269Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d5/ec/c5a415cd1309eaac28ad3c599458194d25ba07189bb07a1bac2c6713c17e/aiosmtplib-5.1.2-py3-none-any.whl", hash = "sha256:070d467cc329dafd0af59108ba5d217d973cba10309910fed359a2a7bfb52d7a", size = 28394, upload-time = "2026-06-20T15:00:47.299Z" },
+]
+
+[[package]]
 name = "alembic"
 version = "1.13.2"
 source = { registry = "https://pypi.org/simple" }
@@ -4721,6 +4730,7 @@ dependencies = [
     { name = "aioboto3" },
     { name = "aiocache" },
     { name = "aiohttp" },
+    { name = "aiosmtplib" },
     { name = "alembic" },
     { name = "alembic-postgresql-enum" },
     { name = "async-lru" },
@@ -4802,6 +4812,7 @@ requires-dist = [
     { name = "aioboto3", specifier = "==15.5.0" },
     { name = "aiocache", specifier = "==0.12.3" },
     { name = "aiohttp", specifier = "==3.14.0" },
+    { name = "aiosmtplib", specifier = "==5.1.2" },
     { name = "alembic", specifier = "==1.13.2" },
     { name = "alembic-postgresql-enum", specifier = "==1.7.0" },
     { name = "async-lru", specifier = "==2.0.4" },

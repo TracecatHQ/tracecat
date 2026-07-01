@@ -2,10 +2,11 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 from tracecat.identifiers import OrganizationID, UserID
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.types import MAX_BULK_INVITE_EMAILS
 
 # Members
 
@@ -73,6 +74,13 @@ class OrgInvitationCreate(BaseModel):
     """Request body for creating an organization invitation."""
 
     email: EmailStr
+    role_id: UUID
+
+
+class OrgInvitationBatchCreate(BaseModel):
+    """Request body for creating organization invitations in bulk."""
+
+    emails: list[EmailStr] = Field(min_length=1, max_length=MAX_BULK_INVITE_EMAILS)
     role_id: UUID
 
 

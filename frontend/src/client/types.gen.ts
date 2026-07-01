@@ -1435,6 +1435,20 @@ export type AzureOpenAICatalogUpdate = {
 }
 
 /**
+ * Per-email outcome of a bulk invitation request.
+ */
+export type BatchInvitationItemResult = {
+  email: string
+  status: BatchInviteStatus
+  reason?: string | null
+}
+
+/**
+ * Per-email outcome of a bulk invitation request.
+ */
+export type BatchInviteStatus = "created" | "skipped"
+
+/**
  * Batch update for action and trigger positions.
  */
 export type BatchPositionUpdate = {
@@ -4615,6 +4629,15 @@ export type InteractionStatus =
 export type InteractionType = "approval" | "response"
 
 /**
+ * Response model for a bulk invitation request.
+ */
+export type InvitationBatchResult = {
+  results: Array<BatchInvitationItemResult>
+  created_count: number
+  skipped_count: number
+}
+
+/**
  * Invitation lifecycle status.
  */
 export type InvitationStatus = "pending" | "accepted" | "revoked"
@@ -5202,6 +5225,14 @@ export type OrgDomainUpdate = {
  */
 export type OrgInvitationAccept = {
   token: string
+}
+
+/**
+ * Request body for creating organization invitations in bulk.
+ */
+export type OrgInvitationBatchCreate = {
+  emails: Array<string>
+  role_id: string
 }
 
 /**
@@ -9420,6 +9451,21 @@ export type WorkspaceCreate = {
 }
 
 /**
+ * Request body for accepting a workspace invitation via token.
+ */
+export type WorkspaceInvitationAccept = {
+  token: string
+}
+
+/**
+ * Request schema for creating workspace invitations in bulk.
+ */
+export type WorkspaceInvitationBatchCreate = {
+  emails: Array<string>
+  role_id: string
+}
+
+/**
  * Request schema for creating a workspace invitation.
  */
 export type WorkspaceInvitationCreate = {
@@ -9444,12 +9490,48 @@ export type WorkspaceInvitationRead = {
   created_at: string
 }
 
+/**
+ * Minimal response for public token-based workspace invitation lookup.
+ *
+ * Excludes sensitive fields like email, invited_by ID, and timestamps to
+ * reduce information disclosure when querying by token. Mirrors the
+ * organization invitation lookup so the shared accept page can render either.
+ */
+export type WorkspaceInvitationReadMinimal = {
+  workspace_id: string
+  workspace_name: string
+  organization_id: string
+  organization_slug: string
+  inviter_name: string | null
+  inviter_email: string | null
+  role_name: string
+  role_slug?: string | null
+  status: InvitationStatus
+  expires_at: string
+  email_matches?: boolean | null
+}
+
+/**
+ * Response schema for a workspace invitation token (copy-link flow).
+ */
+export type WorkspaceInvitationTokenRead = {
+  token: string
+}
+
+/**
+ * An active workspace member backed by a real user account.
+ *
+ * Pending invitations are a separate concern: the members list endpoint
+ * returns only active members, and the UI merges in outstanding invitations
+ * (from the invitations endpoint) client-side for display.
+ */
 export type WorkspaceMember = {
   user_id: string
-  first_name: string | null
-  last_name: string | null
+  first_name?: string | null
+  last_name?: string | null
   email: string
   role_name: string
+  via_group?: boolean
 }
 
 export type WorkspaceMembershipCreate = {
@@ -9459,6 +9541,25 @@ export type WorkspaceMembershipCreate = {
 export type WorkspaceMembershipRead = {
   user_id: string
   workspace_id: string
+}
+
+/**
+ * Pending workspace invitation visible to the invited authenticated user.
+ *
+ * Mirrors :class:`OrgPendingInvitationRead` so a post-signup invitations
+ * surface can render organization and workspace invites side by side.
+ */
+export type WorkspacePendingInvitationRead = {
+  token: string
+  workspace_id: string
+  workspace_name: string
+  organization_id: string
+  organization_slug: string
+  inviter_name: string | null
+  inviter_email: string | null
+  role_name: string
+  role_slug?: string | null
+  expires_at: string
 }
 
 export type WorkspaceRead = {
@@ -9870,6 +9971,24 @@ export type WorkspacesSearchWorkspacesData = {
 
 export type WorkspacesSearchWorkspacesResponse = Array<WorkspaceReadMinimal>
 
+export type WorkspacesListMyPendingWorkspaceInvitationsResponse =
+  Array<WorkspacePendingInvitationRead>
+
+export type WorkspacesGetWorkspaceInvitationByTokenData = {
+  token: string
+}
+
+export type WorkspacesGetWorkspaceInvitationByTokenResponse =
+  WorkspaceInvitationReadMinimal
+
+export type WorkspacesAcceptWorkspaceInvitationData = {
+  requestBody: WorkspaceInvitationAccept
+}
+
+export type WorkspacesAcceptWorkspaceInvitationResponse = {
+  [key: string]: string
+}
+
 export type WorkspacesGetWorkspaceData = {
   workspaceId: string
 }
@@ -9945,6 +10064,29 @@ export type WorkspacesRevokeWorkspaceInvitationData = {
 }
 
 export type WorkspacesRevokeWorkspaceInvitationResponse = void
+
+export type WorkspacesCreateWorkspaceInvitationsBulkData = {
+  requestBody: WorkspaceInvitationBatchCreate
+  workspaceId: string
+}
+
+export type WorkspacesCreateWorkspaceInvitationsBulkResponse =
+  InvitationBatchResult
+
+export type WorkspacesGetWorkspaceInvitationTokenData = {
+  invitationId: string
+  workspaceId: string
+}
+
+export type WorkspacesGetWorkspaceInvitationTokenResponse =
+  WorkspaceInvitationTokenRead
+
+export type WorkspacesResendWorkspaceInvitationData = {
+  invitationId: string
+  workspaceId: string
+}
+
+export type WorkspacesResendWorkspaceInvitationResponse = void
 
 export type ServiceAccountsListWorkspaceServiceAccountsData = {
   cursor?: string | null
@@ -10800,6 +10942,18 @@ export type OrganizationListInvitationsData = {
 }
 
 export type OrganizationListInvitationsResponse = Array<OrgInvitationRead>
+
+export type OrganizationCreateInvitationsBulkData = {
+  requestBody: OrgInvitationBatchCreate
+}
+
+export type OrganizationCreateInvitationsBulkResponse = InvitationBatchResult
+
+export type OrganizationResendInvitationData = {
+  invitationId: string
+}
+
+export type OrganizationResendInvitationResponse = void
 
 export type OrganizationRevokeInvitationData = {
   invitationId: string
@@ -13696,6 +13850,48 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/invitations/pending/me": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<WorkspacePendingInvitationRead>
+      }
+    }
+  }
+  "/workspaces/invitations/token/{token}": {
+    get: {
+      req: WorkspacesGetWorkspaceInvitationByTokenData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkspaceInvitationReadMinimal
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/invitations/accept": {
+    post: {
+      req: WorkspacesAcceptWorkspaceInvitationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}": {
     get: {
       req: WorkspacesGetWorkspaceData
@@ -13839,6 +14035,51 @@ export type $OpenApiTs = {
   "/workspaces/{workspace_id}/invitations/{invitation_id}": {
     delete: {
       req: WorkspacesRevokeWorkspaceInvitationData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/invitations/bulk": {
+    post: {
+      req: WorkspacesCreateWorkspaceInvitationsBulkData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: InvitationBatchResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/invitations/{invitation_id}/token": {
+    get: {
+      req: WorkspacesGetWorkspaceInvitationTokenData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkspaceInvitationTokenRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/invitations/{invitation_id}/resend": {
+    post: {
+      req: WorkspacesResendWorkspaceInvitationData
       res: {
         /**
          * Successful Response
@@ -15340,6 +15581,36 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: Array<OrgInvitationRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/invitations/bulk": {
+    post: {
+      req: OrganizationCreateInvitationsBulkData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: InvitationBatchResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/invitations/{invitation_id}/resend": {
+    post: {
+      req: OrganizationResendInvitationData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */
