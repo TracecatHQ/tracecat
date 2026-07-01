@@ -870,6 +870,40 @@ async def test_agent_preset_projection_excludes_archived_presets(
 
 
 @pytest.mark.anyio
+async def test_skill_projection_excludes_archived_preset_version_pins(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Skill version snapshots pinned only by archived presets are not exported."""
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(
+        _versioned_agent_skill_git_tree(),
+        commit_sha="d" * 40,
+    )
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+    # agent-x is the only preset pinning skill-a v1 (head is v2, agent-y pins v2).
+    pinning_preset = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "agent-x",
+        )
+    )
+    assert pinning_preset is not None
+    pinning_preset.archived_at = datetime.now(UTC)
+    session.add(pinning_preset)
+    await session.flush()
+
+    projection = await service.project_workspace()
+
+    assert f"{SKILL_ROOT}/skill-a/versions/1/version.yml" not in projection.files
+    assert f"{SKILL_ROOT}/skill-a/versions/2/version.yml" in projection.files
+
+
+@pytest.mark.anyio
 async def test_agent_preset_import_ignores_archived_source_id_mapping(
     session: AsyncSession,
     svc_role: Role,
