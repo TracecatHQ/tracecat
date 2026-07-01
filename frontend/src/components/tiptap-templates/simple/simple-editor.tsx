@@ -25,6 +25,7 @@ import * as React from "react"
 import { HorizontalRule } from "@/components/tiptap-node/horizontal-rule-node/horizontal-rule-node-extension"
 // --- Tiptap Node ---
 import { ImageUploadNode } from "@/components/tiptap-node/image-upload-node/image-upload-node-extension"
+import { MermaidCodeBlock } from "@/components/tiptap-node/mermaid-code-block-node/mermaid-code-block-node"
 // --- UI Primitives ---
 import { Button, ButtonGroup } from "@/components/tiptap-ui-primitive/button"
 import { Spacer } from "@/components/tiptap-ui-primitive/spacer"
@@ -499,12 +500,14 @@ export function SimpleEditor({
     () => [
       StarterKit.configure({
         horizontalRule: false,
+        codeBlock: false,
         link: {
           openOnClick: false,
           enableClickSelection: true,
         },
       }),
       HorizontalRule,
+      MermaidCodeBlock,
       Table.configure({
         resizable: false,
       }),

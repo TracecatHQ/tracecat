@@ -169,6 +169,9 @@ importers:
       '@tanstack/react-virtual':
         specifier: 3.13.12
         version: 3.13.12(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@tiptap/extension-code-block':
+        specifier: 3.7.1
+        version: 3.7.1(@tiptap/core@3.7.1(@tiptap/pm@3.7.1))(@tiptap/pm@3.7.1)
       '@tiptap/extension-highlight':
         specifier: 3.7.1
         version: 3.7.1(@tiptap/core@3.7.1(@tiptap/pm@3.7.1))
@@ -274,6 +277,9 @@ importers:
       lucide-react:
         specifier: 0.561.0
         version: 0.561.0(react@18.3.1)
+      mermaid:
+        specifier: 11.15.0
+        version: 11.15.0
       motion:
         specifier: 12.23.22
         version: 12.23.22(@emotion/is-prop-valid@1.4.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
