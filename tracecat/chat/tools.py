@@ -41,6 +41,7 @@ WORKSPACE_CHAT_BASE_DEFAULT_TOOLS = [
     "core.workflow.get_case_trigger",
     "core.workflow.update_case_trigger",
     "core.workflow.publish",
+    "core.workflow.run",
     "core.workflow.execute",
 ]
 

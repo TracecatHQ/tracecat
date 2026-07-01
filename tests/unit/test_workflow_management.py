@@ -9,6 +9,7 @@ import pytest
 from tracecat.auth.types import Role
 from tracecat.db.models import Action, Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
@@ -1101,3 +1102,235 @@ def test_normalize_persisted_revision_drops_orphan_layout_entries() -> None:
     normalized = normalize_workflow_edit_document_for_persisted_revision(document)
 
     assert [a.ref for a in normalized.layout.actions] == []
+
+
+# ---------------------------------------------------------------------------
+# run_workflow
+# ---------------------------------------------------------------------------
+
+
+def _run_dsl(expects: dict[str, Any] | None = None) -> DSLInput:
+    """Minimal valid DSL for run_workflow tests, with an optional expects schema."""
+    return DSLInput(
+        **{
+            "title": "run workflow test",
+            "description": "",
+            "entrypoint": {"ref": "start", "expects": expects or {}},
+            "actions": [
+                {
+                    "ref": "start",
+                    "action": "core.transform.reshape",
+                    "args": {"value": "ok"},
+                }
+            ],
+        }
+    )
+
+
+class _FakeExecService:
+    """Records which dispatch method was called and with what kwargs."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    async def create_draft_workflow_execution_wait_for_start(self, **kwargs: Any):
+        self.calls.append(("draft", kwargs))
+        return {
+            "message": "Draft workflow execution started",
+            "wf_id": kwargs["wf_id"],
+            "wf_exec_id": "wf-exec-draft",
+        }
+
+    async def create_workflow_execution_wait_for_start(self, **kwargs: Any):
+        self.calls.append(("published", kwargs))
+        return {
+            "message": "Workflow execution started",
+            "wf_id": kwargs["wf_id"],
+            "wf_exec_id": "wf-exec-published",
+        }
+
+
+def _patch_exec_service(monkeypatch: pytest.MonkeyPatch) -> _FakeExecService:
+    """Patch the locally-imported WorkflowExecutionsService.connect."""
+    from tracecat.workflow.executions import service as exec_service_module
+
+    fake = _FakeExecService()
+
+    async def _connect(role: Any = None) -> _FakeExecService:
+        return fake
+
+    monkeypatch.setattr(
+        exec_service_module.WorkflowExecutionsService, "connect", _connect
+    )
+    return fake
+
+
+@pytest.mark.anyio
+async def test_run_workflow_draft_builds_and_dispatches_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    wf_id = WorkflowUUID.new_uuid4()
+    dsl = _run_dsl()
+    service = _service(_role())
+
+    monkeypatch.setattr(service, "get_workflow", AsyncMock(return_value=object()))
+    monkeypatch.setattr(service, "build_dsl_from_workflow", AsyncMock(return_value=dsl))
+    # No validation errors from the tiered validator.
+    monkeypatch.setattr(management, "validate_dsl", AsyncMock(return_value=[]))
+    fake_exec = _patch_exec_service(monkeypatch)
+
+    resp = await service.run_workflow(wf_id, inputs={"a": 1}, use_draft=True)
+
+    assert resp["wf_exec_id"] == "wf-exec-draft"
+    assert [name for name, _ in fake_exec.calls] == ["draft"]
+    _, kwargs = fake_exec.calls[0]
+    assert kwargs["wf_id"] == wf_id
+    assert kwargs["payload"] == {"a": 1}
+    # Draft runs resolve the registry lock dynamically (not passed here).
+    assert "registry_lock" not in kwargs
+
+
+@pytest.mark.anyio
+async def test_run_workflow_draft_missing_workflow_raises_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _service(_role())
+    monkeypatch.setattr(service, "get_workflow", AsyncMock(return_value=None))
+    fake_exec = _patch_exec_service(monkeypatch)
+
+    with pytest.raises(TracecatNotFoundError):
+        await service.run_workflow(WorkflowUUID.new_uuid4(), use_draft=True)
+    assert fake_exec.calls == []
+
+
+@pytest.mark.anyio
+async def test_run_workflow_draft_validation_error_does_not_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _service(_role())
+    dsl = _run_dsl()
+    monkeypatch.setattr(service, "get_workflow", AsyncMock(return_value=object()))
+    monkeypatch.setattr(service, "build_dsl_from_workflow", AsyncMock(return_value=dsl))
+
+    # One validation error from the tiered validator.
+    fake_error = SimpleNamespace(
+        root=SimpleNamespace(model_dump=lambda mode="json": {"msg": "boom"})
+    )
+    monkeypatch.setattr(
+        management, "validate_dsl", AsyncMock(return_value=[fake_error])
+    )
+    fake_exec = _patch_exec_service(monkeypatch)
+
+    with pytest.raises(TracecatValidationError):
+        await service.run_workflow(WorkflowUUID.new_uuid4(), use_draft=True)
+    assert fake_exec.calls == []
+
+
+@pytest.mark.anyio
+async def test_run_workflow_published_latest_uses_definition_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    wf_id = WorkflowUUID.new_uuid4()
+    dsl = _run_dsl()
+    lock = {
+        "origins": {"tracecat_registry": "test-version"},
+        "actions": {"core.transform.reshape": "tracecat_registry"},
+        "origin_fingerprints": {},
+    }
+    defn = SimpleNamespace(content=dsl.model_dump(), registry_lock=lock)
+
+    captured: dict[str, Any] = {}
+
+    class _FakeDefnService:
+        def __init__(self, session: Any, role: Any) -> None:
+            pass
+
+        async def get_definition_by_workflow_id(
+            self, workflow_id: Any, *, version: int | None = None
+        ):
+            captured["version"] = version
+            return defn
+
+    monkeypatch.setattr(management, "WorkflowDefinitionsService", _FakeDefnService)
+    fake_exec = _patch_exec_service(monkeypatch)
+
+    resp = await _service(_role()).run_workflow(wf_id, use_draft=False)
+
+    assert resp["wf_exec_id"] == "wf-exec-published"
+    assert captured["version"] is None
+    assert [name for name, _ in fake_exec.calls] == ["published"]
+    _, kwargs = fake_exec.calls[0]
+    assert isinstance(kwargs["registry_lock"], RegistryLock)
+
+
+@pytest.mark.anyio
+async def test_run_workflow_published_version_is_forwarded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dsl = _run_dsl()
+    defn = SimpleNamespace(content=dsl.model_dump(), registry_lock=None)
+    captured: dict[str, Any] = {}
+
+    class _FakeDefnService:
+        def __init__(self, session: Any, role: Any) -> None:
+            pass
+
+        async def get_definition_by_workflow_id(
+            self, workflow_id: Any, *, version: int | None = None
+        ):
+            captured["version"] = version
+            return defn
+
+    monkeypatch.setattr(management, "WorkflowDefinitionsService", _FakeDefnService)
+    fake_exec = _patch_exec_service(monkeypatch)
+
+    await _service(_role()).run_workflow(
+        WorkflowUUID.new_uuid4(), use_draft=False, version=3
+    )
+
+    assert captured["version"] == 3
+    _, kwargs = fake_exec.calls[0]
+    # No registry lock on the definition -> None passed through.
+    assert kwargs["registry_lock"] is None
+
+
+@pytest.mark.anyio
+async def test_run_workflow_missing_version_raises_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeDefnService:
+        def __init__(self, session: Any, role: Any) -> None:
+            pass
+
+        async def get_definition_by_workflow_id(
+            self, workflow_id: Any, *, version: int | None = None
+        ):
+            return None
+
+    monkeypatch.setattr(management, "WorkflowDefinitionsService", _FakeDefnService)
+    fake_exec = _patch_exec_service(monkeypatch)
+
+    with pytest.raises(TracecatNotFoundError):
+        await _service(_role()).run_workflow(
+            WorkflowUUID.new_uuid4(), use_draft=False, version=99
+        )
+    assert fake_exec.calls == []
+
+
+@pytest.mark.anyio
+async def test_run_workflow_invalid_inputs_raise_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # DSL requires an integer `count`; a string should fail validation.
+    dsl = _run_dsl(expects={"count": {"type": "int"}})
+    service = _service(_role())
+    monkeypatch.setattr(service, "get_workflow", AsyncMock(return_value=object()))
+    monkeypatch.setattr(service, "build_dsl_from_workflow", AsyncMock(return_value=dsl))
+    monkeypatch.setattr(management, "validate_dsl", AsyncMock(return_value=[]))
+    fake_exec = _patch_exec_service(monkeypatch)
+
+    with pytest.raises(TracecatValidationError):
+        await service.run_workflow(
+            WorkflowUUID.new_uuid4(), inputs={"count": "not-an-int"}, use_draft=True
+        )
+    assert fake_exec.calls == []

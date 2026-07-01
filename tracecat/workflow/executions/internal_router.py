@@ -107,6 +107,34 @@ class InternalWorkflowExecuteRequest(BaseModel):
         return WorkflowUUID.new(v)
 
 
+class InternalWorkflowRunRequest(BaseModel):
+    """Request to run a workflow from its draft or a published definition."""
+
+    workflow_id: WorkflowID = Field(
+        ..., description="Workflow UUID (short or full format)"
+    )
+    inputs: Any | None = Field(
+        default=None, description="Trigger inputs to pass to the workflow"
+    )
+    use_draft: bool = Field(
+        default=True,
+        description="Run the current draft graph (default). Set false to run a "
+        "published definition.",
+    )
+    version: int | None = Field(
+        default=None,
+        description="Published definition version to run. Only applies when "
+        "use_draft is false; null runs the current published version. Ignored "
+        "when use_draft is true.",
+    )
+
+    @field_validator("workflow_id", mode="before")
+    @classmethod
+    def validate_workflow_id(cls, v: AnyWorkflowID) -> WorkflowID:
+        """Convert any valid workflow ID format to WorkflowUUID."""
+        return WorkflowUUID.new(v)
+
+
 class InternalWorkflowExecuteResponse(BaseModel):
     """Response from workflow execution."""
 
@@ -695,6 +723,54 @@ async def execute_workflow(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to start workflow execution: {e}",
         ) from e
+
+
+@router.post("/run", status_code=HTTP_201_CREATED)
+@require_scope("workflow:execute")
+async def run_workflow(
+    *,
+    role: ExecutorWorkspaceRole,
+    params: InternalWorkflowRunRequest,
+) -> InternalWorkflowExecuteResponse:
+    """Run a workflow from its draft state or a published definition.
+
+    Shared entry point for the chat SDK's ``core.workflow.run`` tool. Delegates
+    to ``WorkflowsManagementService.run_workflow`` so draft-vs-published and
+    version selection stay in one place.
+    """
+    wf_id = WorkflowUUID.new(params.workflow_id)
+    try:
+        async with WorkflowsManagementService.with_session(role=role) as mgmt_service:
+            response = await mgmt_service.run_workflow(
+                wf_id,
+                inputs=params.inputs,
+                use_draft=params.use_draft,
+                version=params.version,
+            )
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail={
+                "type": "TracecatValidationError",
+                "message": str(e),
+                "detail": e.detail,
+            },
+        ) from e
+
+    logger.info(
+        "Workflow run started via internal API",
+        workflow_id=wf_id,
+        workflow_execution_id=response["wf_exec_id"],
+        use_draft=params.use_draft,
+        version=params.version,
+    )
+    return InternalWorkflowExecuteResponse(
+        workflow_id=response["wf_id"],
+        workflow_execution_id=response["wf_exec_id"],
+        message=response["message"],
+    )
 
 
 @router.get("/executions/{execution_id:path}", status_code=HTTP_200_OK)

@@ -109,16 +109,10 @@
   This validates the workflow, freezes registry dependencies, and creates a new workflow definition version.
 </ResponseField>
 
-<ResponseField name="run_draft_workflow" type="tool">
-  Run a workflow from its current draft state (without publishing).
+<ResponseField name="run_workflow" type="tool">
+  Run a workflow from its draft state or a published definition.
 
-  Optionally update the workflow's title/description before running.
-</ResponseField>
-
-<ResponseField name="run_published_workflow" type="tool">
-  Run the latest published version of a workflow.
-
-  The workflow must have been published (committed) at least once.
+  By default runs the current draft (unpublished edits) so changes can be tested before publishing. Set ``use_draft=False`` to run a published version instead.
 </ResponseField>
 
 <ResponseField name="list_workflow_executions" type="tool">

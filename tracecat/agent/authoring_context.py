@@ -83,7 +83,7 @@ class EnabledModelInfo(BaseModel):
     """A model enabled for the workspace, usable when configuring AI actions.
 
     ``catalog_id`` is the canonical model selector: pass it as the ``model``
-    selection on ``ai.agent``/``ai.call`` actions or as ``catalog_id`` on agent
+    selection on ``ai.agent``/``ai.action`` actions or as ``catalog_id`` on agent
     presets. ``model_name``/``model_provider`` are surfaced for display and for
     the deprecated legacy selectors only.
     """
@@ -358,8 +358,9 @@ async def build_enabled_models(*, role: Role) -> list[EnabledModelInfo]:
     """List the models enabled for the workspace as authoring hints.
 
     These are the only models an author may select when configuring AI actions
-    (``ai.agent``, ``ai.call``, ...) or agent presets, so the chat agent should
-    pick a ``catalog_id`` from this list rather than guessing a model name.
+    (``ai.agent``, ``ai.action``, ``ai.preset_agent``, ...) or agent presets, so
+    the chat agent should pick a ``catalog_id`` from this list rather than
+    guessing a model name.
 
     Returns ``[]`` when the caller lacks ``agent:read`` (mirroring the
     variable/secret hint gating) or when the role has no bound workspace, so the

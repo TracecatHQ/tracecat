@@ -38,6 +38,7 @@ from tracecat.dsl.common import (
 )
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import DSLConfig, ExecutionContext, RunContext
+from tracecat.dsl.validation import normalize_trigger_inputs
 from tracecat.dsl.view import RFGraph
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
@@ -68,7 +69,8 @@ from tracecat.validation.schemas import (
 from tracecat.validation.service import validate_dsl
 from tracecat.workflow.actions.schemas import ActionControlFlow, ActionEdge
 from tracecat.workflow.case_triggers.service import CaseTriggersService
-from tracecat.workflow.executions.enums import ExecutionType
+from tracecat.workflow.executions.enums import ExecutionType, TriggerType
+from tracecat.workflow.executions.schemas import WorkflowExecutionCreateResponse
 from tracecat.workflow.graph.service import WorkflowGraphService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.layout import (
@@ -1038,6 +1040,118 @@ class WorkflowsManagementService(BaseWorkspaceService):
             config=DSLConfig(**workflow.config),
             returns=workflow.returns,
             error_handler=workflow.error_handler,
+        )
+
+    @require_scope("workflow:execute")
+    async def run_workflow(
+        self,
+        workflow_id: WorkflowID,
+        *,
+        inputs: Any | None = None,
+        use_draft: bool = True,
+        version: int | None = None,
+    ) -> WorkflowExecutionCreateResponse:
+        """Run a workflow from its draft state or a published definition.
+
+        This is the single entry point shared by the internal run endpoint (used
+        by the chat SDK) and the MCP ``run_workflow`` tool.
+
+        Args:
+            workflow_id: Workflow UUID (short ``wf_...`` or full format).
+            inputs: Trigger inputs passed to the workflow.
+            use_draft: When ``True`` (default), build the DSL from the current
+                draft graph and run it without publishing. When ``False``, run a
+                published definition.
+            version: Published definition version to run. Only applies when
+                ``use_draft`` is ``False``; ``None`` runs the current published
+                version. Ignored when ``use_draft`` is ``True`` (a draft has no
+                version number).
+
+        Returns:
+            WorkflowExecutionCreateResponse with the workflow and execution IDs.
+
+        Raises:
+            TracecatNotFoundError: If the workflow, or the requested published
+                version, does not exist.
+            TracecatValidationError: If the draft has no actions or fails
+                validation, or if the trigger inputs do not match the
+                workflow's input schema.
+        """
+        wf_id = WorkflowUUID.new(workflow_id)
+
+        if use_draft:
+            workflow = await self.get_workflow(wf_id)
+            if workflow is None:
+                raise TracecatNotFoundError(f"Workflow {wf_id.short()} not found")
+            # Raises TracecatValidationError on an empty/invalid draft graph.
+            dsl = await self.build_dsl_from_workflow(workflow)
+            # Run the same tiered validator used at commit time so a broken draft
+            # returns a fixable error instead of failing mid-execution.
+            if val_errors := await validate_dsl(
+                session=self.session, dsl=dsl, role=self.role
+            ):
+                raise TracecatValidationError(
+                    f"Draft workflow validation failed with {len(val_errors)} "
+                    "error(s). Fix the draft or publish a working version first.",
+                    detail=[err.root.model_dump(mode="json") for err in val_errors],
+                )
+            # Draft executions resolve the registry lock dynamically.
+            registry_lock: RegistryLock | None = None
+        else:
+            defn_service = WorkflowDefinitionsService(self.session, self.role)
+            defn = await defn_service.get_definition_by_workflow_id(
+                wf_id, version=version
+            )
+            if defn is None:
+                if version is not None:
+                    raise TracecatNotFoundError(
+                        f"Workflow {wf_id.short()} has no published version {version}."
+                    )
+                raise TracecatNotFoundError(
+                    f"Workflow {wf_id.short()} has no published definition. "
+                    "Publish the workflow before running a published version."
+                )
+            dsl = DSLInput(**defn.content)
+            registry_lock = (
+                RegistryLock.model_validate(defn.registry_lock)
+                if defn.registry_lock
+                else None
+            )
+
+        # Validate trigger inputs against the entrypoint schema up front so a
+        # bad payload returns a fixable error here instead of failing inside the
+        # (async) workflow run. Dispatch does not re-check inputs against expects.
+        if expects := dsl.entrypoint.expects:
+            try:
+                normalize_trigger_inputs(
+                    expects,
+                    {} if inputs is None else inputs,
+                    model_name="TriggerInputsValidator",
+                )
+            except ValidationError as e:
+                raise TracecatValidationError(
+                    "Trigger inputs do not match the workflow's input schema.",
+                    detail=ValidationDetail.list_from_pydantic(e),
+                ) from e
+
+        # Import here to avoid pulling the Temporal-client execution stack into
+        # the management import chain.
+        from tracecat.workflow.executions.service import WorkflowExecutionsService
+
+        exec_service = await WorkflowExecutionsService.connect(role=self.role)
+        if use_draft:
+            return await exec_service.create_draft_workflow_execution_wait_for_start(
+                dsl=dsl,
+                wf_id=wf_id,
+                payload=inputs,
+                trigger_type=TriggerType.MANUAL,
+            )
+        return await exec_service.create_workflow_execution_wait_for_start(
+            dsl=dsl,
+            wf_id=wf_id,
+            payload=inputs,
+            trigger_type=TriggerType.MANUAL,
+            registry_lock=registry_lock,
         )
 
     @require_scope("workflow:update")

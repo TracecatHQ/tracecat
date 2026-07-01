@@ -4247,7 +4247,7 @@ async def get_workflow_authoring_context(
                 "default environment, and any required OAuth integrations are "
                 "configured for the workspace",
                 "enabled_models lists the models available in this workspace; "
-                "when configuring an AI action (ai.agent, ai.call) or agent "
+                "when configuring an AI action (ai.action, ai.agent) or agent "
                 "preset, select a catalog_id from this list instead of guessing "
                 "a model name",
             ],
@@ -4496,23 +4496,28 @@ async def publish_workflow(
 
 
 @mcp.tool()
-async def run_draft_workflow(
+async def run_workflow(
     workspace_id: uuid.UUID,
     workflow_id: MCPWorkflowUUID,
     inputs: dict[str, Any] | None = None,
-    title: str | None = None,
-    description: str | None = None,
+    use_draft: bool = True,
+    version: int | None = None,
 ) -> WorkflowRunStartedResponse:
-    """Run a workflow from its current draft state (without publishing).
+    """Run a workflow from its draft state or a published definition.
 
-    Optionally update the workflow's title/description before running.
+    By default runs the current draft (unpublished edits) so changes can be
+    tested before publishing. Set ``use_draft=False`` to run a published
+    version instead.
 
     Args:
         workspace_id: The workspace ID.
         workflow_id: The workflow ID.
         inputs: Optional trigger inputs object.
-        title: Optional new title to set before running.
-        description: Optional new description to set before running.
+        use_draft: When true (default), run the current draft graph without
+            publishing. When false, run a published definition (see ``version``).
+        version: Published definition version to run. Only applies when
+            ``use_draft`` is false; null runs the current published version.
+            Ignored when ``use_draft`` is true.
 
     Returns JSON with workflow_id, execution_id, and a message.
     """
@@ -4520,32 +4525,13 @@ async def run_draft_workflow(
     try:
         workflow_id = WorkflowUUID.new(workflow_id)
         _, role = await _resolve_workspace_role(workspace_id)
-        # Optionally update workflow first
-        if title or description:
-            async with WorkflowsManagementService.with_session(role=role) as svc:
-                await svc.update_workflow(
-                    workflow_id,
-                    WorkflowUpdate(title=title, description=description),
-                )
-
-        # Build DSL from draft
         async with WorkflowsManagementService.with_session(role=role) as svc:
-            workflow = await svc.get_workflow(workflow_id)
-            if not workflow:
-                raise ToolError(f"Workflow {workflow_id} not found")
-            try:
-                dsl_input = await svc.build_dsl_from_workflow(workflow)
-            except (TracecatValidationError, ValidationError) as e:
-                raise ToolError(f"Draft workflow has validation errors: {e}") from e
-
-        # Validate and parse trigger inputs before dispatch
-        payload = _validate_trigger_inputs_payload(dsl_input, inputs)
-        exec_service = await WorkflowExecutionsService.connect(role=role)
-        response = await exec_service.create_draft_workflow_execution_wait_for_start(
-            dsl=dsl_input,
-            wf_id=workflow_id,
-            payload=payload,
-        )
+            response = await svc.run_workflow(
+                workflow_id,
+                inputs=inputs,
+                use_draft=use_draft,
+                version=version,
+            )
         response_workflow_id = WorkflowUUID.new(response["wf_id"])
         return WorkflowRunStartedResponse(
             workflow_id=response_workflow_id,
@@ -4554,6 +4540,20 @@ async def run_draft_workflow(
         )
     except ToolError:
         raise
+    except TracecatNotFoundError as e:
+        raise ToolError(str(e)) from e
+    except TracecatValidationError as e:
+        raise ToolError(
+            json.dumps(
+                {
+                    "type": "validation_error",
+                    "message": str(e),
+                    "status": "error",
+                    "detail": e.detail,
+                },
+                default=str,
+            )
+        ) from e
     except ValueError as e:
         raise ToolError(str(e)) from e
     except BaseException as e:
@@ -4561,81 +4561,8 @@ async def run_draft_workflow(
         if isinstance(e, BaseExceptionGroup):
             msgs = [str(exc) for exc in e.exceptions]
             msg = "; ".join(msgs)
-        logger.error("Failed to run draft workflow", error=msg)
-        raise ToolError(f"Failed to run draft workflow: {msg}") from None
-
-
-@mcp.tool()
-async def run_published_workflow(
-    workspace_id: uuid.UUID,
-    workflow_id: MCPWorkflowUUID,
-    inputs: dict[str, Any] | None = None,
-) -> WorkflowRunStartedResponse:
-    """Run the latest published version of a workflow.
-
-    The workflow must have been published (committed) at least once.
-
-    Args:
-        workspace_id: The workspace ID.
-        workflow_id: The workflow ID.
-        inputs: Optional trigger inputs object.
-
-    Returns JSON with workflow_id, execution_id, and a message.
-    """
-
-    try:
-        workflow_id = WorkflowUUID.new(workflow_id)
-        ws_id, role = await _resolve_workspace_role(workspace_id)
-        # Fetch latest workflow definition scoped to the caller's workspace
-        async with get_async_session_context_manager() as session:
-            result = await session.execute(
-                select(WorkflowDefinition)
-                .where(
-                    WorkflowDefinition.workflow_id == workflow_id,
-                    WorkflowDefinition.workspace_id == ws_id,
-                )
-                .order_by(WorkflowDefinition.version.desc())
-            )
-            defn = result.scalars().first()
-            if not defn:
-                raise ToolError(
-                    f"No published definition found for workflow {workflow_id}. "
-                    "Publish the workflow first using publish_workflow."
-                )
-
-            dsl_input = DSLInput(**defn.content)
-            registry_lock = (
-                RegistryLock.model_validate(defn.registry_lock)
-                if defn.registry_lock
-                else None
-            )
-
-        # Validate and parse trigger inputs before dispatch
-        payload = _validate_trigger_inputs_payload(dsl_input, inputs)
-        exec_service = await WorkflowExecutionsService.connect(role=role)
-        response = await exec_service.create_workflow_execution_wait_for_start(
-            dsl=dsl_input,
-            wf_id=workflow_id,
-            payload=payload,
-            registry_lock=registry_lock,
-        )
-        response_workflow_id = WorkflowUUID.new(response["wf_id"])
-        return WorkflowRunStartedResponse(
-            workflow_id=response_workflow_id,
-            execution_id=response["wf_exec_id"],
-            message=response["message"],
-        )
-    except ToolError:
-        raise
-    except ValueError as e:
-        raise ToolError(str(e)) from e
-    except BaseException as e:
-        msg = str(e)
-        if isinstance(e, BaseExceptionGroup):
-            msgs = [str(exc) for exc in e.exceptions]
-            msg = "; ".join(msgs)
-        logger.error("Failed to run published workflow", error=msg)
-        raise ToolError(f"Failed to run published workflow: {msg}") from None
+        logger.error("Failed to run workflow", error=msg)
+        raise ToolError(f"Failed to run workflow: {msg}") from None
 
 
 @mcp.tool()

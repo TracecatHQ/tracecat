@@ -121,6 +121,7 @@ export const DEFAULT_CAPABILITY_GROUPS: CapabilityGroup[] = [
       "core.workflow.get_case_trigger",
       "core.workflow.update_case_trigger",
       "core.workflow.publish",
+      "core.workflow.run",
       "core.workflow.execute",
     ],
   },

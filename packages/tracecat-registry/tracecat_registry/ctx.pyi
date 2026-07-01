@@ -1283,6 +1283,14 @@ class _WorkflowsAsync:
         *,
         workflow_id: str,
     ) -> dict[str, Any]: ...
+    async def run(
+        self,
+        *,
+        workflow_id: str,
+        inputs: Any | None = ...,
+        use_draft: bool = ...,
+        version: int | None = ...,
+    ) -> dict[str, Any]: ...
 
 class _Workflows:
     @property
@@ -1357,6 +1365,14 @@ class _Workflows:
         self,
         *,
         workflow_id: str,
+    ) -> dict[str, Any]: ...
+    def run(
+        self,
+        *,
+        workflow_id: str,
+        inputs: Any | None = ...,
+        use_draft: bool = ...,
+        version: int | None = ...,
     ) -> dict[str, Any]: ...
 
 agents: _Agents

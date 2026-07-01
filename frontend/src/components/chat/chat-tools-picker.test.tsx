@@ -102,6 +102,7 @@ describe("DEFAULT_CAPABILITY_GROUPS", () => {
         "core.workflow.get_webhook",
         "core.workflow.get_workflow",
         "core.workflow.publish",
+        "core.workflow.run",
         "core.workflow.update_case_trigger",
         "core.workflow.update_webhook",
       ].sort()
@@ -114,7 +115,8 @@ describe("DEFAULT_CAPABILITY_GROUPS", () => {
     )
     expect(workflows?.tools).toContain("core.workflow.execute")
     expect(workflows?.tools).toContain("core.workflow.publish")
-    expect(workflows?.tools.length).toBe(10)
+    expect(workflows?.tools).toContain("core.workflow.run")
+    expect(workflows?.tools.length).toBe(11)
   })
 })
 

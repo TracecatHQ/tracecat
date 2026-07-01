@@ -169,6 +169,51 @@ class WorkflowsClient:
         """
         return await self._client.post(f"/workflows/{workflow_id}/publish")
 
+    async def run(
+        self,
+        *,
+        workflow_id: str,
+        inputs: Any | None = None,
+        use_draft: bool = True,
+        version: int | None = None,
+    ) -> dict[str, Any]:
+        """Run a workflow from its draft state or a published definition.
+
+        Args:
+            workflow_id: Workflow UUID (short ``wf_...`` or full format).
+            inputs: Trigger inputs to pass to the workflow.
+            use_draft: When ``True`` (default), run the current draft graph
+                without publishing. When ``False``, run a published definition.
+            version: Published definition version to run. Only applies when
+                ``use_draft`` is ``False``; ``None`` runs the current published
+                version. Ignored when ``use_draft`` is ``True``.
+
+        Returns:
+            dict with ``workflow_id``, ``workflow_execution_id``, and
+            ``status`` (``"STARTED"``).
+
+        Raises:
+            TracecatValidationError: If the draft fails validation (400).
+            TracecatNotFoundError: If the workflow or requested version does not
+                exist.
+            TracecatAPIError: For other API errors.
+        """
+        data: dict[str, Any] = {
+            "workflow_id": workflow_id,
+            "use_draft": use_draft,
+        }
+        if inputs is not None:
+            data["inputs"] = inputs
+        if version is not None:
+            data["version"] = version
+
+        response = await self._client.post("/workflows/run", json=data)
+        return {
+            "workflow_id": response["workflow_id"],
+            "workflow_execution_id": response["workflow_execution_id"],
+            "status": "STARTED",
+        }
+
     async def get_authoring_context(
         self,
         *,

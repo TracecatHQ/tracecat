@@ -240,7 +240,7 @@ async def edit_workflow(
     description=(
         "Get action schemas, required secrets, example args, and the models "
         "enabled for this workspace before writing an action's `args:`. When "
-        "configuring an AI action (`ai.agent`, `ai.call`) or agent preset, "
+        "configuring an AI action (`ai.action`, `ai.agent`) or agent preset, "
         "select a `catalog_id` from `enabled_models` instead of guessing a "
         "model name. Resolve by `action_names` or `query`. See the "
         "`tracecat-manage-workflows` skill."
@@ -407,6 +407,57 @@ async def publish(
 ) -> dict[str, Any]:
     """Publish a workflow draft and return ``{"workflow_id", "version", "message"}``."""
     return await ctx.workflows.aio.publish(workflow_id=workflow_id)
+
+
+@registry.register(
+    namespace="core.workflow",
+    description=(
+        "Run a workflow and return the execution id. By default runs the current "
+        "draft (your unpublished edits) so you can test changes before "
+        "publishing; set `use_draft=False` to run a published version instead. "
+        "A broken draft returns a fixable validation error. Read the "
+        "`tracecat-manage-workflows` skill."
+    ),
+    default_title="Run workflow",
+    display_group="Workflows",
+)
+async def run(
+    *,
+    workflow_id: Annotated[
+        str,
+        Doc("The workflow ID to run (short `wf_...` or full format)."),
+    ],
+    inputs: Annotated[
+        Any | None,
+        Doc("Trigger inputs to pass to the workflow (arbitrary JSON)."),
+    ] = None,
+    use_draft: Annotated[
+        bool,
+        Doc(
+            "When true (default), run the current draft graph without "
+            "publishing — use this to test in-progress edits. When false, run a "
+            "published definition (see `version`)."
+        ),
+    ] = True,
+    version: Annotated[
+        int | None,
+        Doc(
+            "Published definition version to run. Only applies when "
+            "`use_draft=False`; omit to run the current published version. "
+            "Ignored when `use_draft=True` (a draft has no version)."
+        ),
+    ] = None,
+) -> dict[str, Any]:
+    """Run a workflow's draft or a published version and return the execution id.
+
+    Returns ``{"workflow_id", "workflow_execution_id", "status": "STARTED"}``.
+    """
+    return await ctx.workflows.aio.run(
+        workflow_id=workflow_id,
+        inputs=inputs,
+        use_draft=use_draft,
+        version=version,
+    )
 
 
 @registry.register(
