@@ -5391,6 +5391,7 @@ async def _assert_mapping_targets(
     resource_type: SyncResourceType,
     source_id: str,
     local_id: uuid.UUID,
+    provider: VcsProvider = VcsProvider.GITHUB,
 ) -> None:
     """Assert a sync mapping exists and points at the expected local row."""
     mapping = await _mapping_for(
@@ -5398,6 +5399,7 @@ async def _assert_mapping_targets(
         role=role,
         resource_type=resource_type,
         source_id=source_id,
+        provider=provider,
     )
     assert mapping is not None
     assert mapping.local_id == local_id
