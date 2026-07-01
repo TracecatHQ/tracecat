@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from fastapi import HTTPException
@@ -250,8 +251,10 @@ async def test_slack_oauth_callback_rejects_archived_preset_before_exchange() ->
     service_instances[0].exchange_slack_oauth_code.assert_not_awaited()
     service_instances[0].update_token.assert_not_awaited()
     location = response.headers["location"]
+    query = parse_qs(urlparse(location).query)
     assert "slack_connect=error" in location
-    assert "not+found+in+workspace" in location
+    assert query["slack_message"] == ["Channel configuration is no longer active"]
+    assert str(preset_id) not in location
 
 
 @pytest.mark.anyio
