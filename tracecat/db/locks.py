@@ -39,6 +39,27 @@ async def pg_advisory_lock(session: AsyncSession, key: int) -> AsyncIterator[Non
         await session.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": key})
 
 
+async def pg_advisory_xact_lock(session: AsyncSession, key: int) -> None:
+    """Acquire a transaction-scoped PostgreSQL advisory lock.
+
+    Released automatically when the transaction commits or rolls back. Prefer
+    this over :func:`pg_advisory_lock` when the caller commits while holding the
+    lock — a session-level lock would be orphaned once the connection returns to
+    the pool. Must be called inside a transaction.
+
+    Args:
+        session: Database session
+        key: 64-bit integer key for the lock
+
+    Raises:
+        ValueError: If key is out of valid range for PostgreSQL advisory locks
+    """
+    if not (-(2**63) <= key < 2**63):
+        raise ValueError(f"Lock key {key} out of range for PostgreSQL advisory locks")
+
+    await session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
+
+
 async def try_pg_advisory_lock(session: AsyncSession, key: int) -> bool:
     """Try to acquire a PostgreSQL advisory lock without blocking.
 

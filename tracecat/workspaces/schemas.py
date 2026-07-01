@@ -117,6 +117,13 @@ class WorkspaceMember(Schema):
     last_name: str | None
     email: EmailStr
     role_name: str
+    # Access reaches the workspace through a group; the UI gates the per-row
+    # remove action on this since group-derived access is managed via the group.
+    via_group: bool = False
+    # A direct UserRoleAssignment exists for this workspace. A member can hold
+    # both a direct and a group path; the UI gates the per-row change-role action
+    # on this (the direct assignment is editable even when via_group is true).
+    via_direct: bool = False
 
 
 class WorkspaceRead(Schema):

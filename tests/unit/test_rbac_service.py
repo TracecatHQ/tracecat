@@ -16,6 +16,7 @@ from tracecat.authz.seeding import seed_system_scopes
 from tracecat.db.models import (
     Group,
     GroupMember,
+    Membership,
     Organization,
     OrganizationMembership,
     Scope,
@@ -738,3 +739,201 @@ class TestRBACServiceScopeComputation:
         # With workspace context, org-wide scopes still apply
         scopes = await service.get_group_scopes(user.id, workspace_id=workspace.id)
         assert seeded_scopes[0].name in scopes
+
+
+@pytest.mark.anyio
+class TestRBACMembershipReconcile:
+    """RBAC mutations keep the workspace membership dial in lockstep (ENG-1499)."""
+
+    async def _membership(
+        self, session: AsyncSession, workspace: Workspace, user: User
+    ) -> Membership | None:
+        return await session.scalar(
+            select(Membership).where(
+                Membership.workspace_id == workspace.id,
+                Membership.user_id == user.id,
+            )
+        )
+
+    async def test_ws_scoped_group_assignment_materializes_membership(
+        self,
+        session: AsyncSession,
+        role: Role,
+        user: User,
+        workspace: Workspace,
+        seeded_scopes: list[Scope],
+    ):
+        """Creating a ws-scoped group assignment mints membership for members."""
+        service = RBACService(session, role=role)
+        custom_role = await service.create_role(
+            name="WS Role", scope_ids=[seeded_scopes[0].id]
+        )
+        group = await service.create_group(name="WS Group")
+        await service.add_group_member(group.id, user.id)
+
+        assert await self._membership(session, workspace, user) is None
+
+        await service.create_group_role_assignment(
+            group_id=group.id,
+            role_id=custom_role.id,
+            workspace_id=workspace.id,
+        )
+
+        assert await self._membership(session, workspace, user) is not None
+
+    async def test_org_wide_group_assignment_does_not_materialize_membership(
+        self,
+        session: AsyncSession,
+        role: Role,
+        user: User,
+        workspace: Workspace,
+        seeded_scopes: list[Scope],
+    ):
+        """Org-wide group assignment grants scopes but not workspace membership."""
+        service = RBACService(session, role=role)
+        custom_role = await service.create_role(
+            name="Org Role", scope_ids=[seeded_scopes[0].id]
+        )
+        group = await service.create_group(name="Org Group")
+        await service.add_group_member(group.id, user.id)
+        await service.create_group_role_assignment(
+            group_id=group.id,
+            role_id=custom_role.id,
+            workspace_id=None,
+        )
+
+        assert await self._membership(session, workspace, user) is None
+
+    async def test_adding_member_to_assigned_group_materializes_membership(
+        self,
+        session: AsyncSession,
+        role: Role,
+        user: User,
+        workspace: Workspace,
+        seeded_scopes: list[Scope],
+    ):
+        """Adding a user to a group that already holds a ws assignment mints membership."""
+        service = RBACService(session, role=role)
+        custom_role = await service.create_role(
+            name="WS Role", scope_ids=[seeded_scopes[0].id]
+        )
+        group = await service.create_group(name="WS Group")
+        await service.create_group_role_assignment(
+            group_id=group.id,
+            role_id=custom_role.id,
+            workspace_id=workspace.id,
+        )
+
+        assert await self._membership(session, workspace, user) is None
+
+        await service.add_group_member(group.id, user.id)
+
+        assert await self._membership(session, workspace, user) is not None
+
+    async def test_direct_user_ws_assignment_materializes_membership(
+        self,
+        session: AsyncSession,
+        role: Role,
+        user: User,
+        workspace: Workspace,
+        seeded_scopes: list[Scope],
+    ):
+        """A direct ws-scoped user assignment mints membership."""
+        service = RBACService(session, role=role)
+        custom_role = await service.create_role(
+            name="WS Role", scope_ids=[seeded_scopes[0].id]
+        )
+
+        await service.create_user_assignment(
+            user_id=user.id,
+            role_id=custom_role.id,
+            workspace_id=workspace.id,
+        )
+
+        assert await self._membership(session, workspace, user) is not None
+
+    async def test_deleting_only_ws_path_removes_membership(
+        self,
+        session: AsyncSession,
+        role: Role,
+        user: User,
+        workspace: Workspace,
+        seeded_scopes: list[Scope],
+    ):
+        """Deleting the sole ws-scoped path drops membership."""
+        service = RBACService(session, role=role)
+        custom_role = await service.create_role(
+            name="WS Role", scope_ids=[seeded_scopes[0].id]
+        )
+        assignment = await service.create_user_assignment(
+            user_id=user.id,
+            role_id=custom_role.id,
+            workspace_id=workspace.id,
+        )
+        assert await self._membership(session, workspace, user) is not None
+
+        await service.delete_user_assignment(assignment.id)
+
+        assert await self._membership(session, workspace, user) is None
+
+    async def test_deleting_group_removes_materialized_membership(
+        self,
+        session: AsyncSession,
+        role: Role,
+        user: User,
+        workspace: Workspace,
+        seeded_scopes: list[Scope],
+    ):
+        """Deleting a ws-assigned group drops membership for its members.
+
+        The cascade removes GroupMember/GroupRoleAssignment but not the derived
+        Membership rows, so delete_group must reconcile the affected members.
+        """
+        service = RBACService(session, role=role)
+        custom_role = await service.create_role(
+            name="WS Role", scope_ids=[seeded_scopes[0].id]
+        )
+        group = await service.create_group(name="WS Group")
+        await service.add_group_member(group.id, user.id)
+        await service.create_group_role_assignment(
+            group_id=group.id,
+            role_id=custom_role.id,
+            workspace_id=workspace.id,
+        )
+        assert await self._membership(session, workspace, user) is not None
+
+        await service.delete_group(group.id)
+
+        assert await self._membership(session, workspace, user) is None
+
+    async def test_deleting_group_keeps_membership_with_other_path(
+        self,
+        session: AsyncSession,
+        role: Role,
+        user: User,
+        workspace: Workspace,
+        seeded_scopes: list[Scope],
+    ):
+        """A direct path keeps membership alive when the group is deleted."""
+        service = RBACService(session, role=role)
+        custom_role = await service.create_role(
+            name="WS Role", scope_ids=[seeded_scopes[0].id]
+        )
+        group = await service.create_group(name="WS Group")
+        await service.add_group_member(group.id, user.id)
+        await service.create_group_role_assignment(
+            group_id=group.id,
+            role_id=custom_role.id,
+            workspace_id=workspace.id,
+        )
+        # Independent direct path to the same workspace.
+        await service.create_user_assignment(
+            user_id=user.id,
+            role_id=custom_role.id,
+            workspace_id=workspace.id,
+        )
+        assert await self._membership(session, workspace, user) is not None
+
+        await service.delete_group(group.id)
+
+        assert await self._membership(session, workspace, user) is not None
