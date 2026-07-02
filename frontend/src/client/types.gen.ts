@@ -784,6 +784,22 @@ export type AgentSessionArtifactsRead = {
 }
 
 /**
+ * Request schema for cancelling the active agent session turn.
+ */
+export type AgentSessionCancelRequest = {
+  reason?: "user_cancel"
+}
+
+/**
+ * Response schema for an accepted agent session cancellation request.
+ */
+export type AgentSessionCancelResponse = {
+  session_id: string
+  run_id: string
+  reason: string
+}
+
+/**
  * Request schema for creating an agent session.
  */
 export type AgentSessionCreate = {
@@ -11616,6 +11632,14 @@ export type AgentSessionsForkSessionData = {
 
 export type AgentSessionsForkSessionResponse = AgentSessionRead
 
+export type AgentSessionsCancelSessionData = {
+  requestBody?: AgentSessionCancelRequest | null
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSessionsCancelSessionResponse = AgentSessionCancelResponse
+
 export type ApprovalsSubmitApprovalsData = {
   requestBody: ApprovalSubmission
   sessionId: string
@@ -16801,6 +16825,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AgentSessionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/sessions/{session_id}/cancel": {
+    post: {
+      req: AgentSessionsCancelSessionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentSessionCancelResponse
         /**
          * Validation Error
          */

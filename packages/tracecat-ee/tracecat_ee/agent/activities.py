@@ -12,6 +12,7 @@ from pydantic import (
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from tracecat.agent.common.stream_types import UnifiedStreamEvent
 from tracecat.agent.common.types import (
     MCPHttpServerConfig,
     MCPServerConfig,
@@ -127,6 +128,13 @@ class EmitSessionErrorInputs(BaseModel):
     session_id: uuid.UUID
     workspace_id: uuid.UUID
     message: str
+    active_stream_id: uuid.UUID | None = None
+
+
+class EmitSessionCancelledInputs(BaseModel):
+    session_id: uuid.UUID
+    workspace_id: uuid.UUID
+    reason: str | None = None
     active_stream_id: uuid.UUID | None = None
 
 
@@ -484,6 +492,22 @@ class AgentActivities:
             stream_id=args.active_stream_id,
         )
         await stream.error(args.message)
+        await stream.done()
+
+    @activity.defn
+    async def emit_session_cancelled(self, args: EmitSessionCancelledInputs) -> None:
+        """Push an advisory cancelled-turn notice onto the session's SSE stream.
+
+        Used by workflow branches that cancel while waiting on approval, since
+        those happen outside a running executor activity and never reach the
+        loopback's own cancelled-notice emission.
+        """
+        stream = await AgentStream.new(
+            session_id=args.session_id,
+            workspace_id=args.workspace_id,
+            stream_id=args.active_stream_id,
+        )
+        await stream.append(UnifiedStreamEvent.cancelled_event(reason=args.reason))
         await stream.done()
 
     @activity.defn

@@ -111,6 +111,8 @@ class LoopbackResult:
     output: RuntimeOutput | None = None
     result_usage: ResultUsage | None = None
     result_num_turns: int | None = None
+    cancelled: bool = False
+    cancelled_reason: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -262,6 +264,7 @@ class LoopbackHandler:
         self._result = LoopbackResult(success=False)
         self._sdk_session_id: str | None = None  # Track SDK session ID for this run
         self._stream_done_emitted: bool = False  # Dedupe flag for stream.done()
+        self._interrupt_notice_emitted: bool = False  # Dedupe for cancelled event
         # Track which session lines have been persisted to avoid duplicates
         self._persisted_line_uuids: set[str] = set()
         # Track pending approval tool IDs to suppress synthetic interruption results.
@@ -362,6 +365,34 @@ class LoopbackHandler:
         await stream_sink.error(error)
         await self._emit_stream_done()
         self._result.terminal_stream_error_emitted = True
+
+    def mark_cancelled(self, reason: str) -> None:
+        """Record that the active runtime turn is expected to stop early.
+
+        Advisory only - the terminal "cancelled" notice is emitted from the
+        normal `_handle_done` path once the runtime actually finishes, so it
+        composes with `send_done()`'s existing dedup guard instead of racing
+        an immediate emit against runtime cleanup.
+        """
+        self._result.cancelled = True
+        self._result.cancelled_reason = reason
+
+    async def _emit_interrupt_notice_if_cancelled(
+        self, stream_sink: LoopbackEventSink
+    ) -> None:
+        if not self._result.cancelled or self._interrupt_notice_emitted:
+            return
+        self._interrupt_notice_emitted = True
+        try:
+            await stream_sink.append(
+                UnifiedStreamEvent.cancelled_event(reason=self._result.cancelled_reason)
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to emit cancellation advisory event",
+                session_id=self.input.session_id,
+                error=str(e),
+            )
 
     async def emit_terminal_error(self, error: str) -> bool:
         """Emit a terminal error through the resolved stream sink.
@@ -762,6 +793,7 @@ class LoopbackHandler:
             self._result.error = validation_error
             return True
         self._result.success = True
+        await self._emit_interrupt_notice_if_cancelled(stream_sink)
         await self._emit_stream_done()
         return True
 
@@ -1010,7 +1042,11 @@ class LoopbackHandler:
 
     def _validate_runtime_completion(self) -> str | None:
         """Return a terminal error when runtime completion is missing a usable result."""
-        if self._result.approval_requested or self._result.error is not None:
+        if (
+            self._result.approval_requested
+            or self._result.error is not None
+            or self._result.cancelled
+        ):
             return None
         if not self._received_result:
             return "Runtime completed without final result"

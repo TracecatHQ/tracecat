@@ -80,6 +80,7 @@ from tracecat.artifacts.schemas import ARTIFACT_DATA_PART_TYPE
 from tracecat.chat.constants import (
     APPROVAL_DATA_PART_TYPE,
     APPROVAL_REQUEST_HEADER,
+    CANCELLED_DATA_PART_TYPE,
     COMPACTION_DATA_PART_TYPE,
 )
 from tracecat.chat.enums import MessageKind
@@ -1063,6 +1064,14 @@ class VercelStreamContext:
                 yield DataEventPayload(
                     type=ARTIFACT_DATA_PART_TYPE,
                     data=event.artifact_data.to_dict(),
+                )
+
+            case StreamEventType.CANCELLED:
+                metadata = event.metadata or {}
+                reason = metadata.get("reason")
+                yield DataEventPayload(
+                    type=CANCELLED_DATA_PART_TYPE,
+                    data={"reason": reason if isinstance(reason, str) else None},
                 )
 
             case StreamEventType.ERROR:

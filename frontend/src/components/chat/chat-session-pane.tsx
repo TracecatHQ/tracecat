@@ -103,6 +103,7 @@ import {
   type ApprovalCard,
   makeContinueMessage,
   parseChatError,
+  useCancelChatTurn,
   useUpdateChat,
   useVercelChat,
 } from "@/hooks/use-chat"
@@ -345,6 +346,8 @@ export function ChatSessionPane({
   >(null)
   const optimisticMessageKnownTextPartKeysRef = useRef<Set<string>>(new Set())
   const { updateChat, isUpdating: isUpdatingTools } = useUpdateChat(workspaceId)
+  const { cancelChatTurn, isCancellingChatTurn } =
+    useCancelChatTurn(workspaceId)
   const { registryActions, registryActionsIsLoading } =
     useBuilderRegistryActions()
   const sessionMcpEnabled = mcpEnabled && entityType === "copilot"
@@ -475,6 +478,27 @@ export function ChatSessionPane({
   const isOptimisticBeforeSendPending = optimisticMessageText !== null
   const isInputDisabled =
     isReadonly || inputDisabled || isOptimisticBeforeSendPending || !canSubmit
+
+  const isGeneratingTurn = status === "submitted" || status === "streaming"
+  const [cancelRequested, setCancelRequested] = useState(false)
+
+  useEffect(() => {
+    if (!isGeneratingTurn) setCancelRequested(false)
+  }, [isGeneratingTurn])
+
+  const handleStop = useCallback(async () => {
+    if (!chat?.id || cancelRequested) return
+    setCancelRequested(true)
+    try {
+      await cancelChatTurn({ chatId: chat.id })
+    } catch (error) {
+      setCancelRequested(false)
+      toast({
+        title: "Failed to stop run",
+        description: parseChatError(error),
+      })
+    }
+  }, [cancelChatTurn, cancelRequested, chat?.id])
   const isInputDisabledRef = useRef(isInputDisabled)
   isInputDisabledRef.current = isInputDisabled
   const wasInputDisabledRef = useRef(isInputDisabled)
@@ -1253,7 +1277,12 @@ export function ChatSessionPane({
             ) : null}
           </PromptInputTools>
           <PromptInputSubmit
-            disabled={isInputDisabled || !input.trim()}
+            disabled={
+              isGeneratingTurn
+                ? isCancellingChatTurn || cancelRequested
+                : isInputDisabled || !input.trim()
+            }
+            onStop={() => void handleStop()}
             status={status}
             className="text-muted-foreground/80"
           />
@@ -1630,6 +1659,19 @@ export function MessagePart({
   isLastMessage: boolean
   onSubmitApprovals?: (decisions: ApprovalDecision[]) => Promise<void>
 }) {
+  if (part.type === "data-cancelled") {
+    return (
+      <div
+        key={`${id}-${partIdx}`}
+        className="flex w-full justify-center py-1.5"
+      >
+        <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs text-muted-foreground">
+          Chat stopped
+        </div>
+      </div>
+    )
+  }
+
   if (part.type === "data-approval-request") {
     const payload = (part as { data?: unknown }).data
     const approvals: ApprovalCard[] = Array.isArray(payload)

@@ -77,6 +77,7 @@ from .schemas import (
 )
 
 BROKER_TASK_CANCEL_TIMEOUT_SECONDS = 5.0
+GRACEFUL_CANCEL_TIMEOUT_SECONDS = 30.0
 
 
 class AgentExecutorInput(BaseModel):
@@ -142,6 +143,8 @@ class AgentExecutorResult(BaseModel):
     )
     result_usage: dict[str, Any] | None = None
     result_num_turns: int | None = None
+    cancelled: bool = False
+    cancelled_reason: str | None = None
 
 
 class ExecuteApprovedToolsInput(BaseModel):
@@ -507,6 +510,8 @@ class SandboxedAgentExecutor:
             result.output = loopback_result.output
         result.result_usage = loopback_result.result_usage
         result.result_num_turns = loopback_result.result_num_turns
+        result.cancelled = loopback_result.cancelled
+        result.cancelled_reason = loopback_result.cancelled_reason
 
     async def _run_with_broker(
         self,
@@ -560,7 +565,7 @@ class SandboxedAgentExecutor:
                 self._log_benchmark_phase("broker_turn_dispatched")
 
                 fatal_error_task = asyncio.create_task(wait_fatal_error())
-                heartbeat_interval = 30
+                heartbeat_interval = 5
                 elapsed = 0
 
                 while elapsed < self.timeout_seconds:
@@ -635,8 +640,34 @@ class SandboxedAgentExecutor:
             if not isinstance(e, ConcurrentSessionTurnError):
                 raise
         except asyncio.CancelledError:
-            await broker.cancel_turn(str(self.input.session_id))
-            raise
+            reason = "user_cancel"
+            logger.info(
+                "Agent activity cancellation requested",
+                session_id=self.input.session_id,
+                reason=reason,
+            )
+            handler.mark_cancelled(reason)
+            try:
+                async with asyncio.timeout(GRACEFUL_CANCEL_TIMEOUT_SECONDS):
+                    await broker.interrupt_turn(str(self.input.session_id), reason)
+                    if broker_task is not None:
+                        await broker_task
+            except TimeoutError:
+                logger.warning(
+                    "Timed out gracefully cancelling agent activity",
+                    session_id=self.input.session_id,
+                )
+                await broker.cancel_turn(str(self.input.session_id))
+                raise
+            except asyncio.CancelledError:
+                await broker.cancel_turn(str(self.input.session_id))
+                raise
+
+            self._apply_loopback_result(result, handler.build_result())
+            if result.error is None:
+                result.success = True
+            result.cancelled = True
+            result.cancelled_reason = reason
         finally:
             for task in (fatal_error_task, broker_task):
                 await _cancel_task_with_timeout(task, task_name="agent_executor_task")
