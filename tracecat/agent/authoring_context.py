@@ -178,7 +178,14 @@ def optional_secret_names(
 
 
 async def load_secret_inventory(role: Role) -> dict[str, set[str]]:
-    """Load workspace secret key inventory for the default environment."""
+    """Load workspace secret key inventory for the default environment.
+
+    Returns an empty inventory when the caller lacks ``secret:read`` so callers
+    that surface ``configured``/``missing_requirements`` never enumerate which
+    secret names+keys the workspace has to an unauthorized author.
+    """
+    if not has_scope(role.scopes or frozenset(), "secret:read"):
+        return {}
     async with SecretsService.with_session(role=role) as svc:
         workspace_inventory: dict[str, set[str]] = {}
         workspace_secrets = await svc.list_secrets()
@@ -200,7 +207,13 @@ async def load_oauth_inventory(role: Role) -> set[ProviderKey]:
     OAuth flow not completed) yields no token at runtime, so it must not count
     as configured for action readiness. Keys are workspace-level
     ``(provider_id, grant_type)`` pairs, not per-user rows.
+
+    Returns an empty inventory when the caller lacks ``integration:read`` so
+    callers that surface ``configured``/``missing_requirements`` never disclose
+    which OAuth integrations the workspace has to an unauthorized author.
     """
+    if not has_scope(role.scopes or frozenset(), "integration:read"):
+        return set()
     async with IntegrationService.with_session(role=role) as svc:
         integrations = await svc.list_integrations()
     return {
@@ -266,20 +279,8 @@ async def build_action_contexts(
     """
     resolved_names = list(action_names) if action_names else []
 
-    scopes = role.scopes or frozenset()
-    # Gate the secret/OAuth inventory reads the same way build_secret_hints/
-    # build_variable_hints do: do not enumerate workspace secret names/keys or
-    # connected integrations to an author who lacks secret:read/integration:read.
-    # Without the scope the inventory is empty, so configured/missing_requirements
-    # never reveal which credentials this workspace actually has.
-    workspace_inventory = (
-        await load_secret_inventory(role) if has_scope(scopes, "secret:read") else {}
-    )
-    oauth_inventory = (
-        await load_oauth_inventory(role)
-        if has_scope(scopes, "integration:read")
-        else set()
-    )
+    workspace_inventory = await load_secret_inventory(role)
+    oauth_inventory = await load_oauth_inventory(role)
     action_contexts: list[ActionContextResponse] = []
     async with RegistryActionsService.with_session(role=role) as registry_svc:
         if not resolved_names and query:

@@ -18,6 +18,12 @@ from pydantic import (
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import WorkspaceID
 
+# Reserved name prefix for built-in/platform skills. User- and preset-authored
+# skills may not use it, so platform skills (staged into the same on-disk skills
+# directory) can never collide with a user skill of the same name. Kept in sync
+# with ``tracecat_ee.workspace_chat.skills.BUILTIN_SKILL_NAME_PREFIX``.
+RESERVED_SKILL_NAME_PREFIX = "tracecat-"
+
 
 def _validate_skill_name(value: str) -> str:
     if value.startswith("-") or value.endswith("-"):
@@ -27,15 +33,40 @@ def _validate_skill_name(value: str) -> str:
     return value
 
 
+def _validate_new_skill_name(value: str) -> str:
+    value = _validate_skill_name(value)
+    if value.startswith(RESERVED_SKILL_NAME_PREFIX):
+        raise ValueError(
+            f"Skill name must not start with the reserved prefix "
+            f"{RESERVED_SKILL_NAME_PREFIX!r}"
+        )
+    return value
+
+
+_SKILL_NAME_CONSTRAINTS = StringConstraints(
+    strip_whitespace=True,
+    min_length=1,
+    max_length=64,
+    pattern=r"^[a-z0-9-]+$",
+)
+
+# Identifier-shaped skill name. Used for lookups (e.g. name-based skill routes),
+# so it accepts reserved-prefix names — workspaces may hold legacy skills named
+# ``tracecat-*`` from before the prefix was reserved, and those must remain
+# readable by name.
 SkillName = Annotated[
     str,
-    StringConstraints(
-        strip_whitespace=True,
-        min_length=1,
-        max_length=64,
-        pattern=r"^[a-z0-9-]+$",
-    ),
+    _SKILL_NAME_CONSTRAINTS,
     AfterValidator(_validate_skill_name),
+]
+
+# Skill name for create/upload/publish payloads. Additionally rejects the
+# reserved built-in prefix so no new user skill can collide with a platform
+# skill staged into the same on-disk skills directory.
+NewSkillName = Annotated[
+    str,
+    _SKILL_NAME_CONSTRAINTS,
+    AfterValidator(_validate_new_skill_name),
 ]
 SkillPath = Annotated[
     str,
@@ -97,7 +128,7 @@ class SkillReadMinimal(Schema):
 class SkillCreate(Schema):
     """Payload for creating a new logical skill."""
 
-    name: SkillName
+    name: NewSkillName
     description: str | None = Field(default=None, max_length=4000)
 
 
@@ -112,7 +143,7 @@ class SkillUploadFile(Schema):
 class SkillUpload(Schema):
     """Payload for importing a full skill draft in one request."""
 
-    name: SkillName
+    name: NewSkillName
     files: list[SkillUploadFile] = Field(min_length=1)
 
 

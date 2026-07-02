@@ -1,6 +1,8 @@
 # Store default tools for each entity type
 from tracecat.agent.mcp.internal_tools import BUILDER_INTERNAL_TOOL_NAMES
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.auth.types import Role
+from tracecat.authz.controls import has_scope
 
 WORKSPACE_CHAT_AGENT_DEFAULT_TOOLS = [
     "ai.agent.create_preset",
@@ -75,6 +77,33 @@ def filter_workspace_chat_tools_for_entitlements(
 
     blocked_defaults = set(WORKSPACE_CHAT_AGENT_DEFAULT_TOOLS)
     return [tool for tool in tools if tool not in blocked_defaults]
+
+
+def filter_workspace_chat_tools_for_scopes(
+    tools: list[str],
+    *,
+    role: Role,
+) -> list[str]:
+    """Drop chat tools the caller's RBAC does not authorize them to execute.
+
+    Chat tools run through the executor, which authorizes the underlying action
+    against the ``tracecat-executor`` service principal (whose allowlist includes
+    ``action:*:execute``), NOT against the chat user's RBAC. The user only passes
+    one scope gate -- ``agent:execute`` at session start -- so without this filter
+    ``agent:execute`` would implicitly let the agent run any action on the user's
+    behalf, including creating agents, editing workflows, or deleting cases.
+
+    Every registry action carries an ``action:{action_key}:execute`` scope (see
+    ``_seed_registry_scopes``), and the executor enforces exactly that scope via
+    :func:`require_action_scope` at dispatch time. We mirror that check here --
+    the last point where the user's real role is available -- so a tool is only
+    offered when the user could execute the same action directly. The match is
+    dynamic (derived from the tool name, no hardcoded list) and uses the same
+    :func:`has_scope` semantics as the executor, including the ``"*"`` superuser
+    bypass and wildcard grants (``action:*:execute``, ``action:core.*:execute``).
+    """
+    granted = role.scopes or frozenset()
+    return [tool for tool in tools if has_scope(granted, f"action:{tool}:execute")]
 
 
 def get_default_tools(

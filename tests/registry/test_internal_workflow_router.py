@@ -453,6 +453,40 @@ class TestInvalidPatchApplicationRaisesToolError:
             )
 
 
+class TestInternalRouterCoversSdkPaths:
+    """The internal router must expose every path the workflows SDK calls.
+
+    ``TracecatClient`` normalizes the SDK base URL under ``/internal``, so any
+    SDK method whose path is missing from the internal router 404s when a
+    registry action invokes it. These assertions lock the webhook and
+    case-trigger routes (added alongside the chat tools that drive them) into
+    the router so the SDK<->route contract can't silently drift.
+    """
+
+    def _routes(self) -> set[tuple[str, str]]:
+        from tracecat.workflow.executions.internal_router import router
+
+        routes: set[tuple[str, str]] = set()
+        for route in router.routes:
+            for method in getattr(route, "methods", None) or []:
+                routes.add((method, getattr(route, "path", "")))
+        return routes
+
+    @pytest.mark.parametrize(
+        ("method", "path"),
+        [
+            ("GET", "/internal/workflows/{workflow_id}/webhook"),
+            ("PATCH", "/internal/workflows/{workflow_id}/webhook"),
+            ("GET", "/internal/workflows/{workflow_id}/case-trigger"),
+            ("PATCH", "/internal/workflows/{workflow_id}/case-trigger"),
+        ],
+    )
+    def test_webhook_and_case_trigger_routes_registered(
+        self, method: str, path: str
+    ) -> None:
+        assert (method, path) in self._routes()
+
+
 class TestWorkflowAuthoringContextRequest:
     """Tests for the authoring-context request schema."""
 

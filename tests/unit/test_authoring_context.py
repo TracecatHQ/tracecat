@@ -242,3 +242,169 @@ class TestBuildEnabledModels:
         )
 
         assert await build_enabled_models(role=role) == []  # type: ignore[arg-type]
+
+
+class TestComputeAttributedUserScopes:
+    """Service roles with an attributed user resolve that user's real scopes."""
+
+    async def test_none_for_user_role(self) -> None:
+        from tracecat.auth.credentials import compute_attributed_user_scopes
+        from tracecat.auth.types import Role
+
+        role = Role(
+            type="user",
+            service_id="tracecat-api",
+            user_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+            workspace_id=uuid.uuid4(),
+        )
+        assert await compute_attributed_user_scopes(role) is None
+
+    async def test_none_for_unattributed_service_role(self) -> None:
+        from tracecat.auth.credentials import compute_attributed_user_scopes
+        from tracecat.auth.types import Role
+
+        role = Role(
+            type="service",
+            service_id="tracecat-executor",
+            organization_id=uuid.uuid4(),
+            workspace_id=uuid.uuid4(),
+        )
+        assert await compute_attributed_user_scopes(role) is None
+
+    async def test_resolves_user_scopes_for_attributed_service_role(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from tracecat.auth import credentials
+        from tracecat.auth.types import Role
+
+        user_id = uuid.uuid4()
+        org_id = uuid.uuid4()
+        ws_id = uuid.uuid4()
+        role = Role(
+            type="service",
+            service_id="tracecat-executor",
+            user_id=user_id,
+            organization_id=org_id,
+            workspace_id=ws_id,
+        )
+
+        async def _fake_scopes(
+            uid: uuid.UUID, oid: uuid.UUID, wid: uuid.UUID | None
+        ) -> frozenset[str]:
+            assert (uid, oid, wid) == (user_id, org_id, ws_id)
+            return frozenset({"workflow:read"})
+
+        monkeypatch.setattr(
+            credentials, "_compute_effective_scopes_cached", _fake_scopes
+        )
+
+        scopes = await credentials.compute_attributed_user_scopes(role)
+        assert scopes == frozenset({"workflow:read"})
+
+
+class TestAuthoringContextRouteCallerScoping:
+    """The internal authoring-context route gates inventory by the real caller.
+
+    The route authenticates the executor service principal (whose allowlist
+    includes secret:read/integration:read/variable:read), so the builders must
+    be handed a role narrowed to the attributed chat user's scopes.
+    """
+
+    @staticmethod
+    def _executor_role() -> Any:
+        from tracecat.auth.types import Role
+
+        return Role(
+            type="service",
+            service_id="tracecat-executor",
+            user_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+            workspace_id=uuid.uuid4(),
+            scopes=frozenset(
+                {"workflow:read", "secret:read", "integration:read", "variable:read"}
+            ),
+        )
+
+    async def _call_route(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        role: Any,
+        attributed_scopes: frozenset[str] | None,
+    ) -> dict[str, frozenset[str]]:
+        from tracecat.contexts import ctx_role
+        from tracecat.mcp.schemas import WorkflowAuthoringContextRequest
+        from tracecat.workflow.executions import internal_router
+
+        seen: dict[str, frozenset[str]] = {}
+
+        async def _fake_attributed(_role: Any) -> frozenset[str] | None:
+            return attributed_scopes
+
+        async def _fake_actions(*, role: Any, **_kwargs: Any) -> list[Any]:
+            seen["actions"] = role.scopes
+            return []
+
+        def _capture(key: str) -> Any:
+            async def _fake(*, role: Any) -> list[Any]:
+                seen[key] = role.scopes
+                return []
+
+            return _fake
+
+        monkeypatch.setattr(
+            internal_router, "compute_attributed_user_scopes", _fake_attributed
+        )
+        monkeypatch.setattr(internal_router, "build_action_contexts", _fake_actions)
+        monkeypatch.setattr(
+            internal_router, "build_variable_hints", _capture("variable_hints")
+        )
+        monkeypatch.setattr(
+            internal_router, "build_secret_hints", _capture("secret_hints")
+        )
+        monkeypatch.setattr(
+            internal_router, "build_enabled_models", _capture("enabled_models")
+        )
+
+        token = ctx_role.set(role)
+        try:
+            await internal_router.get_authoring_context(
+                role=role,
+                session=None,  # type: ignore[arg-type]
+                params=WorkflowAuthoringContextRequest(),
+            )
+        finally:
+            ctx_role.reset(token)
+        return seen
+
+    async def test_narrows_builders_to_attributed_user_scopes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        role = self._executor_role()
+        user_scopes = frozenset({"workflow:read"})
+
+        seen = await self._call_route(
+            monkeypatch, role=role, attributed_scopes=user_scopes
+        )
+
+        assert seen == {
+            "actions": user_scopes,
+            "variable_hints": user_scopes,
+            "secret_hints": user_scopes,
+            "enabled_models": user_scopes,
+        }
+
+    async def test_unattributed_calls_keep_service_scopes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        role = self._executor_role()
+
+        seen = await self._call_route(monkeypatch, role=role, attributed_scopes=None)
+
+        assert seen == {
+            "actions": role.scopes,
+            "variable_hints": role.scopes,
+            "secret_hints": role.scopes,
+            "enabled_models": role.scopes,
+        }

@@ -7570,7 +7570,6 @@ async def _build_agent_preset_authoring_context(
     # build_variable_hints do: do not enumerate workspace secret or variable
     # names/keys to a preset author who lacks secret:read/variable:read.
     can_read_variables = has_scope(scopes, "variable:read")
-    can_read_secrets = has_scope(scopes, "secret:read")
 
     if can_read_variables:
         async with VariablesService.with_session(role=role) as svc:
@@ -7580,7 +7579,7 @@ async def _build_agent_preset_authoring_context(
     else:
         variables = []
 
-    workspace_inventory = await load_secret_inventory(role) if can_read_secrets else {}
+    workspace_inventory = await load_secret_inventory(role)
     models_by_provider: dict[str, list[str]] = defaultdict(list)
     for model_name, model in sorted(models.items(), key=lambda item: item[0]):
         provider = cast(str, model.model_dump(mode="json")["provider"])
@@ -7612,12 +7611,8 @@ async def _build_agent_preset_authoring_context(
         ],
     }
 
-    raw_integrations = await _build_integrations_inventory(role)
-    integrations = (
-        raw_integrations
-        if isinstance(raw_integrations, IntegrationsInventoryResponse)
-        else IntegrationsInventoryResponse.model_validate(raw_integrations)
-    )
+    integrations = await _build_integrations_inventory(role)
+
     truncated_sections, truncation = _truncate_named_sections(
         {
             "models": [

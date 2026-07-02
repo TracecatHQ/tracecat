@@ -19,8 +19,7 @@ own embedded collection truncation behavior below.
 - `list_workflow_tree(workspace_id, path="/", depth=1, include_workflows=True, limit=20, cursor=None)`
 - `validate_workflow(workspace_id, workflow_id)`
 - `publish_workflow(workspace_id, workflow_id)`
-- `run_draft_workflow(workspace_id, workflow_id, inputs=None, title=None, description=None)`
-- `run_published_workflow(workspace_id, workflow_id, inputs=None)`
+- `run_workflow(workspace_id, workflow_id, inputs=None, use_draft=True, version=None)`
 - `list_workflow_executions(workspace_id, workflow_id, limit=20, cursor=None)`
 - `get_workflow_execution(workspace_id, execution_id)`
 

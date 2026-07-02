@@ -146,6 +146,17 @@ class AgentConfig:
     enable_thinking: bool = True
     enable_internet_access: bool = False
     resolved_skills: list[ResolvedSkillRef] | None = None
+    builtin_skills: list[str] | None = None
+    """Names of built-in platform skills to stage into the agent's skills
+    directory, independent of preset-bound ``resolved_skills``. Names only (not
+    host paths) so the value is Temporal-replay-safe; the executor resolves each
+    name to a packaged skill directory at stage time.
+
+    Unlike ``resolved_skills``, these carry no version or manifest digest:
+    built-in skills ship inside the ``tracecat_ee`` package, so their content
+    is pinned by the deployed code version itself. A name here always stages
+    whatever the executor's installed package contains — there is no separate
+    artifact to pin or verify."""
 
 
 # --- Tool Types (Harness-Agnostic) ---

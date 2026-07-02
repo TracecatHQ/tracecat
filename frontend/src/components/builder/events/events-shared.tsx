@@ -73,8 +73,15 @@ export function EventsLoading({ message }: { message: string }) {
  * matching the user's selected trigger types. Shared by the builder events
  * sidebar and the embedded workflow artifact so their loading, error, and empty
  * states stay in sync.
+ *
+ * Pass ``pollIntervalMs`` to poll the latest-execution list while mounted, so a
+ * run started outside this view (e.g. a chat agent calling
+ * ``core.workflow.execute``) is discovered and shown live without an explicit
+ * cache invalidation tying the run back to this panel.
  */
-export function useResolvedLastExecution(): ResolvedLastExecution {
+export function useResolvedLastExecution(
+  pollIntervalMs?: number
+): ResolvedLastExecution {
   const { workflowId } = useWorkflow()
   const { currentExecutionId } = useWorkflowBuilder()
   const [selectedTriggerTypes] = useLocalStorage<TriggerType[]>(
@@ -87,6 +94,8 @@ export function useResolvedLastExecution(): ResolvedLastExecution {
       // Prefer the direct execution id (e.g. a run just triggered) over the query.
       workflowId: currentExecutionId ? undefined : workflowId,
       triggerTypes: selectedTriggerTypes,
+      // Only poll for discovery when a direct run isn't already pinned.
+      refetchInterval: currentExecutionId ? undefined : pollIntervalMs,
     })
 
   const executionId = currentExecutionId || lastExecution?.id

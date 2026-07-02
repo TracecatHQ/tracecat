@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 from starlette.status import (
     HTTP_200_OK,
     HTTP_201_CREATED,
+    HTTP_204_NO_CONTENT,
     HTTP_400_BAD_REQUEST,
     HTTP_404_NOT_FOUND,
     HTTP_409_CONFLICT,
@@ -27,6 +28,7 @@ from tracecat.agent.authoring_context import (
     build_secret_hints,
     build_variable_hints,
 )
+from tracecat.auth.credentials import compute_attributed_user_scopes
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
@@ -51,6 +53,13 @@ from tracecat.mcp.schemas import (
     WorkflowEditResponse,
 )
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.webhooks import service as webhook_service
+from tracecat.webhooks.schemas import WebhookRead, WebhookUpdate
+from tracecat.workflow.case_triggers.schemas import (
+    CaseTriggerRead,
+    CaseTriggerUpdate,
+)
+from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.executions.enums import TriggerType
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
@@ -595,6 +604,112 @@ async def publish_workflow(
     )
 
 
+@router.get("/{workflow_id}/webhook", status_code=HTTP_200_OK)
+@require_scope("workflow:read")
+async def get_webhook(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    workflow_id: AnyWorkflowIDPath,
+) -> WebhookRead:
+    """Return a workflow's webhook trigger configuration.
+
+    Mirrors the public ``GET /workflows/{id}/webhook`` route so the workflows
+    SDK (which resolves under ``/internal``) can read webhook config.
+    """
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
+        )
+    webhook = await webhook_service.get_webhook(
+        session=session,
+        workspace_id=role.workspace_id,
+        workflow_id=workflow_id,
+    )
+    if webhook is None:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail="Webhook not found")
+    return WebhookRead.model_validate(webhook, from_attributes=True)
+
+
+@router.patch("/{workflow_id}/webhook", status_code=HTTP_204_NO_CONTENT)
+@require_scope("workflow:update")
+async def update_webhook(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    workflow_id: AnyWorkflowIDPath,
+    params: WebhookUpdate,
+) -> None:
+    """Update a workflow's webhook trigger configuration.
+
+    Mirrors the public ``PATCH /workflows/{id}/webhook`` route so the workflows
+    SDK (which resolves under ``/internal``) can enable/disable webhooks.
+    """
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
+        )
+    webhook = await webhook_service.get_webhook(
+        session=session,
+        workspace_id=role.workspace_id,
+        workflow_id=workflow_id,
+    )
+    if webhook is None:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail="Webhook not found")
+    for key, value in params.model_dump(exclude_unset=True).items():
+        # Safety: params have been validated by WebhookUpdate
+        setattr(webhook, key, value)
+    session.add(webhook)
+    await session.commit()
+    await session.refresh(webhook)
+
+
+@router.get("/{workflow_id}/case-trigger", status_code=HTTP_200_OK)
+@require_scope("workflow:read")
+async def get_case_trigger(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    workflow_id: AnyWorkflowIDPath,
+) -> CaseTriggerRead:
+    """Return a workflow's case-trigger configuration.
+
+    Mirrors the public ``GET /workflows/{id}/case-trigger`` route so the
+    workflows SDK (which resolves under ``/internal``) can read case triggers.
+    """
+    service = CaseTriggersService(session, role=role)
+    try:
+        case_trigger = await service.get_case_trigger(workflow_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(e)) from e
+    return CaseTriggerRead.model_validate(case_trigger, from_attributes=True)
+
+
+@router.patch("/{workflow_id}/case-trigger", status_code=HTTP_204_NO_CONTENT)
+@require_scope("workflow:update")
+async def update_case_trigger(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    workflow_id: AnyWorkflowIDPath,
+    params: CaseTriggerUpdate,
+) -> None:
+    """Update a workflow's case-trigger configuration.
+
+    Mirrors the public ``PATCH /workflows/{id}/case-trigger`` route so the
+    workflows SDK (which resolves under ``/internal``) can configure case
+    triggers. Correctable authoring mistakes (unpublished workflow, online
+    with no event types, unknown tag) become 400/404, not 500.
+    """
+    service = CaseTriggersService(session, role=role)
+    try:
+        await service.update_case_trigger(workflow_id, params)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatValidationError as e:
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.post("/authoring-context", status_code=HTTP_200_OK)
 @require_scope("workflow:read")
 async def get_authoring_context(
@@ -611,14 +726,28 @@ async def get_authoring_context(
     by ``query`` search; with neither, returns only the workspace
     variable/secret hints.
     """
+    # This route authenticates the executor service principal, whose static
+    # allowlist includes secret:read/integration:read/variable:read — so the
+    # data-read gates in the context builders would always pass regardless of
+    # the human caller's RBAC. When the executor token attributes a user (chat
+    # tool calls do), evaluate those gates against that user's real scopes so
+    # secret/variable/OAuth inventory is never enumerated to an author whose
+    # own role could not read it. Unattributed machine calls (schedules,
+    # subflows) keep the service scopes and current behavior.
+    user_scopes = await compute_attributed_user_scopes(role)
+    context_role = (
+        role.model_copy(update={"scopes": user_scopes})
+        if user_scopes is not None
+        else role
+    )
     actions = await build_action_contexts(
-        role=role,
+        role=context_role,
         action_names=params.action_names,
         query=params.query,
     )
-    variable_hints = await build_variable_hints(role=role)
-    secret_hints = await build_secret_hints(role=role)
-    enabled_models = await build_enabled_models(role=role)
+    variable_hints = await build_variable_hints(role=context_role)
+    secret_hints = await build_secret_hints(role=context_role)
+    enabled_models = await build_enabled_models(role=context_role)
     return WorkflowAuthoringContextResponse(
         actions=actions,
         variable_hints=variable_hints,

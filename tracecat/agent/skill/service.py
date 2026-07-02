@@ -23,6 +23,7 @@ from sqlalchemy.orm import selectinload
 from tracecat import config
 from tracecat.agent.preset.schemas import AgentPresetSkillBindingBase
 from tracecat.agent.skill.schemas import (
+    NewSkillName,
     SkillCreate,
     SkillDraftAttachUploadedBlobOp,
     SkillDraftDeleteFileOp,
@@ -73,7 +74,10 @@ from tracecat.tiers.enums import Entitlement
 INLINE_TEXT_LIMIT_BYTES = 256 * 1024
 DEFAULT_UPLOAD_TTL_SECONDS = 15 * 60
 MAX_CONTENT_TYPE_LENGTH = 255
+# Lenient adapter for name-based lookups: accepts legacy reserved-prefix names.
 SKILL_NAME_ADAPTER = TypeAdapter(SkillName)
+# Strict adapter for draft/publish manifest validation: rejects reserved names.
+NEW_SKILL_NAME_ADAPTER = TypeAdapter(NewSkillName)
 
 
 @dataclass(slots=True)
@@ -768,14 +772,15 @@ class SkillService(BaseWorkspaceService):
             )
             return result
         try:
-            result.name = SKILL_NAME_ADAPTER.validate_python(result.name)
+            result.name = NEW_SKILL_NAME_ADAPTER.validate_python(result.name)
         except ValidationError:
             result.errors.append(
                 SkillValidationErrorDetail(
                     code="invalid_skill_name",
                     message=(
                         "Root SKILL.md frontmatter name must be 1-64 characters "
-                        "of lowercase letters, numbers, and single hyphens"
+                        "of lowercase letters, numbers, and single hyphens, and "
+                        "must not use the reserved 'tracecat-' prefix"
                     ),
                     path="SKILL.md",
                 )
@@ -864,14 +869,15 @@ class SkillService(BaseWorkspaceService):
             )
             return result
         try:
-            result.name = SKILL_NAME_ADAPTER.validate_python(result.name)
+            result.name = NEW_SKILL_NAME_ADAPTER.validate_python(result.name)
         except ValidationError:
             result.errors.append(
                 SkillValidationErrorDetail(
                     code="invalid_skill_name",
                     message=(
                         "Root SKILL.md frontmatter name must be 1-64 characters "
-                        "of lowercase letters, numbers, and single hyphens"
+                        "of lowercase letters, numbers, and single hyphens, and "
+                        "must not use the reserved 'tracecat-' prefix"
                     ),
                     path="SKILL.md",
                 )

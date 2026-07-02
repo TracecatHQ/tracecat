@@ -31,6 +31,10 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import SQLAlchemyError
 from temporalio.common import TypedSearchAttributes
+from tracecat_ee.workspace_chat.policy import is_workspace_chat_entitled
+from tracecat_ee.workspace_chat.skills import (
+    BUILTIN_WORKSPACE_CHAT_SKILLS,
+)
 from tracecat_registry._internal.exceptions import SecretNotFoundError
 
 import tracecat.agent.adapter.vercel
@@ -87,6 +91,7 @@ from tracecat.chat.schemas import (
 from tracecat.chat.service import ChatService
 from tracecat.chat.tools import (
     filter_workspace_chat_tools_for_entitlements,
+    filter_workspace_chat_tools_for_scopes,
     get_default_tools,
 )
 from tracecat.db.models import (
@@ -157,6 +162,19 @@ class AgentSessionService(BaseWorkspaceService):
             agent_addons_enabled=await self.has_entitlement(Entitlement.AGENT_ADDONS),
         )
 
+    async def _resolve_builtin_workspace_chat_skills(self) -> list[str] | None:
+        """Always-on platform skills staged for entitled workspace-chat sessions.
+
+        Returns the reserved-prefix skill names to stage into the copilot's
+        skills directory, or ``None`` when the org is not entitled to Workspace
+        Chat or the Enterprise package is unavailable. Names only — the executor
+        resolves each to a packaged skill directory at stage time.
+        """
+
+        if not await is_workspace_chat_entitled(self.session, self.role):
+            return None
+        return list(BUILTIN_WORKSPACE_CHAT_SKILLS)
+
     async def _resolve_workspace_chat_actions(
         self,
         agent_session: AgentSession,
@@ -170,6 +188,12 @@ class AgentSessionService(BaseWorkspaceService):
         defaults = await self._get_default_tools(AgentSessionEntity.WORKSPACE_CHAT)
         extras = agent_session.tools or []
         merged = list(dict.fromkeys([*defaults, *extras]))
+        # Chat tools execute under the executor service principal, which the
+        # internal API routes authorize against the service allowlist rather than
+        # the chat user's RBAC. Enforce the caller's action scopes here -- the
+        # last point where the user's real role is available -- so `agent:execute`
+        # alone cannot grant workflow create/edit or case delete via these tools.
+        merged = filter_workspace_chat_tools_for_scopes(merged, role=self.role)
         return await self._workspace_chat_tools_for_entitlements(merged)
 
     async def _resolve_session_mcp_servers(
@@ -1748,6 +1772,9 @@ class AgentSessionService(BaseWorkspaceService):
         elif session_entity is AgentSessionEntity.WORKSPACE_CHAT:
             # Copilot uses org-level credentials, not workspace credentials
             entity_instructions = await self._entity_to_prompt(agent_session)
+            # Always-on platform skills (e.g. workflow management) staged for
+            # every entitled workspace-chat session, with or without a preset.
+            builtin_skills = await self._resolve_builtin_workspace_chat_skills()
             if agent_session.agent_preset_id:
                 async with agent_svc.with_preset_config(
                     preset_id=agent_session.agent_preset_id,
@@ -1758,7 +1785,25 @@ class AgentSessionService(BaseWorkspaceService):
                         if preset_config.instructions
                         else entity_instructions
                     )
-                    config = replace(preset_config, instructions=combined_instructions)
+                    # A preset carries its own actions/namespaces, so it must pass
+                    # the same user-scope gate as the no-preset path -- otherwise
+                    # attaching a preset (only `agent:execute` is needed) would let
+                    # the agent run actions the user lacks scopes for. (`namespaces`
+                    # only narrows this set at tool-build time, never widens it, so
+                    # filtering `actions` is sufficient.)
+                    scoped_actions = (
+                        filter_workspace_chat_tools_for_scopes(
+                            preset_config.actions, role=self.role
+                        )
+                        if preset_config.actions is not None
+                        else None
+                    )
+                    config = replace(
+                        preset_config,
+                        instructions=combined_instructions,
+                        actions=scoped_actions,
+                        builtin_skills=builtin_skills,
+                    )
                     yield config
             else:
                 # Copilot without preset uses org-level credentials (default).
@@ -1776,6 +1821,7 @@ class AgentSessionService(BaseWorkspaceService):
                         catalog_id=model_config.catalog_id,
                         actions=actions,
                         mcp_servers=mcp_servers,
+                        builtin_skills=builtin_skills,
                     )
         elif session_entity in (
             AgentSessionEntity.WORKFLOW,

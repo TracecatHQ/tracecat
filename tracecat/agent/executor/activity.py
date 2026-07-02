@@ -8,6 +8,7 @@ import tempfile
 import uuid
 from collections import Counter
 from dataclasses import dataclass, field
+from importlib.resources import as_file, files
 from pathlib import Path
 from time import perf_counter
 from typing import Any, cast
@@ -17,6 +18,7 @@ from temporalio import activity
 from tracecat_ee.workspace_chat.policy import (
     is_workspace_chat_entitled,
 )
+from tracecat_ee.workspace_chat.skills import BUILTIN_SKILL_NAME_PREFIX
 
 from tracecat import config as app_config
 from tracecat.agent.artifacts.working_set import ArtifactWorkingSetInput
@@ -654,6 +656,9 @@ class SandboxedAgentExecutor:
             socket_dir.mkdir(mode=0o700)
             skills_dir = job_dir / "home" / ".claude" / "skills"
             skills_dir.mkdir(parents=True, exist_ok=True)
+            # Built-ins first: they take precedence, and _stage_resolved_skills
+            # skips any user skill whose name collides with a staged built-in.
+            await self._stage_builtin_skills(skills_dir)
             await self._stage_resolved_skills(skills_dir)
 
             # Note: The MCP socket directory is mounted directly into NSJail at /mcp-sockets
@@ -699,7 +704,14 @@ class SandboxedAgentExecutor:
         return skills_dir
 
     async def _stage_resolved_skills(self, skills_dir: Path) -> None:
-        """Stage resolved published skills into the per-run home directory."""
+        """Stage resolved published skills into the per-run home directory.
+
+        Runs after ``_stage_builtin_skills``: built-in platform skills take
+        precedence, so a resolved skill whose name collides with an
+        already-staged built-in (possible for legacy skills created before the
+        ``tracecat-`` prefix was reserved) is skipped with a warning instead of
+        overlaying it.
+        """
 
         config = cast(Any, self.input.config)
         resolved_skills = config.resolved_skills or []
@@ -719,6 +731,13 @@ class SandboxedAgentExecutor:
 
         async with SkillService.with_session(role=self.input.role) as service:
             for resolved_skill in resolved_skills:
+                if (skills_dir / resolved_skill.skill_name).exists():
+                    logger.warning(
+                        "Resolved skill collides with a staged built-in skill; "
+                        "skipping",
+                        skill=resolved_skill.skill_name,
+                    )
+                    continue
                 cached_dir = await self._ensure_cached_skill_dir(
                     service=service,
                     manifest_sha256=resolved_skill.manifest_sha256,
@@ -728,6 +747,45 @@ class SandboxedAgentExecutor:
                     shutil.copytree,
                     cached_dir,
                     skills_dir / resolved_skill.skill_name,
+                    dirs_exist_ok=True,
+                )
+
+    async def _stage_builtin_skills(self, skills_dir: Path) -> None:
+        """Stage always-on built-in (EE) platform skills into the run home dir.
+
+        Built-in skills are plain on-disk directories packaged inside
+        ``tracecat_ee``. They are identified by name only (resolved from the
+        config, which set them when the org is workspace-chat entitled), so this
+        method maps each reserved-prefix name to its packaged directory and
+        copies it into the staged skills directory. Built-in skills own the
+        ``tracecat-`` namespace and are staged BEFORE preset
+        ``resolved_skills``, which skip any name already staged here — so a
+        legacy user skill with a reserved-prefix name can never overlay or be
+        overlaid by a built-in.
+        """
+        config = cast(Any, self.input.config)
+        names = config.builtin_skills or []
+        if not names:
+            return
+
+        skills_root = files("tracecat_ee.workspace_chat.skills")
+        for name in dict.fromkeys(names):
+            if (
+                not name.startswith(BUILTIN_SKILL_NAME_PREFIX)
+                or "/" in name
+                or name in {".", ".."}
+            ):
+                logger.warning("Skipping invalid built-in skill name", skill=name)
+                continue
+            source = skills_root / name
+            if not (source / "SKILL.md").is_file():
+                logger.warning("Built-in skill missing SKILL.md; skipping", skill=name)
+                continue
+            with as_file(source) as source_path:
+                await asyncio.to_thread(
+                    shutil.copytree,
+                    source_path,
+                    skills_dir / name,
                     dirs_exist_ok=True,
                 )
 
