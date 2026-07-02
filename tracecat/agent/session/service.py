@@ -65,14 +65,13 @@ from tracecat.agent.session.types import (
 from tracecat.agent.subagents import (
     ResolvedAgentsConfig,
 )
-from tracecat.agent.types import AgentConfig, ClaudeSDKMessageTA, StreamKey
+from tracecat.agent.types import AgentConfig, ClaudeSDKMessageTA
 from tracecat.artifacts.bindings import ArtifactSideEffect
 from tracecat.artifacts.schemas import Artifact, ArtifactAdapter, ArtifactType
 from tracecat.audit.logger import audit_log
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.prompts import CaseCopilotPrompts
 from tracecat.cases.service import CasesService
-from tracecat.chat import tokens
 from tracecat.chat.enums import MessageKind
 from tracecat.chat.schemas import (
     ApprovalRead,
@@ -128,6 +127,14 @@ class SessionHistoryData:
     sdk_session_id: str
     sdk_session_data: str
     is_fork: bool = False  # If True, SDK should use fork_session=True
+
+
+@dataclass(frozen=True)
+class ApprovalContinuationResponse:
+    """Result of submitting approval decisions to a running workflow."""
+
+    curr_run_id: uuid.UUID
+    resumed: bool
 
 
 class AgentSessionService(BaseWorkspaceService):
@@ -1037,39 +1044,6 @@ class AgentSessionService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Session with ID {session_id} not found")
         return source
 
-    async def _emit_noop_continuation_done(
-        self,
-        *,
-        session_id: uuid.UUID,
-        active_stream_id: uuid.UUID | None,
-    ) -> None:
-        """Emit an end marker so duplicate/no-op continuations don't hang SSE clients."""
-        if self.workspace_id is None:
-            return
-        try:
-            redis_client = await get_redis_client()
-            await redis_client.xadd(
-                StreamKey(
-                    workspace_id=self.workspace_id,
-                    session_id=session_id,
-                    stream_id=active_stream_id,
-                ),
-                {
-                    tokens.DATA_KEY: orjson.dumps(
-                        {tokens.END_TOKEN: tokens.END_TOKEN_VALUE},
-                        default=str,
-                    ).decode()
-                },
-                maxlen=10000,
-                approximate=True,
-            )
-        except Exception as exc:
-            logger.warning(
-                "Failed to emit no-op continuation done marker",
-                session_id=str(session_id),
-                error=str(exc),
-            )
-
     @staticmethod
     def _approval_dedup_key(
         *,
@@ -1254,7 +1228,7 @@ class AgentSessionService(BaseWorkspaceService):
         request: ChatRequest | ContinueRunRequest | BasicChatRequest,
         *,
         active_stream_id: uuid.UUID | None = None,
-    ) -> ChatResponse | None:
+    ) -> ChatResponse | ApprovalContinuationResponse | None:
         """Run a session turn by spawning a DurableAgentWorkflow.
 
         This method prepares the chat turn and spawns a DurableAgentWorkflow
@@ -1269,7 +1243,9 @@ class AgentSessionService(BaseWorkspaceService):
             request: Either a ChatRequest (start) or ContinueRunRequest (continue).
 
         Returns:
-            ChatResponse if starting a new turn, None if continuing.
+            ChatResponse if starting a new turn. ApprovalContinuationResponse
+            for approval continuations, where ``resumed`` indicates whether the
+            submitted decisions completed the pending approval set.
 
         Raises:
             TracecatNotFoundError: If the session is not found.
@@ -1492,7 +1468,7 @@ class AgentSessionService(BaseWorkspaceService):
         self,
         session_id: uuid.UUID,
         request: ContinueRunRequest,
-    ) -> None:
+    ) -> ApprovalContinuationResponse:
         """Continue an agent workflow by submitting approval decisions.
 
         Uses Temporal's workflow update mechanism to signal the waiting workflow
@@ -1534,11 +1510,7 @@ class AgentSessionService(BaseWorkspaceService):
                 run_id=str(curr_run_id),
                 source=source,
             )
-            await self._emit_noop_continuation_done(
-                session_id=session_id,
-                active_stream_id=agent_session.active_stream_id,
-            )
-            return None
+            return ApprovalContinuationResponse(curr_run_id=curr_run_id, resumed=False)
 
         # Build ApprovalMap from the request decisions
         approval_map: ApprovalMap = {}
@@ -1594,11 +1566,9 @@ class AgentSessionService(BaseWorkspaceService):
                         source=source,
                         dedup_key=dedup_key,
                     )
-                    await self._emit_noop_continuation_done(
-                        session_id=session_id,
-                        active_stream_id=agent_session.active_stream_id,
+                    return ApprovalContinuationResponse(
+                        curr_run_id=curr_run_id, resumed=False
                     )
-                    return None
             except Exception as exc:
                 logger.warning(
                     "Approval continuation dedup unavailable; proceeding best-effort",
@@ -1626,7 +1596,7 @@ class AgentSessionService(BaseWorkspaceService):
         )
 
         try:
-            await handle.execute_update(
+            resumed = await handle.execute_update(
                 DurableAgentWorkflow.set_approvals,
                 WorkflowApprovalSubmission(
                     approvals=approval_map,
@@ -1645,9 +1615,13 @@ class AgentSessionService(BaseWorkspaceService):
             "Approval decisions submitted successfully",
             workflow_id=str(workflow_id),
             session_id=str(session_id),
+            resumed=bool(resumed),
         )
 
-        return None
+        return ApprovalContinuationResponse(
+            curr_run_id=curr_run_id,
+            resumed=bool(resumed),
+        )
 
     @contextlib.asynccontextmanager
     async def _build_agent_config(
@@ -2052,6 +2026,20 @@ class AgentSessionService(BaseWorkspaceService):
             if isinstance(block, dict) and block.get("type") == "tool_use"
         ]
 
+    @classmethod
+    def _assistant_row_tool_call_ids(cls, entry: AgentSessionHistory) -> set[str]:
+        """Return tool_use IDs on an assistant history row, else empty."""
+        if entry.content.get("type") != "assistant":
+            return set()
+        message = entry.content.get("message", {})
+        if not isinstance(message, dict):
+            return set()
+        return {
+            tool_use_id
+            for tool_use in cls._extract_tool_uses_from_message(message)
+            if isinstance(tool_use_id := tool_use.get("id"), str)
+        }
+
     # =========================================================================
     # Approval Flow: Replace Interrupt Entries
     # =========================================================================
@@ -2089,30 +2077,68 @@ class AgentSessionService(BaseWorkspaceService):
 
         tool_call_ids = {tr.tool_call_id for tr in tool_results}
 
-        # Find the assistant message containing these tool_uses so we only delete
-        # interrupt artifacts that follow the pending tool call.
+        # Find the assistant rows containing these tool_uses so we only delete
+        # interrupt artifacts that follow the pending tool calls. Claude Code
+        # writes parallel tool calls as one assistant JSONL row per tool_use
+        # block, with every row of the batch sharing the API message id — so
+        # the pending IDs are unioned across rows of one message only; calls
+        # from different assistant turns must never be reconciled together.
+        # The tool_result entry must be anchored after the LAST such row,
+        # which is the first one encountered walking in reverse.
+        #
+        # `message.id` is best-effort: some SDK rows omit it. When it's
+        # present on the anchor row, union any earlier row sharing that id
+        # (order-independent). When it's absent, fall back to unioning only
+        # immediately adjacent assistant rows with no id of their own — a
+        # gap (any non-assistant row, or one that does carry an id) means a
+        # different assistant turn has begun.
         history = await self.get_session_history(session_id)
         assistant_entry: AgentSessionHistory | None = None
+        anchor_index: int | None = None
+        anchor_message_id: str | None = None
+        covered_tool_call_ids: set[str] = set()
 
-        for entry in reversed(history):
-            if entry.content.get("type") == "assistant":
-                tool_uses = self._extract_tool_uses_from_message(
-                    entry.content.get("message", {})
-                )
-                assistant_tool_call_ids = {
-                    tool_use_id
-                    for tool_use in tool_uses
-                    if isinstance(tool_use_id := tool_use.get("id"), str)
-                }
-                if tool_call_ids.issubset(assistant_tool_call_ids):
-                    assistant_entry = entry
+        for index in range(len(history) - 1, -1, -1):
+            entry = history[index]
+            row_tool_call_ids = self._assistant_row_tool_call_ids(entry)
+            matched = tool_call_ids & row_tool_call_ids
+            if not matched:
+                if assistant_entry is not None and anchor_message_id is None:
+                    # No message id to key off of: an unrelated row breaks
+                    # the contiguous run of the current batch.
                     break
+                continue
 
-        if assistant_entry is None:
+            message = entry.content.get("message", {})
+            message_id = message.get("id") if isinstance(message, dict) else None
+            message_id = message_id if isinstance(message_id, str) else None
+
+            if assistant_entry is None:
+                assistant_entry = entry
+                anchor_message_id = message_id
+            elif anchor_message_id is not None:
+                if message_id != anchor_message_id:
+                    continue
+            elif (
+                anchor_index is None
+                or index != anchor_index - 1
+                or message_id is not None
+            ):
+                # Not contiguous with the last unioned row, or this row has
+                # its own id - it belongs to a different batch/turn.
+                break
+
+            anchor_index = index
+            covered_tool_call_ids |= matched
+            if tool_call_ids.issubset(covered_tool_call_ids):
+                break
+
+        if assistant_entry is None or not tool_call_ids.issubset(covered_tool_call_ids):
             logger.warning(
-                "Could not find assistant message with tool_use for continuation",
+                "Could not find assistant message(s) with tool_use for continuation",
                 session_id=session_id,
                 tool_call_ids=tool_call_ids,
+                covered_tool_call_ids=covered_tool_call_ids,
             )
             return
 

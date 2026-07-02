@@ -433,6 +433,7 @@ class ApprovalManager:
     def __init__(self, role: Role) -> None:
         self._approvals: ApprovalMap = {}
         self._decision_metadata_by_tool_call_id: dict[str, dict[str, Any]] = {}
+        self._approved_by_by_tool_call_id: dict[str, uuid.UUID] = {}
         self._status: ApprovalManagerStatus = ApprovalManagerStatus.IDLE
         self.role = role
         agent_ctx = AgentContext.get()
@@ -440,7 +441,6 @@ class ApprovalManager:
             raise RuntimeError("Agent context is not set")
         self.session_id = agent_ctx.session_id
         self._expected_tool_calls: dict[str, ToolCallPart] = {}
-        self._approved_by: uuid.UUID | None = None
 
     @classmethod
     def get_activities(cls) -> list[Callable[..., Any]]:
@@ -460,10 +460,30 @@ class ApprovalManager:
         approved_by: uuid.UUID | None = None,
         decision_metadata: dict[str, dict[str, Any]] | None = None,
     ) -> None:
-        self._approvals = approvals
-        self._status = ApprovalManagerStatus.READY
-        self._approved_by = approved_by
-        self._decision_metadata_by_tool_call_id = decision_metadata or {}
+        """Record approval decisions, accepting partial submissions.
+
+        Parallel tool calls surface as individual approval cards that are
+        decided one by one, so decisions are merged across submissions. The
+        manager only becomes READY (resuming the run) once every expected
+        tool call has a decision.
+        """
+        self._approvals.update(approvals)
+        if approved_by is not None:
+            for tool_call_id in approvals:
+                self._approved_by_by_tool_call_id[tool_call_id] = approved_by
+        if decision_metadata:
+            self._decision_metadata_by_tool_call_id.update(decision_metadata)
+
+        expected_ids = set(self._expected_tool_calls.keys())
+        if expected_ids.issubset(self._approvals.keys()):
+            self._status = ApprovalManagerStatus.READY
+        else:
+            self._status = ApprovalManagerStatus.PENDING
+            logger.info(
+                "Partial approval decisions recorded",
+                decided=sorted(self._approvals.keys()),
+                awaiting=sorted(expected_ids - set(self._approvals.keys())),
+            )
 
     async def wait(self) -> None:
         await workflow.wait_condition(lambda: self.is_ready())
@@ -480,7 +500,7 @@ class ApprovalManager:
         self._expected_tool_calls = {
             approval.tool_call_id: approval for approval in approvals
         }
-        self._approved_by = None
+        self._approved_by_by_tool_call_id.clear()
 
         # Preserve per-tool proxy metadata on approval rows for display and
         # decision reconciliation.
@@ -516,7 +536,13 @@ class ApprovalManager:
         return self._approvals.get(tool_call_id)
 
     def validate_responses(self, approvals: ApprovalMap) -> None:
-        """Validate that approval responses cover all expected tool calls."""
+        """Validate approval responses against the expected tool calls.
+
+        Partial submissions are valid: parallel tool calls are decided one
+        card at a time, and ``set`` accumulates decisions until every expected
+        tool call is covered. Responses for unknown tool calls or with missing
+        decisions are rejected.
+        """
         if not self._expected_tool_calls:
             raise ValueError("No pending approvals to validate")
         if not approvals:
@@ -524,24 +550,6 @@ class ApprovalManager:
 
         expected_ids = set(self._expected_tool_calls.keys())
         provided_ids = set(approvals.keys())
-
-        missing = expected_ids - provided_ids
-        if missing:
-            expected_tools = [
-                f"{self._expected_tool_calls[tid].tool_name} ({tid})"
-                for tid in sorted(missing)
-            ]
-            logger.warning(
-                "Missing approval responses",
-                missing_count=len(missing),
-                expected_tools=expected_tools,
-                expected_ids=sorted(expected_ids),
-                provided_ids=sorted(provided_ids),
-            )
-            raise ValueError(
-                f"Missing approval responses for {len(missing)} tool call(s). "
-                f"Expected approvals for: {', '.join(expected_tools)}"
-            )
 
         unexpected = provided_ids - expected_ids
         if unexpected:
@@ -557,7 +565,7 @@ class ApprovalManager:
                 f"Expected only: {', '.join(sorted(expected_ids))}"
             )
 
-        for tool_call_id in expected_ids:
+        for tool_call_id in provided_ids:
             if approvals[tool_call_id] is None:
                 tool_name = self._expected_tool_calls[tool_call_id].tool_name
                 logger.warning(
@@ -608,7 +616,7 @@ class ApprovalManager:
                     decision_metadata=self._decision_metadata_by_tool_call_id.get(
                         tool_call_id
                     ),
-                    approved_by=self._approved_by,
+                    approved_by=self._approved_by_by_tool_call_id.get(tool_call_id),
                 )
             )
         if decisions:
@@ -621,7 +629,7 @@ class ApprovalManager:
                 ),
                 start_to_close_timeout=timedelta(seconds=30),
             )
-        self._approved_by = None
+        self._approved_by_by_tool_call_id.clear()
         self._decision_metadata_by_tool_call_id.clear()
 
     @staticmethod

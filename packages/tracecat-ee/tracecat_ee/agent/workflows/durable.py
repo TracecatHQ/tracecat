@@ -898,7 +898,7 @@ class DurableAgentWorkflow:
             )
 
     @workflow.update
-    def set_approvals(self, submission: WorkflowApprovalSubmission) -> None:
+    def set_approvals(self, submission: WorkflowApprovalSubmission) -> bool:
         submission = WorkflowApprovalSubmission.model_validate(submission)
         logger.info(
             "Setting approvals",
@@ -910,6 +910,7 @@ class DurableAgentWorkflow:
             approved_by=submission.approved_by,
             decision_metadata=submission.decision_metadata,
         )
+        return self.approvals.is_ready()
 
     @set_approvals.validator
     def validate_set_approvals(self, submission: WorkflowApprovalSubmission) -> None:

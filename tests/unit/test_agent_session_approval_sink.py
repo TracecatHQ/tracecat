@@ -13,7 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.executor.schemas import ToolExecutionResult
-from tracecat.agent.session.service import AgentSessionService
+from tracecat.agent.session.service import (
+    AgentSessionService,
+    ApprovalContinuationResponse,
+)
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
@@ -359,6 +362,239 @@ async def test_replace_interrupt_with_tool_results_tags_active_run_id(
     ).all()
     by_type = {content.get("type"): crid for crid, content in rows}
     assert by_type == {"assistant": run_id, "user": run_id}
+
+
+@pytest.mark.anyio
+async def test_replace_interrupt_with_tool_results_spans_split_assistant_rows(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Parallel tool calls span multiple single-block assistant rows.
+
+    Claude Code writes one assistant JSONL row per tool_use block (sharing the
+    API message id), so reconciliation must union the pending tool call IDs
+    across rows and anchor the combined tool_result entry after the last one.
+    """
+    agent_session = AgentSession(
+        id=uuid.uuid4(),
+        title="Approval chat",
+        workspace_id=svc_role.workspace_id,
+        entity_type=AgentSessionEntity.AGENT_PRESET.value,
+        entity_id=uuid.uuid4(),
+        sdk_session_id="sdk-session",
+    )
+    session.add(agent_session)
+
+    first_assistant_uuid = str(uuid.uuid4())
+    second_assistant_uuid = str(uuid.uuid4())
+    for row_uuid, tool_call_id, url in (
+        (first_assistant_uuid, "call_1", "https://example.com"),
+        (second_assistant_uuid, "call_2", "https://example.org"),
+    ):
+        session.add(
+            AgentSessionHistory(
+                session_id=agent_session.id,
+                workspace_id=svc_role.workspace_id,
+                kind=MessageKind.CHAT_MESSAGE.value,
+                content={
+                    "uuid": row_uuid,
+                    "sessionId": "sdk-session",
+                    "type": "assistant",
+                    "timestamp": "2026-03-18T00:00:00Z",
+                    "message": {
+                        "id": "msg_batch",
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "tool_use",
+                                "id": tool_call_id,
+                                "name": "core__http_request",
+                                "input": {"url": url},
+                            }
+                        ],
+                    },
+                },
+            )
+        )
+    # SDK interrupt placeholders for both pending calls.
+    for tool_call_id in ("call_1", "call_2"):
+        session.add(
+            AgentSessionHistory(
+                session_id=agent_session.id,
+                workspace_id=svc_role.workspace_id,
+                kind=MessageKind.CHAT_MESSAGE.value,
+                content={
+                    "uuid": str(uuid.uuid4()),
+                    "parentUuid": second_assistant_uuid,
+                    "sessionId": "sdk-session",
+                    "type": "user",
+                    "timestamp": "2026-03-18T00:00:01Z",
+                    "message": {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": tool_call_id,
+                                "content": "interrupted",
+                                "is_error": True,
+                            }
+                        ],
+                    },
+                },
+            )
+        )
+    await session.commit()
+
+    service = AgentSessionService(session=session, role=svc_role)
+    await service.replace_interrupt_with_tool_results(
+        agent_session.id,
+        [
+            ToolExecutionResult(
+                tool_call_id="call_1",
+                tool_name="core.http_request",
+                result={"status": "success"},
+                is_error=False,
+            ),
+            ToolExecutionResult(
+                tool_call_id="call_2",
+                tool_name="core.http_request",
+                result={"status": "success"},
+                is_error=False,
+            ),
+        ],
+    )
+
+    history = await service.get_session_history(agent_session.id)
+    tool_result_entries = [
+        entry
+        for entry in history
+        if entry.content.get("type") == "user"
+        and any(
+            isinstance(block, dict) and block.get("type") == "tool_result"
+            for block in entry.content.get("message", {}).get("content", [])
+        )
+    ]
+
+    # The interrupt placeholders are replaced by ONE user row answering both
+    # tool calls together, anchored after the last assistant row.
+    assert len(tool_result_entries) == 1
+    [entry] = tool_result_entries
+    assert entry.content.get("parentUuid") == second_assistant_uuid
+    blocks = entry.content["message"]["content"]
+    assert {block["tool_use_id"] for block in blocks} == {"call_1", "call_2"}
+    assert all(block["is_error"] is False for block in blocks)
+
+
+@pytest.mark.anyio
+async def test_replace_interrupt_with_tool_results_spans_split_rows_without_message_id(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """When SDK rows omit message.id, contiguous assistant rows are one batch."""
+    agent_session = AgentSession(
+        id=uuid.uuid4(),
+        title="Approval chat",
+        workspace_id=svc_role.workspace_id,
+        entity_type=AgentSessionEntity.AGENT_PRESET.value,
+        entity_id=uuid.uuid4(),
+        sdk_session_id="sdk-session",
+    )
+    session.add(agent_session)
+
+    first_assistant_uuid = str(uuid.uuid4())
+    second_assistant_uuid = str(uuid.uuid4())
+    for row_uuid, tool_call_id, url in (
+        (first_assistant_uuid, "call_1", "https://example.com"),
+        (second_assistant_uuid, "call_2", "https://example.org"),
+    ):
+        session.add(
+            AgentSessionHistory(
+                session_id=agent_session.id,
+                workspace_id=svc_role.workspace_id,
+                kind=MessageKind.CHAT_MESSAGE.value,
+                content={
+                    "uuid": row_uuid,
+                    "sessionId": "sdk-session",
+                    "type": "assistant",
+                    "timestamp": "2026-03-18T00:00:00Z",
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "tool_use",
+                                "id": tool_call_id,
+                                "name": "core__http_request",
+                                "input": {"url": url},
+                            }
+                        ],
+                    },
+                },
+            )
+        )
+    for tool_call_id in ("call_1", "call_2"):
+        session.add(
+            AgentSessionHistory(
+                session_id=agent_session.id,
+                workspace_id=svc_role.workspace_id,
+                kind=MessageKind.CHAT_MESSAGE.value,
+                content={
+                    "uuid": str(uuid.uuid4()),
+                    "parentUuid": second_assistant_uuid,
+                    "sessionId": "sdk-session",
+                    "type": "user",
+                    "timestamp": "2026-03-18T00:00:01Z",
+                    "message": {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": tool_call_id,
+                                "content": "interrupted",
+                                "is_error": True,
+                            }
+                        ],
+                    },
+                },
+            )
+        )
+    await session.commit()
+
+    service = AgentSessionService(session=session, role=svc_role)
+    await service.replace_interrupt_with_tool_results(
+        agent_session.id,
+        [
+            ToolExecutionResult(
+                tool_call_id="call_1",
+                tool_name="core.http_request",
+                result={"status": "success"},
+                is_error=False,
+            ),
+            ToolExecutionResult(
+                tool_call_id="call_2",
+                tool_name="core.http_request",
+                result={"status": "success"},
+                is_error=False,
+            ),
+        ],
+    )
+
+    history = await service.get_session_history(agent_session.id)
+    tool_result_entries = [
+        entry
+        for entry in history
+        if entry.content.get("type") == "user"
+        and any(
+            isinstance(block, dict) and block.get("type") == "tool_result"
+            for block in entry.content.get("message", {}).get("content", [])
+        )
+    ]
+
+    assert len(tool_result_entries) == 1
+    [entry] = tool_result_entries
+    assert entry.content.get("parentUuid") == second_assistant_uuid
+    blocks = entry.content["message"]["content"]
+    assert {block["tool_use_id"] for block in blocks} == {"call_1", "call_2"}
+    assert all(block["is_error"] is False for block in blocks)
 
 
 @pytest.mark.anyio
@@ -811,13 +1047,14 @@ async def test_run_turn_continue_with_inbox_source_for_non_external_session(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
+    curr_run_id = uuid.uuid4()
     agent_session = AgentSession(
         id=uuid.uuid4(),
         title="Preset chat",
         workspace_id=svc_role.workspace_id,
         entity_type=AgentSessionEntity.AGENT_PRESET.value,
         entity_id=uuid.uuid4(),
-        curr_run_id=uuid.uuid4(),
+        curr_run_id=curr_run_id,
     )
     session.add(agent_session)
     session.add(
@@ -844,11 +1081,12 @@ async def test_run_turn_continue_with_inbox_source_for_non_external_session(
         source="inbox",
     )
 
-    fake_handle = SimpleNamespace(execute_update=AsyncMock(return_value=None))
+    fake_handle = SimpleNamespace(execute_update=AsyncMock(return_value=True))
     get_workflow_handle_for = Mock(return_value=fake_handle)
     fake_client = SimpleNamespace(get_workflow_handle_for=get_workflow_handle_for)
     fake_redis = SimpleNamespace(
-        xadd=AsyncMock(return_value="1-0"),
+        set_if_not_exists=AsyncMock(return_value=True),
+        delete=AsyncMock(return_value=1),
     )
     with (
         patch(
@@ -862,8 +1100,77 @@ async def test_run_turn_continue_with_inbox_source_for_non_external_session(
     ):
         result = await service.run_turn(agent_session.id, continuation)
 
-    assert result is None
+    assert result == ApprovalContinuationResponse(
+        curr_run_id=curr_run_id,
+        resumed=True,
+    )
     get_workflow_handle_for.assert_called_once()
+    fake_handle.execute_update.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_run_turn_continue_partial_approval_reports_not_resumed(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    curr_run_id = uuid.uuid4()
+    agent_session = AgentSession(
+        id=uuid.uuid4(),
+        title="Preset chat",
+        workspace_id=svc_role.workspace_id,
+        entity_type=AgentSessionEntity.AGENT_PRESET.value,
+        entity_id=uuid.uuid4(),
+        curr_run_id=curr_run_id,
+    )
+    session.add(agent_session)
+    for tool_call_id in ("tool_call_123", "tool_call_456"):
+        session.add(
+            Approval(
+                workspace_id=svc_role.workspace_id,
+                session_id=agent_session.id,
+                tool_call_id=tool_call_id,
+                tool_name="core.http_request",
+                tool_call_args={"url": "https://example.com"},
+                status=ApprovalStatus.PENDING,
+            )
+        )
+    await session.commit()
+    await session.refresh(agent_session)
+
+    service = AgentSessionService(session=session, role=svc_role)
+    continuation = ContinueRunRequest(
+        decisions=[
+            ApprovalDecision(
+                tool_call_id="tool_call_123",
+                action="approve",
+            )
+        ],
+        source="inbox",
+    )
+
+    fake_handle = SimpleNamespace(execute_update=AsyncMock(return_value=False))
+    get_workflow_handle_for = Mock(return_value=fake_handle)
+    fake_client = SimpleNamespace(get_workflow_handle_for=get_workflow_handle_for)
+    fake_redis = SimpleNamespace(
+        set_if_not_exists=AsyncMock(return_value=True),
+        delete=AsyncMock(return_value=1),
+    )
+    with (
+        patch(
+            "tracecat.agent.session.service.get_temporal_client",
+            AsyncMock(return_value=fake_client),
+        ),
+        patch(
+            "tracecat.agent.session.service.get_redis_client",
+            AsyncMock(return_value=fake_redis),
+        ),
+    ):
+        result = await service.run_turn(agent_session.id, continuation)
+
+    assert result == ApprovalContinuationResponse(
+        curr_run_id=curr_run_id,
+        resumed=False,
+    )
     fake_handle.execute_update.assert_awaited_once()
 
 
@@ -872,13 +1179,14 @@ async def test_run_turn_continue_override_maps_to_tool_approved(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
+    curr_run_id = uuid.uuid4()
     agent_session = AgentSession(
         id=uuid.uuid4(),
         title="Preset chat",
         workspace_id=svc_role.workspace_id,
         entity_type=AgentSessionEntity.AGENT_PRESET.value,
         entity_id=uuid.uuid4(),
-        curr_run_id=uuid.uuid4(),
+        curr_run_id=curr_run_id,
     )
     session.add(agent_session)
     session.add(
@@ -906,7 +1214,7 @@ async def test_run_turn_continue_override_maps_to_tool_approved(
         source="inbox",
     )
 
-    fake_handle = SimpleNamespace(execute_update=AsyncMock(return_value=None))
+    fake_handle = SimpleNamespace(execute_update=AsyncMock(return_value=True))
     get_workflow_handle_for = Mock(return_value=fake_handle)
     fake_client = SimpleNamespace(get_workflow_handle_for=get_workflow_handle_for)
     fake_redis = SimpleNamespace(
@@ -926,7 +1234,10 @@ async def test_run_turn_continue_override_maps_to_tool_approved(
     ):
         result = await service.run_turn(agent_session.id, continuation)
 
-    assert result is None
+    assert result == ApprovalContinuationResponse(
+        curr_run_id=curr_run_id,
+        resumed=True,
+    )
     fake_handle.execute_update.assert_awaited_once()
     submission = fake_handle.execute_update.await_args.args[1]
     decision = submission.approvals["tool_call_123"]
@@ -939,13 +1250,14 @@ async def test_run_turn_continue_without_pending_approvals_is_noop(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
+    curr_run_id = uuid.uuid4()
     agent_session = AgentSession(
         id=uuid.uuid4(),
         title="Preset chat",
         workspace_id=svc_role.workspace_id,
         entity_type=AgentSessionEntity.AGENT_PRESET.value,
         entity_id=uuid.uuid4(),
-        curr_run_id=uuid.uuid4(),
+        curr_run_id=curr_run_id,
     )
     session.add(agent_session)
     await session.commit()
@@ -971,7 +1283,10 @@ async def test_run_turn_continue_without_pending_approvals_is_noop(
     ):
         result = await service.run_turn(agent_session.id, continuation)
 
-    assert result is None
+    assert result == ApprovalContinuationResponse(
+        curr_run_id=curr_run_id,
+        resumed=False,
+    )
     get_workflow_handle_for.assert_not_called()
     fake_handle.execute_update.assert_not_awaited()
 
@@ -981,13 +1296,14 @@ async def test_run_turn_continue_duplicate_submission_is_noop(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
+    curr_run_id = uuid.uuid4()
     agent_session = AgentSession(
         id=uuid.uuid4(),
         title="Preset chat",
         workspace_id=svc_role.workspace_id,
         entity_type=AgentSessionEntity.AGENT_PRESET.value,
         entity_id=uuid.uuid4(),
-        curr_run_id=uuid.uuid4(),
+        curr_run_id=curr_run_id,
     )
     session.add(agent_session)
     session.add(
@@ -1034,7 +1350,10 @@ async def test_run_turn_continue_duplicate_submission_is_noop(
     ):
         result = await service.run_turn(agent_session.id, continuation)
 
-    assert result is None
+    assert result == ApprovalContinuationResponse(
+        curr_run_id=curr_run_id,
+        resumed=False,
+    )
     fake_redis.set_if_not_exists.assert_awaited_once()
     fake_handle.execute_update.assert_not_awaited()
 

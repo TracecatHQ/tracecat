@@ -15,6 +15,7 @@ The loopback is used by the agent executor activity which handles:
 from __future__ import annotations
 
 import asyncio
+import copy
 import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -550,10 +551,22 @@ class LoopbackHandler:
                 items=event.approval_items,
             )
             self._result.approval_requested = True
-            self._result.approval_items = [
-                ToolCallContent(id=item.id, name=item.name, input=item.input)
-                for item in (event.approval_items or [])
-            ]
+            # The runtime emits one APPROVAL_REQUEST event per gated tool call,
+            # so parallel tool calls arrive as N separate events. Accumulate
+            # across events (dedup by tool call ID) rather than overwriting,
+            # which kept only the last event's items.
+            existing_ids = {item.id for item in self._result.approval_items}
+            for item in event.approval_items or []:
+                if item.id in existing_ids:
+                    continue
+                existing_ids.add(item.id)
+                self._result.approval_items.append(
+                    ToolCallContent(
+                        id=item.id,
+                        name=item.name,
+                        input=copy.deepcopy(item.input),
+                    )
+                )
             self._pending_approval_tool_call_ids.update(
                 item.id for item in (event.approval_items or [])
             )

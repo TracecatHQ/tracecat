@@ -24,7 +24,10 @@ from tracecat.agent.session.schemas import (
     AgentSessionReadWithMessages,
     AgentSessionUpdate,
 )
-from tracecat.agent.session.service import AgentSessionService
+from tracecat.agent.session.service import (
+    AgentSessionService,
+    ApprovalContinuationResponse,
+)
 from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
 from tracecat.agent.stream.artifacts import artifact_stream_event
 from tracecat.agent.stream.connector import AgentStream
@@ -534,10 +537,30 @@ async def send_message(
                         )
                 raise
 
+            if (
+                isinstance(request, ContinueRunRequest)
+                and isinstance(turn_response, ApprovalContinuationResponse)
+                and not turn_response.resumed
+            ):
+                message_id = _bubble_id(session_id, turn_response.curr_run_id)
+                return StreamingResponse(
+                    stream.finished_sse(format="vercel", message_id=message_id),
+                    media_type="text/event-stream",
+                    headers={
+                        "Cache-Control": "no-cache, no-transform",
+                        "Transfer-Encoding": "chunked",
+                        "Content-Encoding": "none",
+                        "Connection": "keep-alive",
+                        "Keep-Alive": "timeout=120",
+                        "Pragma": "no-cache",
+                        "X-Accel-Buffering": "no",
+                        "x-vercel-ai-ui-message-stream": "v1",
+                    },
+                )
+
             # Build a bubble id stable for this turn. Prefer the run id returned by
-            # run_turn (new turns) — terminal cleanup may already have nulled the
-            # session row on a fast turn. Continuations return None and reuse the
-            # in-progress run id still pinned on the session row.
+            # run_turn (new turns and resumed approval continuations) — terminal
+            # cleanup may already have nulled the session row on a fast turn.
             if turn_response is not None and turn_response.curr_run_id is not None:
                 run_id = turn_response.curr_run_id
             else:
