@@ -541,12 +541,19 @@ async def test_agent_workflow_streams_tool_definition_error(
 
 @pytest.mark.anyio
 @pytest.mark.integration
-async def test_agent_workflow_does_not_duplicate_runtime_terminal_error(
+async def test_agent_workflow_persists_runtime_terminal_error_without_streaming(
     temporal_client: Client,
     agent_worker_factory,
     agent_workflow_args: AgentWorkflowArgs,
     mock_session_id: uuid.UUID,
 ) -> None:
+    """A runtime failure that already streamed its error persists last_error only.
+
+    ``terminal_stream_error_emitted=True`` means the loopback already pushed the
+    terminal error onto the SSE stream, so ``emit_session_error`` runs with
+    ``should_stream=False`` to record the durable last_error signal without
+    re-emitting a duplicate terminal marker.
+    """
     queue = f"test-agent-queue-{mock_session_id}"
     emitted_errors: list[EmitSessionErrorInputs] = []
 
@@ -584,7 +591,12 @@ async def test_agent_workflow_does_not_duplicate_runtime_terminal_error(
 
     assert isinstance(exc_info.value.cause, ApplicationError)
     assert "Agent execution failed: runtime exploded" in str(exc_info.value.cause)
-    assert emitted_errors == []
+    # Persist-only: exactly one emit, carrying last_error, with streaming off so
+    # the already-emitted terminal marker is not duplicated.
+    assert len(emitted_errors) == 1
+    assert emitted_errors[0].session_id == mock_session_id
+    assert emitted_errors[0].message == "Agent execution failed: runtime exploded"
+    assert emitted_errors[0].should_stream is False
 
 
 @pytest.mark.anyio

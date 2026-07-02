@@ -1,6 +1,13 @@
 import type { QueryClient } from "@tanstack/react-query"
 import * as ai from "ai"
-import type { AgentSessionEntity, UIMessage } from "@/client"
+import type {
+  AgentSessionEntity,
+  AgentSessionRead,
+  AgentSessionReadVercel,
+  ChatReadMinimal,
+  ChatReadVercel,
+  UIMessage,
+} from "@/client"
 import type { ApprovalCard } from "@/hooks/use-chat"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 
@@ -23,6 +30,28 @@ export function isAgentSessionEntity(
     value === "approval" ||
     value === "external_channel"
   )
+}
+
+/**
+ * Either arm of a session/chat union, in list (`*Read`) or Vercel
+ * (`*ReadVercel`) shape. Only the AgentSession arms carry `last_error`; the
+ * legacy Chat arms do not, which is what lets `getSessionLastError` narrow.
+ */
+export type SessionOrChat =
+  | AgentSessionRead
+  | AgentSessionReadVercel
+  | ChatReadMinimal
+  | ChatReadVercel
+
+/**
+ * Read the persisted terminal error of a session's most recent run.
+ *
+ * Present iff the last run errored (errors are run-ending and clear on the next
+ * turn). Lives only on the AgentSession arms of the union — legacy Chat rows
+ * have no such field — so this returns null for those arms.
+ */
+export function getSessionLastError(session: SessionOrChat): string | null {
+  return "last_error" in session ? (session.last_error ?? null) : null
 }
 
 /**

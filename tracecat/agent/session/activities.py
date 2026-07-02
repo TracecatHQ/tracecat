@@ -207,9 +207,12 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                     service.session.add(agent_session)
                     await service.session.commit()
 
-            # Set curr_run_id if provided (for workflow-initiated sessions)
+            # Set curr_run_id if provided (for workflow-initiated sessions) and
+            # clear any prior error. Clearing last_error here is what makes the
+            # previous run's error irrelevant once a new turn starts.
             if input.curr_run_id is not None:
                 agent_session.curr_run_id = input.curr_run_id
+                agent_session.last_error = None
                 service.session.add(agent_session)
                 await service.session.commit()
 

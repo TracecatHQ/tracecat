@@ -6,6 +6,7 @@ import asyncio
 import uuid
 from collections.abc import Sequence
 from datetime import datetime
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal
 
 from sqlalchemy import String, and_, cast, distinct, func, or_, select
@@ -25,29 +26,58 @@ from tracecat.logger import logger
 from tracecat.pagination import BaseCursorPaginator, CursorPaginatedResponse
 from tracecat_ee.agent.types import AgentWorkflowID
 
+# The error signal is fully persisted (AgentSession.last_error), so Temporal is
+# only consulted to tell a genuinely-running run from one whose worker died.
 RUNNING_STATUSES = {
     WorkflowExecutionStatus.RUNNING,
     WorkflowExecutionStatus.CONTINUED_AS_NEW,
 }
-FAILED_STATUSES = {
+# A current run that ended in one of these without recording last_error died
+# mid-turn before it could finalize. CANCELED/COMPLETED are clean terminals.
+_ABNORMAL_TERMINAL_STATUSES = {
     WorkflowExecutionStatus.FAILED,
     WorkflowExecutionStatus.TIMED_OUT,
     WorkflowExecutionStatus.TERMINATED,
 }
+
+
+class RunStatus(StrEnum):
+    """Resolved display status for a session in the inbox.
+
+    Error is derived from the persisted ``last_error`` (errors are run-ending,
+    so the latest error is the latest outcome). Running is a transient,
+    live-only signal from describing the current run; a current run that has
+    already terminated without recording an error reconciles to ERROR (its
+    worker died mid-turn).
+    """
+
+    RUNNING = "running"
+    COMPLETED = "completed"
+    ERROR = "error"
+
+
+# The inbox UI keys its status tone/label off a Temporal-style status name in
+# item metadata. Map our resolved run status onto the names the frontend's
+# existing TEMPORAL_STATUS_MAP already understands so no UI change is required.
+_RUN_STATUS_TO_TEMPORAL_NAME: dict[RunStatus | None, str | None] = {
+    RunStatus.RUNNING: WorkflowExecutionStatus.RUNNING.name,
+    RunStatus.COMPLETED: WorkflowExecutionStatus.COMPLETED.name,
+    RunStatus.ERROR: WorkflowExecutionStatus.FAILED.name,
+    None: None,
+}
+
 
 # Harnesses whose root sessions surface in the inbox. These are the durable
 # agent harnesses; chat-only harnesses are handled inline in the chat UI and do
 # not appear here. Add a harness to this set to make its runs inbox-eligible.
 INBOX_HARNESS_TYPES = (HarnessType.CLAUDE_CODE,)
 
-# Group membership depends on live Temporal status, so grouped listing scans
-# sessions in batches and classifies after enrichment. Each scanned session may
-# cost a Temporal describe call, so the scan is hard-capped per request.
+# Group membership depends on persisted last_error plus a bounded live check for
+# the current run, so grouped listing scans sessions in batches and classifies
+# after enrichment. Each non-errored session with a current run may cost a
+# Temporal describe call, so the scan is hard-capped per request.
 GROUP_SCAN_BATCH_SIZE = 50
 GROUP_SCAN_MAX_SESSIONS = 300
-
-RUNNING_STATUS_NAMES = {s.name for s in RUNNING_STATUSES}
-FAILED_STATUS_NAMES = {s.name for s in FAILED_STATUSES}
 
 if TYPE_CHECKING:
     from tracecat.auth.types import Role
@@ -66,28 +96,48 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         self.role = role
         self.workspace_id = role.workspace_id
 
-    async def _resolve_temporal_statuses(
+    async def _resolve_live_statuses(
         self,
         sessions: Sequence[AgentSession],
-    ) -> dict[uuid.UUID, WorkflowExecutionStatus]:
+    ) -> dict[uuid.UUID, RunStatus]:
+        """Resolve the display status for each session.
+
+        ``last_error`` is the source of truth for the error state: present iff
+        the most recent run errored. It is returned straight from the DB with no
+        Temporal call — this is what fixes the stale-error bug, where describing
+        an old fail-fast execution returned FAILED/TIMED_OUT/TERMINATED long
+        after the session was healthy.
+
+        For a non-errored session that still points at a current run, the live
+        execution is described to surface a real RUNNING indicator. If that run
+        has already terminated abnormally (or is no longer observable) without
+        recording an error, its worker died mid-turn, so it reconciles to ERROR;
+        a clean/terminated run is COMPLETED.
+        """
         if not sessions:
             return {}
 
-        session_pairs = [
-            (session.id, session.curr_run_id)
-            for session in sessions
-            if session.curr_run_id is not None
-        ]
-        if not session_pairs:
-            return {}
+        statuses: dict[uuid.UUID, RunStatus] = {}
+        to_describe: list[tuple[uuid.UUID, uuid.UUID]] = []
+        for session in sessions:
+            if session.last_error is not None:
+                statuses[session.id] = RunStatus.ERROR
+            elif session.curr_run_id is not None:
+                to_describe.append((session.id, session.curr_run_id))
+            # No error and no current run: legacy/clean session. Leave unset so
+            # callers fall back to approval signals (rejected -> error, else
+            # completed).
+
+        if not to_describe:
+            return statuses
 
         from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
 
         client = await get_temporal_client()
 
-        async def describe_status(
+        async def describe(
             session_id: uuid.UUID, run_id: uuid.UUID
-        ) -> tuple[uuid.UUID, WorkflowExecutionStatus | None]:
+        ) -> tuple[uuid.UUID, RunStatus]:
             try:
                 workflow_id = AgentWorkflowID(run_id)
                 handle = client.get_workflow_handle_for(
@@ -95,26 +145,30 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                     str(workflow_id),
                 )
                 description = await handle.describe()
-                return session_id, description.status
             except Exception as exc:
+                # No longer observable (history gone / not found). The run is not
+                # errored on record and we can't confirm it; treat as completed
+                # rather than inventing an error for an old, healthy session.
                 logger.warning(
-                    "Failed to describe agent workflow for inbox status",
+                    "Failed to describe current agent workflow for inbox status",
                     session_id=str(session_id),
                     run_id=str(run_id),
                     error=str(exc),
                 )
-                return session_id, None
+                return session_id, RunStatus.COMPLETED
+            if description.status in RUNNING_STATUSES:
+                return session_id, RunStatus.RUNNING
+            if description.status in _ABNORMAL_TERMINAL_STATUSES:
+                # Terminated abnormally but no error was recorded: the worker
+                # died mid-turn before finalizing. Surface it as an error.
+                return session_id, RunStatus.ERROR
+            return session_id, RunStatus.COMPLETED
 
         results = await asyncio.gather(
-            *(
-                describe_status(session_id, run_id)
-                for session_id, run_id in session_pairs
-            )
+            *(describe(session_id, run_id) for session_id, run_id in to_describe)
         )
-        statuses: dict[uuid.UUID, WorkflowExecutionStatus] = {}
         for session_id, status in results:
-            if status is not None:
-                statuses[session_id] = status
+            statuses[session_id] = status
         return statuses
 
     def _base_query(
@@ -169,6 +223,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                 AgentSession.entity_type,
                 AgentSession.entity_id,
                 AgentSession.curr_run_id,
+                AgentSession.last_error,
                 AgentSession.created_at,
                 AgentSession.updated_at,
                 raiseload=True,
@@ -452,17 +507,17 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                 for s in sessions
             }
 
-        temporal_statuses = await self._resolve_temporal_statuses(sessions)
+        run_statuses = await self._resolve_live_statuses(sessions)
 
         classifications: dict[uuid.UUID, InboxGroup] = {}
         for s in sessions:
             if pending_counts.get(s.id, 0) > 0:
                 classifications[s.id] = InboxGroup.REVIEW_REQUIRED
                 continue
-            temporal_status = temporal_statuses.get(s.id)
-            if temporal_status in RUNNING_STATUSES:
+            run_status = run_statuses.get(s.id)
+            if run_status is RunStatus.RUNNING:
                 classifications[s.id] = InboxGroup.RUNNING
-            elif temporal_status in FAILED_STATUSES:
+            elif run_status is RunStatus.ERROR:
                 classifications[s.id] = InboxGroup.ERROR
             elif rejected_counts.get(s.id, 0) > 0:
                 classifications[s.id] = InboxGroup.ERROR
@@ -526,8 +581,33 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                 pending_exists,
             )
         elif group is InboxGroup.RUNNING:
-            # Necessary (not sufficient) condition: a live Temporal run exists
-            base_stmt = base_stmt.where(AgentSession.curr_run_id.is_not(None))
+            # Necessary (not sufficient) condition: only a non-errored session
+            # with a current run can resolve to RUNNING. This also bounds the
+            # live describe fan-out to those sessions.
+            base_stmt = base_stmt.where(
+                AgentSession.last_error.is_(None),
+                AgentSession.curr_run_id.is_not(None),
+            )
+        elif group is InboxGroup.ERROR:
+            # Necessary (not sufficient) condition: a session lands in ERROR from
+            # a persisted error, a current run that reconciles to dead, or a
+            # rejected approval. Pre-filter to those so the scan skips the
+            # (common) clean-completed rows.
+            rejected_exists = (
+                select(Approval.id)
+                .where(
+                    Approval.session_id == AgentSession.id,
+                    Approval.status == ApprovalStatus.REJECTED,
+                )
+                .exists()
+            )
+            base_stmt = base_stmt.where(
+                or_(
+                    AgentSession.last_error.is_not(None),
+                    AgentSession.curr_run_id.is_not(None),
+                    rejected_exists,
+                )
+            )
 
         # Decode cursor as a scan-position keyset (sort_value + id of last
         # scanned session). This lets subsequent pages resume exactly where
@@ -690,7 +770,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         # Fetch workflow metadata for sessions with entity_id
         workflow_ids = {s.entity_id for s in sessions if s.entity_id}
         workflows_by_id: dict[uuid.UUID, Workflow] = {}
-        temporal_statuses = await self._resolve_temporal_statuses(sessions)
+        run_statuses = await self._resolve_live_statuses(sessions)
 
         if workflow_ids:
             workflow_stmt = select(Workflow).where(
@@ -723,12 +803,16 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             failed_count = sum(
                 1 for a in session_approvals if a.status == ApprovalStatus.REJECTED
             )
-            temporal_status = temporal_statuses.get(session.id)
-            temporal_status_name = temporal_status.name if temporal_status else None
+            run_status = run_statuses.get(session.id)
+            # Surface a Temporal-style status name the frontend's existing
+            # mapping understands. This is derived from the persisted run
+            # outcome, not a live describe of a stale execution.
+            temporal_status_name = _RUN_STATUS_TO_TEMPORAL_NAME.get(run_status)
+            last_error = session.last_error
 
             if pending_count > 0:
                 status = InboxItemStatus.PENDING
-            elif temporal_status in FAILED_STATUSES:
+            elif run_status is RunStatus.ERROR:
                 status = InboxItemStatus.FAILED
             elif failed_count > 0:
                 status = InboxItemStatus.FAILED
@@ -738,13 +822,15 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             # Build preview text
             if pending_count > 0:
                 preview = f"{pending_count} pending approval{'s' if pending_count != 1 else ''}"
-            elif temporal_status in RUNNING_STATUSES:
+            elif run_status is RunStatus.RUNNING:
                 preview = "Execution in progress"
-            elif temporal_status in FAILED_STATUSES:
-                preview = "Execution failed"
+            elif run_status is RunStatus.ERROR:
+                # Prefer the persisted error summary so the list row hints at why
+                # without opening the run; fall back to a generic label.
+                preview = last_error or "Execution failed"
             elif failed_count > 0:
                 preview = f"{failed_count} rejected"
-            elif temporal_status is None and not session_approvals:
+            elif run_status is None and not session_approvals:
                 preview = "Agent session"
             else:
                 preview = "Execution completed"
@@ -781,6 +867,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                 "pending_count": pending_count,
                 "total_approvals": len(session_approvals),
                 "temporal_status": temporal_status_name,
+                "last_error": last_error,
                 "approvals": [
                     {
                         "id": str(a.id),

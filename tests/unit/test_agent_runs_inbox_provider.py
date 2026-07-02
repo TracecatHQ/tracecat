@@ -375,7 +375,7 @@ async def test_classify_rejected_only_non_workflow_session_lands_in_error_group(
         return {}
 
     monkeypatch.setattr(provider, "_fetch_approval_counts", fetch_counts)
-    monkeypatch.setattr(provider, "_resolve_temporal_statuses", resolve_statuses)
+    monkeypatch.setattr(provider, "_resolve_live_statuses", resolve_statuses)
 
     classifications = await provider._classify_sessions_for_group(
         [rejected], group=InboxGroup.ERROR

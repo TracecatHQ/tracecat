@@ -149,6 +149,8 @@ export function InboxDetail({
     )
   }
 
+  // The persisted last_error banner is rendered by ChatSessionPane itself (from
+  // the session's last_error), so the inbox detail doesn't duplicate it here.
   return (
     <ChatSessionPane
       chat={chat}

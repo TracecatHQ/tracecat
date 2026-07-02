@@ -2913,6 +2913,12 @@ class AgentSession(WorkspaceModel):
         index=True,
         doc="Per-turn stream id - Redis key suffix for the active turn's stream",
     )
+    # Terminal error summary for the most recent run
+    last_error: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        doc="Terminal error summary for the most recent run (cleared on next turn)",
+    )
     work_dir_snapshot: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB,
         nullable=True,

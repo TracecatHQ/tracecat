@@ -3661,6 +3661,17 @@ export const $AgentSessionRead = {
       ],
       title: "Harness Type",
     },
+    last_error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Error",
+    },
     last_stream_id: {
       anyOf: [
         {
@@ -3843,6 +3854,17 @@ export const $AgentSessionReadVercel = {
         },
       ],
       title: "Harness Type",
+    },
+    last_error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Error",
     },
     last_stream_id: {
       anyOf: [
@@ -4034,6 +4056,17 @@ export const $AgentSessionReadWithMessages = {
         },
       ],
       title: "Harness Type",
+    },
+    last_error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Error",
     },
     last_stream_id: {
       anyOf: [

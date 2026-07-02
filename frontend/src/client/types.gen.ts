@@ -879,6 +879,7 @@ export type AgentSessionRead = {
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
   harness_type: string | null
+  last_error?: string | null
   last_stream_id?: string | null
   artifacts?: Array<Artifact>
   parent_session_id?: string | null
@@ -905,6 +906,7 @@ export type AgentSessionReadVercel = {
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
   harness_type: string | null
+  last_error?: string | null
   last_stream_id?: string | null
   artifacts?: Array<Artifact>
   parent_session_id?: string | null
@@ -935,6 +937,7 @@ export type AgentSessionReadWithMessages = {
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
   harness_type: string | null
+  last_error?: string | null
   last_stream_id?: string | null
   artifacts?: Array<Artifact>
   parent_session_id?: string | null

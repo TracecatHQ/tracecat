@@ -71,6 +71,7 @@ def _agent_session_stub(**overrides: Any) -> SimpleNamespace:
         "last_stream_id": None,
         "active_stream_id": None,
         "curr_run_id": None,
+        "last_error": None,
         "artifacts": [],
     }
     values.update(overrides)
