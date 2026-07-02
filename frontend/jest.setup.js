@@ -15,6 +15,9 @@ global.TransformStream = TransformStream
 global.ReadableStream = ReadableStream
 global.WritableStream = WritableStream
 
+// jsdom does not implement scrollIntoView (used by cmdk selection)
+Element.prototype.scrollIntoView = jest.fn()
+
 // Mock next-runtime-env
 jest.mock("next-runtime-env", () => ({
   env: jest.fn((key) => process.env[key] || ""),
