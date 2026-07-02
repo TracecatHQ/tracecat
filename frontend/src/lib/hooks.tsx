@@ -5,7 +5,6 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
-import Cookies from "js-cookie"
 import { AlertTriangleIcon, CircleCheck } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useCallback, useRef, useState } from "react"
@@ -368,8 +367,8 @@ import {
   workspacesListWorkspaces,
   workspacesUpdateWorkspace,
 } from "@/client"
-
 import { toast } from "@/components/ui/use-toast"
+import { useAuth } from "@/hooks/use-auth"
 import { type AgentSessionWithStatus, enrichAgentSession } from "@/lib/agents"
 import { client as apiClient, getBaseUrl } from "@/lib/api"
 import {
@@ -386,6 +385,11 @@ import {
   type TracecatApiError,
 } from "@/lib/errors"
 import type { WorkflowExecutionReadCompact } from "@/lib/event-history"
+import {
+  clearLastWorkspaceIdForUser,
+  getLastWorkspaceIdForUser,
+  setLastWorkspaceIdForUser,
+} from "@/lib/last-workspace"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface AppInfo {
@@ -902,6 +906,8 @@ export function useWorkflowManager(
 export function useWorkspaceManager() {
   const queryClient = useQueryClient()
   const router = useRouter()
+  const { user } = useAuth()
+  const userId = user?.id
 
   // List workspaces
   const {
@@ -987,19 +993,17 @@ export function useWorkspaceManager() {
 
   // Cookies
   const getLastWorkspaceId = useCallback(
-    () => Cookies.get("__tracecat:workspaces:last-viewed"),
-    []
+    () => getLastWorkspaceIdForUser(userId),
+    [userId]
   )
-  const setLastWorkspaceId = useCallback((id?: string) => {
-    if (!id) {
-      Cookies.set("__tracecat:workspaces:last-viewed", "")
-      return
-    }
-    Cookies.set("__tracecat:workspaces:last-viewed", id)
-  }, [])
-  const clearLastWorkspaceId = useCallback(() => {
-    Cookies.remove("__tracecat:workspaces:last-viewed")
-  }, [])
+  const setLastWorkspaceId = useCallback(
+    (id?: string) => setLastWorkspaceIdForUser(userId, id),
+    [userId]
+  )
+  const clearLastWorkspaceId = useCallback(
+    () => clearLastWorkspaceIdForUser(userId),
+    [userId]
+  )
 
   return {
     workspaces,
