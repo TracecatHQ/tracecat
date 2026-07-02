@@ -25,6 +25,7 @@ import * as React from "react"
 import { HorizontalRule } from "@/components/tiptap-node/horizontal-rule-node/horizontal-rule-node-extension"
 // --- Tiptap Node ---
 import { ImageUploadNode } from "@/components/tiptap-node/image-upload-node/image-upload-node-extension"
+import { MermaidCodeBlock } from "@/components/tiptap-node/mermaid-code-block-node/mermaid-code-block-node"
 // --- UI Primitives ---
 import { Button, ButtonGroup } from "@/components/tiptap-ui-primitive/button"
 import { Spacer } from "@/components/tiptap-ui-primitive/spacer"
@@ -460,6 +461,12 @@ export interface SimpleEditorProps {
    */
   toolbarStatus?: React.ReactNode
   /**
+   * Render Mermaid code blocks as diagrams when this editable editor is blurred.
+   * Read-only editors always render Mermaid diagrams.
+   * @default false
+   */
+  renderMermaidWhenBlurred?: boolean
+  /**
    * Auto focus behaviour.
    * @default false
    */
@@ -483,6 +490,7 @@ export function SimpleEditor({
   onShortcutFallback,
   onFocus,
   toolbarStatus,
+  renderMermaidWhenBlurred = false,
   autoFocus = false,
   style,
 }: SimpleEditorProps) {
@@ -499,12 +507,16 @@ export function SimpleEditor({
     () => [
       StarterKit.configure({
         horizontalRule: false,
+        codeBlock: false,
         link: {
           openOnClick: false,
           enableClickSelection: true,
         },
       }),
       HorizontalRule,
+      MermaidCodeBlock.configure({
+        renderWhenBlurred: renderMermaidWhenBlurred,
+      }),
       Table.configure({
         resizable: false,
       }),
@@ -540,7 +552,7 @@ export function SimpleEditor({
         },
       }),
     ],
-    []
+    [renderMermaidWhenBlurred]
   )
 
   const editor = useEditor({

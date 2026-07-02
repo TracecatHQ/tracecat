@@ -73,6 +73,7 @@ export function CaseDescriptionEditor({
         showToolbar={isEditorActive}
         preserveToolbarSpace
         toolbarStatus={toolbarStatus}
+        renderMermaidWhenBlurred
         placeholder="Describe the case..."
         className="case-description-editor"
         autoFocus={autoFocus}
