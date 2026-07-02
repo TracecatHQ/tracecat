@@ -85,6 +85,7 @@ import {
   Tool,
   ToolContent,
   ToolHeader,
+  type ToolHeaderProps,
   ToolInput,
   ToolOutput,
 } from "@/components/ai-elements/tool"
@@ -111,8 +112,10 @@ import {
 import { useOverflowBadges } from "@/hooks/use-overflow-badges"
 import type { ModelInfo } from "@/lib/chat"
 import {
+  CANCELLED_DATA_PART_TYPE,
   ENTITY_TO_INVALIDATION,
   getSessionLastError,
+  isInterruptArtifactError,
   toUIMessage,
   transformMessages,
 } from "@/lib/chat"
@@ -1054,6 +1057,35 @@ export function ChatSessionPane({
     [messages]
   )
 
+  // Messages whose turn the user stopped. The live stream appends the
+  // data-cancelled part to the assistant message itself, while reloaded
+  // history renders the persisted marker as a standalone system message that
+  // follows the assistant content — cover both so interrupted tool calls in
+  // the preceding message render accurately.
+  const cancelledTurnMessageIds = useMemo(() => {
+    const ids = new Set<string>()
+    let lastContentMessageId: string | null = null
+    for (const message of transformedMessages) {
+      const parts = message.parts ?? []
+      const hasCancelledPart = parts.some(
+        (part) => part.type === CANCELLED_DATA_PART_TYPE
+      )
+      const hasContentParts = parts.some(
+        (part) => part.type !== CANCELLED_DATA_PART_TYPE
+      )
+      if (hasCancelledPart) {
+        ids.add(message.id)
+        if (!hasContentParts && lastContentMessageId) {
+          ids.add(lastContentMessageId)
+        }
+      }
+      if (hasContentParts) {
+        lastContentMessageId = message.id
+      }
+    }
+    return ids
+  }, [transformedMessages])
+
   const invalidateEntityQueries = useCallback(
     (toolNames: string[]) => {
       if (!entityType || !entityId) {
@@ -1370,6 +1402,7 @@ export function ChatSessionPane({
                         role={role}
                         status={status}
                         isLastMessage={isLastMessage}
+                        turnCancelled={cancelledTurnMessageIds.has(id)}
                         onSubmitApprovals={handleSubmitApprovals}
                       />
                     ))}
@@ -1766,6 +1799,7 @@ export function MessagePart({
   role,
   status,
   isLastMessage,
+  turnCancelled = false,
   onSubmitApprovals,
 }: {
   part: UIMessagePart<UIDataTypes, UITools>
@@ -1774,17 +1808,14 @@ export function MessagePart({
   role: UIMessage["role"]
   status?: ChatStatus
   isLastMessage: boolean
+  turnCancelled?: boolean
   onSubmitApprovals?: (decisions: ApprovalDecision[]) => Promise<void>
 }) {
-  if (part.type === "data-cancelled") {
+  if (part.type === CANCELLED_DATA_PART_TYPE) {
     return (
-      <div
-        key={`${id}-${partIdx}`}
-        className="flex w-full justify-center py-1.5"
-      >
-        <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs text-muted-foreground">
-          Chat stopped
-        </div>
+      <div key={`${id}-${partIdx}`} className="w-full py-2">
+        <span className="text-xs text-muted-foreground">Interrupted</span>
+        <div className="mt-2 border-t" />
       </div>
     )
   }
@@ -1848,9 +1879,25 @@ export function MessagePart({
         ? (outputAsAny as { errorText?: string }).errorText
         : undefined
     const derivedErrorText = partErrorText ?? outputErrorText
-    const derivedState = derivedErrorText
-      ? ("output-error" as const)
-      : part.state
+    // In a turn the user stopped, tool calls that never completed (still
+    // pending) or that only "failed" because the SDK aborted them are
+    // interruptions, not tool errors — don't show a stale spinner or leak
+    // internal abort messages.
+    const isPendingState =
+      part.state === "input-streaming" || part.state === "input-available"
+    const isInterrupted =
+      turnCancelled &&
+      (isPendingState ||
+        (typeof derivedErrorText === "string" &&
+          isInterruptArtifactError(derivedErrorText)))
+    let derivedState: ToolHeaderProps["state"]
+    if (isInterrupted) {
+      derivedState = "output-interrupted"
+    } else if (derivedErrorText) {
+      derivedState = "output-error"
+    } else {
+      derivedState = part.state
+    }
     return (
       <Tool key={`${id}-${partIdx}`}>
         <ToolHeader
@@ -1861,7 +1908,13 @@ export function MessagePart({
         />
         <ToolContent>
           <ToolInput input={part.input} />
-          <ToolOutput output={part.output} errorText={derivedErrorText} />
+          {isInterrupted ? (
+            <div className="text-[11px] text-muted-foreground">
+              Stopped before completion
+            </div>
+          ) : (
+            <ToolOutput output={part.output} errorText={derivedErrorText} />
+          )}
         </ToolContent>
       </Tool>
     )
@@ -1934,6 +1987,7 @@ const MemoizedMessagePart = memo(MessagePart, (prev, next) => {
     prev.role !== next.role ||
     prev.status !== next.status ||
     prev.isLastMessage !== next.isLastMessage ||
+    prev.turnCancelled !== next.turnCancelled ||
     prev.onSubmitApprovals !== next.onSubmitApprovals
   ) {
     return false

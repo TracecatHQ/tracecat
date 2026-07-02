@@ -216,6 +216,109 @@ describe("ChatSessionPane", () => {
     expect(screen.getByText("Agent: case-management")).toBeInTheDocument()
   })
 
+  it("renders the stop divider for a cancelled turn marker", () => {
+    const cancelledPart = {
+      type: "data-cancelled",
+      data: { reason: "user_cancel" },
+    } as unknown as Parameters<typeof MessagePart>[0]["part"]
+
+    render(
+      <TooltipProvider>
+        <MessagePart
+          part={cancelledPart}
+          partIdx={0}
+          id="msg-cancelled"
+          role="assistant"
+          isLastMessage
+          status="ready"
+        />
+      </TooltipProvider>
+    )
+
+    expect(screen.getByText("Interrupted")).toBeInTheDocument()
+    expect(screen.queryByText("Chat stopped")).not.toBeInTheDocument()
+  })
+
+  it("marks pending tool calls as interrupted in a cancelled turn", () => {
+    const pendingToolPart = {
+      type: "tool-core__table__list_tables",
+      toolCallId: "tc-pending-1",
+      state: "input-available",
+      input: {},
+    } as unknown as Parameters<typeof MessagePart>[0]["part"]
+
+    render(
+      <TooltipProvider>
+        <MessagePart
+          part={pendingToolPart}
+          partIdx={0}
+          id="msg-pending-tool"
+          role="assistant"
+          isLastMessage
+          status="ready"
+          turnCancelled
+        />
+      </TooltipProvider>
+    )
+
+    expect(screen.getByText("Interrupted")).toBeInTheDocument()
+    expect(screen.queryByText("In progress")).not.toBeInTheDocument()
+  })
+
+  it("renders SDK abort errors as interrupted instead of leaking them", () => {
+    const abortedToolPart = {
+      type: "tool-core__table__list_tables",
+      toolCallId: "tc-aborted-1",
+      state: "output-error",
+      input: {},
+      errorText: "MCP error -32001: AbortError: The operation was aborted.",
+    } as unknown as Parameters<typeof MessagePart>[0]["part"]
+
+    render(
+      <TooltipProvider>
+        <MessagePart
+          part={abortedToolPart}
+          partIdx={0}
+          id="msg-aborted-tool"
+          role="assistant"
+          isLastMessage
+          status="ready"
+          turnCancelled
+        />
+      </TooltipProvider>
+    )
+
+    expect(screen.getByText("Interrupted")).toBeInTheDocument()
+    expect(screen.queryByText("Error")).not.toBeInTheDocument()
+  })
+
+  it("keeps genuine tool errors as errors in a cancelled turn", () => {
+    const failedToolPart = {
+      type: "tool-core__table__list_tables",
+      toolCallId: "tc-failed-1",
+      state: "output-error",
+      input: {},
+      errorText: "Table not found: alerts",
+    } as unknown as Parameters<typeof MessagePart>[0]["part"]
+
+    render(
+      <TooltipProvider>
+        <MessagePart
+          part={failedToolPart}
+          partIdx={0}
+          id="msg-failed-tool"
+          role="assistant"
+          isLastMessage
+          status="ready"
+          turnCancelled
+        />
+      </TooltipProvider>
+    )
+
+    expect(screen.getByText("Error")).toBeInTheDocument()
+    expect(screen.queryByText("Interrupted")).not.toBeInTheDocument()
+  })
+
   function mockUseVercelChatStatus(status: "ready" | "submitted") {
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),

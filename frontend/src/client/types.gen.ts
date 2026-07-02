@@ -2434,6 +2434,7 @@ export type ChannelType = "slack"
  * - kind=CHAT_MESSAGE: Contains message field with user/assistant content
  * - kind=APPROVAL_REQUEST/APPROVAL_DECISION: Contains approval field with approval data
  * - kind=COMPACTION: Contains compaction field with compaction status data
+ * - kind=CANCELLED: Contains cancelled field with turn-cancelled marker data
  */
 export type ChatMessage = {
   /**
@@ -2464,6 +2465,12 @@ export type ChatMessage = {
    * Compaction status data for badge rendering (for kind=COMPACTION)
    */
   compaction?: {
+    [key: string]: unknown
+  } | null
+  /**
+   * Turn-cancelled marker data (for kind=CANCELLED)
+   */
+  cancelled?: {
     [key: string]: unknown
   } | null
 }
@@ -5154,6 +5161,7 @@ export type MessageKind =
   | "approval-decision"
   | "internal"
   | "compaction"
+  | "cancelled"
 
 export type ModelConfig = {
   /**

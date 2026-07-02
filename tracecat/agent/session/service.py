@@ -41,6 +41,7 @@ import tracecat.agent.adapter.vercel
 import tracecat.artifacts.projection as artifact_projection
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.cancellation import signal_turn_cancel
 from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.llm import LLMCompletionError
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
@@ -830,6 +831,42 @@ class AgentSessionService(BaseWorkspaceService):
         await self.session.execute(stmt)
         await self.session.commit()
 
+    async def append_cancelled_marker(
+        self,
+        session_id: uuid.UUID,
+        *,
+        reason: str | None = None,
+    ) -> None:
+        """Persist a turn-cancelled marker row into the session history.
+
+        The marker renders as the "stopped by user" divider in the chat
+        timeline after a reload; the live turn gets the equivalent signal from
+        the ``cancelled`` stream event. It is not an SDK transcript line, so
+        history hydration must skip it (see ``get_session_history_data``).
+        """
+        agent_session = await self.get_session(session_id)
+        if agent_session is None:
+            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+
+        content: dict[str, Any] = {
+            "type": "cancelled",
+            "reason": reason or "user_cancel",
+            "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        }
+        # Tag with the active run id like other mid-turn rows so the marker
+        # stays hidden from DB reloads until terminal cleanup reveals it
+        # together with the rest of the turn.
+        self.session.add(
+            AgentSessionHistory(
+                session_id=session_id,
+                workspace_id=self.workspace_id,
+                content=content,
+                kind=MessageKind.CANCELLED.value,
+                curr_run_id=agent_session.curr_run_id,
+            )
+        )
+        await self.session.commit()
+
     async def clear_active_turn(
         self,
         session_id: uuid.UUID,
@@ -954,6 +991,11 @@ class AgentSessionService(BaseWorkspaceService):
             if entry.kind == MessageKind.INTERNAL.value:
                 if line_uuid is not None:
                     internal_uuids.add(line_uuid)
+                continue
+
+            # Cancelled markers are UI-only timeline rows, not SDK transcript
+            # lines - feeding one into the rebuilt JSONL would corrupt resume.
+            if entry.kind == MessageKind.CANCELLED.value:
                 continue
 
             if is_continuation_control_artifact(content, internal_uuids):
@@ -1736,6 +1778,22 @@ class AgentSessionService(BaseWorkspaceService):
             reason=reason,
         )
 
+        # Out-of-band fast path: the executor activity polls this signal and
+        # interrupts the live runtime directly. Temporal activity cancellation
+        # only reaches a running activity via throttled heartbeat RPCs, so a
+        # turn can otherwise finish before the cancel is ever delivered. Write
+        # it before the workflow update to minimize stop latency; best-effort
+        # because the update-driven path still cancels (slower) without it.
+        try:
+            await signal_turn_cancel(str(curr_run_id), reason=reason)
+        except Exception as e:
+            logger.warning(
+                "Failed to write turn cancel signal",
+                session_id=str(session_id),
+                run_id=str(curr_run_id),
+                error=str(e),
+            )
+
         await handle.execute_update(
             DurableAgentWorkflow.request_cancel,
             WorkflowCancelRequest(reason=reason),
@@ -2101,6 +2159,27 @@ class AgentSessionService(BaseWorkspaceService):
                         id=str(entry.id),
                         kind=kind,
                         compaction=compaction_data,
+                    )
+                )
+                continue
+
+            # Handle cancelled markers: divider rows showing where the user
+            # stopped an in-flight turn.
+            if entry.kind == MessageKind.CANCELLED.value:
+                kind = MessageKind.CANCELLED
+
+                # Filter by kinds if specified
+                if kinds and kind not in kinds:
+                    continue
+
+                reason = content.get("reason")
+                messages.append(
+                    ChatMessage(
+                        id=str(entry.id),
+                        kind=kind,
+                        cancelled={
+                            "reason": reason if isinstance(reason, str) else None
+                        },
                     )
                 )
                 continue

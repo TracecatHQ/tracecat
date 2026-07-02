@@ -1,7 +1,8 @@
 from datetime import UTC, datetime
+from typing import cast
 from uuid import uuid4
 
-from tracecat.agent.adapter.vercel import convert_chat_messages_to_ui
+from tracecat.agent.adapter.vercel import DataUIPart, convert_chat_messages_to_ui
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.chat.enums import MessageKind
 from tracecat.chat.schemas import ApprovalRead, ChatMessage
@@ -34,3 +35,21 @@ def test_convert_chat_messages_to_ui_skips_resolved_approval_request() -> None:
     messages = convert_chat_messages_to_ui([_approval_message(ApprovalStatus.APPROVED)])
 
     assert messages == []
+
+
+def test_convert_chat_messages_to_ui_emits_cancelled_marker() -> None:
+    messages = convert_chat_messages_to_ui(
+        [
+            ChatMessage(
+                id=str(uuid4()),
+                kind=MessageKind.CANCELLED,
+                cancelled={"reason": "user_cancel"},
+            )
+        ]
+    )
+
+    assert len(messages) == 1
+    assert messages[0].role == "system"
+    part = cast(DataUIPart, messages[0].parts[0])
+    assert part["type"] == "data-cancelled"
+    assert part["data"] == {"reason": "user_cancel"}

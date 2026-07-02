@@ -22,6 +22,10 @@ from tracecat_ee.workspace_chat.skills import BUILTIN_SKILL_NAME_PREFIX
 
 from tracecat import config as app_config
 from tracecat.agent.artifacts.working_set import ArtifactWorkingSetInput
+from tracecat.agent.cancellation import (
+    TURN_CANCEL_POLL_INTERVAL_SECONDS,
+    read_turn_cancel_signal,
+)
 from tracecat.agent.common.config import (
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
     TRACECAT__AGENT_SANDBOX_TIMEOUT,
@@ -46,6 +50,7 @@ from tracecat.agent.filesystem import hydrate_agent_work_dir, persist_agent_work
 from tracecat.agent.llm_routing import get_litellm_route_model
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.runtime.claude_code.broker import (
+    ClaudeRuntimeBroker,
     ClaudeTurnRequest,
     ConcurrentSessionTurnError,
 )
@@ -559,6 +564,7 @@ class SandboxedAgentExecutor:
 
         broker_task: asyncio.Task[None] | None = None
         fatal_error_task: asyncio.Task[str] | None = None
+        cancel_signal_task: asyncio.Task[None] | None = None
         try:
             async with broker.session_turn_lease(str(self.input.session_id)):
                 broker_task = asyncio.create_task(
@@ -566,6 +572,13 @@ class SandboxedAgentExecutor:
                 )
                 self._log_benchmark_phase("broker_turn_dispatched")
 
+                cancel_signal_task = asyncio.create_task(
+                    self._watch_cancel_signal(
+                        broker=broker,
+                        handler=handler,
+                        broker_task=broker_task,
+                    )
+                )
                 fatal_error_task = asyncio.create_task(wait_fatal_error())
                 heartbeat_interval = 5
                 elapsed = 0
@@ -671,8 +684,79 @@ class SandboxedAgentExecutor:
             result.cancelled = True
             result.cancelled_reason = reason
         finally:
-            for task in (fatal_error_task, broker_task):
+            for task in (cancel_signal_task, fatal_error_task, broker_task):
                 await _cancel_task_with_timeout(task, task_name="agent_executor_task")
+
+    async def _watch_cancel_signal(
+        self,
+        *,
+        broker: ClaudeRuntimeBroker,
+        handler: LoopbackHandler,
+        broker_task: asyncio.Task[None],
+    ) -> None:
+        """Poll the out-of-band user-cancel signal and stop the turn on demand.
+
+        Temporal delivers activity cancellation only through throttled
+        heartbeat RPCs, so a turn can finish before the CancelledError branch
+        ever runs (see tracecat/agent/cancellation.py). This watcher reads the
+        Redis signal written by the cancel endpoint and drives the same
+        graceful interrupt directly, without depending on Temporal delivery.
+        The CancelledError branch stays as the fallback; the runtime dedupes
+        the interrupt if both fire.
+        """
+        run_id = self.input.curr_run_id
+        if run_id is None:
+            # Legacy/DSL turns have no pinned run id and no cancel endpoint.
+            return
+
+        reason: str | None = None
+        while reason is None:
+            try:
+                reason = await read_turn_cancel_signal(str(run_id))
+            except Exception as e:
+                logger.warning(
+                    "Failed to poll turn cancel signal",
+                    session_id=self.input.session_id,
+                    error=str(e),
+                )
+            if reason is None:
+                await asyncio.sleep(TURN_CANCEL_POLL_INTERVAL_SECONDS)
+
+        logger.info(
+            "Agent turn cancel signal received",
+            session_id=self.input.session_id,
+            run_id=str(run_id),
+            reason=reason,
+        )
+        handler.mark_cancelled(reason)
+        try:
+            async with asyncio.timeout(GRACEFUL_CANCEL_TIMEOUT_SECONDS):
+                # interrupt_turn no-ops while the runtime is still starting up
+                # (work-dir hydration) - retry until it reaches a live runtime
+                # or the turn ends on its own.
+                while not await broker.interrupt_turn(
+                    str(self.input.session_id), reason
+                ):
+                    if broker_task.done():
+                        return
+                    await asyncio.sleep(TURN_CANCEL_POLL_INTERVAL_SECONDS)
+                # Interrupt delivered; the runtime should now wind down and
+                # complete the broker turn. Exceptions surface to the main
+                # wait loop, not here.
+                await asyncio.wait({broker_task})
+        except TimeoutError:
+            logger.warning(
+                "Timed out gracefully stopping agent turn after cancel signal",
+                session_id=self.input.session_id,
+            )
+            await broker.cancel_turn(str(self.input.session_id))
+        except Exception as e:
+            logger.warning(
+                "Failed to gracefully stop agent turn after cancel signal",
+                session_id=self.input.session_id,
+                error=str(e),
+            )
+            await broker.cancel_turn(str(self.input.session_id))
 
     async def _create_job_directory(self) -> Path:
         """Create a temporary job directory with socket subdirectory."""
