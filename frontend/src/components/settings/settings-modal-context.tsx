@@ -6,7 +6,6 @@ export type SettingsSection =
   | "profile"
   | "workspace-general"
   | "workspace-runtime"
-  | "workspace-models"
   | "workspace-files"
   | "workspace-sync"
 
