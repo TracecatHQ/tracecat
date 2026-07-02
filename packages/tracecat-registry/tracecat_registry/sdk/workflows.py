@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from tracecat_registry.sdk.types import UNSET, Unset, is_set
 
@@ -45,6 +48,46 @@ class WorkflowExecutionTimeout(Exception):
         )
 
 
+class JsonPatchOperation(BaseModel):
+    """A single RFC 6902 JSON Patch operation.
+
+    Mirrors the server-side model so agent tool schemas expose the operation
+    structure (``op`` enum, required ``path``) instead of a free-form object.
+    """
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    op: Literal["add", "remove", "replace", "move", "copy", "test"]
+    path: str
+    from_: str | None = Field(default=None, alias="from")
+    value: Any | None = None
+
+    @model_validator(mode="after")
+    def validate_operation_shape(self) -> JsonPatchOperation:
+        has_value = "value" in self.model_fields_set
+        match self.op:
+            case "add" | "replace" | "test":
+                if not has_value:
+                    raise ValueError(
+                        f"Patch operation {self.op!r} requires field 'value'"
+                    )
+            case "move" | "copy":
+                if self.from_ is None:
+                    raise ValueError(
+                        f"Patch operation {self.op!r} requires field 'from'"
+                    )
+        return self
+
+    def to_json_patch(self) -> dict[str, Any]:
+        """Serialize to canonical RFC 6902 wire format."""
+        data: dict[str, Any] = {"op": self.op, "path": self.path}
+        if self.from_ is not None:
+            data["from"] = self.from_
+        if self.op in ("add", "replace", "test"):
+            data["value"] = self.value
+        return data
+
+
 class WorkflowsClient:
     """Client for Workflows API operations."""
 
@@ -56,13 +99,21 @@ class WorkflowsClient:
         *,
         title: str | None = None,
         description: str | None = None,
+        definition_yaml: str | None = None,
     ) -> dict[str, Any]:
-        """Create a new empty workflow in the current workspace.
+        """Create a new workflow in the current workspace.
 
         Args:
-            title: Workflow title (3-100 characters). If omitted, the API assigns
-                a timestamped title.
+            title: Workflow title (3-100 characters). For an empty create
+                (no ``definition_yaml``), the API assigns a timestamped title
+                when omitted. With ``definition_yaml``, the title must come from
+                this arg or a ``title:`` in the YAML, else the create is rejected.
             description: Optional workflow description.
+            definition_yaml: Optional full workflow definition as YAML. When
+                provided, the workflow is created with these actions (and any
+                layout/case trigger) instead of being empty. Schedules are not
+                created from this YAML; add them afterwards via
+                :meth:`edit_workflow`.
 
         Returns:
             dict containing:
@@ -70,7 +121,7 @@ class WorkflowsClient:
                 - title: The workflow title.
 
         Raises:
-            TracecatValidationError: If the title is invalid.
+            TracecatValidationError: If the title or definition is invalid.
             TracecatAPIError: For other API errors.
         """
         data: dict[str, Any] = {}
@@ -78,7 +129,281 @@ class WorkflowsClient:
             data["title"] = title
         if description is not None:
             data["description"] = description
+        if definition_yaml is not None:
+            data["definition_yaml"] = definition_yaml
         return await self._client.post("/workflows", json=data)
+
+    async def get_workflow(self, *, workflow_id: str) -> dict[str, Any]:
+        """Read a workflow's editable draft document and revision.
+
+        Args:
+            workflow_id: Workflow UUID (short ``wf_...`` or full format).
+
+        Returns:
+            dict with ``workflow_id``, ``draft_revision``, and ``draft_document``
+            (the editable metadata/definition/layout/schedules/case_trigger).
+            Pass ``draft_revision`` as ``base_revision`` to :meth:`edit_workflow`.
+
+        Raises:
+            TracecatNotFoundError: If the workflow does not exist.
+            TracecatAPIError: For other API errors.
+        """
+        return await self._client.get(f"/workflows/{workflow_id}/edit-document")
+
+    async def edit_workflow(
+        self,
+        *,
+        workflow_id: str,
+        base_revision: str,
+        patch_ops: Sequence[JsonPatchOperation | dict[str, Any]],
+        validate_only: bool = False,
+    ) -> dict[str, Any]:
+        """Edit a workflow draft using RFC 6902 JSON Patch operations.
+
+        Fetch the current document and revision with :meth:`get_workflow`,
+        compute the patch ops against ``draft_document``, then call this with the
+        returned ``draft_revision`` as ``base_revision``.
+
+        Args:
+            workflow_id: Workflow UUID (short ``wf_...`` or full format).
+            base_revision: The ``draft_revision`` the patch is computed against
+                (an opaque content-hash string, not a version number).
+            patch_ops: RFC 6902 JSON Patch operations restricted to the editable
+                sections (metadata, definition, layout, schedules, case_trigger).
+                Each op may be a :class:`JsonPatchOperation` or an equivalent
+                dict.
+            validate_only: When True, validate the patch without persisting.
+
+        Returns:
+            dict with ``message``, ``workflow_id``, and the new ``draft_revision``.
+
+        Raises:
+            TracecatConflictError: If ``base_revision`` no longer matches the
+                current draft (concurrent edit). Re-fetch and retry.
+            TracecatValidationError: If the patch is invalid.
+            TracecatAPIError: For other API errors.
+        """
+        normalized_ops = [
+            JsonPatchOperation.model_validate(op).to_json_patch() for op in patch_ops
+        ]
+        return await self._client.patch(
+            f"/workflows/{workflow_id}/edit-document",
+            json={
+                "base_revision": base_revision,
+                "patch_ops": normalized_ops,
+                "validate_only": validate_only,
+            },
+        )
+
+    async def publish(self, *, workflow_id: str) -> dict[str, Any]:
+        """Publish (commit) a workflow's current draft as a new version.
+
+        Validates the draft, freezes registry dependencies, and creates a new
+        versioned definition. Run the published workflow afterwards with
+        :meth:`execute`.
+
+        Args:
+            workflow_id: Workflow UUID (short ``wf_...`` or full format).
+
+        Returns:
+            dict with ``workflow_id``, ``version`` (the new definition version),
+            and ``message``.
+
+        Raises:
+            TracecatValidationError: If the draft fails validation (400). The
+                ``detail`` carries the per-error list so the caller can fix the
+                draft and retry.
+            TracecatNotFoundError: If the workflow does not exist.
+            TracecatAPIError: For other API errors.
+        """
+        return await self._client.post(f"/workflows/{workflow_id}/publish")
+
+    async def run(
+        self,
+        *,
+        workflow_id: str,
+        inputs: Any | None = None,
+        use_draft: bool = True,
+        version: int | None = None,
+    ) -> dict[str, Any]:
+        """Run a workflow from its draft state or a published definition.
+
+        Args:
+            workflow_id: Workflow UUID (short ``wf_...`` or full format).
+            inputs: Trigger inputs to pass to the workflow.
+            use_draft: When ``True`` (default), run the current draft graph
+                without publishing. When ``False``, run a published definition.
+            version: Published definition version to run. Only applies when
+                ``use_draft`` is ``False``; ``None`` runs the current published
+                version. Ignored when ``use_draft`` is ``True``.
+
+        Returns:
+            dict with ``workflow_id``, ``workflow_execution_id``, and
+            ``status`` (``"STARTED"``).
+
+        Raises:
+            TracecatValidationError: If the draft fails validation (400).
+            TracecatNotFoundError: If the workflow or requested version does not
+                exist.
+            TracecatAPIError: For other API errors.
+        """
+        data: dict[str, Any] = {
+            "workflow_id": workflow_id,
+            "use_draft": use_draft,
+        }
+        if inputs is not None:
+            data["inputs"] = inputs
+        if version is not None:
+            data["version"] = version
+
+        response = await self._client.post("/workflows/run", json=data)
+        return {
+            "workflow_id": response["workflow_id"],
+            "workflow_execution_id": response["workflow_execution_id"],
+            "status": "STARTED",
+        }
+
+    async def get_authoring_context(
+        self,
+        *,
+        action_names: list[str] | None = None,
+        query: str | None = None,
+    ) -> dict[str, Any]:
+        """Fetch authoring context (schemas, secrets, examples) for actions.
+
+        Resolve actions either by explicit ``action_names`` or, when none are
+        given, by ``query`` search. With neither, only the workspace
+        variable/secret hints are returned.
+
+        Args:
+            action_names: Fully qualified action names (e.g.
+                ``["core.http_request"]``) to fetch context for.
+            query: Search string to resolve actions by name/description when
+                ``action_names`` is omitted.
+
+        Returns:
+            dict with ``actions`` (each a schema/secrets/examples context),
+            ``variable_hints``, ``secret_hints``, and ``enabled_models`` (the
+            models available in this workspace; select a ``catalog_id`` from
+            this list when configuring AI actions or agent presets).
+
+        Raises:
+            TracecatAPIError: For API errors.
+        """
+        data: dict[str, Any] = {}
+        if action_names is not None:
+            data["action_names"] = action_names
+        if query is not None:
+            data["query"] = query
+        return await self._client.post("/workflows/authoring-context", json=data)
+
+    async def get_webhook(self, *, workflow_id: str) -> dict[str, Any]:
+        """Read a workflow's webhook trigger configuration.
+
+        Args:
+            workflow_id: Workflow UUID (short ``wf_...`` or full format).
+
+        Returns:
+            dict with the webhook ``status`` (``"online"``/``"offline"``), the
+            public ``url`` to POST events to, the allowed ``methods``, and
+            ``entrypoint_ref``.
+
+        Raises:
+            TracecatNotFoundError: If the workflow has no webhook.
+            TracecatAPIError: For other API errors.
+        """
+        return await self._client.get(f"/workflows/{workflow_id}/webhook")
+
+    async def update_webhook(
+        self,
+        *,
+        workflow_id: str,
+        status: Literal["online", "offline"],
+    ) -> dict[str, Any]:
+        """Enable or disable a workflow's webhook trigger.
+
+        Args:
+            workflow_id: Workflow UUID (short ``wf_...`` or full format).
+            status: ``"online"`` to enable the webhook (the workflow becomes
+                triggerable via its webhook ``url``) or ``"offline"`` to disable
+                it.
+
+        Returns:
+            The updated webhook configuration, as returned by
+            :meth:`get_webhook`.
+
+        Raises:
+            TracecatNotFoundError: If the workflow does not exist.
+            TracecatAPIError: For other API errors.
+        """
+        await self._client.patch(
+            f"/workflows/{workflow_id}/webhook",
+            json={"status": status},
+        )
+        return await self.get_webhook(workflow_id=workflow_id)
+
+    async def get_case_trigger(self, *, workflow_id: str) -> dict[str, Any]:
+        """Read a workflow's case-trigger configuration.
+
+        Args:
+            workflow_id: Workflow UUID (short ``wf_...`` or full format).
+
+        Returns:
+            dict with ``status`` (``"online"``/``"offline"``), ``event_types``
+            (the case events that fire the workflow), and ``tag_filters``.
+
+        Raises:
+            TracecatNotFoundError: If the workflow has no case trigger.
+            TracecatAPIError: For other API errors.
+        """
+        return await self._client.get(f"/workflows/{workflow_id}/case-trigger")
+
+    async def update_case_trigger(
+        self,
+        *,
+        workflow_id: str,
+        status: Literal["online", "offline"] | None = None,
+        event_types: list[str] | None = None,
+        tag_filters: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Configure a workflow's case trigger.
+
+        This is the only supported way to set a case trigger. The case-trigger
+        config is NOT editable through :meth:`edit_workflow` JSON patches.
+
+        Args:
+            workflow_id: Workflow UUID (short ``wf_...`` or full format).
+            status: ``"online"`` to enable or ``"offline"`` to disable. When
+                setting ``"online"``, ``event_types`` must be non-empty (either
+                passed here or already configured).
+            event_types: Case event types that fire the workflow (e.g.
+                ``["case_created", "status_changed"]``).
+            tag_filters: Optional case-tag refs to restrict which cases fire the
+                trigger.
+
+        Returns:
+            The updated (merged) case-trigger configuration, as returned by
+            :meth:`get_case_trigger`. Because omitted args leave fields
+            unchanged, this reflects the full resulting config.
+
+        Raises:
+            TracecatNotFoundError: If the workflow does not exist.
+            TracecatValidationError: If ``status`` is ``"online"`` with no
+                ``event_types``.
+            TracecatAPIError: For other API errors.
+        """
+        data: dict[str, Any] = {}
+        if status is not None:
+            data["status"] = status
+        if event_types is not None:
+            data["event_types"] = event_types
+        if tag_filters is not None:
+            data["tag_filters"] = tag_filters
+        await self._client.patch(
+            f"/workflows/{workflow_id}/case-trigger",
+            json=data,
+        )
+        return await self.get_case_trigger(workflow_id=workflow_id)
 
     async def execute(
         self,

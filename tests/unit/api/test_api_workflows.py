@@ -23,7 +23,13 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
 from tracecat.pagination import CursorPaginatedResponse
+from tracecat.validation.schemas import (
+    ValidationDetail,
+    ValidationResult,
+    ValidationResultType,
+)
 from tracecat.workflow.management import router as workflow_management_router
+from tracecat.workflow.management.management import WorkflowPublishResult
 from tracecat.workflow.management.types import (
     WorkflowDefinitionMinimal,
     WorkflowTriggerSummaryMinimal,
@@ -252,34 +258,33 @@ async def test_commit_workflow_builtin_registry_not_ready_returns_validation_fai
     mock_workflow: Workflow,
 ) -> None:
     """Commit should return a validation-style failure while builtin sync is pending."""
-    mock_dsl = SimpleNamespace(
-        actions=[SimpleNamespace(action="core.transform.reshape")]
+    # The build/validate/lock/commit orchestration lives in
+    # WorkflowsManagementService.publish_workflow; the commit route just renders
+    # its WorkflowPublishResult. Simulate the builtin-sync-pending failure.
+    failure = WorkflowPublishResult(
+        version=None,
+        errors=[
+            ValidationResult.new(
+                type=ValidationResultType.DSL,
+                status="error",
+                msg="Builtin registry sync is still in progress. Please retry shortly.",
+                detail=[
+                    ValidationDetail(
+                        type="registry.builtin_sync_pending",
+                        msg="Builtin registry sync is still in progress. Please retry shortly.",
+                        loc=("registry_lock",),
+                    )
+                ],
+            )
+        ],
     )
 
-    with (
-        patch.object(
-            workflow_management_router, "WorkflowsManagementService"
-        ) as mock_mgmt_cls,
-        patch.object(
-            workflow_management_router, "RegistryLockService"
-        ) as mock_lock_cls,
-        patch.object(
-            workflow_management_router, "validate_dsl", new=AsyncMock(return_value=[])
-        ),
-    ):
+    with patch.object(
+        workflow_management_router, "WorkflowsManagementService"
+    ) as mock_mgmt_cls:
         mock_mgmt = AsyncMock()
-        mock_mgmt.get_workflow.return_value = mock_workflow
-        mock_mgmt.build_dsl_from_workflow.return_value = mock_dsl
+        mock_mgmt.publish_workflow.return_value = failure
         mock_mgmt_cls.return_value = mock_mgmt
-
-        mock_lock = AsyncMock()
-        mock_lock.resolve_lock_with_bindings.side_effect = (
-            BuiltinRegistryHasNoSelectionError(
-                "Builtin registry sync is still in progress. Please retry shortly.",
-                detail={"origin": "tracecat_registry"},
-            )
-        )
-        mock_lock_cls.return_value = mock_lock
 
         response = client.post(
             f"/workflows/{mock_workflow.id}/commit",

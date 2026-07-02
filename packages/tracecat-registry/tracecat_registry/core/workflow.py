@@ -13,6 +13,7 @@ from typing_extensions import Doc
 from tracecat_registry import ActionIsInterfaceError, ctx, registry
 from tracecat_registry.context import get_context
 from tracecat_registry.sdk.workflows import (
+    JsonPatchOperation,
     WorkflowExecutionError,
     WorkflowExecutionTimeout,
 )
@@ -20,7 +21,11 @@ from tracecat_registry.sdk.workflows import (
 
 @registry.register(
     namespace="core.workflow",
-    description="Execute a subflow.",
+    description=(
+        "Execute a published workflow by alias as a subflow. For testing "
+        "unpublished draft edits during authoring, use `core.workflow.run` "
+        "instead."
+    ),
     default_title="Execute subflow",
     display_group="Workflows",
 )
@@ -133,10 +138,8 @@ async def execute(
 @registry.register(
     namespace="core.workflow",
     description=(
-        "Create a new empty workflow in the current workspace and return its id "
-        "and title. Use this when the user asks to create, scaffold, or start a new "
-        "workflow. The workflow starts empty (only a trigger) and can be edited in "
-        "the workflow builder afterwards."
+        "Create a new workflow, optionally pre-filled from `definition_yaml`. "
+        "Read the `tracecat-manage-workflows` skill first."
     ),
     default_title="Create workflow",
     display_group="Workflows",
@@ -146,17 +149,325 @@ async def create_workflow(
     title: Annotated[
         str | None,
         Doc(
-            "Title for the new workflow (3-100 characters). If omitted, a "
-            "timestamped title is used."
+            "Title for the new workflow (3-100 characters). For an empty create "
+            "a timestamped title is used when omitted; with `definition_yaml` "
+            "the title must come from here or a `title:` in the YAML."
         ),
     ] = None,
     description: Annotated[
         str | None,
         Doc("Optional description for the new workflow (up to 1000 characters)."),
     ] = None,
+    definition_yaml: Annotated[
+        str | None,
+        Doc(
+            "Optional full workflow definition as YAML (actions, layout, case "
+            "trigger). When provided, the workflow is created with these actions "
+            "instead of being empty. The complete workflow belongs under a "
+            "top-level `definition:` key. Schedules are not created here — add "
+            "them afterwards with `edit_workflow`."
+        ),
+    ] = None,
 ) -> dict[str, Any]:
-    """Create a new empty workflow and return ``{"id", "title"}``."""
-    return await ctx.workflows.aio.create_workflow(title=title, description=description)
+    """Create a workflow and return ``{"id", "title"}``."""
+    return await ctx.workflows.aio.create_workflow(
+        title=title, description=description, definition_yaml=definition_yaml
+    )
+
+
+@registry.register(
+    namespace="core.workflow",
+    description=(
+        "Read a workflow's editable draft (`draft_revision` + `draft_document`). "
+        "Call before `edit_workflow`. See the `tracecat-manage-workflows` skill."
+    ),
+    default_title="Get workflow",
+    display_group="Workflows",
+)
+async def get_workflow(
+    *,
+    workflow_id: Annotated[
+        str,
+        Doc("The workflow ID to read (short `wf_...` or full format)."),
+    ],
+) -> dict[str, Any]:
+    """Read a workflow's editable draft document and revision."""
+    return await ctx.workflows.aio.get_workflow(workflow_id=workflow_id)
+
+
+@registry.register(
+    namespace="core.workflow",
+    description=(
+        "Edit a workflow's draft with RFC 6902 JSON Patch ops (get_workflow → "
+        "patch → edit_workflow). Read the `tracecat-manage-workflows` skill first."
+    ),
+    default_title="Edit workflow",
+    display_group="Workflows",
+)
+async def edit_workflow(
+    *,
+    workflow_id: Annotated[
+        str,
+        Doc("The workflow ID to edit (short `wf_...` or full format)."),
+    ],
+    base_revision: Annotated[
+        str,
+        Doc(
+            "The `draft_revision` returned by `get_workflow` — an opaque "
+            "content-hash string, not a version number. The edit is rejected "
+            "with a conflict if the draft changed since then."
+        ),
+    ],
+    patch_ops: Annotated[
+        list[JsonPatchOperation],
+        Doc(
+            "RFC 6902 JSON Patch operations to apply to the draft document. Each "
+            'op is an object like {"op": "add", "path": "/definition/actions/-", '
+            '"value": {...}}. `add`/`replace`/`test` require `value`; '
+            "`move`/`copy` require `from`."
+        ),
+    ],
+    validate_only: Annotated[
+        bool,
+        Doc("When true, validate the patch without persisting changes."),
+    ] = False,
+) -> dict[str, Any]:
+    """Apply JSON Patch edits to a workflow draft and return the new revision."""
+    return await ctx.workflows.aio.edit_workflow(
+        workflow_id=workflow_id,
+        base_revision=base_revision,
+        patch_ops=patch_ops,
+        validate_only=validate_only,
+    )
+
+
+@registry.register(
+    namespace="core.workflow",
+    description=(
+        "Get action schemas, required secrets, example args, and the models "
+        "enabled for this workspace before writing an action's `args:`. When "
+        "configuring an AI action (`ai.action`, `ai.agent`) or agent preset, "
+        "select a `catalog_id` from `enabled_models` instead of guessing a "
+        "model name. Resolve by `action_names` or `query`. See the "
+        "`tracecat-manage-workflows` skill."
+    ),
+    default_title="Get workflow authoring context",
+    display_group="Workflows",
+)
+async def get_authoring_context(
+    *,
+    action_names: Annotated[
+        list[str] | None,
+        Doc(
+            "Fully qualified action names to fetch context for (e.g. "
+            "`['core.http_request', 'ai.agent']`). Takes precedence over `query`."
+        ),
+    ] = None,
+    query: Annotated[
+        str | None,
+        Doc(
+            "Search string to resolve actions by name/description when "
+            "`action_names` is not provided."
+        ),
+    ] = None,
+) -> dict[str, Any]:
+    """Return action schemas, secret/variable hints, enabled models, and example args."""
+    return await ctx.workflows.aio.get_authoring_context(
+        action_names=action_names,
+        query=query,
+    )
+
+
+@registry.register(
+    namespace="core.workflow",
+    description=(
+        "Read a workflow's webhook trigger config (status, public URL, methods). "
+        "See the `tracecat-manage-workflows` skill for configuring triggers."
+    ),
+    default_title="Get workflow webhook",
+    display_group="Workflows",
+)
+async def get_webhook(
+    *,
+    workflow_id: Annotated[
+        str,
+        Doc("The workflow ID to read the webhook for (short `wf_...` or full)."),
+    ],
+) -> dict[str, Any]:
+    """Read a workflow's webhook trigger configuration."""
+    return await ctx.workflows.aio.get_webhook(workflow_id=workflow_id)
+
+
+@registry.register(
+    namespace="core.workflow",
+    description=(
+        "Enable (`online`) or disable (`offline`) a workflow's webhook trigger. "
+        "Returns the updated webhook config (no need to call `get_webhook` "
+        "afterwards). See the `tracecat-manage-workflows` skill."
+    ),
+    default_title="Update workflow webhook",
+    display_group="Workflows",
+)
+async def update_webhook(
+    *,
+    workflow_id: Annotated[
+        str,
+        Doc("The workflow ID to update the webhook for (short `wf_...` or full)."),
+    ],
+    status: Annotated[
+        Literal["online", "offline"],
+        Doc(
+            "`online` makes the workflow triggerable via its webhook URL; "
+            "`offline` disables it."
+        ),
+    ],
+) -> dict[str, Any]:
+    """Enable or disable a workflow's webhook trigger and return the updated config."""
+    return await ctx.workflows.aio.update_webhook(
+        workflow_id=workflow_id, status=status
+    )
+
+
+@registry.register(
+    namespace="core.workflow",
+    description=(
+        "Read a workflow's case-trigger config (status, event_types, tag_filters). "
+        "See the `tracecat-manage-workflows` skill."
+    ),
+    default_title="Get workflow case trigger",
+    display_group="Workflows",
+)
+async def get_case_trigger(
+    *,
+    workflow_id: Annotated[
+        str,
+        Doc("The workflow ID to read the case trigger for (short `wf_...` or full)."),
+    ],
+) -> dict[str, Any]:
+    """Read a workflow's case-trigger configuration."""
+    return await ctx.workflows.aio.get_case_trigger(workflow_id=workflow_id)
+
+
+@registry.register(
+    namespace="core.workflow",
+    description=(
+        "Configure a workflow's case trigger (status, event_types, tag_filters). "
+        "This is the ONLY way to set a case trigger — it is NOT editable via "
+        "`edit_workflow` JSON patches. Returns the full merged config (no need "
+        "to call `get_case_trigger` afterwards). See the "
+        "`tracecat-manage-workflows` skill."
+    ),
+    default_title="Update workflow case trigger",
+    display_group="Workflows",
+)
+async def update_case_trigger(
+    *,
+    workflow_id: Annotated[
+        str,
+        Doc("The workflow ID to update the case trigger for (short `wf_...` or full)."),
+    ],
+    status: Annotated[
+        Literal["online", "offline"] | None,
+        Doc(
+            "`online` enables the case trigger (requires `event_types`); "
+            "`offline` disables it. Omit to leave unchanged."
+        ),
+    ] = None,
+    event_types: Annotated[
+        list[str] | None,
+        Doc(
+            "Case events that fire the workflow, e.g. "
+            "`['case_created', 'status_changed']`. Omit to leave unchanged."
+        ),
+    ] = None,
+    tag_filters: Annotated[
+        list[str] | None,
+        Doc(
+            "Optional case-tag refs restricting which cases fire the trigger. "
+            "Omit to leave unchanged."
+        ),
+    ] = None,
+) -> dict[str, Any]:
+    """Configure a workflow's case trigger and return the merged config."""
+    return await ctx.workflows.aio.update_case_trigger(
+        workflow_id=workflow_id,
+        status=status,
+        event_types=event_types,
+        tag_filters=tag_filters,
+    )
+
+
+@registry.register(
+    namespace="core.workflow",
+    description=(
+        "Publish (commit) a workflow's current draft as a new version so it can "
+        "be run with `execute`. Validates the draft first; returns the new "
+        "version. Read the `tracecat-manage-workflows` skill."
+    ),
+    default_title="Publish workflow",
+    display_group="Workflows",
+)
+async def publish(
+    *,
+    workflow_id: Annotated[
+        str,
+        Doc("The workflow ID to publish (short `wf_...` or full format)."),
+    ],
+) -> dict[str, Any]:
+    """Publish a workflow draft and return ``{"workflow_id", "version", "message"}``."""
+    return await ctx.workflows.aio.publish(workflow_id=workflow_id)
+
+
+@registry.register(
+    namespace="core.workflow",
+    description=(
+        "Run a workflow by ID and return the execution id. By default runs the "
+        "current draft (your unpublished edits) so you can test changes before "
+        "publishing; set `use_draft=False` to run a published version instead. "
+        "A broken draft returns a fixable validation error. Use this while "
+        "authoring; use `core.workflow.execute` to invoke a published workflow "
+        "by alias as a subflow. Read the `tracecat-manage-workflows` skill."
+    ),
+    default_title="Run workflow",
+    display_group="Workflows",
+)
+async def run(
+    *,
+    workflow_id: Annotated[
+        str,
+        Doc("The workflow ID to run (short `wf_...` or full format)."),
+    ],
+    inputs: Annotated[
+        Any | None,
+        Doc("Trigger inputs to pass to the workflow (arbitrary JSON)."),
+    ] = None,
+    use_draft: Annotated[
+        bool,
+        Doc(
+            "When true (default), run the current draft graph without "
+            "publishing — use this to test in-progress edits. When false, run a "
+            "published definition (see `version`)."
+        ),
+    ] = True,
+    version: Annotated[
+        int | None,
+        Doc(
+            "Published definition version to run. Only applies when "
+            "`use_draft=False`; omit to run the current published version. "
+            "Ignored when `use_draft=True` (a draft has no version)."
+        ),
+    ] = None,
+) -> dict[str, Any]:
+    """Run a workflow's draft or a published version and return the execution id.
+
+    Returns ``{"workflow_id", "workflow_execution_id", "status": "STARTED"}``.
+    """
+    return await ctx.workflows.aio.run(
+        workflow_id=workflow_id,
+        inputs=inputs,
+        use_draft=use_draft,
+        version=version,
+    )
 
 
 @registry.register(

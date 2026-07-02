@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
@@ -87,6 +88,16 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         TracecatServiceError
             If there is an error creating the schedule.
 
+        """
+        return await self._create_schedule_impl(params, commit=commit)
+
+    async def _create_schedule_impl(
+        self, params: ScheduleCreate, commit: bool = True
+    ) -> Schedule:
+        """Create a schedule without enforcing the standalone schedule scope.
+
+        Scope enforcement is the caller's responsibility (see ``create_schedule``
+        and ``replace_schedules``).
         """
         await self._lock_workflow(params.workflow_id)
         schedule = Schedule(
@@ -281,6 +292,16 @@ class WorkflowSchedulesService(BaseWorkspaceService):
             If an error occurs while deleting the schedule from Temporal.
 
         """
+        await self._delete_schedule_impl(schedule_id, commit=commit)
+
+    async def _delete_schedule_impl(
+        self, schedule_id: AnyScheduleID, commit: bool = True
+    ) -> None:
+        """Delete a schedule without enforcing the standalone schedule scope.
+
+        Scope enforcement is the caller's responsibility (see ``delete_schedule``
+        and ``replace_schedules``).
+        """
         schedule = await self._get_schedule_with_workflow_lock(schedule_id)
         await self.session.delete(schedule)
         logger.info("Deleted schedule", schedule_id=schedule_id)
@@ -301,6 +322,34 @@ class WorkflowSchedulesService(BaseWorkspaceService):
                 )
 
         add_after_commit_callback(self.session, _delete_schedule)
+
+        if commit:
+            await self.session.commit()
+        else:
+            await self.session.flush()
+
+    @require_scope("workflow:update")
+    async def replace_schedules(
+        self,
+        workflow_id: WorkflowID,
+        schedules: Sequence[ScheduleCreate],
+        commit: bool = True,
+    ) -> None:
+        """Replace all schedules for a workflow as part of a workflow edit.
+
+        This is the internal surface used by the edit-workflow document path. It
+        is gated by ``workflow:update`` (the workflow-edit permission) rather
+        than the standalone ``schedule:create``/``schedule:delete`` scopes, so a
+        user who is allowed to edit workflows can change their schedules without
+        also holding the admin-only ``schedule:delete`` scope. The delete and
+        create work happens against the unscoped helpers and is committed as a
+        single transaction with the rest of the edit.
+        """
+        existing = await self.list_schedules(workflow_id=workflow_id)
+        for schedule in existing:
+            await self._delete_schedule_impl(schedule.id, commit=False)
+        for params in schedules:
+            await self._create_schedule_impl(params, commit=False)
 
         if commit:
             await self.session.commit()

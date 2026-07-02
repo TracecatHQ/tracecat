@@ -13,7 +13,7 @@ import hashlib
 import json
 import uuid
 from collections import defaultdict, deque
-from collections.abc import Collection, Iterator, Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from io import StringIO
 from pathlib import PurePosixPath
@@ -22,7 +22,6 @@ from typing import (
     Any,
     Literal,
     NamedTuple,
-    Protocol,
     TypedDict,
     cast,
     get_args,
@@ -46,14 +45,28 @@ from pydantic import (
 )
 from redis.asyncio import Redis as AsyncRedis
 from slugify import slugify
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
-from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import WorkflowExecutionStatus
-from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
 from tracecat import config
 from tracecat.agent.access.service import AgentModelAccessService
+from tracecat.agent.authoring_context import (
+    ActionContextResponse,
+    ActionDiscoveryResponse,
+    build_enabled_models,
+    build_example_from_schema,
+    build_secret_hints,
+    build_variable_hints,
+    evaluate_configuration,
+    load_oauth_inventory,
+    load_secret_inventory,
+    optional_secret_names,
+    secrets_to_requirements,
+)
+from tracecat.agent.authoring_context import (
+    WorkflowAuthoringContextResponse as SharedWorkflowAuthoringContextResponse,
+)
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.folders.service import AgentFolderService
 from tracecat.agent.preset.schemas import (
@@ -82,6 +95,7 @@ from tracecat.agent.types import OutputType
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
 from tracecat.auth.users import search_users
+from tracecat.authz.controls import check_scopes, has_scope
 from tracecat.cases.dropdowns.schemas import (
     CaseDropdownDefinitionCreate,
     CaseDropdownDefinitionRead,
@@ -133,19 +147,15 @@ from tracecat.cases.tags.service import CaseTagsService
 from tracecat.chat.schemas import BasicChatRequest
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import (
-    Action,
     Table,
     Workflow,
     WorkflowDefinition,
 )
 from tracecat.dsl.common import (
-    DSLEntrypoint,
     DSLInput,
-    build_action_statements_from_actions,
     get_execution_type_from_search_attr,
     get_trigger_type_from_search_attr,
 )
-from tracecat.dsl.schemas import DSLConfig
 from tracecat.dsl.validation import (
     format_input_schema_validation_error,
     normalize_trigger_inputs,
@@ -168,7 +178,6 @@ from tracecat.identifiers.workflow import (
 )
 from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
 from tracecat.integrations.providers import all_providers
-from tracecat.integrations.schemas import ProviderKey
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.mcp.auth import (
@@ -184,7 +193,7 @@ from tracecat.mcp.config import (
     TRACECAT_MCP__RATE_LIMIT_BURST,
     TRACECAT_MCP__RATE_LIMIT_RPS,
 )
-from tracecat.mcp.json_patch import apply_json_patch_operations, validate_patch_paths
+from tracecat.mcp.json_patch import apply_json_patch_operations
 from tracecat.mcp.middleware import (
     MCPInputSizeLimitMiddleware,
     MCPTimeoutMiddleware,
@@ -197,13 +206,9 @@ from tracecat.mcp.schemas import (
     MCPTruncationInfo,
     MCPTruncationSummary,
     ValidationResponse,
-    WorkflowEditDefinition,
     WorkflowEditDocument,
-    WorkflowEditMetadata,
-    WorkflowEditRequest,
     WorkflowEditResponse,
     WorkflowLayout,
-    WorkflowSchedule,
     WorkflowYamlPayload,
 )
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
@@ -218,7 +223,6 @@ from tracecat.registry.constants import (
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
 )
-from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.repositories.schemas import RegistryRepositorySync
 from tracecat.registry.repositories.service import RegistryReposService
@@ -241,7 +245,6 @@ from tracecat.tiers.enums import Entitlement
 from tracecat.validation.schemas import (
     ValidationDetail,
     ValidationResult,
-    ValidationResultType,
 )
 from tracecat.validation.service import validate_dsl
 from tracecat.variables.service import VariablesService
@@ -251,11 +254,26 @@ from tracecat.workflow.case_triggers.schemas import (
     CaseTriggerConfig,
     CaseTriggerRead,
     CaseTriggerUpdate,
-    is_case_trigger_configured,
 )
 from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
+from tracecat.workflow.management.draft import (
+    WorkflowEditError,
+    apply_layout_to_workflow,
+    build_workflow_edit_document,
+    compute_workflow_edit_revision,
+    extract_layout_positions,
+    normalize_workflow_edit_document_for_persisted_revision,
+    parse_workflow_edit_request,
+    persist_workflow_edit_document,
+    replace_workflow_definition_from_dsl,
+    replace_workflow_schedules,
+    validate_workflow_edit_document,
+    validate_workflow_patch_payload,
+    workflow_edit_document_changed_sections,
+    workflow_edit_document_payload,
+)
 from tracecat.workflow.management.folders.service import WorkflowFolderService
 from tracecat.workflow.management.layout import (
     WorkflowActionLayoutInput,
@@ -264,7 +282,6 @@ from tracecat.workflow.management.layout import (
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.schemas import WorkflowCreate, WorkflowUpdate
 from tracecat.workflow.schedules.schemas import (
-    ScheduleCreate,
     ScheduleRead,
 )
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
@@ -448,161 +465,6 @@ def _normalize_folder_path_arg(path: str, *, allow_root: bool = True) -> str:
     return f"/{'/'.join(parts)}/"
 
 
-def _build_example_from_schema(schema: dict[str, Any]) -> dict[str, Any]:
-    """Build a compact example payload from JSON schema properties."""
-    example: dict[str, Any] = {}
-    properties = schema.get("properties", {})
-    required = schema.get("required", [])
-    for key in required:
-        prop = properties.get(key, {})
-        prop_type = prop.get("type")
-        if prop_type == "string":
-            example[key] = "example"
-        elif prop_type == "integer":
-            example[key] = 1
-        elif prop_type == "number":
-            example[key] = 1.0
-        elif prop_type == "boolean":
-            example[key] = True
-        elif prop_type == "array":
-            example[key] = []
-        elif prop_type == "object":
-            example[key] = {}
-        else:
-            example[key] = "value"
-    return example
-
-
-def _secrets_to_requirements(
-    secrets: Sequence[RegistrySecret | RegistryOAuthSecret],
-) -> list[ActionRequirementPayload]:
-    """Convert registry secret objects to public requirement metadata.
-
-    OAuth requirements are represented as OAuth requirements (provider_id +
-    grant_type), not as workspace secret/key pairs, so readiness can be checked
-    against the workspace's configured OAuth integrations.
-    """
-    requirements: list[ActionRequirementPayload] = []
-    for secret in secrets:
-        if isinstance(secret, RegistrySecret):
-            requirements.append(
-                {
-                    "type": "secret",
-                    "name": secret.name,
-                    "required_keys": list(secret.keys or []),
-                    "optional_keys": list(secret.optional_keys or []),
-                    "optional": secret.optional,
-                }
-            )
-        elif isinstance(secret, RegistryOAuthSecret):
-            requirements.append(
-                {
-                    "type": "oauth",
-                    "name": secret.name,
-                    "provider_id": secret.provider_id,
-                    "grant_type": secret.grant_type,
-                    "optional": secret.optional,
-                }
-            )
-    return requirements
-
-
-def _optional_secret_names(
-    requirements: Sequence[ActionRequirementPayload],
-) -> list[str]:
-    """Names of optional secret requirements (e.g. mtls/ca_cert).
-
-    These are credentials an action *may* use but does not require to run, so
-    their absence never makes an action unconfigured.
-    """
-    return [
-        req["name"]
-        for req in requirements
-        if req["type"] == "secret" and req.get("optional", False)
-    ]
-
-
-async def _load_secret_inventory(
-    role: Role,
-) -> dict[str, set[str]]:
-    """Load workspace secret key inventory for the default environment."""
-
-    async with SecretsService.with_session(role=role) as svc:
-        workspace_inventory: dict[str, set[str]] = {}
-
-        workspace_secrets = await svc.list_secrets()
-        for secret in workspace_secrets:
-            if secret.environment != DEFAULT_SECRETS_ENVIRONMENT:
-                continue
-            keys = {kv.key for kv in svc.decrypt_keys(secret.encrypted_keys)}
-            workspace_inventory[secret.name] = keys
-
-        return workspace_inventory
-
-
-async def _load_oauth_inventory(role: Role) -> set[ProviderKey]:
-    """Load connected workspace OAuth integrations keyed by provider.
-
-    Only integrations that have completed authentication (``CONNECTED`` status,
-    i.e. an access token is stored) can have
-    ``${{ SECRETS.<provider>_oauth.*_TOKEN }}`` injected at runtime. A
-    configured-but-not-connected provider (client credentials saved but the
-    OAuth flow not completed) yields no token at runtime, so it must not count
-    as configured for action readiness. Keys are workspace-level
-    ``(provider_id, grant_type)`` pairs, not per-user rows.
-    """
-    async with IntegrationService.with_session(role=role) as svc:
-        integrations = await svc.list_integrations()
-    return {
-        ProviderKey(id=integration.provider_id, grant_type=integration.grant_type)
-        for integration in integrations
-        if integration.status == IntegrationStatus.CONNECTED
-    }
-
-
-def _evaluate_configuration(
-    requirements: Sequence[ActionRequirementPayload],
-    workspace_inventory: dict[str, set[str]],
-    oauth_inventory: set[ProviderKey] | None = None,
-) -> tuple[bool, list[str]]:
-    """Evaluate whether required secrets and OAuth integrations are configured."""
-    oauth_inventory = oauth_inventory or set()
-    missing: list[str] = []
-    for req in requirements:
-        if req.get("type") == "oauth":
-            oauth_req = cast(ActionOAuthRequirementPayload, req)
-            if oauth_req.get("optional", False):
-                continue
-            provider_key = ProviderKey(
-                id=oauth_req["provider_id"],
-                grant_type=OAuthGrantType(oauth_req["grant_type"]),
-            )
-            if provider_key not in oauth_inventory:
-                missing.append(
-                    "missing oauth integration: "
-                    f"{provider_key.id} ({provider_key.grant_type.value})"
-                )
-            continue
-
-        secret_req = cast(ActionSecretRequirementPayload, req)
-        if secret_req.get("optional", False):
-            # A wholly-optional secret never blocks readiness, even when it
-            # declares keys (e.g. the mtls/ca_cert secrets inherited from
-            # core.http_request). At runtime these are absent-by-default, so an
-            # action that only "needs" optional secrets is still usable.
-            continue
-        secret_name = secret_req["name"]
-        required_keys = set(secret_req["required_keys"])
-        available_keys = workspace_inventory.get(secret_name)
-        if available_keys is None:
-            missing.append(f"missing secret: {secret_name}")
-            continue
-        for key in sorted(required_keys):
-            if key not in available_keys:
-                missing.append(f"missing key: {secret_name}.{key}")
-    return len(missing) == 0, missing
-
-
 def _get_supported_output_type_literals() -> list[str]:
     """Return the supported primitive output_type literal values."""
     output_type_value = getattr(OutputType, "__value__", OutputType)
@@ -781,24 +643,6 @@ _WORKFLOW_YAML_TOP_LEVEL_KEYS = frozenset(
 )
 
 
-def _schedule_create_from_payload(
-    *,
-    workflow_id: WorkflowUUID,
-    schedule: WorkflowSchedule,
-) -> ScheduleCreate:
-    return ScheduleCreate(
-        workflow_id=workflow_id,
-        inputs=schedule.inputs,
-        cron=schedule.cron,
-        every=schedule.every,
-        offset=schedule.offset,
-        start_at=schedule.start_at,
-        end_at=schedule.end_at,
-        status=schedule.status,
-        timeout=schedule.timeout,
-    )
-
-
 class MCPMessageResponse(BaseModel):
     """Common message-only MCP response."""
 
@@ -848,38 +692,6 @@ class MCPValidationErrorPayload(TypedDict, total=False):
     message: object
     details: list[MCPValidationDetailPayload]
     input_schema: dict[str, object]
-
-
-class ActionSecretRequirementPayload(TypedDict):
-    """Workspace secret requirement needed by an action."""
-
-    type: Literal["secret"]
-    name: str
-    required_keys: list[str]
-    optional_keys: list[str]
-    optional: bool
-
-
-class ActionOAuthRequirementPayload(TypedDict):
-    """OAuth integration requirement needed by an action.
-
-    OAuth requirements are backed by workspace integrations (configured under
-    /integrations), not by workspace secrets. ``name`` is the synthetic secret
-    name (e.g. ``github_oauth``) used in ``${{ SECRETS.<name>.<token> }}``
-    expressions at runtime, but readiness is evaluated against the workspace's
-    configured OAuth integrations keyed by ``(provider_id, grant_type)``.
-    """
-
-    type: Literal["oauth"]
-    name: str
-    provider_id: str
-    grant_type: str
-    optional: bool
-
-
-ActionRequirementPayload = (
-    ActionSecretRequirementPayload | ActionOAuthRequirementPayload
-)
 
 
 class WorkflowSummaryResponse(BaseModel):
@@ -1091,37 +903,19 @@ class WorkflowPublishResponse(BaseModel):
     errors: list[MCPValidationErrorPayload] = Field(default_factory=list)
 
 
-class ActionDiscoveryResponse(BaseModel):
-    """Action discovery item response."""
-
-    action_name: str
-    description: str | None = None
-    configured: bool
-    missing_requirements: list[str] = Field(default_factory=list)
-    optional_secrets: list[str] = Field(default_factory=list)
-
-
-class ActionContextResponse(ActionDiscoveryResponse):
-    """Full action authoring context response."""
-
-    parameters_json_schema: dict[str, Any]
-    required_secrets: list[ActionRequirementPayload] = Field(default_factory=list)
-    examples: list[dict[str, Any]] = Field(default_factory=list)
-
-
 class ActionNamesPayload(BaseModel):
     """Selected workflow action names for authoring context."""
 
     action_names: list[str] = Field(default_factory=list)
 
 
-class WorkflowAuthoringContextResponse(BaseModel):
-    """Workflow authoring context response."""
+class WorkflowAuthoringContextResponse(SharedWorkflowAuthoringContextResponse):
+    """MCP workflow authoring context response.
 
-    actions: list[ActionContextResponse] = Field(default_factory=list)
-    variable_hints: list[dict[str, Any]] = Field(default_factory=list)
-    secret_hints: list[dict[str, Any]] = Field(default_factory=list)
-    notes: list[str] = Field(default_factory=list)
+    Extends the shared response (action schemas + variable/secret hints) with the
+    MCP-only ``truncation`` summary for embedded collections.
+    """
+
     truncation: MCPTruncationSummary | None = None
 
 
@@ -1575,589 +1369,16 @@ def _compute_sha256(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
-_WORKFLOW_EDITABLE_TOP_LEVEL_PATHS = frozenset(
-    {"metadata", "definition", "layout", "schedules", "case_trigger"}
-)
-_WORKFLOW_NONEDITABLE_PATH_PATTERNS: tuple[tuple[str, ...], ...] = (
-    ("definition", "config", "scheduler"),
-    ("definition", "actions", "*", "id"),
-)
-_WORKFLOW_NONREMOVABLE_PATH_PATTERNS: tuple[tuple[str, ...], ...] = (
-    ("schedules", "*", "status"),
-    ("case_trigger", "status"),
-)
+def _workflow_edit_error_to_tool_error(error: WorkflowEditError) -> ToolError:
+    """Map a transport-neutral edit error onto the historical ToolError payload.
 
-
-class _WorkflowEditDocumentSource(Protocol):
-    title: str
-    description: str | None
-    status: str
-    alias: str | None
-    error_handler: str | None
-    entrypoint: str | None
-    expects: dict[str, Any] | None
-    config: dict[str, Any] | None
-    returns: Any | None
-    trigger_position_x: float | None
-    trigger_position_y: float | None
-    viewport_x: float | None
-    viewport_y: float | None
-    viewport_zoom: float | None
-    actions: list[Action] | None
-    schedules: Sequence[Any] | None
-    case_trigger: Any | None
-
-
-def _workflow_schedule_sort_key(schedule: Any) -> str:
-    """Return a stable sort key for workflow schedules."""
-    payload = ScheduleRead.model_validate(schedule, from_attributes=True).model_dump(
-        mode="json",
-        exclude={
-            "id",
-            "workspace_id",
-            "workflow_id",
-            "created_at",
-            "updated_at",
-        },
-    )
-    if payload["timeout"] is None:
-        payload["timeout"] = 0
-    return json.dumps(payload, sort_keys=True)
-
-
-def _build_workflow_edit_document(
-    workflow: Workflow | _WorkflowEditDocumentSource,
-) -> WorkflowEditDocument:
-    """Build the canonical JSON document used by edit_workflow."""
-    actions = sorted(
-        workflow.actions or [],
-        key=lambda action: action.ref,
-    )
-    action_statements = build_action_statements_from_actions(actions) if actions else []
-
-    schedules = []
-    for schedule in sorted(
-        workflow.schedules or [],
-        key=_workflow_schedule_sort_key,
-    ):
-        schedule_payload = ScheduleRead.model_validate(
-            schedule, from_attributes=True
-        ).model_dump(
-            mode="json",
-            exclude={
-                "id",
-                "workspace_id",
-                "workflow_id",
-                "created_at",
-                "updated_at",
-            },
-        )
-        if schedule_payload["timeout"] is None:
-            schedule_payload["timeout"] = 0
-        schedules.append(schedule_payload)
-
-    case_trigger_payload: dict[str, Any] | None = None
-    if case_trigger := workflow.case_trigger:
-        case_trigger_read = CaseTriggerRead.model_validate(
-            case_trigger, from_attributes=True
-        )
-        if is_case_trigger_configured(
-            status=case_trigger_read.status,
-            event_types=case_trigger_read.event_types,
-            tag_filters=case_trigger_read.tag_filters,
-        ):
-            candidate_payload = case_trigger_read.model_dump(
-                mode="json", exclude={"id", "workflow_id"}
-            )
-            try:
-                case_trigger_payload = CaseTriggerConfig.model_validate(
-                    candidate_payload
-                ).model_dump(mode="json")
-            except ValidationError:
-                case_trigger_payload = None
-
-    return WorkflowEditDocument.model_validate(
-        {
-            "metadata": WorkflowEditMetadata(
-                title=workflow.title,
-                description=workflow.description or "",
-                status=cast(Literal["online", "offline"], workflow.status),
-                alias=workflow.alias,
-                error_handler=workflow.error_handler,
-            ).model_dump(mode="json"),
-            "definition": WorkflowEditDefinition(
-                entrypoint=DSLEntrypoint(
-                    ref=workflow.entrypoint,
-                    expects=workflow.expects,
-                ),
-                actions=action_statements,
-                config=DSLConfig.model_validate(workflow.config or {}),
-                returns=workflow.returns,
-            ).model_dump(mode="json", exclude_none=False),
-            "layout": {
-                "trigger": {
-                    "x": (
-                        workflow.trigger_position_x
-                        if workflow.trigger_position_x is not None
-                        else 0.0
-                    ),
-                    "y": (
-                        workflow.trigger_position_y
-                        if workflow.trigger_position_y is not None
-                        else 0.0
-                    ),
-                },
-                "viewport": {
-                    "x": workflow.viewport_x
-                    if workflow.viewport_x is not None
-                    else 0.0,
-                    "y": workflow.viewport_y
-                    if workflow.viewport_y is not None
-                    else 0.0,
-                    "zoom": (
-                        workflow.viewport_zoom
-                        if workflow.viewport_zoom is not None
-                        else 1.0
-                    ),
-                },
-                "actions": [
-                    {"ref": action.ref, "x": action.position_x, "y": action.position_y}
-                    for action in actions
-                ],
-            },
-            "schedules": schedules,
-            "case_trigger": case_trigger_payload,
-        }
-    )
-
-
-def _workflow_edit_document_payload(
-    document: WorkflowEditDocument,
-) -> dict[str, Any]:
-    """Serialize the canonical workflow edit document for patching and hashing."""
-    return document.model_dump(mode="json", exclude_none=False)
-
-
-def _workflow_schedule_payload_sort_key(schedule: dict[str, Any]) -> str:
-    """Return a stable sort key for already-serialized workflow schedules."""
-    payload = dict(schedule)
-    if payload["timeout"] is None:
-        payload["timeout"] = 0
-    return json.dumps(payload, sort_keys=True)
-
-
-def _canonicalize_workflow_edit_document(
-    document: WorkflowEditDocument,
-) -> WorkflowEditDocument:
-    """Normalize document ordering before hashing or comparison."""
-    payload = _workflow_edit_document_payload(document)
-    payload["definition"]["actions"] = sorted(
-        payload["definition"]["actions"],
-        key=lambda action: cast(str, action["ref"]),
-    )
-    payload["layout"]["actions"] = sorted(
-        payload["layout"]["actions"],
-        key=lambda action: cast(str, action["ref"]),
-    )
-    payload["schedules"] = sorted(
-        payload["schedules"],
-        key=_workflow_schedule_payload_sort_key,
-    )
-    return WorkflowEditDocument.model_validate(payload)
-
-
-def _normalize_workflow_edit_document_for_persisted_revision(
-    document: WorkflowEditDocument,
-) -> WorkflowEditDocument:
-    """Normalize transient edit state that persistence drops on refresh."""
-    payload = _workflow_edit_document_payload(document)
-    action_refs = {action.ref for action in document.definition.actions}
-    payload["layout"]["actions"] = [
-        action_layout
-        for action_layout in payload["layout"]["actions"]
-        if action_layout["ref"] in action_refs
-    ]
-    if payload["case_trigger"] is not None:
-        case_trigger = CaseTriggerConfig.model_validate(payload["case_trigger"])
-        if not case_trigger.is_configured():
-            payload["case_trigger"] = None
-    return WorkflowEditDocument.model_validate(payload)
-
-
-def _workflow_edit_document_changed_sections(
-    original_document: WorkflowEditDocument,
-    updated_document: WorkflowEditDocument,
-) -> set[str]:
-    original_payload = _workflow_edit_document_payload(
-        _canonicalize_workflow_edit_document(original_document)
-    )
-    updated_payload = _workflow_edit_document_payload(
-        _canonicalize_workflow_edit_document(updated_document)
-    )
-    return {
-        key for key in updated_payload if updated_payload[key] != original_payload[key]
-    }
-
-
-def _compute_workflow_edit_revision(document: WorkflowEditDocument) -> str:
-    """Compute a stable draft revision for the editable workflow document."""
-    payload = _workflow_edit_document_payload(
-        _canonicalize_workflow_edit_document(document)
-    )
-    serialized = orjson.dumps(payload, option=orjson.OPT_SORT_KEYS)
-    return hashlib.sha256(serialized).hexdigest()
-
-
-def _decode_patch_path(path: str) -> tuple[str, ...]:
-    """Decode a JSON pointer path into unescaped tokens."""
-    return tuple(
-        token.replace("~1", "/").replace("~0", "~") for token in path.split("/")[1:]
-    )
-
-
-def _encode_patch_path(tokens: tuple[str, ...]) -> str:
-    """Encode path tokens into a JSON pointer."""
-    return "/" + "/".join(
-        token.replace("~", "~0").replace("/", "~1") for token in tokens
-    )
-
-
-def _patch_path_matches_pattern(path: str, pattern: tuple[str, ...]) -> bool:
-    """Check whether a decoded patch path matches a non-editable pattern."""
-    tokens = _decode_patch_path(path)
-    if len(tokens) < len(pattern):
-        return False
-    return all(
-        expected in {"*", actual}
-        for actual, expected in zip(tokens, pattern, strict=False)
-    )
-
-
-def _iter_noneditable_payload_paths(
-    payload: Any,
-    pattern: tuple[str, ...],
-    *,
-    prefix: tuple[str, ...] = (),
-) -> Iterator[tuple[str, ...]]:
-    """Yield matching non-editable JSON pointer token paths present in a payload."""
-    if not pattern:
-        yield prefix
-        return
-
-    token, *rest = pattern
-    if isinstance(payload, dict):
-        if token == "*":
-            for key, value in payload.items():
-                yield from _iter_noneditable_payload_paths(
-                    value,
-                    tuple(rest),
-                    prefix=prefix + (str(key),),
-                )
-        elif token in payload:
-            yield from _iter_noneditable_payload_paths(
-                payload[token],
-                tuple(rest),
-                prefix=prefix + (token,),
-            )
-    elif isinstance(payload, list):
-        if token == "*":
-            for index, value in enumerate(payload):
-                yield from _iter_noneditable_payload_paths(
-                    value,
-                    tuple(rest),
-                    prefix=prefix + (str(index),),
-                )
-        elif token.isdigit():
-            index = int(token)
-            if 0 <= index < len(payload):
-                yield from _iter_noneditable_payload_paths(
-                    payload[index],
-                    tuple(rest),
-                    prefix=prefix + (token,),
-                )
-
-
-def _iter_missing_payload_paths(
-    payload: Any,
-    pattern: tuple[str, ...],
-    *,
-    prefix: tuple[str, ...] = (),
-) -> Iterator[tuple[str, ...]]:
-    """Yield non-removable JSON pointer token paths missing from a payload."""
-    if not pattern:
-        return
-
-    token, *rest = pattern
-    if isinstance(payload, dict):
-        if token == "*":
-            for key, value in payload.items():
-                yield from _iter_missing_payload_paths(
-                    value,
-                    tuple(rest),
-                    prefix=prefix + (str(key),),
-                )
-        elif token in payload:
-            yield from _iter_missing_payload_paths(
-                payload[token],
-                tuple(rest),
-                prefix=prefix + (token,),
-            )
-        elif not rest:
-            yield prefix + (token,)
-    elif isinstance(payload, list):
-        if token == "*":
-            for index, value in enumerate(payload):
-                yield from _iter_missing_payload_paths(
-                    value,
-                    tuple(rest),
-                    prefix=prefix + (str(index),),
-                )
-        elif token.isdigit():
-            index = int(token)
-            if 0 <= index < len(payload):
-                yield from _iter_missing_payload_paths(
-                    payload[index],
-                    tuple(rest),
-                    prefix=prefix + (token,),
-                )
-
-
-def _validate_workflow_patch_payload(payload: dict[str, Any]) -> None:
-    """Reject patched payloads that still contain non-editable nested fields."""
-    for pattern in _WORKFLOW_NONEDITABLE_PATH_PATTERNS:
-        if found_path := next(_iter_noneditable_payload_paths(payload, pattern), None):
-            raise ToolError(
-                f"Patch path '{_encode_patch_path(found_path)}' is not editable via edit_workflow"
-            )
-    for pattern in _WORKFLOW_NONREMOVABLE_PATH_PATTERNS:
-        if missing_path := next(_iter_missing_payload_paths(payload, pattern), None):
-            raise ToolError(
-                f"Patch path '{_encode_patch_path(missing_path)}' cannot be removed via edit_workflow"
-            )
-
-
-def _validate_workflow_patch_paths(patch_ops: list[JsonPatchOperation]) -> None:
-    """Reject JSON Patch paths outside the editable workflow document."""
-    validate_patch_paths(
-        patch_ops,
-        allowed_top_level_paths=_WORKFLOW_EDITABLE_TOP_LEVEL_PATHS,
-    )
-    for patch_op in patch_ops:
-        for path in (patch_op.path, patch_op.from_):
-            if path is None:
-                continue
-            if any(
-                _patch_path_matches_pattern(path, pattern)
-                for pattern in _WORKFLOW_NONEDITABLE_PATH_PATTERNS
-            ):
-                raise ToolError(
-                    f"Patch path '{path}' is not editable via edit_workflow"
-                )
-        removed_paths: tuple[str | None, ...] = (
-            (patch_op.path,)
-            if patch_op.op == "remove"
-            else (patch_op.from_,)
-            if patch_op.op == "move"
-            else ()
-        )
-        for path in removed_paths:
-            if path is None:
-                continue
-            if any(
-                _patch_path_matches_pattern(path, pattern)
-                for pattern in _WORKFLOW_NONREMOVABLE_PATH_PATTERNS
-            ):
-                raise ToolError(
-                    f"Patch path '{path}' cannot be removed via edit_workflow"
-                )
-
-
-def _workflow_edit_document_to_dsl(document: WorkflowEditDocument) -> DSLInput:
-    """Convert the editable workflow document into a DSLInput."""
-    return DSLInput(
-        title=document.metadata.title,
-        description=document.metadata.description,
-        entrypoint=document.definition.entrypoint,
-        actions=document.definition.actions,
-        config=document.definition.config,
-        returns=document.definition.returns,
-        error_handler=document.metadata.error_handler,
-    )
-
-
-async def _validate_workflow_edit_document(
-    document: WorkflowEditDocument,
-    *,
-    workflow_id: WorkflowUUID,
-    existing_layout_action_refs: set[str] | None = None,
-    validate_definition: bool = False,
-    session: AsyncSession | None = None,
-    role: Role | None = None,
-) -> None:
-    """Validate editable workflow document semantics before persistence."""
-    action_refs = {action.ref for action in document.definition.actions}
-    allowed_layout_action_refs = action_refs | (existing_layout_action_refs or set())
-    for action_layout in document.layout.actions:
-        if action_layout.ref not in allowed_layout_action_refs:
-            raise ToolError(
-                f"Unknown action ref {action_layout.ref!r} in layout.actions"
-            )
-    if document.definition.actions:
-        try:
-            dsl = _workflow_edit_document_to_dsl(document)
-        except (TracecatValidationError, ValidationError, ValueError) as exc:
-            raise ToolError(f"Invalid workflow definition: {exc}") from exc
-        if validate_definition:
-            if session is None or role is None:
-                raise RuntimeError("session and role are required for DSL validation")
-            validation_results = await validate_dsl(
-                session=session,
-                dsl=dsl,
-                role=role,
-            )
-            _raise_dsl_validation_tool_error(validation_results)
-    for schedule in document.schedules:
-        try:
-            _schedule_create_from_payload(
-                workflow_id=workflow_id,
-                schedule=schedule,
-            )
-        except ValidationError as exc:
-            raise ToolError(f"Invalid workflow schedule: {exc}") from exc
-
-
-def _parse_workflow_edit_request(
-    *,
-    base_revision: str,
-    patch_ops: list[dict[str, Any]] | list[JsonPatchOperation],
-    validate_only: bool,
-) -> WorkflowEditRequest:
-    """Parse and validate the edit_workflow request payload."""
-    request = WorkflowEditRequest.model_validate(
-        {
-            "base_revision": base_revision,
-            "patch_ops": patch_ops,
-            "validate_only": validate_only,
-        }
-    )
-    _validate_workflow_patch_paths(request.patch_ops)
-    return request
-
-
-async def _persist_workflow_edit_document(
-    *,
-    role: Any,
-    service: WorkflowsManagementService,
-    workflow: Workflow,
-    original_document: WorkflowEditDocument,
-    updated_document: WorkflowEditDocument,
-) -> None:
-    """Persist changes from the editable workflow document back to the draft."""
-    changed_sections = _workflow_edit_document_changed_sections(
-        original_document,
-        updated_document,
-    )
-    if not changed_sections:
-        return
-
-    workflow_id = WorkflowUUID.new(workflow.id)
-    layout_payload = updated_document.layout.model_dump(mode="json", exclude_none=False)
-    _, _, action_positions = _extract_layout_positions(layout_payload)
-
-    if "definition" in changed_sections:
-        if updated_document.definition.actions:
-            await _replace_workflow_definition_from_dsl(
-                service=service,
-                workflow=workflow,
-                dsl=_workflow_edit_document_to_dsl(updated_document),
-                action_positions=action_positions,
-            )
-        else:
-            workflow.title = updated_document.metadata.title
-            workflow.description = updated_document.metadata.description
-            workflow.status = updated_document.metadata.status
-            workflow.alias = updated_document.metadata.alias
-            workflow.error_handler = updated_document.metadata.error_handler
-            workflow.entrypoint = updated_document.definition.entrypoint.ref
-            entrypoint_data = updated_document.definition.entrypoint.model_dump(
-                exclude_none=True
-            )
-            workflow.expects = entrypoint_data.get("expects") or {}
-            workflow.returns = updated_document.definition.returns
-            workflow.config = updated_document.definition.config.model_dump(mode="json")
-            service.session.add(workflow)
-            await service.session.execute(
-                delete(Action).where(
-                    Action.workspace_id == service.workspace_id,
-                    Action.workflow_id == workflow.id,
-                )
-            )
-            await service.session.flush()
-            await service.session.refresh(workflow, ["actions"])
-    if "metadata" in changed_sections:
-        metadata = updated_document.metadata
-        update_params = WorkflowUpdate(
-            title=metadata.title,
-            description=metadata.description,
-            status=metadata.status,
-            alias=metadata.alias,
-            error_handler=metadata.error_handler,
-        )
-        for key, value in update_params.model_dump(exclude_unset=True).items():
-            setattr(workflow, key, value)
-        service.session.add(workflow)
-
-    if "layout" in changed_sections:
-        await service.session.refresh(workflow, ["actions"])
-        allowed_missing_layout_action_refs = {
-            layout_action.ref
-            for layout_action in original_document.layout.actions
-            if layout_action.ref
-            not in {action.ref for action in updated_document.definition.actions}
-        }
-        _apply_layout_to_workflow(
-            workflow=workflow,
-            layout=WorkflowLayout.model_validate(layout_payload),
-            clear_missing=True,
-            allowed_missing_action_refs=allowed_missing_layout_action_refs,
-        )
-        service.session.add(workflow)
-        for action in workflow.actions:
-            service.session.add(action)
-
-    if "schedules" in changed_sections:
-        schedule_service = WorkflowSchedulesService(service.session, role=role)
-        await _replace_workflow_schedules(
-            service=schedule_service,
-            workflow_id=workflow_id,
-            schedules=updated_document.schedules,
-        )
-
-    if "case_trigger" in changed_sections:
-        case_trigger_service = CaseTriggersService(service.session, role=role)
-        if updated_document.case_trigger is None:
-            await case_trigger_service.upsert_case_trigger(
-                workflow_id,
-                CaseTriggerConfig(status="offline", event_types=[], tag_filters=[]),
-                create_missing_tags=True,
-                commit=False,
-            )
-        else:
-            await case_trigger_service.upsert_case_trigger(
-                workflow_id,
-                updated_document.case_trigger,
-                create_missing_tags=True,
-                commit=False,
-            )
-
-    await service.session.commit()
-    await service.session.refresh(workflow)
-    if any(section in changed_sections for section in {"definition", "layout"}):
-        await service.session.refresh(workflow, ["actions"])
-    if "schedules" in changed_sections:
-        await service.session.refresh(workflow, ["schedules"])
-    if "case_trigger" in changed_sections:
-        await service.session.refresh(workflow, ["case_trigger"])
+    Preserves the exact ToolError content the edit/import/update tools produced
+    before the edit-document engine was extracted: structured validation errors
+    are JSON-encoded, everything else uses the plain message.
+    """
+    if error.code == "validation_error" and error.details is not None:
+        return ToolError(json.dumps(error.details, default=str))
+    return ToolError(error.message)
 
 
 def _normalize_workflow_file_relative_path(relative_path: str) -> str:
@@ -2484,168 +1705,6 @@ def _ensure_inline_workflow_yaml_size(definition_yaml: str) -> None:
         )
 
 
-async def _replace_workflow_definition_from_dsl(
-    service: WorkflowsManagementService,
-    workflow: Workflow,
-    dsl: DSLInput,
-    action_positions: dict[str, tuple[float, float]] | None = None,
-) -> None:
-    """Replace draft workflow definition from DSL (actions + metadata)."""
-    workflow.title = dsl.title
-    workflow.description = dsl.description
-    workflow.entrypoint = dsl.entrypoint.ref
-    entrypoint_data = dsl.entrypoint.model_dump()
-    workflow.expects = entrypoint_data.get("expects") or {}
-    workflow.returns = dsl.returns
-    workflow.config = dsl.config.model_dump(mode="json")
-    workflow.error_handler = dsl.error_handler
-    service.session.add(workflow)
-
-    await service.session.execute(
-        delete(Action).where(
-            Action.workspace_id == service.workspace_id,
-            Action.workflow_id == workflow.id,
-        )
-    )
-    await service.create_actions_from_dsl(dsl, workflow.id, action_positions)
-    await service.session.flush()
-    await service.session.refresh(workflow, ["actions"])
-
-
-def _extract_layout_positions(
-    layout_data: WorkflowLayout | Mapping[str, object] | None,
-) -> tuple[
-    tuple[float, float] | None,
-    tuple[float, float, float] | None,
-    dict[str, tuple[float, float]] | None,
-]:
-    """Extract layout data into position tuples for workflow/action creation.
-
-    Returns (trigger_position, viewport, action_positions).
-    """
-    if not layout_data:
-        return None, None, None
-    layout = (
-        layout_data
-        if isinstance(layout_data, WorkflowLayout)
-        else WorkflowLayout.model_validate(layout_data)
-    )
-    trigger_position: tuple[float, float] | None = None
-    if layout.trigger is not None:
-        trigger_position = (
-            layout.trigger.x if layout.trigger.x is not None else 0.0,
-            layout.trigger.y if layout.trigger.y is not None else 0.0,
-        )
-    viewport: tuple[float, float, float] | None = None
-    if layout.viewport is not None:
-        viewport = (
-            layout.viewport.x if layout.viewport.x is not None else 0.0,
-            layout.viewport.y if layout.viewport.y is not None else 0.0,
-            layout.viewport.zoom if layout.viewport.zoom is not None else 1.0,
-        )
-    action_positions: dict[str, tuple[float, float]] | None = None
-    if layout.actions:
-        action_positions = {
-            ap.ref: (
-                ap.x if ap.x is not None else 0.0,
-                ap.y if ap.y is not None else 0.0,
-            )
-            for ap in layout.actions
-        }
-    return trigger_position, viewport, action_positions
-
-
-def _apply_layout_to_workflow(
-    *,
-    workflow: Workflow,
-    layout: WorkflowLayout,
-    clear_missing: bool = False,
-    allowed_missing_action_refs: set[str] | None = None,
-) -> None:
-    """Apply optional trigger/action/viewport layout updates to a workflow."""
-    if layout.trigger is not None:
-        if clear_missing or layout.trigger.x is not None:
-            workflow.trigger_position_x = (
-                layout.trigger.x if layout.trigger.x is not None else 0.0
-            )
-        if clear_missing or layout.trigger.y is not None:
-            workflow.trigger_position_y = (
-                layout.trigger.y if layout.trigger.y is not None else 0.0
-            )
-    elif clear_missing:
-        workflow.trigger_position_x = 0.0
-        workflow.trigger_position_y = 0.0
-
-    if layout.viewport is not None:
-        if clear_missing or layout.viewport.x is not None:
-            workflow.viewport_x = (
-                layout.viewport.x if layout.viewport.x is not None else 0.0
-            )
-        if clear_missing or layout.viewport.y is not None:
-            workflow.viewport_y = (
-                layout.viewport.y if layout.viewport.y is not None else 0.0
-            )
-        if clear_missing or layout.viewport.zoom is not None:
-            workflow.viewport_zoom = (
-                layout.viewport.zoom if layout.viewport.zoom is not None else 1.0
-            )
-    elif clear_missing:
-        workflow.viewport_x = 0.0
-        workflow.viewport_y = 0.0
-        workflow.viewport_zoom = 1.0
-
-    action_by_ref = {action.ref: action for action in workflow.actions}
-    seen_action_refs: set[str] = set()
-    for action_position in layout.actions:
-        action = action_by_ref.get(action_position.ref)
-        if action is None:
-            if (
-                allowed_missing_action_refs is not None
-                and action_position.ref in allowed_missing_action_refs
-            ):
-                continue
-            raise ToolError(
-                f"Unknown action ref {action_position.ref!r} in layout.actions"
-            )
-        seen_action_refs.add(action_position.ref)
-        if clear_missing or action_position.x is not None:
-            action.position_x = (
-                action_position.x if action_position.x is not None else 0.0
-            )
-        if clear_missing or action_position.y is not None:
-            action.position_y = (
-                action_position.y if action_position.y is not None else 0.0
-            )
-
-    if clear_missing:
-        missing_action_refs = set(action_by_ref) - seen_action_refs
-        for action_ref in missing_action_refs:
-            action = action_by_ref[action_ref]
-            action.position_x = 0.0
-            action.position_y = 0.0
-
-
-async def _replace_workflow_schedules(
-    *,
-    service: WorkflowSchedulesService,
-    workflow_id: WorkflowUUID,
-    schedules: Sequence[WorkflowSchedule],
-) -> None:
-    """Replace all schedules for a workflow from YAML payload."""
-    existing = await service.list_schedules(workflow_id=workflow_id)
-    for schedule in existing:
-        await service.delete_schedule(schedule.id, commit=False)
-
-    for schedule in schedules:
-        await service.create_schedule(
-            _schedule_create_from_payload(
-                workflow_id=workflow_id,
-                schedule=schedule,
-            ),
-            commit=False,
-        )
-
-
 async def _apply_case_trigger_payload(
     *,
     service: CaseTriggersService,
@@ -2688,6 +1747,37 @@ async def _apply_case_trigger_payload(
         )
 
 
+def _validate_actions_for_layout(
+    actions: Any,
+) -> Sequence[WorkflowActionLayoutInput]:
+    """Validate the raw ``definition.actions`` shape before auto-layout.
+
+    ``auto_generate_layout`` assumes each action is a mapping with a ``ref``
+    key, so a malformed shape (e.g. a mapping instead of a list, or a list of
+    scalars) would otherwise surface as a raw ``TypeError``/``KeyError``. Guard
+    those correctable authoring mistakes and raise a clear ``ToolError`` so they
+    become validation-style errors rather than generic failures.
+    """
+    if not isinstance(actions, list):
+        raise ToolError(
+            "Workflow definition.actions must be a list of action objects "
+            "(each with a 'ref')"
+        )
+    for action in actions:
+        if not isinstance(action, Mapping):
+            raise ToolError(
+                "Workflow definition.actions must be a list of action objects "
+                "(each with a 'ref')"
+            )
+        ref = action.get("ref")
+        if not isinstance(ref, str) or not ref:
+            raise ToolError(
+                "Each action in definition.actions must include a non-empty "
+                "string 'ref'"
+            )
+    return cast(Sequence[WorkflowActionLayoutInput], actions)
+
+
 def _build_import_data_from_workflow_yaml(
     *,
     definition_yaml: str,
@@ -2714,7 +1804,7 @@ def _build_import_data_from_workflow_yaml(
         actions = definition.get("actions", [])
         if actions:
             normalized["layout"] = auto_generate_layout(
-                cast(Sequence[WorkflowActionLayoutInput], actions)
+                _validate_actions_for_layout(actions)
             )
     return normalized
 
@@ -2727,9 +1817,7 @@ async def _create_workflow_from_import_data(
 ) -> Workflow:
     """Create a workflow from normalized import data."""
     layout_data = import_data.get("layout")
-    trigger_position, viewport, action_positions = _extract_layout_positions(
-        layout_data
-    )
+    trigger_position, viewport, action_positions = extract_layout_positions(layout_data)
     try:
         async with WorkflowsManagementService.with_session(role=role) as svc:
             return await svc.create_workflow_from_external_definition(
@@ -2765,13 +1853,13 @@ async def _apply_workflow_yaml_update(
         actions_raw = defn_raw.get("actions", [])
         if actions_raw:
             auto_layout = auto_generate_layout(
-                cast(Sequence[WorkflowActionLayoutInput], actions_raw)
+                _validate_actions_for_layout(actions_raw)
             )
             yaml_payload.layout = WorkflowLayout.model_validate(auto_layout)
 
     update_action_positions: dict[str, tuple[float, float]] | None = None
     if yaml_payload is not None and yaml_payload.layout is not None:
-        _, _, update_action_positions = _extract_layout_positions(yaml_payload.layout)
+        _, _, update_action_positions = extract_layout_positions(yaml_payload.layout)
 
     if yaml_payload is not None and yaml_payload.definition is not None:
         validation_results = await validate_dsl(
@@ -2780,7 +1868,13 @@ async def _apply_workflow_yaml_update(
             role=role,
         )
         _raise_dsl_validation_tool_error(validation_results)
-        await _replace_workflow_definition_from_dsl(
+        # The action graph is being rewritten. Bump graph_version so a builder
+        # holding a stale base_version gets a 409 from the graph API instead of
+        # silently applying graph operations against the old action graph. The
+        # workflow row is held under FOR UPDATE for the lifetime of this session,
+        # so this increment cannot race a concurrent graph mutation.
+        workflow.graph_version += 1
+        await replace_workflow_definition_from_dsl(
             service=service,
             workflow=workflow,
             dsl=yaml_payload.definition,
@@ -2790,13 +1884,13 @@ async def _apply_workflow_yaml_update(
 
     if yaml_payload is not None and yaml_payload.layout is not None:
         await service.session.refresh(workflow, ["actions"])
-        _apply_layout_to_workflow(workflow=workflow, layout=yaml_payload.layout)
+        apply_layout_to_workflow(workflow=workflow, layout=yaml_payload.layout)
         for action in workflow.actions:
             service.session.add(action)
 
     if yaml_payload is not None and yaml_payload.schedules is not None:
         schedule_service = WorkflowSchedulesService(service.session, role=role)
-        await _replace_workflow_schedules(
+        await replace_workflow_schedules(
             service=schedule_service,
             workflow_id=workflow_id,
             schedules=yaml_payload.schedules,
@@ -3615,8 +2709,8 @@ async def _build_action_catalog(workspace_id: uuid.UUID) -> ActionCatalogRespons
     """Build the action catalog for a workspace."""
 
     ws_id, role = await _resolve_workspace_role(workspace_id)
-    workspace_inventory = await _load_secret_inventory(role)
-    oauth_inventory = await _load_oauth_inventory(role)
+    workspace_inventory = await load_secret_inventory(role)
+    oauth_inventory = await load_oauth_inventory(role)
 
     async with RegistryActionsService.with_session(role=role) as svc:
         entries = await svc.list_actions_from_index()
@@ -3656,8 +2750,8 @@ async def _build_action_catalog(workspace_id: uuid.UUID) -> ActionCatalogRespons
                     indexed.manifest, action_info.name
                 )
                 if secrets:
-                    requirements = _secrets_to_requirements(secrets)
-                    configured, missing = _evaluate_configuration(
+                    requirements = secrets_to_requirements(secrets)
+                    configured, missing = evaluate_configuration(
                         requirements, workspace_inventory, oauth_inventory
                     )
                     if not configured:
@@ -4116,6 +3210,8 @@ async def create_workflow(
             description=workflow.description,
             status=workflow.status,
         )
+    except WorkflowEditError as e:
+        raise _workflow_edit_error_to_tool_error(e) from e
     except ToolError:
         raise
     except ValueError as e:
@@ -4149,7 +3245,7 @@ async def get_workflow(
             workflow = await svc.get_workflow(workflow_id)
             if not workflow:
                 raise ToolError(f"Workflow {workflow_id} not found")
-            draft_document = _build_workflow_edit_document(workflow)
+            draft_document = build_workflow_edit_document(workflow)
             payload = WorkflowMetadataResponse(
                 id=WorkflowUUID.new(workflow.id),
                 title=workflow.title,
@@ -4158,7 +3254,7 @@ async def get_workflow(
                 version=workflow.version,
                 alias=workflow.alias,
                 entrypoint=workflow.entrypoint,
-                draft_revision=_compute_workflow_edit_revision(draft_document),
+                draft_revision=compute_workflow_edit_revision(draft_document),
                 draft_document=draft_document,
             )
             if include_definition_yaml:
@@ -4173,6 +3269,8 @@ async def get_workflow(
                     update=inline.model_dump(exclude_none=True)
                 )
             return payload
+    except WorkflowEditError as e:
+        raise _workflow_edit_error_to_tool_error(e) from e
     except ToolError:
         raise
     except ValueError as e:
@@ -4195,7 +3293,7 @@ async def edit_workflow(
     try:
         _, role = await _resolve_workspace_role(workspace_id)
         wf_id = WorkflowUUID.new(workflow_id)
-        request = _parse_workflow_edit_request(
+        request = parse_workflow_edit_request(
             base_revision=base_revision,
             patch_ops=patch_ops,
             validate_only=validate_only,
@@ -4206,8 +3304,8 @@ async def edit_workflow(
             if workflow is None:
                 raise ToolError(f"Workflow {workflow_id} not found")
 
-            draft_document = _build_workflow_edit_document(workflow)
-            current_revision = _compute_workflow_edit_revision(draft_document)
+            draft_document = build_workflow_edit_document(workflow)
+            current_revision = compute_workflow_edit_revision(draft_document)
             if request.base_revision != current_revision:
                 raise ToolError(
                     {
@@ -4219,23 +3317,22 @@ async def edit_workflow(
                 )
 
             patched_payload = apply_json_patch_operations(
-                document=_workflow_edit_document_payload(draft_document),
+                document=workflow_edit_document_payload(draft_document),
                 patch_ops=request.patch_ops,
             )
-            _validate_workflow_patch_payload(patched_payload)
-
-            updated_document = WorkflowEditDocument.model_validate(patched_payload)
-            changed_sections = _workflow_edit_document_changed_sections(
+            updated_document = validate_workflow_patch_payload(patched_payload)
+            changed_sections = workflow_edit_document_changed_sections(
                 draft_document,
                 updated_document,
             )
-            await _validate_workflow_edit_document(
+            await validate_workflow_edit_document(
                 updated_document,
                 workflow_id=wf_id,
                 existing_layout_action_refs={
                     action_layout.ref for action_layout in draft_document.layout.actions
                 },
                 validate_definition="definition" in changed_sections,
+                changed_sections=changed_sections,
                 session=svc.session,
                 role=role,
             )
@@ -4246,14 +3343,14 @@ async def edit_workflow(
                     workflow_id=str(workflow.id),
                     valid=True,
                     validate_only=True,
-                    draft_revision=_compute_workflow_edit_revision(
-                        _normalize_workflow_edit_document_for_persisted_revision(
+                    draft_revision=compute_workflow_edit_revision(
+                        normalize_workflow_edit_document_for_persisted_revision(
                             updated_document
                         )
                     ),
                 )
 
-            await _persist_workflow_edit_document(
+            await persist_workflow_edit_document(
                 role=role,
                 service=svc,
                 workflow=workflow,
@@ -4264,12 +3361,14 @@ async def edit_workflow(
                 workflow,
                 ["actions", "schedules", "case_trigger"],
             )
-            refreshed_document = _build_workflow_edit_document(workflow)
+            refreshed_document = build_workflow_edit_document(workflow)
             return WorkflowEditResponse(
                 message=f"Workflow {workflow_id} updated successfully",
                 workflow_id=str(workflow.id),
-                draft_revision=_compute_workflow_edit_revision(refreshed_document),
+                draft_revision=compute_workflow_edit_revision(refreshed_document),
             )
+    except WorkflowEditError as e:
+        raise _workflow_edit_error_to_tool_error(e) from e
     except ToolError:
         raise
     except ValueError as e:
@@ -4356,6 +3455,8 @@ async def update_workflow(
                 message=f"Workflow {workflow_id} updated successfully",
                 mode=mode,
             )
+    except WorkflowEditError as e:
+        raise _workflow_edit_error_to_tool_error(e) from e
     except ToolError:
         raise
     except ValueError as e:
@@ -4827,8 +3928,8 @@ async def list_actions(
     try:
         _, role = await _resolve_workspace_role(workspace_id)
         limit = _normalize_limit(limit, default=50, max_limit=200)
-        workspace_inventory = await _load_secret_inventory(role)
-        oauth_inventory = await _load_oauth_inventory(role)
+        workspace_inventory = await load_secret_inventory(role)
+        oauth_inventory = await load_oauth_inventory(role)
         async with RegistryActionsService.with_session(role=role) as svc:
             if query:
                 entries = await svc.search_actions_from_index(query, limit=None)
@@ -4845,8 +3946,8 @@ async def list_actions(
                 secrets = svc.aggregate_secrets_from_manifest(
                     indexed.manifest, action_name
                 )
-                requirements = _secrets_to_requirements(secrets)
-                configured, missing = _evaluate_configuration(
+                requirements = secrets_to_requirements(secrets)
+                configured, missing = evaluate_configuration(
                     requirements, workspace_inventory, oauth_inventory
                 )
                 items.append(
@@ -4855,7 +3956,7 @@ async def list_actions(
                         description=entry.description,
                         configured=configured,
                         missing_requirements=missing,
-                        optional_secrets=_optional_secret_names(requirements),
+                        optional_secrets=optional_secret_names(requirements),
                     )
                 )
             page = _paginate_items(
@@ -5021,16 +4122,16 @@ async def get_action_context(
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
-        workspace_inventory = await _load_secret_inventory(role)
-        oauth_inventory = await _load_oauth_inventory(role)
+        workspace_inventory = await load_secret_inventory(role)
+        oauth_inventory = await load_oauth_inventory(role)
         async with RegistryActionsService.with_session(role=role) as svc:
             indexed = await svc.get_action_from_index(action_name)
             if indexed is None:
                 raise ToolError(f"Action {action_name} not found")
             tool = await create_tool_from_registry(action_name, indexed)
             secrets = svc.aggregate_secrets_from_manifest(indexed.manifest, action_name)
-            requirements = _secrets_to_requirements(secrets)
-            configured, missing = _evaluate_configuration(
+            requirements = secrets_to_requirements(secrets)
+            configured, missing = evaluate_configuration(
                 requirements, workspace_inventory, oauth_inventory
             )
             schema = tool.parameters_json_schema
@@ -5041,8 +4142,8 @@ async def get_action_context(
                 required_secrets=requirements,
                 configured=configured,
                 missing_requirements=missing,
-                optional_secrets=_optional_secret_names(requirements),
-                examples=[_build_example_from_schema(schema)],
+                optional_secrets=optional_secret_names(requirements),
+                examples=[build_example_from_schema(schema)],
             )
     except ToolError:
         raise
@@ -5085,8 +4186,8 @@ async def get_workflow_authoring_context(
         _, role = await _resolve_workspace_role(workspace_id)
         action_names = list(actions.action_names) if actions is not None else []
 
-        workspace_inventory = await _load_secret_inventory(role)
-        oauth_inventory = await _load_oauth_inventory(role)
+        workspace_inventory = await load_secret_inventory(role)
+        oauth_inventory = await load_oauth_inventory(role)
         action_contexts: list[ActionContextResponse] = []
         async with RegistryActionsService.with_session(role=role) as registry_svc:
             if not action_names and query:
@@ -5099,12 +4200,12 @@ async def get_workflow_authoring_context(
                 if indexed is None:
                     continue
                 tool = await create_tool_from_registry(action_name, indexed)
-                requirements = _secrets_to_requirements(
+                requirements = secrets_to_requirements(
                     registry_svc.aggregate_secrets_from_manifest(
                         indexed.manifest, action_name
                     )
                 )
-                configured, missing = _evaluate_configuration(
+                configured, missing = evaluate_configuration(
                     requirements, workspace_inventory, oauth_inventory
                 )
                 action_contexts.append(
@@ -5115,41 +4216,23 @@ async def get_workflow_authoring_context(
                         required_secrets=requirements,
                         configured=configured,
                         missing_requirements=missing,
-                        optional_secrets=_optional_secret_names(requirements),
+                        optional_secrets=optional_secret_names(requirements),
                         examples=[
-                            _build_example_from_schema(tool.parameters_json_schema)
+                            build_example_from_schema(tool.parameters_json_schema)
                         ],
                     )
                 )
 
-        async with VariablesService.with_session(role=role) as var_svc:
-            variables = await var_svc.list_variables(
-                environment=DEFAULT_SECRETS_ENVIRONMENT
-            )
-            variable_hints = [
-                {
-                    "name": var.name,
-                    "keys": sorted(var.values.keys()),
-                    "environment": var.environment,
-                }
-                for var in variables
-            ]
-
-        secret_hints: list[dict[str, Any]] = []
-        for secret_name, keys in workspace_inventory.items():
-            secret_hints.append(
-                {
-                    "name": secret_name,
-                    "keys": sorted(keys),
-                    "environment": DEFAULT_SECRETS_ENVIRONMENT,
-                }
-            )
+        variable_hints = await build_variable_hints(role=role)
+        secret_hints = await build_secret_hints(role=role)
+        enabled_models = await build_enabled_models(role=role)
 
         truncated_sections, truncation = _truncate_named_sections(
             {
                 "actions": action_contexts,
                 "variable_hints": variable_hints,
                 "secret_hints": secret_hints,
+                "enabled_models": enabled_models,
             },
             limit=_MCP_EMBEDDED_COLLECTION_LIMIT,
         )
@@ -5158,10 +4241,15 @@ async def get_workflow_authoring_context(
             actions=truncated_sections["actions"],
             variable_hints=truncated_sections["variable_hints"],
             secret_hints=truncated_sections["secret_hints"],
+            enabled_models=truncated_sections["enabled_models"],
             notes=[
                 "configured means required secret names and keys exist in the "
                 "default environment, and any required OAuth integrations are "
                 "configured for the workspace",
+                "enabled_models lists the models available in this workspace; "
+                "when configuring an AI action (ai.action, ai.agent) or agent "
+                "preset, select a catalog_id from this list instead of guessing "
+                "a model name",
             ],
             truncation=truncation,
         )
@@ -5376,106 +4464,24 @@ async def publish_workflow(
         workflow_id = WorkflowUUID.new(workflow_id)
         _, role = await _resolve_workspace_role(workspace_id)
         async with WorkflowsManagementService.with_session(role=role) as svc:
-            session = svc.session
-            workflow = await svc.get_workflow(workflow_id)
-            if not workflow:
-                raise ToolError(f"Workflow {workflow_id} not found")
-
-            # Tier 1: Build DSL
-            construction_errors: list[MCPValidationErrorPayload] = []
-            dsl: DSLInput | None = None
             try:
-                dsl = await svc.build_dsl_from_workflow(workflow)
-            except TracecatValidationError as e:
-                construction_errors.append(
-                    {
-                        "type": "dsl",
-                        "status": "error",
-                        "message": str(e),
-                    }
-                )
-            except ValidationError as e:
-                construction_errors.append(
-                    {
-                        "type": "dsl",
-                        "status": "error",
-                        "message": str(e),
-                    }
-                )
+                result = await svc.publish_workflow(workflow_id)
+            except TracecatNotFoundError as e:
+                raise ToolError(str(e)) from e
 
-            if construction_errors:
-                return WorkflowPublishResponse(
-                    workflow_id=workflow_id,
-                    status="failure",
-                    message=f"DSL construction failed with {len(construction_errors)} errors",
-                    errors=construction_errors,
-                )
-
-            if dsl is None:
-                raise ToolError("DSL should be defined if no construction errors")
-
-            # Tier 2: Semantic validation
-            val_errors = await validate_dsl(session=session, dsl=dsl, role=role)
-            if val_errors:
-                return WorkflowPublishResponse(
-                    workflow_id=workflow_id,
-                    status="failure",
-                    message=f"{len(val_errors)} validation error(s)",
-                    errors=[_validation_result_payload(vr) for vr in val_errors],
-                )
-
-            # Phase 1: Resolve registry lock
-            lock_service = RegistryLockService(session, role)
-            action_names = {action.action for action in dsl.actions}
-            try:
-                registry_lock = await lock_service.resolve_lock_with_bindings(
-                    action_names
-                )
-            except BuiltinRegistryHasNoSelectionError as e:
-                error = ValidationResult.new(
-                    type=ValidationResultType.DSL,
-                    status="error",
-                    msg=str(e),
-                    detail=[
-                        ValidationDetail(
-                            type="registry.builtin_sync_pending",
-                            msg=str(e),
-                            loc=("registry_lock",),
-                        )
-                    ],
-                )
-                return WorkflowPublishResponse(
-                    workflow_id=workflow_id,
-                    status="failure",
-                    message="1 validation error(s)",
-                    errors=[_validation_result_payload(error)],
-                )
-            workflow.registry_lock = registry_lock.model_dump()
-
-            # Phase 2: Create workflow definition
-            defn_service = WorkflowDefinitionsService(session, role=role)
-            defn = await defn_service.create_workflow_definition(
-                workflow_id,
-                dsl,
-                alias=workflow.alias,
-                registry_lock=registry_lock,
-                commit=False,
-            )
-
-            # Phase 3: Update workflow version
-            workflow.version = defn.version
-            session.add(workflow)
-            session.add(defn)
-            await session.commit()
-            await session.refresh(workflow)
-            await session.refresh(defn)
-
+        if not result.ok:
             return WorkflowPublishResponse(
                 workflow_id=workflow_id,
-                status="success",
-                message="Workflow published successfully",
-                version=defn.version,
+                status="failure",
+                message=f"{len(result.errors)} validation error(s)",
+                errors=[_validation_result_payload(vr) for vr in result.errors],
             )
+        return WorkflowPublishResponse(
+            workflow_id=workflow_id,
+            status="success",
+            message="Workflow published successfully",
+            version=result.version,
+        )
     except ToolError:
         raise
     except ValueError as e:
@@ -5490,23 +4496,28 @@ async def publish_workflow(
 
 
 @mcp.tool()
-async def run_draft_workflow(
+async def run_workflow(
     workspace_id: uuid.UUID,
     workflow_id: MCPWorkflowUUID,
     inputs: dict[str, Any] | None = None,
-    title: str | None = None,
-    description: str | None = None,
+    use_draft: bool = True,
+    version: int | None = None,
 ) -> WorkflowRunStartedResponse:
-    """Run a workflow from its current draft state (without publishing).
+    """Run a workflow from its draft state or a published definition.
 
-    Optionally update the workflow's title/description before running.
+    By default runs the current draft (unpublished edits) so changes can be
+    tested before publishing. Set ``use_draft=False`` to run a published
+    version instead.
 
     Args:
         workspace_id: The workspace ID.
         workflow_id: The workflow ID.
         inputs: Optional trigger inputs object.
-        title: Optional new title to set before running.
-        description: Optional new description to set before running.
+        use_draft: When true (default), run the current draft graph without
+            publishing. When false, run a published definition (see ``version``).
+        version: Published definition version to run. Only applies when
+            ``use_draft`` is false; null runs the current published version.
+            Ignored when ``use_draft`` is true.
 
     Returns JSON with workflow_id, execution_id, and a message.
     """
@@ -5514,32 +4525,13 @@ async def run_draft_workflow(
     try:
         workflow_id = WorkflowUUID.new(workflow_id)
         _, role = await _resolve_workspace_role(workspace_id)
-        # Optionally update workflow first
-        if title or description:
-            async with WorkflowsManagementService.with_session(role=role) as svc:
-                await svc.update_workflow(
-                    workflow_id,
-                    WorkflowUpdate(title=title, description=description),
-                )
-
-        # Build DSL from draft
         async with WorkflowsManagementService.with_session(role=role) as svc:
-            workflow = await svc.get_workflow(workflow_id)
-            if not workflow:
-                raise ToolError(f"Workflow {workflow_id} not found")
-            try:
-                dsl_input = await svc.build_dsl_from_workflow(workflow)
-            except (TracecatValidationError, ValidationError) as e:
-                raise ToolError(f"Draft workflow has validation errors: {e}") from e
-
-        # Validate and parse trigger inputs before dispatch
-        payload = _validate_trigger_inputs_payload(dsl_input, inputs)
-        exec_service = await WorkflowExecutionsService.connect(role=role)
-        response = await exec_service.create_draft_workflow_execution_wait_for_start(
-            dsl=dsl_input,
-            wf_id=workflow_id,
-            payload=payload,
-        )
+            response = await svc.run_workflow(
+                workflow_id,
+                inputs=inputs,
+                use_draft=use_draft,
+                version=version,
+            )
         response_workflow_id = WorkflowUUID.new(response["wf_id"])
         return WorkflowRunStartedResponse(
             workflow_id=response_workflow_id,
@@ -5548,6 +4540,20 @@ async def run_draft_workflow(
         )
     except ToolError:
         raise
+    except TracecatNotFoundError as e:
+        raise ToolError(str(e)) from e
+    except TracecatValidationError as e:
+        raise ToolError(
+            json.dumps(
+                {
+                    "type": "validation_error",
+                    "message": str(e),
+                    "status": "error",
+                    "detail": e.detail,
+                },
+                default=str,
+            )
+        ) from e
     except ValueError as e:
         raise ToolError(str(e)) from e
     except BaseException as e:
@@ -5555,81 +4561,8 @@ async def run_draft_workflow(
         if isinstance(e, BaseExceptionGroup):
             msgs = [str(exc) for exc in e.exceptions]
             msg = "; ".join(msgs)
-        logger.error("Failed to run draft workflow", error=msg)
-        raise ToolError(f"Failed to run draft workflow: {msg}") from None
-
-
-@mcp.tool()
-async def run_published_workflow(
-    workspace_id: uuid.UUID,
-    workflow_id: MCPWorkflowUUID,
-    inputs: dict[str, Any] | None = None,
-) -> WorkflowRunStartedResponse:
-    """Run the latest published version of a workflow.
-
-    The workflow must have been published (committed) at least once.
-
-    Args:
-        workspace_id: The workspace ID.
-        workflow_id: The workflow ID.
-        inputs: Optional trigger inputs object.
-
-    Returns JSON with workflow_id, execution_id, and a message.
-    """
-
-    try:
-        workflow_id = WorkflowUUID.new(workflow_id)
-        ws_id, role = await _resolve_workspace_role(workspace_id)
-        # Fetch latest workflow definition scoped to the caller's workspace
-        async with get_async_session_context_manager() as session:
-            result = await session.execute(
-                select(WorkflowDefinition)
-                .where(
-                    WorkflowDefinition.workflow_id == workflow_id,
-                    WorkflowDefinition.workspace_id == ws_id,
-                )
-                .order_by(WorkflowDefinition.version.desc())
-            )
-            defn = result.scalars().first()
-            if not defn:
-                raise ToolError(
-                    f"No published definition found for workflow {workflow_id}. "
-                    "Publish the workflow first using publish_workflow."
-                )
-
-            dsl_input = DSLInput(**defn.content)
-            registry_lock = (
-                RegistryLock.model_validate(defn.registry_lock)
-                if defn.registry_lock
-                else None
-            )
-
-        # Validate and parse trigger inputs before dispatch
-        payload = _validate_trigger_inputs_payload(dsl_input, inputs)
-        exec_service = await WorkflowExecutionsService.connect(role=role)
-        response = await exec_service.create_workflow_execution_wait_for_start(
-            dsl=dsl_input,
-            wf_id=workflow_id,
-            payload=payload,
-            registry_lock=registry_lock,
-        )
-        response_workflow_id = WorkflowUUID.new(response["wf_id"])
-        return WorkflowRunStartedResponse(
-            workflow_id=response_workflow_id,
-            execution_id=response["wf_exec_id"],
-            message=response["message"],
-        )
-    except ToolError:
-        raise
-    except ValueError as e:
-        raise ToolError(str(e)) from e
-    except BaseException as e:
-        msg = str(e)
-        if isinstance(e, BaseExceptionGroup):
-            msgs = [str(exc) for exc in e.exceptions]
-            msg = "; ".join(msgs)
-        logger.error("Failed to run published workflow", error=msg)
-        raise ToolError(f"Failed to run published workflow: {msg}") from None
+        logger.error("Failed to run workflow", error=msg)
+        raise ToolError(f"Failed to run workflow: {msg}") from None
 
 
 @mcp.tool()
@@ -8465,6 +7398,7 @@ async def list_variables(
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "variable:read")
         async with VariablesService.with_session(role=role) as svc:
             variables = await svc.list_variables(environment=environment)
             page = _paginate_items(
@@ -8488,6 +7422,9 @@ async def list_variables(
                 filters={"environment": environment},
             )
             return page
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -8505,6 +7442,7 @@ async def get_variable(
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "variable:read")
         async with VariablesService.with_session(role=role) as svc:
             variable = await svc.get_variable_by_name(
                 variable_name, environment=environment
@@ -8517,6 +7455,9 @@ async def get_variable(
                 keys=sorted(variable.values.keys()),
                 values=variable.values,
             )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -8535,6 +7476,7 @@ async def list_secrets_metadata(
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "secret:read")
         result: list[SecretMetadataResponse] = []
         async with SecretsService.with_session(role=role) as svc:
             workspace_secrets = await svc.list_secrets()
@@ -8566,6 +7508,9 @@ async def list_secrets_metadata(
             return page
     except ToolError:
         raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -8600,6 +7545,9 @@ async def get_secret_metadata(
             )
     except ToolError:
         raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -8617,10 +7565,22 @@ async def _build_agent_preset_authoring_context(
         provider_status_org = await svc.get_providers_status()
         provider_status_workspace = await svc.get_workspace_providers_status()
 
-    async with VariablesService.with_session(role=role) as svc:
-        variables = await svc.list_variables(environment=DEFAULT_SECRETS_ENVIRONMENT)
+    scopes = role.scopes or frozenset()
+    # Gate the secret/variable inventory reads the same way build_secret_hints/
+    # build_variable_hints do: do not enumerate workspace secret or variable
+    # names/keys to a preset author who lacks secret:read/variable:read.
+    can_read_variables = has_scope(scopes, "variable:read")
+    can_read_secrets = has_scope(scopes, "secret:read")
 
-    workspace_inventory = await _load_secret_inventory(role)
+    if can_read_variables:
+        async with VariablesService.with_session(role=role) as svc:
+            variables = await svc.list_variables(
+                environment=DEFAULT_SECRETS_ENVIRONMENT
+            )
+    else:
+        variables = []
+
+    workspace_inventory = await load_secret_inventory(role) if can_read_secrets else {}
     models_by_provider: dict[str, list[str]] = defaultdict(list)
     for model_name, model in sorted(models.items(), key=lambda item: item[0]):
         provider = cast(str, model.model_dump(mode="json")["provider"])

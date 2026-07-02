@@ -1,6 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import type { MCPIntegrationRead, RegistryActionReadMinimal } from "@/client"
-import { ChatToolsPicker } from "@/components/chat/chat-tools-picker"
+import {
+  ChatToolsPicker,
+  DEFAULT_CAPABILITY_GROUPS,
+} from "@/components/chat/chat-tools-picker"
 
 jest.mock("@/components/ui/popover", () => ({
   Popover: ({ children }: { children: React.ReactNode }) => (
@@ -48,6 +51,74 @@ function registryAction(
     ...overrides,
   }
 }
+
+describe("DEFAULT_CAPABILITY_GROUPS", () => {
+  /**
+   * This must mirror `WORKSPACE_CHAT_DEFAULT_TOOLS` in
+   * `tracecat/chat/tools.py`. The two lists are hand-maintained in different
+   * languages, so this test pins the exact set to force a deliberate edit here
+   * whenever the backend defaults change (the prior drift showed only
+   * `create_workflow` under Workflows while the backend had eight tools).
+   */
+  it("matches the backend workspace-chat default tool set", () => {
+    const actual = DEFAULT_CAPABILITY_GROUPS.flatMap((group) => group.tools)
+    expect([...actual].sort()).toEqual(
+      [
+        // ai.agent.* (agent presets, add-on gated)
+        "ai.agent.create_preset",
+        "ai.agent.get_preset",
+        "ai.agent.list_presets",
+        "ai.agent.update_preset",
+        // core.cases.*
+        "core.cases.create_case",
+        "core.cases.delete_case",
+        "core.cases.get_case",
+        "core.cases.list_cases",
+        "core.cases.search_cases",
+        "core.cases.update_case",
+        // core.table.*
+        "core.table.create_column",
+        "core.table.create_table",
+        "core.table.delete_column",
+        "core.table.delete_row",
+        "core.table.download",
+        "core.table.get_table_metadata",
+        "core.table.insert_row",
+        "core.table.insert_rows",
+        "core.table.is_in",
+        "core.table.list_tables",
+        "core.table.lookup",
+        "core.table.lookup_many",
+        "core.table.search_rows",
+        "core.table.update_column",
+        "core.table.update_row",
+        "core.table.update_table",
+        // core.workflow.*
+        "core.workflow.create_workflow",
+        "core.workflow.edit_workflow",
+        "core.workflow.execute",
+        "core.workflow.get_authoring_context",
+        "core.workflow.get_case_trigger",
+        "core.workflow.get_webhook",
+        "core.workflow.get_workflow",
+        "core.workflow.publish",
+        "core.workflow.run",
+        "core.workflow.update_case_trigger",
+        "core.workflow.update_webhook",
+      ].sort()
+    )
+  })
+
+  it("lists every workflow tool under the Workflows capability", () => {
+    const workflows = DEFAULT_CAPABILITY_GROUPS.find(
+      (group) => group.id === "workflows"
+    )
+    expect(workflows?.tools).toContain("core.workflow.execute")
+    expect(workflows?.tools).toContain("core.workflow.publish")
+    expect(workflows?.tools).toContain("core.workflow.run")
+    expect(workflows?.tools.length).toBe(11)
+  })
+})
 
 describe("ChatToolsPicker", () => {
   it("hides MCP integrations when they are not enabled for the chat surface", () => {

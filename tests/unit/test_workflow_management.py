@@ -9,7 +9,9 @@ import pytest
 from tracecat.auth.types import Role
 from tracecat.db.models import Action, Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.expressions.expectations import ExpectedField
+from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.workflow.management import management
 from tracecat.workflow.management.management import WorkflowsManagementService
@@ -661,3 +663,674 @@ async def test_correlate_agent_catalog_ids_preserves_already_local_id(
     assert out.actions[0].args["model"]["catalog_id"] == str(selected_id)
     assert fake.enabled_calls == [selected_id]
     assert fake.calls == []
+
+
+def _edit_document_workflow_source() -> SimpleNamespace:
+    """Minimal workflow source for ``build_workflow_edit_document``."""
+    return SimpleNamespace(
+        id=uuid.uuid4(),
+        title="Edit document workflow",
+        description="",
+        status="offline",
+        alias=None,
+        error_handler=None,
+        entrypoint=None,
+        expects=None,
+        config=None,
+        returns=None,
+        trigger_position_x=None,
+        trigger_position_y=None,
+        viewport_x=None,
+        viewport_y=None,
+        viewport_zoom=None,
+        actions=[],
+        schedules=[],
+        case_trigger=None,
+    )
+
+
+@pytest.mark.anyio
+async def test_persist_edit_document_wraps_case_trigger_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An online case trigger on an unpublished workflow becomes WorkflowEditError.
+
+    ``CaseTriggersService.upsert_case_trigger`` raises ``TracecatValidationError``
+    for correctable authoring mistakes (e.g. enabling a case trigger before the
+    workflow is published). ``persist_workflow_edit_document`` must convert that
+    into a transport-neutral ``WorkflowEditError`` so the internal edit route
+    (which only catches ``WorkflowEditError``/``ToolError``) returns a 400 the
+    caller can fix instead of letting it escape as a 500.
+    """
+    from tracecat.cases.enums import CaseEventType
+    from tracecat.exceptions import TracecatValidationError
+    from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig
+    from tracecat.workflow.management import draft as draft_module
+    from tracecat.workflow.management.draft import (
+        WorkflowEditError,
+        build_workflow_edit_document,
+        persist_workflow_edit_document,
+    )
+
+    role = _role()
+    source = _edit_document_workflow_source()
+    original_document = build_workflow_edit_document(cast(Any, source))
+    updated_document = original_document.model_copy(
+        update={
+            "case_trigger": CaseTriggerConfig(
+                status="online",
+                event_types=[CaseEventType.CASE_CREATED],
+                tag_filters=[],
+            )
+        }
+    )
+
+    class FailingCaseTriggersService:
+        def __init__(self, session: Any, role: Role) -> None:
+            self.session = session
+            self.role = role
+
+        async def upsert_case_trigger(
+            self,
+            workflow_id: uuid.UUID,
+            params: Any,
+            *,
+            create_missing_tags: bool = False,
+            commit: bool = True,
+        ) -> None:
+            raise TracecatValidationError(
+                "Publish the workflow before enabling case triggers"
+            )
+
+    monkeypatch.setattr(draft_module, "CaseTriggersService", FailingCaseTriggersService)
+    session = SimpleNamespace(
+        add=MagicMock(), flush=AsyncMock(), commit=AsyncMock(), refresh=AsyncMock()
+    )
+    service = WorkflowsManagementService(cast(Any, session), role=role)
+
+    with pytest.raises(WorkflowEditError) as exc:
+        await persist_workflow_edit_document(
+            role=role,
+            service=service,
+            workflow=cast(Any, source),
+            original_document=original_document,
+            updated_document=updated_document,
+        )
+    assert not isinstance(exc.value, TracecatValidationError)
+    assert "case trigger" in str(exc.value).lower()
+    session.commit.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_validate_edit_document_runs_case_trigger_check_on_dry_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """validate_only must run the case-trigger online-readiness check.
+
+    Regression: previously the dry-run path returned ``valid: true`` without
+    running ``CaseTriggersService`` validation, so enabling a case trigger on an
+    unpublished workflow passed validation but failed on a real apply. The check
+    now runs inside ``validate_workflow_edit_document`` (no commit), so a dry run
+    reports the same WorkflowEditError a real apply would.
+    """
+    from tracecat.cases.enums import CaseEventType
+    from tracecat.exceptions import TracecatValidationError
+    from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig
+    from tracecat.workflow.management import draft as draft_module
+    from tracecat.workflow.management.draft import (
+        WorkflowEditError,
+        build_workflow_edit_document,
+        validate_workflow_edit_document,
+        workflow_edit_document_changed_sections,
+    )
+
+    role = _role()
+    source = _edit_document_workflow_source()
+    original_document = build_workflow_edit_document(cast(Any, source))
+    updated_document = original_document.model_copy(
+        update={
+            "case_trigger": CaseTriggerConfig(
+                status="online",
+                event_types=[CaseEventType.CASE_CREATED],
+                tag_filters=[],
+            )
+        }
+    )
+    changed = workflow_edit_document_changed_sections(
+        original_document, updated_document
+    )
+    assert "case_trigger" in changed
+
+    class RejectingCaseTriggersService:
+        def __init__(self, session: Any, role: Role) -> None:
+            self.session = session
+            self.role = role
+
+        async def validate_case_trigger_config(
+            self, workflow_id: Any, config: Any
+        ) -> None:
+            raise TracecatValidationError(
+                "Publish the workflow before enabling case triggers"
+            )
+
+    monkeypatch.setattr(
+        draft_module, "CaseTriggersService", RejectingCaseTriggersService
+    )
+
+    with pytest.raises(WorkflowEditError) as exc:
+        await validate_workflow_edit_document(
+            updated_document,
+            workflow_id=WorkflowUUID.new(source.id),
+            changed_sections=changed,
+            session=cast(Any, SimpleNamespace()),
+            role=role,
+        )
+    assert "case trigger" in str(exc.value).lower()
+
+
+@pytest.mark.anyio
+async def test_validate_edit_document_rejects_taken_alias(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Changing alias to one another workflow owns is a recoverable conflict.
+
+    Regression: the edit path assigned the alias and committed with no
+    IntegrityError handling, so a normal alias conflict surfaced as a 500 and a
+    dry run could report it valid. ``validate_workflow_edit_document`` now
+    pre-checks uniqueness and raises WorkflowEditError (-> 400/409).
+    """
+    from tracecat.workflow.management.draft import (
+        WorkflowEditError,
+        build_workflow_edit_document,
+        validate_workflow_edit_document,
+        workflow_edit_document_changed_sections,
+    )
+
+    role = _role()
+    source = _edit_document_workflow_source()
+    original_document = build_workflow_edit_document(cast(Any, source))
+    updated_document = original_document.model_copy(
+        update={
+            "metadata": original_document.metadata.model_copy(
+                update={"alias": "taken-alias"}
+            )
+        }
+    )
+    changed = workflow_edit_document_changed_sections(
+        original_document, updated_document
+    )
+    assert "metadata" in changed
+
+    # Another workflow already owns the alias -> scalar() returns an id.
+    other_id = uuid.uuid4()
+    session = SimpleNamespace(scalar=AsyncMock(return_value=other_id))
+
+    with pytest.raises(WorkflowEditError) as exc:
+        await validate_workflow_edit_document(
+            updated_document,
+            workflow_id=WorkflowUUID.new(source.id),
+            changed_sections=changed,
+            session=cast(Any, session),
+            role=role,
+        )
+    assert "alias" in str(exc.value).lower()
+    session.scalar.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_validate_edit_document_allows_free_alias() -> None:
+    """A free alias passes validation (no other workflow owns it)."""
+    from tracecat.workflow.management.draft import (
+        build_workflow_edit_document,
+        validate_workflow_edit_document,
+        workflow_edit_document_changed_sections,
+    )
+
+    role = _role()
+    source = _edit_document_workflow_source()
+    original_document = build_workflow_edit_document(cast(Any, source))
+    updated_document = original_document.model_copy(
+        update={
+            "metadata": original_document.metadata.model_copy(
+                update={"alias": "free-alias"}
+            )
+        }
+    )
+    changed = workflow_edit_document_changed_sections(
+        original_document, updated_document
+    )
+
+    # No other workflow owns the alias -> scalar() returns None.
+    session = SimpleNamespace(scalar=AsyncMock(return_value=None))
+
+    # Should not raise.
+    await validate_workflow_edit_document(
+        updated_document,
+        workflow_id=WorkflowUUID.new(source.id),
+        changed_sections=changed,
+        session=cast(Any, session),
+        role=role,
+    )
+    session.scalar.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_persist_edit_document_maps_alias_integrity_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A concurrent alias claim at commit becomes a recoverable WorkflowEditError.
+
+    Pre-validation catches conflicts under normal conditions, but a concurrent
+    edit can claim the alias between the check and the commit. The commit's
+    IntegrityError -> WorkflowEditError mapping keeps that race recoverable
+    instead of letting the unique violation escape as a 500.
+    """
+    from asyncpg import UniqueViolationError
+    from sqlalchemy.exc import IntegrityError
+
+    from tracecat.db.common import DBConstraints
+    from tracecat.workflow.management.draft import (
+        WorkflowEditError,
+        build_workflow_edit_document,
+        persist_workflow_edit_document,
+    )
+
+    role = _role()
+    source = _edit_document_workflow_source()
+    original_document = build_workflow_edit_document(cast(Any, source))
+    updated_document = original_document.model_copy(
+        update={
+            "metadata": original_document.metadata.model_copy(
+                update={"alias": "raced-alias"}
+            )
+        }
+    )
+
+    # Build an IntegrityError whose root cause is the alias unique violation.
+    unique_violation = UniqueViolationError(
+        f"duplicate key value violates unique constraint "
+        f'"{DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE}"'
+    )
+    integrity_error = IntegrityError("stmt", {}, unique_violation)
+    # SQLAlchemy raises the IntegrityError ``from`` the DBAPI error, so the
+    # asyncpg cause is reachable via ``__cause__``; the constructor alone does
+    # not set it, so mirror real behavior for the cause-chain traversal.
+    integrity_error.__cause__ = unique_violation
+
+    commit_mock = AsyncMock(side_effect=integrity_error)
+    session = SimpleNamespace(
+        add=MagicMock(),
+        flush=AsyncMock(),
+        commit=commit_mock,
+        rollback=AsyncMock(),
+        refresh=AsyncMock(),
+    )
+    service = WorkflowsManagementService(cast(Any, session), role=role)
+
+    with pytest.raises(WorkflowEditError) as exc:
+        await persist_workflow_edit_document(
+            role=role,
+            service=service,
+            workflow=cast(Any, source),
+            original_document=original_document,
+            updated_document=updated_document,
+        )
+    assert "alias" in str(exc.value).lower()
+    session.rollback.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_publish_workflow_missing_raises_not_found() -> None:
+    """Publishing a non-existent workflow raises TracecatNotFoundError.
+
+    Callers (MCP tool -> ToolError, commit route -> 404, internal route -> 404)
+    rely on this distinct exception type rather than a structured-error result.
+    """
+    from tracecat.exceptions import TracecatNotFoundError
+    from tracecat.identifiers.workflow import WorkflowUUID
+
+    role = _role()
+    session = SimpleNamespace(commit=AsyncMock(), refresh=AsyncMock())
+    service = WorkflowsManagementService(cast(Any, session), role=role)
+    service.get_workflow = AsyncMock(return_value=None)  # type: ignore[method-assign]
+
+    with pytest.raises(TracecatNotFoundError):
+        await service.publish_workflow(WorkflowUUID.new(uuid.uuid4()))
+
+
+@pytest.mark.anyio
+async def test_publish_workflow_invalid_draft_returns_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An invalid/empty draft yields a WorkflowPublishResult with errors, not a raise.
+
+    publish_workflow returns structured errors so the MCP tool, commit route, and
+    internal route can each render them; only the internal route turns them into a
+    400. version is None and the result is not ``ok``.
+    """
+    from tracecat.exceptions import TracecatValidationError
+    from tracecat.identifiers.workflow import WorkflowUUID
+    from tracecat.workflow.management.management import WorkflowPublishResult
+
+    role = _role()
+    session = SimpleNamespace(commit=AsyncMock(), refresh=AsyncMock())
+    service = WorkflowsManagementService(cast(Any, session), role=role)
+    service.get_workflow = AsyncMock(return_value=SimpleNamespace(id=uuid.uuid4()))  # type: ignore[method-assign]
+
+    async def fail_build(_workflow: Any) -> Any:
+        raise TracecatValidationError("Workflow has no actions.")
+
+    monkeypatch.setattr(service, "build_dsl_from_workflow", fail_build)
+
+    result = await service.publish_workflow(WorkflowUUID.new(uuid.uuid4()))
+
+    assert isinstance(result, WorkflowPublishResult)
+    assert result.version is None
+    assert not result.ok
+    assert len(result.errors) == 1
+    session.commit.assert_not_awaited()
+
+
+def test_normalize_persisted_revision_adds_missing_layout_entries() -> None:
+    """A definition action without a layout entry must not desync dry-run revision.
+
+    Regression: ``normalize_workflow_edit_document_for_persisted_revision`` only
+    stripped orphan layout entries; it did not add entries for definition actions
+    missing from the layout. The real persist path recreates the action and
+    ``build_workflow_edit_document`` emits a layout entry at (0.0, 0.0) for it, so
+    a ``validate_only`` patch that adds an action without a ``/layout/actions``
+    entry produced a draft_revision that could not match the post-apply revision,
+    causing the next edit to 409. The normalizer now adds the default entry so the
+    dry-run and post-persist revisions agree.
+    """
+    from tracecat.mcp.schemas import WorkflowEditDocument
+    from tracecat.workflow.management.draft import (
+        build_workflow_edit_document,
+        compute_workflow_edit_revision,
+        normalize_workflow_edit_document_for_persisted_revision,
+    )
+
+    skeleton = build_workflow_edit_document(
+        cast(Any, _edit_document_workflow_source())
+    ).model_dump(mode="json")
+
+    # Post-persist shape: action present in the definition AND the layout (the
+    # default (0.0, 0.0) entry build_workflow_edit_document emits for it).
+    persisted = json.loads(json.dumps(skeleton))
+    persisted["definition"]["actions"] = [
+        {
+            "ref": "notify",
+            "action": "core.transform.reshape",
+            "args": {},
+            "depends_on": [],
+        }
+    ]
+    persisted["definition"]["entrypoint"] = {"ref": "notify", "expects": {}}
+    persisted["layout"]["actions"] = [{"ref": "notify", "x": 0.0, "y": 0.0}]
+    persisted_revision = compute_workflow_edit_revision(
+        WorkflowEditDocument.model_validate(persisted)
+    )
+
+    # Dry-run shape: same definition, but the patch omitted the layout entry.
+    dry = json.loads(json.dumps(persisted))
+    dry["layout"]["actions"] = []
+    dry_doc = WorkflowEditDocument.model_validate(dry)
+
+    # Without normalization the revisions diverge (the bug)...
+    assert compute_workflow_edit_revision(dry_doc) != persisted_revision
+    # ...with normalization they agree (the fix).
+    normalized = normalize_workflow_edit_document_for_persisted_revision(dry_doc)
+    assert compute_workflow_edit_revision(normalized) == persisted_revision
+
+
+def test_normalize_persisted_revision_drops_orphan_layout_entries() -> None:
+    """Layout entries for refs no longer in the definition are still dropped."""
+    from tracecat.mcp.schemas import WorkflowEditDocument
+    from tracecat.workflow.management.draft import (
+        build_workflow_edit_document,
+        normalize_workflow_edit_document_for_persisted_revision,
+    )
+
+    skeleton = build_workflow_edit_document(
+        cast(Any, _edit_document_workflow_source())
+    ).model_dump(mode="json")
+    payload = json.loads(json.dumps(skeleton))
+    # Layout references an action that does not exist in the definition.
+    payload["layout"]["actions"] = [{"ref": "ghost", "x": 1.0, "y": 2.0}]
+    document = WorkflowEditDocument.model_validate(payload)
+
+    normalized = normalize_workflow_edit_document_for_persisted_revision(document)
+
+    assert [a.ref for a in normalized.layout.actions] == []
+
+
+# ---------------------------------------------------------------------------
+# run_workflow
+# ---------------------------------------------------------------------------
+
+
+def _run_dsl(expects: dict[str, Any] | None = None) -> DSLInput:
+    """Minimal valid DSL for run_workflow tests, with an optional expects schema."""
+    return DSLInput(
+        **{
+            "title": "run workflow test",
+            "description": "",
+            "entrypoint": {"ref": "start", "expects": expects or {}},
+            "actions": [
+                {
+                    "ref": "start",
+                    "action": "core.transform.reshape",
+                    "args": {"value": "ok"},
+                }
+            ],
+        }
+    )
+
+
+class _FakeExecService:
+    """Records which dispatch method was called and with what kwargs."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    async def create_draft_workflow_execution_wait_for_start(self, **kwargs: Any):
+        self.calls.append(("draft", kwargs))
+        return {
+            "message": "Draft workflow execution started",
+            "wf_id": kwargs["wf_id"],
+            "wf_exec_id": "wf-exec-draft",
+        }
+
+    async def create_workflow_execution_wait_for_start(self, **kwargs: Any):
+        self.calls.append(("published", kwargs))
+        return {
+            "message": "Workflow execution started",
+            "wf_id": kwargs["wf_id"],
+            "wf_exec_id": "wf-exec-published",
+        }
+
+
+def _patch_exec_service(monkeypatch: pytest.MonkeyPatch) -> _FakeExecService:
+    """Patch the locally-imported WorkflowExecutionsService.connect."""
+    from tracecat.workflow.executions import service as exec_service_module
+
+    fake = _FakeExecService()
+
+    async def _connect(role: Any = None) -> _FakeExecService:
+        return fake
+
+    monkeypatch.setattr(
+        exec_service_module.WorkflowExecutionsService, "connect", _connect
+    )
+    return fake
+
+
+@pytest.mark.anyio
+async def test_run_workflow_draft_builds_and_dispatches_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    wf_id = WorkflowUUID.new_uuid4()
+    dsl = _run_dsl()
+    service = _service(_role())
+
+    monkeypatch.setattr(service, "get_workflow", AsyncMock(return_value=object()))
+    monkeypatch.setattr(service, "build_dsl_from_workflow", AsyncMock(return_value=dsl))
+    # No validation errors from the tiered validator.
+    monkeypatch.setattr(management, "validate_dsl", AsyncMock(return_value=[]))
+    fake_exec = _patch_exec_service(monkeypatch)
+
+    resp = await service.run_workflow(wf_id, inputs={"a": 1}, use_draft=True)
+
+    assert resp["wf_exec_id"] == "wf-exec-draft"
+    assert [name for name, _ in fake_exec.calls] == ["draft"]
+    _, kwargs = fake_exec.calls[0]
+    assert kwargs["wf_id"] == wf_id
+    assert kwargs["payload"] == {"a": 1}
+    # Draft runs resolve the registry lock dynamically (not passed here).
+    assert "registry_lock" not in kwargs
+
+
+@pytest.mark.anyio
+async def test_run_workflow_draft_missing_workflow_raises_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _service(_role())
+    monkeypatch.setattr(service, "get_workflow", AsyncMock(return_value=None))
+    fake_exec = _patch_exec_service(monkeypatch)
+
+    with pytest.raises(TracecatNotFoundError):
+        await service.run_workflow(WorkflowUUID.new_uuid4(), use_draft=True)
+    assert fake_exec.calls == []
+
+
+@pytest.mark.anyio
+async def test_run_workflow_draft_validation_error_does_not_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _service(_role())
+    dsl = _run_dsl()
+    monkeypatch.setattr(service, "get_workflow", AsyncMock(return_value=object()))
+    monkeypatch.setattr(service, "build_dsl_from_workflow", AsyncMock(return_value=dsl))
+
+    # One validation error from the tiered validator.
+    fake_error = SimpleNamespace(
+        root=SimpleNamespace(model_dump=lambda mode="json": {"msg": "boom"})
+    )
+    monkeypatch.setattr(
+        management, "validate_dsl", AsyncMock(return_value=[fake_error])
+    )
+    fake_exec = _patch_exec_service(monkeypatch)
+
+    with pytest.raises(TracecatValidationError):
+        await service.run_workflow(WorkflowUUID.new_uuid4(), use_draft=True)
+    assert fake_exec.calls == []
+
+
+@pytest.mark.anyio
+async def test_run_workflow_published_latest_uses_definition_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    wf_id = WorkflowUUID.new_uuid4()
+    dsl = _run_dsl()
+    lock = {
+        "origins": {"tracecat_registry": "test-version"},
+        "actions": {"core.transform.reshape": "tracecat_registry"},
+        "origin_fingerprints": {},
+    }
+    defn = SimpleNamespace(content=dsl.model_dump(), registry_lock=lock)
+
+    captured: dict[str, Any] = {}
+
+    class _FakeDefnService:
+        def __init__(self, session: Any, role: Any) -> None:
+            pass
+
+        async def get_definition_by_workflow_id(
+            self, workflow_id: Any, *, version: int | None = None
+        ):
+            captured["version"] = version
+            return defn
+
+    monkeypatch.setattr(management, "WorkflowDefinitionsService", _FakeDefnService)
+    fake_exec = _patch_exec_service(monkeypatch)
+
+    resp = await _service(_role()).run_workflow(wf_id, use_draft=False)
+
+    assert resp["wf_exec_id"] == "wf-exec-published"
+    assert captured["version"] is None
+    assert [name for name, _ in fake_exec.calls] == ["published"]
+    _, kwargs = fake_exec.calls[0]
+    assert isinstance(kwargs["registry_lock"], RegistryLock)
+
+
+@pytest.mark.anyio
+async def test_run_workflow_published_version_is_forwarded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dsl = _run_dsl()
+    defn = SimpleNamespace(content=dsl.model_dump(), registry_lock=None)
+    captured: dict[str, Any] = {}
+
+    class _FakeDefnService:
+        def __init__(self, session: Any, role: Any) -> None:
+            pass
+
+        async def get_definition_by_workflow_id(
+            self, workflow_id: Any, *, version: int | None = None
+        ):
+            captured["version"] = version
+            return defn
+
+    monkeypatch.setattr(management, "WorkflowDefinitionsService", _FakeDefnService)
+    fake_exec = _patch_exec_service(monkeypatch)
+
+    await _service(_role()).run_workflow(
+        WorkflowUUID.new_uuid4(), use_draft=False, version=3
+    )
+
+    assert captured["version"] == 3
+    _, kwargs = fake_exec.calls[0]
+    # No registry lock on the definition -> None passed through.
+    assert kwargs["registry_lock"] is None
+
+
+@pytest.mark.anyio
+async def test_run_workflow_missing_version_raises_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeDefnService:
+        def __init__(self, session: Any, role: Any) -> None:
+            pass
+
+        async def get_definition_by_workflow_id(
+            self, workflow_id: Any, *, version: int | None = None
+        ):
+            return None
+
+    monkeypatch.setattr(management, "WorkflowDefinitionsService", _FakeDefnService)
+    fake_exec = _patch_exec_service(monkeypatch)
+
+    with pytest.raises(TracecatNotFoundError):
+        await _service(_role()).run_workflow(
+            WorkflowUUID.new_uuid4(), use_draft=False, version=99
+        )
+    assert fake_exec.calls == []
+
+
+@pytest.mark.anyio
+async def test_run_workflow_invalid_inputs_raise_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # DSL requires an integer `count`; a string should fail validation.
+    dsl = _run_dsl(expects={"count": {"type": "int"}})
+    service = _service(_role())
+    monkeypatch.setattr(service, "get_workflow", AsyncMock(return_value=object()))
+    monkeypatch.setattr(service, "build_dsl_from_workflow", AsyncMock(return_value=dsl))
+    monkeypatch.setattr(management, "validate_dsl", AsyncMock(return_value=[]))
+    fake_exec = _patch_exec_service(monkeypatch)
+
+    with pytest.raises(TracecatValidationError):
+        await service.run_workflow(
+            WorkflowUUID.new_uuid4(), inputs={"count": "not-an-int"}, use_draft=True
+        )
+    assert fake_exec.calls == []

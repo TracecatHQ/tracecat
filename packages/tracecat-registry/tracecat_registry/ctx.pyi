@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, Literal, TypeVar
 from uuid import UUID
@@ -10,6 +11,7 @@ from tracecat_registry import types as registry_types
 from tracecat_registry.sdk.agents import AgentConfig, CursorPage, RankableItem
 from tracecat_registry.sdk.client import TracecatClient
 from tracecat_registry.sdk.types import CasePriority, CaseSeverity, CaseStatus, Unset
+from tracecat_registry.sdk.workflows import JsonPatchOperation
 
 T = TypeVar("T")
 
@@ -1233,6 +1235,63 @@ class _WorkflowsAsync:
         *,
         title: str | None = ...,
         description: str | None = ...,
+        definition_yaml: str | None = ...,
+    ) -> dict[str, Any]: ...
+    async def get_workflow(
+        self,
+        *,
+        workflow_id: str,
+    ) -> dict[str, Any]: ...
+    async def edit_workflow(
+        self,
+        *,
+        workflow_id: str,
+        base_revision: str,
+        patch_ops: Sequence[JsonPatchOperation | dict[str, Any]],
+        validate_only: bool = ...,
+    ) -> dict[str, Any]: ...
+    async def get_authoring_context(
+        self,
+        *,
+        action_names: list[str] | None = ...,
+        query: str | None = ...,
+    ) -> dict[str, Any]: ...
+    async def get_webhook(
+        self,
+        *,
+        workflow_id: str,
+    ) -> dict[str, Any]: ...
+    async def update_webhook(
+        self,
+        *,
+        workflow_id: str,
+        status: Literal["online", "offline"],
+    ) -> dict[str, Any]: ...
+    async def get_case_trigger(
+        self,
+        *,
+        workflow_id: str,
+    ) -> dict[str, Any]: ...
+    async def update_case_trigger(
+        self,
+        *,
+        workflow_id: str,
+        status: Literal["online", "offline"] | None = ...,
+        event_types: list[str] | None = ...,
+        tag_filters: list[str] | None = ...,
+    ) -> dict[str, Any]: ...
+    async def publish(
+        self,
+        *,
+        workflow_id: str,
+    ) -> dict[str, Any]: ...
+    async def run(
+        self,
+        *,
+        workflow_id: str,
+        inputs: Any | None = ...,
+        use_draft: bool = ...,
+        version: int | None = ...,
     ) -> dict[str, Any]: ...
 
 class _Workflows:
@@ -1259,6 +1318,63 @@ class _Workflows:
         *,
         title: str | None = ...,
         description: str | None = ...,
+        definition_yaml: str | None = ...,
+    ) -> dict[str, Any]: ...
+    def get_workflow(
+        self,
+        *,
+        workflow_id: str,
+    ) -> dict[str, Any]: ...
+    def edit_workflow(
+        self,
+        *,
+        workflow_id: str,
+        base_revision: str,
+        patch_ops: Sequence[JsonPatchOperation | dict[str, Any]],
+        validate_only: bool = ...,
+    ) -> dict[str, Any]: ...
+    def get_authoring_context(
+        self,
+        *,
+        action_names: list[str] | None = ...,
+        query: str | None = ...,
+    ) -> dict[str, Any]: ...
+    def get_webhook(
+        self,
+        *,
+        workflow_id: str,
+    ) -> dict[str, Any]: ...
+    def update_webhook(
+        self,
+        *,
+        workflow_id: str,
+        status: Literal["online", "offline"],
+    ) -> dict[str, Any]: ...
+    def get_case_trigger(
+        self,
+        *,
+        workflow_id: str,
+    ) -> dict[str, Any]: ...
+    def update_case_trigger(
+        self,
+        *,
+        workflow_id: str,
+        status: Literal["online", "offline"] | None = ...,
+        event_types: list[str] | None = ...,
+        tag_filters: list[str] | None = ...,
+    ) -> dict[str, Any]: ...
+    def publish(
+        self,
+        *,
+        workflow_id: str,
+    ) -> dict[str, Any]: ...
+    def run(
+        self,
+        *,
+        workflow_id: str,
+        inputs: Any | None = ...,
+        use_draft: bool = ...,
+        version: int | None = ...,
     ) -> dict[str, Any]: ...
 
 agents: _Agents

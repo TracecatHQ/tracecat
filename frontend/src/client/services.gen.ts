@@ -2026,7 +2026,10 @@ export const workflowsDeleteWorkflow = (
  * Commit Workflow
  * Commit a workflow.
  *
- * This deploys the workflow and updates its version. If a YAML file is provided, it will override the workflow in the database.
+ * This deploys the workflow and updates its version, delegating to the shared
+ * ``WorkflowsManagementService.publish_workflow`` so the build/validate/lock/
+ * commit orchestration lives in one place (also used by the MCP publish tool
+ * and the internal publish route).
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.workflowId

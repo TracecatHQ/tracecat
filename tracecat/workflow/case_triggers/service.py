@@ -104,6 +104,27 @@ class CaseTriggersService(BaseWorkspaceService):
                 "Publish the workflow before enabling case triggers"
             ) from e
 
+    async def validate_case_trigger_config(
+        self, workflow_id: WorkflowID, config: CaseTriggerConfig
+    ) -> None:
+        """Validate a case-trigger config without writing anything.
+
+        Runs the same online-readiness checks ``_update_case_trigger`` enforces
+        (online requires non-empty event types and a published, runnable workflow
+        definition) so a dry run reports the same outcome a real apply would,
+        instead of reporting ``valid: true`` for a config that fails on persist.
+
+        Raises:
+            TracecatValidationError: If the config is not applyable.
+        """
+        if config.status != "online":
+            return
+        if not config.event_types:
+            raise TracecatValidationError(
+                "event_types must be non-empty when status is online"
+            )
+        await self._ensure_workflow_has_runnable_definition(workflow_id)
+
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def get_case_trigger(self, workflow_id: WorkflowID) -> CaseTrigger:
         return await self._ensure_case_trigger_exists(workflow_id)
