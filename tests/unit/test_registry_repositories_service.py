@@ -10,6 +10,7 @@ import pytest
 from tracecat.auth.types import Role
 from tracecat.db.models import RegistryRepository
 from tracecat.exceptions import RegistryNotFound, ScopeDeniedError
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.repositories.schemas import RegistryRepositorySync
 from tracecat.registry.repositories.service import RegistryReposService
 
@@ -35,6 +36,18 @@ def role_with_read_only_scope() -> Role:
         organization_id=uuid.uuid4(),
         user_id=uuid.uuid4(),
         scopes=frozenset({"org:registry:read"}),
+    )
+
+
+@pytest.fixture
+def role_with_update_scope() -> Role:
+    return Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"org:registry:update"}),
     )
 
 
@@ -105,6 +118,27 @@ async def test_sync_repository_requires_registry_update_scope(
     )
     with pytest.raises(ScopeDeniedError):
         await service.sync_repository(repository, RegistryRepositorySync(force=False))
+
+
+@pytest.mark.anyio
+async def test_force_sync_repository_requires_registry_delete_scope(
+    role_with_update_scope: Role,
+) -> None:
+    """force sync must reject roles missing org:registry:delete."""
+    service = RegistryReposService(AsyncMock(), role=role_with_update_scope)
+    repository = RegistryRepository(
+        organization_id=role_with_update_scope.organization_id,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+    )
+
+    with pytest.raises(ScopeDeniedError) as exc_info:
+        await service.sync_repository(repository, RegistryRepositorySync(force=True))
+
+    assert exc_info.value.detail == {
+        "code": "insufficient_scope",
+        "required_scopes": ["org:registry:delete"],
+        "missing_scopes": ["org:registry:delete"],
+    }
 
 
 @pytest.mark.anyio
