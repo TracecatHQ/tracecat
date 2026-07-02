@@ -219,6 +219,13 @@
       "icon": "https://www.google.com/s2/favicons?domain=www.atlassian.com&sz=128"
     },
     {
+      "slug": "freshservice-mcp",
+      "name": "Freshservice",
+      "description": "Create and manage Freshservice tickets, service requests, and ITSM records",
+      "category": "Ticketing",
+      "icon": "https://www.google.com/s2/favicons?domain=freshservice.com&sz=128"
+    },
+    {
       "slug": "servicenow-mcp",
       "name": "ServiceNow",
       "description": "Query and update ServiceNow ITSM records via the Zurich MCP server",
