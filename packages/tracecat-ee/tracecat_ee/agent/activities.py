@@ -132,10 +132,18 @@ class EmitSessionErrorInputs(BaseModel):
 
 
 class EmitSessionCancelledInputs(BaseModel):
+    role: Role
     session_id: uuid.UUID
     workspace_id: uuid.UUID
     reason: str | None = None
     active_stream_id: uuid.UUID | None = None
+    emit_stream: bool = True
+    """Whether to also push the cancelled/done frames onto the live stream.
+
+    False when the executor loopback already emitted them (a second done
+    marker would race the client's stream teardown); the activity then only
+    persists the timeline marker row.
+    """
 
 
 def _stored_user_mcp_tool_policy(
@@ -496,12 +504,25 @@ class AgentActivities:
 
     @activity.defn
     async def emit_session_cancelled(self, args: EmitSessionCancelledInputs) -> None:
-        """Push an advisory cancelled-turn notice onto the session's SSE stream.
+        """Record a cancelled turn: persist the timeline marker, then stream it.
 
-        Used by workflow branches that cancel while waiting on approval, since
-        those happen outside a running executor activity and never reach the
-        loopback's own cancelled-notice emission.
+        Every cancelled turn persists a marker row so the "stopped by user"
+        divider survives DB reloads. Stream emission is conditional: approval
+        -wait cancels happen outside a running executor activity and must push
+        the cancelled/done frames here, while executor cancels already emitted
+        them from the loopback (``emit_stream=False``).
         """
+        # Local import: tracecat.agent.session.service imports tracecat_ee
+        # modules, so a top-level import here would create a cycle.
+        from tracecat.agent.session.service import AgentSessionService
+
+        ctx_role.set(args.role)
+        async with AgentSessionService.with_session(role=args.role) as service:
+            await service.append_cancelled_marker(args.session_id, reason=args.reason)
+
+        if not args.emit_stream:
+            return
+
         stream = await AgentStream.new(
             session_id=args.session_id,
             workspace_id=args.workspace_id,

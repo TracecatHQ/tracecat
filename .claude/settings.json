@@ -27,5 +27,8 @@
         "*.github.com"
       ]
     }
+  },
+  "enabledPlugins": {
+    "codex@openai-codex": true
   }
 }

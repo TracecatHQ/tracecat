@@ -207,18 +207,20 @@ class ClaudeRuntimeBroker:
         if active is not None:
             active.task.cancel()
 
-    async def interrupt_turn(self, session_id: str, reason: str) -> None:
+    async def interrupt_turn(self, session_id: str, reason: str) -> bool:
         """Gracefully interrupt an active turn's Claude SDK client, if any.
 
-        No-op if the turn hasn't constructed its runtime yet (still hydrating
-        the work dir) - the caller's timeout/hard-cancel fallback covers that
-        narrow window.
+        Returns True once the interrupt was delivered to a live runtime.
+        Returns False (no-op) if the turn hasn't constructed its runtime yet
+        (still hydrating the work dir) - callers retry or rely on a
+        timeout/hard-cancel fallback for that narrow window.
         """
         async with self._lock:
             active = self._active_turns.get(session_id)
         if active is None or active.runtime is None:
-            return
+            return False
         await active.runtime.interrupt(reason=reason)
+        return True
 
     @staticmethod
     def _build_path_mapping(*, session_id: str) -> AgentSandboxPathMapping:

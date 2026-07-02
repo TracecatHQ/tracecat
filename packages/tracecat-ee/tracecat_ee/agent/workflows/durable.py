@@ -916,20 +916,22 @@ class DurableAgentWorkflow:
                 error=str(emit_error),
             )
 
-    async def _emit_session_cancelled(self) -> None:
-        """Emit the advisory cancelled-turn stream event for approval-wait cancels.
+    async def _emit_session_cancelled(self, *, emit_stream: bool) -> None:
+        """Record the cancelled turn (timeline marker + optional stream notice).
 
-        Cancellation during the mid-turn executor activity flows through the
-        loopback handler, which emits this notice itself. Cancelling while
-        waiting on approval decisions never starts (or has already finished)
-        that activity, so the workflow must emit the notice directly here to
-        keep the chat UI's "Chat stopped" signal consistent across both
-        cancellation paths.
+        The activity always persists the cancelled-marker history row so the
+        divider survives DB reloads. Stream emission depends on the cancel
+        path: cancellation during the mid-turn executor activity flows through
+        the loopback handler, which emits the stream notice itself
+        (``emit_stream=False`` here); cancelling while waiting on approval
+        decisions never starts (or has already finished) that activity, so the
+        workflow must emit the notice too (``emit_stream=True``).
         """
         try:
             await workflow.execute_activity_method(
                 AgentActivities.emit_session_cancelled,
                 EmitSessionCancelledInputs(
+                    role=self.role,
                     session_id=self.session_id,
                     workspace_id=self.workspace_id,
                     reason=self._cancel_reason or "user_cancel",
@@ -937,6 +939,7 @@ class DurableAgentWorkflow:
                     # suffixed key, so the cancelled/done markers must land there.
                     # None falls back to the per-session key for non-chat turns.
                     active_stream_id=self.active_stream_id,
+                    emit_stream=emit_stream,
                 ),
                 start_to_close_timeout=timedelta(seconds=10),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
@@ -1204,7 +1207,7 @@ class DurableAgentWorkflow:
                     session_id=self.session_id,
                     reason=result.cancelled_reason,
                 )
-                # Executor loopback already emitted the cancelled notice.
+                # Executor loopback already emitted the cancelled stream notice.
                 return await self._cancelled_turn_output(
                     result, info, emit_cancelled=False
                 )
@@ -1367,13 +1370,13 @@ class DurableAgentWorkflow:
     ) -> AgentOutput:
         """Build the terminal output for a cancelled turn.
 
-        The executor-cancel loopback already emitted the cancelled notice, so
-        that path passes emit_cancelled=False. Approval-wait cancels have not
-        emitted yet and must do so before loading history to preserve the
-        activity command order at every call site.
+        The executor-cancel loopback already emitted the cancelled stream
+        notice, so that path passes emit_cancelled=False and the activity only
+        persists the timeline marker. Approval-wait cancels have not emitted
+        yet and pass emit_cancelled=True. Either way the marker is persisted
+        before loading history so the terminal history includes it.
         """
-        if emit_cancelled:
-            await self._emit_session_cancelled()
+        await self._emit_session_cancelled(emit_stream=emit_cancelled)
         message_history = await self._load_terminal_message_history(result)
         return AgentOutput(
             output=None,

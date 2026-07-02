@@ -1594,6 +1594,112 @@ class TestSandboxedAgentExecutorCancellation:
         assert result.error is None
         assert result.success is True
 
+    @pytest.mark.anyio
+    async def test_cancel_signal_interrupts_turn_without_task_cancellation(
+        self,
+        executor_input: AgentExecutorInput,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Regression: user stop must not depend on Temporal cancel delivery.
+
+        Temporal delivers activity cancellation via throttled heartbeat RPCs,
+        so a live turn can finish before ``asyncio.CancelledError`` is ever
+        raised in the activity. Here a cancel signal is written while the
+        activity keeps running normally (its task is never cancelled); the
+        executor must observe the signal out-of-band, interrupt the broker
+        turn, and report the turn as cancelled.
+        """
+        from tracecat.agent.executor.loopback import LoopbackHandler, LoopbackInput
+
+        executor_input.curr_run_id = uuid.uuid4()
+        executor = SandboxedAgentExecutor(input=executor_input)
+
+        job_dir = tmp_path / "job"
+        job_dir.mkdir()
+        executor._job_dir = job_dir
+        executor._llm_proxy = AsyncMock()
+
+        handler = LoopbackHandler(
+            input=LoopbackInput(
+                session_id=executor.input.session_id,
+                workspace_id=executor.input.workspace_id,
+            )
+        )
+
+        cancel_signalled = asyncio.Event()
+        interrupted = asyncio.Event()
+        interrupt_reasons: list[str] = []
+
+        async def fake_read_turn_cancel_signal(run_id: str) -> str | None:
+            assert run_id == str(executor_input.curr_run_id)
+            return "user_cancel" if cancel_signalled.is_set() else None
+
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.read_turn_cancel_signal",
+            fake_read_turn_cancel_signal,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.TURN_CANCEL_POLL_INTERVAL_SECONDS",
+            0.01,
+        )
+
+        class FakeBroker:
+            def session_turn_lease(self, _session_id: str):
+                @asynccontextmanager
+                async def lease():
+                    yield
+
+                return lease()
+
+            async def run_turn_in_session_lease(
+                self, _request: Any, _handler: Any
+            ) -> None:
+                # Completes normally once interrupted - the activity task
+                # itself is never cancelled in this scenario.
+                await interrupted.wait()
+
+            async def interrupt_turn(self, _session_id: str, reason: str) -> bool:
+                interrupt_reasons.append(reason)
+                # Simulate the interrupted runtime finishing cleanly.
+                handler._result.success = True
+                interrupted.set()
+                return True
+
+            async def cancel_turn(self, _session_id: str) -> None:
+                raise AssertionError("Hard cancel must not fire on graceful stop")
+
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.get_claude_runtime_broker",
+            lambda: FakeBroker(),
+        )
+
+        result = AgentExecutorResult(success=False, terminal_stream_error_emitted=False)
+
+        async def run_it() -> None:
+            await executor._run_with_broker(
+                result=result,
+                handler=handler,
+                init_payload=executor._build_runtime_init_payload(),
+                socket_dir=job_dir / "sockets",
+                llm_socket_path=job_dir / "sockets" / "llm.sock",
+                artifact_working_set=None,
+            )
+
+        task = asyncio.create_task(run_it())
+        # Let the executor reach the broker's blocking wait, then signal the
+        # cancel out-of-band instead of cancelling the task.
+        for _ in range(5):
+            await asyncio.sleep(0)
+        cancel_signalled.set()
+        await asyncio.wait_for(task, timeout=5)
+
+        assert interrupt_reasons == ["user_cancel"]
+        assert result.cancelled is True
+        assert result.cancelled_reason == "user_cancel"
+        assert result.success is True
+        assert result.error is None
+
 
 class TestSandboxedAgentExecutorFilesystemPersistence:
     """Tests for feature-flagged agent work-dir hydration and snapshotting."""

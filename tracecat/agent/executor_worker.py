@@ -98,6 +98,14 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                 max_concurrent_activities=max_concurrent,
                 disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
                 activity_executor=executor,
+                # Activity cancellation is only delivered to a running activity
+                # via heartbeat RPC responses, and the SDK throttles those to
+                # 80% of the heartbeat timeout (48s at our 60s timeout) by
+                # default. Cap the throttle so Temporal-driven cancellation
+                # reaches long agent turns promptly; the Redis cancel signal
+                # (tracecat/agent/cancellation.py) remains the primary path.
+                max_heartbeat_throttle_interval=timedelta(seconds=5),
+                default_heartbeat_throttle_interval=timedelta(seconds=5),
                 graceful_shutdown_timeout=timedelta(
                     seconds=config.TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT
                 ),

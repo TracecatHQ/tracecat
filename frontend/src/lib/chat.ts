@@ -11,6 +11,37 @@ type LegacyToolState =
   | "output-denied"
 type ToolState = ai.ToolUIPart["state"] | LegacyToolState
 
+/**
+ * UI data part identifier for turn-cancelled markers. Streamed live at the
+ * point of interruption and persisted server-side so reloads keep the marker.
+ */
+export const CANCELLED_DATA_PART_TYPE = "data-cancelled"
+
+/**
+ * Error strings the Claude SDK records for tool calls that were aborted by a
+ * user interrupt rather than failing on their own. These leak runtime
+ * internals, so interrupted turns render them as an "Interrupted" tool state
+ * instead of an error.
+ */
+const INTERRUPT_ARTIFACT_ERROR_PATTERNS = [
+  "MCP error -32001",
+  "The operation was aborted",
+  "Request was aborted",
+  "[Request interrupted by user",
+  "doesn't want to take this action",
+]
+
+/**
+ * Whether a tool error text is an artifact of the user stopping the turn
+ * (SDK/MCP abort plumbing) rather than a genuine tool failure. Only
+ * meaningful for messages in a cancelled turn.
+ */
+export function isInterruptArtifactError(errorText: string): boolean {
+  return INTERRUPT_ARTIFACT_ERROR_PATTERNS.some((pattern) =>
+    errorText.includes(pattern)
+  )
+}
+
 export function isAgentSessionEntity(
   value: unknown
 ): value is AgentSessionEntity {

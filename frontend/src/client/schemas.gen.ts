@@ -9223,6 +9223,19 @@ export const $ChatMessage = {
       description:
         "Compaction status data for badge rendering (for kind=COMPACTION)",
     },
+    cancelled: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Cancelled",
+      description: "Turn-cancelled marker data (for kind=CANCELLED)",
+    },
   },
   type: "object",
   required: ["id"],
@@ -9232,7 +9245,8 @@ export const $ChatMessage = {
 This model supports multiple message kinds:
 - kind=CHAT_MESSAGE: Contains message field with user/assistant content
 - kind=APPROVAL_REQUEST/APPROVAL_DECISION: Contains approval field with approval data
-- kind=COMPACTION: Contains compaction field with compaction status data`,
+- kind=COMPACTION: Contains compaction field with compaction status data
+- kind=CANCELLED: Contains cancelled field with turn-cancelled marker data`,
 } as const
 
 export const $ChatRead = {
@@ -16748,6 +16762,7 @@ export const $MessageKind = {
     "approval-decision",
     "internal",
     "compaction",
+    "cancelled",
   ],
   title: "MessageKind",
   description: "The type/kind of message stored in the chat.",
