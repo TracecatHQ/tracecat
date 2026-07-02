@@ -1,6 +1,7 @@
 """Tests for bulk invitations + email configuration gating."""
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from email.message import Message
 
 import pytest
@@ -282,6 +283,57 @@ class TestBatchCreateInvitations:
         assert len(result.scalars().all()) == 1
 
     @pytest.mark.anyio
+    async def test_legacy_mixed_case_duplicates_are_canonicalized_once(
+        self,
+        session: AsyncSession,
+        org: Organization,
+        admin: User,
+        member_role: DBRole,
+    ) -> None:
+        """Legacy non-canonical duplicate rows do not crash bulk canonicalization."""
+        expires_at = datetime.now(UTC) + timedelta(days=7)
+        session.add_all(
+            [
+                OrganizationInvitation(
+                    id=uuid.uuid4(),
+                    organization_id=org.id,
+                    email="Dup@example.com",
+                    role_id=member_role.id,
+                    invited_by=admin.id,
+                    token=f"legacy-{uuid.uuid4().hex}",
+                    status=InvitationStatus.PENDING,
+                    expires_at=expires_at,
+                ),
+                OrganizationInvitation(
+                    id=uuid.uuid4(),
+                    organization_id=org.id,
+                    email="DUP@example.com",
+                    role_id=member_role.id,
+                    invited_by=admin.id,
+                    token=f"legacy-{uuid.uuid4().hex}",
+                    status=InvitationStatus.PENDING,
+                    expires_at=expires_at,
+                ),
+            ]
+        )
+        await session.commit()
+
+        service = OrgService(session, role=_admin_role(org.id, admin.id))
+        items = await service.batch_create_invitations(
+            emails=["dup@example.com"], role_id=member_role.id
+        )
+
+        assert items[0].status == BatchInviteStatus.SKIPPED
+        assert items[0].reason == "A pending invitation already exists"
+        result = await session.execute(
+            select(OrganizationInvitation).where(
+                OrganizationInvitation.organization_id == org.id,
+                OrganizationInvitation.email == "dup@example.com",
+            )
+        )
+        assert len(result.scalars().all()) == 1
+
+    @pytest.mark.anyio
     async def test_owner_role_escalation_raises_for_whole_request(
         self,
         session: AsyncSession,
@@ -357,6 +409,30 @@ class TestEmailConfiguration:
         )
         assert is_email_configured() is True
 
+    def test_configured_with_display_name_sender(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _set_smtp_config(
+            monkeypatch,
+            host="smtp.example.com",
+            user="relay",
+            password="secret",
+            email_from="Tracecat <invites@example.com>",
+        )
+        assert is_email_configured() is True
+
+    def test_not_configured_when_sender_is_malformed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _set_smtp_config(
+            monkeypatch,
+            host="smtp.example.com",
+            user="relay",
+            password="secret",
+            email_from="not-an-email",
+        )
+        assert is_email_configured() is False
+
     def test_build_accept_url_uses_public_app_url(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -398,6 +474,15 @@ class TestEmailTemplateEscaping:
             accept_url=url, context_name="Acme", kind="organization"
         )
         assert url in text
+
+    def test_workspace_invitation_copy_mentions_workspace(self) -> None:
+        subject, _, text = render_invitation_email(
+            accept_url="https://app.example.com/invitations/accept?token=tok",
+            context_name="Security Ops",
+            kind="workspace",
+        )
+        assert subject == "Join the Security Ops workspace on Tracecat"
+        assert "Security Ops workspace" in text
 
 
 async def _make_role_with_scopes(

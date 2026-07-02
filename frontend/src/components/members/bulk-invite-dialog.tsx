@@ -117,7 +117,9 @@ export function BulkInviteDialog({
       const count = result.created_count
       const noun = count === 1 ? "invitation" : "invitations"
       toast({
-        title: "Invitations sent",
+        title: emailConfigured
+          ? "Invitations sent"
+          : "Invitation links created",
         description:
           count > 0
             ? `${count} ${noun} ${emailConfigured ? "sent" : "created"} successfully.`

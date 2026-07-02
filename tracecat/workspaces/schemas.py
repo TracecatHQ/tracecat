@@ -189,8 +189,8 @@ class WorkspaceInvitationTokenRead(Schema):
 class WorkspaceInvitationReadMinimal(Schema):
     """Minimal response for public token-based workspace invitation lookup.
 
-    Excludes sensitive fields like email, invited_by ID, and timestamps to
-    reduce information disclosure when querying by token. Mirrors the
+    Excludes sensitive fields like email, invited_by ID, and creation/update
+    timestamps to reduce information disclosure when querying by token. Mirrors the
     organization invitation lookup so the shared accept page can render either.
     """
 

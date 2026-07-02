@@ -425,6 +425,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                         email=user.email,
                         org_id=str(membership.organization_id),
                     )
+                    return membership.organization_id
                 except TracecatNotFoundError:
                     # Not an org token — try the workspace invite path.
                     await self._accept_workspace_invitation(session, user, token)

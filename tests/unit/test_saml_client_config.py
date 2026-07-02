@@ -444,7 +444,9 @@ def test_should_allow_saml_user_auto_provisioning_for_workspace_invitation() -> 
     )
 
 
-def test_should_allow_saml_org_access_for_workspace_invitation() -> None:
+def test_should_allow_saml_org_access_denies_failed_workspace_invitation_acceptance() -> (
+    None
+):
     assert (
         saml.should_allow_saml_org_access(
             has_existing_membership=False,
@@ -453,7 +455,7 @@ def test_should_allow_saml_org_access_for_workspace_invitation() -> None:
             is_first_superadmin_bootstrap=False,
             is_platform_superuser=False,
         )
-        is True
+        is False
     )
 
 

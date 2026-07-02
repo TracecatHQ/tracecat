@@ -20,7 +20,10 @@ export function InviteWorkspaceMember({
 }) {
   const canInviteMembers = useScopeCheck("workspace:member:invite") === true
   const { appInfo } = useAppInfo()
-  const { roles } = useRbacRoles()
+  const { roles } = useRbacRoles({
+    enabled: canInviteMembers,
+    workspaceId: workspace.id,
+  })
   const { createInvitationsBulk, createInvitationsBulkIsPending } =
     useWorkspaceInvitations(workspace.id, { listEnabled: false })
 

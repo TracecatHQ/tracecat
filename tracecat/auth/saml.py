@@ -574,11 +574,10 @@ def should_allow_saml_org_access(
     is_platform_superuser: bool,
 ) -> bool:
     """Allow org access after SAML auth when at least one trusted path exists."""
-    _ = is_platform_superuser
+    _ = (has_workspace_invitation, is_platform_superuser)
     return (
         has_existing_membership
         or pending_invitation is not None
-        or has_workspace_invitation
         or is_first_superadmin_bootstrap
     )
 

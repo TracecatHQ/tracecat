@@ -22,7 +22,7 @@ from tracecat_ee.rbac.schemas import (
 )
 from tracecat_ee.rbac.service import RBACService
 
-from tracecat.auth.credentials import RoleACL
+from tracecat.auth.credentials import RoleACL, compute_effective_scopes
 from tracecat.auth.dependencies import OrgActorRole
 from tracecat.auth.types import Role
 from tracecat.authz.controls import can_manage_role_scopes, require_scope
@@ -84,6 +84,12 @@ async def list_roles(
     *,
     role: OrgActorRole,
     session: AsyncDBSession,
+    workspace_id: Annotated[
+        UUID | None,
+        Query(
+            description="Optional workspace context for workspace-scoped role visibility."
+        ),
+    ] = None,
 ) -> RoleList:
     """List roles for the organization.
 
@@ -104,11 +110,20 @@ async def list_roles(
     result = await session.execute(stmt)
     roles = result.scalars().all()
 
+    visibility_role = role
+    if workspace_id is not None:
+        visibility_role = role.model_copy(update={"workspace_id": workspace_id})
+        visibility_role = visibility_role.model_copy(
+            update={"scopes": await compute_effective_scopes(visibility_role)}
+        )
+
     # Hide roles that grant more access than the requester. A user should not
     # see (and therefore cannot assign or manage) roles whose scopes are a
     # strict superset of their own. Superusers and holders of "*" see all roles.
     roles = [
-        r for r in roles if can_manage_role_scopes(role, {s.name for s in r.scopes})
+        r
+        for r in roles
+        if can_manage_role_scopes(visibility_role, {s.name for s in r.scopes})
     ]
 
     return RoleList(

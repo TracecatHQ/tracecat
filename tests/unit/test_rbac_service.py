@@ -1057,6 +1057,47 @@ class TestListRolesScopeVisibility:
         assert "Subset" in names
         assert "Superset" not in names
 
+    async def test_workspace_context_uses_workspace_scopes(
+        self,
+        session: AsyncSession,
+        org: Organization,
+        user: User,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from tracecat.authz.rbac import router as rbac_router
+
+        workspace_id = uuid.uuid4()
+        await _role_with_scopes(
+            session,
+            org.id,
+            name="Workspace Admin",
+            scope_names={"workspace:member:invite"},
+        )
+        requester = Role(
+            type="user",
+            user_id=user.id,
+            organization_id=org.id,
+            service_id="tracecat-api",
+            is_platform_superuser=False,
+            scopes=frozenset(),
+        )
+
+        async def fake_compute_effective_scopes(role: Role) -> frozenset[str]:
+            assert role.workspace_id == workspace_id
+            return frozenset({"workspace:member:invite"})
+
+        monkeypatch.setattr(
+            rbac_router, "compute_effective_scopes", fake_compute_effective_scopes
+        )
+
+        result = await rbac_router.list_roles(
+            role=requester,
+            session=session,
+            workspace_id=workspace_id,
+        )
+
+        assert "Workspace Admin" in {r.name for r in result.items}
+
     async def test_superuser_sees_all_roles(
         self, session: AsyncSession, org: Organization, user: User
     ) -> None:

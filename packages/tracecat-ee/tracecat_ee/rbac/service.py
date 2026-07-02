@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Sequence
+from typing import cast
 from uuid import UUID
 
 from sqlalchemy import delete, func, select
@@ -412,19 +413,23 @@ class RBACService(BaseOrgService):
         # cascade drops the RBAC paths but not the derived Membership rows, so we
         # reconcile them ourselves afterwards.
         affected = (
-            await self.session.execute(
-                select(GroupMember.user_id, GroupRoleAssignment.workspace_id)
-                .join(
-                    GroupRoleAssignment,
-                    GroupRoleAssignment.group_id == GroupMember.group_id,
+            (
+                await self.session.execute(
+                    select(GroupMember.user_id, GroupRoleAssignment.workspace_id)
+                    .join(
+                        GroupRoleAssignment,
+                        GroupRoleAssignment.group_id == GroupMember.group_id,
+                    )
+                    .where(
+                        GroupMember.group_id == group_id,
+                        GroupRoleAssignment.workspace_id.is_not(None),
+                    )
+                    .distinct()
                 )
-                .where(
-                    GroupMember.group_id == group_id,
-                    GroupRoleAssignment.workspace_id.is_not(None),
-                )
-                .distinct()
             )
-        ).all()
+            .tuples()
+            .all()
+        )
 
         await self.session.delete(group)
         await self.session.commit()
@@ -513,21 +518,22 @@ class RBACService(BaseOrgService):
         loop is fine here. Callers that change many users at once should batch
         per workspace via ``MembershipService.reconcile_users_for_workspace``.
         """
-        workspace_ids = (
+        workspace_ids = cast(
+            Sequence[WorkspaceID],
             (
-                await self.session.execute(
-                    select(GroupRoleAssignment.workspace_id).where(
-                        GroupRoleAssignment.group_id == group_id,
-                        GroupRoleAssignment.workspace_id.is_not(None),
+                (
+                    await self.session.execute(
+                        select(GroupRoleAssignment.workspace_id).where(
+                            GroupRoleAssignment.group_id == group_id,
+                            GroupRoleAssignment.workspace_id.is_not(None),
+                        )
                     )
                 )
-            )
-            .scalars()
-            .all()
+                .scalars()
+                .all()
+            ),
         )
         for workspace_id in workspace_ids:
-            if workspace_id is None:
-                continue
             await MembershipService(self.session).reconcile_workspace_membership(
                 user_id, workspace_id
             )

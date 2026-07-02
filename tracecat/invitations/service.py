@@ -111,8 +111,8 @@ async def batch_upsert_invitations(
         # for the normalized "foo@x.com" and would let the upsert insert a second
         # live pending invitation for the same address.
         #
-        # Probe first and skip the entire delete/update/flush block when no
-        # mixed-case rows exist, so the common case pays only one cheap SELECT.
+        # Probe first and skip the entire delete/update block when no mixed-case
+        # rows exist, so the common case pays only one cheap SELECT.
         mixed_case_result = await session.execute(
             select(email_col).where(
                 scope_filter,
@@ -139,6 +139,32 @@ async def batch_upsert_invitations(
                         func.lower(email_col).in_(canonical_emails),
                     )
                 )
+            duplicate_canonical_rows = (
+                select(
+                    func.min(email_col).label("canonical_survivor"),
+                    func.lower(email_col).label("canonical_email"),
+                )
+                .where(
+                    scope_filter,
+                    email_col != func.lower(email_col),
+                    func.lower(email_col).in_(to_insert),
+                )
+                .group_by(func.lower(email_col))
+                .having(func.count() > 1)
+                .subquery()
+            )
+            await session.execute(
+                delete(model).where(
+                    scope_filter,
+                    email_col != func.lower(email_col),
+                    func.lower(email_col).in_(
+                        select(duplicate_canonical_rows.c.canonical_email)
+                    ),
+                    email_col.not_in(
+                        select(duplicate_canonical_rows.c.canonical_survivor)
+                    ),
+                )
+            )
             await session.execute(
                 update(model)
                 .where(
@@ -148,7 +174,6 @@ async def batch_upsert_invitations(
                 )
                 .values(email=func.lower(email_col))
             )
-            await session.flush()
 
     upserted: dict[str, tuple[uuid.UUID, str]] = {}
     if to_insert:

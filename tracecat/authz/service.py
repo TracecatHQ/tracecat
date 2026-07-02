@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import cast
 
 from sqlalchemy import and_, delete, exists, func, literal, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -349,6 +350,11 @@ class MembershipService(BaseService):
             derive_lock_key_from_parts("membership", str(user_id), str(workspace_id))
             for user_id in set(user_ids)
         ]
+        # fastapi-users annotates ``User.id`` as a bare ``uuid.UUID`` under
+        # TYPE_CHECKING (see SQLAlchemyBaseUserTableUUID), hiding the ORM column
+        # descriptor from the type checker. Bind the real InstrumentedAttribute
+        # once so the set-based statement below type-checks against column types.
+        user_id_col = cast("InstrumentedAttribute[uuid.UUID]", User.id)
         async with workspace_rls_context(self.session, workspace_id):
             # Transaction-scoped locks; released by this method's commit.
             await pg_advisory_xact_lock_many(self.session, lock_keys)
@@ -357,9 +363,9 @@ class MembershipService(BaseService):
                 pg_insert(Membership)
                 .from_select(
                     ["user_id", "workspace_id"],
-                    select(User.id, literal(workspace_id)).where(  # pyright: ignore[reportCallIssue,reportArgumentType]
-                        User.id.in_(user_ids),  # pyright: ignore[reportAttributeAccessIssue]
-                        workspace_scoped_path_exists(User.id, workspace_id),  # pyright: ignore[reportArgumentType]
+                    select(user_id_col, literal(workspace_id)).where(
+                        user_id_col.in_(user_ids),
+                        workspace_scoped_path_exists(user_id_col, workspace_id),
                     ),
                 )
                 .on_conflict_do_nothing(

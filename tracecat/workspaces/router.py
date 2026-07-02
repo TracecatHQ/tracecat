@@ -1,5 +1,6 @@
+import uuid
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import (
     APIRouter,
@@ -10,6 +11,7 @@ from fastapi import (
 )
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError, NoResultFound
+from sqlalchemy.orm import InstrumentedAttribute
 
 from tracecat.auth.credentials import (
     AuthenticatedUserOnly,
@@ -69,6 +71,12 @@ from tracecat.workspaces.schemas import (
 from tracecat.workspaces.service import WorkspaceService
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
+
+# fastapi-users annotates ``User.id`` as a bare ``uuid.UUID`` under TYPE_CHECKING
+# (see SQLAlchemyBaseUserTableUUID), hiding the ORM column descriptor from the
+# type checker. Bind the real InstrumentedAttribute so column operators such as
+# ``.in_(...)`` type-check.
+_USER_ID_COL = cast("InstrumentedAttribute[uuid.UUID]", User.id)
 
 # Workspace role types for path-based workspace access
 WorkspaceUserInPath = Annotated[
@@ -197,9 +205,9 @@ async def list_my_pending_workspace_invitations(
     now = datetime.now(UTC)
     statement = (
         select(Invitation, Workspace, Organization, DBRole)
-        .join(Workspace, Workspace.id == Invitation.workspace_id)  # pyright: ignore[reportArgumentType]
-        .join(Organization, Organization.id == Workspace.organization_id)  # pyright: ignore[reportArgumentType]
-        .join(DBRole, DBRole.id == Invitation.role_id)  # pyright: ignore[reportArgumentType]
+        .join(Workspace, Workspace.id == Invitation.workspace_id)
+        .join(Organization, Organization.id == Workspace.organization_id)
+        .join(DBRole, DBRole.id == Invitation.role_id)
         .where(
             func.lower(Invitation.email) == user.email.lower(),
             Invitation.status == InvitationStatus.PENDING,
@@ -215,7 +223,7 @@ async def list_my_pending_workspace_invitations(
     inviters_by_id: dict[UserID, User] = {}
     if inviter_ids:
         inviter_result = await session.execute(
-            select(User).where(User.id.in_(inviter_ids))  # pyright: ignore[reportAttributeAccessIssue]
+            select(User).where(_USER_ID_COL.in_(inviter_ids))
         )
         inviters_by_id = {u.id: u for u in inviter_result.scalars().all()}
 
@@ -257,9 +265,9 @@ async def get_workspace_invitation_by_token(
     """
     result = await session.execute(
         select(Invitation, Workspace, Organization, DBRole)
-        .join(Workspace, Workspace.id == Invitation.workspace_id)  # pyright: ignore[reportArgumentType]
-        .join(Organization, Organization.id == Workspace.organization_id)  # pyright: ignore[reportArgumentType]
-        .join(DBRole, DBRole.id == Invitation.role_id)  # pyright: ignore[reportArgumentType]
+        .join(Workspace, Workspace.id == Invitation.workspace_id)
+        .join(Organization, Organization.id == Workspace.organization_id)
+        .join(DBRole, DBRole.id == Invitation.role_id)
         .where(Invitation.token == token)
     )
     row = result.first()
@@ -273,7 +281,7 @@ async def get_workspace_invitation_by_token(
     inviter_email: str | None = None
     if invitation.invited_by:
         inviter = await session.scalar(
-            select(User).where(User.id == invitation.invited_by)  # pyright: ignore[reportArgumentType]
+            select(User).where(User.id == invitation.invited_by)
         )
         inviter_name, inviter_email = inviter_display_name_and_email(inviter)
 
@@ -375,7 +383,11 @@ async def update_workspace(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found"
         )
-    logger.info("Updating workspace", params=params)
+    logger.info(
+        "Updating workspace",
+        workspace_id=workspace_id,
+        updated_fields=sorted(params.model_dump(exclude_unset=True).keys()),
+    )
     await service.update_workspace(workspace, params=params)
 
 
@@ -462,11 +474,17 @@ async def create_workspace_membership(
         await service.create_membership(workspace_id, params=params)
     except TracecatAuthorizationError as e:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=status.HTTP_403_FORBIDDEN,
             detail="User does not have the required scope",
         ) from e
     except IntegrityError as e:
-        logger.error("INTEGRITY ERROR", error=str(e))
+        # Do not log ``str(e)``: Postgres integrity errors embed the conflicting
+        # key values (e.g. the invitee email), which are customer-provided PII.
+        logger.info(
+            "Membership creation conflicted with existing row",
+            workspace_id=workspace_id,
+            error_type=type(e).__name__,
+        )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="User is already a member of workspace.",
@@ -713,9 +731,7 @@ async def get_workspace_invitation_token(
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     except TracecatAuthorizationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
-        ) from e
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
     return WorkspaceInvitationTokenRead(token=token)
 
 
@@ -744,9 +760,7 @@ async def resend_workspace_invitation(
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     except TracecatAuthorizationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
-        ) from e
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
 
     workspace_name = await service.get_workspace_name(workspace_id)
     message = build_single_invitation_email(

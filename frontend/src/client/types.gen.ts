@@ -9536,8 +9536,8 @@ export type WorkspaceInvitationRead = {
 /**
  * Minimal response for public token-based workspace invitation lookup.
  *
- * Excludes sensitive fields like email, invited_by ID, and timestamps to
- * reduce information disclosure when querying by token. Mirrors the
+ * Excludes sensitive fields like email, invited_by ID, and creation/update
+ * timestamps to reduce information disclosure when querying by token. Mirrors the
  * organization invitation lookup so the shared accept page can render either.
  */
 export type WorkspaceInvitationReadMinimal = {
@@ -13478,6 +13478,13 @@ export type UsersGetMyScopesData = {
 }
 
 export type UsersGetMyScopesResponse = UserScopesRead
+
+export type RbacListRolesData = {
+  /**
+   * Optional workspace context for workspace-scoped role visibility.
+   */
+  workspaceId?: string | null
+}
 
 export type RbacListRolesResponse = RoleList
 
@@ -19926,11 +19933,16 @@ export type $OpenApiTs = {
   }
   "/rbac/roles": {
     get: {
+      req: RbacListRolesData
       res: {
         /**
          * Successful Response
          */
         200: RoleList
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
       }
     }
     post: {
