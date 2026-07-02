@@ -2063,6 +2063,49 @@ type DecisionState = {
   overrideArgs?: string
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function submittedDecisionFromApproval(
+  approval: ApprovalCard
+): DecisionState | undefined {
+  if (approval.status === "approved") {
+    if (
+      isRecord(approval.decision) &&
+      approval.decision.kind === "tool-approved" &&
+      "override_args" in approval.decision
+    ) {
+      return {
+        action: "override",
+        overrideArgs: formatArgs(approval.decision.override_args),
+      }
+    }
+    return { action: "approve" }
+  }
+
+  if (approval.status === "rejected") {
+    const reason =
+      approval.reason ??
+      (isRecord(approval.decision) &&
+      typeof approval.decision.message === "string"
+        ? approval.decision.message
+        : undefined)
+    return { action: "deny", reason }
+  }
+
+  return undefined
+}
+
+function approvalStateKey(approval: ApprovalCard): string {
+  return JSON.stringify({
+    id: approval.tool_call_id,
+    status: approval.status ?? "pending",
+    decision: approval.decision ?? null,
+    reason: approval.reason ?? null,
+  })
+}
+
 function ApprovalRequestPart({
   approvals,
   onSubmit,
@@ -2077,13 +2120,20 @@ function ApprovalRequestPart({
   const [submitting, setSubmitting] = useState(false)
 
   const approvalsKey = useMemo(
-    () => approvals.map((a) => a.tool_call_id).join(":"),
+    () => approvals.map(approvalStateKey).join(":"),
     [approvals]
   )
 
   useEffect(() => {
+    const nextSubmittedDecisions: Record<string, DecisionState> = {}
+    for (const approval of approvals) {
+      const submittedDecision = submittedDecisionFromApproval(approval)
+      if (submittedDecision) {
+        nextSubmittedDecisions[approval.tool_call_id] = submittedDecision
+      }
+    }
     setDecisions({})
-    setSubmittedDecisions({})
+    setSubmittedDecisions(nextSubmittedDecisions)
   }, [approvalsKey])
 
   const hasSelectedPendingDecision =

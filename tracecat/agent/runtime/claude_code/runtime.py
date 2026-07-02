@@ -566,19 +566,16 @@ class ClaudeAgentRuntime:
                 return alias
         return None
 
-    def _tool_name_requires_approval(self, tool_name: str) -> bool:
-        """Whether a tool call requires manual approval, judged by name alone.
-
-        Mirrors the PreToolUse hook's approval rule for root-level tool calls:
-        preset-backed subagent servers are exempt, everything else consults
-        ``tool_approvals`` by normalized action name.
-        """
+    def _tool_call_requires_approval(
+        self,
+        input_data: HookInput,
+        tool_name: str,
+    ) -> bool:
+        """Whether a tool call requires manual approval."""
+        if self._explicit_subagent_alias_for_tool(input_data, tool_name) is not None:
+            return False
         if self.tool_approvals is None:
             return False
-        for alias in self._explicit_subagent_aliases:
-            server_name = self._subagent_registry_server_name(alias)
-            if tool_name.startswith((f"mcp__{server_name}__", f"mcp.{server_name}.")):
-                return False
         return self.tool_approvals.get(normalize_mcp_tool_name(tool_name)) is True
 
     @staticmethod
@@ -1053,7 +1050,16 @@ class ClaudeAgentRuntime:
         for block in message.content:
             if not isinstance(block, ToolUseBlock):
                 continue
-            if not self._tool_name_requires_approval(block.name):
+            if not self._tool_call_requires_approval(
+                cast(
+                    HookInput,
+                    {
+                        "tool_name": block.name,
+                        "tool_input": block.input or {},
+                    },
+                ),
+                block.name,
+            ):
                 continue
             await self._emit_approval_request(
                 normalize_mcp_tool_name(block.name),
@@ -1165,12 +1171,7 @@ class ClaudeAgentRuntime:
 
         # Preset-backed subagents cannot require manual approvals in v1.
         # Dynamic/general-purpose subagents still inherit root approvals.
-        requires_approval = self._explicit_subagent_alias_for_tool(
-            input_data, tool_name
-        ) is None and (
-            self.tool_approvals is not None
-            and self.tool_approvals.get(action_name) is True
-        )
+        requires_approval = self._tool_call_requires_approval(input_data, tool_name)
 
         if requires_approval:
             # Requires approval - stream request and interrupt

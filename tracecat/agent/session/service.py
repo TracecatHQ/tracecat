@@ -7,11 +7,11 @@ import contextlib
 import copy
 import hashlib
 import uuid
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import orjson
 from pydantic_ai.messages import (
@@ -48,6 +48,11 @@ import tracecat.artifacts.projection as artifact_projection
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.cancellation import signal_turn_cancel
+from tracecat.agent.common.stream_types import (
+    ApprovalStreamStatus,
+    ToolCallContent,
+    UnifiedStreamEvent,
+)
 from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.llm import LLMCompletionError
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
@@ -109,6 +114,7 @@ from tracecat.db.models import (
     Approval,
     Case,
     Chat,
+    User,
     Workflow,
 )
 from tracecat.dsl.client import get_temporal_client
@@ -120,6 +126,7 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import UserID
 from tracecat.logger import logger
+from tracecat.redis.client import RedisClient, get_redis_client
 from tracecat.service import BaseWorkspaceService
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
@@ -137,6 +144,7 @@ if TYPE_CHECKING:
     from tracecat.agent.executor.activity import ToolExecutionResult
 
 AUTO_TITLE_SERVICE_ID = "tracecat-api"
+APPROVAL_CONTINUATION_DEDUP_TTL_SECONDS = 5 * 60
 _background_tasks: set[asyncio.Task[None]] = set()
 
 
@@ -192,6 +200,52 @@ class SessionHistoryData:
     sdk_session_id: str
     sdk_session_data: str
     is_fork: bool = False  # If True, SDK should use fork_session=True
+
+
+def _approval_decision_fields(
+    result: Any,
+    *,
+    approved_by: uuid.UUID | None,
+    decision_metadata: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Map a deferred approval result into Approval row update fields."""
+    status: ApprovalStatus
+    reason: str | None = None
+    decision: bool | dict[str, Any] | None = None
+
+    match result:
+        case bool(value):
+            status = ApprovalStatus.APPROVED if value else ApprovalStatus.REJECTED
+            decision = value
+        case ToolApproved(override_args=override_args):
+            status = ApprovalStatus.APPROVED
+            decision = {"kind": "tool-approved"}
+            if override_args is not None:
+                decision["override_args"] = override_args
+        case ToolDenied(message=message):
+            status = ApprovalStatus.REJECTED
+            reason = message
+            decision = {"kind": "tool-denied"}
+            if message:
+                decision["message"] = message
+        case _:
+            raise ValueError(f"Unsupported approval result: {type(result)}")
+
+    if decision_metadata:
+        if isinstance(decision, dict):
+            decision = {**decision, "metadata": decision_metadata}
+        elif isinstance(decision, bool):
+            decision = {"value": decision, "metadata": decision_metadata}
+        else:
+            decision = {"metadata": decision_metadata}
+
+    return {
+        "status": status,
+        "reason": reason,
+        "decision": decision,
+        "approved_by": approved_by,
+        "approved_at": datetime.now(tz=UTC),
+    }
 
 
 @dataclass(frozen=True)
@@ -1189,6 +1243,123 @@ class AgentSessionService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return set(result.scalars().all())
 
+    async def _apply_submitted_approval_decisions(
+        self,
+        *,
+        session_id: uuid.UUID,
+        approval_map: Mapping[str, Any],
+        decision_metadata: Mapping[str, dict[str, Any]],
+    ) -> None:
+        """Persist accepted approval decisions before the full set resumes."""
+        if not approval_map:
+            return
+
+        tool_call_ids = list(approval_map)
+        stmt = (
+            select(Approval)
+            .where(
+                Approval.workspace_id == self.workspace_id,
+                Approval.session_id == session_id,
+                Approval.tool_call_id.in_(tool_call_ids),
+                Approval.status == ApprovalStatus.PENDING,
+            )
+            .with_for_update()
+        )
+        result = await self.session.execute(stmt)
+        approvals_by_tool_id = {
+            approval.tool_call_id: approval for approval in result.scalars().all()
+        }
+        approved_by = await self._existing_user_id(self.role.user_id)
+
+        for tool_call_id, approval_result in approval_map.items():
+            approval = approvals_by_tool_id.get(tool_call_id)
+            if approval is None:
+                logger.warning(
+                    "Accepted approval decision has no persisted approval row",
+                    session_id=str(session_id),
+                    tool_call_id=tool_call_id,
+                )
+                continue
+            for field, value in _approval_decision_fields(
+                approval_result,
+                approved_by=approved_by,
+                decision_metadata=decision_metadata.get(tool_call_id),
+            ).items():
+                setattr(approval, field, value)
+
+        await self.session.commit()
+
+    async def _existing_user_id(self, user_id: uuid.UUID | None) -> uuid.UUID | None:
+        """Return ``user_id`` only when it can satisfy Approval.approved_by."""
+        if user_id is None:
+            return None
+        stmt = select(User).where(cast(Any, User.id) == user_id)
+        result = await self.session.execute(stmt)
+        user = result.scalar_one_or_none()
+        return user.id if user else None
+
+    async def _approval_stream_items(
+        self,
+        *,
+        session_id: uuid.UUID,
+        tool_call_ids: Sequence[str],
+    ) -> list[ToolCallContent]:
+        """Return the active approval batch as stream items for UI replay.
+
+        Only pending approvals plus the just-submitted ``tool_call_ids`` are
+        replayed. Terminal approvals from earlier turns must stay out of the
+        payload: the client drops an entire ``data-approval-request`` part when
+        any contained tool call already has a terminal tool state, which would
+        hide the still-pending cards.
+        """
+        stmt = (
+            select(Approval)
+            .where(
+                Approval.workspace_id == self.workspace_id,
+                Approval.session_id == session_id,
+                or_(
+                    Approval.status == ApprovalStatus.PENDING,
+                    Approval.tool_call_id.in_(tool_call_ids),
+                ),
+            )
+            .order_by(Approval.created_at, Approval.id)
+        )
+        result = await self.session.execute(stmt)
+        return [
+            ToolCallContent(
+                id=approval.tool_call_id,
+                name=approval.tool_name,
+                input=approval.tool_call_args or {},
+                status=cast(ApprovalStreamStatus, approval.status.value),
+                decision=approval.decision,
+                reason=approval.reason,
+            )
+            for approval in result.scalars().all()
+        ]
+
+    async def _emit_approval_idle_segment(
+        self,
+        *,
+        session_id: uuid.UUID,
+        stream_id: uuid.UUID | None,
+        tool_call_ids: Sequence[str],
+    ) -> None:
+        """Emit the latest approval state and a non-terminal Redis boundary."""
+        if self.workspace_id is None:
+            return
+        stream = await AgentStream.new(
+            workspace_id=self.workspace_id,
+            session_id=session_id,
+            stream_id=stream_id,
+        )
+        if approval_items := await self._approval_stream_items(
+            session_id=session_id, tool_call_ids=tool_call_ids
+        ):
+            await stream.append(
+                UnifiedStreamEvent.approval_request_event(approval_items).to_dict()
+            )
+        await stream.finish_idle_segment()
+
     @staticmethod
     def _approval_submission_key(
         *,
@@ -2005,19 +2176,85 @@ class AgentSessionService(BaseWorkspaceService):
             run_id=curr_run_id,
             tool_call_ids=tuple(validated.approval_map.keys()),
         )
-        attempt = await self._prepare_approval_continuation_attempt(
-            agent_session=agent_session,
-            curr_run_id=curr_run_id,
+        attempt = await self._existing_approval_continuation_attempt(
+            agent_session,
             submission_key=submission_key,
         )
+        dedup_client: RedisClient | None = None
+        claimed_submission = False
+        if attempt is None:
+            try:
+                dedup_client = await get_redis_client()
+                claimed_submission = await dedup_client.set_if_not_exists(
+                    submission_key,
+                    source,
+                    expire_seconds=APPROVAL_CONTINUATION_DEDUP_TTL_SECONDS,
+                )
+            except Exception as exc:
+                dedup_client = None
+                logger.warning(
+                    "Approval continuation dedup unavailable; proceeding best-effort",
+                    session_id=str(session_id),
+                    run_id=str(curr_run_id),
+                    source=source,
+                    error=str(exc),
+                )
 
-        did_resume = await self._submit_approval_update(
-            agent_session=agent_session,
-            curr_run_id=curr_run_id,
-            attempt=attempt,
-            validated=validated,
-            handle=handle,
-        )
+            if dedup_client is not None and not claimed_submission:
+                logger.info(
+                    "Skipping concurrent approval continuation submission",
+                    session_id=str(session_id),
+                    run_id=str(curr_run_id),
+                    source=source,
+                    submission_key=submission_key,
+                )
+                return None
+
+            try:
+                attempt = await self._prepare_approval_continuation_attempt(
+                    agent_session=agent_session,
+                    curr_run_id=curr_run_id,
+                    submission_key=submission_key,
+                )
+            except Exception:
+                if dedup_client is not None and claimed_submission:
+                    with contextlib.suppress(Exception):
+                        await dedup_client.delete(submission_key)
+                raise
+
+        try:
+            did_resume = await self._submit_approval_update(
+                agent_session=agent_session,
+                curr_run_id=curr_run_id,
+                attempt=attempt,
+                validated=validated,
+                handle=handle,
+            )
+        except BaseException as exc:
+            is_ambiguous = isinstance(
+                exc, (WorkflowUpdateRPCTimeoutOrCancelledError, RPCError)
+            )
+            if (
+                dedup_client is not None
+                and claimed_submission
+                and isinstance(exc, Exception)
+                and not is_ambiguous
+            ):
+                with contextlib.suppress(Exception):
+                    await dedup_client.delete(submission_key)
+            raise
+
+        if not did_resume:
+            await self._apply_submitted_approval_decisions(
+                session_id=session_id,
+                approval_map=validated.approval_map,
+                decision_metadata=validated.decision_metadata,
+            )
+            await self._emit_approval_idle_segment(
+                session_id=session_id,
+                stream_id=attempt.stream_id,
+                tool_call_ids=list(validated.approval_map),
+            )
 
         logger.info(
             "Approval decisions submitted successfully",

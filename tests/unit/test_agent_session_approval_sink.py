@@ -36,12 +36,27 @@ class _ApprovalContinuationRedis:
 
     def __init__(self) -> None:
         self.streams: dict[str, list[tuple[str, dict[str, str]]]] = {}
+        self.values: dict[str, str] = {}
         self.fail_next_xadd = False
 
     async def delete(self, key: str) -> int:
-        removed = int(key in self.streams)
+        removed = int(key in self.streams or key in self.values)
         self.streams.pop(key, None)
+        self.values.pop(key, None)
         return removed
+
+    async def set_if_not_exists(
+        self,
+        key: str,
+        value: str,
+        *,
+        expire_seconds: int,
+    ) -> bool:
+        _ = expire_seconds
+        if key in self.values:
+            return False
+        self.values[key] = value
+        return True
 
     async def xadd(
         self,
@@ -100,6 +115,10 @@ def _mock_approval_continuation_dependencies(
         ),
         patch(
             "tracecat.agent.stream.connector.get_redis_client",
+            AsyncMock(return_value=redis_client),
+        ),
+        patch(
+            "tracecat.agent.session.service.get_redis_client",
             AsyncMock(return_value=redis_client),
         ),
     ):
@@ -1269,6 +1288,7 @@ async def test_run_turn_continue_with_inbox_source_for_non_external_session(
         entity_type=AgentSessionEntity.AGENT_PRESET.value,
         entity_id=uuid.uuid4(),
         curr_run_id=curr_run_id,
+        active_stream_id=uuid.uuid4(),
     )
     session.add(agent_session)
     session.add(
@@ -1357,6 +1377,118 @@ async def test_run_turn_continue_partial_approval_reports_not_resumed(
     assert result.active_stream_id is not None
     execute_update.assert_awaited_once()
 
+    approved = await session.scalar(
+        select(Approval).where(
+            Approval.session_id == agent_session.id,
+            Approval.tool_call_id == "tool_call_123",
+        )
+    )
+    assert approved is not None
+    assert approved.status is ApprovalStatus.APPROVED
+    assert approved.decision == {"value": True, "metadata": {"source": "inbox"}}
+
+    pending = await session.scalar(
+        select(Approval).where(
+            Approval.session_id == agent_session.id,
+            Approval.tool_call_id == "tool_call_456",
+        )
+    )
+    assert pending is not None
+    assert pending.status is ApprovalStatus.PENDING
+
+    stream_key = (
+        f"agent-stream:{svc_role.workspace_id}:{agent_session.id}:"
+        f"{result.active_stream_id}"
+    )
+    stream_payloads = [
+        orjson.loads(fields[tokens.DATA_KEY])
+        for _, fields in fake_redis.streams[stream_key]
+    ]
+    assert stream_payloads[-1] == {
+        tokens.END_TOKEN: tokens.END_TOKEN_VALUE,
+        "terminal": False,
+        "reason": "approval_pending",
+    }
+
+
+@pytest.mark.anyio
+async def test_run_turn_continue_old_worker_none_defaults_to_resumed(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    curr_run_id = uuid.uuid4()
+    agent_session = AgentSession(
+        id=uuid.uuid4(),
+        title="Preset chat",
+        workspace_id=svc_role.workspace_id,
+        entity_type=AgentSessionEntity.AGENT_PRESET.value,
+        entity_id=uuid.uuid4(),
+        curr_run_id=curr_run_id,
+        active_stream_id=uuid.uuid4(),
+    )
+    session.add(agent_session)
+    session.add(
+        Approval(
+            workspace_id=svc_role.workspace_id,
+            session_id=agent_session.id,
+            tool_call_id="tool_call_123",
+            tool_name="core.http_request",
+            tool_call_args={"url": "https://example.com"},
+            status=ApprovalStatus.PENDING,
+        )
+    )
+    await session.commit()
+    await session.refresh(agent_session)
+
+    service = AgentSessionService(session=session, role=svc_role)
+    continuation = ContinueRunRequest(
+        decisions=[
+            ApprovalDecision(
+                tool_call_id="tool_call_123",
+                action="approve",
+            )
+        ],
+        source="inbox",
+    )
+
+    execute_update = AsyncMock(return_value=None)
+    fake_redis = _ApprovalContinuationRedis()
+    with _mock_approval_continuation_dependencies(fake_redis, execute_update):
+        result = await service.run_turn(agent_session.id, continuation)
+
+    assert result is not None
+    assert result.curr_run_id == curr_run_id
+    assert result.active_stream_id is not None
+    execute_update.assert_awaited_once()
+
+
+def test_approval_submission_key_is_stable_for_tool_call_set() -> None:
+    workspace_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+
+    first_key = AgentSessionService._approval_submission_key(
+        workspace_id=workspace_id,
+        session_id=session_id,
+        run_id=run_id,
+        tool_call_ids=("tool_call_123", "tool_call_456"),
+    )
+    reordered_key = AgentSessionService._approval_submission_key(
+        workspace_id=workspace_id,
+        session_id=session_id,
+        run_id=run_id,
+        tool_call_ids=("tool_call_456", "tool_call_123"),
+    )
+    different_key = AgentSessionService._approval_submission_key(
+        workspace_id=workspace_id,
+        session_id=session_id,
+        run_id=run_id,
+        tool_call_ids=("tool_call_123",),
+    )
+
+    assert first_key == reordered_key
+    assert first_key != different_key
+
 
 @pytest.mark.anyio
 async def test_run_turn_continue_override_maps_to_tool_approved(
@@ -1399,9 +1531,7 @@ async def test_run_turn_continue_override_maps_to_tool_approved(
     )
 
     execute_update = AsyncMock(return_value=None)
-    fake_redis = SimpleNamespace(
-        xadd=AsyncMock(return_value="1-0"),
-    )
+    fake_redis = _ApprovalContinuationRedis()
     with _mock_approval_continuation_dependencies(fake_redis, execute_update):
         result = await service.run_turn(agent_session.id, continuation)
 
@@ -1419,7 +1549,7 @@ async def test_run_turn_continue_override_maps_to_tool_approved(
     assert result is not None
     assert result.active_stream_id is not None
     assert submission.new_stream_id == result.active_stream_id
-    fake_redis.xadd.assert_awaited_once()
+    assert len(fake_redis.streams) == 1
     await session.refresh(agent_session)
     assert agent_session.active_stream_id == result.active_stream_id
 

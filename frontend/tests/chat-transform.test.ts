@@ -220,4 +220,44 @@ describe("transformMessages", () => {
       },
     ])
   })
+
+  it.each(["input-streaming", "input-available"] as const)(
+    "keeps terminal input when a replayed %s part arrives afterward",
+    (state) => {
+      const messages = [
+        {
+          id: "msg-1",
+          role: "assistant",
+          parts: [
+            {
+              type: "tool-core__http_request",
+              toolCallId: "toolu_01http",
+              state: "output-available",
+              input: { url: "https://example.com", timeout: 30 },
+              output: { status_code: 200 },
+            },
+            {
+              type: "tool-core__http_request",
+              toolCallId: "toolu_01http",
+              state,
+              input: { url: "https://exam" },
+            },
+          ],
+        },
+      ] as ai.UIMessage[]
+
+      const transformed = transformMessages(messages)
+
+      expect(transformed).toHaveLength(1)
+      expect(transformed[0]?.parts).toEqual([
+        {
+          type: "tool-core__http_request",
+          toolCallId: "toolu_01http",
+          state: "output-available",
+          input: { url: "https://example.com", timeout: 30 },
+          output: { status_code: 200 },
+        },
+      ])
+    }
+  )
 })

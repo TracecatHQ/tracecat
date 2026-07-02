@@ -883,6 +883,79 @@ describe("ChatSessionPane", () => {
     ).not.toBeInTheDocument()
   })
 
+  it("mounts previously submitted approval cards as disabled", () => {
+    mockUseVercelChat.mockReturnValue({
+      sendMessage: jest.fn(),
+      setMessages: jest.fn(),
+      regenerate: jest.fn(),
+      messages: [
+        {
+          id: "msg-approval",
+          role: "assistant",
+          parts: [
+            {
+              type: "data-approval-request",
+              data: [
+                {
+                  tool_call_id: "tc-1",
+                  tool_name: "core__http_request",
+                  args: { url: "https://example.com" },
+                  status: "approved",
+                  decision: true,
+                },
+                {
+                  tool_call_id: "tc-2",
+                  tool_name: "core__http_request",
+                  args: { url: "https://example.org" },
+                  status: "pending",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      status: "ready",
+      lastError: null,
+      clearError: jest.fn(),
+      // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+    } as any)
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture()}
+            workspaceId="workspace-1"
+            entityType="case"
+            entityId="case-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    const firstCard = screen.getByTestId("approval-card-tc-1")
+    const secondCard = screen.getByTestId("approval-card-tc-2")
+    const approvalSubmit = screen
+      .getAllByRole("button", { name: "Submit" })
+      .find((button) => button.textContent?.trim() === "Submit")
+    if (!approvalSubmit) {
+      throw new Error("Approval submit button not found")
+    }
+
+    expect(firstCard).toHaveClass("bg-muted/10")
+    expect(
+      within(firstCard).getByRole("button", { name: "Approve" })
+    ).toBeDisabled()
+    expect(
+      within(firstCard).getByRole("button", { name: "Approve" })
+    ).toHaveClass("border-success/55")
+    expect(
+      within(secondCard).getByRole("button", { name: "Approve" })
+    ).toBeEnabled()
+    expect(approvalSubmit).toBeDisabled()
+  })
+
   it("supports @ mention tools in draft mode and passes selected tools before first send", async () => {
     const onBeforeSend = jest.fn().mockResolvedValue("chat-2")
     const action = {

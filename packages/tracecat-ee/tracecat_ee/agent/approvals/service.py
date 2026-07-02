@@ -648,23 +648,34 @@ class ApprovalManager:
             return
 
         async with ApprovalService.with_session(role=input.role) as service:
-            for decision in input.decisions:
-                # Get or create approval record
-                approval = await service.get_approval_by_session_and_tool(
-                    session_id=input.session_id,
-                    tool_call_id=decision.tool_call_id,
+            tool_call_ids = [decision.tool_call_id for decision in input.decisions]
+            stmt = (
+                select(Approval)
+                .where(
+                    Approval.workspace_id == service.workspace_id,
+                    Approval.session_id == input.session_id,
+                    Approval.tool_call_id.in_(tool_call_ids),
                 )
+                .with_for_update()
+            )
+            result = await service.session.execute(stmt)
+            approvals_by_tool_id = {
+                approval.tool_call_id: approval for approval in result.scalars().all()
+            }
 
+            for decision in input.decisions:
+                approval = approvals_by_tool_id.get(decision.tool_call_id)
                 if approval is None:
-                    # Create placeholder record if it doesn't exist
-                    approval = await service.create_approval(
-                        ApprovalCreate(
-                            session_id=input.session_id,
-                            tool_call_id=decision.tool_call_id,
-                            tool_name="unknown",
-                            tool_call_args=None,
-                        )
+                    approval = Approval(
+                        workspace_id=service.workspace_id,
+                        session_id=input.session_id,
+                        tool_call_id=decision.tool_call_id,
+                        tool_name="unknown",
+                        tool_call_args=None,
+                        status=ApprovalStatus.PENDING,
                     )
+                    service.session.add(approval)
+                    approvals_by_tool_id[decision.tool_call_id] = approval
 
                 # Determine status and calculate approved_at timestamp
                 status = (
@@ -699,15 +710,11 @@ class ApprovalManager:
                 if resolved_decision is not None:
                     update_data["decision"] = resolved_decision
 
-                # Update the approval with decision
-                await service.update_approval(
-                    approval,
-                    ApprovalUpdate(**update_data),
-                )
-
-                # Manually set approved_at since it's not part of ApprovalUpdate
+                for key, value in update_data.items():
+                    setattr(approval, key, value)
                 approval.approved_at = approved_at
-                await service.session.commit()
+
+            await service.session.commit()
 
     @staticmethod
     @activity.defn
