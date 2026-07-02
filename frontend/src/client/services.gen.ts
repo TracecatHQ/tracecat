@@ -570,6 +570,7 @@ import type {
   RbacListAssignmentsData,
   RbacListAssignmentsResponse,
   RbacListGroupsResponse,
+  RbacListRolesData,
   RbacListRolesResponse,
   RbacListScopesData,
   RbacListScopesResponse,
@@ -12328,13 +12329,23 @@ export const usersGetMyScopes = (
  * List roles for the organization.
  *
  * Requires: authenticated organization member.
+ * @param data The data for the request.
+ * @param data.workspaceId Optional workspace context for workspace-scoped role visibility.
  * @returns RoleList Successful Response
  * @throws ApiError
  */
-export const rbacListRoles = (): CancelablePromise<RbacListRolesResponse> => {
+export const rbacListRoles = (
+  data: RbacListRolesData = {}
+): CancelablePromise<RbacListRolesResponse> => {
   return __request(OpenAPI, {
     method: "GET",
     url: "/rbac/roles",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
   })
 }
 

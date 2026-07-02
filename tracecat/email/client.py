@@ -16,10 +16,13 @@ from email.utils import formataddr, parseaddr
 from typing import Protocol
 
 import aiosmtplib
+from pydantic import EmailStr, TypeAdapter, ValidationError
 
 from tracecat import config
 from tracecat.email.templates import InvitationKind, render_invitation_email
 from tracecat.logger import logger
+
+_EMAIL_ADDRESS_ADAPTER = TypeAdapter(EmailStr)
 
 
 @dataclass(slots=True)
@@ -116,12 +119,20 @@ class SMTPTransport:
 
 def is_email_configured() -> bool:
     """Whether an email backend is configured at the platform level."""
-    return bool(
+    if not (
         config.TRACECAT__SMTP_HOST
         and config.TRACECAT__SMTP_USER
         and config.TRACECAT__SMTP_PASSWORD
         and config.TRACECAT__EMAIL_FROM
-    )
+    ):
+        return False
+
+    _, sender_email = parseaddr(config.TRACECAT__EMAIL_FROM)
+    try:
+        _EMAIL_ADDRESS_ADAPTER.validate_python(sender_email)
+    except ValidationError:
+        return False
+    return True
 
 
 def build_accept_url(token: str) -> str:

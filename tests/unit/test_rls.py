@@ -22,6 +22,7 @@ from tracecat.db.rls import (
     set_rls_context,
     set_rls_context_from_role,
     verify_rls_access,
+    workspace_rls_context,
 )
 from tracecat.exceptions import TracecatRLSViolationError
 
@@ -328,6 +329,25 @@ class TestClearRlsContext:
             workspace_id=RLS_UNSET_VALUE,
             user_id=RLS_UNSET_VALUE,
         )
+
+
+class TestWorkspaceRlsContext:
+    """Tests for temporary workspace RLS context management."""
+
+    @pytest.mark.anyio
+    async def test_no_prior_cache_restores_uncached_state(
+        self, mock_session: AsyncMock
+    ) -> None:
+        async with workspace_rls_context(mock_session, uuid.uuid4()):
+            assert "tracecat_rls_context" in mock_session.sync_session.info
+
+        assert "tracecat_rls_context" not in mock_session.sync_session.info
+        assert mock_session.execute.call_count == 2
+        params = mock_session.execute.call_args_list[-1].args[1]
+        assert params["bypass"] == RLS_BYPASS_OFF
+        assert params["org_id"] == RLS_UNSET_VALUE
+        assert params["workspace_id"] == RLS_UNSET_VALUE
+        assert params["user_id"] == RLS_UNSET_VALUE
 
 
 class TestVerifyRlsAccess:

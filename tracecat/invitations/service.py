@@ -139,6 +139,32 @@ async def batch_upsert_invitations(
                         func.lower(email_col).in_(canonical_emails),
                     )
                 )
+            duplicate_canonical_rows = (
+                select(
+                    func.min(email_col).label("canonical_survivor"),
+                    func.lower(email_col).label("canonical_email"),
+                )
+                .where(
+                    scope_filter,
+                    email_col != func.lower(email_col),
+                    func.lower(email_col).in_(to_insert),
+                )
+                .group_by(func.lower(email_col))
+                .having(func.count() > 1)
+                .subquery()
+            )
+            await session.execute(
+                delete(model).where(
+                    scope_filter,
+                    email_col != func.lower(email_col),
+                    func.lower(email_col).in_(
+                        select(duplicate_canonical_rows.c.canonical_email)
+                    ),
+                    email_col.not_in(
+                        select(duplicate_canonical_rows.c.canonical_survivor)
+                    ),
+                )
+            )
             await session.execute(
                 update(model)
                 .where(

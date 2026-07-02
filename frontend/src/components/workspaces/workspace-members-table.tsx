@@ -126,19 +126,19 @@ export function WorkspaceMembersTable({
   const {
     invitations,
     invitationsLoading,
-    invitationsError,
     resendInvitation,
     revokeInvitation,
-  } = useWorkspaceInvitations(workspace.id)
+  } = useWorkspaceInvitations(workspace.id, {
+    listEnabled: canInviteMembers || canRemoveMembers,
+  })
   const { members, membersLoading, membersError } = useWorkspaceMembers(
     workspace.id
   )
 
-  // The table merges two independent endpoints, so reflect either source's
-  // loading/error state rather than letting an invitation failure degrade the
-  // table silently.
+  // The invitation endpoint is action-gated. Member visibility should not fail
+  // closed just because a viewer cannot read pending invitations.
   const isLoading = membersLoading || invitationsLoading
-  const error = membersError ?? invitationsError
+  const error = membersError
 
   // The members list and the invitations list come from separate endpoints (no
   // extra DB round-trips versus a server-side merge). Combine them here into a
@@ -533,6 +533,7 @@ export function WorkspaceMembersTable({
       <ChangeUserRoleDialog
         open={isChangeRoleOpen}
         selectedUser={selectedUser}
+        workspaceId={workspace.id}
         isSubmitting={isRoleMutationPending || userAssignmentsIsLoading}
         setOpen={setIsChangeRoleOpen}
         onConfirm={handleChangeRole}
@@ -544,18 +545,21 @@ export function WorkspaceMembersTable({
 function ChangeUserRoleDialog({
   open,
   selectedUser,
+  workspaceId,
   isSubmitting,
   setOpen,
   onConfirm,
 }: {
   open: boolean
   selectedUser: WorkspaceMemberRow | null
+  workspaceId: string
   isSubmitting: boolean
   setOpen: (open: boolean) => void
   onConfirm: (roleId: string) => void
 }) {
   const { roles, isLoading: rolesIsLoading } = useRbacRoles({
     enabled: open,
+    workspaceId,
   })
   const workspaceRoles = useMemo(
     () => roles.filter((r) => !r.slug || r.slug.startsWith("workspace-")),

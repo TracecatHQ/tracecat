@@ -36,6 +36,7 @@ from tracecat.email.client import (
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -526,6 +527,11 @@ async def create_invitations_bulk(
     except TracecatValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+    except TracecatConflictError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
         ) from e
 
     if is_email_configured():

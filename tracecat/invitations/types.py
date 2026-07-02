@@ -18,7 +18,7 @@ class BatchInviteStatus(StrEnum):
     SKIPPED = "skipped"  # Already a member, or a live pending invite exists.
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class BatchInviteItem:
     """Outcome for a single email in a bulk invitation request."""
 

@@ -300,6 +300,7 @@ async def workspace_rls_context(
             await _apply_rls_context_async(session, previous)
         else:
             await clear_rls_context(session)
+            session.sync_session.info.pop(_RLS_CONTEXT_INFO_KEY, None)
 
 
 async def verify_rls_access(

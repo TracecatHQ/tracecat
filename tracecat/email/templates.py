@@ -42,9 +42,19 @@ def render_invitation_email(
 
     # Strip control chars to prevent subject header injection.
     header_safe_name = "".join(ch for ch in context_name if ch.isprintable())
-    subject = f"Join {header_safe_name} on Tracecat"
-    intro = f"You've been invited to join <strong>{safe_name}</strong> on Tracecat."
-    intro_text = f"You've been invited to join {context_name} on Tracecat."
+    if kind == "workspace":
+        subject = f"Join the {header_safe_name} workspace on Tracecat"
+        intro = (
+            "You've been invited to join the "
+            f"<strong>{safe_name}</strong> workspace on Tracecat."
+        )
+        intro_text = (
+            f"You've been invited to join the {context_name} workspace on Tracecat."
+        )
+    else:
+        subject = f"Join {header_safe_name} on Tracecat"
+        intro = f"You've been invited to join <strong>{safe_name}</strong> on Tracecat."
+        intro_text = f"You've been invited to join {context_name} on Tracecat."
     hint = "If you don't have an account yet, you'll be prompted to create one."
 
     html = f"""\

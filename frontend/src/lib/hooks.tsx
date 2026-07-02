@@ -6216,19 +6216,22 @@ export function useRbacScopes(options?: {
 /**
  * Hook to manage RBAC roles.
  */
-export function useRbacRoles(options: { enabled?: boolean } = {}) {
+export function useRbacRoles(
+  options: { enabled?: boolean; workspaceId?: string } = {}
+) {
   const queryClient = useQueryClient()
   const enabled = options.enabled ?? true
+  const workspaceId = options.workspaceId
 
-  // List roles (org-level, shared across all workspaces)
+  // List roles for the current org, optionally scoped to a workspace context.
   const {
     data: roles,
     isLoading,
     error,
   } = useQuery<RoleReadWithScopes[]>({
-    queryKey: ["rbac-roles", "org"],
+    queryKey: ["rbac-roles", "org", workspaceId ?? null],
     queryFn: async () => {
-      const response = await rbacListRoles()
+      const response = await rbacListRoles({ workspaceId })
       return response.items
     },
     enabled,

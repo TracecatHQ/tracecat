@@ -67,7 +67,7 @@ function InviteMemberDialogButton() {
   const { createInvitationsBulk, createInvitationsBulkIsPending } =
     useOrgInvitations()
   const { appInfo } = useAppInfo()
-  const { roles } = useRbacRoles()
+  const { roles } = useRbacRoles({ enabled: canInviteMembers })
 
   // Include organization preset roles and custom roles (custom roles have no slug prefix)
   const orgRoles = roles.filter(
@@ -286,9 +286,13 @@ export function OrgMembersTable() {
                                   <DropdownMenuItem
                                     onSelect={async () => {
                                       if (!member.invitation_id) return
-                                      await resendInvitation(
-                                        member.invitation_id
-                                      )
+                                      try {
+                                        await resendInvitation(
+                                          member.invitation_id
+                                        )
+                                      } catch {
+                                        // Error handled by the mutation hook.
+                                      }
                                     }}
                                   >
                                     Resend invitation
