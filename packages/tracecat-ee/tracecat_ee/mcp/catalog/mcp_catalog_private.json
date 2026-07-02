@@ -1620,6 +1620,80 @@
       }
     },
     {
+      "slug": "freshservice-mcp",
+      "docs": "https://support.freshservice.com/support/solutions/articles/50000012678-model-context-protocol-mcp-integration-in-freshservice-eap-",
+      "default_connection_option": "remote-oauth",
+      "connection_options": [
+        {
+          "id": "remote-oauth",
+          "label": "Remote OAuth",
+          "description": "Connect to Freshservice's hosted MCP server using OAuth dynamic discovery.",
+          "docs": "https://support.freshservice.com/support/solutions/articles/50000012678-model-context-protocol-mcp-integration-in-freshservice-eap-",
+          "connection_spec": {
+            "server_type": "http",
+            "auth_type": "OAUTH2",
+            "server_uri": "https://{FRESHSERVICE_DOMAIN}/mcp",
+            "scopes": [],
+            "oauth_authorization_endpoint": null,
+            "oauth_token_endpoint": null,
+            "credentials": [
+              {
+                "key": "FRESHSERVICE_DOMAIN",
+                "label": "Freshservice domain",
+                "description": "Your Freshservice domain, e.g. acme.freshservice.com. Freshservice MCP uses https://{FRESHSERVICE_DOMAIN}/mcp.",
+                "required": true,
+                "secret": false,
+                "target": "server_uri"
+              }
+            ],
+            "confidence": "high",
+            "docker_only": false,
+            "research_notes": "Freshservice's official EAP documentation describes a hosted MCP server at https://<your-freshservice-domain>/mcp. The integration is currently Beta/EAP for selected Freshservice Enterprise customers and requires administrator or agent privileges. OAuth is the recommended configuration path: clients connect over HTTP/streamable HTTP to the tenant MCP URL, then complete the browser authorization flow. Freshservice's docs show OAuth examples for Claude Connector, Cursor, Microsoft Copilot Studio, and VS Code; for clients that need a local stdio bridge, they recommend npx mcp-remote against the same remote URL. Because the actual MCP server is hosted by Freshservice, the catalog entry is modeled as HTTP, not stdio, and no npx/uvx/pip package is recorded. Authorization/token endpoints are discovered dynamically from the tenant MCP server, so explicit OAuth endpoints are left null. No OAuth scopes are documented.",
+            "sources": [
+              "https://support.freshservice.com/support/solutions/articles/50000012678-model-context-protocol-mcp-integration-in-freshservice-eap-"
+            ]
+          }
+        },
+        {
+          "id": "api-key",
+          "label": "API key",
+          "description": "Connect over HTTP with a Freshservice API key in the Authorization header.",
+          "docs": "https://support.freshservice.com/support/solutions/articles/50000012678-model-context-protocol-mcp-integration-in-freshservice-eap-",
+          "connection_spec": {
+            "server_type": "http",
+            "auth_type": "CUSTOM",
+            "server_uri": "https://{FRESHSERVICE_DOMAIN}/mcp",
+            "credentials": [
+              {
+                "key": "FRESHSERVICE_DOMAIN",
+                "label": "Freshservice domain",
+                "description": "Your Freshservice domain, e.g. acme.freshservice.com. Freshservice MCP uses https://{FRESHSERVICE_DOMAIN}/mcp.",
+                "required": true,
+                "secret": false,
+                "target": "server_uri"
+              },
+              {
+                "key": "Authorization",
+                "label": "Freshservice API key",
+                "description": "Freshservice API key sent as the Authorization header. Freshservice recommends OAuth 2.0 where possible.",
+                "required": true,
+                "secret": true,
+                "placeholder": "<API-KEY>",
+                "target": "http_header"
+              }
+            ],
+            "confidence": "high",
+            "docker_only": false,
+            "research_notes": "Freshservice documents API-key authentication as the OAuth alternative for MCP clients. The examples use HTTP transport to https://<your-freshservice-domain>/mcp with a custom Authorization header containing the API key. Freshservice explicitly recommends OAuth 2.0 as the best practice; this option exists for environments that cannot complete OAuth.",
+            "sources": [
+              "https://support.freshservice.com/support/solutions/articles/50000012678-model-context-protocol-mcp-integration-in-freshservice-eap-",
+              "https://api.freshservice.com/#authentication"
+            ]
+          }
+        }
+      ]
+    },
+    {
       "slug": "servicenow-mcp",
       "docs": "https://www.servicenow.com/docs/r/zurich/intelligent-experiences/mcp-platform-manager-landing.html",
       "connection_spec": {
