@@ -15,8 +15,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import selectinload
 
 from tracecat.agent.access.service import AgentModelAccessService
-from tracecat.agent.channels.schemas import ChannelType
-from tracecat.agent.channels.service import PENDING_SLACK_BOT_TOKEN, AgentChannelService
+from tracecat.agent.channels.service import AgentChannelService
 from tracecat.agent.common.types import MCPHttpServerConfig, MCPServerConfig
 from tracecat.agent.preset.resolver import resolve_agents_config
 from tracecat.agent.preset.schemas import (
@@ -50,7 +49,6 @@ from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
     AgentCatalog,
-    AgentChannelToken,
     AgentPreset,
     AgentPresetSkill,
     AgentPresetVersion,
@@ -467,45 +465,11 @@ class AgentPresetService(BaseWorkspaceService):
         """Archive a preset without deleting its published versions."""
         await self._lock_preset_row(preset.id)
         await self._ensure_not_referenced_as_subagent(preset)
-        await self._delete_pending_slack_channel_tokens(preset.id)
-        await self._deactivate_active_channel_tokens(preset.id)
+        channel_service = AgentChannelService(self.session, role=self.role)
+        await channel_service.deactivate_tokens_for_preset(preset.id)
         preset.archived_at = datetime.now(UTC)
         self.session.add(preset)
         await self.session.commit()
-
-    async def _delete_pending_slack_channel_tokens(self, preset_id: uuid.UUID) -> None:
-        """Remove OAuth placeholder tokens before archiving a preset."""
-        stmt = select(AgentChannelToken).where(
-            AgentChannelToken.workspace_id == self.workspace_id,
-            AgentChannelToken.agent_preset_id == preset_id,
-            AgentChannelToken.channel_type == ChannelType.SLACK.value,
-            AgentChannelToken.is_active.is_(False),
-        )
-        result = await self.session.execute(stmt)
-        channel_service = AgentChannelService(self.session, role=self.role)
-        for token in result.scalars().all():
-            try:
-                config = channel_service.parse_stored_channel_config(
-                    channel_type=ChannelType.SLACK,
-                    config_payload=token.config,
-                )
-            except TracecatValidationError:
-                continue
-            if config.slack_bot_token == PENDING_SLACK_BOT_TOKEN:
-                await self.session.delete(token)
-
-    async def _deactivate_active_channel_tokens(self, preset_id: uuid.UUID) -> None:
-        """Disable active external channel ingress for an archived preset."""
-        await self.session.execute(
-            sa.update(AgentChannelToken)
-            .where(
-                AgentChannelToken.workspace_id == self.workspace_id,
-                AgentChannelToken.agent_preset_id == preset_id,
-                AgentChannelToken.is_active.is_(True),
-            )
-            .values(is_active=False)
-            .execution_options(synchronize_session=False)
-        )
 
     async def _ensure_not_referenced_as_subagent(self, preset: AgentPreset) -> None:
         """Block deletion while other preset heads still reference this preset."""
@@ -615,7 +579,7 @@ class AgentPresetService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Agent preset '{detail}' not found")
 
         if preset_version_id is not None:
-            version = await self.get_active_version_by_id(preset_version_id)
+            version = await self.get_active_version(version_id=preset_version_id)
             if version is None:
                 raise TracecatNotFoundError(
                     f"Agent preset version with ID '{preset_version_id}' not found"
@@ -714,6 +678,9 @@ class AgentPresetService(BaseWorkspaceService):
                 AgentPreset.id.in_(preset_ids),
                 AgentPreset.archived_at.is_(None),
             )
+            # Deterministic lock order prevents ABBA deadlocks between
+            # concurrent saves whose subagent sets overlap.
+            .order_by(AgentPreset.id)
             .with_for_update()
         )
         active_ids = set((await self.session.execute(stmt)).scalars().all())
@@ -1329,30 +1296,13 @@ class AgentPresetService(BaseWorkspaceService):
     async def get_active_version(
         self,
         *,
-        preset_id: uuid.UUID,
         version_id: uuid.UUID,
+        preset_id: uuid.UUID | None = None,
     ) -> AgentPresetVersion | None:
-        """Get a preset version only when its preset is active."""
-        stmt = (
-            select(AgentPresetVersion)
-            .join(AgentPreset, AgentPresetVersion.preset_id == AgentPreset.id)
-            .where(
-                AgentPresetVersion.workspace_id == self.workspace_id,
-                AgentPresetVersion.id == version_id,
-                AgentPresetVersion.preset_id == preset_id,
-                AgentPreset.workspace_id == self.workspace_id,
-                AgentPreset.archived_at.is_(None),
-            )
-        )
-        result = await self.session.execute(stmt)
-        return result.scalars().first()
+        """Get a preset version only when its parent preset is active.
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def get_active_version_by_id(
-        self,
-        version_id: uuid.UUID,
-    ) -> AgentPresetVersion | None:
-        """Get a preset version by ID only when its parent preset is active."""
+        ``preset_id`` additionally scopes the version to that preset.
+        """
         stmt = (
             select(AgentPresetVersion)
             .join(AgentPreset, AgentPresetVersion.preset_id == AgentPreset.id)
@@ -1363,6 +1313,8 @@ class AgentPresetService(BaseWorkspaceService):
                 AgentPreset.archived_at.is_(None),
             )
         )
+        if preset_id is not None:
+            stmt = stmt.where(AgentPresetVersion.preset_id == preset_id)
         result = await self.session.execute(stmt)
         return result.scalars().first()
 

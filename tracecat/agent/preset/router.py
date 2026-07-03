@@ -114,7 +114,12 @@ async def update_agent_preset(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset {preset_id} not found",
         )
-    preset = await service.update_preset(preset, params)
+    try:
+        preset = await service.update_preset(preset, params)
+    except TracecatNotFoundError as e:
+        # The preset can be archived between the lookup above and the
+        # service's row lock; surface that race as a 404, not a 500.
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     return await service.build_preset_read(preset)
 
 
@@ -133,7 +138,12 @@ async def delete_agent_preset(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset {preset_id} not found",
         )
-    await service.delete_preset(preset)
+    try:
+        await service.delete_preset(preset)
+    except TracecatNotFoundError as e:
+        # The preset can be archived between the lookup above and the
+        # service's row lock; surface that race as a 404, not a 500.
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
 @router.get(
