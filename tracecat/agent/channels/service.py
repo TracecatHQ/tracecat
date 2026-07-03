@@ -17,7 +17,7 @@ from cryptography.fernet import InvalidToken
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from pydantic import ValidationError
 from slack_sdk.web.async_client import AsyncWebClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
 from tracecat import config
@@ -529,6 +529,40 @@ class AgentChannelService(BaseWorkspaceService):
     ) -> None:
         """Ensure a channel token still belongs to an active preset."""
         await self._require_workspace_preset(token.agent_preset_id, lock=lock)
+
+    async def deactivate_tokens_for_preset(self, preset_id: uuid.UUID) -> None:
+        """Shut down channel ingress for a preset that is being archived.
+
+        Deletes Slack OAuth placeholder tokens that never completed the flow
+        and deactivates every remaining active token.
+        """
+        stmt = select(AgentChannelToken).where(
+            AgentChannelToken.workspace_id == self.workspace_id,
+            AgentChannelToken.agent_preset_id == preset_id,
+            AgentChannelToken.channel_type == ChannelType.SLACK.value,
+            AgentChannelToken.is_active.is_(False),
+        )
+        result = await self.session.execute(stmt)
+        for token in result.scalars().all():
+            try:
+                config = self.parse_stored_channel_config(
+                    channel_type=ChannelType.SLACK,
+                    config_payload=token.config,
+                )
+            except TracecatValidationError:
+                continue
+            if config.slack_bot_token == PENDING_SLACK_BOT_TOKEN:
+                await self.session.delete(token)
+        await self.session.execute(
+            update(AgentChannelToken)
+            .where(
+                AgentChannelToken.workspace_id == self.workspace_id,
+                AgentChannelToken.agent_preset_id == preset_id,
+                AgentChannelToken.is_active.is_(True),
+            )
+            .values(is_active=False)
+            .execution_options(synchronize_session=False)
+        )
 
     async def get_active_token_for_preset(
         self, *, agent_preset_id: uuid.UUID, channel_type: ChannelType

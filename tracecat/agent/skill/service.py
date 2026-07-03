@@ -2266,6 +2266,14 @@ class SkillService(BaseWorkspaceService):
                     manifest_sha256=manifest_sha256,
                 )
             )
+        self._raise_if_archived_skills(archived_skills, preset_version_id)
+        return resolved
+
+    @staticmethod
+    def _raise_if_archived_skills(
+        archived_skills: list[str], preset_version_id: uuid.UUID
+    ) -> None:
+        """Reject resolution when any referenced skill is archived."""
         if archived_skills:
             raise TracecatValidationError(
                 "Some skills are archived and cannot be resolved",
@@ -2275,7 +2283,6 @@ class SkillService(BaseWorkspaceService):
                     "preset_version_id": str(preset_version_id),
                 },
             )
-        return resolved
 
     async def _get_latest_skill_refs_for_preset_version(
         self, preset_version_id: uuid.UUID
@@ -2345,15 +2352,7 @@ class SkillService(BaseWorkspaceService):
                 )
             )
 
-        if archived_skills:
-            raise TracecatValidationError(
-                "Some skills are archived and cannot be resolved",
-                detail={
-                    "code": "skill_archived",
-                    "skills": sorted(archived_skills),
-                    "preset_version_id": str(preset_version_id),
-                },
-            )
+        self._raise_if_archived_skills(archived_skills, preset_version_id)
         if missing_current:
             raise TracecatValidationError(
                 "Some skills have no current published version",
