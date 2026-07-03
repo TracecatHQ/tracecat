@@ -14,6 +14,7 @@ Docker container with nsjail installed (e.g., the executor image).
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import time
 from collections import OrderedDict
@@ -77,7 +78,7 @@ from tracecat.registry.lock.service import RegistryLockService
 _TOKEN_TOOL_CACHE_MAX_SIZE = 256
 _USER_MCP_DISCOVERY_CACHE_TTL_SECONDS = 45.0
 _USER_MCP_DISCOVERY_CACHE_MAX_SIZE = 512
-_UserMCPDiscoveryCacheKey = tuple[str, str]
+_UserMCPDiscoveryCacheKey = tuple[str, str] | tuple[str, str, str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,7 +185,23 @@ def _user_mcp_discovery_cache_key(
 ) -> _UserMCPDiscoveryCacheKey:
     if integration_id := config.get("id"):
         return (config["name"], integration_id)
-    return (config["name"], config["url"])
+    return (
+        config["name"],
+        config["url"],
+        _user_mcp_headers_digest(config.get("headers")),
+    )
+
+
+def _user_mcp_headers_digest(headers: dict[str, str] | None) -> str:
+    digest = hashlib.sha256()
+    for name, value in sorted(
+        (name.lower(), value) for name, value in (headers or {}).items()
+    ):
+        digest.update(name.encode())
+        digest.update(b"\0")
+        digest.update(value.encode())
+        digest.update(b"\0")
+    return digest.hexdigest()
 
 
 def _evict_user_mcp_discovery_cache(now: float) -> None:

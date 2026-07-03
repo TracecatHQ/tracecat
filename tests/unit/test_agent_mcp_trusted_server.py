@@ -586,6 +586,85 @@ async def test_user_mcp_discovery_cache_is_scoped_by_claimed_server_name(
     }
 
 
+@pytest.mark.anyio
+async def test_user_mcp_discovery_cache_legacy_key_includes_header_digest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_fetch_tool_definitions(
+        action_names: list[str],
+    ) -> dict[str, MCPToolDefinition]:
+        assert action_names == []
+        return {}
+
+    discovered_credentials: list[str] = []
+
+    class _FakeUserMCPClient:
+        parse_user_mcp_tool_name = staticmethod(UserMCPClient.parse_user_mcp_tool_name)
+
+        def __init__(self, configs: list[dict[str, Any]]) -> None:
+            self.configs = configs
+
+        async def discover_tools_detailed(self) -> UserMCPDiscoveryResult:
+            assert len(self.configs) == 1
+            headers = self.configs[0].get("headers", {})
+            assert isinstance(headers, dict)
+            credential_name = {
+                "Bearer token-a": "credential-a",
+                "Bearer token-b": "credential-b",
+            }[headers["Authorization"]]
+            discovered_credentials.append(credential_name)
+            return UserMCPDiscoveryResult(
+                definitions={
+                    "mcp__Jira__getIssue": MCPToolDefinition(
+                        name="mcp__Jira__getIssue",
+                        description=f"Get issue for {credential_name}",
+                        parameters_json_schema={"type": "object"},
+                    )
+                },
+                failed_servers={},
+            )
+
+    monkeypatch.setattr(
+        trusted_server,
+        "fetch_tool_definitions",
+        fake_fetch_tool_definitions,
+    )
+    monkeypatch.setattr(trusted_server, "UserMCPClient", _FakeUserMCPClient)
+
+    def claims_for_header(authorization: str) -> MCPTokenClaims:
+        return _build_claims(
+            allowed_actions=["mcp__Jira__getIssue"],
+            user_mcp_servers=[
+                UserMCPServerClaim(
+                    name="Jira",
+                    url="https://mcp.example.com/v1",
+                    headers={"Authorization": authorization},
+                )
+            ],
+        )
+
+    first_tools = await trusted_server.build_token_scoped_tools(
+        claims_for_header("Bearer token-a")
+    )
+    second_tools = await trusted_server.build_token_scoped_tools(
+        claims_for_header("Bearer token-b")
+    )
+
+    assert [tool.description for tool in first_tools] == ["Get issue for credential-a"]
+    assert [tool.description for tool in second_tools] == ["Get issue for credential-b"]
+    assert discovered_credentials == ["credential-a", "credential-b"]
+
+    header_digests: list[str] = []
+    for key in trusted_server._USER_MCP_DISCOVERY_CACHE:
+        assert len(key) == 3
+        assert key[0] == "Jira"
+        assert key[1] == "https://mcp.example.com/v1"
+        header_digests.append(key[2])
+        assert "Bearer token" not in repr(key)
+    assert len(header_digests) == 2
+    assert len(set(header_digests)) == 2
+
+
 @pytest.mark.parametrize(
     (
         "tool_name",
