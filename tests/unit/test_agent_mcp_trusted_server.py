@@ -792,6 +792,49 @@ async def test_partial_discovery_failure_is_not_pinned_to_token_cache(
     assert client_instantiations == [["Alpha", "Beta"], ["Beta"]]
 
 
+@pytest.mark.anyio
+async def test_discovery_skips_servers_without_allowed_tools(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    claims = _build_claims(
+        allowed_actions=["mcp__Alpha__ping"],
+        user_mcp_servers=[
+            UserMCPServerClaim(name="Alpha", url="https://alpha.example.com/mcp"),
+            UserMCPServerClaim(name="Bravo", url="https://bravo.example.com/mcp"),
+        ],
+    )
+
+    class _FakeUserMCPClient:
+        parse_user_mcp_tool_name = staticmethod(UserMCPClient.parse_user_mcp_tool_name)
+
+        def __init__(self, configs: list[dict[str, Any]]) -> None:
+            assert [config["name"] for config in configs] == ["Alpha"], (
+                "servers without allowed tools must not be contacted"
+            )
+            self.configs = configs
+
+        async def discover_tools_detailed(self) -> UserMCPDiscoveryResult:
+            return UserMCPDiscoveryResult(
+                definitions={
+                    "mcp__Alpha__ping": MCPToolDefinition(
+                        name="mcp__Alpha__ping",
+                        description="Ping Alpha",
+                        parameters_json_schema={"type": "object"},
+                    )
+                },
+                failed_servers={},
+            )
+
+    monkeypatch.setattr(trusted_server, "UserMCPClient", _FakeUserMCPClient)
+
+    definitions, failed_servers = await trusted_server._discover_allowed_user_mcp_tools(
+        claims
+    )
+
+    assert list(definitions) == ["mcp__Alpha__ping"]
+    assert failed_servers == {}
+
+
 @pytest.mark.parametrize(
     (
         "tool_name",

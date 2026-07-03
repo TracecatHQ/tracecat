@@ -438,10 +438,21 @@ async def _discover_allowed_user_mcp_tools(
     if not allowed_user_tools or not claims.user_mcp_servers:
         return {}, {}
 
+    # Only contact servers that back at least one allowed tool. A configured
+    # server whose tools were all disabled or filtered out at compile time
+    # must not add latency, retries, or failure noise to this token's listing.
+    expected_server_names = {
+        parsed[0]
+        for tool_name in allowed_user_tools
+        if (parsed := UserMCPClient.parse_user_mcp_tool_name(tool_name)) is not None
+    }
+
     role = _set_role_context(claims)
     configs: list[MCPHttpServerConfig] = []
     failed_servers: dict[str, str] = {}
     for server in claims.user_mcp_servers:
+        if server.name not in expected_server_names:
+            continue
         try:
             configs.append(await _resolve_user_mcp_config(server, role))
         except ToolError as e:
