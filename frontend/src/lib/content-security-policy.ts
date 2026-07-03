@@ -59,7 +59,7 @@ function getConnectSrc(env: ContentSecurityPolicyEnv): string {
 
 function getImgSrc(env: ContentSecurityPolicyEnv): string {
   return [
-    "img-src 'self' data:",
+    "img-src 'self' data: https:",
     ...getUrlOrigins(env.NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT),
   ]
     .filter(Boolean)

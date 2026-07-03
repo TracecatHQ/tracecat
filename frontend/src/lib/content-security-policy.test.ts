@@ -46,6 +46,13 @@ describe("buildContentSecurityPolicy", () => {
     expect(connectSrc).toContain("blob:")
   })
 
+  it("allows externally hosted https images for markdown content", () => {
+    const imgSrc = getImgSrc(buildContentSecurityPolicy({}))
+
+    expect(imgSrc).toContain("img-src 'self' data: https:")
+    expect(imgSrc).toContain("https:")
+  })
+
   it("allows the configured presigned blob storage origin", () => {
     const policy = buildContentSecurityPolicy({
       NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT:
