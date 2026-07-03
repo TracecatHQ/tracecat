@@ -290,7 +290,6 @@ class AgentActivities:
                     http_status_code=status_code,
                     error_type=type(e).__name__,
                     server_count=len(hydrated_servers),
-                    configured_mcp_servers=[cfg["name"] for cfg in http_servers],
                 )
                 if args.fail_on_mcp_discovery_error:
                     raise ApplicationError(
