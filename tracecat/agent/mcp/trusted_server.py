@@ -84,6 +84,7 @@ class _UserMCPDiscoveryCacheKey(NamedTuple):
     server_name: str
     url: str
     transport: str
+    timeout: int | None
     headers_digest: str
 
 
@@ -200,6 +201,7 @@ def _user_mcp_discovery_cache_key(
         server_name=config["name"],
         url=config["url"],
         transport=config.get("transport", "http"),
+        timeout=config.get("timeout"),
         headers_digest=_user_mcp_headers_digest(config.get("headers")),
     )
 
