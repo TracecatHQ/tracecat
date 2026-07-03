@@ -83,6 +83,7 @@ _USER_MCP_DISCOVERY_CACHE_MAX_SIZE = 512
 class _UserMCPDiscoveryCacheKey(NamedTuple):
     server_name: str
     url: str
+    transport: str
     headers_digest: str
 
 
@@ -194,6 +195,7 @@ def _user_mcp_discovery_cache_key(
     return _UserMCPDiscoveryCacheKey(
         server_name=config["name"],
         url=config["url"],
+        transport=config.get("transport", "http"),
         headers_digest=_user_mcp_headers_digest(config.get("headers")),
     )
 

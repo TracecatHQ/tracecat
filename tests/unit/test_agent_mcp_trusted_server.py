@@ -585,11 +585,13 @@ async def test_user_mcp_discovery_cache_is_scoped_by_claimed_server_name(
         trusted_server._UserMCPDiscoveryCacheKey(
             server_name="Jira",
             url="https://mcp.example.com/v1",
+            transport="http",
             headers_digest=empty_headers_digest,
         ),
         trusted_server._UserMCPDiscoveryCacheKey(
             server_name="Linear",
             url="https://mcp.example.com/v1",
+            transport="http",
             headers_digest=empty_headers_digest,
         ),
     }
@@ -665,10 +667,9 @@ async def test_user_mcp_discovery_cache_legacy_key_includes_header_digest(
 
     header_digests: list[str] = []
     for key in trusted_server._USER_MCP_DISCOVERY_CACHE:
-        assert len(key) == 3
-        assert key[0] == "Jira"
-        assert key[1] == "https://mcp.example.com/v1"
-        header_digests.append(key[2])
+        assert key.server_name == "Jira"
+        assert key.url == "https://mcp.example.com/v1"
+        header_digests.append(key.headers_digest)
         assert "Bearer token" not in repr(key)
     assert len(header_digests) == 2
     assert len(set(header_digests)) == 2
@@ -699,6 +700,7 @@ def test_user_mcp_discovery_cache_key_tracks_resolved_config() -> None:
     assert key != trusted_server._user_mcp_discovery_cache_key(
         config(headers={"Authorization": "Bearer token-b"})
     )
+    assert key != trusted_server._user_mcp_discovery_cache_key(config(transport="sse"))
     assert "Bearer token-a" not in repr(key)
 
 
