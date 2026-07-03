@@ -722,6 +722,9 @@ class AppInfo(BaseModel):
     saml_enabled: bool
     saml_enforced: bool
     ee_multi_tenant: bool
+    secrets_backend_readonly: bool
+    """True when secret values are managed by an external secrets backend
+    (e.g. Vault) and cannot be stored through Tracecat."""
 
 
 @app.get("/info", include_in_schema=False)
@@ -751,6 +754,7 @@ async def info(session: AsyncDBSessionBypass) -> AppInfo:
         saml_enabled=keyvalues["saml_enabled"],
         saml_enforced=keyvalues["saml_enforced"],
         ee_multi_tenant=config.TRACECAT__EE_MULTI_TENANT,
+        secrets_backend_readonly=config.TRACECAT__SECRETS_BACKEND != "db",
     )
 
 
