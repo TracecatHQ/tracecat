@@ -20,7 +20,11 @@ REDACTED_VALUE = "[Filtered]"
 _MAX_SCRUB_DEPTH = 8
 _CAMEL_CASE_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _NON_ALNUM_RE = re.compile(r"[^A-Za-z0-9]+")
-_WEBHOOK_SECRET_PATH_RE = re.compile(r"^(.*?/webhooks/[^/]+/)([^/]+)(?=/|$)")
+_URL_PATH_SECRET_RES = (
+    re.compile(r"^(.*?/webhooks/[^/]+/)([^/]+)(?=/|$)"),
+    re.compile(r"^(.*?/invitations/token/)([^/]+)(?=/|$)"),
+    re.compile(r"^(.*?/agent/channels/[^/]+/)([^/]+)(?=/|$)"),
+)
 _SENSITIVE_KEY_PARTS = frozenset(
     {
         "api_key",
@@ -175,7 +179,9 @@ def _scrub_url_query(value: str) -> str:
 
 def redact_url_path_secrets(path: str) -> str:
     """Redact sensitive path segments that can appear in request URLs."""
-    return _WEBHOOK_SECRET_PATH_RE.sub(rf"\1{REDACTED_VALUE}", path)
+    for pattern in _URL_PATH_SECRET_RES:
+        path = pattern.sub(rf"\1{REDACTED_VALUE}", path)
+    return path
 
 
 def _strip_url_userinfo(netloc: str) -> str:

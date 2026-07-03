@@ -19,6 +19,7 @@ from tracecat.dsl.interceptor import (
 from tracecat.exceptions import TracecatException, TracecatExpressionError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.observability import sentry as sentry_observability
+from tracecat.observability.sentry import REDACTED_VALUE, redact_url_path_secrets
 from tracecat.storage.object import InlineObject
 from tracecat.workflow.executions.enums import ExecutionType
 
@@ -220,6 +221,38 @@ def test_sentry_scrubber_redacts_webhook_secret_url_paths(
 
     assert parsed_url.path == expected_path
     assert "super-secret" not in request["url"]
+
+
+@pytest.mark.parametrize(
+    ("path", "expected_path"),
+    [
+        (
+            "/webhooks/wf-test-webhook/super-secret",
+            f"/webhooks/wf-test-webhook/{REDACTED_VALUE}",
+        ),
+        (
+            "/organization/invitations/token/super-secret-token",
+            f"/organization/invitations/token/{REDACTED_VALUE}",
+        ),
+        (
+            "/agent/channels/slack/super-secret-token",
+            f"/agent/channels/slack/{REDACTED_VALUE}",
+        ),
+        (
+            "/agent/channels/slack/super-secret-token/events",
+            f"/agent/channels/slack/{REDACTED_VALUE}/events",
+        ),
+        (
+            "/organization/members",
+            "/organization/members",
+        ),
+    ],
+)
+def test_redact_url_path_secrets(path: str, expected_path: str) -> None:
+    redacted = redact_url_path_secrets(path)
+
+    assert redacted == expected_path
+    assert "super-secret" not in redacted
 
 
 def test_sentry_scrubber_leaves_malformed_request_urls_unchanged() -> None:
