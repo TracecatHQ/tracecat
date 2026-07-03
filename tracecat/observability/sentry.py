@@ -79,6 +79,7 @@ def init_sentry(
             release=f"tracecat@{APP_VERSION}",
             integrations=list(integrations or ()),
             send_default_pii=False,
+            max_request_body_size="never",
             include_local_variables=False,
             traces_sample_rate=0.0,
             profiles_sample_rate=0.0,
