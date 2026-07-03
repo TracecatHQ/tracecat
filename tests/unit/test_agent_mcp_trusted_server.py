@@ -306,7 +306,12 @@ async def test_token_scoped_fastmcp_get_tool_reuses_token_catalog(
         parameters_json_schema={"type": "object"},
         claims=claims,
     )
-    build_token_scoped_tools = AsyncMock(return_value=[tool])
+    build_token_scoped_tools = AsyncMock(
+        return_value=trusted_server._TokenScopedToolBuild(
+            tools=[tool],
+            failed_user_mcp_servers={},
+        )
+    )
 
     monkeypatch.setattr(
         trusted_server,
@@ -320,7 +325,7 @@ async def test_token_scoped_fastmcp_get_tool_reuses_token_catalog(
     )
     monkeypatch.setattr(
         trusted_server,
-        "build_token_scoped_tools",
+        "_build_token_scoped_tools",
         build_token_scoped_tools,
     )
 
@@ -702,6 +707,89 @@ def test_user_mcp_discovery_cache_key_tracks_resolved_config() -> None:
     )
     assert key != trusted_server._user_mcp_discovery_cache_key(config(transport="sse"))
     assert "Bearer token-a" not in repr(key)
+
+
+@pytest.mark.anyio
+async def test_partial_discovery_failure_is_not_pinned_to_token_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    claims = _build_claims(
+        allowed_actions=["mcp__Alpha__ping", "mcp__Beta__ping"],
+        user_mcp_servers=[
+            UserMCPServerClaim(name="Alpha", url="https://alpha.example.com/mcp"),
+            UserMCPServerClaim(name="Beta", url="https://beta.example.com/mcp"),
+        ],
+    )
+
+    async def fake_fetch_tool_definitions(
+        action_names: list[str],
+    ) -> dict[str, MCPToolDefinition]:
+        assert action_names == []
+        return {}
+
+    beta_failing = [True]
+    client_instantiations: list[list[str]] = []
+
+    class _FakeUserMCPClient:
+        parse_user_mcp_tool_name = staticmethod(UserMCPClient.parse_user_mcp_tool_name)
+
+        def __init__(self, configs: list[dict[str, Any]]) -> None:
+            client_instantiations.append([config["name"] for config in configs])
+            self.configs = configs
+
+        async def discover_tools_detailed(self) -> UserMCPDiscoveryResult:
+            definitions: dict[str, MCPToolDefinition] = {}
+            failed_servers: dict[str, str] = {}
+            for config in self.configs:
+                server_name = config["name"]
+                if server_name == "Beta" and beta_failing[0]:
+                    failed_servers["Beta"] = "TransportError"
+                    continue
+                tool_name = f"mcp__{server_name}__ping"
+                definitions[tool_name] = MCPToolDefinition(
+                    name=tool_name,
+                    description=f"Ping {server_name}",
+                    parameters_json_schema={"type": "object"},
+                )
+            return UserMCPDiscoveryResult(
+                definitions=definitions,
+                failed_servers=failed_servers,
+            )
+
+    monkeypatch.setattr(
+        trusted_server,
+        "fetch_tool_definitions",
+        fake_fetch_tool_definitions,
+    )
+    monkeypatch.setattr(trusted_server, "UserMCPClient", _FakeUserMCPClient)
+    monkeypatch.setattr(
+        trusted_server,
+        "_authorization_header_from_request",
+        lambda: "Bearer test-token",
+    )
+    monkeypatch.setattr(
+        trusted_server,
+        "_claims_from_authorization_header",
+        lambda authorization: claims,
+    )
+
+    server = trusted_server.TokenScopedFastMCP("test")
+
+    partial = await server._tools_from_request()
+    assert [tool.name for tool in partial] == ["mcp__Alpha__ping"]
+
+    beta_failing[0] = False
+    recovered = await server._tools_from_request()
+    assert [tool.name for tool in recovered] == [
+        "mcp__Alpha__ping",
+        "mcp__Beta__ping",
+    ]
+
+    cached = await server._tools_from_request()
+    assert [tool.name for tool in cached] == ["mcp__Alpha__ping", "mcp__Beta__ping"]
+    # The second listing retried only the failed server (Alpha came from the
+    # discovery cache); the third was served from the token cache entirely.
+    assert client_instantiations == [["Alpha", "Beta"], ["Beta"]]
 
 
 @pytest.mark.parametrize(

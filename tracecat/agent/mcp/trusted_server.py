@@ -127,11 +127,15 @@ class TokenScopedFastMCP(FastMCP[None]):
             self._tool_cache.move_to_end(authorization)
             return self._tool_cache[authorization]
 
-        tools = await build_token_scoped_tools(claims)
-        self._tool_cache[authorization] = tools
-        if len(self._tool_cache) > _TOKEN_TOOL_CACHE_MAX_SIZE:
-            self._tool_cache.popitem(last=False)
-        return tools
+        build = await _build_token_scoped_tools(claims)
+        # A partial catalog (some user MCP servers failed discovery) must not
+        # be pinned to the token: the next listing should retry the failed
+        # servers instead of serving the reduced catalog until restart.
+        if not build.failed_user_mcp_servers:
+            self._tool_cache[authorization] = build.tools
+            if len(self._tool_cache) > _TOKEN_TOOL_CACHE_MAX_SIZE:
+                self._tool_cache.popitem(last=False)
+        return build.tools
 
     async def list_tools(self, *, run_middleware: bool = True) -> Sequence[Tool]:
         del run_middleware
@@ -474,8 +478,19 @@ async def _discover_allowed_user_mcp_tools(
     }, failed_servers
 
 
+class _TokenScopedToolBuild(NamedTuple):
+    tools: list[Tool]
+    failed_user_mcp_servers: dict[str, str]
+
+
 async def build_token_scoped_tools(claims: MCPTokenClaims) -> list[Tool]:
     """Build the MCP tool catalog visible to one verified token."""
+    build = await _build_token_scoped_tools(claims)
+    return build.tools
+
+
+async def _build_token_scoped_tools(claims: MCPTokenClaims) -> _TokenScopedToolBuild:
+    """Build the catalog plus per-server discovery failures for cache policy."""
     _set_role_context(claims)
     tools: list[Tool] = []
     registry_tool_count = 0
@@ -567,7 +582,10 @@ async def build_token_scoped_tools(claims: MCPTokenClaims) -> list[Tool]:
         failed_server_names=list(failed_user_mcp_servers),
     )
 
-    return tools
+    return _TokenScopedToolBuild(
+        tools=tools,
+        failed_user_mcp_servers=failed_user_mcp_servers,
+    )
 
 
 async def _execute_registry_action(
