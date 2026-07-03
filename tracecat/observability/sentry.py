@@ -102,7 +102,7 @@ def capture_exception(
     if not sentry_sdk.is_initialized():
         return None
 
-    with sentry_sdk.push_scope() as scope:
+    with sentry_sdk.new_scope() as scope:
         for key, value in (tags or {}).items():
             scope.set_tag(key, str(value))
         for key, value in (contexts or {}).items():
