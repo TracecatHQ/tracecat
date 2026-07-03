@@ -127,9 +127,10 @@ class SentryMCPMiddleware(Middleware):
         try:
             return await call_next(context)
         except ToolError as exc:
-            if isinstance(exc, UnexpectedToolError):
+            original = _unexpected_tool_error_cause(exc)
+            if original is not None:
                 capture_exception(
-                    exc.original_exception or exc,
+                    original,
                     tags=_sentry_mcp_tags(context),
                     contexts={"tracecat.mcp": _sentry_mcp_context(context)},
                 )
@@ -283,6 +284,29 @@ def _safe_get_token_identity() -> MCPTokenIdentity | None:
         return get_token_identity()
     except Exception:
         return None
+
+
+_EXPECTED_TOOL_ERROR_CAUSES = (ToolError, ValueError, TimeoutError)
+
+
+def _unexpected_tool_error_cause(exc: ToolError) -> BaseException | None:
+    """Return the unexpected exception behind a ``ToolError``, if any.
+
+    Tools frequently catch an unexpected backend failure and rethrow it as a
+    plain ``ToolError`` (via ``raise ToolError(...) from exc`` or ``from None``).
+    Those should reach Sentry, while ``ToolError``s that only wrap validation
+    errors or user-facing messages are expected and skipped.
+    """
+    if isinstance(exc, UnexpectedToolError):
+        return exc.original_exception or exc
+    cause = exc.__cause__
+    if cause is None and exc.__suppress_context__:
+        # ``raise ToolError(...) from None`` still records the handled
+        # exception as ``__context__``; treat that as the original cause.
+        cause = exc.__context__
+    if cause is None or isinstance(cause, _EXPECTED_TOOL_ERROR_CAUSES):
+        return None
+    return cause
 
 
 def _sentry_mcp_tags[MCPMessageT](
