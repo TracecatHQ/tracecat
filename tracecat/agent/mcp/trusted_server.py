@@ -20,7 +20,7 @@ import time
 from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NamedTuple
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
@@ -78,7 +78,12 @@ from tracecat.registry.lock.service import RegistryLockService
 _TOKEN_TOOL_CACHE_MAX_SIZE = 256
 _USER_MCP_DISCOVERY_CACHE_TTL_SECONDS = 45.0
 _USER_MCP_DISCOVERY_CACHE_MAX_SIZE = 512
-_UserMCPDiscoveryCacheKey = tuple[str, str] | tuple[str, str, str]
+
+
+class _UserMCPDiscoveryCacheKey(NamedTuple):
+    server_name: str
+    url: str
+    headers_digest: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,12 +188,13 @@ def _format_failed_user_mcp_servers(failed_servers: dict[str, str]) -> str:
 def _user_mcp_discovery_cache_key(
     config: MCPHttpServerConfig,
 ) -> _UserMCPDiscoveryCacheKey:
-    if integration_id := config.get("id"):
-        return (config["name"], integration_id)
-    return (
-        config["name"],
-        config["url"],
-        _user_mcp_headers_digest(config.get("headers")),
+    # Key on the resolved config rather than the integration id: an edit to an
+    # integration's URL or credentials (same id/name) must miss the cache
+    # immediately instead of serving the previous endpoint's tools for a TTL.
+    return _UserMCPDiscoveryCacheKey(
+        server_name=config["name"],
+        url=config["url"],
+        headers_digest=_user_mcp_headers_digest(config.get("headers")),
     )
 
 

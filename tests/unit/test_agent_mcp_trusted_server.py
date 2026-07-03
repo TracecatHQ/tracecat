@@ -1,11 +1,11 @@
 import uuid
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
 from fastmcp.exceptions import ToolError
 
-from tracecat.agent.common.types import MCPToolDefinition
+from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
 from tracecat.agent.mcp import trusted_server
 from tracecat.agent.mcp.metadata import PROXY_TOOL_CALL_ID_KEY, PROXY_TOOL_METADATA_KEY
 from tracecat.agent.mcp.user_client import UserMCPClient, UserMCPDiscoveryResult
@@ -580,9 +580,18 @@ async def test_user_mcp_discovery_cache_is_scoped_by_claimed_server_name(
     assert [tool.name for tool in jira_tools] == ["mcp__Jira__getIssue"]
     assert [tool.name for tool in linear_tools] == ["mcp__Linear__getIssue"]
     assert discovered_config_names == [["Jira"], ["Linear"]]
+    empty_headers_digest = trusted_server._user_mcp_headers_digest({})
     assert set(trusted_server._USER_MCP_DISCOVERY_CACHE) == {
-        ("Jira", str(integration_id)),
-        ("Linear", str(integration_id)),
+        trusted_server._UserMCPDiscoveryCacheKey(
+            server_name="Jira",
+            url="https://mcp.example.com/v1",
+            headers_digest=empty_headers_digest,
+        ),
+        trusted_server._UserMCPDiscoveryCacheKey(
+            server_name="Linear",
+            url="https://mcp.example.com/v1",
+            headers_digest=empty_headers_digest,
+        ),
     }
 
 
@@ -663,6 +672,34 @@ async def test_user_mcp_discovery_cache_legacy_key_includes_header_digest(
         assert "Bearer token" not in repr(key)
     assert len(header_digests) == 2
     assert len(set(header_digests)) == 2
+
+
+def test_user_mcp_discovery_cache_key_tracks_resolved_config() -> None:
+    def config(**overrides: Any) -> MCPHttpServerConfig:
+        base: dict[str, Any] = {
+            "type": "http",
+            "name": "Jira",
+            "url": "https://mcp.example.com/v1",
+            "transport": "http",
+            "headers": {"Authorization": "Bearer token-a"},
+            "id": "00000000-0000-0000-0000-000000000004",
+        }
+        base.update(overrides)
+        return cast(MCPHttpServerConfig, base)
+
+    key = trusted_server._user_mcp_discovery_cache_key(config())
+    # The integration id is not a cache dimension: editing an integration's
+    # URL or credentials without changing its id must miss the cache.
+    assert key == trusted_server._user_mcp_discovery_cache_key(
+        config(id="00000000-0000-0000-0000-000000000005")
+    )
+    assert key != trusted_server._user_mcp_discovery_cache_key(
+        config(url="https://mcp.example.com/v2")
+    )
+    assert key != trusted_server._user_mcp_discovery_cache_key(
+        config(headers={"Authorization": "Bearer token-b"})
+    )
+    assert "Bearer token-a" not in repr(key)
 
 
 @pytest.mark.parametrize(
