@@ -938,11 +938,15 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
 
     # Stdio MCP servers are spawned directly by the runtime; unlike HTTP
     # servers they have no per-call secret resolution hook downstream. The
-    # configs in ``input.config.mcp_servers`` arrive in refs-only shape
-    # (no ``env``) — hydrate from the DB here so the spawned process gets
-    # its credentials.
+    # configs in ``input.config.mcp_servers`` and each subagent's
+    # ``config.mcp_servers`` arrive in refs-only shape (no ``env``) — hydrate
+    # from the DB here so the spawned processes get their credentials.
     config = cast(Any, input.config)
     config.mcp_servers = await _hydrate_stdio_env(config.mcp_servers, role=input.role)
+    for subagent in input.subagents:
+        subagent.config.mcp_servers = await _hydrate_stdio_env(
+            subagent.config.mcp_servers, role=input.role
+        )
 
     executor = SandboxedAgentExecutor(input=input)
     result = await executor.run()
