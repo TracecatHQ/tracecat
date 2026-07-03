@@ -109,7 +109,7 @@ jest.mock("@/components/cases/case-selection-context", () => ({
 }))
 
 jest.mock("@/components/nav/controls-header", () => ({
-  ControlsHeader: () => null,
+  ControlsHeader: () => <div data-testid="controls-header" />,
 }))
 
 jest.mock("@/components/nav/dynamic-nav", () => ({
@@ -121,7 +121,7 @@ jest.mock("@/components/settings/settings-modal", () => ({
 }))
 
 jest.mock("@/components/sidebar/app-sidebar", () => ({
-  AppSidebar: () => null,
+  AppSidebar: () => <div data-testid="app-sidebar" />,
 }))
 
 jest.mock("@/components/ui/sidebar", () => ({
@@ -462,5 +462,37 @@ describe("Auth UI matrix", () => {
 
     expect(screen.getByText("No organization access yet")).toBeInTheDocument()
     expect(mockRouterReplace).not.toHaveBeenCalledWith("/admin")
+  })
+
+  it("uses the shared workspace shell for cases list routes", () => {
+    mockWorkspaces = [{ id: "workspace-1", name: "Workspace" }]
+    mockParams = { workspaceId: "workspace-1" }
+    mockPathname = "/workspaces/workspace-1/cases"
+
+    render(
+      <WorkspaceLayout>
+        <div>Cases list</div>
+      </WorkspaceLayout>
+    )
+
+    expect(screen.getByTestId("app-sidebar")).toBeInTheDocument()
+    expect(screen.getByTestId("controls-header")).toBeInTheDocument()
+    expect(screen.getByText("Cases list")).toBeInTheDocument()
+  })
+
+  it("leaves case detail routes to the case detail layout", () => {
+    mockWorkspaces = [{ id: "workspace-1", name: "Workspace" }]
+    mockParams = { workspaceId: "workspace-1", caseId: "case-1" }
+    mockPathname = "/workspaces/workspace-1/cases/case-1"
+
+    render(
+      <WorkspaceLayout>
+        <div>Case detail</div>
+      </WorkspaceLayout>
+    )
+
+    expect(screen.queryByTestId("app-sidebar")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("controls-header")).not.toBeInTheDocument()
+    expect(screen.getByText("Case detail")).toBeInTheDocument()
   })
 })

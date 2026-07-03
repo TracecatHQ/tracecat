@@ -194,11 +194,11 @@ export default function WorkspaceLayout({
 }
 
 function WorkspaceChildren({ children }: { children: React.ReactNode }) {
-  const params = useParams<{ workflowId?: string }>()
+  const params = useParams<{ workflowId?: string; caseId?: string }>()
   const canReadWorkspace = useScopeCheck("workspace:read")
   const pathname = usePathname()
   const isWorkflowBuilder = !!params?.workflowId
-  const isCasesPage = Boolean(pathname?.match(/\/cases(\/|$)/))
+  const isCaseDetailPage = Boolean(params?.caseId)
   const isInboxPage = pathname?.includes("/inbox")
   const isTablesPage = Boolean(pathname?.match(/\/tables(\/|$)/))
   const isSettingsPage = pathname?.includes("/settings")
@@ -227,8 +227,8 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
     return <>{children}</>
   }
 
-  // Cases pages have their own layout with an optional chat sidebar.
-  if (isCasesPage) {
+  // Case detail pages have their own layout with an optional chat sidebar.
+  if (isCaseDetailPage) {
     return <>{children}</>
   }
 
