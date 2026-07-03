@@ -1,10 +1,15 @@
 """add secret backend marker
 
 Adds a ``backend`` column to all secret tables. It records which secrets
-backend owns a secret's values: ``db`` (default, values Fernet-encrypted in
+backend a row was created under: ``db`` (default, values Fernet-encrypted in
 ``encrypted_keys``) or an external backend such as ``vault``, in which case
 the row is a value-less registration (name, key names, type, environment)
 and values are resolved from the external backend at runtime.
+
+Runtime dispatch is currently global (``TRACECAT__SECRETS_BACKEND``); the
+marker is an integrity guard (the database backend refuses to serve
+external-backend registrations as empty values) and lays the groundwork for
+future per-secret backend dispatch.
 
 Purely additive: existing rows are backfilled to ``db`` via the server
 default, which matches their actual storage.

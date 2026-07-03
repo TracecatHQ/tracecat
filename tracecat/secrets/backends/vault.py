@@ -32,11 +32,11 @@ Security invariants:
 
 from __future__ import annotations
 
-import re
 import threading
 import time
 from collections import OrderedDict
 from pathlib import Path as FilePath
+from urllib.parse import quote
 
 import httpx
 
@@ -46,7 +46,6 @@ from tracecat.exceptions import TracecatException
 from tracecat.logger import logger
 from tracecat.secrets.backend import SecretRegistration, SecretScope
 
-_PATH_SEGMENT_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _REQUEST_TIMEOUT_SECONDS = 10.0
 # Refresh the Vault token well before its lease expires.
 _TOKEN_LEASE_SAFETY_FACTOR = 0.8
@@ -56,14 +55,18 @@ class VaultSecretsError(TracecatException):
     """Raised when the Vault secrets backend cannot resolve secrets."""
 
 
-def _validate_path_segment(value: str, *, label: str) -> str:
-    """Reject path segments that could traverse outside the configured prefix."""
-    if not _PATH_SEGMENT_PATTERN.match(value):
+def _encode_path_segment(value: str, *, label: str) -> str:
+    """Encode one path segment, rejecting values that could traverse the path.
+
+    Tracecat does not constrain secret or environment names, so segments are
+    percent-encoded rather than restricted; only values that would change the
+    path structure ('.', '..', empty, embedded separators/NUL) are rejected.
+    """
+    if not value or value in (".", "..") or any(c in value for c in "/\\\x00"):
         raise VaultSecretsError(
-            f"Invalid {label} {value!r} for Vault secret path. "
-            "Only alphanumerics, '_', '-' and '.' are allowed."
+            f"Invalid {label} {value!r} for Vault secret path."
         )
-    return value
+    return quote(value, safe="")
 
 
 class VaultSecretsBackend:
@@ -160,10 +163,10 @@ class VaultSecretsBackend:
         self, *, scope: SecretScope, owner: str, environment: str, name: str
     ) -> str:
         segments = [
-            _validate_path_segment(scope, label="scope"),
-            _validate_path_segment(owner, label="owner"),
-            _validate_path_segment(environment, label="environment"),
-            _validate_path_segment(name, label="secret name"),
+            _encode_path_segment(scope, label="scope"),
+            _encode_path_segment(owner, label="owner"),
+            _encode_path_segment(environment, label="environment"),
+            _encode_path_segment(name, label="secret name"),
         ]
         if self._path_prefix:
             segments.insert(0, self._path_prefix)
@@ -220,10 +223,9 @@ class VaultSecretsBackend:
             raise VaultSecretsError(
                 f"Vault read failed for path {path!r} (HTTP {response.status_code})."
             )
-        payload = response.json()
         try:
-            data = payload["data"]["data"]
-        except (KeyError, TypeError) as e:
+            data = response.json()["data"]["data"]
+        except (KeyError, TypeError, ValueError) as e:
             raise VaultSecretsError(
                 f"Unexpected Vault KV v2 response shape for path {path!r}."
             ) from e

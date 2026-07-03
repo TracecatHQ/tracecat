@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat import config
 from tracecat.audit.logger import audit_log
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import Role
@@ -20,7 +21,6 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import SecretID, WorkspaceID
 from tracecat.logger import logger
-from tracecat import config
 from tracecat.registry.constants import REGISTRY_GIT_SSH_KEY_SECRET_NAME
 from tracecat.secrets.backend import SecretsBackend, get_secrets_backend
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT

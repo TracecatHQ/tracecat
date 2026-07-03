@@ -300,6 +300,97 @@ class TestVaultSecretsBackend:
                 scope="workspace",
                 role=test_backend_role,
             )
+        with pytest.raises(VaultSecretsError, match="Invalid"):
+            await backend.get_secret_values(
+                {"ok_name"}, "..", scope="workspace", role=test_backend_role
+            )
+
+    @respx.mock
+    async def test_unusual_names_are_percent_encoded(
+        self, vault_config, test_backend_role
+    ):
+        # Tracecat does not constrain environment names (e.g. "__FIRST__" is
+        # used in the test suite); segments are encoded, not rejected.
+        route = respx.get(
+            f"{VAULT_ADDR}/v1/secret/data/tracecat/workspace/{WORKSPACE_ID}"
+            "/__FIRST__/my%20secret"
+        ).mock(return_value=_kv_response({"K": "v"}))
+        backend = VaultSecretsBackend()
+        values = await backend.get_secret_values(
+            {"my secret"}, "__FIRST__", scope="workspace", role=test_backend_role
+        )
+        assert values == {"my secret": {"K": "v"}}
+        assert route.called
+
+
+class TestRegistrationOnlyWrites:
+    """When the backend is read-only, secret values must never reach the DB."""
+
+    def test_non_empty_values_rejected(self):
+        from pydantic import SecretStr
+
+        from tracecat.secrets.schemas import SecretKeyValue
+        from tracecat.secrets.service import SecretsService
+
+        with pytest.raises(ValueError, match="cannot be stored"):
+            SecretsService._assert_registration_only_keys(
+                [SecretKeyValue(key="K", value=SecretStr("v"))]
+            )
+
+    def test_empty_values_allowed(self):
+        from pydantic import SecretStr
+
+        from tracecat.secrets.schemas import SecretKeyValue
+        from tracecat.secrets.service import SecretsService
+
+        SecretsService._assert_registration_only_keys(
+            [SecretKeyValue(key="K", value=SecretStr(""))]
+        )
+
+
+@pytest.mark.anyio
+class TestDatabaseBackendRegistrationGuard:
+    """The db backend must not serve external-backend registrations as values."""
+
+    async def test_external_registration_rows_are_skipped(self, mocker):
+        import os
+        from datetime import datetime
+
+        from pydantic import SecretStr
+
+        from tracecat.db.models import Secret
+        from tracecat.secrets.encryption import encrypt_keyvalues
+        from tracecat.secrets.schemas import SecretKeyValue
+        from tracecat.secrets.service import SecretsService
+
+        registration = Secret(
+            name="vault_managed",
+            workspace_id=WORKSPACE_ID,
+            encrypted_keys=encrypt_keyvalues(
+                [SecretKeyValue(key="K", value=SecretStr(""))],
+                key=os.environ["TRACECAT__DB_ENCRYPTION_KEY"],
+            ),
+            backend="vault",
+            created_at=datetime.now(),
+            updated_at=datetime.now(),
+            tags={},
+        )
+        mock_service = mocker.AsyncMock(spec=SecretsService)
+        mock_service.search_secrets.return_value = [registration]
+        mocker.patch(
+            "tracecat.secrets.backends.database.SecretsService.with_session",
+            return_value=mocker.AsyncMock(
+                __aenter__=mocker.AsyncMock(return_value=mock_service)
+            ),
+        )
+        backend = DatabaseSecretsBackend()
+        values = await backend.get_secret_values(
+            {"vault_managed"},
+            "default",
+            scope="workspace",
+            role=None,
+        )
+        assert values == {}
 
 
 @pytest.mark.anyio

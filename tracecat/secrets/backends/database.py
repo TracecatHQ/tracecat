@@ -43,6 +43,16 @@ class DatabaseSecretsBackend:
         values: dict[str, dict[str, str]] = {}
         try:
             for secret in secrets:
+                # Registrations owned by an external backend hold no values;
+                # treat them as missing rather than serving empty strings
+                # (e.g. after switching TRACECAT__SECRETS_BACKEND back to db).
+                if getattr(secret, "backend", None) not in (None, "db"):
+                    logger.warning(
+                        "Skipping secret owned by an external backend",
+                        secret_name=secret.name,
+                        secret_backend=secret.backend,
+                    )
+                    continue
                 keyvalues = decrypt_keyvalues(
                     secret.encrypted_keys, key=encryption_key
                 )

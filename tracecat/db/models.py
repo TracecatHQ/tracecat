@@ -662,8 +662,10 @@ class BaseSecret(Base):
     backend: Mapped[str] = mapped_column(
         String(50), nullable=False, default="db", server_default="db"
     )
-    """Secrets backend that owns this secret's values. For external backends
-    (e.g. 'vault') the row is a value-less registration."""
+    """Secrets backend the secret was created under. For external backends
+    (e.g. 'vault') the row is a value-less registration. Dispatch is global
+    via TRACECAT__SECRETS_BACKEND; this marker guards against serving
+    registrations as values and enables future per-secret dispatch."""
     environment: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
