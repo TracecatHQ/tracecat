@@ -493,6 +493,99 @@ async def test_build_token_scoped_tools_filters_subagent_catalog(
     ]
 
 
+@pytest.mark.anyio
+async def test_user_mcp_discovery_cache_is_scoped_by_claimed_server_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    integration_id = uuid.UUID("00000000-0000-0000-0000-000000000004")
+
+    async def fake_fetch_tool_definitions(
+        action_names: list[str],
+    ) -> dict[str, MCPToolDefinition]:
+        assert action_names == []
+        return {}
+
+    class _PresetServiceContext:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def resolve_mcp_integration_refs(self, integration_ids):
+            assert integration_ids == [str(integration_id)]
+            return [
+                {
+                    "type": "http",
+                    "name": "Stored server name",
+                    "url": "https://mcp.example.com/v1",
+                    "transport": "http",
+                    "id": str(integration_id),
+                }
+            ]
+
+        async def resolve_mcp_integration_secrets(self, resolved_integration_id):
+            assert resolved_integration_id == integration_id
+            return {}
+
+    discovered_config_names: list[list[str]] = []
+
+    class _FakeUserMCPClient:
+        parse_user_mcp_tool_name = staticmethod(UserMCPClient.parse_user_mcp_tool_name)
+
+        def __init__(self, configs: list[dict[str, Any]]) -> None:
+            self.configs = configs
+            discovered_config_names.append([config["name"] for config in configs])
+
+        async def discover_tools_detailed(self) -> UserMCPDiscoveryResult:
+            assert len(self.configs) == 1
+            server_name = self.configs[0]["name"]
+            tool_name = f"mcp__{server_name}__getIssue"
+            return UserMCPDiscoveryResult(
+                definitions={
+                    tool_name: MCPToolDefinition(
+                        name=tool_name,
+                        description=f"Get issue from {server_name}",
+                        parameters_json_schema={"type": "object"},
+                    )
+                },
+                failed_servers={},
+            )
+
+    monkeypatch.setattr(
+        trusted_server,
+        "fetch_tool_definitions",
+        fake_fetch_tool_definitions,
+    )
+    monkeypatch.setattr(
+        AgentPresetService,
+        "with_session",
+        lambda role=None: _PresetServiceContext(),
+    )
+    monkeypatch.setattr(trusted_server, "UserMCPClient", _FakeUserMCPClient)
+
+    def claims_for_server(server_name: str) -> MCPTokenClaims:
+        return _build_claims(
+            allowed_actions=[f"mcp__{server_name}__getIssue"],
+            user_mcp_servers=[UserMCPServerClaim(name=server_name, id=integration_id)],
+        )
+
+    jira_tools = await trusted_server.build_token_scoped_tools(
+        claims_for_server("Jira")
+    )
+    linear_tools = await trusted_server.build_token_scoped_tools(
+        claims_for_server("Linear")
+    )
+
+    assert [tool.name for tool in jira_tools] == ["mcp__Jira__getIssue"]
+    assert [tool.name for tool in linear_tools] == ["mcp__Linear__getIssue"]
+    assert discovered_config_names == [["Jira"], ["Linear"]]
+    assert set(trusted_server._USER_MCP_DISCOVERY_CACHE) == {
+        ("Jira", str(integration_id)),
+        ("Linear", str(integration_id)),
+    }
+
+
 @pytest.mark.parametrize(
     (
         "tool_name",

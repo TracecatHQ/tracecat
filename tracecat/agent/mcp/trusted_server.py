@@ -77,6 +77,7 @@ from tracecat.registry.lock.service import RegistryLockService
 _TOKEN_TOOL_CACHE_MAX_SIZE = 256
 _USER_MCP_DISCOVERY_CACHE_TTL_SECONDS = 45.0
 _USER_MCP_DISCOVERY_CACHE_MAX_SIZE = 512
+_UserMCPDiscoveryCacheKey = tuple[str, str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,7 +86,10 @@ class _UserMCPDiscoveryCacheEntry:
     definitions: dict[str, MCPToolDefinition]
 
 
-_USER_MCP_DISCOVERY_CACHE: dict[str, _UserMCPDiscoveryCacheEntry] = {}
+_USER_MCP_DISCOVERY_CACHE: dict[
+    _UserMCPDiscoveryCacheKey,
+    _UserMCPDiscoveryCacheEntry,
+] = {}
 _USER_MCP_DISCOVERY_CACHE_LOCK = asyncio.Lock()
 
 
@@ -175,10 +179,12 @@ def _format_failed_user_mcp_servers(failed_servers: dict[str, str]) -> str:
     )
 
 
-def _user_mcp_discovery_cache_key(config: MCPHttpServerConfig) -> str:
+def _user_mcp_discovery_cache_key(
+    config: MCPHttpServerConfig,
+) -> _UserMCPDiscoveryCacheKey:
     if integration_id := config.get("id"):
-        return integration_id
-    return config["url"]
+        return (config["name"], integration_id)
+    return (config["name"], config["url"])
 
 
 def _evict_user_mcp_discovery_cache(now: float) -> None:
