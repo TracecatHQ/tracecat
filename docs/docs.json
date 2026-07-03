@@ -150,6 +150,7 @@
               "self-hosting/aws-fargate",
               "self-hosting/kubernetes",
               "self-hosting/environment-variables",
+              "self-hosting/secrets-backends",
               "self-hosting/security"
             ]
           },

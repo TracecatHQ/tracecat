@@ -316,6 +316,52 @@ OAUTH_CLIENT_SECRET = OIDC_CLIENT_SECRET
 USER_AUTH_SECRET = os.environ.get("USER_AUTH_SECRET")
 TRACECAT__DB_ENCRYPTION_KEY = os.environ.get("TRACECAT__DB_ENCRYPTION_KEY")
 TRACECAT__SIGNING_SECRET = os.environ.get("TRACECAT__SIGNING_SECRET")
+
+# === Secrets backend === #
+TRACECAT__SECRETS_BACKEND = os.environ.get("TRACECAT__SECRETS_BACKEND", "db")
+"""Where workflow secret values live: 'db' (encrypted in the Tracecat
+database, default) or 'vault' (read from HashiCorp Vault at runtime)."""
+
+TRACECAT__VAULT_ADDR = os.environ.get("TRACECAT__VAULT_ADDR")
+"""Base URL of the Vault server, e.g. https://vault.example.com:8200."""
+
+TRACECAT__VAULT_KV_MOUNT = os.environ.get("TRACECAT__VAULT_KV_MOUNT", "secret")
+"""Mount path of the KV v2 secrets engine."""
+
+TRACECAT__VAULT_PATH_PREFIX = os.environ.get("TRACECAT__VAULT_PATH_PREFIX", "tracecat")
+"""Path prefix under the KV mount for all Tracecat secrets."""
+
+TRACECAT__VAULT_AUTH_METHOD = os.environ.get("TRACECAT__VAULT_AUTH_METHOD", "jwt")
+"""Vault auth method: 'jwt' (projected service account token) or 'token'
+(static token, development only)."""
+
+TRACECAT__VAULT_JWT_AUTH_MOUNT = os.environ.get("TRACECAT__VAULT_JWT_AUTH_MOUNT", "jwt")
+"""Mount path of the Vault JWT auth method."""
+
+TRACECAT__VAULT_JWT_ROLE = os.environ.get("TRACECAT__VAULT_JWT_ROLE")
+"""Vault JWT auth role to log in as, e.g. 'tracecat-executor'."""
+
+TRACECAT__VAULT_JWT_TOKEN_PATH = os.environ.get(
+    "TRACECAT__VAULT_JWT_TOKEN_PATH", "/var/run/secrets/tokens/vault-token"
+)
+"""Filesystem path of the projected service account token used for JWT login."""
+
+TRACECAT__VAULT_TOKEN = os.environ.get("TRACECAT__VAULT_TOKEN")
+"""Static Vault token for TRACECAT__VAULT_AUTH_METHOD=token. Development only."""
+
+TRACECAT__VAULT_NAMESPACE = os.environ.get("TRACECAT__VAULT_NAMESPACE")
+"""Optional Vault Enterprise namespace."""
+
+TRACECAT__VAULT_CACHE_TTL_SECONDS = bound_env(
+    "TRACECAT__VAULT_CACHE_TTL_SECONDS", 45.0, lower=0.0, upper=300.0
+)
+"""TTL for the in-process Vault value cache. 0 disables caching. Keep this
+below the Vault lease TTL of the secrets being served."""
+
+TRACECAT__VAULT_CACHE_MAX_SIZE = bound_env(
+    "TRACECAT__VAULT_CACHE_MAX_SIZE", 1024, lower=0, upper=100_000
+)
+"""Maximum number of entries in the in-process Vault value cache (LRU)."""
 TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID = os.environ.get(
     "TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID"
 )

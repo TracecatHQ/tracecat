@@ -20,11 +20,14 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import SecretID, WorkspaceID
 from tracecat.logger import logger
+from tracecat import config
 from tracecat.registry.constants import REGISTRY_GIT_SSH_KEY_SECRET_NAME
+from tracecat.secrets.backend import SecretsBackend, get_secrets_backend
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import (
+    SSH_PRIVATE_KEY_NAME,
     SecretCreate,
     SecretKeyValue,
     SecretSearch,
@@ -63,10 +66,24 @@ class SecretsService(BaseOrgService):
         """Encrypt and return the keys for a secret."""
         return encrypt_keyvalues(keys, key=self._encryption_key)
 
+    @staticmethod
+    def _assert_registration_only_keys(keys: list[SecretKeyValue]) -> None:
+        """Reject secret values when the backend does not store values in Tracecat."""
+        if any(kv.value.get_secret_value() for kv in keys):
+            raise ValueError(
+                "Secret values are managed by the "
+                f"{config.TRACECAT__SECRETS_BACKEND!r} secrets backend and cannot "
+                "be stored in Tracecat. Register the secret with empty values and "
+                "store the actual values in the external backend."
+            )
+
     # === Base secrets ===
 
     async def _update_secret(self, secret: BaseSecret, params: SecretUpdate) -> None:
         """Update a base secret."""
+        can_write_values = get_secrets_backend().can_write
+        if not can_write_values and params.keys is not None:
+            self._assert_registration_only_keys(params.keys)
         existing_type = SecretType(secret.type)
         if existing_type == SecretType.SSH_KEY:
             if params.type is not None and SecretType(params.type) != existing_type:
@@ -150,10 +167,11 @@ class SecretsService(BaseOrgService):
                 else:
                     merged_keyvalues.append(SecretKeyValue(**kv))
 
-            if existing_type == SecretType.MTLS:
-                validate_mtls_key_values(merged_keyvalues)
-            elif existing_type == SecretType.CA_CERT:
-                validate_ca_cert_values(merged_keyvalues)
+            if can_write_values:
+                if existing_type == SecretType.MTLS:
+                    validate_mtls_key_values(merged_keyvalues)
+                elif existing_type == SecretType.CA_CERT:
+                    validate_ca_cert_values(merged_keyvalues)
 
             secret.encrypted_keys = encrypt_keyvalues(
                 merged_keyvalues, key=self._encryption_key
@@ -256,12 +274,17 @@ class SecretsService(BaseOrgService):
     async def create_secret(self, params: SecretCreate) -> None:
         """Create a workspace secret."""
         workspace_id = self._require_workspace_id()
-        if params.type == SecretType.SSH_KEY:
-            validate_ssh_key_values(params.keys)
-        elif params.type == SecretType.MTLS:
-            validate_mtls_key_values(params.keys)
-        elif params.type == SecretType.CA_CERT:
-            validate_ca_cert_values(params.keys)
+        if get_secrets_backend().can_write:
+            if params.type == SecretType.SSH_KEY:
+                validate_ssh_key_values(params.keys)
+            elif params.type == SecretType.MTLS:
+                validate_mtls_key_values(params.keys)
+            elif params.type == SecretType.CA_CERT:
+                validate_ca_cert_values(params.keys)
+        else:
+            # Value-less registration: only key names are recorded; values are
+            # served by the external backend at runtime.
+            self._assert_registration_only_keys(params.keys)
         secret = Secret(
             workspace_id=workspace_id,
             name=params.name,
@@ -270,6 +293,7 @@ class SecretsService(BaseOrgService):
             tags=params.tags,
             encrypted_keys=self.encrypt_keys(params.keys),
             environment=params.environment,
+            backend=config.TRACECAT__SECRETS_BACKEND,
         )
         self.session.add(secret)
         await self.session.commit()
@@ -386,12 +410,17 @@ class SecretsService(BaseOrgService):
     @audit_log(resource_type="organization_secret", action="create")
     async def _create_org_secret(self, params: SecretCreate) -> None:
         """Create an organization secret for callers with their own access gate."""
-        if params.type == SecretType.SSH_KEY:
-            validate_ssh_key_values(params.keys)
-        elif params.type == SecretType.MTLS:
-            validate_mtls_key_values(params.keys)
-        elif params.type == SecretType.CA_CERT:
-            validate_ca_cert_values(params.keys)
+        if get_secrets_backend().can_write:
+            if params.type == SecretType.SSH_KEY:
+                validate_ssh_key_values(params.keys)
+            elif params.type == SecretType.MTLS:
+                validate_mtls_key_values(params.keys)
+            elif params.type == SecretType.CA_CERT:
+                validate_ca_cert_values(params.keys)
+        else:
+            # Value-less registration: only key names are recorded; values are
+            # served by the external backend at runtime.
+            self._assert_registration_only_keys(params.keys)
         secret = OrganizationSecret(
             organization_id=self.organization_id,
             name=params.name,
@@ -400,6 +429,7 @@ class SecretsService(BaseOrgService):
             tags=params.tags,
             encrypted_keys=self.encrypt_keys(params.keys),
             environment=params.environment,
+            backend=config.TRACECAT__SECRETS_BACKEND,
         )
         self.session.add(secret)
         await self.session.commit()
@@ -446,8 +476,11 @@ class SecretsService(BaseOrgService):
     async def get_registry_ssh_key(
         self, key_name: str | None = None, environment: str | None = None
     ) -> SecretStr:
+        key_name = key_name or REGISTRY_GIT_SSH_KEY_SECRET_NAME
+        backend = get_secrets_backend()
+        if not backend.can_write:
+            return await self._get_ssh_key_from_backend(backend, key_name, environment)
         try:
-            key_name = key_name or REGISTRY_GIT_SSH_KEY_SECRET_NAME
             secret = await self.get_org_secret_by_name(key_name, environment)
             kv = self.decrypt_keys(secret.encrypted_keys)[0]
             logger.debug("SSH key found", key_name=key_name, key_length=len(kv.value))
@@ -463,3 +496,39 @@ class SecretsService(BaseOrgService):
                 f"SSH key {key_name} not found. Please check whether this key exists.\n\n"
                 " If not, please create a key in your organization's credentials page and try again."
             ) from e
+
+    async def _get_ssh_key_from_backend(
+        self,
+        backend: SecretsBackend,
+        key_name: str,
+        environment: str | None = None,
+    ) -> SecretStr:
+        """Resolve an organization SSH key from an external secrets backend."""
+        values = await backend.get_secret_values(
+            {key_name},
+            environment or DEFAULT_SECRETS_ENVIRONMENT,
+            scope="organization",
+            role=self.role,
+        )
+        keyvalues = values.get(key_name)
+        if not keyvalues:
+            raise TracecatCredentialsNotFoundError(
+                f"SSH key {key_name} not found. Please check whether this key exists.\n\n"
+                " If not, please create a key in your organization's credentials page and try again."
+            )
+        if SSH_PRIVATE_KEY_NAME in keyvalues:
+            raw_value = keyvalues[SSH_PRIVATE_KEY_NAME]
+        elif len(keyvalues) == 1:
+            raw_value = next(iter(keyvalues.values()))
+        else:
+            raise TracecatCredentialsNotFoundError(
+                f"SSH key secret {key_name} must store the private key under the "
+                f"{SSH_PRIVATE_KEY_NAME!r} key."
+            )
+        logger.debug("SSH key found", key_name=key_name, key_length=len(raw_value))
+        # SSH keys must end with a newline char otherwise we run into
+        # load key errors in librcrypto.
+        # https://github.com/openssl/openssl/discussions/21481
+        if not raw_value.endswith("\n"):
+            raw_value += "\n"
+        return SecretStr(raw_value)
