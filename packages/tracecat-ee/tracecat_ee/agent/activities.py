@@ -245,6 +245,7 @@ class AgentActivities:
                 discover_user_mcp_tools,
             )
             from tracecat.agent.preset.service import AgentPresetService
+            from tracecat.integrations.mcp_validation import MCPSecretResolutionError
 
             http_servers = [cfg for cfg in args.mcp_servers if is_http_mcp_server(cfg)]
             if not http_servers:
@@ -295,7 +296,7 @@ class AgentActivities:
                             secrets = await svc.resolve_mcp_integration_secrets(
                                 integration_id
                             )
-                        except ValueError:
+                        except (ValueError, MCPSecretResolutionError):
                             secrets = None
                         if secrets:
                             hydrated["headers"] = secrets

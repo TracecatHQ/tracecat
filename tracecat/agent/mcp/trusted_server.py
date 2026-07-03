@@ -13,9 +13,12 @@ Docker container with nsjail installed (e.g., the executor image).
 
 from __future__ import annotations
 
+import asyncio
 import json
+import time
 from collections import OrderedDict
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from fastmcp import FastMCP
@@ -67,10 +70,23 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.integrations.mcp_validation import MCPSecretResolutionError
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 
 _TOKEN_TOOL_CACHE_MAX_SIZE = 256
+_USER_MCP_DISCOVERY_CACHE_TTL_SECONDS = 45.0
+_USER_MCP_DISCOVERY_CACHE_MAX_SIZE = 512
+
+
+@dataclass(frozen=True, slots=True)
+class _UserMCPDiscoveryCacheEntry:
+    expires_at: float
+    definitions: dict[str, MCPToolDefinition]
+
+
+_USER_MCP_DISCOVERY_CACHE: dict[str, _UserMCPDiscoveryCacheEntry] = {}
+_USER_MCP_DISCOVERY_CACHE_LOCK = asyncio.Lock()
 
 
 class TracecatScopedTool(Tool):
@@ -143,6 +159,81 @@ def _set_role_context(claims: MCPTokenClaims) -> Role:
 def _safe_error_type(exc: Exception) -> str:
     """Return only the exception class name for log-safe reporting."""
     return type(exc).__name__
+
+
+def _safe_user_mcp_error_summary(exc: Exception) -> str:
+    """Summarize user MCP discovery errors without secret-bearing details."""
+    if isinstance(exc.__cause__, MCPSecretResolutionError):
+        return f"{type(exc).__name__}(cause=MCPSecretResolutionError)"
+    return type(exc).__name__
+
+
+def _format_failed_user_mcp_servers(failed_servers: dict[str, str]) -> str:
+    return "; ".join(
+        f"{server_name}: {summary}"
+        for server_name, summary in sorted(failed_servers.items())
+    )
+
+
+def _user_mcp_discovery_cache_key(config: MCPHttpServerConfig) -> str:
+    if integration_id := config.get("id"):
+        return integration_id
+    return config["url"]
+
+
+def _evict_user_mcp_discovery_cache(now: float) -> None:
+    expired_keys = [
+        key
+        for key, entry in _USER_MCP_DISCOVERY_CACHE.items()
+        if entry.expires_at <= now
+    ]
+    for key in expired_keys:
+        _USER_MCP_DISCOVERY_CACHE.pop(key, None)
+
+    overflow_count = len(_USER_MCP_DISCOVERY_CACHE) - _USER_MCP_DISCOVERY_CACHE_MAX_SIZE
+    if overflow_count <= 0:
+        return
+    for key in list(_USER_MCP_DISCOVERY_CACHE)[:overflow_count]:
+        _USER_MCP_DISCOVERY_CACHE.pop(key, None)
+
+
+async def _get_cached_user_mcp_discovery(
+    config: MCPHttpServerConfig,
+) -> dict[str, MCPToolDefinition] | None:
+    now = time.monotonic()
+    cache_key = _user_mcp_discovery_cache_key(config)
+    async with _USER_MCP_DISCOVERY_CACHE_LOCK:
+        _evict_user_mcp_discovery_cache(now)
+        if entry := _USER_MCP_DISCOVERY_CACHE.get(cache_key):
+            return dict(entry.definitions)
+    return None
+
+
+async def _set_cached_user_mcp_discovery(
+    config: MCPHttpServerConfig,
+    definitions: dict[str, MCPToolDefinition],
+) -> None:
+    now = time.monotonic()
+    cache_key = _user_mcp_discovery_cache_key(config)
+    entry = _UserMCPDiscoveryCacheEntry(
+        expires_at=now + _USER_MCP_DISCOVERY_CACHE_TTL_SECONDS,
+        definitions=dict(definitions),
+    )
+    async with _USER_MCP_DISCOVERY_CACHE_LOCK:
+        _evict_user_mcp_discovery_cache(now)
+        _USER_MCP_DISCOVERY_CACHE[cache_key] = entry
+
+
+def _user_mcp_definitions_for_server(
+    definitions: dict[str, MCPToolDefinition],
+    server_name: str,
+) -> dict[str, MCPToolDefinition]:
+    prefix = f"mcp__{server_name}__"
+    return {
+        name: definition
+        for name, definition in definitions.items()
+        if name.startswith(prefix)
+    }
 
 
 def _claims_from_token(token: str) -> MCPTokenClaims:
@@ -253,6 +344,10 @@ async def _resolve_user_mcp_config(
             secrets = await svc.resolve_mcp_integration_secrets(ref.id)
     except ToolError:
         raise
+    except MCPSecretResolutionError as e:
+        raise ToolError(
+            f"Credentials for MCP server '{ref.name}' could not be resolved"
+        ) from e
     except (TracecatValidationError, TracecatNotFoundError) as e:
         raise ToolError(f"MCP integration {ref.id} is unavailable: {e}") from None
     except Exception:
@@ -272,6 +367,7 @@ async def _resolve_user_mcp_config(
         "url": metadata["url"],
         "transport": metadata.get("transport", "http"),
         "headers": secrets or {},
+        "id": str(ref.id),
     }
     timeout = metadata.get("timeout")
     if timeout is not None:
@@ -302,29 +398,58 @@ def _build_scoped_tool(
 
 async def _discover_allowed_user_mcp_tools(
     claims: MCPTokenClaims,
-) -> dict[str, MCPToolDefinition]:
+) -> tuple[dict[str, MCPToolDefinition], dict[str, str]]:
     allowed_user_tools = _user_mcp_tool_names(claims)
     if not allowed_user_tools or not claims.user_mcp_servers:
-        return {}
+        return {}, {}
 
     role = _set_role_context(claims)
-    configs = [
-        await _resolve_user_mcp_config(server, role)
-        for server in claims.user_mcp_servers
-    ]
-    client = UserMCPClient(configs)
-    discovered = await client.discover_tools()
+    configs: list[MCPHttpServerConfig] = []
+    failed_servers: dict[str, str] = {}
+    for server in claims.user_mcp_servers:
+        try:
+            configs.append(await _resolve_user_mcp_config(server, role))
+        except ToolError as e:
+            failed_servers[server.name] = _safe_user_mcp_error_summary(e)
+
+    discovered: dict[str, MCPToolDefinition] = {}
+    uncached_configs: list[MCPHttpServerConfig] = []
+    for config in configs:
+        cached = await _get_cached_user_mcp_discovery(config)
+        if cached is None:
+            uncached_configs.append(config)
+        else:
+            discovered.update(cached)
+
+    if uncached_configs:
+        client = UserMCPClient(uncached_configs)
+        discovery = await client.discover_tools_detailed()
+        failed_servers.update(discovery.failed_servers)
+        discovered.update(discovery.definitions)
+
+        for config in uncached_configs:
+            server_name = config["name"]
+            if server_name in discovery.failed_servers:
+                continue
+            await _set_cached_user_mcp_discovery(
+                config,
+                _user_mcp_definitions_for_server(discovery.definitions, server_name),
+            )
+
     return {
         name: definition
         for name, definition in discovered.items()
         if name in allowed_user_tools
-    }
+    }, failed_servers
 
 
 async def build_token_scoped_tools(claims: MCPTokenClaims) -> list[Tool]:
     """Build the MCP tool catalog visible to one verified token."""
     _set_role_context(claims)
     tools: list[Tool] = []
+    registry_tool_count = 0
+    internal_tool_count = 0
+    user_mcp_tool_count = 0
 
     registry_action_names = _registry_action_names(claims)
     registry_definitions = (
@@ -347,6 +472,7 @@ async def build_token_scoped_tools(claims: MCPTokenClaims) -> list[Tool]:
                     claims=claims,
                 )
             )
+            registry_tool_count += 1
 
     internal_definitions = get_builder_internal_tool_definitions()
     for tool_name in _internal_tool_names(claims):
@@ -359,16 +485,35 @@ async def build_token_scoped_tools(claims: MCPTokenClaims) -> list[Tool]:
                     claims=claims,
                 )
             )
+            internal_tool_count += 1
 
-    try:
-        user_mcp_definitions = await _discover_allowed_user_mcp_tools(claims)
-    except Exception as e:
-        logger.warning(
-            "Failed to discover token-scoped user MCP tools",
-            error_type=_safe_error_type(e),
+    expected_user_mcp_tool_names = _user_mcp_tool_names(claims)
+    (
+        user_mcp_definitions,
+        failed_user_mcp_servers,
+    ) = await _discover_allowed_user_mcp_tools(claims)
+    if (
+        expected_user_mcp_tool_names
+        and not user_mcp_definitions
+        and failed_user_mcp_servers
+    ):
+        failed_summary = _format_failed_user_mcp_servers(failed_user_mcp_servers)
+        logger.error(
+            "Failed to resolve any expected user MCP tools",
+            session_id=str(claims.session_id),
             workspace_id=str(claims.workspace_id),
+            failed_servers=failed_user_mcp_servers,
         )
-        user_mcp_definitions = {}
+        raise ToolError(f"User MCP discovery failed for all tools: {failed_summary}")
+
+    if failed_user_mcp_servers:
+        logger.warning(
+            "Partially failed to discover token-scoped user MCP tools",
+            session_id=str(claims.session_id),
+            workspace_id=str(claims.workspace_id),
+            failed_servers=failed_user_mcp_servers,
+        )
+
     for tool_name in claims.allowed_actions:
         if definition := user_mcp_definitions.get(tool_name):
             tools.append(
@@ -379,6 +524,17 @@ async def build_token_scoped_tools(claims: MCPTokenClaims) -> list[Tool]:
                     claims=claims,
                 )
             )
+            user_mcp_tool_count += 1
+
+    logger.info(
+        "Built token-scoped MCP tool listing",
+        session_id=str(claims.session_id),
+        workspace_id=str(claims.workspace_id),
+        registry_tool_count=registry_tool_count,
+        internal_tool_count=internal_tool_count,
+        user_mcp_tool_count=user_mcp_tool_count,
+        failed_server_names=list(failed_user_mcp_servers),
+    )
 
     return tools
 

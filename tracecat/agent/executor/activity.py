@@ -68,6 +68,7 @@ from tracecat.config import (
     TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS,
 )
 from tracecat.feature_flags import FeatureFlag, is_feature_enabled
+from tracecat.integrations.mcp_validation import MCPSecretResolutionError
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage import blob
@@ -901,7 +902,7 @@ async def _hydrate_stdio_env(
                     )
                 try:
                     env = await svc.resolve_mcp_integration_secrets(uuid.UUID(cfg_id))
-                except ValueError:
+                except (ValueError, MCPSecretResolutionError):
                     env = None
                 result.append({**cfg, "env": env} if env else cfg)
     return result

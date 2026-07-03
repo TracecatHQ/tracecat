@@ -56,8 +56,10 @@ from tracecat.dsl.common import create_default_execution_context
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.executor.service import get_workspace_variables
 from tracecat.expressions.eval import collect_expressions, eval_templated_object
+from tracecat.integrations.enums import MCPAuthType
 from tracecat.integrations.mcp_validation import (
     MCPConfigurationError,
+    MCPSecretResolutionError,
     MCPValidationError,
     validate_mcp_command_config,
 )
@@ -958,10 +960,15 @@ class AgentPresetService(BaseWorkspaceService):
 
         Returns the headers/env dict (depending on server type) freshly
         decrypted, with OAuth tokens refreshed if applicable. Returns
-        ``None`` if the integration cannot be authenticated or is not found.
+        ``None`` only when the integration is not found or has no secrets to
+        resolve.
 
         Call this at the trusted edge per use — never propagate the result
         across a Temporal boundary.
+
+        Raises:
+            MCPSecretResolutionError: If configured credentials/env exist but
+                cannot be resolved.
         """
         integrations_service = IntegrationService(self.session, role=self.role)
         available = await integrations_service.list_mcp_integrations()
@@ -998,7 +1005,12 @@ class AgentPresetService(BaseWorkspaceService):
                         "mcp_integration_id": str(mcp_integration.id),
                     },
                 )
-                return None
+                raise MCPSecretResolutionError(
+                    "Stdio MCP integration env could not be resolved",
+                    mcp_integration_id=mcp_integration.id,
+                    server_name=mcp_integration.name,
+                    server_slug=mcp_integration.slug,
+                ) from e
 
         # HTTP server — resolve headers per auth type.
         try:
@@ -1015,6 +1027,13 @@ class AgentPresetService(BaseWorkspaceService):
                     "mcp_integration_id": str(mcp_integration.id),
                 },
             )
+            if mcp_integration.auth_type in {MCPAuthType.OAUTH2, MCPAuthType.CUSTOM}:
+                raise MCPSecretResolutionError(
+                    "HTTP MCP integration credentials could not be resolved",
+                    mcp_integration_id=mcp_integration.id,
+                    server_name=mcp_integration.name,
+                    server_slug=mcp_integration.slug,
+                ) from e
             return None
         return server_config.get("headers", {})
 

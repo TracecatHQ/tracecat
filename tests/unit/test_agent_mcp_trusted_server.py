@@ -8,11 +8,16 @@ from fastmcp.exceptions import ToolError
 from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.mcp import trusted_server
 from tracecat.agent.mcp.metadata import PROXY_TOOL_CALL_ID_KEY, PROXY_TOOL_METADATA_KEY
-from tracecat.agent.mcp.user_client import UserMCPClient
+from tracecat.agent.mcp.user_client import UserMCPClient, UserMCPDiscoveryResult
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.tokens import MCPTokenClaims, UserMCPServerClaim
 from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
 from tracecat.registry.lock.types import RegistryLock
+
+
+@pytest.fixture(autouse=True)
+def clear_user_mcp_discovery_cache() -> None:
+    trusted_server._USER_MCP_DISCOVERY_CACHE.clear()
 
 
 def _build_claims(
@@ -149,6 +154,7 @@ async def test_execute_user_mcp_tool_uses_claimed_name_for_resolved_config(
             "url": "https://mcp.atlassian.com/v1/mcp",
             "transport": "http",
             "headers": {"Authorization": "Bearer secret"},
+            "id": str(integration_id),
         }
     ]
     assert call_args == {
@@ -439,23 +445,26 @@ async def test_build_token_scoped_tools_filters_subagent_catalog(
         def __init__(self, configs: list[dict[str, Any]]) -> None:
             self.configs = configs
 
-        async def discover_tools(self) -> dict[str, MCPToolDefinition]:
+        async def discover_tools_detailed(self) -> UserMCPDiscoveryResult:
             assert [config["name"] for config in self.configs] == ["Jira"]
-            return {
-                "mcp__Jira__getIssue": MCPToolDefinition(
-                    name="mcp__Jira__getIssue",
-                    description="Get issue",
-                    parameters_json_schema={
-                        "type": "object",
-                        "properties": {"issueKey": {"type": "string"}},
-                    },
-                ),
-                "mcp__Jira__listProjects": MCPToolDefinition(
-                    name="mcp__Jira__listProjects",
-                    description="List projects",
-                    parameters_json_schema={"type": "object"},
-                ),
-            }
+            return UserMCPDiscoveryResult(
+                definitions={
+                    "mcp__Jira__getIssue": MCPToolDefinition(
+                        name="mcp__Jira__getIssue",
+                        description="Get issue",
+                        parameters_json_schema={
+                            "type": "object",
+                            "properties": {"issueKey": {"type": "string"}},
+                        },
+                    ),
+                    "mcp__Jira__listProjects": MCPToolDefinition(
+                        name="mcp__Jira__listProjects",
+                        description="List projects",
+                        parameters_json_schema={"type": "object"},
+                    ),
+                },
+                failed_servers={},
+            )
 
     monkeypatch.setattr(
         trusted_server,
