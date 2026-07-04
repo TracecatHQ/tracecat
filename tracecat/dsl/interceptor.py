@@ -64,8 +64,8 @@ def _set_fingerprint(
                 "tracecat.parent.workflow_exec_id", parent_run_context.wf_exec_id
             )
         if dsl := arg.dsl:
-            sentry.set_tag("tracecat.dsl.title", dsl.title)
-            sentry.set_tag("tracecat.dsl.description", dsl.description)
+            # Title and description are user-authored free text that may contain
+            # customer identifiers, so they are deliberately not sent to Sentry.
             sentry.set_tag("tracecat.dsl.error_handler", dsl.error_handler)
             sentry.set_tag("tracecat.dsl.config.timeout", dsl.config.timeout)
     else:
