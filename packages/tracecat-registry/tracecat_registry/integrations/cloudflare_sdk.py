@@ -102,6 +102,17 @@ def call_paginated_method(
         dict[str, Any] | None,
         Field(..., description="Parameters for the Cloudflare SDK method."),
     ] = None,
+    limit: Annotated[
+        int | None,
+        Field(
+            ...,
+            ge=1,
+            description=(
+                "Maximum number of items to return across all pages. "
+                "If null, fetches every page."
+            ),
+        ),
+    ] = None,
 ) -> list[Any]:
     params = params or {}
     _validate_public_name(method_name, "Method name")
@@ -112,5 +123,11 @@ def call_paginated_method(
         raise ValueError(
             "Cloudflare paginated methods must return a Cloudflare page object."
         )
-    # Iterating a Cloudflare page auto-paginates across all pages.
-    return [to_jsonable_python(item) for item in result]
+    # Iterating a Cloudflare page auto-paginates across all pages. Pages are
+    # fetched lazily, so stopping at the limit avoids requesting further pages.
+    items: list[Any] = []
+    for item in result:
+        items.append(to_jsonable_python(item))
+        if limit is not None and len(items) >= limit:
+            break
+    return items
