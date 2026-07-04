@@ -20,6 +20,13 @@ const SENSITIVE_KEY_PARTS = [
 const SENSITIVE_QUERY_KEY_PARTS = [...SENSITIVE_KEY_PARTS, "code", "state"]
 const REQUEST_URL_KEYS = new Set(["url", "requesturl"])
 const REQUEST_QUERY_KEYS = new Set(["querystring"])
+// Mirrors the backend `_URL_PATH_SECRET_RES` so bearer-token path segments in
+// generated API URLs are redacted before events leave the browser.
+const URL_PATH_SECRET_PATTERNS = [
+  /^(.*?\/webhooks\/[^/]+\/)[^/]+(?=\/|$)/,
+  /^(.*?\/invitations\/token\/)[^/]+(?=\/|$)/,
+  /^(.*?\/agent\/channels\/[^/]+\/)[^/]+(?=\/|$)/,
+]
 
 /** Removes sensitive values from Sentry payloads before they leave the browser. */
 export function beforeSend(
@@ -106,16 +113,27 @@ function scrubUrlQuery(value: string): string {
     parsedUrl.username = ""
     parsedUrl.password = ""
     parsedUrl.hash = ""
-    parsedUrl.search = parsedUrl.search
+    const redactedPath = redactUrlPathSecrets(parsedUrl.pathname)
+    const scrubbedSearch = parsedUrl.search
       ? scrubQueryString(parsedUrl.search)
       : ""
+    const suffix = scrubbedSearch ? `?${scrubbedSearch}` : ""
     if (isAbsoluteUrl) {
-      return parsedUrl.toString()
+      return `${parsedUrl.protocol}//${parsedUrl.host}${redactedPath}${suffix}`
     }
-    return `${parsedUrl.pathname}${parsedUrl.search}`
+    return `${redactedPath}${suffix}`
   } catch {
     return value
   }
+}
+
+/** Redacts bearer-token path segments that can appear in request URLs. */
+function redactUrlPathSecrets(path: string): string {
+  let result = path
+  for (const pattern of URL_PATH_SECRET_PATTERNS) {
+    result = result.replace(pattern, `$1${REDACTED_VALUE}`)
+  }
+  return result
 }
 
 function scrubQueryString(value: string): string {
