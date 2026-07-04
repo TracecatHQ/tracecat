@@ -6,7 +6,6 @@ import temporalio.service
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import ValidationError
 from sqlalchemy import or_, select
-from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import WorkflowExecution
 
@@ -21,7 +20,7 @@ from tracecat.auth.dependencies import (
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.models import Workflow, WorkflowDefinition
+from tracecat.db.models import Workflow
 from tracecat.dsl.common import (
     DSLInput,
     get_execution_type_from_search_attr,
@@ -93,6 +92,7 @@ from tracecat.workflow.executions.service import (
     WorkflowExecutionResultNotFoundError,
     WorkflowExecutionsService,
 )
+from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 
 router = APIRouter(prefix="/workflow-executions", tags=["workflow-executions"])
@@ -1001,26 +1001,20 @@ async def create_workflow_execution(
     session: AsyncDBSession,
 ) -> WorkflowExecutionCreateResponse:
     """Create and schedule a workflow execution."""
-    service = await WorkflowExecutionsService.connect(role=role)
-    # Get the dslinput from the workflow definition
+    # Get the dslinput from the workflow definition scoped to the caller's
+    # workspace. The request body workflow_id is user-controlled, so a raw lookup
+    # by workflow_id would allow one workspace to execute another's workflow.
     wf_id = WorkflowUUID.new(params.workflow_id)
-    try:
-        result = await session.execute(
-            select(WorkflowDefinition)
-            .where(WorkflowDefinition.workflow_id == wf_id)
-            .order_by(WorkflowDefinition.version.desc())
-        )
-        defn = result.scalars().first()
-        if not defn:
-            raise NoResultFound("No workflow definition found for workflow ID")
-    except NoResultFound as e:
-        # No workflow associated with the webhook
-        logger.opt(exception=e).error("Invalid workflow ID", error=e)
+    defn_service = WorkflowDefinitionsService(session, role=role)
+    defn = await defn_service.get_definition_by_workflow_id(wf_id)
+    if not defn:
+        logger.error("Invalid workflow ID", workflow_id=wf_id)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Invalid workflow ID"
-        ) from e
+        )
     dsl_input = DSLInput(**defn.content)
     try:
+        service = await WorkflowExecutionsService.connect(role=role)
         response = service.create_workflow_execution_nowait(
             dsl=dsl_input,
             wf_id=wf_id,

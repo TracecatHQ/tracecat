@@ -11,9 +11,23 @@ from temporalio.client import WorkflowExecutionStatus
 
 from tracecat.auth.types import Role
 from tracecat.dsl.common import DSLInput
+from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.validation.schemas import ValidationResult, ValidationResultType
 from tracecat.workflow.executions import internal_router as internal_executions_router
 from tracecat.workflow.executions import router as executions_router
+
+
+def _workflow_definition_content(title: str = "Test Workflow") -> dict:
+    return DSLInput(
+        **{
+            "title": title,
+            "description": "Test workflow",
+            "entrypoint": {"ref": "start"},
+            "actions": [{"ref": "start", "action": "core.noop"}],
+            "config": {"enable_runtime_tests": False},
+        }
+    ).model_dump()
+
 
 # --- Internal Router: GET /executions/{execution_id} ---
 
@@ -486,6 +500,95 @@ async def test_get_workflow_execution_compact_accepts_slash_id(
     assert payload["status"] == "RUNNING"
     mock_svc.get_execution.assert_awaited_once_with(wf_exec_id)
     mock_svc.list_workflow_execution_events_compact.assert_awaited_once_with(wf_exec_id)
+
+
+@pytest.mark.anyio
+async def test_create_workflow_execution_uses_workspace_scoped_definition(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    workflow_id = "wf_4itKqkgCZrLhgYiq5L211X"
+    wf_exec_id = f"{workflow_id}/exec_abc"
+
+    mock_defn = Mock()
+    mock_defn.content = _workflow_definition_content()
+    mock_defn.registry_lock = None
+
+    mock_get_definition = AsyncMock(return_value=mock_defn)
+    mock_exec_service = AsyncMock()
+    mock_exec_service.create_workflow_execution_nowait = Mock(
+        return_value={
+            "wf_id": workflow_id,
+            "wf_exec_id": wf_exec_id,
+            "message": "Workflow execution started",
+        }
+    )
+
+    with (
+        patch.object(
+            executions_router.WorkflowDefinitionsService,
+            "__init__",
+            lambda self, session, role: None,
+        ),
+        patch.object(
+            executions_router.WorkflowDefinitionsService,
+            "get_definition_by_workflow_id",
+            mock_get_definition,
+        ),
+        patch.object(
+            executions_router.WorkflowExecutionsService,
+            "connect",
+            AsyncMock(return_value=mock_exec_service),
+        ),
+    ):
+        response = client.post(
+            "/workflow-executions",
+            json={"workflow_id": workflow_id, "inputs": {"key": "value"}},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["wf_exec_id"] == wf_exec_id
+    mock_get_definition.assert_awaited_once_with(WorkflowUUID.new(workflow_id))
+    mock_exec_service.create_workflow_execution_nowait.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_create_workflow_execution_returns_404_for_unscoped_definition(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Cross-workspace workflow IDs are rejected by the scoped definition lookup."""
+    workflow_id = "wf_4itKqkgCZrLhgYiq5L211X"
+
+    mock_get_definition = AsyncMock(return_value=None)
+    mock_connect = AsyncMock()
+
+    with (
+        patch.object(
+            executions_router.WorkflowDefinitionsService,
+            "__init__",
+            lambda self, session, role: None,
+        ),
+        patch.object(
+            executions_router.WorkflowDefinitionsService,
+            "get_definition_by_workflow_id",
+            mock_get_definition,
+        ),
+        patch.object(
+            executions_router.WorkflowExecutionsService,
+            "connect",
+            mock_connect,
+        ),
+    ):
+        response = client.post(
+            "/workflow-executions",
+            json={"workflow_id": workflow_id, "inputs": {"key": "value"}},
+        )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert response.json()["detail"] == "Invalid workflow ID"
+    mock_get_definition.assert_awaited_once_with(WorkflowUUID.new(workflow_id))
+    mock_connect.assert_not_awaited()
 
 
 @pytest.mark.anyio
