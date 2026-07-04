@@ -23,7 +23,7 @@ export function SqlTypeDisplay({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-2 whitespace-nowrap",
+        "inline-flex items-center gap-2 align-middle whitespace-nowrap",
         className
       )}
     >
