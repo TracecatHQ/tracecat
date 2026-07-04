@@ -35,6 +35,15 @@ export function DeleteTableDialog({
     return null
   }
 
+  // Clear the confirmation input whenever the dialog closes so a value typed
+  // for one table doesn't carry over to the next table's delete dialog.
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      setConfirmName("")
+    }
+    onOpenChange(nextOpen)
+  }
+
   const handleDeleteTable = async () => {
     if (confirmName !== table.name) {
       toast({
@@ -48,7 +57,7 @@ export function DeleteTableDialog({
         tableId: table.id,
         workspaceId,
       })
-      onOpenChange(false)
+      handleOpenChange(false)
       router.push(`/workspaces/${workspaceId}/tables`)
     } catch (error) {
       console.error(error)
@@ -56,7 +65,7 @@ export function DeleteTableDialog({
   }
 
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
+    <AlertDialog open={open} onOpenChange={handleOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Delete Table</AlertDialogTitle>
