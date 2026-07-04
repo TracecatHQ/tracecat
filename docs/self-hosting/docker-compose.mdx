@@ -75,7 +75,7 @@ Once deployed, access your instance at:
 <Warning>
   Plain HTTP is fine for local development on `localhost`, but do not expose an HTTP-only deployment to a public domain.
   Modern browsers upgrade requests to a public hostname to HTTPS, so the UI fails with `ERR_CONNECTION_REFUSED` even while `curl` over HTTP still works.
-  Enable TLS before going to production. See [How do I configure SSL for production?](#how-do-i-configure-ssl-for-production).
+  Enable TLS before going to production. See [TLS and certificates](/self-hosting/tls).
 </Warning>
 
 ## Updating Tracecat
@@ -271,69 +271,11 @@ For an overview of all services and networking, see [Architecture](/self-hosting
   </Accordion>
 
   <Accordion title="My browser shows ERR_CONNECTION_REFUSED but curl over HTTP works">
-    Your deployment is serving plain HTTP, but the browser is trying to reach it over HTTPS.
-    This is expected browser behavior, not a Tracecat or Caddy error: modern browsers automatically upgrade requests to a public hostname to HTTPS (through HSTS, the "Always use secure connections" setting, or a prior HTTPS visit).
-    Because the default stack exposes only port 80 with no TLS, the HTTPS request is refused.
-
-    The Caddy logs confirm HTTP-only mode:
-
-    ```text
-    server is listening only on the HTTP port, so no automatic HTTPS will be applied to this server
-    ```
-
-    Serving a public deployment over plain HTTP is not supported. Enable TLS as described in the next FAQ.
+    Your deployment is serving plain HTTP, but the browser is upgrading the request to HTTPS.
+    See [Browsers force HTTPS](/self-hosting/tls#browsers-force-https).
   </Accordion>
 
   <Accordion title="How do I configure SSL for production?">
-    Tracecat ships with [Caddy](https://caddyserver.com/) as a reverse proxy.
-    Caddy automatically provisions and renews TLS certificates from Let's Encrypt when configured with a domain name.
-
-    <Steps>
-      <Step title="Update environment variables">
-        In your `.env` file, set `BASE_DOMAIN` to your domain and switch every public URL and the allowed origins to HTTPS:
-
-        ```bash
-        BASE_DOMAIN=tracecat.example.com
-        PUBLIC_APP_URL=https://tracecat.example.com
-        PUBLIC_API_URL=https://tracecat.example.com/api
-        TRACECAT__ALLOW_ORIGINS=https://tracecat.example.com
-        ```
-
-        Mixing HTTP and HTTPS across these values causes CORS failures. Keep the scheme consistent everywhere.
-      </Step>
-      <Step title="Expose ports 80 and 443">
-        Update the `caddy` service ports in your `docker-compose.yml`:
-
-        ```yaml
-        services:
-          caddy:
-            ports:
-              - "80:80"
-              - "443:443"
-        ```
-
-        Port 80 must remain open for the ACME HTTP-01 challenge. Port 443 serves HTTPS traffic.
-      </Step>
-      <Step title="Restart the stack">
-        ```bash
-        docker compose up -d
-        ```
-
-        Caddy will automatically obtain and renew certificates on startup.
-      </Step>
-    </Steps>
-
-    If your domain is internal or cannot use Let's Encrypt, supply your own certificate and private key with Caddy's [`tls` directive](https://caddyserver.com/docs/caddyfile/directives/tls).
-    Mount the files into the `caddy` service and reference them in your `Caddyfile`:
-
-    ```caddyfile
-    {$BASE_DOMAIN} {
-      tls /etc/caddy/certs/tls.crt /etc/caddy/certs/tls.key
-      # ... existing reverse_proxy configuration ...
-    }
-    ```
-
-    If you deploy into a cloud VM (for example an EC2 instance), we recommend placing a managed load balancer such as an AWS Application Load Balancer in front of Caddy.
-    Terminate TLS at the load balancer with an ACM certificate and forward traffic to Caddy, so certificates and public HTTPS are handled by managed infrastructure instead of the VM.
+    See [TLS and certificates](/self-hosting/tls) for automatic Let's Encrypt setup with Caddy, custom certificates, and trusting internal CAs for outbound connections.
   </Accordion>
 </AccordionGroup>

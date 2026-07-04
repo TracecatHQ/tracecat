@@ -1,0 +1,159 @@
+---
+title: TLS and certificates
+description: "Configure HTTPS for self-hosted Tracecat: automatic Let's Encrypt certificates with Caddy, custom certificates, and trusting internal CAs for outbound connections."
+---
+
+This page covers Docker Compose deployments.
+On [Kubernetes](/self-hosting/kubernetes) and [AWS Fargate](/self-hosting/aws-fargate), terminate TLS at your ingress controller or load balancer instead.
+
+## Inbound HTTPS with Caddy
+
+Tracecat ships with [Caddy](https://caddyserver.com/) as a reverse proxy.
+Caddy automatically provisions and renews TLS certificates from Let's Encrypt when configured with a domain name.
+
+<Steps>
+  <Step title="Update environment variables">
+    In your `.env` file, set `BASE_DOMAIN` to your domain and switch every public URL and the allowed origins to HTTPS:
+
+    ```bash
+    BASE_DOMAIN=tracecat.example.com
+    PUBLIC_APP_URL=https://tracecat.example.com
+    PUBLIC_API_URL=https://tracecat.example.com/api
+    TRACECAT__ALLOW_ORIGINS=https://tracecat.example.com
+    ```
+
+    Mixing HTTP and HTTPS across these values causes CORS failures. Keep the scheme consistent everywhere.
+  </Step>
+  <Step title="Expose ports 80 and 443">
+    Update the `caddy` service ports in your `docker-compose.yml`:
+
+    ```yaml
+    services:
+      caddy:
+        ports:
+          - "80:80"
+          - "443:443"
+    ```
+
+    Port 80 must remain open for the ACME HTTP-01 challenge. Port 443 serves HTTPS traffic.
+  </Step>
+  <Step title="Restart the stack">
+    ```bash
+    docker compose up -d
+    ```
+
+    Caddy will automatically obtain and renew certificates on startup.
+  </Step>
+</Steps>
+
+### Bring your own certificate
+
+If your domain is internal or cannot use Let's Encrypt, supply your own certificate and private key with Caddy's [`tls` directive](https://caddyserver.com/docs/caddyfile/directives/tls).
+Mount the files into the `caddy` service and reference them in your `Caddyfile`:
+
+```caddyfile
+{$BASE_DOMAIN} {
+  tls /etc/caddy/certs/tls.crt /etc/caddy/certs/tls.key
+  # ... existing reverse_proxy configuration ...
+}
+```
+
+### Cloud VMs
+
+If you deploy into a cloud VM (for example an EC2 instance), we recommend placing a managed load balancer such as an AWS Application Load Balancer in front of Caddy.
+Terminate TLS at the load balancer with an ACM certificate and forward traffic to Caddy, so certificates and public HTTPS are handled by managed infrastructure instead of the VM.
+
+## Browsers force HTTPS
+
+If the browser fails with `ERR_CONNECTION_REFUSED` while `curl` over HTTP works, your deployment is serving plain HTTP but the browser is trying to reach it over HTTPS.
+This is expected browser behavior, not a Tracecat or Caddy error: modern browsers automatically upgrade requests to a public hostname to HTTPS (through HSTS, the "Always use secure connections" setting, or a prior HTTPS visit).
+Because the default stack exposes only port 80 with no TLS, the HTTPS request is refused.
+
+The Caddy logs confirm HTTP-only mode:
+
+```text
+server is listening only on the HTTP port, so no automatic HTTPS will be applied to this server
+```
+
+Serving a public deployment over plain HTTP is not supported.
+Configure [inbound HTTPS](#inbound-https-with-caddy) instead.
+
+## Trust an internal CA for outbound connections
+
+Tracecat containers do not inherit the host's trust store.
+If Tracecat calls services with certificates signed by an internal CA — a custom LLM provider, an internal Jira, an on-prem API — those connections fail TLS verification even when `curl` on the host succeeds.
+
+### Per-action: CA certificate secret
+
+For HTTP actions, create a workspace secret named `ca_cert` with the key `CA_CERTIFICATE` set to your CA certificate as PEM text.
+`core.http` picks it up automatically and verifies servers against it without any deployment changes.
+HTTP actions also accept `verify_ssl: false`, but only use this as a temporary workaround — it disables certificate verification entirely.
+See [HTTP actions](/automations/core-actions/request-actions/http).
+
+### Deployment-wide: inject the CA into service trust stores
+
+To make every service trust your CA — including custom LLM providers and Python integrations — append it to the certifi bundle with a one-shot init container.
+
+<Steps>
+  <Step title="Add your CA certificates">
+    Create a `certs/` directory next to your `docker-compose.yml` and place your CA certificates in it as `.crt` files in PEM format (not DER).
+    Include the full chain: root and any intermediate CAs.
+  </Step>
+  <Step title="Create a Compose override">
+    Create `docker-compose.override.yml` next to your `docker-compose.yml`:
+
+    ```yaml
+    x-custom-ca: &custom-ca
+      environment:
+        SSL_CERT_FILE: /custom-ca/bundle.crt
+        REQUESTS_CA_BUNDLE: /custom-ca/bundle.crt
+        CURL_CA_BUNDLE: /custom-ca/bundle.crt
+      volumes:
+        - custom-ca:/custom-ca:ro
+      depends_on:
+        cert-init:
+          condition: service_completed_successfully
+
+    services:
+      cert-init:
+        image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-latest}
+        restart: "no"
+        user: root
+        volumes:
+          - ./certs:/certs:ro
+          - custom-ca:/custom-ca
+        command:
+          - python
+          - -c
+          - |
+            import certifi, shutil
+            from pathlib import Path
+            shutil.copy(certifi.where(), '/custom-ca/bundle.crt')
+            with open('/custom-ca/bundle.crt', 'a') as bundle:
+                for cert in sorted(Path('/certs').rglob('*.crt')):
+                    bundle.write(cert.read_text())
+                    print(f'Appended {cert}')
+
+      api: *custom-ca
+      executor: *custom-ca
+      agent-executor: *custom-ca
+      agent-worker: *custom-ca
+      litellm: *custom-ca
+
+    volumes:
+      custom-ca:
+    ```
+
+    The `cert-init` service copies the default certifi bundle into a shared volume and appends your CA certificates.
+    Docker Compose merges the override with each service's existing configuration.
+    Apply the same `*custom-ca` block to any other service that makes outbound HTTPS calls.
+  </Step>
+  <Step title="Restart the stack">
+    ```bash
+    docker compose up -d
+    ```
+
+    Compose picks up `docker-compose.override.yml` automatically.
+    Check the init container output with `docker compose logs cert-init`.
+  </Step>
+</Steps>
