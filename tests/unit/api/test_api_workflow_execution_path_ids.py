@@ -548,7 +548,9 @@ async def test_create_workflow_execution_uses_workspace_scoped_definition(
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json()["wf_exec_id"] == wf_exec_id
-    mock_get_definition.assert_awaited_once_with(WorkflowUUID.new(workflow_id))
+    mock_get_definition.assert_awaited_once_with(
+        WorkflowUUID.new(workflow_id), load_relationships=False
+    )
     mock_exec_service.create_workflow_execution_nowait.assert_called_once()
 
 
@@ -587,7 +589,9 @@ async def test_create_workflow_execution_returns_404_for_unscoped_definition(
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
     assert response.json()["detail"] == "Invalid workflow ID"
-    mock_get_definition.assert_awaited_once_with(WorkflowUUID.new(workflow_id))
+    mock_get_definition.assert_awaited_once_with(
+        WorkflowUUID.new(workflow_id), load_relationships=False
+    )
     mock_connect.assert_not_awaited()
 
 

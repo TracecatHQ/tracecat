@@ -1006,7 +1006,9 @@ async def create_workflow_execution(
     # by workflow_id would allow one workspace to execute another's workflow.
     wf_id = WorkflowUUID.new(params.workflow_id)
     defn_service = WorkflowDefinitionsService(session, role=role)
-    defn = await defn_service.get_definition_by_workflow_id(wf_id)
+    defn = await defn_service.get_definition_by_workflow_id(
+        wf_id, load_relationships=False
+    )
     if not defn:
         logger.error("Invalid workflow ID", workflow_id=wf_id)
         raise HTTPException(

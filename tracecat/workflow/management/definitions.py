@@ -29,21 +29,23 @@ class WorkflowDefinitionsService(BaseWorkspaceService):
     service_name = "workflow_definitions"
 
     async def get_definition_by_workflow_id(
-        self, workflow_id: WorkflowID, *, version: int | None = None
+        self,
+        workflow_id: WorkflowID,
+        *,
+        version: int | None = None,
+        load_relationships: bool = True,
     ) -> WorkflowDefinition | None:
-        statement = (
-            select(WorkflowDefinition)
-            .where(
-                WorkflowDefinition.workspace_id == self.workspace_id,
-                WorkflowDefinition.workflow_id == workflow_id,
-            )
-            .options(
+        statement = select(WorkflowDefinition).where(
+            WorkflowDefinition.workspace_id == self.workspace_id,
+            WorkflowDefinition.workflow_id == workflow_id,
+        )
+        if load_relationships:
+            statement = statement.options(
                 selectinload(WorkflowDefinition.workflow).options(
                     selectinload(Workflow.case_trigger),
                     selectinload(Workflow.actions),
                 )
             )
-        )
         if version is not None:
             statement = statement.where(WorkflowDefinition.version == version)
         else:
