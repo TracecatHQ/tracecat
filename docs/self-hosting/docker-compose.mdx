@@ -332,5 +332,8 @@ For an overview of all services and networking, see [Architecture](/self-hosting
       # ... existing reverse_proxy configuration ...
     }
     ```
+
+    If you deploy into a cloud VM (for example an EC2 instance), we recommend placing a managed load balancer such as an AWS Application Load Balancer in front of Caddy.
+    Terminate TLS at the load balancer with an ACM certificate and forward traffic to Caddy, so certificates and public HTTPS are handled by managed infrastructure instead of the VM.
   </Accordion>
 </AccordionGroup>
