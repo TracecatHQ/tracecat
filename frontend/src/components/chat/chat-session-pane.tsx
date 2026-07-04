@@ -1272,7 +1272,7 @@ export function ChatSessionPane({
           <PromptInputSubmit
             disabled={isInputDisabled || !input.trim()}
             status={status}
-            className="text-muted-foreground/80"
+            className="size-7 text-muted-foreground/80"
           />
         </PromptInputFooter>
       </PromptInput>
