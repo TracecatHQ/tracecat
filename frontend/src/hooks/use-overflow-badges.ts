@@ -1,4 +1,4 @@
-import { type RefObject, useEffect, useRef, useState } from "react"
+import { type RefObject, useLayoutEffect, useRef, useState } from "react"
 
 interface UseOverflowBadgesOptions {
   /** Horizontal gap between badges, in pixels (e.g. `gap-1` = 4, `gap-1.5` = 6). */
@@ -32,7 +32,10 @@ export function useOverflowBadges<T>(
   const measureRef = useRef<HTMLDivElement>(null)
   const [visibleCount, setVisibleCount] = useState(items.length)
 
-  useEffect(() => {
+  // useLayoutEffect (not useEffect) so measurement + clamping happen before the
+  // browser paints, avoiding a first-render flash where every badge shows at
+  // full width for a frame before the visible set is computed.
+  useLayoutEffect(() => {
     const container = measureRef.current
     if (!container) {
       return
