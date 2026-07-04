@@ -1,0 +1,19 @@
+docs/self-hosting/docker-compose.mdx
+  s_eea76aaef2c447::t_1aecd5837d79d8 335-337
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "27665c4c195a2a880e8d101fee61866a942db2e7",
+  "prompts": {},
+  "sessions": {
+    "s_eea76aaef2c447": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b47313df-df7c-4229-8d9d-fc4d5d408730",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
