@@ -63,6 +63,19 @@ Mount the files into the `caddy` service and reference them in your `Caddyfile`:
 If you deploy into a cloud VM (for example an EC2 instance), we recommend placing a managed load balancer such as an AWS Application Load Balancer in front of Caddy.
 Terminate TLS at the load balancer with an ACM certificate and forward traffic to Caddy, so certificates and public HTTPS are handled by managed infrastructure instead of the VM.
 
+With TLS terminated at the load balancer, keep Caddy in HTTP-only mode.
+Do not set `BASE_DOMAIN` to a bare domain as in the Let's Encrypt setup above — that enables Caddy's automatic HTTPS, which redirects the load balancer's forwarded HTTP requests back to HTTPS and creates a redirect loop.
+Keep the default port-only `BASE_DOMAIN` and set only the public URLs to HTTPS:
+
+```bash
+BASE_DOMAIN=:80
+PUBLIC_APP_URL=https://tracecat.example.com
+PUBLIC_API_URL=https://tracecat.example.com/api
+TRACECAT__ALLOW_ORIGINS=https://tracecat.example.com
+```
+
+Point the load balancer's HTTPS listener at Caddy's HTTP port (80), and redirect HTTP to HTTPS at the load balancer.
+
 ## Browsers force HTTPS
 
 If the browser fails with `ERR_CONNECTION_REFUSED` while `curl` over HTTP works, your deployment is serving plain HTTP but the browser is trying to reach it over HTTPS.
