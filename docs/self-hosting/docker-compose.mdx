@@ -72,6 +72,12 @@ Once deployed, access your instance at:
 - API docs: `http://localhost:${PUBLIC_APP_PORT}/api/docs`
 - MCP: `http://localhost:${PUBLIC_APP_PORT}/mcp`
 
+<Warning>
+  Plain HTTP is fine for local development on `localhost`, but do not expose an HTTP-only deployment to a public domain.
+  Modern browsers upgrade requests to a public hostname to HTTPS, so the UI fails with `ERR_CONNECTION_REFUSED` even while `curl` over HTTP still works.
+  Enable TLS before going to production. See [TLS and certificates](/self-hosting/tls).
+</Warning>
+
 ## Updating Tracecat
 
 <Warning>
@@ -264,40 +270,12 @@ For an overview of all services and networking, see [Architecture](/self-hosting
     For production workloads, use a managed PostgreSQL instance (e.g., Amazon Aurora Serverless) for better QPS and reliability.
   </Accordion>
 
+  <Accordion title="My browser shows ERR_CONNECTION_REFUSED but curl over HTTP works">
+    Your deployment is serving plain HTTP, but the browser is upgrading the request to HTTPS.
+    See [Browsers force HTTPS](/self-hosting/tls#browsers-force-https).
+  </Accordion>
+
   <Accordion title="How do I configure SSL for production?">
-    Tracecat ships with [Caddy](https://caddyserver.com/) as a reverse proxy.
-    Caddy automatically provisions and renews TLS certificates from Let's Encrypt when configured with a domain name.
-
-    <Steps>
-      <Step title="Update environment variables">
-        In your `.env` file, set `BASE_DOMAIN` to your domain and update the public URLs to use HTTPS:
-
-        ```bash
-        BASE_DOMAIN=tracecat.example.com
-        PUBLIC_APP_URL=https://tracecat.example.com
-        PUBLIC_API_URL=https://tracecat.example.com/api
-        ```
-      </Step>
-      <Step title="Expose ports 80 and 443">
-        Update the `caddy` service ports in your `docker-compose.yml`:
-
-        ```yaml
-        services:
-          caddy:
-            ports:
-              - "80:80"
-              - "443:443"
-        ```
-
-        Port 80 must remain open for the ACME HTTP-01 challenge. Port 443 serves HTTPS traffic.
-      </Step>
-      <Step title="Restart the stack">
-        ```bash
-        docker compose up -d
-        ```
-
-        Caddy will automatically obtain and renew certificates on startup.
-      </Step>
-    </Steps>
+    See [TLS and certificates](/self-hosting/tls) for automatic Let's Encrypt setup with Caddy, custom certificates, and trusting internal CAs for outbound connections.
   </Accordion>
 </AccordionGroup>
