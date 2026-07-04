@@ -1,0 +1,29 @@
+docs/self-hosting/tls.mdx
+  s_eea76aaef2c447::t_6931c2702528ca 1-87,90-159
+  s_eea76aaef2c447::t_a99b563abe8b13 88-89
+docs/self-hosting/docker-compose.mdx
+  s_eea76aaef2c447::t_70cdaffee0cbab 78
+  s_eea76aaef2c447::t_327ee3df0d4831 274-275,279
+docs/self-hosting/security.mdx
+  s_eea76aaef2c447::t_7a20b2cc9271d7 88
+docs/self-hosting/architecture.mdx
+  s_eea76aaef2c447::t_e2f88dd3dd941b 102
+docs/docs.json
+  s_eea76aaef2c447::t_1f377805b9da61 150
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "5cfd279a835255bb0b05e5a71dc5161156ad6414",
+  "prompts": {},
+  "sessions": {
+    "s_eea76aaef2c447": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b47313df-df7c-4229-8d9d-fc4d5d408730",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
