@@ -914,6 +914,103 @@ async def test_child_workflow_success(
 
 
 @pytest.mark.anyio
+async def test_child_workflow_in_scatter_resolves_top_level_action(
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
+):
+    """A child workflow inside a scatter region must resolve top-level action results.
+
+    Regression test for ENG-1492: ``core.workflow.execute`` evaluated its
+    ``trigger_inputs`` against the single scatter stream instead of the
+    stream-aware context, so references to top-level action results (e.g.
+    ``ACTIONS.config.result.*``) resolved to ``null`` inside a scatter region
+    while the scatter item itself resolved correctly.
+    """
+    test_name = f"{test_child_workflow_in_scatter_resolves_top_level_action.__name__}"
+    wf_exec_id = generate_test_exec_id(test_name)
+
+    # Child echoes both the scatter item and the top-level value it received.
+    child_dsl = DSLInput(
+        entrypoint=DSLEntrypoint(expects={}, ref="echo"),
+        actions=[
+            ActionStatement(
+                ref="echo",
+                action="core.transform.reshape",
+                args={
+                    "value": {
+                        "item_id": "${{ TRIGGER.item_id }}",
+                        "flag": "${{ TRIGGER.flag }}",
+                    },
+                },
+                depends_on=[],
+            )
+        ],
+        description="Echo child",
+        returns="${{ ACTIONS.echo.result }}",
+        title="Echo child",
+        triggers=[],
+    )
+    child_workflow = await _create_and_commit_workflow(child_dsl, test_role)
+
+    # Parent: top-level `config` action, then a scatter region that calls the
+    # child, passing both the scatter item and the top-level action result.
+    parent_dsl = DSLInput(
+        title="Parent",
+        description="Child workflow inside scatter resolves top-level action",
+        entrypoint=DSLEntrypoint(ref="config"),
+        actions=[
+            ActionStatement(
+                ref="config",
+                action="core.transform.reshape",
+                args={"value": {"flag": "top_level_value"}},
+                depends_on=[],
+            ),
+            ActionStatement(
+                ref="scatter",
+                action="core.transform.scatter",
+                args=ScatterArgs(collection="${{ [10, 20, 30] }}").model_dump(),
+                depends_on=["config"],
+            ),
+            ActionStatement(
+                ref="call_child",
+                action="core.workflow.execute",
+                args={
+                    "workflow_id": child_workflow.id,
+                    "wait_strategy": WaitStrategy.WAIT.value,
+                    "trigger_inputs": {
+                        "item_id": "${{ ACTIONS.scatter.result }}",
+                        "flag": "${{ ACTIONS.config.result.flag }}",
+                    },
+                },
+                depends_on=["scatter"],
+            ),
+            ActionStatement(
+                ref="gather",
+                action="core.transform.gather",
+                args=GatherArgs(items="${{ ACTIONS.call_child.result }}").model_dump(),
+                depends_on=["call_child"],
+            ),
+        ],
+        returns="${{ ACTIONS.gather.result }}",
+        triggers=[],
+    )
+    run_args = DSLRunArgs(dsl=parent_dsl, role=test_role, wf_id=TEST_WF_ID)
+
+    worker = test_worker_factory(temporal_client)
+    executor_worker = test_executor_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
+
+    gathered = sorted(await to_data(result), key=lambda r: r["item_id"])
+    assert gathered == [
+        {"item_id": 10, "flag": "top_level_value"},
+        {"item_id": 20, "flag": "top_level_value"},
+        {"item_id": 30, "flag": "top_level_value"},
+    ]
+
+
+@pytest.mark.anyio
 async def test_child_workflow_context_passing(
     test_role: Role,
     temporal_client: Client,

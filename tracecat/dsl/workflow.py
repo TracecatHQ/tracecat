@@ -900,7 +900,7 @@ class DSLWorkflow:
                             arg=PrepareSubflowActivityInput(
                                 role=self.role,
                                 task=task,
-                                operand=self.get_context(),
+                                operand=self._build_action_context(task, stream_id),
                                 key=action_collection_prefix(
                                     str(self.workspace_id),
                                     self.wf_exec_id,
@@ -1308,7 +1308,7 @@ class DSLWorkflow:
                 DSLActivities.evaluate_templated_object_activity,
                 arg=EvaluateTemplatedObjectActivityInput(
                     obj=task.args.get("trigger_inputs"),
-                    operand=self.get_context(),
+                    operand=self._build_action_context(task, stream_id),
                     key=key,
                 ),
                 start_to_close_timeout=timedelta(seconds=60),
