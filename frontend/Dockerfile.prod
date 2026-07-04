@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # https://github.com/vercel/next.js/blob/canary/examples/with-docker/Dockerfile
 
 # Use the Node.js Alpine image as the base image for the deps stage
@@ -28,9 +29,10 @@ ARG NEXT_PUBLIC_API_URL=http://localhost:8000
 ARG NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT=
 ARG NEXT_PUBLIC_SENTRY_DSN=
 ARG NEXT_SERVER_API_URL=http://api:8000
-# Build-time only: enable Sentry source-map upload during `next build`.
-# Not persisted to the runner stage so the auth token never ships in the image.
-ARG SENTRY_AUTH_TOKEN=
+# Non-secret Sentry build args for source-map upload during `next build`.
+# The auth token is NOT a build arg: it is provided at build time via a
+# BuildKit secret mount (id=sentry_auth_token) and is never stored in
+# ARG/ENV, image layers, history, or the build cache.
 ARG SENTRY_ORG=
 ARG SENTRY_PROJECT=
 
@@ -42,9 +44,6 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT=$NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT
 ENV NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN
 ENV NEXT_SERVER_API_URL=$NEXT_SERVER_API_URL
-ENV SENTRY_AUTH_TOKEN=$SENTRY_AUTH_TOKEN
-ENV SENTRY_ORG=$SENTRY_ORG
-ENV SENTRY_PROJECT=$SENTRY_PROJECT
 
 # Copy node_modules from the deps stage
 COPY --from=deps /app/node_modules ./node_modules
@@ -54,7 +53,9 @@ RUN npm install -g corepack@0.31.0 && corepack --version
 
 # Copy all source files and build the application
 COPY . .
-RUN corepack enable pnpm && pnpm build
+RUN --mount=type=secret,id=sentry_auth_token \
+    corepack enable pnpm && \
+    SENTRY_AUTH_TOKEN="$(cat /run/secrets/sentry_auth_token 2>/dev/null || true)" pnpm build
 
 # Use the Node.js Alpine image as the base image for the runner stage
 FROM node:22-alpine AS runner

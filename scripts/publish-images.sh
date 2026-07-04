@@ -423,9 +423,9 @@ build_platform_digest() {
         --build-arg "NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL"
         --build-arg "NEXT_SERVER_API_URL=$NEXT_SERVER_API_URL"
         --build-arg "NODE_ENV=$NODE_ENV"
-        --build-arg "SENTRY_AUTH_TOKEN=$SENTRY_AUTH_TOKEN"
         --build-arg "SENTRY_ORG=$SENTRY_ORG"
         --build-arg "SENTRY_PROJECT=$SENTRY_PROJECT"
+        --secret "id=sentry_auth_token,env=SENTRY_AUTH_TOKEN"
         "$REPO_ROOT/frontend"
       )
       ;;

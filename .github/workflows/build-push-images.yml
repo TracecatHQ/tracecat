@@ -230,7 +230,6 @@ jobs:
           NEXT_SERVER_API_URL: http://localhost:8000
           NODE_ENV: production
           # Source-map upload runs only when all three are configured.
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
         with:
@@ -243,9 +242,10 @@ jobs:
             NEXT_PUBLIC_APP_URL=${{ env.NEXT_PUBLIC_APP_URL }}
             NEXT_SERVER_API_URL=${{ env.NEXT_SERVER_API_URL }}
             NODE_ENV=${{ env.NODE_ENV }}
-            SENTRY_AUTH_TOKEN=${{ env.SENTRY_AUTH_TOKEN }}
             SENTRY_ORG=${{ env.SENTRY_ORG }}
             SENTRY_PROJECT=${{ env.SENTRY_PROJECT }}
+          secrets: |
+            sentry_auth_token=${{ secrets.SENTRY_AUTH_TOKEN }}
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,name=ghcr.io/tracecathq/tracecat-ui,push-by-digest=true,name-canonical=true,push=true
           cache-from: type=registry,ref=ghcr.io/tracecathq/tracecat-ui:buildcache-${{ matrix.platform_tag }}
