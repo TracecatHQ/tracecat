@@ -26,6 +26,7 @@ import {
   type FocusEvent,
   type KeyboardEvent,
   memo,
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
@@ -1194,34 +1195,13 @@ export function ChatSessionPane({
         {/* Workspace chat surfaces attached tools via the Tools popover, so the
             header chip row is reserved for the other chat surfaces. */}
         {toolsEnabled && !isWorkspaceChat && selectedToolBadges.length > 0 && (
-          <PromptInputHeader className="gap-1.5 px-3 pt-3">
-            {selectedToolBadges.map((tool) => (
-              <Badge
-                key={tool.value}
-                variant="secondary"
-                className="h-7 gap-1.5 px-2.5 text-xs"
-              >
-                <span className="inline-flex items-center justify-center text-foreground">
-                  {tool.icon}
-                </span>
-                <span className="truncate">{tool.label}</span>
-                <button
-                  type="button"
-                  className="inline-flex items-center text-muted-foreground hover:text-foreground"
-                  aria-label={`Remove ${tool.label}`}
-                  onClick={() => removeSelectedTool(tool.value)}
-                  disabled={
-                    isUpdatingTools ||
-                    isReadonly ||
-                    inputDisabled ||
-                    !toolsEnabled
-                  }
-                >
-                  <XIcon className="size-3.5" />
-                </button>
-              </Badge>
-            ))}
-          </PromptInputHeader>
+          <SelectedToolsHeader
+            badges={selectedToolBadges}
+            onRemove={removeSelectedTool}
+            removeDisabled={
+              isUpdatingTools || isReadonly || inputDisabled || !toolsEnabled
+            }
+          />
         )}
         <PromptInputBody>
           <PromptInputTextarea
@@ -1413,6 +1393,166 @@ export function ChatSessionPane({
         </div>
       </div>
     </div>
+  )
+}
+
+type SelectedToolBadge = {
+  value: string
+  label: string
+  icon: ReactNode
+}
+
+/** Single selected-tool chip. Renders the remove button only when interactive
+ * so the hidden measurement layer stays out of the tab order. */
+function SelectedToolChip({
+  tool,
+  onRemove,
+  removeDisabled,
+  interactive,
+}: {
+  tool: SelectedToolBadge
+  onRemove?: (value: string) => void
+  removeDisabled?: boolean
+  interactive: boolean
+}) {
+  return (
+    <Badge variant="secondary" className="h-7 shrink-0 gap-1.5 px-2.5 text-xs">
+      <span className="inline-flex items-center justify-center text-foreground">
+        {tool.icon}
+      </span>
+      <span className="truncate">{tool.label}</span>
+      {interactive ? (
+        <button
+          type="button"
+          className="inline-flex items-center text-muted-foreground hover:text-foreground"
+          aria-label={`Remove ${tool.label}`}
+          onClick={() => onRemove?.(tool.value)}
+          disabled={removeDisabled}
+        >
+          <XIcon className="size-3.5" />
+        </button>
+      ) : (
+        <span className="inline-flex items-center text-muted-foreground">
+          <XIcon className="size-3.5" />
+        </span>
+      )}
+    </Badge>
+  )
+}
+
+/**
+ * Chip strip of tools attached to the chat session, rendered above the
+ * composer textarea. Keeps the chips on a single line, showing only those that
+ * fit plus a "+N" indicator for the rest, so a large tool set never grows the
+ * composer past one row.
+ *
+ * A hidden measurement layer always renders every chip so a ResizeObserver can
+ * recompute the visible set when the panel resizes. Mirrors the MultiSelectBadges
+ * overflow pattern in case-panel-custom-fields.tsx.
+ */
+function SelectedToolsHeader({
+  badges,
+  onRemove,
+  removeDisabled,
+}: {
+  badges: SelectedToolBadge[]
+  onRemove: (value: string) => void
+  removeDisabled: boolean
+}) {
+  const measureRef = useRef<HTMLDivElement>(null)
+  const [visibleCount, setVisibleCount] = useState(badges.length)
+
+  useEffect(() => {
+    const container = measureRef.current
+    if (!container) {
+      return
+    }
+
+    const measure = () => {
+      const children = Array.from(container.children) as HTMLElement[]
+      // Last child is the +N indicator placeholder.
+      const indicatorEl = children[children.length - 1]
+      const chips = children.slice(0, -1)
+      const indicatorWidth = indicatorEl ? indicatorEl.offsetWidth : 0
+      const gap = 6 // gap-1.5 = 0.375rem = 6px
+
+      let count = 0
+      for (const chip of chips) {
+        if (chip.offsetLeft + chip.offsetWidth > container.clientWidth) {
+          break
+        }
+        count++
+      }
+
+      // Reserve room for the +N indicator when chips are hidden.
+      if (count > 0 && count < chips.length) {
+        const lastVisible = chips[count - 1]
+        if (
+          lastVisible.offsetLeft +
+            lastVisible.offsetWidth +
+            gap +
+            indicatorWidth >
+          container.clientWidth
+        ) {
+          count--
+        }
+      }
+
+      setVisibleCount(Math.max(count, 1))
+    }
+
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [badges])
+
+  const hiddenTools = badges.slice(visibleCount)
+  const hiddenCount = hiddenTools.length
+
+  return (
+    <PromptInputHeader className="gap-1.5 px-3 pt-3">
+      <div className="relative w-full min-w-0 overflow-hidden">
+        {/* Hidden measurement layer — every chip plus a +N placeholder so the
+            ResizeObserver can recompute the visible set as the panel resizes. */}
+        <div
+          ref={measureRef}
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-1.5"
+          style={{ visibility: "hidden" }}
+        >
+          {badges.map((tool) => (
+            <SelectedToolChip
+              key={tool.value}
+              tool={tool}
+              interactive={false}
+            />
+          ))}
+          <span className="shrink-0 text-xs">+{badges.length}</span>
+        </div>
+        {/* Visible layer — only the chips that fit plus a +N indicator. */}
+        <div className="flex items-center gap-1.5">
+          {badges.slice(0, visibleCount).map((tool) => (
+            <SelectedToolChip
+              key={tool.value}
+              tool={tool}
+              onRemove={onRemove}
+              removeDisabled={removeDisabled}
+              interactive
+            />
+          ))}
+          {hiddenCount > 0 && (
+            <Badge
+              variant="secondary"
+              className="h-7 shrink-0 px-2.5 text-xs text-muted-foreground"
+              title={hiddenTools.map((tool) => tool.label).join(", ")}
+            >
+              +{hiddenCount}
+            </Badge>
+          )}
+        </div>
+      </div>
+    </PromptInputHeader>
   )
 }
 
