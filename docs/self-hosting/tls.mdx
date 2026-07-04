@@ -116,7 +116,7 @@ To make every service trust your CA — including custom LLM providers and Pytho
 
     services:
       cert-init:
-        image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-latest}
+        image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.50}
         restart: "no"
         user: root
         volumes:
@@ -157,3 +157,9 @@ To make every service trust your CA — including custom LLM providers and Pytho
     Check the init container output with `docker compose logs cert-init`.
   </Step>
 </Steps>
+
+<Note>
+  The injected bundle does not reach actions running inside the [nsjail sandbox](/self-hosting/security#execution-sandboxing) (`TRACECAT__EXECUTOR_SANDBOX_ENABLED=true`).
+  The sandbox strips these environment variables and does not mount `/custom-ca`.
+  For sandboxed HTTP actions, use the per-action `ca_cert` secret instead.
+</Note>
