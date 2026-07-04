@@ -9,6 +9,11 @@ from pydantic_ai.messages import ModelMessage
 from pydantic_ai.tools import DeferredToolResults
 from pydantic_core import to_jsonable_python
 
+from tracecat.agent.common.types import (
+    RuntimeResolution,
+    is_stdio_mcp_server,
+    output_type_kind,
+)
 from tracecat.agent.exceptions import AgentRunError
 from tracecat.agent.executor.aio import AioStreamingAgentExecutor
 from tracecat.agent.parsers import try_parse_json
@@ -28,6 +33,42 @@ from tracecat.config import (
 from tracecat.contexts import ctx_role, ctx_session_id
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.logger import logger
+
+
+def _pydantic_runtime_resolution(
+    *,
+    user_prompt: str,
+    model_name: str | None,
+    model_provider: str | None,
+    actions: list[str] | None = None,
+    namespaces: list[str] | None = None,
+    tool_approvals: dict[str, bool] | None = None,
+    mcp_servers: list[MCPServerConfig] | None = None,
+    instructions: str | None = None,
+    output_type: OutputType | None = None,
+    base_url: str | None = None,
+) -> RuntimeResolution:
+    """Build secret-free diagnostics for the legacy pydantic-ai runtime path."""
+    return RuntimeResolution(
+        runtime="pydantic_ai",
+        model_provider=model_provider,
+        model_name=model_name,
+        model_route=model_name,
+        base_url_configured=base_url is not None,
+        instructions_present=bool(instructions),
+        instructions_length=len(instructions or ""),
+        system_prompt_length=len(instructions or "") if instructions else None,
+        user_prompt_length=len(user_prompt),
+        output_type_kind=output_type_kind(output_type),
+        actions_count=len(actions) if actions is not None else None,
+        namespaces_count=len(namespaces) if namespaces is not None else None,
+        approval_policy_count=len(tool_approvals or {}),
+        approvals_enabled=bool(tool_approvals),
+        mcp_server_count=len(mcp_servers or []),
+        stdio_mcp_server_count=sum(
+            1 for server in (mcp_servers or []) if is_stdio_mcp_server(server)
+        ),
+    )
 
 
 async def run_agent_sync(
@@ -72,6 +113,11 @@ async def run_agent_sync(
         duration=end_time - start_time,
         usage=usage,
         session_id=uuid.uuid4(),
+        runtime_resolution=_pydantic_runtime_resolution(
+            user_prompt=user_prompt,
+            model_name=None,
+            model_provider=None,
+        ),
     )
 
 
@@ -225,6 +271,18 @@ async def run_agent(
             duration=end_time - start_time,
             usage=usage,
             session_id=session_id,
+            runtime_resolution=_pydantic_runtime_resolution(
+                user_prompt=user_prompt,
+                model_name=model_name,
+                model_provider=model_provider,
+                actions=actions,
+                namespaces=namespaces,
+                tool_approvals=tool_approvals,
+                mcp_servers=mcp_servers,
+                instructions=instructions,
+                output_type=output_type,
+                base_url=base_url,
+            ),
         )
 
     except Exception as e:

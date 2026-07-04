@@ -22,6 +22,7 @@ import orjson
 
 from tracecat.agent.common.protocol import RuntimeEventEnvelope
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
+from tracecat.agent.common.types import RuntimeResolution
 
 # Header size: 1 byte msg_type + 4 bytes length
 HEADER_SIZE = 5
@@ -170,6 +171,7 @@ class SocketStreamWriter:
         num_turns: int | None = None,
         duration_ms: int | None = None,
         output: Any = None,
+        runtime_resolution: RuntimeResolution | None = None,
     ) -> None:
         """Send final result with usage data from Claude SDK ResultMessage."""
         await self._send(
@@ -178,6 +180,7 @@ class SocketStreamWriter:
                 num_turns=num_turns,
                 duration_ms=duration_ms,
                 output=output,
+                runtime_resolution=runtime_resolution,
             )
         )
 

@@ -170,6 +170,8 @@ class SandboxAgentConfig(BaseModel):
     """Whether to enable extended thinking for the Claude Code CLI."""
     enable_internet_access: bool = False
     """Whether to enable internet access tools (WebSearch, WebFetch)."""
+    skills_count: int = 0
+    """Number of resolved skills staged into the sandbox for this turn."""
 
     @classmethod
     def from_agent_config(cls, config: AgentConfig) -> SandboxAgentConfig:
@@ -193,6 +195,7 @@ class SandboxAgentConfig(BaseModel):
             output_type=config.output_type,
             enable_thinking=config.enable_thinking,
             enable_internet_access=config.enable_internet_access,
+            skills_count=len(config.resolved_skills or []),
         )
 
 
@@ -213,3 +216,60 @@ class SandboxSubagentConfig(BaseModel):
     model_route: str | None = None
     max_turns: int | None = None
     allowed_actions: dict[str, MCPToolDefinition] | None = None
+
+
+class RuntimeResolution(BaseModel):
+    """Metadata describing the runtime configuration selected for an agent turn.
+
+    This intentionally records shape and routing metadata, not prompt bodies,
+    tool names, headers, or secret-bearing values.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    runtime: Literal["claude_code", "pydantic_ai"]
+    model_provider: str | None = None
+    model_name: str | None = None
+    model_route: str | None = None
+    passthrough: bool = False
+    base_url_configured: bool = False
+
+    instructions_present: bool = False
+    instructions_length: int = 0
+    system_prompt_length: int | None = None
+    system_prompt_fragment_count: int = 0
+    user_prompt_length: int = 0
+    output_type_kind: Literal["none", "primitive", "json_schema"] = "none"
+
+    actions_count: int | None = None
+    namespaces_count: int | None = None
+    allowed_tools_count: int | None = None
+    disallowed_tools_count: int | None = None
+    approval_policy_count: int = 0
+    approvals_enabled: bool = False
+
+    mcp_server_count: int = 0
+    stdio_mcp_server_count: int = 0
+    subagent_count: int = 0
+    skills_count: int = 0
+
+    thinking_enabled: bool | None = None
+    internet_access_enabled: bool | None = None
+    resumed: bool = False
+    forked: bool = False
+    approval_continuation: bool = False
+
+    def to_metadata(self) -> dict[str, Any]:
+        """Return JSON metadata safe to include in runtime stream events."""
+        return self.model_dump(mode="json", exclude_none=True)
+
+
+def output_type_kind(
+    output_type: str | dict[str, Any] | None,
+) -> Literal["none", "primitive", "json_schema"]:
+    """Classify output type without exposing a full schema in diagnostics."""
+    if output_type is None:
+        return "none"
+    if isinstance(output_type, dict):
+        return "json_schema"
+    return "primitive"
