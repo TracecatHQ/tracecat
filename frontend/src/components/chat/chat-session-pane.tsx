@@ -107,6 +107,7 @@ import {
   useUpdateChat,
   useVercelChat,
 } from "@/hooks/use-chat"
+import { useOverflowBadges } from "@/hooks/use-overflow-badges"
 import type { ModelInfo } from "@/lib/chat"
 import {
   ENTITY_TO_INVALIDATION,
@@ -1446,9 +1447,9 @@ function SelectedToolChip({
  * fit plus a "+N" indicator for the rest, so a large tool set never grows the
  * composer past one row.
  *
- * A hidden measurement layer always renders every chip so a ResizeObserver can
- * recompute the visible set when the panel resizes. Mirrors the MultiSelectBadges
- * overflow pattern in case-panel-custom-fields.tsx.
+ * Overflow measurement is shared with MultiSelectBadges (case custom fields)
+ * via the useOverflowBadges hook: a hidden measurement layer renders every chip
+ * so the visible set can be recomputed when the panel resizes.
  */
 function SelectedToolsHeader({
   badges,
@@ -1459,53 +1460,8 @@ function SelectedToolsHeader({
   onRemove: (value: string) => void
   removeDisabled: boolean
 }) {
-  const measureRef = useRef<HTMLDivElement>(null)
-  const [visibleCount, setVisibleCount] = useState(badges.length)
-
-  useEffect(() => {
-    const container = measureRef.current
-    if (!container) {
-      return
-    }
-
-    const measure = () => {
-      const children = Array.from(container.children) as HTMLElement[]
-      // Last child is the +N indicator placeholder.
-      const indicatorEl = children[children.length - 1]
-      const chips = children.slice(0, -1)
-      const indicatorWidth = indicatorEl ? indicatorEl.offsetWidth : 0
-      const gap = 6 // gap-1.5 = 0.375rem = 6px
-
-      let count = 0
-      for (const chip of chips) {
-        if (chip.offsetLeft + chip.offsetWidth > container.clientWidth) {
-          break
-        }
-        count++
-      }
-
-      // Reserve room for the +N indicator when chips are hidden.
-      if (count > 0 && count < chips.length) {
-        const lastVisible = chips[count - 1]
-        if (
-          lastVisible.offsetLeft +
-            lastVisible.offsetWidth +
-            gap +
-            indicatorWidth >
-          container.clientWidth
-        ) {
-          count--
-        }
-      }
-
-      setVisibleCount(Math.max(count, 1))
-    }
-
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(container)
-    return () => observer.disconnect()
-  }, [badges])
+  // gap-1.5 = 0.375rem = 6px between chips.
+  const { measureRef, visibleCount } = useOverflowBadges(badges, { gap: 6 })
 
   const hiddenTools = badges.slice(visibleCount)
   const hiddenCount = hiddenTools.length
