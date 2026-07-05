@@ -738,6 +738,16 @@ class WorkflowDefinition(WorkspaceModel):
     """
 
     __tablename__ = "workflow_definition"
+    __table_args__ = (
+        # Serves the hot definition lookup (workspace_id, workflow_id) ordered
+        # or filtered by version, plus workspace-scoped scans and RLS predicates.
+        Index(
+            "ix_workflow_definition_workspace_id_workflow_id_version",
+            "workspace_id",
+            "workflow_id",
+            "version",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
