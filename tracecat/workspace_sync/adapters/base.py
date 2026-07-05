@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute, Mapped
 from sqlalchemy.sql.base import ExecutableOption
+from sqlalchemy.sql.elements import ColumnElement
 
 from tracecat.auth.types import Role
 from tracecat.db.models import WorkspaceSyncResourceMapping
@@ -273,7 +274,7 @@ class NameSwapPlan[ModelT: _WorkspaceRow]:
     """Attribute scoping name uniqueness (e.g. ``"environment"``), if any."""
     target_scopes: Mapping[str, str] | None = None
     """Desired ``source_id`` -> scope value; set whenever ``scope_attr`` is."""
-    availability_predicates: Sequence[Any] = ()
+    availability_predicates: Sequence[ColumnElement[bool]] = ()
     """Extra predicates applied when checking whether a target name is free."""
 
     @property
@@ -602,7 +603,7 @@ class ResourceAdapter(ABC):
         source_id: str,
         model: type[ModelT],
         options: Sequence[ExecutableOption] = (),
-        row_predicates: Sequence[Any] = (),
+        row_predicates: Sequence[ColumnElement[bool]] = (),
     ) -> ModelT | None:
         """Load the ``model`` row mapped to ``source_id``, or ``None`` if unmapped.
 
@@ -639,8 +640,8 @@ class ResourceAdapter(ABC):
         temp_prefix: str = _TEMP_NAME_PREFIX,
         temp_max_len: int | None = None,
         rename: Callable[[ModelT, str], Awaitable[None]] | None = None,
-        row_predicates: Sequence[Any] = (),
-        availability_predicates: Sequence[Any] = (),
+        row_predicates: Sequence[ColumnElement[bool]] = (),
+        availability_predicates: Sequence[ColumnElement[bool]] = (),
     ) -> NameSwapPlan[ModelT]:
         """Validate target names and park mapped rows whose names change.
 
