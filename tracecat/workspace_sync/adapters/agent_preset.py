@@ -360,33 +360,6 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             )
         return bindings
 
-    async def _skill_bindings_for_version(
-        self,
-        workspace_service: SyncMappingService,
-        version: AgentPresetVersion,
-    ) -> list[AgentPresetSkillBinding]:
-        """Return slug/version skill bindings for an immutable preset version."""
-        stmt = (
-            select(Skill.name, SkillVersion.version)
-            .select_from(AgentPresetVersionSkill)
-            .join(Skill, AgentPresetVersionSkill.skill_id == Skill.id)
-            .join(
-                SkillVersion,
-                AgentPresetVersionSkill.skill_version_id == SkillVersion.id,
-            )
-            .where(
-                AgentPresetVersionSkill.workspace_id == workspace_service.workspace_id,
-                AgentPresetVersionSkill.preset_version_id == version.id,
-            )
-            .order_by(Skill.name.asc())
-        )
-        return [
-            AgentPresetSkillBinding(slug=slug, version=version_number)
-            for slug, version_number in (
-                await workspace_service.session.execute(stmt)
-            ).tuples()
-        ]
-
     async def import_specs(
         self,
         workspace_service: SyncMappingService,
@@ -515,7 +488,6 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 imported.append(self.imported_resource(source_id, preset.id))
                 continue
 
-            current_version = None
             current_version = imported_versions.get(spec.current_version)
             if current_version is None:
                 current_version = await self._current_version_for_preset(
@@ -954,13 +926,11 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 version=version.version_number,
                 **attrs,
             )
-            workspace_service.session.add(existing)
-            await workspace_service.session.flush()
         else:
             for key, value in attrs.items():
                 setattr(existing, key, value)
-            workspace_service.session.add(existing)
-            await workspace_service.session.flush()
+        workspace_service.session.add(existing)
+        await workspace_service.session.flush()
         return existing
 
     def _version_attrs_from_preset(self, preset: AgentPreset) -> dict[str, Any]:
