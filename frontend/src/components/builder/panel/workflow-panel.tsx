@@ -191,9 +191,9 @@ export function WorkflowPanel({
         onValueChange={(value) => setActiveTab(value as WorkflowPanelTab)}
         className="flex h-full w-full flex-col"
       >
-        <div className="w-full min-w-[30rem] shrink-0">
-          <div className="flex items-center justify-start">
-            <TabsList className="h-9 justify-start rounded-none bg-transparent p-0">
+        <div className="w-full shrink-0">
+          <div className="no-scrollbar flex items-center justify-start overflow-x-auto">
+            <TabsList className="h-9 shrink-0 justify-start rounded-none bg-transparent p-0">
               <TabsTrigger
                 className="flex h-full min-w-24 items-center justify-center rounded-none px-5 py text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                 value="workflow"
