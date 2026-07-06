@@ -464,14 +464,14 @@ function ToolbarCategoryDropdown({
   function renderActionIcon(action: RegistryActionReadMinimal) {
     if (isAiCategory) {
       return (
-        <div className="flex size-8 items-center justify-center rounded-md border border-sky-100 bg-sky-50/80">
+        <div className="flex size-8 items-center justify-center rounded-md border border-sky-100 bg-sky-50/80 dark:border-sky-900 dark:bg-sky-500/10">
           <SparklesIcon className="size-4 text-foreground" />
         </div>
       )
     }
     if (isAgentCategory) {
       return (
-        <div className="flex size-8 items-center justify-center rounded-md border border-emerald-100 bg-emerald-50/80">
+        <div className="flex size-8 items-center justify-center rounded-md border border-emerald-100 bg-emerald-50/80 dark:border-emerald-900 dark:bg-emerald-500/10">
           <BotIcon className="size-4 text-foreground" />
         </div>
       )
