@@ -68,6 +68,8 @@ import type {
   AdminPromoteOrgRepositoryVersionResponse,
   AdminPromoteToSuperuserData,
   AdminPromoteToSuperuserResponse,
+  AdminRegistryDeleteRegistryVersionData,
+  AdminRegistryDeleteRegistryVersionResponse,
   AdminRegistryGetPlatformRepositoryData,
   AdminRegistryGetPlatformRepositoryResponse,
   AdminRegistryGetRegistryStatusResponse,
@@ -8087,6 +8089,31 @@ export const adminRegistryPromoteRegistryVersion = (
   return __request(OpenAPI, {
     method: "POST",
     url: "/admin/registry/{repository_id}/versions/{version_id}/promote",
+    path: {
+      repository_id: data.repositoryId,
+      version_id: data.versionId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Registry Version
+ * Delete an unused, non-current platform registry version.
+ * @param data The data for the request.
+ * @param data.repositoryId
+ * @param data.versionId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const adminRegistryDeleteRegistryVersion = (
+  data: AdminRegistryDeleteRegistryVersionData
+): CancelablePromise<AdminRegistryDeleteRegistryVersionResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/admin/registry/{repository_id}/versions/{version_id}",
     path: {
       repository_id: data.repositoryId,
       version_id: data.versionId,

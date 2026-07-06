@@ -11983,6 +11983,13 @@ export type AdminRegistryPromoteRegistryVersionData = {
 export type AdminRegistryPromoteRegistryVersionResponse =
   tracecat__admin__registry__schemas__RegistryVersionPromoteResponse
 
+export type AdminRegistryDeleteRegistryVersionData = {
+  repositoryId: string
+  versionId: string
+}
+
+export type AdminRegistryDeleteRegistryVersionResponse = void
+
 export type InboxGetPendingCountData = {
   workspaceId: string
 }
@@ -17524,6 +17531,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: tracecat__admin__registry__schemas__RegistryVersionPromoteResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/registry/{repository_id}/versions/{version_id}": {
+    delete: {
+      req: AdminRegistryDeleteRegistryVersionData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */
