@@ -58,6 +58,7 @@ from tracecat.db.models import (
     AgentPresetSkill,
     AgentPresetVersion,
     AgentPresetVersionSkill,
+    MCPIntegration,
     Skill,
     SkillVersion,
 )
@@ -281,8 +282,9 @@ class AgentPresetService(BaseWorkspaceService):
         )
         if params.actions:
             await self._validate_actions(params.actions)
-        if params.mcp_integrations:
-            await self.validate_mcp_integrations(params.mcp_integrations)
+        requires_internet_access = await self._has_stdio_mcp_integration(
+            params.mcp_integrations
+        )
         if params.skills:
             await self.skills.validate_binding_inputs(
                 params.skills,
@@ -316,7 +318,9 @@ class AgentPresetService(BaseWorkspaceService):
             mcp_integrations=params.mcp_integrations,
             agents=AgentSubagentsConfig().model_dump(mode="json"),
             enable_thinking=params.enable_thinking,
-            enable_internet_access=params.enable_internet_access,
+            enable_internet_access=(
+                params.enable_internet_access or requires_internet_access
+            ),
             retries=params.retries,
         )
         self.session.add(preset)
@@ -420,11 +424,20 @@ class AgentPresetService(BaseWorkspaceService):
                 execution_changed = True
 
         if "mcp_integrations" in set_fields:
-            if mcp_integrations := set_fields.pop("mcp_integrations"):
-                await self.validate_mcp_integrations(mcp_integrations)
+            mcp_integrations = set_fields.pop("mcp_integrations")
+            requires_internet_access = await self._has_stdio_mcp_integration(
+                mcp_integrations
+            )
             if preset.mcp_integrations != mcp_integrations:
                 preset.mcp_integrations = mcp_integrations
                 execution_changed = True
+        else:
+            requires_internet_access = await self._has_stdio_mcp_integration(
+                preset.mcp_integrations
+            )
+
+        if requires_internet_access:
+            set_fields["enable_internet_access"] = True
 
         if "agents" in set_fields:
             agents = await self._resolve_preset_subagent_configs(
@@ -632,8 +645,14 @@ class AgentPresetService(BaseWorkspaceService):
 
     async def validate_mcp_integrations(self, mcp_integrations: list[str]) -> None:
         """Validate MCP integration IDs for the workspace."""
+        await self._load_selected_mcp_integrations(mcp_integrations)
+
+    async def _load_selected_mcp_integrations(
+        self, mcp_integrations: list[str] | None
+    ) -> list[MCPIntegration]:
+        """Load selected MCP integrations after validating workspace access."""
         if not mcp_integrations:
-            return
+            return []
 
         # Convert string IDs to UUIDs for validation
         mcp_integration_ids = set()
@@ -653,10 +672,28 @@ class AgentPresetService(BaseWorkspaceService):
 
         # Check if all requested IDs exist
         if missing_ids := mcp_integration_ids - available_mcp_integration_ids:
-            missing_str = sorted(str(id) for id in missing_ids)
+            missing_str = sorted(str(mcp_id) for mcp_id in missing_ids)
             raise TracecatValidationError(
                 f"{len(missing_ids)} MCP integrations were not found in this workspace: {missing_str}"
             )
+
+        return [
+            mcp_integration
+            for mcp_integration in available_mcp_integrations
+            if mcp_integration.id in mcp_integration_ids
+        ]
+
+    async def _has_stdio_mcp_integration(
+        self, mcp_integrations: list[str] | None
+    ) -> bool:
+        """Return whether any selected MCP integration uses stdio transport."""
+        selected_integrations = await self._load_selected_mcp_integrations(
+            mcp_integrations
+        )
+        return any(
+            mcp_integration.server_type == "stdio"
+            for mcp_integration in selected_integrations
+        )
 
     async def _resolve_preset_subagent_configs(
         self,
