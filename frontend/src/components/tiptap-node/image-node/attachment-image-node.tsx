@@ -173,6 +173,14 @@ export const AttachmentImage = Image.extend<AttachmentImageOptions>({
       },
     }
   },
+  parseHTML() {
+    return [
+      ...(this.parent?.() ?? []),
+      // Attachment images render without `src`, so include the persisted
+      // attribute that survives HTML round-trips.
+      { tag: "img[data-attachment-src]" },
+    ]
+  },
   renderHTML({ HTMLAttributes }) {
     // Keep `attachment://` srcs out of the DOM (the browser would attempt the
     // fetch and log a CSP violation); the node view supplies the real src.
