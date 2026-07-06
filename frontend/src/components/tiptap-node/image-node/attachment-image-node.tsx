@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { Image, type ImageOptions } from "@tiptap/extension-image"
 import {
+  mergeAttributes,
   type NodeViewProps,
   NodeViewWrapper,
   ReactNodeViewRenderer,
@@ -160,6 +161,27 @@ export const AttachmentImage = Image.extend<AttachmentImageOptions>({
       ...this.parent?.(),
       workspaceId: null,
     } as AttachmentImageOptions
+  },
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      src: {
+        default: null,
+        parseHTML: (element) =>
+          element.getAttribute("src") ??
+          element.getAttribute("data-attachment-src"),
+      },
+    }
+  },
+  renderHTML({ HTMLAttributes }) {
+    // Keep `attachment://` srcs out of the DOM (the browser would attempt the
+    // fetch and log a CSP violation); the node view supplies the real src.
+    const merged = mergeAttributes(this.options.HTMLAttributes, HTMLAttributes)
+    const { src, ...rest } = merged
+    if (typeof src === "string" && parseAttachmentSrc(src)) {
+      return ["img", { ...rest, "data-attachment-src": src }]
+    }
+    return ["img", merged]
   },
   addNodeView() {
     return ReactNodeViewRenderer(AttachmentImageNodeView)
