@@ -325,6 +325,45 @@ def test_call_paginated_api_returns_pages(monkeypatch: pytest.MonkeyPatch) -> No
     assert calls == [{"pageSize": 1}, {"pageSize": 1, "pageToken": "next-token"}]
 
 
+def test_call_paginated_api_stops_at_max_pages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, Any]] = []
+
+    def build(*_args: Any, **_kwargs: Any) -> FakeService:
+        return FakeService(
+            calls,
+            [
+                {"files": [{"id": "1"}], "nextPageToken": "token-1"},
+                {"files": [{"id": "2"}], "nextPageToken": "token-2"},
+                {"files": [{"id": "3"}]},
+            ],
+        )
+
+    monkeypatch.setattr(
+        google_api.secrets,
+        "get_or_default",
+        lambda key: "service-token" if key == "GOOGLE_SERVICE_TOKEN" else None,
+    )
+    monkeypatch.setattr(google_api, "build", build)
+
+    result = google_api.call_paginated_api(
+        service_name="drive",
+        version="v3",
+        resource="files",
+        method_name="list",
+        params={"pageSize": 1},
+        max_pages=2,
+    )
+
+    assert result == [
+        {"files": [{"id": "1"}], "nextPageToken": "token-1"},
+        {"files": [{"id": "2"}], "nextPageToken": "token-2"},
+    ]
+    # No third request is made once max_pages is reached.
+    assert calls == [{"pageSize": 1}, {"pageSize": 1, "pageToken": "token-1"}]
+
+
 def test_call_paginated_api_supports_custom_token_fields(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
