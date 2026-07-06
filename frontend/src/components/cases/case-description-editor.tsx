@@ -3,6 +3,7 @@
 import * as React from "react"
 
 import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
+import { useCaseImageUpload } from "@/lib/cases/use-case-image-upload"
 import { cn } from "@/lib/utils"
 
 import "./editor.css"
@@ -14,6 +15,10 @@ interface CaseDescriptionEditorProps {
   onBlur?: () => void
   toolbarStatus?: React.ReactNode
   autoFocus?: boolean
+  /** Enables image paste/drop uploads when paired with `workspaceId`. */
+  caseId?: string
+  /** Workspace that owns the case; required for image support. */
+  workspaceId?: string
 }
 
 export function CaseDescriptionEditor({
@@ -23,6 +28,8 @@ export function CaseDescriptionEditor({
   onBlur,
   toolbarStatus,
   autoFocus = false,
+  caseId,
+  workspaceId,
 }: CaseDescriptionEditorProps) {
   const [value, setValue] = React.useState(initialContent ?? "")
   const [isEditorActive, setIsEditorActive] = React.useState(false)
@@ -59,6 +66,13 @@ export function CaseDescriptionEditor({
     setIsEditorActive(true)
   }, [])
 
+  const imagesEnabled = Boolean(caseId && workspaceId)
+  const { uploadImage } = useCaseImageUpload(caseId ?? "", workspaceId ?? "")
+  const handleImageUpload = React.useCallback(
+    async (file: File) => (await uploadImage(file)).src,
+    [uploadImage]
+  )
+
   return (
     <div
       ref={containerRef}
@@ -77,6 +91,9 @@ export function CaseDescriptionEditor({
         placeholder="Describe the case..."
         className="case-description-editor"
         autoFocus={autoFocus}
+        enableImages={imagesEnabled}
+        imageWorkspaceId={workspaceId ?? null}
+        onImageUpload={imagesEnabled ? handleImageUpload : undefined}
       />
     </div>
   )
@@ -85,9 +102,12 @@ export function CaseDescriptionEditor({
 export function CaseCommentViewer({
   content,
   className,
+  workspaceId,
 }: {
   content: string
   className?: string
+  /** Workspace that owns the case; required to render inline attachment images. */
+  workspaceId?: string
 }) {
   return (
     <div className={cn("m-0 p-0 text-base", className)}>
@@ -96,6 +116,8 @@ export function CaseCommentViewer({
         editable={false}
         showToolbar={false}
         className="case-comment-viewer"
+        enableImages={Boolean(workspaceId)}
+        imageWorkspaceId={workspaceId ?? null}
       />
     </div>
   )

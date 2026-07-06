@@ -33,6 +33,11 @@ from tracecat.storage.exceptions import (
 )
 from tracecat.storage.validation import FileSecurityValidator
 
+# Image MIME types that are safe to preview inline in the browser.
+IMAGE_PREVIEW_MIME_TYPES = frozenset(
+    {"image/png", "image/jpeg", "image/gif", "image/webp"}
+)
+
 
 class CaseAttachmentService(BaseWorkspaceService):
     """Service for managing case attachments."""
@@ -441,7 +446,8 @@ class CaseAttachmentService(BaseWorkspaceService):
         Args:
             case: The case the attachment belongs to
             attachment_id: The attachment ID
-            preview: If true, allows inline preview for safe image types (deprecated, kept for compatibility)
+            preview: If true, allows inline preview for safe image types (png, jpeg,
+                gif, webp). All other content types are always forced to download.
             expiry: URL expiry time in seconds (defaults to config value)
 
         Returns:
@@ -457,9 +463,14 @@ class CaseAttachmentService(BaseWorkspaceService):
         # Generate presigned URL for blob storage
         storage_key = attachment.storage_path
 
-        # Security: Always force download for attachments (no preview; param retained for compatibility)
-        force_download = True
-        override_content_type = "application/octet-stream"
+        # Security: force download as octet-stream by default. Only safe image
+        # types may be served inline, and only when preview is explicitly requested.
+        if preview and attachment.file.content_type in IMAGE_PREVIEW_MIME_TYPES:
+            force_download = False
+            override_content_type = attachment.file.content_type
+        else:
+            force_download = True
+            override_content_type = "application/octet-stream"
 
         try:
             presigned_url = await blob.generate_presigned_download_url(
