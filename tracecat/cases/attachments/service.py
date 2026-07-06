@@ -39,6 +39,13 @@ IMAGE_PREVIEW_MIME_TYPES = frozenset(
 )
 
 
+def _attachment_allowlist_from_workspace_setting(
+    value: Sequence[str] | None,
+) -> list[str] | None:
+    """Preserve None as default inheritance and empty lists as deny-all."""
+    return None if value is None else list(value)
+
+
 class CaseAttachmentService(BaseWorkspaceService):
     """Service for managing case attachments."""
 
@@ -246,14 +253,14 @@ class CaseAttachmentService(BaseWorkspaceService):
         workspace = await self._get_workspace()
         workspace_settings = workspace.settings or {}
 
-        # Use workspace-specific allowed extensions/MIME types if configured, otherwise use defaults
-        allowed_extensions = workspace_settings.get("allowed_attachment_extensions")
-        if allowed_extensions:
-            allowed_extensions = set(allowed_extensions)
-
-        allowed_mime_types = workspace_settings.get("allowed_attachment_mime_types")
-        if allowed_mime_types:
-            allowed_mime_types = set(allowed_mime_types)
+        # Use workspace-specific allowed extensions/MIME types when configured.
+        # None inherits defaults; an empty list is an explicit deny-all.
+        allowed_extensions = _attachment_allowlist_from_workspace_setting(
+            workspace_settings.get("allowed_attachment_extensions")
+        )
+        allowed_mime_types = _attachment_allowlist_from_workspace_setting(
+            workspace_settings.get("allowed_attachment_mime_types")
+        )
 
         # Get magic number validation setting (default to True for security)
         validate_magic_number = workspace_settings.get(
@@ -263,14 +270,9 @@ class CaseAttachmentService(BaseWorkspaceService):
             validate_magic_number = True
 
         # Comprehensive security validation using the new validator
-        # Ensure allowed lists are Sequences for type checking
         validator = FileSecurityValidator(
-            allowed_extensions=(
-                list(allowed_extensions) if allowed_extensions else None
-            ),
-            allowed_mime_types=(
-                list(allowed_mime_types) if allowed_mime_types else None
-            ),
+            allowed_extensions=allowed_extensions,
+            allowed_mime_types=allowed_mime_types,
             validate_magic_number=validate_magic_number,
         )
         # Strip "Content-Type" from the declared MIME type

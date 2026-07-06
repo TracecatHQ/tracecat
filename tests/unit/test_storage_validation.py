@@ -74,6 +74,40 @@ def test_extension_not_allowed_raises(validator_basic: FileSecurityValidator) ->
         )
 
 
+def test_empty_extension_allowlist_rejects_all_extensions() -> None:
+    validator = FileSecurityValidator(
+        max_file_size=1024 * 1024,
+        max_filename_length=128,
+        allowed_extensions=[],
+        allowed_mime_types=["application/pdf"],
+        validate_magic_number=False,
+    )
+
+    with pytest.raises(FileExtensionError):
+        validator.validate_file(
+            content=pdf_bytes(),
+            filename="sample.pdf",
+            declared_mime_type="application/pdf",
+        )
+
+
+def test_empty_mime_allowlist_rejects_all_mime_types() -> None:
+    validator = FileSecurityValidator(
+        max_file_size=1024 * 1024,
+        max_filename_length=128,
+        allowed_extensions=[".pdf"],
+        allowed_mime_types=[],
+        validate_magic_number=False,
+    )
+
+    with pytest.raises(FileMimeTypeError):
+        validator.validate_file(
+            content=pdf_bytes(),
+            filename="sample.pdf",
+            declared_mime_type="application/pdf",
+        )
+
+
 def test_declared_mime_normalization_allows_params(
     validator_basic: FileSecurityValidator,
 ) -> None:
