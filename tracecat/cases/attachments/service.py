@@ -39,11 +39,11 @@ IMAGE_PREVIEW_MIME_TYPES = frozenset(
 )
 
 
-def _attachment_allowlist_from_workspace_setting(
-    value: Sequence[str] | None,
+def _resolve_workspace_attachment_allowlist(
+    allowlist: Sequence[str] | None,
 ) -> list[str] | None:
-    """Preserve None as default inheritance and empty lists as deny-all."""
-    return None if value is None else list(value)
+    """Preserve explicit empty workspace allowlists while copying configured values."""
+    return list(allowlist) if allowlist is not None else None
 
 
 class CaseAttachmentService(BaseWorkspaceService):
@@ -253,12 +253,11 @@ class CaseAttachmentService(BaseWorkspaceService):
         workspace = await self._get_workspace()
         workspace_settings = workspace.settings or {}
 
-        # Use workspace-specific allowed extensions/MIME types when configured.
-        # None inherits defaults; an empty list is an explicit deny-all.
-        allowed_extensions = _attachment_allowlist_from_workspace_setting(
+        # Use workspace-specific allowed extensions/MIME types if configured, otherwise use defaults
+        allowed_extensions = _resolve_workspace_attachment_allowlist(
             workspace_settings.get("allowed_attachment_extensions")
         )
-        allowed_mime_types = _attachment_allowlist_from_workspace_setting(
+        allowed_mime_types = _resolve_workspace_attachment_allowlist(
             workspace_settings.get("allowed_attachment_mime_types")
         )
 

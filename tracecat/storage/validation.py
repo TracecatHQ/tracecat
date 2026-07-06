@@ -87,17 +87,17 @@ class FileSecurityValidator:
         )
         # Normalize extensions: trim whitespace and lowercase for robust comparison
         raw_exts = list(
-            config.TRACECAT__ALLOWED_ATTACHMENT_EXTENSIONS
-            if allowed_extensions is None
-            else allowed_extensions
+            allowed_extensions
+            if allowed_extensions is not None
+            else config.TRACECAT__ALLOWED_ATTACHMENT_EXTENSIONS
         )
         self.allowed_extensions = [
             e.strip().lower() for e in raw_exts if str(e).strip()
         ]
         self.allowed_mime_types = list(
-            config.TRACECAT__ALLOWED_ATTACHMENT_MIME_TYPES
-            if allowed_mime_types is None
-            else allowed_mime_types
+            allowed_mime_types
+            if allowed_mime_types is not None
+            else config.TRACECAT__ALLOWED_ATTACHMENT_MIME_TYPES
         )
         self.validate_magic_number = validate_magic_number
 

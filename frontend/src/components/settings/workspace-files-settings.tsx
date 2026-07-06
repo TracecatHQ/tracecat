@@ -41,31 +41,61 @@ export const filesSettingsSchema = z.object({
 })
 
 type FilesSettingsForm = z.infer<typeof filesSettingsSchema>
+type AttachmentTag = NonNullable<
+  FilesSettingsForm["allowed_attachment_extensions"]
+>[number]
+
+/**
+ * Convert persisted attachment allowlist values into tag input values.
+ */
+export function buildAttachmentTags(
+  values: string[] | null | undefined,
+  idPrefix: string
+): AttachmentTag[] | undefined {
+  if (values === undefined || values === null) {
+    return undefined
+  }
+
+  return values.map((text, index) => ({
+    id: `${idPrefix}-${index}`,
+    text,
+  }))
+}
+
+function serializeAttachmentTags(
+  tags: AttachmentTag[] | undefined,
+  inherit: boolean
+): string[] | null | undefined {
+  if (inherit) {
+    return null
+  }
+  if (tags === undefined) {
+    return undefined
+  }
+  return tags.map((tag) => tag.text)
+}
 
 interface FilesSettingsUpdateOptions {
   inheritAttachmentExtensions?: boolean
   inheritAttachmentMimeTypes?: boolean
 }
 
+/**
+ * Serialize the files settings form into a workspace settings update payload.
+ */
 export function buildFilesSettingsUpdate(
   values: FilesSettingsForm,
   options: FilesSettingsUpdateOptions = {}
 ) {
   return {
-    allowed_attachment_extensions: options.inheritAttachmentExtensions
-      ? null
-      : values.allowed_attachment_extensions === undefined
-        ? undefined
-        : values.allowed_attachment_extensions.length > 0
-          ? values.allowed_attachment_extensions.map((ext) => ext.text)
-          : null,
-    allowed_attachment_mime_types: options.inheritAttachmentMimeTypes
-      ? null
-      : values.allowed_attachment_mime_types === undefined
-        ? undefined
-        : values.allowed_attachment_mime_types.length > 0
-          ? values.allowed_attachment_mime_types.map((mime) => mime.text)
-          : null,
+    allowed_attachment_extensions: serializeAttachmentTags(
+      values.allowed_attachment_extensions,
+      options.inheritAttachmentExtensions ?? false
+    ),
+    allowed_attachment_mime_types: serializeAttachmentTags(
+      values.allowed_attachment_mime_types,
+      options.inheritAttachmentMimeTypes ?? false
+    ),
     validate_attachment_magic_number: values.validate_attachment_magic_number,
   }
 }
@@ -92,24 +122,14 @@ export function WorkspaceFilesSettings({
     resolver: zodResolver(filesSettingsSchema),
     mode: "onChange",
     defaultValues: {
-      allowed_attachment_extensions: workspace.settings
-        ?.allowed_attachment_extensions?.length
-        ? workspace.settings.allowed_attachment_extensions.map(
-            (ext, index) => ({
-              id: `ext-${index}`,
-              text: ext,
-            })
-          )
-        : undefined,
-      allowed_attachment_mime_types: workspace.settings
-        ?.allowed_attachment_mime_types?.length
-        ? workspace.settings.allowed_attachment_mime_types.map(
-            (mime, index) => ({
-              id: `mime-${index}`,
-              text: mime,
-            })
-          )
-        : undefined,
+      allowed_attachment_extensions: buildAttachmentTags(
+        workspace.settings?.allowed_attachment_extensions,
+        "ext"
+      ),
+      allowed_attachment_mime_types: buildAttachmentTags(
+        workspace.settings?.allowed_attachment_mime_types,
+        "mime"
+      ),
       validate_attachment_magic_number:
         workspace.settings?.validate_attachment_magic_number ?? true,
     },

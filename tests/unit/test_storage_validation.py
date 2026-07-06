@@ -3,6 +3,7 @@ import zipfile
 
 import pytest
 
+from tracecat import config
 from tracecat.storage.exceptions import (
     FileExtensionError,
     FileMimeTypeError,
@@ -232,3 +233,63 @@ def test_vbscript_rejected_by_extension(
             filename="script.vbs",
             declared_mime_type="application/vbscript",
         )
+
+
+def test_explicit_empty_extension_allowlist_is_preserved_and_rejects() -> None:
+    validator = FileSecurityValidator(
+        allowed_extensions=[],
+        allowed_mime_types=["text/plain"],
+        validate_magic_number=False,
+    )
+
+    assert validator.allowed_extensions == []
+
+    with pytest.raises(FileExtensionError):
+        validator.validate_file(
+            content=b"hello tracecat",
+            filename="hello.txt",
+            declared_mime_type="text/plain",
+        )
+
+
+def test_explicit_empty_mime_allowlist_is_preserved_and_rejects() -> None:
+    validator = FileSecurityValidator(
+        allowed_extensions=[".txt"],
+        allowed_mime_types=[],
+        validate_magic_number=False,
+    )
+
+    assert validator.allowed_mime_types == []
+
+    with pytest.raises(FileMimeTypeError):
+        validator.validate_file(
+            content=b"hello tracecat",
+            filename="hello.txt",
+            declared_mime_type="text/plain",
+        )
+
+
+def test_none_allowlists_fall_back_to_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__ALLOWED_ATTACHMENT_EXTENSIONS",
+        [".txt"],
+        raising=False,
+    )
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__ALLOWED_ATTACHMENT_MIME_TYPES",
+        ["text/plain"],
+        raising=False,
+    )
+
+    validator = FileSecurityValidator(
+        allowed_extensions=None,
+        allowed_mime_types=None,
+        validate_magic_number=False,
+    )
+
+    assert validator.allowed_extensions == [".txt"]
+    assert validator.allowed_mime_types == ["text/plain"]

@@ -1,10 +1,11 @@
 import {
+  buildAttachmentTags,
   buildFilesSettingsUpdate,
   filesSettingsSchema,
 } from "@/components/settings/workspace-files-settings"
 
 describe("workspace files settings", () => {
-  it("sends null when attachment override lists are cleared", () => {
+  it("sends empty arrays when attachment override lists are cleared", () => {
     const result = buildFilesSettingsUpdate({
       allowed_attachment_extensions: [],
       allowed_attachment_mime_types: [],
@@ -12,10 +13,17 @@ describe("workspace files settings", () => {
     })
 
     expect(result).toEqual({
-      allowed_attachment_extensions: null,
-      allowed_attachment_mime_types: null,
+      allowed_attachment_extensions: [],
+      allowed_attachment_mime_types: [],
       validate_attachment_magic_number: true,
     })
+  })
+
+  it("round-trips stored empty attachment allowlists as empty tag lists", () => {
+    expect(buildAttachmentTags([], "ext")).toEqual([])
+    expect(buildAttachmentTags([], "mime")).toEqual([])
+    expect(buildAttachmentTags(null, "ext")).toBeUndefined()
+    expect(buildAttachmentTags(undefined, "mime")).toBeUndefined()
   })
 
   it("keeps configured attachment override lists when present", () => {
