@@ -260,11 +260,25 @@ class UnifiedStreamEvent:
         )
 
     @classmethod
-    def cancelled_event(cls, *, reason: str | None = None) -> UnifiedStreamEvent:
-        """Factory method for creating turn-cancelled status events."""
+    def cancelled_event(
+        cls,
+        *,
+        reason: str | None = None,
+        tool_call_ids: list[str] | None = None,
+    ) -> UnifiedStreamEvent:
+        """Factory method for creating turn-cancelled status events.
+
+        Args:
+            reason: Human/machine-readable cancellation reason.
+            tool_call_ids: Tool calls the interrupt aborted mid-flight. Clients
+                use these to render the affected tool calls as "interrupted"
+                instead of surfacing SDK abort artifacts as tool errors.
+        """
         metadata: dict[str, Any] = {}
         if reason is not None:
             metadata["reason"] = reason
+        if tool_call_ids:
+            metadata["tool_call_ids"] = list(tool_call_ids)
         return cls(type=StreamEventType.CANCELLED, metadata=metadata)
 
     @classmethod

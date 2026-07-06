@@ -152,6 +152,9 @@ class AgentExecutorResult(BaseModel):
     result_num_turns: int | None = None
     cancelled: bool = False
     cancelled_reason: str | None = None
+    # Tool calls the interrupt aborted mid-flight (errored after cancellation
+    # or never resolved). None on legacy results that predate this field.
+    interrupted_tool_call_ids: list[str] | None = None
 
 
 class ExecuteApprovedToolsInput(BaseModel):
@@ -519,6 +522,9 @@ class SandboxedAgentExecutor:
         result.result_num_turns = loopback_result.result_num_turns
         result.cancelled = loopback_result.cancelled
         result.cancelled_reason = loopback_result.cancelled_reason
+        result.interrupted_tool_call_ids = (
+            loopback_result.interrupted_tool_call_ids or None
+        )
 
     async def _run_with_broker(
         self,
@@ -664,7 +670,17 @@ class SandboxedAgentExecutor:
             handler.mark_cancelled(reason)
             try:
                 async with asyncio.timeout(GRACEFUL_CANCEL_TIMEOUT_SECONDS):
-                    await broker.interrupt_turn(str(self.input.session_id), reason)
+                    # interrupt_turn no-ops while the runtime is still starting
+                    # up (work-dir hydration) - retry until it reaches a live
+                    # runtime or the turn ends on its own, mirroring the Redis
+                    # cancel-signal watcher. The runtime dedupes the interrupt
+                    # if both paths deliver it.
+                    while not await broker.interrupt_turn(
+                        str(self.input.session_id), reason
+                    ):
+                        if broker_task is None or broker_task.done():
+                            break
+                        await asyncio.sleep(TURN_CANCEL_POLL_INTERVAL_SECONDS)
                     if broker_task is not None:
                         await broker_task
             except TimeoutError:

@@ -282,6 +282,78 @@ def test_should_not_suppress_normal_tool_result_error() -> None:
 
 
 @pytest.mark.anyio
+async def test_interrupted_tool_call_ids_collected_from_cancel_state() -> None:
+    """Interrupt casualties are derived from cancel-then-error ordering and
+    unresolved calls - never from inspecting error text."""
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+
+    def _tool_start(tool_call_id: str) -> UnifiedStreamEvent:
+        return UnifiedStreamEvent(
+            type=StreamEventType.TOOL_CALL_START,
+            tool_call_id=tool_call_id,
+            tool_name="core.tables.list_tables",
+            tool_input={},
+        )
+
+    # Genuine failure before the interrupt: not an interrupt casualty, even
+    # though its error text looks abort-ish.
+    await handler.send_stream_event(_tool_start("tool-failed"))
+    await handler.send_stream_event(
+        UnifiedStreamEvent(
+            type=StreamEventType.TOOL_RESULT,
+            tool_call_id="tool-failed",
+            tool_name="core.tables.list_tables",
+            tool_output="The operation was aborted: table not found",
+            is_error=True,
+        )
+    )
+
+    # Two calls are in flight when the user interrupts.
+    await handler.send_stream_event(_tool_start("tool-aborted"))
+    await handler.send_stream_event(_tool_start("tool-unresolved"))
+    handler.mark_cancelled("user_cancel")
+
+    # SDK abort artifact lands after cancellation; the other call never
+    # produces a result.
+    await handler.send_stream_event(
+        UnifiedStreamEvent(
+            type=StreamEventType.TOOL_RESULT,
+            tool_call_id="tool-aborted",
+            tool_name="core.tables.list_tables",
+            tool_output="request cancelled",
+            is_error=True,
+        )
+    )
+
+    await handler._emit_interrupt_notice_if_cancelled(stream)
+
+    result = handler.build_result()
+    assert result.interrupted_tool_call_ids == ["tool-aborted", "tool-unresolved"]
+
+    cancelled_events = [
+        call.args[0]
+        for call in stream.append.await_args_list
+        if call.args[0].type is StreamEventType.CANCELLED
+    ]
+    assert len(cancelled_events) == 1
+    assert cancelled_events[0].metadata == {
+        "reason": "user_cancel",
+        "tool_call_ids": ["tool-aborted", "tool-unresolved"],
+    }
+
+
+def test_interrupted_tool_call_ids_empty_without_cancellation() -> None:
+    handler = _make_handler()
+    handler._tool_names_by_call_id["tool-open"] = "core.tables.list_tables"
+
+    result = handler.build_result()
+
+    assert result.interrupted_tool_call_ids == []
+
+
+@pytest.mark.anyio
 async def test_tool_result_emits_artifact_side_effect_from_tracked_call() -> None:
     handler = _make_handler()
     stream = _FakeStream()

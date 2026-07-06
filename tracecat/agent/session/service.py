@@ -836,6 +836,8 @@ class AgentSessionService(BaseWorkspaceService):
         session_id: uuid.UUID,
         *,
         reason: str | None = None,
+        interrupted_tool_call_ids: list[str] | None = None,
+        curr_run_id: uuid.UUID | None = None,
     ) -> None:
         """Persist a turn-cancelled marker row into the session history.
 
@@ -843,6 +845,16 @@ class AgentSessionService(BaseWorkspaceService):
         timeline after a reload; the live turn gets the equivalent signal from
         the ``cancelled`` stream event. It is not an SDK transcript line, so
         history hydration must skip it (see ``get_session_history_data``).
+
+        ``interrupted_tool_call_ids`` carries the tool calls the interrupt
+        aborted mid-flight so reloads can render them as "interrupted" instead
+        of surfacing SDK abort artifacts as tool errors.
+
+        ``curr_run_id`` pins the marker to the cancelled run. Callers that
+        know their run id (the workflow) must pass it: the session row's
+        ``curr_run_id`` may already point at a newer turn by the time the
+        cancelled workflow finalizes, which would tag the marker to the wrong
+        run and hide it while that turn is mid-flight.
         """
         agent_session = await self.get_session(session_id)
         if agent_session is None:
@@ -853,6 +865,8 @@ class AgentSessionService(BaseWorkspaceService):
             "reason": reason or "user_cancel",
             "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         }
+        if interrupted_tool_call_ids:
+            content["tool_call_ids"] = list(interrupted_tool_call_ids)
         # Tag with the active run id like other mid-turn rows so the marker
         # stays hidden from DB reloads until terminal cleanup reveals it
         # together with the rest of the turn.
@@ -862,7 +876,9 @@ class AgentSessionService(BaseWorkspaceService):
                 workspace_id=self.workspace_id,
                 content=content,
                 kind=MessageKind.CANCELLED.value,
-                curr_run_id=agent_session.curr_run_id,
+                curr_run_id=curr_run_id
+                if curr_run_id is not None
+                else agent_session.curr_run_id,
             )
         )
         await self.session.commit()
@@ -2173,13 +2189,27 @@ class AgentSessionService(BaseWorkspaceService):
                     continue
 
                 reason = content.get("reason")
+                raw_tool_call_ids = content.get("tool_call_ids")
+                tool_call_ids = [
+                    item
+                    for item in (
+                        raw_tool_call_ids if isinstance(raw_tool_call_ids, list) else []
+                    )
+                    if isinstance(item, str)
+                ]
+                cancelled_payload: dict[str, Any] = {
+                    "reason": reason if isinstance(reason, str) else None,
+                }
+                if tool_call_ids:
+                    # Structured interrupt metadata for the UI: tool calls
+                    # aborted by this interrupt. Omitted when empty to match
+                    # the marker row's write-side shape.
+                    cancelled_payload["tool_call_ids"] = tool_call_ids
                 messages.append(
                     ChatMessage(
                         id=str(entry.id),
                         kind=kind,
-                        cancelled={
-                            "reason": reason if isinstance(reason, str) else None
-                        },
+                        cancelled=cancelled_payload,
                     )
                 )
                 continue

@@ -147,6 +147,15 @@ class EmitSessionCancelledInputs(BaseModel):
     session_id: uuid.UUID
     workspace_id: uuid.UUID
     reason: str | None = None
+    # Tool calls the interrupt aborted mid-flight (from the executor result).
+    # Persisted with the cancelled marker so reloads render them as
+    # "interrupted" instead of surfacing SDK abort artifacts as tool errors.
+    interrupted_tool_call_ids: list[str] | None = None
+    # The cancelled run's id, derived replay-safely by the workflow from its
+    # own workflow id. Pins the marker row to this run instead of the session
+    # row's curr_run_id, which may already point at a newer turn by the time
+    # the cancelled workflow finalizes.
+    curr_run_id: uuid.UUID | None = None
     active_stream_id: uuid.UUID | None = None
     emit_stream: bool = True
     """Whether to also push the cancelled/done frames onto the live stream.
@@ -560,7 +569,12 @@ class AgentActivities:
 
         ctx_role.set(args.role)
         async with AgentSessionService.with_session(role=args.role) as service:
-            await service.append_cancelled_marker(args.session_id, reason=args.reason)
+            await service.append_cancelled_marker(
+                args.session_id,
+                reason=args.reason,
+                interrupted_tool_call_ids=args.interrupted_tool_call_ids,
+                curr_run_id=args.curr_run_id,
+            )
 
         if not args.emit_stream:
             return
@@ -570,7 +584,12 @@ class AgentActivities:
             workspace_id=args.workspace_id,
             stream_id=args.active_stream_id,
         )
-        await stream.append(UnifiedStreamEvent.cancelled_event(reason=args.reason))
+        await stream.append(
+            UnifiedStreamEvent.cancelled_event(
+                reason=args.reason,
+                tool_call_ids=args.interrupted_tool_call_ids,
+            )
+        )
         await stream.done()
 
     @activity.defn

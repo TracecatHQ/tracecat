@@ -1069,9 +1069,23 @@ class VercelStreamContext:
             case StreamEventType.CANCELLED:
                 metadata = event.metadata or {}
                 reason = metadata.get("reason")
+                raw_tool_call_ids = metadata.get("tool_call_ids")
+                tool_call_ids = [
+                    item
+                    for item in (
+                        raw_tool_call_ids if isinstance(raw_tool_call_ids, list) else []
+                    )
+                    if isinstance(item, str)
+                ]
                 yield DataEventPayload(
                     type=CANCELLED_DATA_PART_TYPE,
-                    data={"reason": reason if isinstance(reason, str) else None},
+                    data={
+                        "reason": reason if isinstance(reason, str) else None,
+                        # Structured interrupt metadata: the tool calls this
+                        # interrupt aborted, so the UI can render them as
+                        # "interrupted" without inspecting error text.
+                        "tool_call_ids": tool_call_ids,
+                    },
                 )
 
             case StreamEventType.ERROR:

@@ -25,23 +25,59 @@ type ToolState = ai.ToolUIPart["state"] | LegacyToolState
 export const CANCELLED_DATA_PART_TYPE = "data-cancelled"
 
 /**
+ * Payload of a {@link CANCELLED_DATA_PART_TYPE} part. `tool_call_ids` is the
+ * structured interrupt signal: the backend loopback records which tool calls
+ * the interrupt aborted mid-flight (by cancel-then-error ordering, not error
+ * text) and carries them on both the live stream event and the persisted
+ * marker row.
+ */
+export type CancelledPartData = {
+  reason?: string | null
+  tool_call_ids?: string[] | null
+}
+
+/**
+ * Extract the interrupted tool call IDs from a cancelled data part's payload.
+ * Returns an empty array for legacy payloads that predate the field.
+ */
+export function getCancelledPartToolCallIds(data: unknown): string[] {
+  if (!data || typeof data !== "object") {
+    return []
+  }
+  const toolCallIds = (data as CancelledPartData).tool_call_ids
+  if (!Array.isArray(toolCallIds)) {
+    return []
+  }
+  return toolCallIds.filter((id): id is string => typeof id === "string")
+}
+
+/**
  * Error strings the Claude SDK records for tool calls that were aborted by a
- * user interrupt rather than failing on their own. These leak runtime
- * internals, so interrupted turns render them as an "Interrupted" tool state
- * instead of an error.
+ * user interrupt rather than failing on their own.
+ *
+ * LEGACY FALLBACK ONLY: new cancelled turns carry structured interrupt
+ * metadata (`tool_call_ids` on the data-cancelled part, see
+ * {@link getCancelledPartToolCallIds}) and the UI prefers that signal. This
+ * substring check remains solely for histories persisted before the
+ * structured metadata existed, whose markers lack `tool_call_ids`. Do not add
+ * new patterns; extend the structured signal instead.
  */
 const INTERRUPT_ARTIFACT_ERROR_PATTERNS = [
   "MCP error -32001",
   "The operation was aborted",
   "Request was aborted",
   "[Request interrupted by user",
+  // The SDK's tool-denial phrasing: recorded when a pending approval is
+  // resolved by the interrupt. New turns report these via `tool_call_ids`.
   "doesn't want to take this action",
 ]
 
 /**
  * Whether a tool error text is an artifact of the user stopping the turn
  * (SDK/MCP abort plumbing) rather than a genuine tool failure. Only
- * meaningful for messages in a cancelled turn.
+ * meaningful for messages in a cancelled turn, and only consulted when the
+ * turn's cancelled marker carries no structured `tool_call_ids` (legacy
+ * histories).
  */
 export function isInterruptArtifactError(errorText: string): boolean {
   return INTERRUPT_ARTIFACT_ERROR_PATTERNS.some((pattern) =>

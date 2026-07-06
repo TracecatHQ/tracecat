@@ -78,11 +78,7 @@ class ClaudeRuntimeBroker:
             active_tasks = [active.task for active in self._active_turns.values()]
         for task in active_tasks:
             task.cancel()
-        for task in active_tasks:
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+        await asyncio.gather(*active_tasks, return_exceptions=True)
 
     async def run_turn(
         self,

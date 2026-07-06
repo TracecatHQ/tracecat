@@ -113,6 +113,10 @@ class LoopbackResult:
     result_num_turns: int | None = None
     cancelled: bool = False
     cancelled_reason: str | None = None
+    # Tool calls the interrupt aborted mid-flight: calls that either errored
+    # after cancellation was requested or never produced a result. Empty for
+    # non-cancelled turns.
+    interrupted_tool_call_ids: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -269,6 +273,11 @@ class LoopbackHandler:
         self._persisted_line_uuids: set[str] = set()
         # Track pending approval tool IDs to suppress synthetic interruption results.
         self._pending_approval_tool_call_ids: set[str] = set()
+        # Tool calls that errored after cancellation was requested. Together
+        # with calls that never resolved, these are the interrupt casualties
+        # reported on the cancelled event/result (structured signal - no
+        # error-message inspection involved).
+        self._errored_after_cancel_tool_call_ids: set[str] = set()
         self._tool_names_by_call_id: dict[str, str] = {}
         self._tool_inputs_by_call_id: dict[str, dict[str, Any]] = {}
         self._received_result: bool = False
@@ -377,6 +386,23 @@ class LoopbackHandler:
         self._result.cancelled = True
         self._result.cancelled_reason = reason
 
+    def _collect_interrupted_tool_call_ids(self) -> list[str]:
+        """Resolve which tool calls the interrupt aborted, from tracked state.
+
+        Interrupt casualties are tool calls that errored after cancellation was
+        requested plus calls that never produced a result (still tracked in
+        ``_tool_names_by_call_id``, which pops entries on TOOL_RESULT). Also
+        records the outcome on the loopback result so the activity/workflow can
+        persist it with the cancelled marker.
+        """
+        if not self._result.cancelled:
+            return []
+        interrupted = self._errored_after_cancel_tool_call_ids | set(
+            self._tool_names_by_call_id
+        )
+        self._result.interrupted_tool_call_ids = sorted(interrupted)
+        return self._result.interrupted_tool_call_ids
+
     async def _emit_interrupt_notice_if_cancelled(
         self, stream_sink: LoopbackEventSink
     ) -> None:
@@ -385,7 +411,10 @@ class LoopbackHandler:
         self._interrupt_notice_emitted = True
         try:
             await stream_sink.append(
-                UnifiedStreamEvent.cancelled_event(reason=self._result.cancelled_reason)
+                UnifiedStreamEvent.cancelled_event(
+                    reason=self._result.cancelled_reason,
+                    tool_call_ids=self._collect_interrupted_tool_call_ids(),
+                )
             )
         except Exception as e:
             logger.warning(
@@ -567,12 +596,28 @@ class LoopbackHandler:
 
     def build_result(self) -> LoopbackResult:
         """Return the accumulated result state."""
+        # Idempotent refresh: hard-cancel/error exits can reach here without
+        # passing through the interrupt-notice emit path.
+        self._collect_interrupted_tool_call_ids()
         return self._result
 
     async def _handle_stream_event(self, event: UnifiedStreamEvent) -> bool:
         """Handle a stream event emitted by the runtime."""
         stream_sink = await self.prepare()
         self._track_tool_event(event)
+
+        # After an interrupt is requested, error results are abort artifacts
+        # from the SDK winding down in-flight tools, not genuine failures.
+        # Record them by state (cancel-then-error ordering), never by
+        # inspecting error text. Recorded before suppression so approval-flow
+        # synthetic results are covered too.
+        if (
+            self._result.cancelled
+            and event.type is StreamEventType.TOOL_RESULT
+            and event.is_error
+            and event.tool_call_id is not None
+        ):
+            self._errored_after_cancel_tool_call_ids.add(event.tool_call_id)
 
         if event.type == StreamEventType.APPROVAL_REQUEST:
             logger.info(

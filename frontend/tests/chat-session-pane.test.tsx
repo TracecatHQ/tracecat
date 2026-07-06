@@ -292,6 +292,66 @@ describe("ChatSessionPane", () => {
     expect(screen.queryByText("Error")).not.toBeInTheDocument()
   })
 
+  it("marks tool calls listed in the structured interrupt metadata as interrupted", () => {
+    // Backend-recorded abort casualty: the error text is generic (no abort
+    // phrasing), so only the structured tool_call_ids signal can flag it.
+    const abortedToolPart = {
+      type: "tool-core__table__list_tables",
+      toolCallId: "tc-structured-1",
+      state: "output-error",
+      input: {},
+      errorText: "connection reset",
+    } as unknown as Parameters<typeof MessagePart>[0]["part"]
+
+    render(
+      <TooltipProvider>
+        <MessagePart
+          part={abortedToolPart}
+          partIdx={0}
+          id="msg-structured-tool"
+          role="assistant"
+          isLastMessage
+          status="ready"
+          turnCancelled
+          interruptedToolCallIds={new Set(["tc-structured-1"])}
+        />
+      </TooltipProvider>
+    )
+
+    expect(screen.getByText("Interrupted")).toBeInTheDocument()
+    expect(screen.queryByText("Error")).not.toBeInTheDocument()
+  })
+
+  it("marks structurally interrupted tool calls even without the turn flag", () => {
+    // Live streams can land the cancelled marker on a different message than
+    // the tool calls it aborted, so the message holding the tools never gets
+    // turnCancelled. The backend-recorded ids must flag them on their own.
+    const abortedToolPart = {
+      type: "tool-core__table__list_tables",
+      toolCallId: "tc-structured-2",
+      state: "output-error",
+      input: {},
+      errorText: "MCP error -32001: AbortError: The operation was aborted.",
+    } as unknown as Parameters<typeof MessagePart>[0]["part"]
+
+    render(
+      <TooltipProvider>
+        <MessagePart
+          part={abortedToolPart}
+          partIdx={0}
+          id="msg-structured-tool-no-flag"
+          role="assistant"
+          isLastMessage
+          status="ready"
+          interruptedToolCallIds={new Set(["tc-structured-2"])}
+        />
+      </TooltipProvider>
+    )
+
+    expect(screen.getByText("Interrupted")).toBeInTheDocument()
+    expect(screen.queryByText("Error")).not.toBeInTheDocument()
+  })
+
   it("keeps genuine tool errors as errors in a cancelled turn", () => {
     const failedToolPart = {
       type: "tool-core__table__list_tables",
@@ -1471,6 +1531,39 @@ describe("ChatSessionPane", () => {
 
       expect(setMessages).toHaveBeenCalledTimes(1)
       expect(setMessages.mock.calls[0][0]).toHaveLength(2)
+    })
+
+    // Regression: onFinish's refetch races finalize_turn, so on turn N the
+    // server copy can *advance* (turn N-1's rows become visible) while still
+    // hiding the just-streamed turn N. Adopting it would blank turn N. The
+    // pane must only adopt a server copy that doesn't drop live messages.
+    it("does not adopt an advanced server copy that is shorter than the live list", () => {
+      const setMessages = jest.fn()
+      // Live list holds turns 1 and 2 (turn 2 just streamed).
+      const live = [
+        userTurn("m1", "turn one"),
+        userTurn("m2", "reply one"),
+        userTurn("m3", "turn two"),
+        userTurn("m4", "reply two"),
+      ]
+      mockLiveMessages(live, setMessages)
+
+      // Mount: server only has turn 1's user message (mid-turn filter hid the
+      // rest while turn 1 was live).
+      const { rerender } = render(renderSubject([userTurn("m1", "turn one")]))
+      expect(setMessages).not.toHaveBeenCalled()
+
+      // Racing refetch: turn 1 now fully visible (shape advanced) but turn 2
+      // is still hidden behind curr_run_id. Shorter than live — must not adopt.
+      rerender(
+        renderSubject([userTurn("m1", "turn one"), userTurn("m2", "reply one")])
+      )
+      expect(setMessages).not.toHaveBeenCalled()
+
+      // Post-finalize refetch: full transcript. Now safe to adopt.
+      rerender(renderSubject(live))
+      expect(setMessages).toHaveBeenCalledTimes(1)
+      expect(setMessages.mock.calls[0][0]).toHaveLength(4)
     })
   })
 })

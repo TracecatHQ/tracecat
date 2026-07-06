@@ -884,6 +884,12 @@ class ClaudeAgentRuntime:
         been sent - the request is recorded and applied once both have
         happened, so a cancel requested early in a turn's lifecycle still
         takes effect instead of racing the SDK client's own setup.
+
+        May never return: if the turn dies before the client connects (e.g.
+        transport spawn or resume preparation fails in ``run()``), the
+        connected event is never set and this waits forever. Callers must
+        bound this with a timeout and fall back to hard-cancelling the turn
+        task, as ``run_agent_activity`` does with GRACEFUL_CANCEL_TIMEOUT.
         """
         self._interrupt_requested = reason
         await self._client_connected_event.wait()

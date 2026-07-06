@@ -208,42 +208,37 @@ def _apply_tool_approvals(
         spec.config.tool_approvals = build_result.tool_approvals
 
 
-async def _execute_remote_mcp_tool_call(
+def _start_remote_mcp_tool_call(
     tool_call: ApprovedToolCall,
     *,
     remote_tool_name: str,
     mcp_auth_token: str,
-) -> PendingToolResult:
+) -> workflow.ActivityHandle[str]:
     """Route an approved user MCP tool call through the trusted MCP router."""
-    raw_result = await workflow.execute_activity_method(
+    return workflow.start_activity_method(
         AgentActivities.execute_remote_mcp_tool,
         arg=ExecuteRemoteMCPToolArgs(
             mcp_auth_token=mcp_auth_token,
             tool_name=remote_tool_name,
             args=tool_call.args,
         ),
+        cancellation_type=workflow.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
         start_to_close_timeout=timedelta(
             seconds=int(config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT)
         ),
         retry_policy=RETRY_POLICIES["activity:fail_fast"],
     )
-    return PendingToolResult(
-        tool_call_id=tool_call.tool_call_id,
-        tool_name=tool_call.tool_name,
-        tool_input=tool_call.args,
-        raw_result=raw_result,
-    )
 
 
-async def _execute_registry_tool_call(
+def _start_registry_tool_call(
     tool_call: ApprovedToolCall,
     *,
     registry_lock: RegistryLock,
     service_role: Role,
     logical_time: datetime,
-) -> PendingToolResult:
+) -> workflow.ActivityHandle[Any]:
     """Execute an approved registry action on the executor task queue."""
-    stored = await workflow.execute_activity(
+    return workflow.start_activity(
         ExecutorActivities.execute_action_activity,
         args=[
             _build_approved_tool_run_input(
@@ -257,6 +252,7 @@ async def _execute_registry_tool_call(
             service_role,
         ],
         task_queue=config.TRACECAT__EXECUTOR_QUEUE,
+        cancellation_type=workflow.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
         start_to_close_timeout=timedelta(
             seconds=int(config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT)
         ),
@@ -266,11 +262,20 @@ async def _execute_registry_tool_call(
         retry_policy=RETRY_POLICIES["activity:fail_fast"],
         priority=AGENT_TOOL_PRIORITY,
     )
+
+
+def _cancelled_tool_result(
+    tool_call: ApprovedToolCall, *, started: bool
+) -> PendingToolResult:
+    """Build the error result recorded for an approved tool skipped or stopped
+    by a user cancel request."""
+    phase = "during" if started else "before"
     return PendingToolResult(
         tool_call_id=tool_call.tool_call_id,
         tool_name=tool_call.tool_name,
         tool_input=tool_call.args,
-        stored_result=stored,
+        raw_result=f"Tool execution cancelled by user {phase} execution",
+        is_error=True,
     )
 
 
@@ -942,7 +947,12 @@ class DurableAgentWorkflow:
                 error=str(emit_error),
             )
 
-    async def _emit_session_cancelled(self, *, emit_stream: bool) -> None:
+    async def _emit_session_cancelled(
+        self,
+        *,
+        emit_stream: bool,
+        interrupted_tool_call_ids: list[str] | None = None,
+    ) -> None:
         """Record the cancelled turn (timeline marker + optional stream notice).
 
         The activity always persists the cancelled-marker history row so the
@@ -966,6 +976,13 @@ class DurableAgentWorkflow:
                     # None falls back to the per-session key for non-chat turns.
                     active_stream_id=self.active_stream_id,
                     emit_stream=emit_stream,
+                    interrupted_tool_call_ids=interrupted_tool_call_ids,
+                    # Pin the marker to this run explicitly: the session row's
+                    # curr_run_id may already point at a newer turn by the time
+                    # this cancelled workflow finalizes.
+                    curr_run_id=AgentWorkflowID.from_workflow_id(
+                        workflow.info().workflow_id
+                    ).session_id,
                 ),
                 start_to_close_timeout=timedelta(seconds=10),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
@@ -979,7 +996,6 @@ class DurableAgentWorkflow:
 
     @workflow.update
     def set_approvals(self, submission: WorkflowApprovalSubmission) -> None:
-        submission = WorkflowApprovalSubmission.model_validate(submission)
         logger.info(
             "Setting approvals",
             approvals=submission.approvals,
@@ -1013,7 +1029,6 @@ class DurableAgentWorkflow:
 
     @workflow.update
     def request_cancel(self, request: WorkflowCancelRequest) -> None:
-        request = WorkflowCancelRequest.model_validate(request)
         logger.info(
             "Agent cancellation requested",
             session_id=self.session_id,
@@ -1026,52 +1041,6 @@ class DurableAgentWorkflow:
     @request_cancel.validator
     def validate_request_cancel(self, request: WorkflowCancelRequest) -> None:
         WorkflowCancelRequest.model_validate(request)
-
-    async def _run_agent_activity_turn(
-        self, executor_input: AgentExecutorInput
-    ) -> AgentExecutorResult:
-        """Run one executor activity turn with update-driven cancellation."""
-        if not workflow.patched(AGENT_REQUEST_CANCEL_PATCH):
-            return await workflow.execute_activity(
-                run_agent_activity,
-                executor_input,
-                task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
-                start_to_close_timeout=timedelta(
-                    seconds=config.TRACECAT__AGENT_SANDBOX_TIMEOUT
-                ),
-                heartbeat_timeout=timedelta(seconds=60),
-                retry_policy=RETRY_POLICIES["activity:fail_fast"],
-            )
-
-        activity_handle = workflow.start_activity(
-            run_agent_activity,
-            executor_input,
-            cancellation_type=workflow.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
-            task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
-            start_to_close_timeout=timedelta(
-                seconds=config.TRACECAT__AGENT_SANDBOX_TIMEOUT
-            ),
-            heartbeat_timeout=timedelta(seconds=60),
-            retry_policy=RETRY_POLICIES["activity:fail_fast"],
-        )
-        # ActivityHandle is an asyncio.Task subclass, so .done() is valid.
-        # Neither wait_condition nor the handle poll emits history commands,
-        # so this race stays replay-safe.
-        await workflow.wait_condition(
-            lambda: activity_handle.done() or self._cancel_requested
-        )
-        if not activity_handle.done():
-            activity_handle.cancel()
-        try:
-            return await activity_handle
-        except ActivityError as e:
-            if self._cancel_requested and isinstance(e.cause, TemporalCancelledError):
-                return AgentExecutorResult(
-                    success=True,
-                    cancelled=True,
-                    cancelled_reason=self._cancel_reason or "user_cancel",
-                )
-            raise
 
     async def _run_with_agent_executor(
         self, args: AgentWorkflowArgs, cfg: AgentConfig
@@ -1225,7 +1194,61 @@ class DurableAgentWorkflow:
         while True:
             logger.info("Executing agent turn", turn=self._turn)
 
-            result = await self._run_agent_activity_turn(executor_input)
+            # Run one executor activity turn with update-driven cancellation.
+            if not workflow.patched(AGENT_REQUEST_CANCEL_PATCH):
+                result = await workflow.execute_activity(
+                    run_agent_activity,
+                    executor_input,
+                    task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
+                    start_to_close_timeout=timedelta(
+                        seconds=config.TRACECAT__AGENT_SANDBOX_TIMEOUT
+                    ),
+                    heartbeat_timeout=timedelta(seconds=60),
+                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                )
+            else:
+                activity_handle = workflow.start_activity(
+                    run_agent_activity,
+                    executor_input,
+                    cancellation_type=workflow.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
+                    task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
+                    start_to_close_timeout=timedelta(
+                        seconds=config.TRACECAT__AGENT_SANDBOX_TIMEOUT
+                    ),
+                    heartbeat_timeout=timedelta(seconds=60),
+                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                )
+                # ActivityHandle is an asyncio.Task subclass, so .done() is
+                # valid. Neither wait_condition nor the handle poll emits
+                # history commands, so this race stays replay-safe.
+                await workflow.wait_condition(
+                    lambda handle=activity_handle: (
+                        handle.done() or self._cancel_requested
+                    )
+                )
+                if not activity_handle.done():
+                    activity_handle.cancel()
+                try:
+                    result = await activity_handle
+                except ActivityError as e:
+                    if self._cancel_requested and isinstance(
+                        e.cause, TemporalCancelledError
+                    ):
+                        # The activity was cancelled without returning a
+                        # loopback result (never picked up, still in setup, or
+                        # hard-cancelled), so no executor wrote the cancelled/
+                        # done frames to the per-turn stream. Emit them here or
+                        # the client's SSE reader blocks until disconnect.
+                        return await self._cancelled_turn_output(
+                            AgentExecutorResult(
+                                success=True,
+                                cancelled=True,
+                                cancelled_reason=self._cancel_reason or "user_cancel",
+                            ),
+                            info,
+                            emit_cancelled=True,
+                        )
+                    raise
 
             if result.cancelled:
                 logger.info(
@@ -1324,8 +1347,12 @@ class DurableAgentWorkflow:
                     )
 
                 tool_results: list[ToolExecutionResult] = []
+                cancelled_tool_call_ids: list[str] = []
                 if approved_tools or denied_tools:
-                    tool_results = await self._execute_and_reconcile_approved_tools(
+                    (
+                        tool_results,
+                        cancelled_tool_call_ids,
+                    ) = await self._execute_and_reconcile_approved_tools(
                         approved_tools=approved_tools,
                         denied_tools=denied_tools,
                         registry_lock=root_registry_lock,
@@ -1336,6 +1363,26 @@ class DurableAgentWorkflow:
                         "Tool execution completed",
                         result_count=len(tool_results),
                         session_id=self.session_id,
+                    )
+
+                if self._cancel_requested:
+                    # A cancel arrived during approved tool execution. The
+                    # transcript has already been reconciled with cancelled
+                    # tool_result entries, so end the turn here instead of
+                    # resuming the executor. The executor result predates the
+                    # approved-tool run, so carry the aborted tool ids
+                    # explicitly or the marker misses them and the UI renders
+                    # the cancelled rows as tool errors.
+                    logger.info(
+                        "Agent turn cancelled during approved tool execution",
+                        session_id=self.session_id,
+                        reason=self._cancel_reason,
+                    )
+                    return await self._cancelled_turn_output(
+                        result,
+                        info,
+                        emit_cancelled=True,
+                        extra_interrupted_tool_call_ids=cancelled_tool_call_ids,
                     )
 
                 # Reload session metadata after reconciliation. Full SDK history
@@ -1393,6 +1440,7 @@ class DurableAgentWorkflow:
         info: workflow.Info,
         *,
         emit_cancelled: bool,
+        extra_interrupted_tool_call_ids: list[str] | None = None,
     ) -> AgentOutput:
         """Build the terminal output for a cancelled turn.
 
@@ -1401,8 +1449,19 @@ class DurableAgentWorkflow:
         persists the timeline marker. Approval-wait cancels have not emitted
         yet and pass emit_cancelled=True. Either way the marker is persisted
         before loading history so the terminal history includes it.
+
+        ``extra_interrupted_tool_call_ids`` carries tool calls aborted after
+        the executor result was produced (the approved-tool run), which the
+        result's own ``interrupted_tool_call_ids`` cannot know about.
         """
-        await self._emit_session_cancelled(emit_stream=emit_cancelled)
+        interrupted_ids = list(result.interrupted_tool_call_ids or [])
+        for tool_call_id in extra_interrupted_tool_call_ids or []:
+            if tool_call_id not in interrupted_ids:
+                interrupted_ids.append(tool_call_id)
+        await self._emit_session_cancelled(
+            emit_stream=emit_cancelled,
+            interrupted_tool_call_ids=interrupted_ids or None,
+        )
         message_history = await self._load_terminal_message_history(result)
         return AgentOutput(
             output=None,
@@ -1531,6 +1590,22 @@ class DurableAgentWorkflow:
 
         return approved, denied
 
+    async def _race_tool_activity_against_cancel[T](
+        self, handle: workflow.ActivityHandle[T]
+    ) -> T:
+        """Await an approved tool activity, cancelling it on a user cancel.
+
+        Mirrors the run_agent_activity cancel race: ActivityHandle is an
+        asyncio.Task subclass so .done() is valid, and neither wait_condition
+        nor the handle poll emits history commands, so this race stays
+        replay-safe when no cancel occurs. A cancelled handle raises
+        ActivityError with a CancelledError cause, handled by the caller.
+        """
+        await workflow.wait_condition(lambda: handle.done() or self._cancel_requested)
+        if not handle.done():
+            handle.cancel()
+        return await handle
+
     async def _execute_and_reconcile_approved_tools(
         self,
         *,
@@ -1539,7 +1614,10 @@ class DurableAgentWorkflow:
         registry_lock: RegistryLock,
         mcp_auth_token: str,
         active_stream_id: uuid.UUID | None,
-    ) -> list:
+    ) -> tuple[list, list[str]]:
+        """Returns the reconciled results and the tool call ids the user's
+        cancel aborted (cancelled in flight or never started), so the caller
+        can carry them on the cancelled marker for the UI."""
         logical_time = workflow.now()
         service_role = build_tracecat_mcp_role(
             workspace_id=self.role.workspace_id,
@@ -1547,24 +1625,70 @@ class DurableAgentWorkflow:
             user_id=self.role.user_id,
         )
         pending_results: list[PendingToolResult] = []
-        for tool_call in approved_tools:
+        cancelled_tool_call_ids: list[str] = []
+        for index, tool_call in enumerate(approved_tools):
+            if self._cancel_requested:
+                # Stop launching new tool activities once a cancel arrives;
+                # every not-yet-started tool still needs a tool_result entry.
+                skipped_calls = approved_tools[index:]
+                cancelled_tool_call_ids.extend(
+                    skipped.tool_call_id for skipped in skipped_calls
+                )
+                pending_results.extend(
+                    _cancelled_tool_result(skipped, started=False)
+                    for skipped in skipped_calls
+                )
+                break
             remote_mcp_tool_name = _approved_user_mcp_tool_name(tool_call.tool_name)
             try:
                 if remote_mcp_tool_name is not None:
-                    result = await _execute_remote_mcp_tool_call(
-                        tool_call,
-                        remote_tool_name=remote_mcp_tool_name,
-                        mcp_auth_token=mcp_auth_token,
+                    raw_result = await self._race_tool_activity_against_cancel(
+                        _start_remote_mcp_tool_call(
+                            tool_call,
+                            remote_tool_name=remote_mcp_tool_name,
+                            mcp_auth_token=mcp_auth_token,
+                        )
+                    )
+                    result = PendingToolResult(
+                        tool_call_id=tool_call.tool_call_id,
+                        tool_name=tool_call.tool_name,
+                        tool_input=tool_call.args,
+                        raw_result=raw_result,
                     )
                 else:
-                    result = await _execute_registry_tool_call(
-                        tool_call,
-                        registry_lock=registry_lock,
-                        service_role=service_role,
-                        logical_time=logical_time,
+                    stored = await self._race_tool_activity_against_cancel(
+                        _start_registry_tool_call(
+                            tool_call,
+                            registry_lock=registry_lock,
+                            service_role=service_role,
+                            logical_time=logical_time,
+                        )
+                    )
+                    result = PendingToolResult(
+                        tool_call_id=tool_call.tool_call_id,
+                        tool_name=tool_call.tool_name,
+                        tool_input=tool_call.args,
+                        stored_result=stored,
                     )
                 pending_results.append(result)
             except ActivityError as e:
+                if self._cancel_requested and isinstance(
+                    e.cause, TemporalCancelledError
+                ):
+                    # The in-flight tool activity was cancelled by the user.
+                    skipped_calls = approved_tools[index + 1 :]
+                    cancelled_tool_call_ids.append(tool_call.tool_call_id)
+                    cancelled_tool_call_ids.extend(
+                        skipped.tool_call_id for skipped in skipped_calls
+                    )
+                    pending_results.append(
+                        _cancelled_tool_result(tool_call, started=True)
+                    )
+                    pending_results.extend(
+                        _cancelled_tool_result(skipped, started=False)
+                        for skipped in skipped_calls
+                    )
+                    break
                 pending_results.append(
                     PendingToolResult(
                         tool_call_id=tool_call.tool_call_id,
@@ -1597,4 +1721,4 @@ class DurableAgentWorkflow:
             start_to_close_timeout=timedelta(seconds=300),
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
-        return reconcile.results
+        return reconcile.results, cancelled_tool_call_ids
