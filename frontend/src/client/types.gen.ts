@@ -4710,13 +4710,13 @@ export type MCPAuthType = "OAUTH2" | "CUSTOM" | "NONE"
  * Response for connecting a platform MCP catalog entry.
  */
 export type MCPCatalogConnectResponse = {
-  status: "connected" | "oauth_redirect"
+  status: "configured" | "connected" | "oauth_redirect"
   mcp_integration?: MCPIntegrationRead | null
   auth_url?: string | null
   provider_id?: string | null
 }
 
-export type status3 = "connected" | "oauth_redirect"
+export type status3 = "configured" | "connected" | "oauth_redirect"
 
 /**
  * Typed configure-dialog field declared by a catalog spec.
@@ -4866,6 +4866,22 @@ export type MCPHttpIntegrationCreate = {
 }
 
 /**
+ * Request to test connectivity against an unsaved HTTP MCP configuration.
+ */
+export type MCPHttpIntegrationTestConnectionRequest = {
+  mcp_integration_id?: string | null
+  timeout?: number | null
+  server_type?: "http"
+  server_uri: string
+  auth_type?: MCPAuthType
+  oauth_integration_id?: string | null
+  /**
+   * JSON object of custom headers; falls back to stored headers when omitted
+   */
+  custom_credentials?: string | null
+}
+
+/**
  * Configuration for a user-defined MCP server over HTTP/SSE.
  *
  * Users can connect custom MCP servers to their agents - whether running as
@@ -4928,24 +4944,9 @@ export type MCPIntegrationRead = {
 
 export type state = "not_configured" | "configured" | "connected" | "error"
 
-/**
- * Request to test connectivity against an unsaved HTTP MCP configuration.
- *
- * Carries the (possibly edited, not yet persisted) form values. When
- * ``mcp_integration_id`` is set, stored secrets from that row are used as a
- * fallback for fields the caller leaves blank (e.g. unchanged credentials).
- */
-export type MCPIntegrationTestConnectionRequest = {
-  mcp_integration_id?: string | null
-  server_uri: string
-  auth_type?: MCPAuthType
-  oauth_integration_id?: string | null
-  /**
-   * JSON object of custom headers; falls back to stored headers when omitted
-   */
-  custom_credentials?: string | null
-  timeout?: number | null
-}
+export type MCPIntegrationTestConnectionRequest =
+  | MCPHttpIntegrationTestConnectionRequest
+  | MCPStdioIntegrationTestConnectionRequest
 
 /**
  * Response for testing connectivity to an MCP server.
@@ -5031,6 +5032,19 @@ export type MCPPersonalAccessTokenRead = {
   updated_at: string
 }
 
+/**
+ * Non-secret summary of a verified user MCP tool.
+ */
+export type MCPServerToolSummary = {
+  name: string
+  description?: string | null
+  enabled?: boolean
+  requires_approval?: boolean
+  status?: "available" | "missing"
+}
+
+export type status4 = "available" | "missing"
+
 export type MCPServerType = "http" | "stdio"
 
 /**
@@ -5090,6 +5104,29 @@ export type MCPStdioIntegrationCreate = {
 }
 
 /**
+ * Request to test connectivity against an unsaved stdio MCP configuration.
+ */
+export type MCPStdioIntegrationTestConnectionRequest = {
+  mcp_integration_id?: string | null
+  timeout?: number | null
+  server_type?: "stdio"
+  /**
+   * Stdio command to run for stdio-type servers (e.g., 'npx')
+   */
+  stdio_command: string
+  /**
+   * Arguments for the stdio command
+   */
+  stdio_args?: Array<string> | null
+  /**
+   * Environment variables for stdio-type servers
+   */
+  stdio_env?: {
+    [key: string]: string
+  } | null
+}
+
+/**
  * Stdio MCP server with no authentication.
  */
 export type MCPStdioNoneConnectionSpec = {
@@ -5121,6 +5158,7 @@ export type MCPStdioServerConfig = {
   }
   timeout?: number
   id?: string
+  tools?: Array<MCPServerToolSummary>
 }
 
 /**
@@ -5149,8 +5187,6 @@ export type MCPToolSummary = {
   requires_approval?: boolean
   status?: "available" | "missing"
 }
-
-export type status4 = "available" | "missing"
 
 /**
  * The type/kind of message stored in the chat.

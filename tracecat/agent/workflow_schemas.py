@@ -12,6 +12,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Discriminator, Field, model_validator
 
 from tracecat.agent.subagents import AgentSubagentsConfig
+from tracecat.integrations.schemas import MCPToolStatus
 
 _LEGACY_AGENT_CONFIG_KEYS = frozenset({"deps_type", "custom_tools"})
 
@@ -47,6 +48,18 @@ class MCPHttpServerConfigPayload(BaseModel):
     history."""
 
 
+class MCPServerToolSummaryPayload(BaseModel):
+    """Workflow-safe, non-secret summary of a verified user MCP tool."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    description: str | None = Field(default=None)
+    enabled: bool = Field(default=True)
+    requires_approval: bool = Field(default=False)
+    status: MCPToolStatus = Field(default="available")
+
+
 class MCPStdioServerConfigPayload(BaseModel):
     """Workflow-safe stdio MCP server config."""
 
@@ -61,6 +74,9 @@ class MCPStdioServerConfigPayload(BaseModel):
     id: str | None = Field(default=None)
     """UUID of the source ``mcp_integrations`` row. See
     :class:`MCPHttpServerConfigPayload.id`."""
+    tools: list[MCPServerToolSummaryPayload] | None = Field(default=None)
+    """Latest verified stdio tool summaries. Non-secret and safe for workflow
+    history."""
 
 
 type MCPServerConfigPayload = Annotated[

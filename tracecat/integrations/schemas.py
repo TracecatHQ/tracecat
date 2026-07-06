@@ -604,6 +604,7 @@ PlatformMCPCatalogState = Literal[
     "connected",
     "error",
 ]
+MCPCatalogConnectStatus = Literal["configured", "connected", "oauth_redirect"]
 MCPToolStatus = Literal["available", "missing"]
 
 
@@ -877,8 +878,8 @@ class MCPIntegrationRead(BaseModel):
     updated_at: datetime
 
 
-class MCPIntegrationTestConnectionRequest(BaseModel):
-    """Request to test connectivity against an unsaved HTTP MCP configuration.
+class _MCPIntegrationTestConnectionRequestBase(BaseModel):
+    """Common fields for testing an unsaved MCP configuration.
 
     Carries the (possibly edited, not yet persisted) form values. When
     ``mcp_integration_id`` is set, stored secrets from that row are used as a
@@ -886,6 +887,13 @@ class MCPIntegrationTestConnectionRequest(BaseModel):
     """
 
     mcp_integration_id: UUID4 | None = None
+    timeout: int | None = Field(default=None, ge=1, le=300)
+
+
+class MCPHttpIntegrationTestConnectionRequest(_MCPIntegrationTestConnectionRequestBase):
+    """Request to test connectivity against an unsaved HTTP MCP configuration."""
+
+    server_type: Literal["http"] = Field(default="http")
     server_uri: str = Field(..., min_length=1, max_length=2048)
     auth_type: MCPAuthType = MCPAuthType.NONE
     oauth_integration_id: UUID4 | None = None
@@ -893,7 +901,6 @@ class MCPIntegrationTestConnectionRequest(BaseModel):
         default=None,
         description="JSON object of custom headers; falls back to stored headers when omitted",
     )
-    timeout: int | None = Field(default=None, ge=1, le=300)
 
     @field_validator("server_uri", mode="before")
     @classmethod
@@ -920,6 +927,62 @@ class MCPIntegrationTestConnectionRequest(BaseModel):
         return value
 
 
+class MCPStdioIntegrationTestConnectionRequest(
+    _MCPIntegrationTestConnectionRequestBase
+):
+    """Request to test connectivity against an unsaved stdio MCP configuration."""
+
+    server_type: Literal["stdio"] = Field(default="stdio")
+    stdio_command: str = Field(
+        ...,
+        max_length=500,
+        description="Stdio command to run for stdio-type servers (e.g., 'npx')",
+    )
+    stdio_args: list[str] | None = Field(
+        default=None,
+        description="Arguments for the stdio command",
+    )
+    stdio_env: dict[str, str] | None = Field(
+        default=None,
+        description="Environment variables for stdio-type servers",
+    )
+
+    @field_validator("stdio_command", mode="before")
+    @classmethod
+    def _validate_stdio_command(cls, value: str | None) -> str:
+        """Validate and sanitize stdio command."""
+        if value is None:
+            raise ValueError("stdio_command is required for stdio-type servers")
+        if isinstance(value, str):
+            value = value.strip()
+        if not value:
+            raise ValueError("stdio_command is required for stdio-type servers")
+        return value
+
+
+def _discriminate_mcp_test_connection_server_type(value: Any) -> str:
+    """Infer MCP test server type, defaulting legacy payloads to HTTP."""
+    if isinstance(value, MCPHttpIntegrationTestConnectionRequest):
+        return "http"
+    if isinstance(value, MCPStdioIntegrationTestConnectionRequest):
+        return "stdio"
+    if isinstance(value, dict):
+        if "server_type" in value:
+            server_type = value.get("server_type")
+            if isinstance(server_type, str):
+                return server_type
+        if "stdio_command" in value and "server_uri" not in value:
+            return "stdio"
+    return "http"
+
+
+type MCPIntegrationTestConnectionRequest = Annotated[
+    Annotated[MCPHttpIntegrationTestConnectionRequest, Tag("http")]
+    | Annotated[MCPStdioIntegrationTestConnectionRequest, Tag("stdio")],
+    Discriminator(_discriminate_mcp_test_connection_server_type),
+]
+
+
 class MCPIntegrationTestConnectionResponse(BaseModel):
     """Response for testing connectivity to an MCP server."""
 
@@ -933,7 +996,7 @@ class MCPIntegrationTestConnectionResponse(BaseModel):
 class MCPCatalogConnectResponse(BaseModel):
     """Response for connecting a platform MCP catalog entry."""
 
-    status: Literal["connected", "oauth_redirect"]
+    status: MCPCatalogConnectStatus
     mcp_integration: MCPIntegrationRead | None = None
     auth_url: str | None = None
     provider_id: str | None = None

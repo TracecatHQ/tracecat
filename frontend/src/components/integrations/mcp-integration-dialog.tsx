@@ -6,7 +6,6 @@ import {
   ExternalLink,
   Globe2,
   Loader2,
-  MoreHorizontal,
   PlayCircle,
   Plus,
   Server,
@@ -73,12 +72,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import {
   Form,
   FormControl,
@@ -451,13 +444,63 @@ export function MCPIntegrationDialog({
   const connectionOptionId = form.watch("connection_option_id")
 
   /**
-   * Test the form's current (possibly unsaved) values against the server.
-   * Ephemeral — nothing is persisted; saving runs its own verification.
+   * Test the connection. Clean saved configs use the integration-scoped
+   * endpoint so discovered tools persist; dirty/create configs use the draft
+   * endpoint and are verified again on save.
    */
   async function handleTestConnection() {
     const values = form.getValues()
+    const dirtyFields = form.formState.dirtyFields
+    const stdioConnectionFieldsAreDirty = Boolean(
+      dirtyFields.server_type ||
+        dirtyFields.connection_option_id ||
+        dirtyFields.stdio_command ||
+        dirtyFields.stdio_args ||
+        dirtyFields.stdio_env ||
+        dirtyFields.timeout
+    )
+    if (values.server_type === "stdio") {
+      if (isEditMode && mcpIntegrationId && !stdioConnectionFieldsAreDirty) {
+        await testMcpIntegrationConnection(mcpIntegrationId)
+        return
+      }
+
+      const valid = await form.trigger([
+        "stdio_command",
+        "stdio_args",
+        "stdio_env",
+        "timeout",
+      ])
+      if (!valid) {
+        return
+      }
+
+      const stdioArgs = values.stdio_args
+        .map((arg) => arg.value.trim())
+        .filter(Boolean)
+      let stdioEnv: Record<string, string> | null = null
+      if (values.stdio_env?.trim()) {
+        try {
+          stdioEnv = JSON.parse(values.stdio_env) as Record<string, string>
+        } catch {
+          void form.trigger("stdio_env")
+          return
+        }
+      }
+
+      await testMcpConnectionConfig({
+        mcp_integration_id: mcpIntegrationId ?? null,
+        server_type: "stdio",
+        stdio_command: values.stdio_command?.trim() ?? "",
+        stdio_args: stdioArgs.length > 0 ? stdioArgs : null,
+        stdio_env: stdioEnv,
+        timeout: values.timeout ?? null,
+      })
+      return
+    }
+
     const serverUri = values.server_uri?.trim()
-    if (values.server_type !== "http" || !serverUri) {
+    if (!serverUri) {
       void form.trigger("server_uri")
       return
     }
@@ -468,9 +511,10 @@ export function MCPIntegrationDialog({
     // stored config no longer reflects what would be saved, so test the form
     // values through the ephemeral config-test endpoint instead; it back-fills
     // secrets the form leaves blank from the saved integration.
-    const dirtyFields = form.formState.dirtyFields
     const connectionFieldsAreDirty = Boolean(
-      dirtyFields.server_uri ||
+      dirtyFields.server_type ||
+        dirtyFields.connection_option_id ||
+        dirtyFields.server_uri ||
         dirtyFields.auth_type ||
         dirtyFields.oauth_setup ||
         dirtyFields.oauth_integration_id ||
@@ -491,6 +535,7 @@ export function MCPIntegrationDialog({
     }
     await testMcpConnectionConfig({
       mcp_integration_id: mcpIntegrationId ?? null,
+      server_type: "http",
       server_uri: serverUri,
       auth_type: values.auth_type,
       oauth_integration_id:
@@ -905,43 +950,28 @@ export function MCPIntegrationDialog({
     createMcpIntegrationIsPending ||
     updateMcpIntegrationIsPending
 
-  // Connection actions menu mirroring the OAuth integration details dialog.
-  // Tests the form's current values; with unsaved connection edits the probe
-  // is ephemeral, otherwise it persists the discovered tools.
-  const connectionActions =
-    isEditMode && mcpIntegrationId && canUpdate ? (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-8 shrink-0 text-muted-foreground"
-            disabled={testConnectionIsPending}
-            aria-label="Connection actions"
-          >
-            {testConnectionIsPending ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <MoreHorizontal className="size-4" />
-            )}
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-44">
-          <DropdownMenuItem
-            disabled={serverType === "stdio" || testConnectionIsPending}
-            title={
-              serverType === "stdio"
-                ? "Stdio servers can't be tested"
-                : undefined
-            }
-            onClick={() => void handleTestConnection()}
-          >
-            <PlayCircle className="mr-2 size-4 text-muted-foreground" />
-            Test
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+  // Clean saved configs persist discovered tools; dirty/create configs run as
+  // draft probes and are verified again on save.
+  const connectionActions = canUpdate ? (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className="h-8 shrink-0"
+      disabled={testConnectionIsPending}
+      onClick={() => void handleTestConnection()}
+    >
+      {testConnectionIsPending ? (
+        <Loader2 className="mr-2 size-4 animate-spin" />
+      ) : (
+        <PlayCircle className="mr-2 size-4" />
+      )}
+      Test
+    </Button>
+  ) : null
+  const createConnectionActions =
+    !catalogEntry && !isEditMode && connectionActions ? (
+      <div className="flex justify-end">{connectionActions}</div>
     ) : null
   const availableToolCount =
     mcpIntegration?.tools?.filter((tool) => tool.status !== "missing").length ??
@@ -1030,6 +1060,8 @@ export function MCPIntegrationDialog({
                   onSubmit={form.handleSubmit(onSubmit)}
                   noValidate
                 >
+                  {createConnectionActions}
+
                   {catalogEntry && catalogOptions.length > 1 ? (
                     <FormField
                       control={form.control}
@@ -1071,7 +1103,14 @@ export function MCPIntegrationDialog({
                                             currentValues.catalog_slug ||
                                             values.catalog_slug,
                                         }
-                                        form.reset(nextValues)
+                                        // Keep the saved integration as the
+                                        // baseline so switching options marks
+                                        // connection fields dirty and Test
+                                        // probes the form values, not the
+                                        // saved config.
+                                        form.reset(nextValues, {
+                                          keepDefaultValues: true,
+                                        })
                                         replaceStdioArgs(nextValues.stdio_args)
                                       } else {
                                         form.reset(values)
@@ -1443,9 +1482,7 @@ export function MCPIntegrationDialog({
                     </>
                   )}
 
-                  {isEditMode &&
-                  serverType === "http" &&
-                  !mcpIntegration?.tools?.length ? (
+                  {isEditMode && mcpIntegration?.tools == null ? (
                     <p className="text-xs text-muted-foreground">
                       Connection not verified — test the connection to discover
                       tools.
@@ -1453,9 +1490,7 @@ export function MCPIntegrationDialog({
                   ) : null}
 
                   <Accordion type="multiple">
-                    {isEditMode &&
-                    serverType === "http" &&
-                    mcpIntegration?.tools?.length ? (
+                    {isEditMode && mcpIntegration?.tools != null ? (
                       <AccordionItem value="tools" className="border-t">
                         <AccordionTrigger className="py-3 hover:no-underline">
                           <span className="flex items-center gap-2">
@@ -1486,9 +1521,7 @@ export function MCPIntegrationDialog({
                       value="advanced"
                       className={cn(
                         "border-b-0",
-                        isEditMode &&
-                          serverType === "http" &&
-                          mcpIntegration?.tools?.length
+                        isEditMode && mcpIntegration?.tools != null
                           ? undefined
                           : "border-t"
                       )}

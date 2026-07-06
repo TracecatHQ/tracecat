@@ -29,7 +29,8 @@ ARG TARGETARCH
 ARG DUCKDB_VERSION=1.4.3
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl wget jq iputils-ping && rm -rf /var/lib/apt/lists/*
+    ca-certificates curl wget jq iputils-ping git openssh-client \
+    && rm -rf /var/lib/apt/lists/*
 
 # This rootfs is shared by run_python and agent sandboxes; CLI additions here
 # are intentionally available to both. DuckDB is not available from Bookworm

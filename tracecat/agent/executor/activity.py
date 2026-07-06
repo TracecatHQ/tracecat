@@ -48,6 +48,12 @@ from tracecat.agent.executor.loopback import (
 )
 from tracecat.agent.filesystem import hydrate_agent_work_dir, persist_agent_work_dir
 from tracecat.agent.llm_routing import get_litellm_route_model
+from tracecat.agent.mcp.stdio_probe import (
+    StdioMCPProbeInput,
+    StdioMCPProbeResult,
+    probe_stdio_mcp_tools_in_sandbox,
+    sanitize_stdio_probe_error,
+)
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.runtime.claude_code.broker import (
     ClaudeRuntimeBroker,
@@ -72,8 +78,10 @@ from tracecat.config import (
     TRACECAT__AGENT_SKILL_CACHE_DIR,
     TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS,
 )
+from tracecat.exceptions import TracecatException
 from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.integrations.mcp_validation import MCPSecretResolutionError
+from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage import blob
@@ -1037,6 +1045,75 @@ async def _hydrate_stdio_env(
                     env = None
                 result.append({**cfg, "env": env} if env else cfg)
     return result
+
+
+@activity.defn(name="probe_stdio_mcp_connection_activity")
+async def probe_stdio_mcp_connection_activity(
+    input: StdioMCPProbeInput,
+) -> StdioMCPProbeResult:
+    """Probe a saved stdio MCP integration inside the executor sandbox."""
+    activity.heartbeat(f"Starting stdio MCP probe: {input.mcp_integration_id}")
+
+    async with AgentPresetService.with_session(role=input.role) as preset_svc:
+        integrations_svc = IntegrationService(preset_svc.session, role=input.role)
+        integration = await integrations_svc.get_mcp_integration(
+            mcp_integration_id=input.mcp_integration_id
+        )
+        if integration is None:
+            return StdioMCPProbeResult(
+                success=False,
+                message="MCP integration not found",
+                error="MCP integration not found",
+            )
+        if integration.server_type != "stdio":
+            return StdioMCPProbeResult(
+                success=False,
+                message="MCP integration is not a stdio server",
+                error="MCP integration is not a stdio server",
+            )
+        if not integration.stdio_command:
+            return StdioMCPProbeResult(
+                success=False,
+                message="MCP integration is missing a stdio command",
+                error="stdio_command is required for stdio-type servers",
+            )
+
+        stdio_env = integrations_svc.decrypt_stdio_env(integration)
+        if stdio_env:
+            try:
+                stdio_env = await preset_svc._resolve_stdio_env(
+                    stdio_env=stdio_env,
+                    mcp_integration_id=integration.id,
+                    mcp_integration_slug=integration.slug,
+                )
+            except (TracecatException, ValueError) as exc:
+                return StdioMCPProbeResult(
+                    success=False,
+                    message="MCP integration stdio environment could not be resolved",
+                    error=sanitize_stdio_probe_error(str(exc), env=stdio_env),
+                )
+
+        try:
+            integrations_svc._validate_stdio_server_config(
+                command=integration.stdio_command,
+                args=integration.stdio_args,
+                env=stdio_env,
+            )
+        except ValueError as exc:
+            return StdioMCPProbeResult(
+                success=False,
+                message="MCP integration stdio command is not allowed",
+                error=sanitize_stdio_probe_error(str(exc), env=stdio_env),
+            )
+
+        result = await probe_stdio_mcp_tools_in_sandbox(
+            command=integration.stdio_command,
+            args=integration.stdio_args,
+            env=stdio_env,
+            timeout=integration.timeout,
+        )
+        activity.heartbeat(f"Finished stdio MCP probe: {input.mcp_integration_id}")
+        return result
 
 
 @activity.defn

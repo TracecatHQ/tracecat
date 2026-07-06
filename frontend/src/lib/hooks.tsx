@@ -4761,9 +4761,14 @@ export function useConnectMcpIntegration(workspaceId: string) {
         return
       }
       if (result.mcp_integration) {
+        const verifying = result.mcp_integration.state !== "connected"
         toast({
-          title: "MCP integration created",
-          description: `Added ${result.mcp_integration.name}`,
+          title: verifying
+            ? "MCP integration verification started"
+            : "MCP integration connected",
+          description: verifying
+            ? `Added ${result.mcp_integration.name}; tools will appear after verification succeeds.`
+            : `Added ${result.mcp_integration.name}`,
         })
       }
     },
@@ -5020,10 +5025,10 @@ export function useUpdateMcpIntegrationToolPolicies(workspaceId: string) {
 }
 
 /**
- * Test connectivity against an unsaved (possibly edited) HTTP MCP
- * configuration. Fully ephemeral: nothing is persisted server-side and no
- * queries are invalidated — saving via connect/update runs its own
- * verification.
+ * Test connectivity to a draft MCP integration config.
+ *
+ * This hits the config-test endpoint and never persists discovered tools.
+ * The save path verifies again and stores tools on success.
  */
 export function useTestMcpConnectionConfig(workspaceId: string) {
   const {
@@ -5077,8 +5082,8 @@ export function useTestMcpConnectionConfig(workspaceId: string) {
 /**
  * Test connectivity to a saved MCP integration and persist its tool listing.
  *
- * Unlike {@link useTestMcpConnectionConfig} (which hits the ephemeral
- * config-test endpoint and never persists), this calls the integration-scoped
+ * Unlike {@link useTestMcpConnectionConfig} (which hits the draft config-test
+ * endpoint and never persists), this calls the integration-scoped
  * endpoint that refreshes and stores the discovered tools. On success it
  * invalidates the integration query so the Tools list reflects the new
  * verification result.

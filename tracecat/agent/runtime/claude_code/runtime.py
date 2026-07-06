@@ -65,6 +65,7 @@ from tracecat.agent.common.tool_inputs import (
 )
 from tracecat.agent.common.types import (
     MCPServerConfig,
+    MCPServerToolSummary,
     MCPStdioServerConfig,
     MCPToolDefinition,
 )
@@ -156,6 +157,14 @@ class _PreparedResumeAndMCP:
     mcp_servers: dict[str, McpServerConfig]
 
 
+@dataclass(frozen=True, slots=True)
+class _StdioMCPServerSpec:
+    servers: dict[str, McpStdioServerConfig]
+    tools_by_server: dict[str, list[MCPServerToolSummary]]
+    # Full runtime tool name (mcp__{server}__{tool}) -> requires manual approval.
+    approvals_by_tool: dict[str, bool]
+
+
 def _configure_claude_sdk_process_env() -> None:
     """Prime process-level SDK env before ClaudeSDKClient.connect().
 
@@ -222,6 +231,13 @@ COMMAND_LINE_TOOLS_PROMPT = (
 # Registry MCP server naming.
 # We canonicalize persisted session history to the hyphen form at the
 # resume boundary so runtime configuration only exposes one logical server.
+# Anthropic tool names must match this pattern; stdio MCP servers can report
+# names (e.g. "issue.get") that would put invalid entries in allowed_tools.
+STDIO_MCP_TOOL_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]{1,128}$")
+# Tool descriptions come from user-supplied MCP server binaries; cap what we
+# interpolate into the system prompt.
+STDIO_MCP_TOOL_DESCRIPTION_MAX_CHARS = 500
+
 REGISTRY_MCP_SERVER_NAME = "tracecat-registry"
 REGISTRY_MCP_TOOL_PREFIX = f"mcp__{REGISTRY_MCP_SERVER_NAME}__"
 REGISTRY_MCP_DOT_PREFIX = f"mcp.{REGISTRY_MCP_SERVER_NAME}."
@@ -270,6 +286,7 @@ class ClaudeAgentRuntime:
         # Public for testing - these represent runtime configuration
         self.registry_tools: dict[str, MCPToolDefinition] | None = None
         self.tool_approvals: dict[str, bool] | None = None
+        self._stdio_tool_approvals: dict[str, bool] = {}
         self._runtime_internet_access_enabled: bool = False
         self._explicit_subagent_aliases: set[str] = set()
         self._registry_mcp_server_names: set[str] = {REGISTRY_MCP_SERVER_NAME}
@@ -356,6 +373,10 @@ class ClaudeAgentRuntime:
     def _mcp_tool_wildcard_for_server(server_name: str) -> str:
         return f"mcp__{server_name}__*"
 
+    @staticmethod
+    def _mcp_tool_name_for_user_mcp_tool(server_name: str, tool_name: str) -> str:
+        return f"mcp__{server_name}__{tool_name}"
+
     @classmethod
     def _mcp_tool_names_for_actions(
         cls,
@@ -370,35 +391,106 @@ class ClaudeAgentRuntime:
         )
 
     @classmethod
+    def _mcp_tool_names_for_stdio_servers(
+        cls,
+        *,
+        stdio_server_names: list[str],
+        stdio_tools_by_server: dict[str, list[MCPServerToolSummary]],
+    ) -> list[str]:
+        tool_names: set[str] = set()
+        for server_name in stdio_server_names:
+            if server_name not in stdio_tools_by_server:
+                tool_names.add(cls._mcp_tool_wildcard_for_server(server_name))
+                continue
+
+            tool_names.update(
+                cls._mcp_tool_name_for_user_mcp_tool(server_name, tool["name"])
+                for tool in stdio_tools_by_server[server_name]
+            )
+        return sorted(tool_names)
+
+    @classmethod
     def _allowed_tools_for_mcp_scope(
         cls,
         *,
         registry_server_name: str,
         actions: dict[str, MCPToolDefinition] | None,
         stdio_server_names: list[str],
+        stdio_tools_by_server: dict[str, list[MCPServerToolSummary]] | None = None,
     ) -> list[str]:
         return sorted(
             {
                 *cls._mcp_tool_names_for_actions(registry_server_name, actions),
-                *(
-                    cls._mcp_tool_wildcard_for_server(server_name)
-                    for server_name in stdio_server_names
+                *cls._mcp_tool_names_for_stdio_servers(
+                    stdio_server_names=stdio_server_names,
+                    stdio_tools_by_server=stdio_tools_by_server or {},
                 ),
             }
         )
 
+    @staticmethod
+    def _sanitize_stdio_tool_description(description: str) -> str:
+        """Collapse whitespace and cap length before prompt interpolation.
+
+        Descriptions come from user-supplied MCP server binaries, so embedded
+        newlines could otherwise inject lines into the system prompt.
+        """
+        collapsed = " ".join(description.split())
+        if len(collapsed) > STDIO_MCP_TOOL_DESCRIPTION_MAX_CHARS:
+            collapsed = f"{collapsed[:STDIO_MCP_TOOL_DESCRIPTION_MAX_CHARS]}…"
+        return collapsed
+
     @classmethod
-    def _stdio_mcp_servers(
+    def _active_stdio_tool_summaries(
+        cls,
+        tools: list[MCPServerToolSummary] | None,
+    ) -> list[MCPServerToolSummary]:
+        if tools is None:
+            return []
+
+        active_tools: list[MCPServerToolSummary] = []
+        for tool in tools:
+            name = tool.get("name")
+            if not name:
+                continue
+            if not STDIO_MCP_TOOL_NAME_RE.match(name):
+                logger.warning(
+                    "Skipping stdio MCP tool with unsupported name",
+                    tool_name=name,
+                )
+                continue
+            if tool.get("enabled", True) is False:
+                continue
+            if tool.get("status", "available") != "available":
+                continue
+            active_tool: MCPServerToolSummary = {"name": name}
+            if description := tool.get("description"):
+                active_tool["description"] = cls._sanitize_stdio_tool_description(
+                    description
+                )
+            if "requires_approval" in tool:
+                active_tool["requires_approval"] = tool["requires_approval"]
+            active_tools.append(active_tool)
+        return active_tools
+
+    @classmethod
+    def _stdio_mcp_server_spec(
         cls,
         *,
         source_configs: list[MCPServerConfig] | None,
         name_prefix: str | None = None,
         existing_names: set[str] | None = None,
-    ) -> dict[str, McpStdioServerConfig]:
+    ) -> _StdioMCPServerSpec:
         servers: dict[str, McpStdioServerConfig] = {}
+        tools_by_server: dict[str, list[MCPServerToolSummary]] = {}
+        approvals_by_tool: dict[str, bool] = {}
         used_names = set(existing_names or ())
         if not source_configs:
-            return servers
+            return _StdioMCPServerSpec(
+                servers=servers,
+                tools_by_server=tools_by_server,
+                approvals_by_tool=approvals_by_tool,
+            )
 
         for config in source_configs:
             if config.get("type", "http") != "stdio":
@@ -426,8 +518,37 @@ class ClaudeAgentRuntime:
             if (timeout := stdio_config.get("timeout")) is not None:
                 server_config["timeout"] = timeout
             servers[server_name] = cast(McpStdioServerConfig, server_config)
+            if "tools" in stdio_config:
+                active_tools = cls._active_stdio_tool_summaries(
+                    stdio_config.get("tools")
+                )
+                tools_by_server[server_name] = active_tools
+                for tool in active_tools:
+                    if tool.get("requires_approval") is True:
+                        full_tool_name = cls._mcp_tool_name_for_user_mcp_tool(
+                            server_name, tool["name"]
+                        )
+                        approvals_by_tool[full_tool_name] = True
 
-        return servers
+        return _StdioMCPServerSpec(
+            servers=servers,
+            tools_by_server=tools_by_server,
+            approvals_by_tool=approvals_by_tool,
+        )
+
+    @classmethod
+    def _stdio_mcp_servers(
+        cls,
+        *,
+        source_configs: list[MCPServerConfig] | None,
+        name_prefix: str | None = None,
+        existing_names: set[str] | None = None,
+    ) -> dict[str, McpStdioServerConfig]:
+        return cls._stdio_mcp_server_spec(
+            source_configs=source_configs,
+            name_prefix=name_prefix,
+            existing_names=existing_names,
+        ).servers
 
     @staticmethod
     def _is_subagent_scope(input_data: HookInput) -> bool:
@@ -960,10 +1081,16 @@ class ClaudeAgentRuntime:
 
         # Preset-backed subagents cannot require manual approvals in v1.
         # Dynamic/general-purpose subagents still inherit root approvals.
-        requires_approval = (
-            self._explicit_subagent_alias_for_tool(input_data, tool_name) is None
-            and self.tool_approvals is not None
-            and self.tool_approvals.get(action_name) is True
+        requires_approval = self._explicit_subagent_alias_for_tool(
+            input_data, tool_name
+        ) is None and (
+            (
+                self.tool_approvals is not None
+                and self.tool_approvals.get(action_name) is True
+            )
+            # Verified stdio MCP tools carry their own approval policy, keyed
+            # by the full runtime tool name (mcp__{server}__{tool}).
+            or self._stdio_tool_approvals.get(tool_name) is True
         )
 
         if requires_approval:
@@ -1093,14 +1220,14 @@ class ClaudeAgentRuntime:
                         )
                     }
                 )
-            stdio_mcp_servers = self._stdio_mcp_servers(
+            stdio_mcp_spec = self._stdio_mcp_server_spec(
                 source_configs=subagent.config.mcp_servers,
                 name_prefix=f"subagent-{subagent.alias}",
                 existing_names={registry_server_name},
             )
             mcp_server_configs.extend(
                 {server_name: server_config}
-                for server_name, server_config in stdio_mcp_servers.items()
+                for server_name, server_config in stdio_mcp_spec.servers.items()
             )
 
             disallowed_tools = list(CHILD_AGENT_DISALLOWED_TOOLS)
@@ -1110,11 +1237,17 @@ class ClaudeAgentRuntime:
             allowed_tools = self._allowed_tools_for_mcp_scope(
                 registry_server_name=registry_server_name,
                 actions=subagent.allowed_actions,
-                stdio_server_names=list(stdio_mcp_servers),
+                stdio_server_names=list(stdio_mcp_spec.servers),
+                stdio_tools_by_server=stdio_mcp_spec.tools_by_server,
             )
+            subagent_prompt = subagent.prompt
+            if stdio_tools_prompt := self._stdio_tools_system_prompt(
+                stdio_mcp_spec.tools_by_server
+            ):
+                subagent_prompt = f"{subagent_prompt}\n\n{stdio_tools_prompt}"
             definitions[subagent.alias] = AgentDefinition(
                 description=subagent.description,
-                prompt=subagent.prompt,
+                prompt=subagent_prompt,
                 model=(
                     subagent.model_route
                     or get_litellm_route_model(
@@ -1143,6 +1276,7 @@ class ClaudeAgentRuntime:
         self._query_sent_event = asyncio.Event()
         self.registry_tools = payload.allowed_actions
         self.tool_approvals = payload.config.tool_approvals
+        self._stdio_tool_approvals = {}
         self._agents_enabled = payload.config.agents.enabled
         self._explicit_subagent_aliases = {
             subagent.alias for subagent in payload.subagents
@@ -1183,16 +1317,47 @@ class ClaudeAgentRuntime:
         *,
         actions: dict[str, MCPToolDefinition] | None,
         stdio_server_names: list[str],
+        stdio_tools_by_server: dict[str, list[MCPServerToolSummary]],
     ) -> list[str]:
         """Return root Claude tools explicitly allowed for this turn."""
         allowed_tools = self._allowed_tools_for_mcp_scope(
             registry_server_name=REGISTRY_MCP_SERVER_NAME,
             actions=actions,
             stdio_server_names=stdio_server_names,
+            stdio_tools_by_server=stdio_tools_by_server,
         )
         if self._agents_enabled:
             allowed_tools.extend(sorted(AGENT_TOOL_NAMES))
         return allowed_tools
+
+    @staticmethod
+    def _stdio_tools_system_prompt(
+        tools_by_server: dict[str, list[MCPServerToolSummary]],
+    ) -> str | None:
+        """Describe verified stdio MCP tools without depending on live startup."""
+        lines: list[str] = []
+        for server_name, tools in sorted(tools_by_server.items()):
+            if not tools:
+                continue
+            lines.append(f"- {server_name}:")
+            for tool in sorted(tools, key=lambda item: item["name"]):
+                description = tool.get("description")
+                tool_line = f"  - {tool['name']}"
+                if description:
+                    tool_line = f"{tool_line}: {description}"
+                lines.append(tool_line)
+
+        if not lines:
+            return None
+
+        tool_lines = "\n".join(lines)
+        return (
+            "Verified stdio MCP tools configured for this agent:\n"
+            f"{tool_lines}\n\n"
+            "If one of these tools fails at call time, explain the runtime or "
+            "credential problem, but still treat the verified list as the "
+            "configured tool inventory when asked what tools are available."
+        )
 
     @staticmethod
     def _sandbox_settings() -> SandboxSettings:
@@ -1225,6 +1390,7 @@ class ClaudeAgentRuntime:
         fork_session: bool,
         mcp_servers: dict[str, McpServerConfig],
         stdio_mcp_servers: dict[str, McpStdioServerConfig],
+        stdio_tools_by_server: dict[str, list[MCPServerToolSummary]],
         agent_definitions: dict[str, AgentDefinition] | None,
         stderr: Callable[[str], None],
     ) -> ClaudeAgentOptions:
@@ -1233,6 +1399,8 @@ class ClaudeAgentRuntime:
             payload.config.instructions,
             payload.config.output_type,
         )
+        if stdio_tools_prompt := self._stdio_tools_system_prompt(stdio_tools_by_server):
+            system_prompt = f"{system_prompt}\n\n{stdio_tools_prompt}"
         logger.info(
             "Claude runtime system prompt prepared",
             session_id=str(payload.session_id),
@@ -1260,6 +1428,7 @@ class ClaudeAgentRuntime:
             allowed_tools=self._root_allowed_tools(
                 actions=payload.allowed_actions,
                 stdio_server_names=list(stdio_mcp_servers),
+                stdio_tools_by_server=stdio_tools_by_server,
             ),
             disallowed_tools=self._root_disallowed_tools(),
             agents=agent_definitions,
@@ -1383,10 +1552,12 @@ class ClaudeAgentRuntime:
             )
 
             stderr_queue: asyncio.Queue[str] = asyncio.Queue()
-            stdio_mcp_servers = self._stdio_mcp_servers(
+            stdio_mcp_spec = self._stdio_mcp_server_spec(
                 source_configs=payload.config.mcp_servers,
                 existing_names=set(mcp_servers),
             )
+            self._stdio_tool_approvals = stdio_mcp_spec.approvals_by_tool
+            stdio_mcp_servers = stdio_mcp_spec.servers
             mcp_servers.update(stdio_mcp_servers)
             agent_definitions = self._build_agent_definitions(payload=payload)
 
@@ -1409,6 +1580,7 @@ class ClaudeAgentRuntime:
                 fork_session=fork_session,
                 mcp_servers=mcp_servers,
                 stdio_mcp_servers=stdio_mcp_servers,
+                stdio_tools_by_server=stdio_mcp_spec.tools_by_server,
                 agent_definitions=agent_definitions,
                 stderr=handle_claude_stderr,
             )

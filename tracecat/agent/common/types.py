@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict, TypeGuar
 from pydantic import BaseModel, ConfigDict, Field
 
 from tracecat.agent.subagents import AgentSubagentsConfig
+from tracecat.integrations.schemas import MCPToolStatus
 
 if TYPE_CHECKING:
     from tracecat.agent.types import AgentConfig
@@ -59,6 +60,16 @@ class MCPHttpServerConfig(TypedDict):
     callers can re-resolve secrets per use without re-listing integrations."""
 
 
+class MCPServerToolSummary(TypedDict):
+    """Non-secret summary of a verified user MCP tool."""
+
+    name: str
+    description: NotRequired[str | None]
+    enabled: NotRequired[bool]
+    requires_approval: NotRequired[bool]
+    status: NotRequired[MCPToolStatus]
+
+
 class MCPStdioServerConfig(TypedDict):
     """Configuration for a stdio MCP server."""
 
@@ -73,6 +84,11 @@ class MCPStdioServerConfig(TypedDict):
     id: NotRequired[str]
     """Optional: UUID of the source ``mcp_integrations`` row this config was
     resolved from. See :class:`MCPHttpServerConfig.id`."""
+
+    tools: NotRequired[list[MCPServerToolSummary]]
+    """Optional, non-secret tool summaries from the latest successful
+    verification. Used by runtimes that cannot rediscover stdio tools cheaply
+    before the server process is available."""
 
 
 MCPServerConfig = MCPHttpServerConfig | MCPStdioServerConfig

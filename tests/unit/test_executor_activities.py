@@ -7,18 +7,26 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from temporalio.exceptions import ApplicationError
 
 from tests.shared import to_data
+from tracecat.agent.executor.activity import probe_stdio_mcp_connection_activity
+from tracecat.agent.mcp.stdio_probe import StdioMCPProbeInput
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.dsl.types import ActionErrorInfo
-from tracecat.exceptions import EntitlementRequired, ExecutionError, LoopExecutionError
+from tracecat.exceptions import (
+    EntitlementRequired,
+    ExecutionError,
+    LoopExecutionError,
+    TracecatValidationError,
+)
 from tracecat.executor.activities import ExecutorActivities
 from tracecat.executor.schemas import ExecutorActionErrorInfo
 from tracecat.identifiers.workflow import WorkflowUUID
@@ -62,6 +70,21 @@ def mock_run_action_input() -> RunActionInput:
             actions={action_name: "tracecat_registry"},
         ),
     )
+
+
+class _AsyncContext:
+    def __init__(self, value: object) -> None:
+        self._value = value
+
+    async def __aenter__(self) -> object:
+        return self._value
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        return None
+
+
+def _stdio_probe_input(mcp_integration_id: uuid.UUID, role: Role) -> StdioMCPProbeInput:
+    return StdioMCPProbeInput(mcp_integration_id=mcp_integration_id, role=role)
 
 
 class TestExecutorActivities:
@@ -350,3 +373,172 @@ class TestExecuteActionActivity:
             action_error_info = app_error.details[0]
             assert isinstance(action_error_info, ActionErrorInfo)
             assert action_error_info.stream_id == "test-stream-123"
+
+
+class TestProbeStdioMCPConnectionActivity:
+    @staticmethod
+    def _stdio_integration(mcp_integration_id: uuid.UUID) -> SimpleNamespace:
+        return SimpleNamespace(
+            id=mcp_integration_id,
+            slug="test-stdio-server",
+            name="Test stdio server",
+            server_type="stdio",
+            stdio_command="python",
+            stdio_args=["-m", "example"],
+            timeout=30,
+        )
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("resolve_error", "expected_error"),
+        [
+            (
+                TracecatValidationError("invalid template references super-secret"),
+                "invalid template references [redacted]",
+            ),
+            (
+                ValueError("bad expression references super-secret"),
+                "bad expression references [redacted]",
+            ),
+        ],
+    )
+    async def test_stdio_env_domain_error_returns_failed_probe_result(
+        self,
+        mock_role: Role,
+        resolve_error: Exception,
+        expected_error: str,
+    ) -> None:
+        mcp_integration_id = uuid.uuid4()
+        integration = self._stdio_integration(mcp_integration_id)
+        stdio_env = {"API_TOKEN": "super-secret"}
+        preset_svc = SimpleNamespace(
+            session=object(),
+            _resolve_stdio_env=AsyncMock(side_effect=resolve_error),
+        )
+
+        class FakeIntegrationService:
+            def __init__(self, session: object, *, role: Role) -> None:
+                del session, role
+
+            async def get_mcp_integration(
+                self, *, mcp_integration_id: uuid.UUID
+            ) -> SimpleNamespace:
+                assert mcp_integration_id == integration.id
+                return integration
+
+            def decrypt_stdio_env(
+                self, mcp_integration: SimpleNamespace
+            ) -> dict[str, str]:
+                assert mcp_integration is integration
+                return stdio_env
+
+            def _validate_stdio_server_config(
+                self,
+                *,
+                command: str | None,
+                args: list[str] | None,
+                env: dict[str, str] | None,
+            ) -> None:
+                del command, args, env
+
+        with (
+            patch("tracecat.agent.executor.activity.activity") as mock_activity,
+            patch(
+                "tracecat.agent.executor.activity.AgentPresetService.with_session",
+                lambda *_, **__: _AsyncContext(preset_svc),
+            ),
+            patch(
+                "tracecat.agent.executor.activity.IntegrationService",
+                FakeIntegrationService,
+            ),
+            patch(
+                "tracecat.agent.executor.activity.probe_stdio_mcp_tools_in_sandbox",
+                new_callable=AsyncMock,
+            ) as probe_stdio,
+        ):
+            mock_activity.heartbeat = MagicMock()
+
+            result = await probe_stdio_mcp_connection_activity(
+                _stdio_probe_input(mcp_integration_id, mock_role)
+            )
+
+        assert result.success is False
+        assert (
+            result.message == "MCP integration stdio environment could not be resolved"
+        )
+        assert result.error == expected_error
+        preset_svc._resolve_stdio_env.assert_awaited_once_with(
+            stdio_env=stdio_env,
+            mcp_integration_id=integration.id,
+            mcp_integration_slug=integration.slug,
+        )
+        probe_stdio.assert_not_awaited()
+
+    @pytest.mark.anyio
+    async def test_stdio_env_unexpected_error_propagates(
+        self,
+        mock_role: Role,
+    ) -> None:
+        mcp_integration_id = uuid.uuid4()
+        integration = self._stdio_integration(mcp_integration_id)
+        stdio_env = {"API_TOKEN": "super-secret"}
+        unexpected_error = RuntimeError("secret store unavailable")
+        preset_svc = SimpleNamespace(
+            session=object(),
+            _resolve_stdio_env=AsyncMock(side_effect=unexpected_error),
+        )
+
+        class FakeIntegrationService:
+            def __init__(self, session: object, *, role: Role) -> None:
+                del session, role
+
+            async def get_mcp_integration(
+                self, *, mcp_integration_id: uuid.UUID
+            ) -> SimpleNamespace:
+                assert mcp_integration_id == integration.id
+                return integration
+
+            def decrypt_stdio_env(
+                self, mcp_integration: SimpleNamespace
+            ) -> dict[str, str]:
+                assert mcp_integration is integration
+                return stdio_env
+
+            def _validate_stdio_server_config(
+                self,
+                *,
+                command: str | None,
+                args: list[str] | None,
+                env: dict[str, str] | None,
+            ) -> None:
+                del command, args, env
+
+        with (
+            patch("tracecat.agent.executor.activity.activity") as mock_activity,
+            patch(
+                "tracecat.agent.executor.activity.AgentPresetService.with_session",
+                lambda *_, **__: _AsyncContext(preset_svc),
+            ),
+            patch(
+                "tracecat.agent.executor.activity.IntegrationService",
+                FakeIntegrationService,
+            ),
+            patch(
+                "tracecat.agent.executor.activity.probe_stdio_mcp_tools_in_sandbox",
+                new_callable=AsyncMock,
+            ) as probe_stdio,
+        ):
+            mock_activity.heartbeat = MagicMock()
+
+            with pytest.raises(RuntimeError) as exc_info:
+                await probe_stdio_mcp_connection_activity(
+                    _stdio_probe_input(mcp_integration_id, mock_role)
+                )
+
+        assert exc_info.value is unexpected_error
+        preset_svc._resolve_stdio_env.assert_awaited_once_with(
+            stdio_env=stdio_env,
+            mcp_integration_id=integration.id,
+            mcp_integration_slug=integration.slug,
+        )
+        probe_stdio.assert_not_awaited()

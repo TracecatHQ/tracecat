@@ -16,7 +16,12 @@ from sqlalchemy.orm import selectinload
 
 from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.channels.service import AgentChannelService
-from tracecat.agent.common.types import MCPHttpServerConfig, MCPServerConfig
+from tracecat.agent.common.types import (
+    MCPHttpServerConfig,
+    MCPServerConfig,
+    MCPServerToolSummary,
+    MCPStdioServerConfig,
+)
 from tracecat.agent.preset.resolver import resolve_agents_config
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
@@ -937,7 +942,7 @@ class AgentPresetService(BaseWorkspaceService):
                         },
                     )
                     continue
-                stdio_ref: MCPServerConfig = {
+                stdio_ref: MCPStdioServerConfig = {
                     "type": "stdio",
                     "name": mcp_integration.slug,
                     "command": mcp_integration.stdio_command,
@@ -947,6 +952,20 @@ class AgentPresetService(BaseWorkspaceService):
                     stdio_ref["args"] = mcp_integration.stdio_args
                 if mcp_integration.timeout is not None:
                     stdio_ref["timeout"] = mcp_integration.timeout
+                stored_tools = MCPToolSummary.validate_stored(
+                    mcp_integration.tools,
+                    mcp_integration_id=mcp_integration.id,
+                )
+                if stored_tools is not None:
+                    active_tools = cast(
+                        list[MCPServerToolSummary],
+                        [
+                            tool.model_dump(exclude_none=True)
+                            for tool in stored_tools
+                            if tool.enabled and tool.status == "available"
+                        ],
+                    )
+                    stdio_ref["tools"] = active_tools
                 refs.append(stdio_ref)
                 continue
 

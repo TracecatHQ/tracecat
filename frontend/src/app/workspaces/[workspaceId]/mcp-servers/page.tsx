@@ -307,9 +307,14 @@ export default function McpServersPage() {
       if (!result.mcp_integration) {
         return
       }
+      const verifying = result.mcp_integration.state !== "connected"
       toast({
-        title: "MCP server connected",
-        description: `Added ${result.mcp_integration.name}`,
+        title: verifying
+          ? "MCP server verification started"
+          : "MCP server connected",
+        description: verifying
+          ? `Added ${result.mcp_integration.name}; tools will appear after verification succeeds.`
+          : `Added ${result.mcp_integration.name}`,
       })
     },
     onError: (error) => {
@@ -455,13 +460,11 @@ export default function McpServersPage() {
       setLockedCatalogEntry(entry)
       return
     }
-    // Mirror McpCatalogCard's derivation: an HTTP row with no tool listing
-    // hasn't been verified yet, so it is "configured"/reconnect, not a
-    // connected disconnect. Keeping this in sync avoids showing "Reconnect"
-    // while routing through the disconnect/no-op path.
-    const isHttpServer = entry.mcp_server_type === "http"
-    const connected =
-      entry.state === "connected" && !(isHttpServer && entry.tools === null)
+    // Mirror McpCatalogCard's derivation: a row with no tool listing hasn't
+    // been verified yet, so it is "configured"/reconnect, not a connected
+    // disconnect. Keeping this in sync avoids showing "Reconnect" while
+    // routing through the disconnect/no-op path.
+    const connected = entry.state === "connected" && entry.tools != null
     const connectable = isCatalogEntryConnectable(entry)
 
     if (entry.mcp_integration_id && connected) {
@@ -735,11 +738,9 @@ function McpCatalogCard({
   const { entry } = item
   const locked = entry.locked === true
   const hasMcpRow = Boolean(entry.mcp_integration_id)
-  const isHttpServer = entry.mcp_server_type === "http"
-  // An HTTP row with no tool listing hasn't been successfully verified yet;
-  // treat it as "configured" so the unverified badge branch is reachable.
-  const connected =
-    entry.state === "connected" && !(isHttpServer && entry.tools === null)
+  // A row with no tool listing hasn't been successfully verified yet; treat it
+  // as "configured" so the unverified badge branch is reachable.
+  const connected = entry.state === "connected" && entry.tools != null
   const configured = !connected && (entry.state === "configured" || hasMcpRow)
   const hasWorkspaceConfig = configured || connected
   const connectable = isCatalogEntryConnectable(entry)
@@ -797,7 +798,7 @@ function McpCatalogCard({
     statusLabel = "Locked"
     statusClassName = "border-muted bg-muted/30 text-muted-foreground"
   } else if (connected) {
-    if (isHttpServer && activeToolCount !== null && totalToolCount !== null) {
+    if (activeToolCount !== null && totalToolCount !== null) {
       const toolCountLabel =
         activeToolCount === totalToolCount
           ? `${activeToolCount}`
@@ -808,9 +809,9 @@ function McpCatalogCard({
     }
     statusClassName = "border-emerald-200 bg-emerald-50 text-emerald-700"
   } else if (configured) {
-    // An HTTP row with config but no verified tool listing is not known to
-    // work — show it as a problem rather than a neutral setup state.
-    if (isHttpServer && hasMcpRow) {
+    // A row with config but no verified tool listing is not known to work —
+    // show it as a problem rather than a neutral setup state.
+    if (hasMcpRow && entry.tools == null) {
       statusLabel = unverifiedBadge.label
       statusClassName = unverifiedBadge.className
     } else {

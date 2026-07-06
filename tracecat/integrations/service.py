@@ -7,7 +7,7 @@ import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 from urllib.parse import urlparse, urlunparse
 from uuid import uuid4
 
@@ -19,10 +19,20 @@ from authlib.oauth2.rfc7636 import create_s256_code_challenge
 from pydantic import SecretStr
 from slugify import slugify
 from sqlalchemy import and_, delete, or_, select, update
+from temporalio.client import WorkflowFailureError
 
 from tracecat import config
 from tracecat.agent.common.types import MCPHttpServerConfig
+from tracecat.agent.mcp.stdio_probe import (
+    MCP_STDIO_PROBE_TIMEOUT_CAP,
+    StdioMCPProbeInput,
+    build_stdio_mcp_probe_workflow_id,
+    probe_stdio_mcp_tools_in_sandbox,
+    sanitize_stdio_probe_error,
+)
+from tracecat.agent.workflows.mcp_probe import StdioMCPProbeWorkflow
 from tracecat.auth.secrets import get_db_encryption_key
+from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope, require_scope
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
@@ -33,6 +43,7 @@ from tracecat.db.models import (
     OAuthStateDB,
     WorkspaceOAuthProvider,
 )
+from tracecat.dsl.client import get_temporal_client
 from tracecat.identifiers import UserID
 from tracecat.integrations.catalog.loader import (
     get_platform_mcp_catalog_entries,
@@ -66,6 +77,7 @@ from tracecat.integrations.schemas import (
     IntegrationOAuthConnect,
     MCPConnectionSpec,
     MCPHttpIntegrationCreate,
+    MCPHttpIntegrationTestConnectionRequest,
     MCPHTTPOAuth2ConnectionSpec,
     MCPIntegrationCreate,
     MCPIntegrationSource,
@@ -73,6 +85,7 @@ from tracecat.integrations.schemas import (
     MCPIntegrationTestConnectionResponse,
     MCPIntegrationUpdate,
     MCPStdioIntegrationCreate,
+    MCPStdioIntegrationTestConnectionRequest,
     MCPToolPolicyUpdate,
     MCPToolSummary,
     PlatformMCPCatalogState,
@@ -165,6 +178,7 @@ class IntegrationService(BaseWorkspaceService):
     """Service for managing user integrations."""
 
     service_name = "integrations"
+    _background_stdio_verification_tasks: ClassVar[set[asyncio.Task[None]]] = set()
 
     @staticmethod
     def _escape_like_pattern(value: str) -> str:
@@ -3050,6 +3064,8 @@ class IntegrationService(BaseWorkspaceService):
             encrypted_access_token is not None and is_set(encrypted_access_token)
         ):
             return "configured"
+        if mcp_integration.tools is None:
+            return "configured"
         return "connected"
 
     async def _mcp_oauth_access_tokens_by_id(
@@ -3198,8 +3214,117 @@ class IntegrationService(BaseWorkspaceService):
                 sanitize_urls_in_text(str(e)),
             ) from e
 
+    async def _probe_mcp_stdio_server(
+        self, mcp_integration: MCPIntegration
+    ) -> list[MCPToolSummary]:
+        """Run a saved stdio MCP integration probe on the executor sandbox."""
+        if mcp_integration.server_type != "stdio":
+            raise MCPConnectionVerificationError(
+                "Only stdio MCP servers can be probed with the stdio verifier"
+            )
+        if mcp_integration.id is None:
+            raise MCPConnectionVerificationError("MCP integration must be saved first")
+
+        client = await get_temporal_client()
+        try:
+            result = await client.execute_workflow(
+                StdioMCPProbeWorkflow.run,
+                StdioMCPProbeInput(
+                    mcp_integration_id=mcp_integration.id,
+                    role=self.role,
+                ),
+                id=build_stdio_mcp_probe_workflow_id(),
+                task_queue=config.TRACECAT__AGENT_QUEUE,
+                run_timeout=timedelta(seconds=MCP_STDIO_PROBE_TIMEOUT_CAP + 90),
+            )
+        except WorkflowFailureError as exc:
+            raise MCPConnectionVerificationError(
+                "Failed to run stdio MCP probe",
+                sanitize_urls_in_text(str(exc)),
+            ) from exc
+        except Exception as exc:
+            raise MCPConnectionVerificationError(
+                "Failed to start stdio MCP probe",
+                sanitize_urls_in_text(str(exc)),
+            ) from exc
+
+        if not result.success:
+            raise MCPConnectionVerificationError(
+                result.message,
+                sanitize_urls_in_text(result.error or result.message),
+            )
+        return result.tools
+
+    async def _resolve_stdio_env_for_probe(
+        self,
+        *,
+        stdio_env: dict[str, str] | None,
+        mcp_integration_id: uuid.UUID,
+        mcp_integration_slug: str,
+    ) -> dict[str, str] | None:
+        """Resolve stdio env templates before passing them into the sandbox."""
+        if not stdio_env:
+            return None
+        try:
+            # Imported lazily to avoid a module import cycle: AgentPresetService
+            # also imports IntegrationService for normal preset resolution.
+            from tracecat.agent.preset.service import AgentPresetService
+
+            preset_svc = AgentPresetService(self.session, role=self.role)
+            return await preset_svc._resolve_stdio_env(
+                stdio_env=stdio_env,
+                mcp_integration_id=mcp_integration_id,
+                mcp_integration_slug=mcp_integration_slug,
+            )
+        except Exception as exc:
+            raise MCPConnectionVerificationError(
+                "MCP integration stdio environment could not be resolved",
+                sanitize_stdio_probe_error(str(exc), env=stdio_env),
+            ) from exc
+
+    async def _probe_mcp_stdio_config(
+        self,
+        *,
+        command: str,
+        args: list[str] | None,
+        env: dict[str, str] | None,
+        timeout: int | None,
+        mcp_integration_id: uuid.UUID,
+        mcp_integration_slug: str,
+    ) -> list[MCPToolSummary]:
+        """Run a draft stdio MCP config inside the API-local nsjail sandbox."""
+        try:
+            resolved_env = await self._resolve_stdio_env_for_probe(
+                stdio_env=env,
+                mcp_integration_id=mcp_integration_id,
+                mcp_integration_slug=mcp_integration_slug,
+            )
+            self._validate_stdio_server_config(
+                command=command,
+                args=args,
+                env=resolved_env,
+            )
+        except ValueError as exc:
+            raise MCPConnectionVerificationError(
+                "MCP integration stdio command is not allowed",
+                sanitize_stdio_probe_error(str(exc), env=env),
+            ) from exc
+
+        result = await probe_stdio_mcp_tools_in_sandbox(
+            command=command,
+            args=args,
+            env=resolved_env,
+            timeout=timeout,
+        )
+        if not result.success:
+            raise MCPConnectionVerificationError(
+                result.message,
+                sanitize_urls_in_text(result.error or result.message),
+            )
+        return result.tools
+
     async def test_mcp_http_connection(
-        self, *, params: MCPIntegrationTestConnectionRequest
+        self, *, params: MCPHttpIntegrationTestConnectionRequest
     ) -> MCPIntegrationTestConnectionResponse:
         """Test connectivity against an unsaved HTTP MCP configuration.
 
@@ -3211,8 +3336,8 @@ class IntegrationService(BaseWorkspaceService):
         ``integration:create`` alone; without the back-fill guard a create-only
         caller could pair a saved integration id with an attacker-controlled
         ``server_uri`` and have the probe send the stored API key or OAuth
-        bearer token to that host, bypassing the update permission that guards
-        reuse of stored credentials.
+        bearer token to that host if this route is ever exposed without the
+        update permission that currently guards stored credential reuse.
         """
         existing: MCPIntegration | None = None
         if params.mcp_integration_id is not None:
@@ -3275,17 +3400,79 @@ class IntegrationService(BaseWorkspaceService):
             message=f"Connected successfully — {len(tools)} tools available",
         )
 
+    async def test_mcp_stdio_connection(
+        self, *, params: MCPStdioIntegrationTestConnectionRequest
+    ) -> MCPIntegrationTestConnectionResponse:
+        """Test connectivity against an unsaved stdio MCP configuration."""
+        existing: MCPIntegration | None = None
+        if params.mcp_integration_id is not None:
+            existing = await self.get_mcp_integration(
+                mcp_integration_id=params.mcp_integration_id
+            )
+
+        can_reuse_stored_secrets = (
+            existing is not None
+            and existing.server_type == "stdio"
+            and self.role.scopes is not None
+            and has_scope(self.role.scopes, "integration:update")
+        )
+        reusable = existing if can_reuse_stored_secrets else None
+        stdio_env = (
+            params.stdio_env
+            if params.stdio_env is not None
+            else self.decrypt_stdio_env(reusable)
+            if reusable is not None
+            else None
+        )
+        probe_id = params.mcp_integration_id or uuid4()
+        probe_slug = existing.slug if existing is not None else "mcp-connection-test"
+
+        try:
+            tools = await self._probe_mcp_stdio_config(
+                command=params.stdio_command,
+                args=params.stdio_args,
+                env=stdio_env,
+                timeout=params.timeout,
+                mcp_integration_id=probe_id,
+                mcp_integration_slug=probe_slug,
+            )
+        except MCPConnectionVerificationError as e:
+            return MCPIntegrationTestConnectionResponse(
+                success=False,
+                mcp_integration_id=params.mcp_integration_id,
+                message=e.message,
+                error=e.error,
+            )
+
+        return MCPIntegrationTestConnectionResponse(
+            success=True,
+            mcp_integration_id=params.mcp_integration_id,
+            tools=tools,
+            message=f"Connected successfully — {len(tools)} tools available",
+        )
+
+    async def test_mcp_connection(
+        self, *, params: MCPIntegrationTestConnectionRequest
+    ) -> MCPIntegrationTestConnectionResponse:
+        """Test connectivity against an unsaved MCP configuration."""
+        if isinstance(params, MCPStdioIntegrationTestConnectionRequest):
+            return await self.test_mcp_stdio_connection(params=params)
+        return await self.test_mcp_http_connection(params=params)
+
     async def verify_mcp_integration(
         self, *, mcp_integration: MCPIntegration
     ) -> MCPIntegrationTestConnectionResponse:
-        """Verify connectivity to an HTTP MCP server and persist its tools.
+        """Verify connectivity to an MCP server and persist its tools.
 
         A successful verification refreshes the discovered tool set while
         preserving stored per-tool policy. A failed verification is reported to
         the caller without mutating the last known tool snapshot.
         """
         try:
-            tools = await self._probe_mcp_http_server(mcp_integration)
+            if mcp_integration.server_type == "stdio":
+                tools = await self._probe_mcp_stdio_server(mcp_integration)
+            else:
+                tools = await self._probe_mcp_http_server(mcp_integration)
         except MCPConnectionVerificationError as e:
             return await self._record_mcp_verification_failure(
                 mcp_integration,
@@ -3341,6 +3528,58 @@ class IntegrationService(BaseWorkspaceService):
             message=message,
             error=error,
         )
+
+    def start_mcp_stdio_verification(self, *, mcp_integration: MCPIntegration) -> None:
+        """Launch saved stdio MCP verification without blocking the request."""
+        if mcp_integration.server_type != "stdio":
+            raise ValueError(
+                "Only stdio MCP integrations can be verified asynchronously"
+            )
+        if mcp_integration.id is None:
+            raise ValueError("MCP integration must be saved first")
+
+        task = asyncio.create_task(
+            self._verify_mcp_integration_in_background(
+                mcp_integration_id=mcp_integration.id,
+                role=self.role,
+            )
+        )
+        self._background_stdio_verification_tasks.add(task)
+
+        def _log_background_failure(task: asyncio.Task[None]) -> None:
+            self._background_stdio_verification_tasks.discard(task)
+            try:
+                task.result()
+            except asyncio.CancelledError:
+                self.logger.warning(
+                    "Background stdio MCP verification was cancelled",
+                    mcp_integration_id=str(mcp_integration.id),
+                )
+            except Exception as exc:
+                self.logger.exception(
+                    "Background stdio MCP verification failed",
+                    mcp_integration_id=str(mcp_integration.id),
+                    error=sanitize_urls_in_text(str(exc)),
+                )
+
+        task.add_done_callback(_log_background_failure)
+
+    @staticmethod
+    async def _verify_mcp_integration_in_background(
+        *, mcp_integration_id: uuid.UUID, role: Role
+    ) -> None:
+        async with get_async_session_bypass_rls_context_manager() as session:
+            svc = IntegrationService(session=session, role=role)
+            mcp_integration = await svc.get_mcp_integration(
+                mcp_integration_id=mcp_integration_id
+            )
+            if mcp_integration is None:
+                svc.logger.warning(
+                    "Skipped background MCP verification for missing integration",
+                    mcp_integration_id=str(mcp_integration_id),
+                )
+                return
+            await svc.verify_mcp_integration(mcp_integration=mcp_integration)
 
     def _decrypt_mcp_custom_headers(
         self, mcp_integration: MCPIntegration
@@ -3591,24 +3830,46 @@ class IntegrationService(BaseWorkspaceService):
             or params.stdio_command is not None
             or params.stdio_args is not None
             or params.stdio_env is not None
+            or params.timeout is not None
         ):
-            self._validate_stdio_server_config(
-                command=(
-                    params.stdio_command
-                    if params.stdio_command is not None
-                    else mcp_integration.stdio_command
-                ),
-                args=(
-                    params.stdio_args
-                    if params.stdio_args is not None
-                    else mcp_integration.stdio_args
-                ),
-                env=params.stdio_env,
+            target_stdio_command = (
+                params.stdio_command
+                if params.stdio_command is not None
+                else mcp_integration.stdio_command
             )
-            if params.stdio_env is not None:
+            target_stdio_args = (
+                params.stdio_args
+                if params.stdio_args is not None
+                else mcp_integration.stdio_args
+            )
+            target_stdio_env = (
+                params.stdio_env
+                if params.stdio_env is not None
+                else self.decrypt_stdio_env(mcp_integration)
+            )
+            target_timeout = (
+                params.timeout
+                if params.timeout is not None
+                else mcp_integration.timeout
+            )
+            self._validate_stdio_server_config(
+                command=target_stdio_command,
+                args=target_stdio_args,
+                env=target_stdio_env,
+            )
+            if target_stdio_env is not None:
                 self._validate_stdio_env_against_catalog(
                     catalog_slug=mcp_integration.catalog_slug,
-                    stdio_env=params.stdio_env,
+                    stdio_env=target_stdio_env,
+                )
+            if verify_connection:
+                verified_tools = await self._probe_mcp_stdio_config(
+                    command=target_stdio_command or "",
+                    args=target_stdio_args,
+                    env=target_stdio_env,
+                    timeout=target_timeout,
+                    mcp_integration_id=mcp_integration.id,
+                    mcp_integration_slug=mcp_integration.slug,
                 )
 
         # Update fields
@@ -3625,16 +3886,17 @@ class IntegrationService(BaseWorkspaceService):
 
         if params.server_type is not None:
             mcp_integration.server_type = params.server_type
-            if params.server_type == "http":
+            if params.server_type == "http" and server_type_changed:
                 mcp_integration.stdio_command = None
                 mcp_integration.stdio_args = None
                 mcp_integration.encrypted_stdio_env = None
-            else:
+            elif params.server_type == "stdio" and server_type_changed:
                 mcp_integration.server_uri = None
                 mcp_integration.auth_type = MCPAuthType.NONE
                 mcp_integration.oauth_integration_id = None
                 mcp_integration.encrypted_headers = None
-                # Stdio servers cannot be verified.
+                # Clear stale HTTP tools; successful stdio verification below
+                # stores the fresh stdio tool snapshot.
                 mcp_integration.tools = None
 
         if target_server_type == "http" and params.server_uri is not None:
