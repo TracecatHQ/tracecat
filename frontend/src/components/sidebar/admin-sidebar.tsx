@@ -107,7 +107,7 @@ export function AdminSidebar({
                 </SidebarMenuItem>
               ))}
               <SidebarMenuItem>
-                <div className="flex w-full items-center gap-2 overflow-hidden rounded-md py-1.5 px-2 text-left text-[13px] text-zinc-700 dark:text-zinc-300">
+                <div className="flex w-full items-center gap-2 overflow-hidden rounded-md py-1.5 px-2 text-left text-[13px] text-sidebar-foreground">
                   <BookOpenIcon className="size-4 shrink-0" />
                   <span className="font-medium">Registry</span>
                 </div>

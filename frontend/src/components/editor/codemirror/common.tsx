@@ -543,12 +543,12 @@ export class InnerContentWidget extends WidgetType {
       contextSpan.appendChild(pathSpan)
 
       const colors = {
-        ACTIONS: "#3b82f6",
-        FN: "#8b5cf6",
-        ENV: "#10b981",
-        SECRETS: "#f59e0b",
-        VARS: "#06b6d4",
-        var: "#ef4444",
+        ACTIONS: "hsl(var(--syntax-action))",
+        FN: "hsl(var(--syntax-function))",
+        ENV: "hsl(var(--syntax-string))",
+        SECRETS: "hsl(var(--syntax-secret))",
+        VARS: "hsl(var(--syntax-variable))",
+        var: "hsl(var(--syntax-local-variable))",
       }
 
       contextSpan.style.color = colors[contextType as keyof typeof colors]
@@ -1346,21 +1346,21 @@ function FunctionTooltip({ fn }: { fn: EditorFunctionRead }) {
   const signature = `${fn.name}(${params}) → ${fn.return_type || "any"}`
   return (
     <div className="max-w-[400px] overflow-hidden p-0 text-xs">
-      <div className="border-b px-3 py-2 font-mono font-semibold text-[#24292f]">
+      <div className="border-b px-3 py-2 font-mono font-semibold text-foreground">
         {fn.name}
       </div>
-      <div className="border-b px-3 py-2 font-mono text-[11px] text-[#656d76]">
+      <div className="border-b px-3 py-2 font-mono text-[11px] text-muted-foreground">
         {signature}
       </div>
-      <div className="p-3 text-xs leading-6 text-[#24292f]">
+      <div className="p-3 text-xs leading-6 text-foreground">
         {fn.description || "No description available"}
       </div>
       {/*parameters*/}
-      <div className="px-3 py-2 font-mono text-[11px] text-[#656d76]">
+      <div className="px-3 py-2 font-mono text-[11px] text-muted-foreground">
         Parameters: {params}
       </div>
       {/*return type*/}
-      <div className="px-3 py-2 font-mono text-[11px] text-[#656d76]">
+      <div className="px-3 py-2 font-mono text-[11px] text-muted-foreground">
         Returns: {fn.return_type || "any"}
       </div>
     </div>
@@ -2072,11 +2072,11 @@ export function createAutocomplete({
 // Common theme for template pills
 export const templatePillTheme = EditorView.theme({
   ".cm-template-pill": {
-    backgroundColor: "rgba(59, 130, 246, 0.15)",
-    color: "#1e40af",
+    backgroundColor: "hsl(var(--syntax-action) / 0.15)",
+    color: "hsl(var(--syntax-template))",
     padding: "0.075em 0.3em",
     borderRadius: "0.25rem",
-    border: "0.5px solid rgba(59, 130, 246, 0.3)",
+    border: "0.5px solid hsl(var(--syntax-action) / 0.3)",
     cursor: "pointer",
     display: "inline-flex",
     alignItems: "center",
@@ -2090,57 +2090,57 @@ export const templatePillTheme = EditorView.theme({
     fontFamily: "ui-monospace, monospace",
   },
   ".cm-template-pill:hover": {
-    backgroundColor: "rgba(59, 130, 246, 0.25)",
-    borderColor: "rgba(59, 130, 246, 0.5)",
+    backgroundColor: "hsl(var(--syntax-action) / 0.25)",
+    borderColor: "hsl(var(--syntax-action) / 0.5)",
     zIndex: "2",
   },
   ".cm-template-error": {
-    backgroundColor: "rgba(239, 68, 68, 0.2)",
-    border: "1px solid rgba(239, 68, 68, 0.5)",
-    color: "#dc2626",
+    backgroundColor: "hsl(var(--syntax-local-variable) / 0.2)",
+    border: "1px solid hsl(var(--syntax-local-variable) / 0.5)",
+    color: "hsl(var(--syntax-local-variable))",
   },
   ".cm-template-error-icon": {
-    color: "#ef4444",
+    color: "hsl(var(--syntax-local-variable))",
     fontSize: "0.8em",
     marginLeft: "0.2em",
     fontWeight: "bold",
   },
   ".cm-template-error-fallback": {
-    backgroundColor: "rgba(239, 68, 68, 0.3)",
-    border: "1px solid rgba(239, 68, 68, 0.7)",
-    color: "#dc2626",
+    backgroundColor: "hsl(var(--syntax-local-variable) / 0.3)",
+    border: "1px solid hsl(var(--syntax-local-variable) / 0.7)",
+    color: "hsl(var(--syntax-local-variable))",
     fontStyle: "italic",
   },
   ".cm-template-editing": {
     padding: "0 0.6em !important",
-    border: "1px solid rgba(59, 130, 246, 0.8)",
-    backgroundColor: "rgba(59, 130, 246, 0.1)",
+    border: "1px solid hsl(var(--syntax-action) / 0.8)",
+    backgroundColor: "hsl(var(--syntax-action) / 0.1)",
     outline: "none",
     transform: "none",
   },
   // Context-specific styling
   ".cm-template-pill.cm-context-actions": {
-    color: "#3b82f6 !important",
+    color: "hsl(var(--syntax-action)) !important",
     fontWeight: "600",
   },
   ".cm-template-pill.cm-context-fn": {
-    color: "#8b5cf6 !important",
+    color: "hsl(var(--syntax-function)) !important",
     fontWeight: "600",
   },
   ".cm-template-pill.cm-context-env": {
-    color: "#10b981 !important",
+    color: "hsl(var(--syntax-string)) !important",
     fontWeight: "600",
   },
   ".cm-template-pill.cm-context-secrets": {
-    color: "#f59e0b !important",
+    color: "hsl(var(--syntax-secret)) !important",
     fontWeight: "600",
   },
   ".cm-template-pill.cm-context-vars": {
-    color: "#06b6d4 !important",
+    color: "hsl(var(--syntax-variable)) !important",
     fontWeight: "600",
   },
   ".cm-template-pill.cm-context-var": {
-    color: "#ef4444 !important",
+    color: "hsl(var(--syntax-local-variable)) !important",
     fontWeight: "600",
   },
   ".cm-expression-node-tooltip": {
@@ -2164,90 +2164,90 @@ export const templatePillTheme = EditorView.theme({
     fontFamily: "ui-monospace, monospace",
   },
   ".cm-tooltip-action-info": {
-    color: "#3b82f6",
+    color: "hsl(var(--syntax-action))",
   },
   ".cm-tooltip-action-info .action-ref": {
     marginBottom: "2px",
   },
   ".cm-tooltip-action-info .action-prop": {
     marginBottom: "2px",
-    color: "#ddd6fe",
+    color: "hsl(var(--syntax-function))",
   },
   ".cm-tooltip-action-info .action-desc": {
     fontSize: "11px",
-    color: "#9ca3af",
+    color: "hsl(var(--muted-foreground))",
     fontStyle: "italic",
   },
   ".cm-tooltip-function-info": {
-    color: "#9ca3af",
+    color: "hsl(var(--muted-foreground))",
   },
   ".cm-tooltip-function-info .function-name": {
     marginBottom: "2px",
   },
   ".cm-tooltip-function-info .function-params": {
     marginBottom: "2px",
-    color: "#6366f1",
+    color: "hsl(var(--syntax-function))",
     fontSize: "11px",
   },
   ".cm-tooltip-function-info .function-params code": {
-    backgroundColor: "rgba(139, 92, 246, 0.2)",
+    backgroundColor: "hsl(var(--syntax-function) / 0.2)",
     padding: "1px 4px",
     borderRadius: "3px",
     fontFamily: "ui-monospace, monospace",
   },
   ".cm-tooltip-function-info .function-desc": {
     fontSize: "11px",
-    color: "#9ca3af",
+    color: "hsl(var(--muted-foreground))",
     fontStyle: "italic",
   },
   ".cm-tooltip-function-info .function-description": {
     fontSize: "11px",
-    color: "#d1d5db",
+    color: "hsl(var(--foreground))",
     marginTop: "4px",
   },
   ".cm-tooltip-secret-info": {
-    color: "#fbbf24",
+    color: "hsl(var(--syntax-secret))",
   },
   ".cm-tooltip-secret-info .secret-name": {
     marginBottom: "2px",
   },
   ".cm-tooltip-secret-info .secret-key": {
     marginBottom: "2px",
-    color: "#fed7aa",
+    color: "hsl(var(--syntax-secret))",
   },
   ".cm-tooltip-secret-info .secret-desc": {
     fontSize: "11px",
-    color: "#9ca3af",
+    color: "hsl(var(--muted-foreground))",
     fontStyle: "italic",
   },
   ".cm-tooltip-vars-info": {
-    color: "#22d3ee",
+    color: "hsl(var(--syntax-variable))",
   },
   ".cm-tooltip-vars-info .vars-name": {
     marginBottom: "2px",
   },
   ".cm-tooltip-vars-info .vars-key": {
     marginBottom: "2px",
-    color: "#a5f3fc",
+    color: "hsl(var(--syntax-variable))",
   },
   ".cm-tooltip-vars-info .vars-desc": {
     fontSize: "11px",
-    color: "#9ca3af",
+    color: "hsl(var(--muted-foreground))",
     fontStyle: "italic",
   },
   ".cm-tooltip-env-info": {
-    color: "#6ee7b7",
+    color: "hsl(var(--syntax-string))",
   },
   ".cm-tooltip-env-info .env-path": {
     marginBottom: "2px",
   },
   ".cm-tooltip-env-info .env-desc": {
     fontSize: "11px",
-    color: "#9ca3af",
+    color: "hsl(var(--muted-foreground))",
     fontStyle: "italic",
   },
   ".cm-tooltip-trigger-info": {
-    color: "#f472b6",
+    color: "hsl(var(--syntax-trigger))",
   },
   ".cm-tooltip-trigger-info .trigger-path": {
     marginBottom: "2px",
@@ -2257,11 +2257,11 @@ export const templatePillTheme = EditorView.theme({
   },
   ".cm-tooltip-trigger-info .trigger-desc": {
     fontSize: "11px",
-    color: "#9ca3af",
+    color: "hsl(var(--muted-foreground))",
     fontStyle: "italic",
   },
   ".cm-tooltip-generic-info": {
-    color: "#d1d5db",
+    color: "hsl(var(--foreground))",
     fontSize: "11px",
   },
 })

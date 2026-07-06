@@ -823,7 +823,7 @@ function WorkflowsListRow({
               onClick={() => onOpenFolder(item.path)}
               className="flex min-w-0 flex-1 items-center gap-3 bg-transparent p-0 text-left"
             >
-              <FolderIcon className="size-4 shrink-0 text-black" />
+              <FolderIcon className="size-4 shrink-0 text-foreground" />
               <div className="flex min-w-0 flex-1 items-center gap-3">
                 <span className={ROW_NAME_COLUMN_CLASS}>{item.name}</span>
                 <FolderMetadataBadges item={item} />

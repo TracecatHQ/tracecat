@@ -269,7 +269,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     ),
     // Core namespace
     core: ({ className, ...rest }) => (
-      <div className={cn(basicIconsCommon, "bg-slate-200/50", className)}>
+      <div className={cn(basicIconsCommon, "bg-muted", className)}>
         <Cpu {...rest} />
       </div>
     ),

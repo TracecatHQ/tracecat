@@ -95,7 +95,7 @@ const STATUS_GROUPS: Record<StatusGroup, StatusGroupConfig> = {
     label: "Unknown",
     icon: CircleHelpIcon,
     statuses: ["unknown"],
-    iconColor: "text-slate-600",
+    iconColor: "text-muted-foreground",
     aggregateKey: "unknown",
   },
 }
@@ -463,7 +463,7 @@ export function CasesAccordion({
                     groupKey === "other" &&
                       "data-[state=open]:border-l-muted-foreground data-[state=open]:bg-muted/50",
                     groupKey === "unknown" &&
-                      "data-[state=open]:border-l-slate-600 data-[state=open]:bg-slate-600/[0.03] dark:data-[state=open]:bg-slate-600/[0.08]"
+                      "data-[state=open]:border-l-muted-foreground data-[state=open]:bg-muted/50"
                   )}
                 >
                   <div className="flex h-7 w-7 shrink-0 items-center justify-center">

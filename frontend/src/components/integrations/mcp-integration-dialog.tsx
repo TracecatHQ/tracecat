@@ -964,7 +964,7 @@ export function MCPIntegrationDialog({
           <Button
             size="sm"
             variant="outline"
-            className={cn("h-7 bg-white", triggerClassName)}
+            className={cn("h-7 bg-background", triggerClassName)}
             {...restTriggerProps}
           >
             <Plus className="mr-1 h-3.5 w-3.5" />
@@ -1016,7 +1016,7 @@ export function MCPIntegrationDialog({
                 mcpIntegrationIsLoading ||
                 mcpIntegration?.id !== mcpIntegrationId))) && (
             <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           )}
           {!integrationsIsLoading &&

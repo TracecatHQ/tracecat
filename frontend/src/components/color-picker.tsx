@@ -32,7 +32,7 @@ export const ColorPicker = ({
         <PopoverTrigger asChild>
           <button
             className={cn(
-              "flex size-6 items-center justify-center rounded border border-gray-200 shadow-sm",
+              "flex size-6 items-center justify-center rounded border border-border shadow-sm",
               !hasColor && "bg-muted text-[9px] text-muted-foreground"
             )}
             style={hasColor ? { backgroundColor: value } : undefined}
@@ -60,7 +60,7 @@ export const ColorPicker = ({
         </PopoverContent>
       </Popover>
       {showInput && (
-        <div className="text-sm text-gray-600">
+        <div className="text-sm text-muted-foreground">
           {hasColor ? value : "default"}
         </div>
       )}

@@ -188,7 +188,7 @@ const CASE_STATUS_TINTS: Record<CaseStatus, string> = {
   resolved: "bg-green-500/[0.03] dark:bg-green-500/[0.08]",
   closed: "bg-violet-500/[0.03] dark:bg-violet-500/[0.08]",
   other: "bg-muted/5 dark:bg-muted/[0.12]",
-  unknown: "bg-slate-500/[0.03] dark:bg-slate-500/[0.08]",
+  unknown: "bg-muted/5 dark:bg-muted/[0.12]",
 }
 
 const CHAT_TOGGLE_KEY = "c"
@@ -307,7 +307,7 @@ function TablesActions() {
       />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm" className="h-7 bg-white">
+          <Button variant="outline" size="sm" className="h-7 bg-background">
             <Plus className="mr-1 h-3.5 w-3.5" />
             New table
             <ChevronDown className="ml-1 h-3.5 w-3.5" />
@@ -362,7 +362,7 @@ function IntegrationsActions() {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm" className="h-7 bg-white">
+          <Button variant="outline" size="sm" className="h-7 bg-background">
             <Plus className="mr-1 h-3.5 w-3.5" />
             Add integration
             <ChevronDown className="ml-1 h-3.5 w-3.5" />
@@ -573,7 +573,7 @@ function AgentsActions() {
         <>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="h-7 bg-white">
+              <Button variant="outline" size="sm" className="h-7 bg-background">
                 <Plus className="mr-1 h-3.5 w-3.5" />
                 Create new
                 <ChevronDown className="ml-1 h-3.5 w-3.5" />
@@ -658,7 +658,7 @@ function AddAgentTag({
       <Button
         variant="outline"
         size="sm"
-        className="h-7 bg-white"
+        className="h-7 bg-background"
         onClick={() => onOpenChange(true)}
       >
         <Plus className="mr-1 h-3.5 w-3.5" />
@@ -771,7 +771,7 @@ function CasesActions() {
           <Button
             variant="outline"
             size="sm"
-            className="h-7 bg-white"
+            className="h-7 bg-background"
             onClick={() => setDialogOpen(true)}
           >
             <Plus className="mr-1 h-3.5 w-3.5" />
@@ -1681,7 +1681,7 @@ function CredentialsActions() {
           <Button
             variant="outline"
             size="sm"
-            className="h-7 bg-white"
+            className="h-7 bg-background"
             onClick={() => setDialogOpen(true)}
           >
             <Plus className="mr-1 h-3.5 w-3.5" />
@@ -1713,7 +1713,7 @@ function ServiceAccountsActions() {
     <Button
       variant="outline"
       size="sm"
-      className="h-7 bg-white"
+      className="h-7 bg-background"
       onClick={() => {
         const params = new URLSearchParams(searchParams?.toString())
         params.set("createServiceAccount", Date.now().toString())
@@ -1742,7 +1742,7 @@ function McpServersActions() {
     <Button
       variant="outline"
       size="sm"
-      className="h-7 bg-white"
+      className="h-7 bg-background"
       onClick={() => {
         const params = new URLSearchParams(searchParams?.toString())
         params.set("createMcpServer", Date.now().toString())
@@ -1771,7 +1771,7 @@ function McpAccessActions() {
     <Button
       variant="outline"
       size="sm"
-      className="h-7 bg-white"
+      className="h-7 bg-background"
       onClick={() => {
         const params = new URLSearchParams(searchParams?.toString())
         params.set("createMcpToken", Date.now().toString())
@@ -1796,7 +1796,7 @@ function VariablesActions() {
       />
       <NewVariableDialog>
         <NewVariableDialogTrigger asChild>
-          <Button variant="outline" size="sm" className="h-7 bg-white">
+          <Button variant="outline" size="sm" className="h-7 bg-background">
             <Plus className="mr-1 h-3.5 w-3.5" />
             Add variable
           </Button>

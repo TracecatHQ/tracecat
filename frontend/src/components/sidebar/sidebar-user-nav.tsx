@@ -1,9 +1,25 @@
 "use client"
 
 import type { LucideIcon } from "lucide-react"
-import { BookText, Settings, ShieldCheckIcon } from "lucide-react"
+import {
+  BookText,
+  Check,
+  Monitor,
+  Moon,
+  Settings,
+  ShieldCheckIcon,
+  Sun,
+} from "lucide-react"
 import Link from "next/link"
+import { useTheme } from "next-themes"
+import { useEffect, useState } from "react"
 import { useSettingsModal } from "@/components/settings/settings-modal-context"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Separator } from "@/components/ui/separator"
 import {
   SidebarMenu,
@@ -24,6 +40,56 @@ type SidebarUserNavManageItem = {
   href: string
   icon: LucideIcon
   isActive?: boolean
+}
+
+const THEME_OPTIONS = [
+  { value: "light", label: "Light", icon: Sun },
+  { value: "dark", label: "Dark", icon: Moon },
+  { value: "system", label: "System", icon: Monitor },
+] as const
+
+/** Sidebar item to switch between light, dark, and system themes. */
+function ThemeToggle() {
+  const { theme, setTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  // next-themes returns an undefined theme on the first render, so keep a
+  // stable placeholder until mounted to avoid an SSR/client markup mismatch.
+  const activeTheme = mounted ? theme : "system"
+  const ActiveIcon =
+    THEME_OPTIONS.find((option) => option.value === activeTheme)?.icon ??
+    Monitor
+
+  return (
+    <SidebarMenuItem>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <SidebarMenuButton tooltip="Theme">
+            <ActiveIcon className="size-4" />
+            <span>Theme</span>
+          </SidebarMenuButton>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" side="right">
+          {THEME_OPTIONS.map((option) => (
+            <DropdownMenuItem
+              key={option.value}
+              onClick={() => setTheme(option.value)}
+            >
+              <option.icon className="size-4" />
+              <span>{option.label}</span>
+              {mounted && activeTheme === option.value ? (
+                <Check className="ml-auto size-4" />
+              ) : null}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </SidebarMenuItem>
+  )
 }
 
 export function SidebarUserNav({
@@ -52,6 +118,8 @@ export function SidebarUserNav({
           <span>Settings</span>
         </SidebarMenuButton>
       </SidebarMenuItem>
+
+      <ThemeToggle />
 
       {manageItems?.map((item) => (
         <SidebarMenuItem key={item.href}>

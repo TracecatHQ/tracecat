@@ -115,7 +115,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
               className="data-[state=open]:bg-foreground/5 dark:data-[state=open]:bg-foreground/10 pl-0"
             >
               <img src="/icon.png" alt="Tracecat" className="size-6 ml-0.5" />
-              <span className="truncate font-semibold text-zinc-700 dark:text-zinc-300">
+              <span className="truncate font-semibold text-sidebar-foreground">
                 {activeWorkspace?.name || "Select workspace"}
               </span>
               <ChevronsUpDown className="ml-auto size-4" />
