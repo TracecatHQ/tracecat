@@ -161,14 +161,11 @@ import {
   type OrganizationDeleteOrgMemberData,
   type OrganizationDeleteSessionData,
   type OrganizationUpdateOrgMemberData,
-  type OrgInvitationCreate,
   type OrgMemberRead,
-  organizationCreateInvitation,
   organizationDeleteOrgMember,
   organizationDeleteSession,
   organizationListOrgMembers,
   organizationListSessions,
-  organizationRevokeInvitation,
   organizationSecretsCreateOrgSecret,
   organizationSecretsDeleteOrgSecretById,
   organizationSecretsListOrgSecrets,
@@ -395,6 +392,7 @@ interface AppInfo {
   saml_enabled: boolean
   saml_enforced: boolean
   ee_multi_tenant: boolean
+  smtp_configured: boolean
 }
 
 export type WorkspaceSecretListItem = SecretReadMinimal & {
@@ -2183,51 +2181,6 @@ export function useOrgMembers() {
     },
   })
 
-  const {
-    mutateAsync: createInvitation,
-    isPending: createInvitationIsPending,
-  } = useMutation({
-    mutationFn: async (params: OrgInvitationCreate) =>
-      await organizationCreateInvitation({ requestBody: params }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["org-members"] })
-      toast({
-        title: "Invitation created",
-        description: "Invitation sent successfully.",
-      })
-    },
-    onError: (error: TracecatApiError) => {
-      const apiError = error as TracecatApiError
-      const detail = apiError.body?.detail
-      toast({
-        title: "Failed to create invitation",
-        description: typeof detail === "string" ? detail : apiError.message,
-        variant: "destructive",
-      })
-    },
-  })
-
-  const { mutateAsync: revokeInvitation } = useMutation({
-    mutationFn: async (invitationId: string) =>
-      await organizationRevokeInvitation({ invitationId }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["org-members"] })
-      toast({
-        title: "Invitation revoked",
-        description: "Invitation has been revoked.",
-      })
-    },
-    onError: (error: TracecatApiError) => {
-      const apiError = error as TracecatApiError
-      const detail = apiError.body?.detail
-      toast({
-        title: "Failed to revoke invitation",
-        description: typeof detail === "string" ? detail : apiError.message,
-        variant: "destructive",
-      })
-    },
-  })
-
   return {
     orgMembers,
     updateOrgMember,
@@ -2236,9 +2189,6 @@ export function useOrgMembers() {
     deleteOrgMember,
     deleteOrgMemberIsPending,
     deleteOrgMemberError,
-    createInvitation,
-    createInvitationIsPending,
-    revokeInvitation,
   }
 }
 
@@ -6266,19 +6216,22 @@ export function useRbacScopes(options?: {
 /**
  * Hook to manage RBAC roles.
  */
-export function useRbacRoles(options: { enabled?: boolean } = {}) {
+export function useRbacRoles(
+  options: { enabled?: boolean; workspaceId?: string } = {}
+) {
   const queryClient = useQueryClient()
   const enabled = options.enabled ?? true
+  const workspaceId = options.workspaceId
 
-  // List roles (org-level, shared across all workspaces)
+  // List roles for the current org, optionally scoped to a workspace context.
   const {
     data: roles,
     isLoading,
     error,
   } = useQuery<RoleReadWithScopes[]>({
-    queryKey: ["rbac-roles", "org"],
+    queryKey: ["rbac-roles", "org", workspaceId ?? null],
     queryFn: async () => {
-      const response = await rbacListRoles()
+      const response = await rbacListRoles({ workspaceId })
       return response.items
     },
     enabled,

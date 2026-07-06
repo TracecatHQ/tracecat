@@ -2,7 +2,14 @@ from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Query,
+    status,
+)
 from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
@@ -23,16 +30,31 @@ from tracecat.db.models import (
 from tracecat.db.models import (
     Role as DBRole,
 )
+from tracecat.email.client import (
+    is_email_configured,
+    send_invitation_emails_batch,
+)
 from tracecat.exceptions import (
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
 from tracecat.identifiers import SessionID, UserID
+from tracecat.invitations.emails import (
+    build_created_invitation_emails,
+    build_single_invitation_email,
+    inviter_display_name_and_email,
+)
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.schemas import (
+    InvitationBatchResult,
+    build_batch_result,
+)
 from tracecat.organization.schemas import (
     OrgDomainRead,
     OrgInvitationAccept,
+    OrgInvitationBatchCreate,
     OrgInvitationCreate,
     OrgInvitationRead,
     OrgInvitationReadMinimal,
@@ -47,22 +69,6 @@ from tracecat.tiers.schemas import EffectiveEntitlements
 from tracecat.tiers.service import TierService
 
 router = APIRouter(prefix="/organization", tags=["organization"])
-
-
-def _get_user_display_name_and_email(
-    user: User | None,
-) -> tuple[str | None, str | None]:
-    """Build display name/email pair for inviter fields."""
-    if user is None:
-        return None, None
-
-    if user.first_name or user.last_name:
-        name_parts = [user.first_name, user.last_name]
-        name = " ".join(part for part in name_parts if part)
-    else:
-        name = user.email
-
-    return name, user.email
 
 
 @router.get("", response_model=OrgRead)
@@ -494,6 +500,91 @@ async def create_invitation(
     )
 
 
+@router.post("/invitations/bulk", response_model=InvitationBatchResult)
+@require_scope("org:member:invite")
+async def create_invitations_bulk(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    params: OrgInvitationBatchCreate,
+    background_tasks: BackgroundTasks,
+) -> InvitationBatchResult:
+    """Create organization invitations in bulk.
+
+    Valid emails are invited; already-members and emails with a live pending
+    invitation are skipped and reported per-email. When email is configured,
+    invitation emails are sent (best-effort, out of the request path) for created
+    invites; otherwise the admin shares the copy-paste invitation links.
+    """
+    service = OrgService(session, role=role)
+    try:
+        items = await service.batch_create_invitations(
+            emails=[str(e) for e in params.emails],
+            role_id=params.role_id,
+        )
+    except TracecatAuthorizationError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+    except TracecatConflictError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        ) from e
+
+    if is_email_configured():
+        org_name = await service.get_organization_name()
+        messages = build_created_invitation_emails(
+            items, context_name=org_name, kind="organization"
+        )
+        if messages:
+            background_tasks.add_task(send_invitation_emails_batch, messages)
+
+    return build_batch_result(items)
+
+
+@router.post(
+    "/invitations/{invitation_id}/resend",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+@require_scope("org:member:invite")
+async def resend_invitation(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    invitation_id: UUID,
+    background_tasks: BackgroundTasks,
+) -> None:
+    """Re-send the invitation email for a pending organization invitation."""
+    if not is_email_configured():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email is not configured",
+        )
+    service = OrgService(session, role=role)
+    try:
+        invitation = await service.get_pending_invitation(invitation_id)
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found"
+        ) from e
+    except TracecatAuthorizationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+
+    org_name = await service.get_organization_name()
+    message = build_single_invitation_email(
+        to=invitation.email,
+        token=invitation.token,
+        context_name=org_name,
+        kind="organization",
+    )
+    background_tasks.add_task(send_invitation_emails_batch, [message])
+
+
 @router.get("/invitations", response_model=list[OrgInvitationRead])
 @require_scope("org:member:read")
 async def list_invitations(
@@ -637,7 +728,7 @@ async def list_my_pending_invitations(
 
     pending_invitations: list[OrgPendingInvitationRead] = []
     for invitation, organization, inviter, role_obj in rows:
-        inviter_name, inviter_email = _get_user_display_name_and_email(inviter)
+        inviter_name, inviter_email = inviter_display_name_and_email(inviter)
 
         pending_invitations.append(
             OrgPendingInvitationRead(
@@ -695,7 +786,7 @@ async def get_invitation_by_token(
                 select(User).where(User.id == invitation.invited_by)  # pyright: ignore[reportArgumentType]
             )
             inviter = inviter_result.scalar_one_or_none()
-            inviter_name, inviter_email = _get_user_display_name_and_email(inviter)
+            inviter_name, inviter_email = inviter_display_name_and_email(inviter)
 
         # Check if authenticated user's email matches the invitation (case-insensitive)
         email_matches: bool | None = None

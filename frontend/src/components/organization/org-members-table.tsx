@@ -1,12 +1,9 @@
 "use client"
 
-import { zodResolver } from "@hookform/resolvers/zod"
 import { DialogTrigger } from "@radix-ui/react-dialog"
 import { DotsHorizontalIcon, PlusIcon } from "@radix-ui/react-icons"
 import { FolderIcon, GlobeIcon, Trash2Icon } from "lucide-react"
 import { useState } from "react"
-import { useForm } from "react-hook-form"
-import { z } from "zod"
 import { type OrgMemberRead, organizationGetInvitationToken } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
@@ -43,15 +40,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -62,144 +50,43 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { useOrgInvitations } from "@/hooks/use-invitations"
 import { getRelativeTime } from "@/lib/event-history"
 import {
+  useAppInfo,
   useOrgMembers,
   useRbacRoles,
   useRbacUserAssignments,
   useWorkspaceManager,
 } from "@/lib/hooks"
+import { BulkInviteDialog } from "../members/bulk-invite-dialog"
 import { toast } from "../ui/use-toast"
-
-const invitationFormSchema = z.object({
-  email: z.string().email("Invalid email address"),
-  role_id: z.string().uuid("Please select a role"),
-})
-
-type InvitationFormValues = z.infer<typeof invitationFormSchema>
 
 function InviteMemberDialogButton() {
   const canInviteMembers = useScopeCheck("org:member:invite") === true
-  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
-  const { createInvitation, createInvitationIsPending } = useOrgMembers()
-  const { roles } = useRbacRoles()
+  const { createInvitationsBulk, createInvitationsBulkIsPending } =
+    useOrgInvitations()
+  const { appInfo } = useAppInfo()
+  const { roles } = useRbacRoles({ enabled: canInviteMembers })
 
   // Include organization preset roles and custom roles (custom roles have no slug prefix)
   const orgRoles = roles.filter(
     (r) => !r.slug || r.slug.startsWith("organization-")
   )
 
-  const form = useForm<InvitationFormValues>({
-    resolver: zodResolver(invitationFormSchema),
-    defaultValues: {
-      email: "",
-      role_id: "",
-    },
-  })
-
-  const handleCreateInvitation = async (values: InvitationFormValues) => {
-    try {
-      await createInvitation({
-        email: values.email,
-        role_id: values.role_id,
-      })
-      form.reset()
-      setIsCreateDialogOpen(false)
-    } catch {
-      // Error handled in hook
-    }
-  }
-
   if (!canInviteMembers) {
     return null
   }
 
   return (
-    <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-      <DialogTrigger asChild>
-        <Button size="sm">
-          <PlusIcon className="mr-2 size-4" />
-          Invite member
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Invite member</DialogTitle>
-          <DialogDescription>
-            Send an invitation to join this organization.
-          </DialogDescription>
-        </DialogHeader>
-        <Form {...form}>
-          <form
-            onSubmit={form.handleSubmit(handleCreateInvitation)}
-            className="space-y-4"
-          >
-            <FormField
-              control={form.control}
-              name="email"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Email</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="user@example.com"
-                      type="email"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    The email address of the person to invite.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="role_id"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Role</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    defaultValue={field.value}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a role" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {orgRoles.map((role) => (
-                        <SelectItem key={role.id} value={role.id}>
-                          {role.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormDescription>
-                    The role to assign when the invitation is accepted.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setIsCreateDialogOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={createInvitationIsPending}>
-                {createInvitationIsPending ? "Sending..." : "Send invitation"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </Form>
-      </DialogContent>
-    </Dialog>
+    <BulkInviteDialog
+      title="Invite members"
+      description="Invite people to join this organization by email."
+      roles={orgRoles}
+      emailConfigured={appInfo?.smtp_configured ?? false}
+      isPending={createInvitationsBulkIsPending}
+      onSubmit={(params) => createInvitationsBulk(params)}
+    />
   )
 }
 
@@ -212,7 +99,9 @@ export function OrgMembersTable() {
   const canInviteMembers = useScopeCheck("org:member:invite") === true
   const canRemoveMembers = useScopeCheck("org:member:remove") === true
   const canReadRbac = useScopeCheck("org:rbac:read") === true
-  const { orgMembers, deleteOrgMember, revokeInvitation } = useOrgMembers()
+  const { orgMembers, deleteOrgMember } = useOrgMembers()
+  const { revokeInvitation, resendInvitation } = useOrgInvitations()
+  const { appInfo } = useAppInfo()
 
   const handleRemoveMember = async () => {
     if (
@@ -393,6 +282,22 @@ export function OrgMembersTable() {
                           <>
                             {canInviteMembers && (
                               <>
+                                {appInfo?.smtp_configured && (
+                                  <DropdownMenuItem
+                                    onSelect={async () => {
+                                      if (!member.invitation_id) return
+                                      try {
+                                        await resendInvitation(
+                                          member.invitation_id
+                                        )
+                                      } catch {
+                                        // Error handled by the mutation hook.
+                                      }
+                                    }}
+                                  >
+                                    Resend invitation
+                                  </DropdownMenuItem>
+                                )}
                                 <DropdownMenuItem
                                   onSelect={async () => {
                                     if (!member.invitation_id) return

@@ -180,13 +180,18 @@ async def test_select_authorized_email_prefers_pending_invitation(
     )
     get_invitation_mock = AsyncMock(return_value=invitation)
     monkeypatch.setattr(saml, "get_pending_org_invitation", get_invitation_mock)
+    monkeypatch.setattr(
+        saml, "get_pending_workspace_invitation", AsyncMock(return_value=None)
+    )
 
-    email, pending_invitation = await saml._select_authorized_email(
+    result = await saml._select_authorized_email(
         fake_session, uuid.uuid4(), ["invitee@acme.com"]
     )
 
-    assert email == "invitee@acme.com"
-    assert pending_invitation is invitation
+    assert result is not None
+    assert result.email == "invitee@acme.com"
+    assert result.org_invitation is invitation
+    assert result.workspace_invitation is None
     assert get_invitation_mock.await_count == 1
 
 
@@ -206,15 +211,19 @@ async def test_select_authorized_email_prefers_later_invited_candidate_over_firs
     )
     get_invitation_mock = AsyncMock(side_effect=[None, invitation])
     monkeypatch.setattr(saml, "get_pending_org_invitation", get_invitation_mock)
+    monkeypatch.setattr(
+        saml, "get_pending_workspace_invitation", AsyncMock(return_value=None)
+    )
 
-    email, pending_invitation = await saml._select_authorized_email(
+    result = await saml._select_authorized_email(
         fake_session,
         uuid.uuid4(),
         ["primary@acme.com", "invitee@acme.com"],
     )
 
-    assert email == "invitee@acme.com"
-    assert pending_invitation is invitation
+    assert result is not None
+    assert result.email == "invitee@acme.com"
+    assert result.org_invitation is invitation
     assert get_invitation_mock.await_count == 2
 
 
@@ -234,13 +243,18 @@ async def test_select_authorized_email_falls_back_to_allowlist(
     monkeypatch.setattr(
         saml, "get_pending_org_invitation", AsyncMock(return_value=None)
     )
+    monkeypatch.setattr(
+        saml, "get_pending_workspace_invitation", AsyncMock(return_value=None)
+    )
 
-    email, pending_invitation = await saml._select_authorized_email(
+    result = await saml._select_authorized_email(
         fake_session, uuid.uuid4(), ["user@example.com"]
     )
 
-    assert email == "user@example.com"
-    assert pending_invitation is None
+    assert result is not None
+    assert result.email == "user@example.com"
+    assert result.org_invitation is None
+    assert result.workspace_invitation is None
 
 
 @pytest.mark.anyio
@@ -258,14 +272,18 @@ async def test_select_authorized_email_rejects_when_not_allowlisted_or_invited(
         AsyncMock(return_value=False),
     )
     monkeypatch.setattr(saml, "get_pending_org_invitation", get_invitation_mock)
+    workspace_invitation_mock = AsyncMock(return_value=None)
+    monkeypatch.setattr(
+        saml, "get_pending_workspace_invitation", workspace_invitation_mock
+    )
 
-    email, pending_invitation = await saml._select_authorized_email(
+    result = await saml._select_authorized_email(
         fake_session, uuid.uuid4(), ["user@other.com"]
     )
 
-    assert email is None
-    assert pending_invitation is None
+    assert result is None
     get_invitation_mock.assert_not_called()
+    workspace_invitation_mock.assert_not_called()
 
 
 @pytest.mark.anyio
@@ -284,14 +302,18 @@ async def test_select_authorized_email_rejects_invitation_without_domains(
         AsyncMock(return_value=False),
     )
     monkeypatch.setattr(saml, "get_pending_org_invitation", get_invitation_mock)
+    workspace_invitation_mock = AsyncMock(return_value=None)
+    monkeypatch.setattr(
+        saml, "get_pending_workspace_invitation", workspace_invitation_mock
+    )
 
-    email, pending_invitation = await saml._select_authorized_email(
+    result = await saml._select_authorized_email(
         fake_session, uuid.uuid4(), ["invitee@example.com"]
     )
 
-    assert email is None
-    assert pending_invitation is None
+    assert result is None
     get_invitation_mock.assert_not_called()
+    workspace_invitation_mock.assert_not_called()
 
 
 @pytest.mark.anyio
@@ -310,13 +332,17 @@ async def test_select_authorized_email_allows_invitation_without_domains_in_sing
         AsyncMock(return_value=False),
     )
     monkeypatch.setattr(saml, "get_pending_org_invitation", get_invitation_mock)
+    monkeypatch.setattr(
+        saml, "get_pending_workspace_invitation", AsyncMock(return_value=None)
+    )
 
-    email, pending_invitation = await saml._select_authorized_email(
+    result = await saml._select_authorized_email(
         fake_session, uuid.uuid4(), ["invitee@example.com"]
     )
 
-    assert email == "invitee@example.com"
-    assert pending_invitation is invitation
+    assert result is not None
+    assert result.email == "invitee@example.com"
+    assert result.org_invitation is invitation
     assert get_invitation_mock.await_count == 1
 
 
@@ -333,14 +359,21 @@ async def test_select_authorized_email_allows_superadmin_without_domains(
     )
     get_invitation_mock = AsyncMock(return_value=None)
     monkeypatch.setattr(saml, "get_pending_org_invitation", get_invitation_mock)
+    workspace_invitation_mock = AsyncMock(return_value=None)
+    monkeypatch.setattr(
+        saml, "get_pending_workspace_invitation", workspace_invitation_mock
+    )
 
-    email, pending_invitation = await saml._select_authorized_email(
+    result = await saml._select_authorized_email(
         fake_session, uuid.uuid4(), ["admin@example.com"]
     )
 
-    assert email == "admin@example.com"
-    assert pending_invitation is None
+    assert result is not None
+    assert result.email == "admin@example.com"
+    assert result.org_invitation is None
+    assert result.workspace_invitation is None
     get_invitation_mock.assert_not_called()
+    workspace_invitation_mock.assert_not_called()
 
 
 @pytest.mark.anyio
@@ -358,14 +391,18 @@ async def test_select_authorized_email_rejects_superadmin_without_domains_when_n
     )
     get_invitation_mock = AsyncMock(return_value=None)
     monkeypatch.setattr(saml, "get_pending_org_invitation", get_invitation_mock)
+    workspace_invitation_mock = AsyncMock(return_value=None)
+    monkeypatch.setattr(
+        saml, "get_pending_workspace_invitation", workspace_invitation_mock
+    )
 
-    email, pending_invitation = await saml._select_authorized_email(
+    result = await saml._select_authorized_email(
         fake_session, uuid.uuid4(), ["admin@example.com"]
     )
 
-    assert email is None
-    assert pending_invitation is None
+    assert result is None
     get_invitation_mock.assert_not_called()
+    workspace_invitation_mock.assert_not_called()
 
 
 def test_should_allow_saml_user_auto_provisioning_for_first_superadmin() -> None:
@@ -394,6 +431,134 @@ def test_should_allow_saml_user_auto_provisioning_for_pending_invitation() -> No
         )
         is True
     )
+
+
+def test_should_allow_saml_user_auto_provisioning_for_workspace_invitation() -> None:
+    assert (
+        saml.should_allow_saml_user_auto_provisioning(
+            pending_invitation=None,
+            has_workspace_invitation=True,
+            is_first_superadmin_bootstrap=False,
+        )
+        is True
+    )
+
+
+def test_should_allow_saml_org_access_denies_failed_workspace_invitation_acceptance() -> (
+    None
+):
+    assert (
+        saml.should_allow_saml_org_access(
+            has_existing_membership=False,
+            pending_invitation=None,
+            has_workspace_invitation=True,
+            is_first_superadmin_bootstrap=False,
+            is_platform_superuser=False,
+        )
+        is False
+    )
+
+
+def test_should_allow_saml_org_access_denies_without_any_path() -> None:
+    assert (
+        saml.should_allow_saml_org_access(
+            has_existing_membership=False,
+            pending_invitation=None,
+            has_workspace_invitation=False,
+            is_first_superadmin_bootstrap=False,
+            is_platform_superuser=True,
+        )
+        is False
+    )
+
+
+@pytest.mark.anyio
+async def test_get_pending_workspace_invitation_returns_latest_match() -> None:
+    fake_session = AsyncMock()
+    invitation = SimpleNamespace(token="ws-inv-1")
+    fake_session.execute.return_value = _FakeResult([invitation])
+
+    result = await saml.get_pending_workspace_invitation(
+        fake_session, uuid.uuid4(), "user@example.com"
+    )
+
+    assert result is invitation
+
+
+@pytest.mark.anyio
+async def test_get_pending_workspace_invitation_returns_none_for_blank_email() -> None:
+    fake_session = AsyncMock()
+
+    result = await saml.get_pending_workspace_invitation(
+        fake_session, uuid.uuid4(), "   "
+    )
+
+    assert result is None
+    fake_session.execute.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_select_authorized_email_accepts_workspace_invitation_without_org_invitation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A workspace-only invitee on an allowlisted domain is authorized."""
+    fake_session = AsyncMock()
+    workspace_invitation = SimpleNamespace(token="ws-inv-1")
+    monkeypatch.setattr(
+        saml, "_get_active_org_domains", AsyncMock(return_value={"acme.com"})
+    )
+    monkeypatch.setattr(
+        saml,
+        "is_superadmin_saml_bootstrap_allowed_for_org",
+        AsyncMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        saml, "get_pending_org_invitation", AsyncMock(return_value=None)
+    )
+    workspace_invitation_mock = AsyncMock(return_value=workspace_invitation)
+    monkeypatch.setattr(
+        saml, "get_pending_workspace_invitation", workspace_invitation_mock
+    )
+
+    result = await saml._select_authorized_email(
+        fake_session, uuid.uuid4(), ["invitee@acme.com"]
+    )
+
+    assert result is not None
+    assert result.email == "invitee@acme.com"
+    assert result.org_invitation is None
+    assert result.workspace_invitation is workspace_invitation
+
+
+@pytest.mark.anyio
+async def test_select_authorized_email_rejects_workspace_invitation_without_domains(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A workspace invitation does not bypass the org domain allowlist."""
+    fake_session = AsyncMock()
+    workspace_invitation = SimpleNamespace(token="ws-inv-1")
+    monkeypatch.setattr(saml, "_get_active_org_domains", AsyncMock(return_value=set()))
+    monkeypatch.setattr(saml, "TRACECAT__EE_MULTI_TENANT", True)
+    monkeypatch.setattr(saml, "TRACECAT__AUTH_ALLOWED_DOMAINS", set())
+    monkeypatch.setattr(
+        saml,
+        "is_superadmin_saml_bootstrap_allowed_for_org",
+        AsyncMock(return_value=False),
+    )
+    org_invitation_mock = AsyncMock(return_value=None)
+    monkeypatch.setattr(saml, "get_pending_org_invitation", org_invitation_mock)
+    workspace_invitation_mock = AsyncMock(return_value=workspace_invitation)
+    monkeypatch.setattr(
+        saml, "get_pending_workspace_invitation", workspace_invitation_mock
+    )
+
+    result = await saml._select_authorized_email(
+        fake_session, uuid.uuid4(), ["invitee@example.com"]
+    )
+
+    assert result is None
+    org_invitation_mock.assert_not_called()
+    workspace_invitation_mock.assert_not_called()
 
 
 @pytest.mark.anyio

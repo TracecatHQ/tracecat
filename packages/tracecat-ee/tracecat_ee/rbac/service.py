@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Sequence
+from typing import cast
 from uuid import UUID
 
 from sqlalchemy import delete, func, select
@@ -13,6 +15,7 @@ from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope, validate_scope_string
 from tracecat.authz.enums import ScopeSource
 from tracecat.authz.scopes import PRESET_ROLE_SCOPES
+from tracecat.authz.service import MembershipService
 from tracecat.db.models import (
     Group,
     GroupMember,
@@ -405,8 +408,44 @@ class RBACService(BaseOrgService):
     async def delete_group(self, group_id: UUID) -> None:
         """Delete a group."""
         group = await self.get_group(group_id)
+
+        # Snapshot affected (member, workspace) pairs before deleting: the
+        # cascade drops the RBAC paths but not the derived Membership rows, so we
+        # reconcile them ourselves afterwards.
+        affected = (
+            (
+                await self.session.execute(
+                    select(GroupMember.user_id, GroupRoleAssignment.workspace_id)
+                    .join(
+                        GroupRoleAssignment,
+                        GroupRoleAssignment.group_id == GroupMember.group_id,
+                    )
+                    .where(
+                        GroupMember.group_id == group_id,
+                        GroupRoleAssignment.workspace_id.is_not(None),
+                    )
+                    .distinct()
+                )
+            )
+            .tuples()
+            .all()
+        )
+
         await self.session.delete(group)
         await self.session.commit()
+
+        # Post-delete reconcile: drops membership for members with no remaining
+        # path to the workspace, leaves it for those who still hold one. One
+        # set-based pass per workspace, not one reconcile per (member, workspace)
+        # pair — a large group would otherwise pay ~6 round trips and a commit
+        # per pair.
+        by_workspace: defaultdict[UUID, list[UUID]] = defaultdict(list)
+        for user_id, workspace_id in affected:
+            if workspace_id is not None:
+                by_workspace[workspace_id].append(user_id)
+        membership_svc = MembershipService(self.session)
+        for workspace_id, user_ids in by_workspace.items():
+            await membership_svc.reconcile_users_for_workspace(user_ids, workspace_id)
 
     @require_scope("org:rbac:update")
     @audit_log(
@@ -439,6 +478,10 @@ class RBACService(BaseOrgService):
         self.session.add(member)
         await self.session.commit()
 
+        # Group membership change affects every workspace the group grants
+        # access to. Reconcile this user against each such workspace.
+        await self._reconcile_user_for_group_workspaces(user_id, group_id)
+
     @require_scope("org:rbac:update")
     @audit_log(
         resource_type="rbac_group_member", action="delete", resource_id_attr="group_id"
@@ -461,6 +504,39 @@ class RBACService(BaseOrgService):
 
         await self.session.delete(member)
         await self.session.commit()
+
+        # User left the group: reconcile against every workspace the group
+        # grants, dropping membership where no other path remains.
+        await self._reconcile_user_for_group_workspaces(user_id, group_id)
+
+    async def _reconcile_user_for_group_workspaces(
+        self, user_id: UUID, group_id: UUID
+    ) -> None:
+        """Reconcile a user against every workspace a group holds a ws-scoped role for.
+
+        Bounded by the group's workspace assignment count, so a per-workspace
+        loop is fine here. Callers that change many users at once should batch
+        per workspace via ``MembershipService.reconcile_users_for_workspace``.
+        """
+        workspace_ids = cast(
+            Sequence[WorkspaceID],
+            (
+                (
+                    await self.session.execute(
+                        select(GroupRoleAssignment.workspace_id).where(
+                            GroupRoleAssignment.group_id == group_id,
+                            GroupRoleAssignment.workspace_id.is_not(None),
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            ),
+        )
+        for workspace_id in workspace_ids:
+            await MembershipService(self.session).reconcile_workspace_membership(
+                user_id, workspace_id
+            )
 
     async def list_group_members(
         self, group_id: UUID
@@ -573,6 +649,12 @@ class RBACService(BaseOrgService):
         self.session.add(assignment)
         await self.session.commit()
         await self.session.refresh(assignment, ["group", "role", "workspace"])
+
+        # A ws-scoped group assignment materializes membership for every member.
+        if workspace_id is not None:
+            await MembershipService(self.session).reconcile_group_members(
+                group_id, workspace_id
+            )
         return assignment
 
     @require_scope("org:rbac:update")
@@ -607,8 +689,17 @@ class RBACService(BaseOrgService):
     async def delete_group_role_assignment(self, assignment_id: UUID) -> None:
         """Delete a group assignment."""
         assignment = await self.get_group_role_assignment(assignment_id)
+        group_id = assignment.group_id
+        workspace_id = assignment.workspace_id
         await self.session.delete(assignment)
         await self.session.commit()
+
+        # Removing a ws-scoped group assignment may drop membership for group
+        # members who have no other path to the workspace.
+        if workspace_id is not None:
+            await MembershipService(self.session).reconcile_group_members(
+                group_id, workspace_id
+            )
 
     # =========================================================================
     # User Role Assignment Management
@@ -716,6 +807,12 @@ class RBACService(BaseOrgService):
                 "User already has an assignment for this workspace"
             ) from e
         await self.session.refresh(assignment, ["user", "role", "workspace"])
+
+        # Direct workspace-scoped assignment materializes membership.
+        if workspace_id is not None:
+            await MembershipService(self.session).reconcile_workspace_membership(
+                user_id, workspace_id
+            )
         return assignment
 
     @require_scope("org:rbac:update")
@@ -750,8 +847,17 @@ class RBACService(BaseOrgService):
     async def delete_user_assignment(self, assignment_id: UUID) -> None:
         """Delete a user role assignment."""
         assignment = await self.get_user_assignment(assignment_id)
+        user_id = assignment.user_id
+        workspace_id = assignment.workspace_id
         await self.session.delete(assignment)
         await self.session.commit()
+
+        # Removing a ws-scoped direct assignment may drop membership if no
+        # group path remains.
+        if workspace_id is not None:
+            await MembershipService(self.session).reconcile_workspace_membership(
+                user_id, workspace_id
+            )
 
     async def get_user_role_scopes(
         self,

@@ -24,6 +24,7 @@ dependencies = [
     "aioboto3==15.5.0",
     "aiocache==0.12.3",
     "aiohttp==3.14.0",
+    "aiosmtplib==5.1.2",
     "alembic-postgresql-enum==1.7.0",
     "alembic==1.13.2",
     "async-lru==2.0.4",

@@ -60,6 +60,13 @@ data "aws_secretsmanager_secret" "saml_idp_metadata_url" {
   arn   = var.saml_idp_metadata_url_arn
 }
 
+# Email (SMTP relay)
+
+data "aws_secretsmanager_secret" "smtp_password" {
+  count = var.smtp_password_arn != null ? 1 : 0
+  arn   = var.smtp_password_arn
+}
+
 # Temporal UI authentication
 
 data "aws_secretsmanager_secret" "temporal_auth_client_id" {
@@ -120,6 +127,11 @@ data "aws_secretsmanager_secret_version" "user_auth_secret" {
 data "aws_secretsmanager_secret_version" "saml_idp_metadata_url" {
   count     = var.saml_idp_metadata_url_arn != null ? 1 : 0
   secret_id = data.aws_secretsmanager_secret.saml_idp_metadata_url[0].id
+}
+
+data "aws_secretsmanager_secret_version" "smtp_password" {
+  count     = var.smtp_password_arn != null ? 1 : 0
+  secret_id = data.aws_secretsmanager_secret.smtp_password[0].id
 }
 
 # Temporal UI secrets
@@ -242,6 +254,13 @@ locals {
     }
   ] : []
 
+  smtp_password_secret = var.smtp_password_arn != null ? [
+    {
+      name      = "TRACECAT__SMTP_PASSWORD"
+      valueFrom = data.aws_secretsmanager_secret_version.smtp_password[0].arn
+    }
+  ] : []
+
   temporal_auth_client_id_secret = var.temporal_auth_client_id_arn != null ? [
     {
       name      = "TEMPORAL_AUTH_CLIENT_ID"
@@ -263,7 +282,8 @@ locals {
     local.oidc_client_id_secret,
     local.oidc_client_secret_secret,
     local.user_auth_secret_secret,
-    local.saml_idp_metadata_url_secret
+    local.saml_idp_metadata_url_secret,
+    local.smtp_password_secret
   )
 
   tracecat_ui_secrets = [

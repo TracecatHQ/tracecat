@@ -1,7 +1,7 @@
 """PostgreSQL advisory lock helpers for distributed coordination."""
 
 import hashlib
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 
 from sqlalchemy import text
@@ -37,6 +37,40 @@ async def pg_advisory_lock(session: AsyncSession, key: int) -> AsyncIterator[Non
     finally:
         # Always release the lock
         await session.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": key})
+
+
+async def pg_advisory_xact_lock_many(
+    session: AsyncSession, keys: Sequence[int]
+) -> None:
+    """Acquire transaction-scoped advisory locks in one statement.
+
+    Keys are deduplicated and acquired in sorted order so two overlapping
+    callers contending on some of the same keys cannot deadlock. Released
+    automatically when the transaction commits or rolls back. Prefer this over
+    :func:`pg_advisory_lock` when the caller commits while holding the lock —
+    a session-level lock would be orphaned once the connection returns to the
+    pool. Must be called inside a transaction.
+
+    Args:
+        session: Database session
+        keys: 64-bit integer keys for the locks
+
+    Raises:
+        ValueError: If any key is out of valid range for PostgreSQL advisory locks
+    """
+    ordered = sorted(set(keys))
+    if not ordered:
+        return
+    if not (-(2**63) <= ordered[0] and ordered[-1] < 2**63):
+        raise ValueError("Lock key out of range for PostgreSQL advisory locks")
+
+    # unnest preserves array order, so locks are taken in sorted order.
+    await session.execute(
+        text(
+            "SELECT pg_advisory_xact_lock(k) FROM unnest(CAST(:keys AS bigint[])) AS k"
+        ),
+        {"keys": ordered},
+    )
 
 
 async def try_pg_advisory_lock(session: AsyncSession, key: int) -> bool:

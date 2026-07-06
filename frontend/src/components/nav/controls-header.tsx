@@ -149,12 +149,12 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { WorkspaceResourceSyncActions } from "@/components/workspace-sync/resource-sync-actions"
-import { AddWorkspaceMember } from "@/components/workspaces/add-workspace-member"
 import {
   NewVariableDialog,
   NewVariableDialogTrigger,
 } from "@/components/workspaces/add-workspace-variable"
 import { CreateCredentialDialog } from "@/components/workspaces/create-credential-dialog"
+import { InviteWorkspaceMember } from "@/components/workspaces/invite-workspace-member"
 import { useAgentPreset, useAgentTagCatalog } from "@/hooks/use-agent-presets"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useSkill } from "@/hooks/use-skills"
@@ -1648,7 +1648,7 @@ function MembersActions({ view }: { view: MembersViewMode }) {
     ) : view === MembersViewMode.Groups ? (
       <CreateGroupButton />
     ) : (
-      <AddWorkspaceMember workspace={workspace} />
+      <InviteWorkspaceMember workspace={workspace} />
     )
 
   return (

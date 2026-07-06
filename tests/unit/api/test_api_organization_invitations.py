@@ -3,16 +3,18 @@
 import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
-from fastapi import status
+from fastapi import BackgroundTasks, HTTPException, status
 from fastapi.testclient import TestClient
 
 from tracecat.api.app import app
 from tracecat.auth.types import Role
 from tracecat.auth.users import current_active_user
 from tracecat.db.engine import get_async_session
+from tracecat.exceptions import TracecatConflictError
+from tracecat.organization.schemas import OrgInvitationBatchCreate
 
 
 @pytest.mark.anyio
@@ -92,3 +94,42 @@ async def test_list_my_pending_invitations_empty_result(
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json() == []
+
+
+@pytest.mark.anyio
+async def test_create_invitations_bulk_conflict_returns_409(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat.organization import router as organization_router
+
+    class FakeOrgService:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        async def batch_create_invitations(self, **kwargs: object) -> object:
+            raise TracecatConflictError("conflicting invitation")
+
+    monkeypatch.setattr(organization_router, "OrgService", FakeOrgService)
+
+    role = Role(
+        type="user",
+        user_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        service_id="tracecat-api",
+        scopes=frozenset({"org:member:invite"}),
+    )
+    params = OrgInvitationBatchCreate(
+        emails=["invitee@example.com"],
+        role_id=uuid.uuid4(),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await organization_router.create_invitations_bulk(
+            role=role,
+            session=AsyncMock(),
+            params=params,
+            background_tasks=BackgroundTasks(),
+        )
+
+    assert exc_info.value.status_code == status.HTTP_409_CONFLICT
+    assert exc_info.value.detail == "conflicting invitation"

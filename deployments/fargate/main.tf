@@ -125,6 +125,13 @@ module "ecs" {
   saml_idp_metadata_url_arn = var.saml_idp_metadata_url_arn
   saml_allow_unsolicited    = var.saml_allow_unsolicited
 
+  # Email (SMTP relay)
+  smtp_password_arn = var.smtp_password_arn
+  smtp_host         = var.smtp_host
+  smtp_port         = var.smtp_port
+  smtp_user         = var.smtp_user
+  email_from        = var.email_from
+
   # Temporal UI authentication
   temporal_auth_provider_url      = var.temporal_auth_provider_url
   temporal_auth_client_id_arn     = var.temporal_auth_client_id_arn
