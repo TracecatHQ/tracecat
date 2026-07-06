@@ -13,7 +13,9 @@
   flex: 1;
 }
 
-.case-description-editor .simple-editor-content .simple-editor {
+.case-description-editor
+  .simple-editor-content
+  .tiptap.ProseMirror.simple-editor {
   padding: 0.75rem;
   min-height: 220px;
   font-size: 0.875rem;
@@ -26,7 +28,7 @@
 .case-description-editor--compact
   .case-description-editor
   .simple-editor-content
-  .simple-editor {
+  .tiptap.ProseMirror.simple-editor {
   min-height: 160px;
 }
 
