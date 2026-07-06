@@ -25,12 +25,14 @@ from tracecat import config
 from tracecat.agent.common.types import MCPHttpServerConfig
 from tracecat.agent.mcp.stdio_probe import (
     MCP_STDIO_PROBE_TIMEOUT_CAP,
+    StdioMCPDraftProbeInput,
     StdioMCPProbeInput,
     build_stdio_mcp_probe_workflow_id,
-    probe_stdio_mcp_tools_in_sandbox,
-    sanitize_stdio_probe_error,
 )
-from tracecat.agent.workflows.mcp_probe import StdioMCPProbeWorkflow
+from tracecat.agent.workflows.mcp_probe import (
+    StdioMCPDraftProbeWorkflow,
+    StdioMCPProbeWorkflow,
+)
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope, require_scope
@@ -3255,33 +3257,6 @@ class IntegrationService(BaseWorkspaceService):
             )
         return result.tools
 
-    async def _resolve_stdio_env_for_probe(
-        self,
-        *,
-        stdio_env: dict[str, str] | None,
-        mcp_integration_id: uuid.UUID,
-        mcp_integration_slug: str,
-    ) -> dict[str, str] | None:
-        """Resolve stdio env templates before passing them into the sandbox."""
-        if not stdio_env:
-            return None
-        try:
-            # Imported lazily to avoid a module import cycle: AgentPresetService
-            # also imports IntegrationService for normal preset resolution.
-            from tracecat.agent.preset.service import AgentPresetService
-
-            preset_svc = AgentPresetService(self.session, role=self.role)
-            return await preset_svc._resolve_stdio_env(
-                stdio_env=stdio_env,
-                mcp_integration_id=mcp_integration_id,
-                mcp_integration_slug=mcp_integration_slug,
-            )
-        except Exception as exc:
-            raise MCPConnectionVerificationError(
-                "MCP integration stdio environment could not be resolved",
-                sanitize_stdio_probe_error(str(exc), env=stdio_env),
-            ) from exc
-
     async def _probe_mcp_stdio_config(
         self,
         *,
@@ -3292,30 +3267,41 @@ class IntegrationService(BaseWorkspaceService):
         mcp_integration_id: uuid.UUID,
         mcp_integration_slug: str,
     ) -> list[MCPToolSummary]:
-        """Run a draft stdio MCP config inside the API-local nsjail sandbox."""
+        """Probe a draft stdio MCP config on the executor sandbox.
+
+        Dispatched through Temporal so the user-controlled command runs only on
+        the sandbox-capable executor worker, never in the API process. Env
+        templates carry references and workspace-owned config; secrets are
+        resolved inside the activity, not across the workflow boundary.
+        """
+        client = await get_temporal_client()
         try:
-            resolved_env = await self._resolve_stdio_env_for_probe(
-                stdio_env=env,
-                mcp_integration_id=mcp_integration_id,
-                mcp_integration_slug=mcp_integration_slug,
+            result = await client.execute_workflow(
+                StdioMCPDraftProbeWorkflow.run,
+                StdioMCPDraftProbeInput(
+                    command=command,
+                    args=args,
+                    stdio_env=env,
+                    timeout=timeout,
+                    mcp_integration_id=mcp_integration_id,
+                    mcp_integration_slug=mcp_integration_slug,
+                    role=self.role,
+                ),
+                id=build_stdio_mcp_probe_workflow_id(),
+                task_queue=config.TRACECAT__AGENT_QUEUE,
+                run_timeout=timedelta(seconds=MCP_STDIO_PROBE_TIMEOUT_CAP + 90),
             )
-            self._validate_stdio_server_config(
-                command=command,
-                args=args,
-                env=resolved_env,
-            )
-        except ValueError as exc:
+        except WorkflowFailureError as exc:
             raise MCPConnectionVerificationError(
-                "MCP integration stdio command is not allowed",
-                sanitize_stdio_probe_error(str(exc), env=env),
+                "Failed to run stdio MCP probe",
+                sanitize_urls_in_text(str(exc)),
+            ) from exc
+        except Exception as exc:
+            raise MCPConnectionVerificationError(
+                "Failed to start stdio MCP probe",
+                sanitize_urls_in_text(str(exc)),
             ) from exc
 
-        result = await probe_stdio_mcp_tools_in_sandbox(
-            command=command,
-            args=args,
-            env=resolved_env,
-            timeout=timeout,
-        )
         if not result.success:
             raise MCPConnectionVerificationError(
                 result.message,

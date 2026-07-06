@@ -49,6 +49,7 @@ from tracecat.agent.executor.loopback import (
 from tracecat.agent.filesystem import hydrate_agent_work_dir, persist_agent_work_dir
 from tracecat.agent.llm_routing import get_litellm_route_model
 from tracecat.agent.mcp.stdio_probe import (
+    StdioMCPDraftProbeInput,
     StdioMCPProbeInput,
     StdioMCPProbeResult,
     probe_stdio_mcp_tools_in_sandbox,
@@ -1047,6 +1048,59 @@ async def _hydrate_stdio_env(
     return result
 
 
+async def _resolve_and_probe_stdio_config(
+    *,
+    preset_svc: AgentPresetService,
+    command: str,
+    args: list[str] | None,
+    stdio_env: dict[str, str] | None,
+    timeout: int | None,
+    mcp_integration_id: uuid.UUID,
+    mcp_integration_slug: str,
+) -> StdioMCPProbeResult:
+    """Resolve env templates, validate, and probe an stdio config on the sandbox.
+
+    Shared by the saved and draft probe activities. ``stdio_env`` carries
+    template references and workspace-owned plaintext config; secrets are
+    resolved here inside the executor, never across the workflow boundary.
+    """
+    integrations_svc = IntegrationService(preset_svc.session, role=preset_svc.role)
+
+    if stdio_env:
+        try:
+            stdio_env = await preset_svc._resolve_stdio_env(
+                stdio_env=stdio_env,
+                mcp_integration_id=mcp_integration_id,
+                mcp_integration_slug=mcp_integration_slug,
+            )
+        except (TracecatException, ValueError) as exc:
+            return StdioMCPProbeResult(
+                success=False,
+                message="MCP integration stdio environment could not be resolved",
+                error=sanitize_stdio_probe_error(str(exc), env=stdio_env),
+            )
+
+    try:
+        integrations_svc._validate_stdio_server_config(
+            command=command,
+            args=args,
+            env=stdio_env,
+        )
+    except ValueError as exc:
+        return StdioMCPProbeResult(
+            success=False,
+            message="MCP integration stdio command is not allowed",
+            error=sanitize_stdio_probe_error(str(exc), env=stdio_env),
+        )
+
+    return await probe_stdio_mcp_tools_in_sandbox(
+        command=command,
+        args=args,
+        env=stdio_env,
+        timeout=timeout,
+    )
+
+
 @activity.defn(name="probe_stdio_mcp_connection_activity")
 async def probe_stdio_mcp_connection_activity(
     input: StdioMCPProbeInput,
@@ -1078,41 +1132,39 @@ async def probe_stdio_mcp_connection_activity(
                 error="stdio_command is required for stdio-type servers",
             )
 
-        stdio_env = integrations_svc.decrypt_stdio_env(integration)
-        if stdio_env:
-            try:
-                stdio_env = await preset_svc._resolve_stdio_env(
-                    stdio_env=stdio_env,
-                    mcp_integration_id=integration.id,
-                    mcp_integration_slug=integration.slug,
-                )
-            except (TracecatException, ValueError) as exc:
-                return StdioMCPProbeResult(
-                    success=False,
-                    message="MCP integration stdio environment could not be resolved",
-                    error=sanitize_stdio_probe_error(str(exc), env=stdio_env),
-                )
-
-        try:
-            integrations_svc._validate_stdio_server_config(
-                command=integration.stdio_command,
-                args=integration.stdio_args,
-                env=stdio_env,
-            )
-        except ValueError as exc:
-            return StdioMCPProbeResult(
-                success=False,
-                message="MCP integration stdio command is not allowed",
-                error=sanitize_stdio_probe_error(str(exc), env=stdio_env),
-            )
-
-        result = await probe_stdio_mcp_tools_in_sandbox(
+        result = await _resolve_and_probe_stdio_config(
+            preset_svc=preset_svc,
             command=integration.stdio_command,
             args=integration.stdio_args,
-            env=stdio_env,
+            stdio_env=integrations_svc.decrypt_stdio_env(integration),
             timeout=integration.timeout,
+            mcp_integration_id=integration.id,
+            mcp_integration_slug=integration.slug,
         )
         activity.heartbeat(f"Finished stdio MCP probe: {input.mcp_integration_id}")
+        return result
+
+
+@activity.defn(name="probe_stdio_mcp_draft_connection_activity")
+async def probe_stdio_mcp_draft_connection_activity(
+    input: StdioMCPDraftProbeInput,
+) -> StdioMCPProbeResult:
+    """Probe a draft/unsaved stdio MCP config inside the executor sandbox."""
+    activity.heartbeat(f"Starting draft stdio MCP probe: {input.mcp_integration_id}")
+
+    async with AgentPresetService.with_session(role=input.role) as preset_svc:
+        result = await _resolve_and_probe_stdio_config(
+            preset_svc=preset_svc,
+            command=input.command,
+            args=input.args,
+            stdio_env=input.stdio_env,
+            timeout=input.timeout,
+            mcp_integration_id=input.mcp_integration_id,
+            mcp_integration_slug=input.mcp_integration_slug,
+        )
+        activity.heartbeat(
+            f"Finished draft stdio MCP probe: {input.mcp_integration_id}"
+        )
         return result
 
 
