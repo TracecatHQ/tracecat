@@ -232,13 +232,19 @@ export function getIcon(key: string, props?: CustomIconProps): JSX.Element {
   // return default icon
   const { className, ...rest } = props ?? {}
   return (
-    <div className={cn(basicIconsCommon, "bg-sky-100", className)}>
+    <div
+      className={cn(
+        basicIconsCommon,
+        "bg-sky-500/10 text-sky-600 dark:text-sky-400",
+        className
+      )}
+    >
       <BoxIcon className="size-6" {...rest} />
     </div>
   )
 }
 export const basicIconsCommon =
-  "flex p-1 shrink-0 rounded-full items-center justify-center bg-stone-200/50"
+  "flex p-1 shrink-0 rounded-full items-center justify-center bg-muted"
 
 function createIconRenderer(
   Icon: (props: IconProps) => JSX.Element,
@@ -263,108 +269,228 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
   {
     // Triggers namespace
     trigger: ({ className, ...rest }) => (
-      <div className={cn(basicIconsCommon, "bg-indigo-100", className)}>
+      <div
+        className={cn(
+          basicIconsCommon,
+          "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400",
+          className
+        )}
+      >
         <ZapIcon {...rest} />
       </div>
     ),
     // Core namespace
     core: ({ className, ...rest }) => (
-      <div className={cn(basicIconsCommon, "bg-muted", className)}>
+      <div
+        className={cn(
+          basicIconsCommon,
+          "bg-muted text-foreground/70",
+          className
+        )}
+      >
         <Cpu {...rest} />
       </div>
     ),
     "core.http_request": ({ className, ...rest }) => (
-      <div className={cn(basicIconsCommon, "bg-emerald-100", className)}>
+      <div
+        className={cn(
+          basicIconsCommon,
+          "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+          className
+        )}
+      >
         <Globe {...rest} />
       </div>
     ),
 
     "core.http_poll": ({ className, ...rest }) => (
-      <div className={cn(basicIconsCommon, "bg-emerald-100", className)}>
+      <div
+        className={cn(
+          basicIconsCommon,
+          "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+          className
+        )}
+      >
         <RefreshCcw {...rest} />
       </div>
     ),
     "core.require": ({ className, ...rest }) => (
-      <div className={cn(basicIconsCommon, "bg-rose-200/70", className)}>
+      <div
+        className={cn(
+          basicIconsCommon,
+          "bg-rose-500/10 text-rose-600 dark:text-rose-400",
+          className
+        )}
+      >
         <ListChecks {...rest} />
       </div>
     ),
     "core.transform": ({ className, ...rest }) => (
-      <div className={cn(basicIconsCommon, "bg-fuchsia-200/70", className)}>
+      <div
+        className={cn(
+          basicIconsCommon,
+          "bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400",
+          className
+        )}
+      >
         <Blend {...rest} />
       </div>
     ),
     "core.transform.scatter": ({ className, ...rest }) => (
-      <div className={cn(basicIconsCommon, "bg-fuchsia-200/70", className)}>
+      <div
+        className={cn(
+          basicIconsCommon,
+          "bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400",
+          className
+        )}
+      >
         {/* Rotate 180deg to appear upside down */}
         <SplitIcon style={{ transform: "rotate(90deg)" }} {...rest} />
       </div>
     ),
     "core.transform.gather": ({ className, ...rest }) => (
-      <div className={cn(basicIconsCommon, "bg-fuchsia-200/70", className)}>
+      <div
+        className={cn(
+          basicIconsCommon,
+          "bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400",
+          className
+        )}
+      >
         {/* Rotate 180deg to appear upside down */}
         <MergeIcon style={{ transform: "rotate(90deg)" }} {...rest} />
       </div>
     ),
     "core.loop": ({ className, ...rest }) => (
-      <div className={cn(basicIconsCommon, "bg-orange-200/70", className)}>
+      <div
+        className={cn(
+          basicIconsCommon,
+          "bg-orange-500/10 text-orange-600 dark:text-orange-400",
+          className
+        )}
+      >
         <RefreshCcw {...rest} />
       </div>
     ),
     "core.loop.start": ({ className, ...rest }) => (
-      <div className={cn(basicIconsCommon, "bg-orange-200/70", className)}>
+      <div
+        className={cn(
+          basicIconsCommon,
+          "bg-orange-500/10 text-orange-600 dark:text-orange-400",
+          className
+        )}
+      >
         <SplitIcon style={{ transform: "rotate(90deg)" }} {...rest} />
       </div>
     ),
     "core.loop.end": ({ className, ...rest }) => (
-      <div className={cn(basicIconsCommon, "bg-orange-200/70", className)}>
+      <div
+        className={cn(
+          basicIconsCommon,
+          "bg-orange-500/10 text-orange-600 dark:text-orange-400",
+          className
+        )}
+      >
         <MergeIcon style={{ transform: "rotate(90deg)" }} {...rest} />
       </div>
     ),
     "core.cases": ({ className, ...rest }) => (
-      <div className={cn(basicIconsCommon, "bg-rose-100", className)}>
+      <div
+        className={cn(
+          basicIconsCommon,
+          "bg-rose-500/10 text-rose-600 dark:text-rose-400",
+          className
+        )}
+      >
         <ShieldAlert {...rest} />
       </div>
     ),
 
     "core.cases.update": ({ className, ...rest }) => (
-      <div className={cn(basicIconsCommon, "bg-rose-100", className)}>
+      <div
+        className={cn(
+          basicIconsCommon,
+          "bg-rose-500/10 text-rose-600 dark:text-rose-400",
+          className
+        )}
+      >
         <ShieldPlus {...rest} />
       </div>
     ),
     "core.cases.create_comment": ({ className, ...rest }) => (
-      <div className={cn(basicIconsCommon, "bg-rose-100", className)}>
+      <div
+        className={cn(
+          basicIconsCommon,
+          "bg-rose-500/10 text-rose-600 dark:text-rose-400",
+          className
+        )}
+      >
         <MessageCircleMore {...rest} />
       </div>
     ),
     "core.cases.update_comment": ({ className, ...rest }) => (
-      <div className={cn(basicIconsCommon, "bg-rose-100", className)}>
+      <div
+        className={cn(
+          basicIconsCommon,
+          "bg-rose-500/10 text-rose-600 dark:text-rose-400",
+          className
+        )}
+      >
         <MessageCirclePlus {...rest} />
       </div>
     ),
     "core.receive_email": ({ className, ...rest }) => (
-      <div className={cn(basicIconsCommon, "bg-purple-100", className)}>
+      <div
+        className={cn(
+          basicIconsCommon,
+          "bg-purple-500/10 text-purple-600 dark:text-purple-400",
+          className
+        )}
+      >
         <MailIcon {...rest} />
       </div>
     ),
     "core.send_email": ({ className, ...rest }) => (
-      <div className={cn(basicIconsCommon, "bg-lime-100", className)}>
+      <div
+        className={cn(
+          basicIconsCommon,
+          "bg-lime-500/10 text-lime-600 dark:text-lime-400",
+          className
+        )}
+      >
         <SendIcon {...rest} />
       </div>
     ),
     "core.send_email_smtp": ({ className, ...rest }) => (
-      <div className={cn(basicIconsCommon, "bg-lime-100", className)}>
+      <div
+        className={cn(
+          basicIconsCommon,
+          "bg-lime-500/10 text-lime-600 dark:text-lime-400",
+          className
+        )}
+      >
         <SendIcon {...rest} />
       </div>
     ),
     "core.script": ({ className, ...rest }) => (
-      <div className={cn(basicIconsCommon, "bg-purple-100", className)}>
+      <div
+        className={cn(
+          basicIconsCommon,
+          "bg-purple-500/10 text-purple-600 dark:text-purple-400",
+          className
+        )}
+      >
         <Code {...rest} />
       </div>
     ),
     /* AI subnamespace */
     "core.ai_action": ({ className, flairsize = "md", ...rest }) => (
-      <div className={cn(basicIconsCommon, "bg-amber-100", className)}>
+      <div
+        className={cn(
+          basicIconsCommon,
+          "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+          className
+        )}
+      >
         <WandSparkles {...rest} />
         <Sparkles
           className={cn(
@@ -375,22 +501,46 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       </div>
     ),
     "core.workflow": ({ className, ...rest }) => (
-      <div className={cn(basicIconsCommon, "bg-violet-100/80", className)}>
+      <div
+        className={cn(
+          basicIconsCommon,
+          "bg-violet-500/10 text-violet-600 dark:text-violet-400",
+          className
+        )}
+      >
         <WorkflowIcon {...rest} />
       </div>
     ),
     "core.table": ({ className, ...rest }) => (
-      <div className={cn(basicIconsCommon, "bg-sky-100/80", className)}>
+      <div
+        className={cn(
+          basicIconsCommon,
+          "bg-sky-500/10 text-sky-600 dark:text-sky-400",
+          className
+        )}
+      >
         <Table {...rest} />
       </div>
     ),
     "core.sql": ({ className, ...rest }) => (
-      <div className={cn(basicIconsCommon, "bg-teal-100/80", className)}>
+      <div
+        className={cn(
+          basicIconsCommon,
+          "bg-teal-500/10 text-teal-600 dark:text-teal-400",
+          className
+        )}
+      >
         <DatabaseIcon {...rest} />
       </div>
     ),
     "core.duckdb": ({ className, ...rest }) => (
-      <div className={cn(basicIconsCommon, "bg-teal-100/80", className)}>
+      <div
+        className={cn(
+          basicIconsCommon,
+          "bg-teal-500/10 text-teal-600 dark:text-teal-400",
+          className
+        )}
+      >
         <DatabaseIcon {...rest} />
       </div>
     ),
@@ -634,7 +784,7 @@ export function ProviderIcon({
   return (
     <Icon
       className={cn(
-        "flex shrink-0 items-center justify-center overflow-hidden rounded-sm bg-stone-200/50 p-1",
+        "flex shrink-0 items-center justify-center overflow-hidden rounded-sm bg-muted p-1",
         className
       )}
       {...rest}
@@ -780,7 +930,7 @@ export function SecretIcon({
   return (
     <Icon
       className={cn(
-        "flex shrink-0 items-center justify-center overflow-hidden rounded-sm bg-stone-200/50 p-1",
+        "flex shrink-0 items-center justify-center overflow-hidden rounded-sm bg-muted p-1",
         className
       )}
       {...rest}
