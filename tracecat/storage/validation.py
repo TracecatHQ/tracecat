@@ -114,7 +114,7 @@ class FileSecurityValidator:
         # Validate extension
         self._validate_extension(filename)
         # Validate MIME type
-        normalized_mime = self._normalize_mime_type(declared_mime_type)
+        normalized_mime = _normalize_mime_type(declared_mime_type)
         self._validate_mime_type(normalized_mime)
         # Polyfile magic number check (if enabled)
         if self.validate_magic_number:
@@ -210,11 +210,11 @@ class FileSecurityValidator:
 
     def _validate_mime_type(self, mime_type: str) -> bool:
         """Validate MIME type (normalized to base type)."""
-        base_mime = self._normalize_mime_type(mime_type)
+        base_mime = _normalize_mime_type(mime_type)
         allowed = {t.lower() for t in self.allowed_mime_types}
         # Use equivalence keys to handle common vendor/legacy prefixes consistently
-        allowed_equiv = {self._mime_equivalence_key(t) for t in allowed}
-        if self._mime_equivalence_key(base_mime) not in allowed_equiv:
+        allowed_equiv = {mime_equivalence_key(t) for t in allowed}
+        if mime_equivalence_key(base_mime) not in allowed_equiv:
             logger.error(f"File MIME type {mime_type} is not allowed")
             raise FileMimeTypeError(
                 f"File MIME type {mime_type} is not allowed",
@@ -244,9 +244,9 @@ class FileSecurityValidator:
                 if mimetypes:
                     for mt in mimetypes:
                         if mt:
-                            base = self._normalize_mime_type(mt)
+                            base = _normalize_mime_type(mt)
                             detected_types.add(base)
-                            detected_equiv.add(self._mime_equivalence_key(base))
+                            detected_equiv.add(mime_equivalence_key(base))
         except Exception as e:
             # Keep messages generic for user-facing responses
             logger.error("Unknown or unsupported file type")
@@ -256,8 +256,8 @@ class FileSecurityValidator:
             logger.error("Unknown or unsupported file type")
             raise FileContentMismatchError("Unknown or unsupported file type")
 
-        declared_base = self._normalize_mime_type(declared_mime_type)
-        declared_key = self._mime_equivalence_key(declared_base)
+        declared_base = _normalize_mime_type(declared_mime_type)
+        declared_key = mime_equivalence_key(declared_base)
         if declared_key not in detected_equiv:
             # Keep message generic for users
             logger.error(
@@ -272,7 +272,7 @@ class FileSecurityValidator:
             )
 
         allowed = {t.lower() for t in self.allowed_mime_types}
-        allowed_equiv = {self._mime_equivalence_key(t) for t in allowed}
+        allowed_equiv = {mime_equivalence_key(t) for t in allowed}
         if detected_equiv & allowed_equiv:
             return True
 
@@ -288,23 +288,6 @@ class FileSecurityValidator:
             representative,
             self.allowed_mime_types,
         )
-
-    @staticmethod
-    def _normalize_mime_type(mime_type: str) -> str:
-        """Normalize a MIME type to its base form (lowercased, parameters stripped)."""
-        return _normalize_mime_type(mime_type)
-
-    @staticmethod
-    def _mime_equivalence_key(mime_type: str) -> str:
-        """Compute an equivalence key for MIME types to compare related variants consistently.
-
-        Strategy:
-        - Lowercase, strip parameters first (callers pass normalized base).
-        - For subtype, remove a single leading "x-" (experimental prefix).
-        - Remove a trailing "-compressed" qualifier.
-        This avoids one-off mappings while handling common vendor variants consistently.
-        """
-        return mime_equivalence_key(mime_type)
 
     def _sanitize_filename(self, filename: str) -> str:
         """Sanitize filename to prevent security issues while preserving user-provided names.
