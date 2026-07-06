@@ -39,8 +39,8 @@ function getErrorDetail(error: ApiError): ApiErrorDetail | string | undefined {
 /**
  * Map a case attachment upload failure to a human-readable toast payload.
  *
- * Reuses the structured backend error codes (unsupported type, file too large,
- * storage/attachment limits, security threats) surfaced by the attachments API.
+ * Reuses the structured backend error codes for unsupported types, file size,
+ * validation failures, and storage/attachment limits surfaced by the API.
  *
  * @param error - The error thrown by the upload mutation.
  * @param fileName - The name of the file the user tried to upload.
@@ -107,11 +107,6 @@ export function describeAttachmentUploadError(
         description: `${description} Please remove some attachments before adding new ones.`,
       }
     }
-    case "security_threat_detected":
-      return {
-        title: "Security threat detected",
-        description: `${fileName} contains potentially dangerous content and cannot be uploaded.`,
-      }
     case "file_validation_failed":
       return {
         title: "File validation failed",

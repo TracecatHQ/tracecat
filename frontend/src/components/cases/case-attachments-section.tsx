@@ -268,26 +268,6 @@ export function CaseAttachmentsSection({
       }
 
       if (
-        error.status === 422 &&
-        error.body &&
-        typeof error.body === "object"
-      ) {
-        const body = error.body as ApiErrorBody
-        const detail = body.detail
-
-        if (
-          typeof detail === "object" &&
-          detail?.error === "security_threat_detected"
-        ) {
-          toast({
-            title: "Security threat detected",
-            description: `${file.name} contains potentially dangerous content and cannot be uploaded.`,
-          })
-          return
-        }
-      }
-
-      if (
         error.status === 400 &&
         error.body &&
         typeof error.body === "object"
