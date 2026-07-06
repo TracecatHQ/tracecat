@@ -1,11 +1,5 @@
 import { Check } from "lucide-react"
-import {
-  type CSSProperties,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react"
+import { type CSSProperties, useCallback, useState } from "react"
 import { FormProvider, useForm, useFormContext } from "react-hook-form"
 import { z } from "zod"
 import type { CaseFieldRead, CaseUpdate } from "@/client"
@@ -50,6 +44,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { useOverflowBadges } from "@/hooks/use-overflow-badges"
 import { getCaseFieldEditorValue } from "@/lib/case-field-display"
 import { cn, linearStyles } from "@/lib/utils"
 
@@ -305,51 +300,8 @@ interface CustomFieldProps {
  * ResizeObserver can re-expand the visible set when the container grows.
  */
 function MultiSelectBadges({ values }: { values: string[] }) {
-  const measureRef = useRef<HTMLDivElement>(null)
-  const [visibleCount, setVisibleCount] = useState(values.length)
-
-  useEffect(() => {
-    const container = measureRef.current
-    if (!container) return
-
-    const measure = () => {
-      const children = Array.from(container.children) as HTMLElement[]
-      // Last child is the +N indicator placeholder
-      const indicatorEl = children[children.length - 1]
-      const badges = children.slice(0, -1)
-      const indicatorWidth = indicatorEl ? indicatorEl.offsetWidth : 0
-      const gap = 4 // gap-1 = 0.25rem = 4px
-
-      let count = 0
-      for (const child of badges) {
-        if (child.offsetLeft + child.offsetWidth > container.clientWidth) {
-          break
-        }
-        count++
-      }
-
-      // If there are hidden badges, reserve space for the +N indicator
-      if (count > 1 && count < badges.length) {
-        const lastVisible = badges[count - 1]
-        if (
-          lastVisible.offsetLeft +
-            lastVisible.offsetWidth +
-            gap +
-            indicatorWidth >
-          container.clientWidth
-        ) {
-          count--
-        }
-      }
-
-      setVisibleCount(count > 0 ? count : 1)
-    }
-
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(container)
-    return () => observer.disconnect()
-  }, [values])
+  // gap-1 = 0.25rem = 4px between badges.
+  const { measureRef, visibleCount } = useOverflowBadges(values, { gap: 4 })
 
   const hiddenCount = values.length - visibleCount
 

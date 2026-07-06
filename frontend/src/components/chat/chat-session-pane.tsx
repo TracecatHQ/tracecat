@@ -26,6 +26,7 @@ import {
   type FocusEvent,
   type KeyboardEvent,
   memo,
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
@@ -106,6 +107,7 @@ import {
   useUpdateChat,
   useVercelChat,
 } from "@/hooks/use-chat"
+import { useOverflowBadges } from "@/hooks/use-overflow-badges"
 import type { ModelInfo } from "@/lib/chat"
 import {
   ENTITY_TO_INVALIDATION,
@@ -1194,34 +1196,13 @@ export function ChatSessionPane({
         {/* Workspace chat surfaces attached tools via the Tools popover, so the
             header chip row is reserved for the other chat surfaces. */}
         {toolsEnabled && !isWorkspaceChat && selectedToolBadges.length > 0 && (
-          <PromptInputHeader className="gap-1.5 px-3 pt-3">
-            {selectedToolBadges.map((tool) => (
-              <Badge
-                key={tool.value}
-                variant="secondary"
-                className="h-7 gap-1.5 px-2.5 text-xs"
-              >
-                <span className="inline-flex items-center justify-center text-foreground">
-                  {tool.icon}
-                </span>
-                <span className="truncate">{tool.label}</span>
-                <button
-                  type="button"
-                  className="inline-flex items-center text-muted-foreground hover:text-foreground"
-                  aria-label={`Remove ${tool.label}`}
-                  onClick={() => removeSelectedTool(tool.value)}
-                  disabled={
-                    isUpdatingTools ||
-                    isReadonly ||
-                    inputDisabled ||
-                    !toolsEnabled
-                  }
-                >
-                  <XIcon className="size-3.5" />
-                </button>
-              </Badge>
-            ))}
-          </PromptInputHeader>
+          <SelectedToolsHeader
+            badges={selectedToolBadges}
+            onRemove={removeSelectedTool}
+            removeDisabled={
+              isUpdatingTools || isReadonly || inputDisabled || !toolsEnabled
+            }
+          />
         )}
         <PromptInputBody>
           <PromptInputTextarea
@@ -1413,6 +1394,121 @@ export function ChatSessionPane({
         </div>
       </div>
     </div>
+  )
+}
+
+type SelectedToolBadge = {
+  value: string
+  label: string
+  icon: ReactNode
+}
+
+/** Single selected-tool chip. Renders the remove button only when interactive
+ * so the hidden measurement layer stays out of the tab order. */
+function SelectedToolChip({
+  tool,
+  onRemove,
+  removeDisabled,
+  interactive,
+}: {
+  tool: SelectedToolBadge
+  onRemove?: (value: string) => void
+  removeDisabled?: boolean
+  interactive: boolean
+}) {
+  return (
+    <Badge variant="secondary" className="h-7 shrink-0 gap-1.5 px-2.5 text-xs">
+      <span className="inline-flex items-center justify-center text-foreground">
+        {tool.icon}
+      </span>
+      <span className="truncate">{tool.label}</span>
+      {interactive ? (
+        <button
+          type="button"
+          className="inline-flex items-center text-muted-foreground hover:text-foreground"
+          aria-label={`Remove ${tool.label}`}
+          onClick={() => onRemove?.(tool.value)}
+          disabled={removeDisabled}
+        >
+          <XIcon className="size-3.5" />
+        </button>
+      ) : (
+        <span className="inline-flex items-center text-muted-foreground">
+          <XIcon className="size-3.5" />
+        </span>
+      )}
+    </Badge>
+  )
+}
+
+/**
+ * Chip strip of tools attached to the chat session, rendered above the
+ * composer textarea. Keeps the chips on a single line, showing only those that
+ * fit plus a "+N" indicator for the rest, so a large tool set never grows the
+ * composer past one row.
+ *
+ * Overflow measurement is shared with MultiSelectBadges (case custom fields)
+ * via the useOverflowBadges hook: a hidden measurement layer renders every chip
+ * so the visible set can be recomputed when the panel resizes.
+ */
+function SelectedToolsHeader({
+  badges,
+  onRemove,
+  removeDisabled,
+}: {
+  badges: SelectedToolBadge[]
+  onRemove: (value: string) => void
+  removeDisabled: boolean
+}) {
+  // gap-1.5 = 0.375rem = 6px between chips.
+  const { measureRef, visibleCount } = useOverflowBadges(badges, { gap: 6 })
+
+  const hiddenTools = badges.slice(visibleCount)
+  const hiddenCount = hiddenTools.length
+
+  return (
+    <PromptInputHeader className="gap-1.5 px-3 pt-3">
+      <div className="relative w-full min-w-0 overflow-hidden">
+        {/* Hidden measurement layer — every chip plus a +N placeholder so the
+            ResizeObserver can recompute the visible set as the panel resizes. */}
+        <div
+          ref={measureRef}
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-1.5"
+          style={{ visibility: "hidden" }}
+        >
+          {badges.map((tool) => (
+            <SelectedToolChip
+              key={tool.value}
+              tool={tool}
+              interactive={false}
+            />
+          ))}
+          <span className="shrink-0 text-xs">+{badges.length}</span>
+        </div>
+        {/* Visible layer — only the chips that fit plus a +N indicator. */}
+        <div className="flex items-center gap-1.5">
+          {badges.slice(0, visibleCount).map((tool) => (
+            <SelectedToolChip
+              key={tool.value}
+              tool={tool}
+              onRemove={onRemove}
+              removeDisabled={removeDisabled}
+              interactive
+            />
+          ))}
+          {hiddenCount > 0 && (
+            <Badge
+              variant="secondary"
+              className="h-7 shrink-0 px-2.5 text-xs text-muted-foreground"
+              title={hiddenTools.map((tool) => tool.label).join(", ")}
+            >
+              +{hiddenCount}
+            </Badge>
+          )}
+        </div>
+      </div>
+    </PromptInputHeader>
   )
 }
 
