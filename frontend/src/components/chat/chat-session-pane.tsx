@@ -85,6 +85,7 @@ import {
   Tool,
   ToolContent,
   ToolHeader,
+  type ToolHeaderProps,
   ToolInput,
   ToolOutput,
 } from "@/components/ai-elements/tool"
@@ -104,14 +105,18 @@ import {
   type ApprovalCard,
   makeContinueMessage,
   parseChatError,
+  useCancelChatTurn,
   useUpdateChat,
   useVercelChat,
 } from "@/hooks/use-chat"
 import { useOverflowBadges } from "@/hooks/use-overflow-badges"
 import type { ModelInfo } from "@/lib/chat"
 import {
+  CANCELLED_DATA_PART_TYPE,
   ENTITY_TO_INVALIDATION,
+  getCancelledPartToolCallIds,
   getSessionLastError,
+  isInterruptArtifactError,
   toUIMessage,
   transformMessages,
 } from "@/lib/chat"
@@ -146,6 +151,25 @@ type ToolSuggestion = {
 
 function messageHasVisibleParts(message: UIMessage): boolean {
   return message.parts.some((part) => part.type !== ARTIFACT_DATA_PART_TYPE)
+}
+
+/**
+ * Whether a part counts as assistant content when attributing a cancelled
+ * marker to the message the user stopped. Structural parts (step-start) and
+ * data-* markers can share a message with the live-streamed cancelled marker,
+ * and must not stop the marker from tagging the preceding content message
+ * that holds the interrupted tool calls.
+ */
+function isCancelAttributionContentPart(
+  part: UIMessage["parts"][number]
+): boolean {
+  if (part.type === "step-start" || part.type.startsWith("data-")) {
+    return false
+  }
+  if (part.type === "text" || part.type === "reasoning") {
+    return typeof part.text === "string" && part.text.trim().length > 0
+  }
+  return true
 }
 
 /** Message ids and their part types — compares two transcripts by shape. */
@@ -348,6 +372,8 @@ export function ChatSessionPane({
   >(null)
   const optimisticMessageKnownTextPartKeysRef = useRef<Set<string>>(new Set())
   const { updateChat, isUpdating: isUpdatingTools } = useUpdateChat(workspaceId)
+  const { cancelChatTurn, isCancellingChatTurn } =
+    useCancelChatTurn(workspaceId)
   const { registryActions, registryActionsIsLoading } =
     useBuilderRegistryActions()
   const sessionMcpEnabled = mcpEnabled && entityType === "copilot"
@@ -409,6 +435,14 @@ export function ChatSessionPane({
   // *advances* (e.g. an approval resolves), but never on a plain mismatch — post
   // -stream the live list legitimately leads the not-yet-refetched server copy,
   // and adopting then would drop the just-streamed turn.
+  //
+  // A shape *advance* alone is not proof the server copy is current: onFinish's
+  // refetch races finalize_turn (which clears curr_run_id and unhides the
+  // active turn's DB rows), so on turn N the refetch often returns a transcript
+  // that newly includes turn N-1 (shape advanced) while still hiding turn N.
+  // Adopting that copy would blank the just-streamed turn until the next
+  // refetch. A lagging copy in that race is always *shorter* than the live
+  // list, so only adopt when the server copy would not drop live messages.
   const lastServerShapeRef = useRef<string | null>(null)
   useEffect(() => {
     const serverShape = transcriptShape(uiMessages)
@@ -418,8 +452,10 @@ export function ChatSessionPane({
     }
     if (serverShape === lastServerShapeRef.current) return
     lastServerShapeRef.current = serverShape
-    if (status === "ready") setMessages(uiMessages) // don't clobber a live stream
-  }, [status, uiMessages, setMessages])
+    if (status !== "ready") return // don't clobber a live stream
+    if (uiMessages.length < messages.length) return // server copy lags the live list
+    setMessages(uiMessages)
+  }, [status, uiMessages, messages, setMessages])
 
   useEffect(() => {
     onStatusChange?.(status)
@@ -494,6 +530,27 @@ export function ChatSessionPane({
   const isOptimisticBeforeSendPending = optimisticMessageText !== null
   const isInputDisabled =
     isReadonly || inputDisabled || isOptimisticBeforeSendPending || !canSubmit
+
+  const isGeneratingTurn = status === "submitted" || status === "streaming"
+  const [cancelRequested, setCancelRequested] = useState(false)
+
+  useEffect(() => {
+    if (!isGeneratingTurn) setCancelRequested(false)
+  }, [isGeneratingTurn])
+
+  const handleStop = useCallback(async () => {
+    if (!chat?.id || cancelRequested) return
+    setCancelRequested(true)
+    try {
+      await cancelChatTurn({ chatId: chat.id })
+    } catch (error) {
+      setCancelRequested(false)
+      toast({
+        title: "Failed to stop run",
+        description: parseChatError(error),
+      })
+    }
+  }, [cancelChatTurn, cancelRequested, chat?.id])
   const isInputDisabledRef = useRef(isInputDisabled)
   isInputDisabledRef.current = isInputDisabled
   const wasInputDisabledRef = useRef(isInputDisabled)
@@ -1030,6 +1087,47 @@ export function ChatSessionPane({
     [messages]
   )
 
+  // Messages whose turn the user stopped, plus the tool calls those
+  // interrupts aborted. The live stream appends the data-cancelled part to
+  // the assistant message itself, while reloaded history renders the
+  // persisted marker as a standalone system message that follows the
+  // assistant content — cover both so interrupted tool calls in the
+  // preceding message render accurately. The marker's `tool_call_ids`
+  // payload is the structured signal recorded by the backend at interrupt
+  // time; tool call IDs are globally unique, so one session-wide set works.
+  const { cancelledTurnMessageIds, interruptedToolCallIds } = useMemo(() => {
+    const ids = new Set<string>()
+    const toolCallIds = new Set<string>()
+    let lastContentMessageId: string | null = null
+    for (const message of transformedMessages) {
+      const parts = message.parts ?? []
+      let hasCancelledPart = false
+      let hasContentParts = false
+      for (const part of parts) {
+        if (part.type === CANCELLED_DATA_PART_TYPE) {
+          hasCancelledPart = true
+          for (const toolCallId of getCancelledPartToolCallIds(
+            (part as { data?: unknown }).data
+          )) {
+            toolCallIds.add(toolCallId)
+          }
+        } else if (isCancelAttributionContentPart(part)) {
+          hasContentParts = true
+        }
+      }
+      if (hasCancelledPart) {
+        ids.add(message.id)
+        if (!hasContentParts && lastContentMessageId) {
+          ids.add(lastContentMessageId)
+        }
+      }
+      if (hasContentParts) {
+        lastContentMessageId = message.id
+      }
+    }
+    return { cancelledTurnMessageIds: ids, interruptedToolCallIds: toolCallIds }
+  }, [transformedMessages])
+
   const invalidateEntityQueries = useCallback(
     (toolNames: string[]) => {
       if (!entityType || !entityId) {
@@ -1251,7 +1349,12 @@ export function ChatSessionPane({
             ) : null}
           </PromptInputTools>
           <PromptInputSubmit
-            disabled={isInputDisabled || !input.trim()}
+            disabled={
+              isGeneratingTurn
+                ? isCancellingChatTurn || cancelRequested
+                : isInputDisabled || !input.trim()
+            }
+            onStop={() => void handleStop()}
             status={status}
             className="size-7 text-muted-foreground/80"
           />
@@ -1341,6 +1444,8 @@ export function ChatSessionPane({
                         role={role}
                         status={status}
                         isLastMessage={isLastMessage}
+                        turnCancelled={cancelledTurnMessageIds.has(id)}
+                        interruptedToolCallIds={interruptedToolCallIds}
                         onSubmitApprovals={handleSubmitApprovals}
                       />
                     ))}
@@ -1730,6 +1835,8 @@ function PromptModelIndicator({ modelInfo }: { modelInfo: ModelInfo }) {
   )
 }
 
+const EMPTY_INTERRUPTED_TOOL_CALL_IDS: ReadonlySet<string> = new Set()
+
 export function MessagePart({
   part,
   partIdx,
@@ -1737,6 +1844,8 @@ export function MessagePart({
   role,
   status,
   isLastMessage,
+  turnCancelled = false,
+  interruptedToolCallIds = EMPTY_INTERRUPTED_TOOL_CALL_IDS,
   onSubmitApprovals,
 }: {
   part: UIMessagePart<UIDataTypes, UITools>
@@ -1745,8 +1854,23 @@ export function MessagePart({
   role: UIMessage["role"]
   status?: ChatStatus
   isLastMessage: boolean
+  turnCancelled?: boolean
+  /**
+   * Tool call IDs the backend marked as aborted by a user interrupt
+   * (structured metadata from the data-cancelled part).
+   */
+  interruptedToolCallIds?: ReadonlySet<string>
   onSubmitApprovals?: (decisions: ApprovalDecision[]) => Promise<void>
 }) {
+  if (part.type === CANCELLED_DATA_PART_TYPE) {
+    return (
+      <div key={`${id}-${partIdx}`} className="w-full py-2">
+        <span className="text-xs text-muted-foreground">Interrupted</span>
+        <div className="mt-2 border-t" />
+      </div>
+    )
+  }
+
   if (part.type === "data-approval-request") {
     const payload = (part as { data?: unknown }).data
     const approvals: ApprovalCard[] = Array.isArray(payload)
@@ -1806,9 +1930,33 @@ export function MessagePart({
         ? (outputAsAny as { errorText?: string }).errorText
         : undefined
     const derivedErrorText = partErrorText ?? outputErrorText
-    const derivedState = derivedErrorText
-      ? ("output-error" as const)
-      : part.state
+    // In a turn the user stopped, tool calls that never completed (still
+    // pending) or that only "failed" because the SDK aborted them are
+    // interruptions, not tool errors — don't show a stale spinner or leak
+    // internal abort messages. The backend reports aborted calls as
+    // structured metadata (interruptedToolCallIds); the error-text substring
+    // check is a legacy fallback for histories persisted before that
+    // metadata existed.
+    const isPendingState =
+      part.state === "input-streaming" || part.state === "input-available"
+    // The structured ids are authoritative on their own: the backend records
+    // them at interrupt time, so they apply even when the cancelled marker
+    // landed in a different message than the tool calls it aborted. The
+    // state/error-text heuristics still require the turn-level flag.
+    const isInterrupted =
+      interruptedToolCallIds.has(part.toolCallId) ||
+      (turnCancelled &&
+        (isPendingState ||
+          (typeof derivedErrorText === "string" &&
+            isInterruptArtifactError(derivedErrorText))))
+    let derivedState: ToolHeaderProps["state"]
+    if (isInterrupted) {
+      derivedState = "output-interrupted"
+    } else if (derivedErrorText) {
+      derivedState = "output-error"
+    } else {
+      derivedState = part.state
+    }
     return (
       <Tool key={`${id}-${partIdx}`}>
         <ToolHeader
@@ -1819,7 +1967,13 @@ export function MessagePart({
         />
         <ToolContent>
           <ToolInput input={part.input} />
-          <ToolOutput output={part.output} errorText={derivedErrorText} />
+          {isInterrupted ? (
+            <div className="text-[11px] text-muted-foreground">
+              Stopped before completion
+            </div>
+          ) : (
+            <ToolOutput output={part.output} errorText={derivedErrorText} />
+          )}
         </ToolContent>
       </Tool>
     )
@@ -1892,6 +2046,8 @@ const MemoizedMessagePart = memo(MessagePart, (prev, next) => {
     prev.role !== next.role ||
     prev.status !== next.status ||
     prev.isLastMessage !== next.isLastMessage ||
+    prev.turnCancelled !== next.turnCancelled ||
+    prev.interruptedToolCallIds !== next.interruptedToolCallIds ||
     prev.onSubmitApprovals !== next.onSubmitApprovals
   ) {
     return false

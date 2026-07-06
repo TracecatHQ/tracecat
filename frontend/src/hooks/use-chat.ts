@@ -15,6 +15,7 @@ import {
   type AgentSessionCreate,
   type AgentSessionEntity,
   type AgentSessionRead,
+  type AgentSessionsCancelSessionResponse,
   type AgentSessionsGetSessionResponse,
   type AgentSessionsGetSessionVercelResponse,
   type AgentSessionsListSessionsResponse,
@@ -22,6 +23,7 @@ import {
   type AgentSessionsRemoveSessionArtifactResponse,
   type AgentSessionUpdate,
   type ApiError,
+  agentSessionsCancelSession,
   agentSessionsCreateSession,
   agentSessionsDeleteSession,
   agentSessionsGetSession,
@@ -420,6 +422,41 @@ export function useDeleteChat(workspaceId: string) {
     deleteChat: mutation.mutateAsync,
     isDeleting: mutation.isPending,
     deleteError: mutation.error,
+  }
+}
+
+/** Request cancellation for the currently running agent turn. */
+export function useCancelChatTurn(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  const mutation = useMutation<
+    AgentSessionsCancelSessionResponse,
+    ApiError,
+    { chatId: string }
+  >({
+    mutationFn: ({ chatId }) =>
+      agentSessionsCancelSession({
+        sessionId: chatId,
+        workspaceId,
+        requestBody: { reason: "user_cancel" },
+      }),
+    onSettled: (_, __, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["chat", variables.chatId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["chat", variables.chatId, workspaceId, "vercel"],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["chats", workspaceId],
+      })
+    },
+  })
+
+  return {
+    cancelChatTurn: mutation.mutateAsync,
+    isCancellingChatTurn: mutation.isPending,
+    cancelChatTurnError: mutation.error,
   }
 }
 

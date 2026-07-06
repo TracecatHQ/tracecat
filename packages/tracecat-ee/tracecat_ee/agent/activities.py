@@ -12,6 +12,7 @@ from pydantic import (
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from tracecat.agent.common.stream_types import UnifiedStreamEvent
 from tracecat.agent.common.types import (
     MCPHttpServerConfig,
     MCPServerConfig,
@@ -139,6 +140,30 @@ class EmitSessionErrorInputs(BaseModel):
 # or the inbox payload. The detail banner only needs a short, human-readable
 # reason.
 MAX_LAST_ERROR_LEN = 2000
+
+
+class EmitSessionCancelledInputs(BaseModel):
+    role: Role
+    session_id: uuid.UUID
+    workspace_id: uuid.UUID
+    reason: str | None = None
+    # Tool calls the interrupt aborted mid-flight (from the executor result).
+    # Persisted with the cancelled marker so reloads render them as
+    # "interrupted" instead of surfacing SDK abort artifacts as tool errors.
+    interrupted_tool_call_ids: list[str] | None = None
+    # The cancelled run's id, derived replay-safely by the workflow from its
+    # own workflow id. Pins the marker row to this run instead of the session
+    # row's curr_run_id, which may already point at a newer turn by the time
+    # the cancelled workflow finalizes.
+    curr_run_id: uuid.UUID | None = None
+    active_stream_id: uuid.UUID | None = None
+    emit_stream: bool = True
+    """Whether to also push the cancelled/done frames onto the live stream.
+
+    False when the executor loopback already emitted them (a second done
+    marker would race the client's stream teardown); the activity then only
+    persists the timeline marker row.
+    """
 
 
 def _stored_user_mcp_tool_policy(
@@ -526,6 +551,45 @@ class AgentActivities:
             stream_id=args.active_stream_id,
         )
         await stream.error(args.message)
+        await stream.done()
+
+    @activity.defn
+    async def emit_session_cancelled(self, args: EmitSessionCancelledInputs) -> None:
+        """Record a cancelled turn: persist the timeline marker, then stream it.
+
+        Every cancelled turn persists a marker row so the "stopped by user"
+        divider survives DB reloads. Stream emission is conditional: approval
+        -wait cancels happen outside a running executor activity and must push
+        the cancelled/done frames here, while executor cancels already emitted
+        them from the loopback (``emit_stream=False``).
+        """
+        # Local import: tracecat.agent.session.service imports tracecat_ee
+        # modules, so a top-level import here would create a cycle.
+        from tracecat.agent.session.service import AgentSessionService
+
+        ctx_role.set(args.role)
+        async with AgentSessionService.with_session(role=args.role) as service:
+            await service.append_cancelled_marker(
+                args.session_id,
+                reason=args.reason,
+                interrupted_tool_call_ids=args.interrupted_tool_call_ids,
+                curr_run_id=args.curr_run_id,
+            )
+
+        if not args.emit_stream:
+            return
+
+        stream = await AgentStream.new(
+            session_id=args.session_id,
+            workspace_id=args.workspace_id,
+            stream_id=args.active_stream_id,
+        )
+        await stream.append(
+            UnifiedStreamEvent.cancelled_event(
+                reason=args.reason,
+                tool_call_ids=args.interrupted_tool_call_ids,
+            )
+        )
         await stream.done()
 
     @activity.defn

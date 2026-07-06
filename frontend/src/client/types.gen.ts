@@ -784,6 +784,22 @@ export type AgentSessionArtifactsRead = {
 }
 
 /**
+ * Request schema for cancelling the active agent session turn.
+ */
+export type AgentSessionCancelRequest = {
+  reason?: "user_cancel"
+}
+
+/**
+ * Response schema for an accepted agent session cancellation request.
+ */
+export type AgentSessionCancelResponse = {
+  session_id: string
+  run_id: string
+  reason: string
+}
+
+/**
  * Request schema for creating an agent session.
  */
 export type AgentSessionCreate = {
@@ -2418,6 +2434,7 @@ export type ChannelType = "slack"
  * - kind=CHAT_MESSAGE: Contains message field with user/assistant content
  * - kind=APPROVAL_REQUEST/APPROVAL_DECISION: Contains approval field with approval data
  * - kind=COMPACTION: Contains compaction field with compaction status data
+ * - kind=CANCELLED: Contains cancelled field with turn-cancelled marker data
  */
 export type ChatMessage = {
   /**
@@ -2448,6 +2465,12 @@ export type ChatMessage = {
    * Compaction status data for badge rendering (for kind=COMPACTION)
    */
   compaction?: {
+    [key: string]: unknown
+  } | null
+  /**
+   * Turn-cancelled marker data (for kind=CANCELLED)
+   */
+  cancelled?: {
     [key: string]: unknown
   } | null
 }
@@ -5138,6 +5161,7 @@ export type MessageKind =
   | "approval-decision"
   | "internal"
   | "compaction"
+  | "cancelled"
 
 export type ModelConfig = {
   /**
@@ -11619,6 +11643,14 @@ export type AgentSessionsForkSessionData = {
 
 export type AgentSessionsForkSessionResponse = AgentSessionRead
 
+export type AgentSessionsCancelSessionData = {
+  requestBody?: AgentSessionCancelRequest | null
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSessionsCancelSessionResponse = AgentSessionCancelResponse
+
 export type ApprovalsSubmitApprovalsData = {
   requestBody: ApprovalSubmission
   sessionId: string
@@ -16811,6 +16843,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AgentSessionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/sessions/{session_id}/cancel": {
+    post: {
+      req: AgentSessionsCancelSessionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentSessionCancelResponse
         /**
          * Validation Error
          */

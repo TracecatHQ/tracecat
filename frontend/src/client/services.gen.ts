@@ -168,6 +168,8 @@ import type {
   AgentPresetsRestoreAgentPresetVersionResponse,
   AgentPresetsUpdateAgentPresetData,
   AgentPresetsUpdateAgentPresetResponse,
+  AgentSessionsCancelSessionData,
+  AgentSessionsCancelSessionResponse,
   AgentSessionsCreateSessionData,
   AgentSessionsCreateSessionResponse,
   AgentSessionsDeleteSessionData,
@@ -6838,6 +6840,34 @@ export const agentSessionsForkSession = (
   return __request(OpenAPI, {
     method: "POST",
     url: "/workspaces/{workspace_id}/agent/sessions/{session_id}/fork",
+    path: {
+      session_id: data.sessionId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Cancel Session
+ * Request graceful cancellation for the active agent session turn.
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentSessionCancelResponse Successful Response
+ * @throws ApiError
+ */
+export const agentSessionsCancelSession = (
+  data: AgentSessionsCancelSessionData
+): CancelablePromise<AgentSessionsCancelSessionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/agent/sessions/{session_id}/cancel",
     path: {
       session_id: data.sessionId,
       workspace_id: data.workspaceId,

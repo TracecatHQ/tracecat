@@ -41,6 +41,7 @@ import tracecat.agent.adapter.vercel
 import tracecat.artifacts.projection as artifact_projection
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.cancellation import signal_turn_cancel
 from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.llm import LLMCompletionError
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
@@ -56,6 +57,7 @@ from tracecat.agent.runtime.claude_code.session_lines import (
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.session.schemas import (
+    AgentSessionCancelResponse,
     AgentSessionCreate,
     AgentSessionRead,
     AgentSessionUpdate,
@@ -104,7 +106,11 @@ from tracecat.db.models import (
 )
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import RETRY_POLICIES
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.exceptions import (
+    TracecatConflictError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.identifiers import UserID
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
@@ -825,6 +831,58 @@ class AgentSessionService(BaseWorkspaceService):
         await self.session.execute(stmt)
         await self.session.commit()
 
+    async def append_cancelled_marker(
+        self,
+        session_id: uuid.UUID,
+        *,
+        reason: str | None = None,
+        interrupted_tool_call_ids: list[str] | None = None,
+        curr_run_id: uuid.UUID | None = None,
+    ) -> None:
+        """Persist a turn-cancelled marker row into the session history.
+
+        The marker renders as the "stopped by user" divider in the chat
+        timeline after a reload; the live turn gets the equivalent signal from
+        the ``cancelled`` stream event. It is not an SDK transcript line, so
+        history hydration must skip it (see ``get_session_history_data``).
+
+        ``interrupted_tool_call_ids`` carries the tool calls the interrupt
+        aborted mid-flight so reloads can render them as "interrupted" instead
+        of surfacing SDK abort artifacts as tool errors.
+
+        ``curr_run_id`` pins the marker to the cancelled run. Callers that
+        know their run id (the workflow) must pass it: the session row's
+        ``curr_run_id`` may already point at a newer turn by the time the
+        cancelled workflow finalizes, which would tag the marker to the wrong
+        run and hide it while that turn is mid-flight.
+        """
+        agent_session = await self.get_session(session_id)
+        if agent_session is None:
+            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+
+        content: dict[str, Any] = {
+            "type": "cancelled",
+            "reason": reason or "user_cancel",
+            "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        }
+        if interrupted_tool_call_ids:
+            content["tool_call_ids"] = list(interrupted_tool_call_ids)
+        # Tag with the active run id like other mid-turn rows so the marker
+        # stays hidden from DB reloads until terminal cleanup reveals it
+        # together with the rest of the turn.
+        self.session.add(
+            AgentSessionHistory(
+                session_id=session_id,
+                workspace_id=self.workspace_id,
+                content=content,
+                kind=MessageKind.CANCELLED.value,
+                curr_run_id=curr_run_id
+                if curr_run_id is not None
+                else agent_session.curr_run_id,
+            )
+        )
+        await self.session.commit()
+
     async def clear_active_turn(
         self,
         session_id: uuid.UUID,
@@ -949,6 +1007,11 @@ class AgentSessionService(BaseWorkspaceService):
             if entry.kind == MessageKind.INTERNAL.value:
                 if line_uuid is not None:
                     internal_uuids.add(line_uuid)
+                continue
+
+            # Cancelled markers are UI-only timeline rows, not SDK transcript
+            # lines - feeding one into the rebuilt JSONL would corrupt resume.
+            if entry.kind == MessageKind.CANCELLED.value:
                 continue
 
             if is_continuation_control_artifact(content, internal_uuids):
@@ -1487,8 +1550,10 @@ class AgentSessionService(BaseWorkspaceService):
                 return TurnLifecycleResult(TurnLifecycle.RUNNING, curr_run_id)
             case WorkflowExecutionStatus.COMPLETED:
                 return TurnLifecycleResult(TurnLifecycle.COMPLETED, curr_run_id)
+            case WorkflowExecutionStatus.CANCELED:
+                return TurnLifecycleResult(TurnLifecycle.CANCELLED, curr_run_id)
             case _:
-                # FAILED | TERMINATED | CANCELED | TIMED_OUT
+                # FAILED | TERMINATED | TIMED_OUT
                 return TurnLifecycleResult(TurnLifecycle.FAILED, curr_run_id)
 
     async def validate_turn_request(
@@ -1678,6 +1743,83 @@ class AgentSessionService(BaseWorkspaceService):
         )
 
         return None
+
+    async def request_cancel(
+        self,
+        session_id: uuid.UUID,
+        *,
+        reason: Literal["user_cancel"] = "user_cancel",
+    ) -> AgentSessionCancelResponse:
+        """Request graceful cancellation for the active agent workflow turn.
+
+        Raises:
+            TracecatNotFoundError: If no session exists with this ID.
+            TracecatConflictError: If the session has no active (RUNNING) turn.
+        """
+        from tracecat_ee.agent.types import AgentWorkflowID
+        from tracecat_ee.agent.workflows.durable import (
+            DurableAgentWorkflow,
+            WorkflowCancelRequest,
+        )
+
+        agent_session = await self.get_session(session_id)
+        if agent_session is None:
+            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+
+        if (
+            AgentSessionEntity(agent_session.entity_type)
+            is AgentSessionEntity.WORKSPACE_CHAT
+        ):
+            await self.require_entitlement(Entitlement.WORKSPACE_CHAT)
+
+        lifecycle, curr_run_id = await self.get_turn_lifecycle(agent_session)
+        if lifecycle is not TurnLifecycle.RUNNING or curr_run_id is None:
+            raise TracecatConflictError(
+                "Agent session does not have an active turn",
+                detail={"lifecycle": lifecycle.value},
+            )
+
+        client = await get_temporal_client()
+        workflow_id = AgentWorkflowID(curr_run_id)
+        handle = client.get_workflow_handle_for(
+            DurableAgentWorkflow.run,
+            str(workflow_id),
+        )
+
+        logger.info(
+            "Requesting agent turn cancellation",
+            workflow_id=str(workflow_id),
+            session_id=str(session_id),
+            run_id=str(curr_run_id),
+            reason=reason,
+        )
+
+        # Out-of-band fast path: the executor activity polls this signal and
+        # interrupts the live runtime directly. Temporal activity cancellation
+        # only reaches a running activity via throttled heartbeat RPCs, so a
+        # turn can otherwise finish before the cancel is ever delivered. Write
+        # it before the workflow update to minimize stop latency; best-effort
+        # because the update-driven path still cancels (slower) without it.
+        try:
+            await signal_turn_cancel(str(curr_run_id), reason=reason)
+        except Exception as e:
+            logger.warning(
+                "Failed to write turn cancel signal",
+                session_id=str(session_id),
+                run_id=str(curr_run_id),
+                error=str(e),
+            )
+
+        await handle.execute_update(
+            DurableAgentWorkflow.request_cancel,
+            WorkflowCancelRequest(reason=reason),
+        )
+
+        return AgentSessionCancelResponse(
+            session_id=session_id,
+            run_id=curr_run_id,
+            reason=reason,
+        )
 
     @contextlib.asynccontextmanager
     async def _build_agent_config(
@@ -2033,6 +2175,41 @@ class AgentSessionService(BaseWorkspaceService):
                         id=str(entry.id),
                         kind=kind,
                         compaction=compaction_data,
+                    )
+                )
+                continue
+
+            # Handle cancelled markers: divider rows showing where the user
+            # stopped an in-flight turn.
+            if entry.kind == MessageKind.CANCELLED.value:
+                kind = MessageKind.CANCELLED
+
+                # Filter by kinds if specified
+                if kinds and kind not in kinds:
+                    continue
+
+                reason = content.get("reason")
+                raw_tool_call_ids = content.get("tool_call_ids")
+                tool_call_ids = [
+                    item
+                    for item in (
+                        raw_tool_call_ids if isinstance(raw_tool_call_ids, list) else []
+                    )
+                    if isinstance(item, str)
+                ]
+                cancelled_payload: dict[str, Any] = {
+                    "reason": reason if isinstance(reason, str) else None,
+                }
+                if tool_call_ids:
+                    # Structured interrupt metadata for the UI: tool calls
+                    # aborted by this interrupt. Omitted when empty to match
+                    # the marker row's write-side shape.
+                    cancelled_payload["tool_call_ids"] = tool_call_ids
+                messages.append(
+                    ChatMessage(
+                        id=str(entry.id),
+                        kind=kind,
+                        cancelled=cancelled_payload,
                     )
                 )
                 continue
