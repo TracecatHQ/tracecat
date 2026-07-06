@@ -6243,6 +6243,61 @@ def _make_tool_context(
     )
 
 
+def test_sentry_middleware_runs_inside_error_handling_middleware():
+    middleware_names = [
+        type(middleware).__name__ for middleware in mcp_server.mcp.middleware
+    ]
+
+    assert middleware_names.index("ErrorHandlingMiddleware") < middleware_names.index(
+        "SentryMCPMiddleware"
+    )
+
+
+@pytest.mark.anyio
+async def test_sentry_middleware_captures_marked_unexpected_tool_errors(
+    mocker,
+) -> None:
+    from tracecat.mcp.middleware import SentryMCPMiddleware, UnexpectedToolError
+
+    mw = SentryMCPMiddleware()
+    ctx = _make_tool_context(tool_name="list_workspaces")
+    original_exc = RuntimeError("database unavailable")
+    capture_exception = mocker.patch("tracecat.mcp.middleware.capture_exception")
+
+    async def _call_next(
+        context: MiddlewareContext[CallToolRequestParams],
+    ) -> ToolResult:
+        raise UnexpectedToolError(
+            "Failed to list workspaces: database unavailable",
+            original_exception=original_exc,
+        ) from None
+
+    with pytest.raises(UnexpectedToolError):
+        await mw.on_message(ctx, _call_next)
+
+    capture_exception.assert_called_once()
+    assert capture_exception.call_args.args == (original_exc,)
+
+
+@pytest.mark.anyio
+async def test_sentry_middleware_skips_plain_tool_errors(mocker) -> None:
+    from tracecat.mcp.middleware import SentryMCPMiddleware
+
+    mw = SentryMCPMiddleware()
+    ctx = _make_tool_context(tool_name="test_tool")
+    capture_exception = mocker.patch("tracecat.mcp.middleware.capture_exception")
+
+    async def _call_next(
+        context: MiddlewareContext[CallToolRequestParams],
+    ) -> ToolResult:
+        raise ToolError("user-facing validation error")
+
+    with pytest.raises(ToolError):
+        await mw.on_message(ctx, _call_next)
+
+    capture_exception.assert_not_called()
+
+
 @pytest.mark.anyio
 async def test_input_size_limit_allows_normal_input():
     from tracecat.mcp.middleware import MCPInputSizeLimitMiddleware
@@ -6871,6 +6926,28 @@ async def test_list_workspaces_applies_org_scope(monkeypatch):
 
 WS_A = uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa")
 WS_B = uuid.UUID("bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb")
+
+
+@pytest.mark.anyio
+async def test_list_workspaces_marks_unexpected_failures(monkeypatch):
+    from tracecat.mcp.middleware import UnexpectedToolError
+
+    original_exc = RuntimeError("database unavailable")
+
+    async def _list_workspaces_for_request() -> list[dict[str, str]]:
+        raise original_exc
+
+    monkeypatch.setattr(
+        mcp_server,
+        "list_workspaces_for_request",
+        _list_workspaces_for_request,
+    )
+
+    with pytest.raises(UnexpectedToolError) as exc_info:
+        await _tool(mcp_server.list_workspaces)()
+
+    assert exc_info.value.original_exception is original_exc
+    assert "Failed to list workspaces" in str(exc_info.value)
 
 
 @pytest.mark.anyio

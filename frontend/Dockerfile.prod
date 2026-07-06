@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # https://github.com/vercel/next.js/blob/canary/examples/with-docker/Dockerfile
 
 # Use the Node.js Alpine image as the base image for the deps stage
@@ -25,13 +26,23 @@ ARG NODE_ENV=production
 ARG NEXT_PUBLIC_APP_ENV=production
 ARG NEXT_PUBLIC_APP_URL=http://localhost:3000
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+ARG NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT=
+ARG NEXT_PUBLIC_SENTRY_DSN=
 ARG NEXT_SERVER_API_URL=http://api:8000
+# Non-secret Sentry build args for source-map upload during `next build`.
+# The auth token is NOT a build arg: it is provided at build time via a
+# BuildKit secret mount (id=sentry_auth_token) and is never stored in
+# ARG/ENV, image layers, history, or the build cache.
+ARG SENTRY_ORG=
+ARG SENTRY_PROJECT=
 
 # Set environment variables
 ENV NODE_ENV=production
 ENV NEXT_PUBLIC_APP_ENV=$NEXT_PUBLIC_APP_ENV
 ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT=$NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT
+ENV NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN
 ENV NEXT_SERVER_API_URL=$NEXT_SERVER_API_URL
 
 # Copy node_modules from the deps stage
@@ -42,7 +53,9 @@ RUN npm install -g corepack@0.31.0 && corepack --version
 
 # Copy all source files and build the application
 COPY . .
-RUN corepack enable pnpm && pnpm build
+RUN --mount=type=secret,id=sentry_auth_token \
+    corepack enable pnpm && \
+    SENTRY_AUTH_TOKEN="$(cat /run/secrets/sentry_auth_token 2>/dev/null || true)" pnpm build
 
 # Use the Node.js Alpine image as the base image for the runner stage
 FROM node:22-alpine AS runner
@@ -50,7 +63,9 @@ WORKDIR /app
 
 # Set production environment variables
 ENV NODE_ENV=production
+ENV NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT=""
 ENV NEXT_PUBLIC_APP_ENV=production
+ENV NEXT_PUBLIC_SENTRY_DSN=""
 
 # Create a non-root user to run the application
 RUN addgroup --system --gid 1001 nodejs

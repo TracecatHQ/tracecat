@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server"
+import { buildContentSecurityPolicy } from "@/lib/content-security-policy"
 
-const middleware = () => NextResponse.next()
+export default function middleware() {
+  const response = NextResponse.next()
+  response.headers.set("Content-Security-Policy", buildContentSecurityPolicy())
+  return response
+}
 
-export default middleware
 export const config = {
   matcher: [
     /*

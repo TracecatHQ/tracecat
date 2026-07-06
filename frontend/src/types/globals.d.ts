@@ -6,4 +6,8 @@ declare global {
       onboardingComplete?: boolean
     }
   }
+
+  interface Window {
+    __ENV?: Record<string, string | undefined>
+  }
 }

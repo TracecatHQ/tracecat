@@ -5,9 +5,14 @@ export const env = createEnv({
   client: {
     NEXT_PUBLIC_APP_URL: z.string().min(1),
     NEXT_PUBLIC_API_URL: z.string().min(1),
+    NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT: z.string().optional(),
+    NEXT_PUBLIC_SENTRY_DSN: z.string().optional(),
   },
   runtimeEnv: {
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
+    NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT:
+      process.env.NEXT_PUBLIC_BLOB_STORAGE_PRESIGNED_URL_ENDPOINT,
+    NEXT_PUBLIC_SENTRY_DSN: process.env.NEXT_PUBLIC_SENTRY_DSN,
   },
 })

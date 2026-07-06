@@ -20,6 +20,17 @@ from tracecat.mcp.config import (
     TRACECAT_MCP__MAX_INPUT_SIZE_BYTES,
     TRACECAT_MCP__TOOL_TIMEOUT_SECONDS,
 )
+from tracecat.observability.sentry import capture_exception
+
+
+class UnexpectedToolError(ToolError):
+    """ToolError wrapper for unexpected platform failures."""
+
+    def __init__(
+        self, message: str, *, original_exception: BaseException | None = None
+    ) -> None:
+        super().__init__(message)
+        self.original_exception = original_exception
 
 
 class AccessTokenClaims(TypedDict, total=False):
@@ -103,6 +114,34 @@ class MCPTimeoutMiddleware(Middleware):
                 f"Tool '{context.message.name}' timed out "
                 f"after {self.timeout_seconds} seconds"
             ) from None
+
+
+class SentryMCPMiddleware(Middleware):
+    """Capture unexpected MCP server failures with sanitized call metadata."""
+
+    async def on_message[MCPMessageT](
+        self,
+        context: MiddlewareContext[MCPMessageT],
+        call_next: CallNext[MCPMessageT, Any],
+    ) -> Any:
+        try:
+            return await call_next(context)
+        except ToolError as exc:
+            original = _unexpected_tool_error_cause(exc)
+            if original is not None:
+                capture_exception(
+                    original,
+                    tags=_sentry_mcp_tags(context),
+                    contexts={"tracecat.mcp": _sentry_mcp_context(context)},
+                )
+            raise
+        except Exception as exc:
+            capture_exception(
+                exc,
+                tags=_sentry_mcp_tags(context),
+                contexts={"tracecat.mcp": _sentry_mcp_context(context)},
+            )
+            raise
 
 
 class WatchtowerMonitorMiddleware(Middleware):
@@ -247,7 +286,64 @@ def _safe_get_token_identity() -> MCPTokenIdentity | None:
         return None
 
 
-def _extract_mcp_session_id(context: MiddlewareContext[Any]) -> str | None:
+_EXPECTED_TOOL_ERROR_CAUSES = (ToolError, ValueError, TimeoutError)
+
+
+def _unexpected_tool_error_cause(exc: ToolError) -> BaseException | None:
+    """Return the unexpected exception behind a ``ToolError``, if any.
+
+    Tools frequently catch an unexpected backend failure and rethrow it as a
+    plain ``ToolError`` (via ``raise ToolError(...) from exc`` or ``from None``).
+    Those should reach Sentry, while ``ToolError``s that only wrap validation
+    errors or user-facing messages are expected and skipped.
+    """
+    if isinstance(exc, UnexpectedToolError):
+        return exc.original_exception or exc
+    cause = exc.__cause__
+    if cause is None and exc.__suppress_context__:
+        # ``raise ToolError(...) from None`` still records the handled
+        # exception as ``__context__``; treat that as the original cause.
+        cause = exc.__context__
+    if cause is None or isinstance(cause, _EXPECTED_TOOL_ERROR_CAUSES):
+        return None
+    return cause
+
+
+def _sentry_mcp_tags[MCPMessageT](
+    context: MiddlewareContext[MCPMessageT],
+) -> dict[str, Any]:
+    tags: dict[str, Any] = {
+        "mcp.method": context.method or "unknown",
+        "mcp.source": context.source,
+        "mcp.type": context.type,
+    }
+    tool_name = getattr(context.message, "name", None)
+    if tool_name is not None:
+        tags["mcp.tool"] = tool_name
+    return tags
+
+
+def _sentry_mcp_context[MCPMessageT](
+    context: MiddlewareContext[MCPMessageT],
+) -> dict[str, Any]:
+    details: dict[str, Any] = {
+        "method": context.method,
+        "source": context.source,
+        "type": context.type,
+    }
+    tool_name = getattr(context.message, "name", None)
+    if tool_name is not None:
+        details["tool_name"] = tool_name
+
+    arguments = getattr(context.message, "arguments", None)
+    if isinstance(arguments, Mapping):
+        details["argument_keys"] = sorted(str(key) for key in arguments)
+    return details
+
+
+def _extract_mcp_session_id[MCPMessageT](
+    context: MiddlewareContext[MCPMessageT],
+) -> str | None:
     fastmcp_context = context.fastmcp_context
     if fastmcp_context is not None:
         try:
@@ -262,7 +358,7 @@ def _extract_mcp_session_id(context: MiddlewareContext[Any]) -> str | None:
     return None
 
 
-def _normalize_client_info(client_info: object) -> dict[str, Any] | None:
+def _normalize_client_info(client_info: Any) -> dict[str, Any] | None:
     if client_info is None:
         return None
     model_dump = getattr(client_info, "model_dump", None)
@@ -301,7 +397,7 @@ def _coerce_uuid(value: object) -> uuid.UUID | None:
 def _resolve_workspace_id(
     *,
     identity: MCPTokenIdentity,
-    arguments: dict[str, object] | None,
+    arguments: dict[str, Any] | None,
 ) -> uuid.UUID | None:
     if len(identity.workspace_ids) == 1:
         return next(iter(identity.workspace_ids))
@@ -316,7 +412,7 @@ def _resolve_workspace_id(
 
 
 def _tool_args_for_storage(
-    arguments: dict[str, object] | None,
+    arguments: dict[str, Any] | None,
 ) -> Mapping[str, Any] | None:
     if not arguments:
         return None

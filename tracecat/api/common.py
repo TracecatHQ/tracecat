@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+
 from fastapi import HTTPException, Request, Response, status
 from fastapi.exception_handlers import http_exception_handler as default_http_handler
 from fastapi.responses import ORJSONResponse
@@ -23,21 +25,52 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import TracecatException
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
+from tracecat.observability.sentry import (
+    REDACTED_VALUE,
+    capture_exception,
+    redact_url_path_secrets,
+)
 from tracecat.workflow.executions.enums import TemporalSearchAttr
+
+_SENSITIVE_QUERY_PARAM_KEYS = frozenset({"code", "state"})
 
 
 async def generic_exception_handler(request: Request, exc: Exception) -> Response:
+    role = ctx_role.get()
+    query_params = _sanitize_query_params(request.query_params)
+    path = redact_url_path_secrets(request.url.path)
+    capture_exception(
+        exc,
+        tags={
+            "http.method": request.method,
+            "http.route": path,
+        },
+        contexts={
+            "tracecat.request": {
+                "path": path,
+                "query_params": query_params,
+            },
+            "tracecat.role": role.model_dump(mode="json") if role else None,
+        },
+    )
     logger.exception(
         "Unexpected error",
         exc=exc,
         role=ctx_role.get(),
-        params=request.query_params,
-        path=request.url.path,
+        params=query_params,
+        path=path,
     )
     return ORJSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"message": "An unexpected error occurred. Please try again later."},
     )
+
+
+def _sanitize_query_params(params: Mapping[str, str]) -> dict[str, str]:
+    return {
+        key: REDACTED_VALUE if key.casefold() in _SENSITIVE_QUERY_PARAM_KEYS else value
+        for key, value in params.items()
+    }
 
 
 async def http_exception_handler(request: Request, exc: Exception) -> Response:
@@ -110,12 +143,14 @@ def tracecat_exception_handler(request: Request, exc: Exception) -> Response:
     tracecat_exc = (
         exc if isinstance(exc, TracecatException) else TracecatException(str(exc))
     )
+    query_params = _sanitize_query_params(request.query_params)
+    path = redact_url_path_secrets(request.url.path)
     msg = str(tracecat_exc)
     logger.error(
         msg,
         role=ctx_role.get(),
-        params=request.query_params,
-        path=request.url.path,
+        params=query_params,
+        path=path,
         detail=tracecat_exc.detail,
     )
     return ORJSONResponse(

@@ -24,6 +24,10 @@ NEXT_PUBLIC_APP_ENV=${NEXT_PUBLIC_APP_ENV:-production}
 NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
 NEXT_SERVER_API_URL=${NEXT_SERVER_API_URL:-http://localhost:8000}
 NODE_ENV=${NODE_ENV:-production}
+# Optional: set to enable Sentry source-map upload during the UI build.
+SENTRY_AUTH_TOKEN=${SENTRY_AUTH_TOKEN:-}
+SENTRY_ORG=${SENTRY_ORG:-}
+SENTRY_PROJECT=${SENTRY_PROJECT:-}
 
 declare -a USER_TAGS=()
 declare -a TAGS=()
@@ -64,6 +68,7 @@ Environment overrides:
   REGISTRY, IMAGE_NAMESPACE, PLATFORMS
   NEXT_PUBLIC_API_URL, NEXT_PUBLIC_APP_ENV, NEXT_PUBLIC_APP_URL,
   NEXT_SERVER_API_URL, NODE_ENV
+  SENTRY_AUTH_TOKEN, SENTRY_ORG, SENTRY_PROJECT (enable UI source-map upload)
 
 Examples:
   scripts/publish-images.sh --tag 1.2.3 --yes
@@ -418,6 +423,9 @@ build_platform_digest() {
         --build-arg "NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL"
         --build-arg "NEXT_SERVER_API_URL=$NEXT_SERVER_API_URL"
         --build-arg "NODE_ENV=$NODE_ENV"
+        --build-arg "SENTRY_ORG=$SENTRY_ORG"
+        --build-arg "SENTRY_PROJECT=$SENTRY_PROJECT"
+        --secret "id=sentry_auth_token,env=SENTRY_AUTH_TOKEN"
         "$REPO_ROOT/frontend"
       )
       ;;
