@@ -45,6 +45,43 @@ type AttachmentTag = NonNullable<
   FilesSettingsForm["allowed_attachment_extensions"]
 >[number]
 
+/** UI copy describing how an attachment allowlist is currently applied. */
+export interface AttachmentAllowlistState {
+  /** Short policy label for the settings form. */
+  label: string
+  /** Helper text explaining the policy effect. */
+  description: string
+}
+
+/**
+ * Describe whether an attachment allowlist inherits defaults, disables uploads,
+ * or applies custom values.
+ */
+export function describeAttachmentAllowlistState(
+  tags: Array<{ id: string; text: string }> | undefined,
+  inherit: boolean
+): AttachmentAllowlistState {
+  if (inherit || tags === undefined) {
+    return {
+      label: "Inherited defaults",
+      description: "Uses system attachment defaults.",
+    }
+  }
+
+  if (tags.length === 0) {
+    return {
+      label: "Uploads disabled",
+      description:
+        "No values are allowed until you add entries or restore inherited defaults.",
+    }
+  }
+
+  return {
+    label: "Custom allowlist",
+    description: "Only the listed values are allowed.",
+  }
+}
+
 /**
  * Convert persisted attachment allowlist values into tag input values.
  */
@@ -150,95 +187,121 @@ export function WorkspaceFilesSettings({
         <FormField
           control={form.control}
           name="allowed_attachment_extensions"
-          render={({ field }) => (
-            <FormItem>
-              <div className="flex items-center justify-between">
-                <FormLabel>Allowed file extensions</FormLabel>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  aria-label="Restore inherited file extensions"
-                  onClick={() => {
-                    setInheritAttachmentExtensions(true)
-                    field.onChange(
-                      systemDefaultExtensions.map((ext, index) => ({
-                        id: `ext-default-${index}`,
-                        text: ext,
-                      }))
-                    )
-                  }}
-                  className="h-auto p-1"
-                >
-                  <RefreshCwIcon className="size-3" />
-                </Button>
-              </div>
-              <FormControl>
-                <CustomTagInput
-                  {...field}
-                  placeholder="Enter an extension..."
-                  tags={field.value || []}
-                  setTags={(tags) => {
-                    setInheritAttachmentExtensions(false)
-                    field.onChange(tags)
-                  }}
-                />
-              </FormControl>
-              <FormDescription>
-                Add file extensions that users can upload as attachments (e.g.,
-                .pdf, .docx, .png). Clearing all values disables uploads; use
-                the reset button to restore inherited defaults.
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
+          render={({ field }) => {
+            const allowlistState = describeAttachmentAllowlistState(
+              field.value,
+              inheritAttachmentExtensions
+            )
+
+            return (
+              <FormItem>
+                <div className="flex items-center justify-between">
+                  <FormLabel>Allowed file extensions</FormLabel>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    aria-label="Restore inherited file extensions"
+                    onClick={() => {
+                      setInheritAttachmentExtensions(true)
+                      field.onChange(
+                        systemDefaultExtensions.map((ext, index) => ({
+                          id: `ext-default-${index}`,
+                          text: ext,
+                        }))
+                      )
+                    }}
+                    className="h-auto p-1"
+                  >
+                    <RefreshCwIcon className="size-3" />
+                  </Button>
+                </div>
+                <FormControl>
+                  <CustomTagInput
+                    {...field}
+                    placeholder="Enter an extension..."
+                    tags={field.value || []}
+                    setTags={(tags) => {
+                      setInheritAttachmentExtensions(false)
+                      field.onChange(tags)
+                    }}
+                  />
+                </FormControl>
+                <FormDescription>
+                  <span className="block">
+                    Add file extensions that users can upload as attachments
+                    (e.g., .pdf, .docx, .png). Clearing all values disables
+                    uploads; use the reset button to restore inherited defaults.
+                  </span>
+                  <span className="block">
+                    Current policy: {allowlistState.label}.{" "}
+                    {allowlistState.description}
+                  </span>
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )
+          }}
         />
 
         <FormField
           control={form.control}
           name="allowed_attachment_mime_types"
-          render={({ field }) => (
-            <FormItem>
-              <div className="flex items-center justify-between">
-                <FormLabel>Allowed MIME types</FormLabel>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  aria-label="Restore inherited MIME types"
-                  onClick={() => {
-                    setInheritAttachmentMimeTypes(true)
-                    field.onChange(
-                      systemDefaultMimeTypes.map((mime, index) => ({
-                        id: `mime-default-${index}`,
-                        text: mime,
-                      }))
-                    )
-                  }}
-                  className="h-auto p-1"
-                >
-                  <RefreshCwIcon className="size-3" />
-                </Button>
-              </div>
-              <FormControl>
-                <CustomTagInput
-                  {...field}
-                  placeholder="Enter a MIME type..."
-                  tags={field.value || []}
-                  setTags={(tags) => {
-                    setInheritAttachmentMimeTypes(false)
-                    field.onChange(tags)
-                  }}
-                />
-              </FormControl>
-              <FormDescription>
-                Add MIME types that are allowed for attachments (e.g.,
-                application/pdf, image/jpeg). Clearing all values disables
-                uploads; use the reset button to restore inherited defaults.
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
+          render={({ field }) => {
+            const allowlistState = describeAttachmentAllowlistState(
+              field.value,
+              inheritAttachmentMimeTypes
+            )
+
+            return (
+              <FormItem>
+                <div className="flex items-center justify-between">
+                  <FormLabel>Allowed MIME types</FormLabel>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    aria-label="Restore inherited MIME types"
+                    onClick={() => {
+                      setInheritAttachmentMimeTypes(true)
+                      field.onChange(
+                        systemDefaultMimeTypes.map((mime, index) => ({
+                          id: `mime-default-${index}`,
+                          text: mime,
+                        }))
+                      )
+                    }}
+                    className="h-auto p-1"
+                  >
+                    <RefreshCwIcon className="size-3" />
+                  </Button>
+                </div>
+                <FormControl>
+                  <CustomTagInput
+                    {...field}
+                    placeholder="Enter a MIME type..."
+                    tags={field.value || []}
+                    setTags={(tags) => {
+                      setInheritAttachmentMimeTypes(false)
+                      field.onChange(tags)
+                    }}
+                  />
+                </FormControl>
+                <FormDescription>
+                  <span className="block">
+                    Add MIME types that are allowed for attachments (e.g.,
+                    application/pdf, image/jpeg). Clearing all values disables
+                    uploads; use the reset button to restore inherited defaults.
+                  </span>
+                  <span className="block">
+                    Current policy: {allowlistState.label}.{" "}
+                    {allowlistState.description}
+                  </span>
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )
+          }}
         />
 
         <FormField

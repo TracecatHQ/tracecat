@@ -1,6 +1,7 @@
 import {
   buildAttachmentTags,
   buildFilesSettingsUpdate,
+  describeAttachmentAllowlistState,
   filesSettingsSchema,
 } from "@/components/settings/workspace-files-settings"
 
@@ -61,6 +62,28 @@ describe("workspace files settings", () => {
       allowed_attachment_extensions: null,
       allowed_attachment_mime_types: null,
       validate_attachment_magic_number: true,
+    })
+  })
+
+  it("describes inherited, disabled, and custom attachment allowlist states", () => {
+    expect(describeAttachmentAllowlistState(undefined, false)).toEqual({
+      label: "Inherited defaults",
+      description: "Uses system attachment defaults.",
+    })
+    expect(describeAttachmentAllowlistState([], false)).toEqual({
+      label: "Uploads disabled",
+      description:
+        "No values are allowed until you add entries or restore inherited defaults.",
+    })
+    expect(
+      describeAttachmentAllowlistState([{ id: "ext-1", text: ".pdf" }], false)
+    ).toEqual({
+      label: "Custom allowlist",
+      description: "Only the listed values are allowed.",
+    })
+    expect(describeAttachmentAllowlistState([], true)).toEqual({
+      label: "Inherited defaults",
+      description: "Uses system attachment defaults.",
     })
   })
 

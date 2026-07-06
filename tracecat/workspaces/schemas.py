@@ -32,14 +32,20 @@ class WorkspaceSettingsRead(Schema):
     git_repo_url: str | None = None
     workflow_unlimited_timeout_enabled: bool | None = None
     workflow_default_timeout_seconds: int | None = None
-    allowed_attachment_extensions: list[str] | None = None
-    allowed_attachment_mime_types: list[str] | None = None
+    allowed_attachment_extensions: list[str] | None = Field(
+        default=None,
+        description="Workspace attachment extension allowlist. null means system defaults; [] disables uploads; non-empty lists allow only those extensions.",
+    )
+    allowed_attachment_mime_types: list[str] | None = Field(
+        default=None,
+        description="Workspace attachment MIME type allowlist. null means system defaults; [] disables uploads; non-empty lists allow only those MIME types.",
+    )
     validate_attachment_magic_number: bool | None = None
 
     @computed_field
     @property
     def effective_allowed_attachment_extensions(self) -> list[str]:
-        """Returns workspace-specific extensions if set, otherwise system defaults."""
+        """Return the workspace extension allowlist, including [] as deny-all, or system defaults when null."""
         if self.allowed_attachment_extensions is not None:
             return self.allowed_attachment_extensions
         return sorted(config.TRACECAT__ALLOWED_ATTACHMENT_EXTENSIONS)
@@ -47,7 +53,7 @@ class WorkspaceSettingsRead(Schema):
     @computed_field
     @property
     def effective_allowed_attachment_mime_types(self) -> list[str]:
-        """Returns workspace-specific MIME types if set, otherwise system defaults."""
+        """Return the workspace MIME type allowlist, including [] as deny-all, or system defaults when null."""
         if self.allowed_attachment_mime_types is not None:
             return self.allowed_attachment_mime_types
         return sorted(config.TRACECAT__ALLOWED_ATTACHMENT_MIME_TYPES)
@@ -67,11 +73,11 @@ class WorkspaceSettingsUpdate(Schema):
     )
     allowed_attachment_extensions: list[str] | None = Field(
         default=None,
-        description="Allowed file extensions for attachments (e.g., ['.pdf', '.docx']). Overrides global defaults.",
+        description="Allowed file extensions for attachments. null or omitted inherits system defaults; [] disables uploads; non-empty lists allow only those extensions.",
     )
     allowed_attachment_mime_types: list[str] | None = Field(
         default=None,
-        description="Allowed MIME types for attachments (e.g., ['application/pdf', 'image/jpeg']). Overrides global defaults.",
+        description="Allowed MIME types for attachments. null or omitted inherits system defaults; [] disables uploads; non-empty lists allow only those MIME types.",
     )
     validate_attachment_magic_number: bool | None = Field(
         default=None,

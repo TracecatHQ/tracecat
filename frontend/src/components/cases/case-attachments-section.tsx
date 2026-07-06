@@ -478,7 +478,7 @@ export function CaseAttachmentsSection({
         <div className="space-y-4 p-4">
           <div
             role="button"
-            tabIndex={uploadsDisabled ? -1 : 0}
+            tabIndex={0}
             aria-label={uploadControlLabel}
             onClick={handleAddAttachment}
             onKeyDown={handleUploadControlKeyDown}

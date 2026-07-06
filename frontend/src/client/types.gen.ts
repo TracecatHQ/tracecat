@@ -9545,15 +9545,21 @@ export type WorkspaceSettingsRead = {
   git_repo_url?: string | null
   workflow_unlimited_timeout_enabled?: boolean | null
   workflow_default_timeout_seconds?: number | null
+  /**
+   * Workspace attachment extension allowlist. null means system defaults; [] disables uploads; non-empty lists allow only those extensions.
+   */
   allowed_attachment_extensions?: Array<string> | null
+  /**
+   * Workspace attachment MIME type allowlist. null means system defaults; [] disables uploads; non-empty lists allow only those MIME types.
+   */
   allowed_attachment_mime_types?: Array<string> | null
   validate_attachment_magic_number?: boolean | null
   /**
-   * Returns workspace-specific extensions if set, otherwise system defaults.
+   * Return the workspace extension allowlist, including [] as deny-all, or system defaults when null.
    */
   readonly effective_allowed_attachment_extensions: Array<string>
   /**
-   * Returns workspace-specific MIME types if set, otherwise system defaults.
+   * Return the workspace MIME type allowlist, including [] as deny-all, or system defaults when null.
    */
   readonly effective_allowed_attachment_mime_types: Array<string>
 }
@@ -9570,11 +9576,11 @@ export type WorkspaceSettingsUpdate = {
    */
   workflow_default_timeout_seconds?: number | null
   /**
-   * Allowed file extensions for attachments (e.g., ['.pdf', '.docx']). Overrides global defaults.
+   * Allowed file extensions for attachments. null or omitted inherits system defaults; [] disables uploads; non-empty lists allow only those extensions.
    */
   allowed_attachment_extensions?: Array<string> | null
   /**
-   * Allowed MIME types for attachments (e.g., ['application/pdf', 'image/jpeg']). Overrides global defaults.
+   * Allowed MIME types for attachments. null or omitted inherits system defaults; [] disables uploads; non-empty lists allow only those MIME types.
    */
   allowed_attachment_mime_types?: Array<string> | null
   /**

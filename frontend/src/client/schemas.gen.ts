@@ -32153,6 +32153,8 @@ export const $WorkspaceSettingsRead = {
         },
       ],
       title: "Allowed Attachment Extensions",
+      description:
+        "Workspace attachment extension allowlist. null means system defaults; [] disables uploads; non-empty lists allow only those extensions.",
     },
     allowed_attachment_mime_types: {
       anyOf: [
@@ -32167,6 +32169,8 @@ export const $WorkspaceSettingsRead = {
         },
       ],
       title: "Allowed Attachment Mime Types",
+      description:
+        "Workspace attachment MIME type allowlist. null means system defaults; [] disables uploads; non-empty lists allow only those MIME types.",
     },
     validate_attachment_magic_number: {
       anyOf: [
@@ -32186,7 +32190,7 @@ export const $WorkspaceSettingsRead = {
       type: "array",
       title: "Effective Allowed Attachment Extensions",
       description:
-        "Returns workspace-specific extensions if set, otherwise system defaults.",
+        "Return the workspace extension allowlist, including [] as deny-all, or system defaults when null.",
       readOnly: true,
     },
     effective_allowed_attachment_mime_types: {
@@ -32196,7 +32200,7 @@ export const $WorkspaceSettingsRead = {
       type: "array",
       title: "Effective Allowed Attachment Mime Types",
       description:
-        "Returns workspace-specific MIME types if set, otherwise system defaults.",
+        "Return the workspace MIME type allowlist, including [] as deny-all, or system defaults when null.",
       readOnly: true,
     },
   },
@@ -32272,7 +32276,7 @@ export const $WorkspaceSettingsUpdate = {
       ],
       title: "Allowed Attachment Extensions",
       description:
-        "Allowed file extensions for attachments (e.g., ['.pdf', '.docx']). Overrides global defaults.",
+        "Allowed file extensions for attachments. null or omitted inherits system defaults; [] disables uploads; non-empty lists allow only those extensions.",
     },
     allowed_attachment_mime_types: {
       anyOf: [
@@ -32288,7 +32292,7 @@ export const $WorkspaceSettingsUpdate = {
       ],
       title: "Allowed Attachment Mime Types",
       description:
-        "Allowed MIME types for attachments (e.g., ['application/pdf', 'image/jpeg']). Overrides global defaults.",
+        "Allowed MIME types for attachments. null or omitted inherits system defaults; [] disables uploads; non-empty lists allow only those MIME types.",
     },
     validate_attachment_magic_number: {
       anyOf: [
