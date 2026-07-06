@@ -1253,7 +1253,7 @@ export function ChatSessionPane({
           <PromptInputSubmit
             disabled={isInputDisabled || !input.trim()}
             status={status}
-            className="text-muted-foreground/80"
+            className="size-7 text-muted-foreground/80"
           />
         </PromptInputFooter>
       </PromptInput>
@@ -1711,7 +1711,7 @@ function PromptModelIndicator({ modelInfo }: { modelInfo: ModelInfo }) {
   return (
     <Badge
       variant="outline"
-      className="h-7 max-w-[18rem] gap-1.5 px-2.5 text-xs font-normal"
+      className="h-7 min-w-0 max-w-[18rem] gap-1.5 px-2.5 text-xs font-normal"
     >
       <ProviderIcon
         className="size-4 rounded-none bg-transparent p-0"
