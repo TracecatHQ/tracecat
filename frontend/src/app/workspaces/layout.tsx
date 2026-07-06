@@ -17,6 +17,7 @@ import { ApiError } from "@/client"
 import { NoOrganizationAccess } from "@/components/auth/no-organization-access"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CaseSelectionProvider } from "@/components/cases/case-selection-context"
+import { InboxShell } from "@/components/inbox/inbox-shell"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { ControlsHeader } from "@/components/nav/controls-header"
 import { DynamicNavbar } from "@/components/nav/dynamic-nav"
@@ -201,7 +202,11 @@ export default function WorkspaceLayout({
 }
 
 function WorkspaceChildren({ children }: { children: React.ReactNode }) {
-  const params = useParams<{ workflowId?: string; caseId?: string }>()
+  const params = useParams<{
+    workflowId?: string
+    caseId?: string
+    tableId?: string
+  }>()
   const canReadWorkspace = useScopeCheck("workspace:read")
   const canExecuteAgents = useScopeCheck("agent:execute")
   const { hasEntitlement } = useEntitlements()
@@ -211,18 +216,24 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
   const [chatOpen, setChatOpen] = useState(false)
   const isWorkflowBuilder = !!params?.workflowId
   const isCaseDetailPage = Boolean(params?.caseId)
+  const isTableDetailPage = Boolean(params?.tableId)
   const isInboxPage = pathname?.includes("/inbox")
   const isCasesRoute = Boolean(pathname?.match(/\/cases(\/|$)/))
-  const isTablesPage = Boolean(pathname?.match(/\/tables(\/|$)/))
+  const isTablesRoute = Boolean(pathname?.match(/\/tables(\/|$)/))
+  const isWorkspaceChatRoute = isCasesRoute || isTablesRoute
   const isSettingsPage = pathname?.includes("/settings")
   const isOrganizationPage = pathname?.includes("/organization")
   const canShowChat =
-    isCasesRoute &&
+    isWorkspaceChatRoute &&
     canExecuteAgents === true &&
     hasEntitlement("workspace_chat")
 
   useEffect(() => {
-    if (!isCasesRoute || !pathname || searchParams?.get("chat") !== "open") {
+    if (
+      !isWorkspaceChatRoute ||
+      !pathname ||
+      searchParams?.get("chat") !== "open"
+    ) {
       return
     }
     setChatOpen(true)
@@ -230,7 +241,7 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
     nextParams.delete("chat")
     const query = nextParams.toString()
     router.replace(query ? `${pathname}?${query}` : pathname)
-  }, [isCasesRoute, pathname, searchParams, router])
+  }, [isWorkspaceChatRoute, pathname, searchParams, router])
 
   if (canReadWorkspace === undefined) {
     return <CenteredSpinner />
@@ -255,18 +266,8 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
     return <>{children}</>
   }
 
-  // Case detail pages have their own layout with an optional chat sidebar.
-  if (isCaseDetailPage) {
-    return <>{children}</>
-  }
-
-  // Inbox pages have their own layout with chat sidebar
-  if (isInboxPage) {
-    return <>{children}</>
-  }
-
-  // Tables pages have their own layout with side panels.
-  if (isTablesPage) {
+  // Detail pages have their own layouts with optional side panels.
+  if (isCaseDetailPage || isTableDetailPage) {
     return <>{children}</>
   }
 
@@ -274,20 +275,26 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
       <AppSidebar />
-      <SidebarInset>
-        <CaseSelectionProvider>
-          <div className="flex h-full flex-1 flex-col">
-            <ControlsHeader
-              onToggleChat={
-                canShowChat ? () => setChatOpen((prev) => !prev) : undefined
-              }
-            />
-            <div className="flex-1 overflow-y-scroll">{children}</div>
-          </div>
-        </CaseSelectionProvider>
-      </SidebarInset>
+      {isInboxPage ? (
+        <InboxShell>{children}</InboxShell>
+      ) : (
+        <>
+          <SidebarInset>
+            <CaseSelectionProvider>
+              <div className="flex h-full flex-1 flex-col">
+                <ControlsHeader
+                  onToggleChat={
+                    canShowChat ? () => setChatOpen((prev) => !prev) : undefined
+                  }
+                />
+                <div className="flex-1 overflow-y-scroll">{children}</div>
+              </div>
+            </CaseSelectionProvider>
+          </SidebarInset>
 
-      {canShowChat && chatOpen && <WorkspaceChatSidebar />}
+          {canShowChat && chatOpen && <WorkspaceChatSidebar />}
+        </>
+      )}
     </SidebarProvider>
   )
 }
