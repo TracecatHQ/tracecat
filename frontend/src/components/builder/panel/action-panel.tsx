@@ -939,9 +939,9 @@ function ActionPanelContent({
               </h3>
             </div>
 
-            <div className="w-full min-w-[30rem]">
-              <div className="flex items-center justify-start">
-                <TabsList className="h-8 justify-start rounded-none bg-transparent p-0">
+            <div className="w-full">
+              <div className="no-scrollbar flex items-center justify-start overflow-x-auto">
+                <TabsList className="h-8 shrink-0 justify-start rounded-none bg-transparent p-0">
                   <TabsTrigger
                     className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="inputs"
@@ -977,7 +977,7 @@ function ActionPanelContent({
               <Separator />
             </div>
             <div className="flex-1 overflow-auto">
-              <div className="w-full min-w-[30rem] overflow-x-auto pb-32">
+              <div className="w-full min-w-80 overflow-x-auto pb-32">
                 <TabsContent value="inputs" className="pb-8">
                   <SectionErrorBoundary>
                     <div className="mt-4 flex flex-col space-y-4 px-4 pb-10">
