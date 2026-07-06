@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
+import { describeAttachmentUploadError } from "@/lib/cases/attachment-errors"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 import { cn } from "@/lib/utils"
 
@@ -52,22 +53,47 @@ interface CaseAttachmentDownloadResponse {
   content_type: string
 }
 
-// Type definitions for API error responses
 interface ApiErrorDetail {
-  error?: string
   message?: string
-  allowed_extensions?: string[]
-  // Max attachments exceeded error fields
-  current_count?: number
-  max_count?: number
-  // Storage limit exceeded error fields
-  current_size_mb?: number
-  new_file_size_mb?: number
-  max_size_mb?: number
 }
 
 interface ApiErrorBody {
   detail?: ApiErrorDetail | string
+}
+
+/** Upload policy derived from effective workspace attachment extensions. */
+export interface AttachmentUploadPolicy {
+  /** Whether uploads should be blocked by workspace policy. */
+  uploadsDisabled: boolean
+  /** File input accept attribute, omitted when the policy inherits defaults. */
+  acceptAttribute?: string
+}
+
+/**
+ * Build the browser upload policy from effective workspace attachment extensions.
+ *
+ * An explicit empty array means the workspace disabled uploads, while `null` or
+ * `undefined` means the UI should inherit server defaults instead of adding an
+ * unrestricted or misleading accept hint.
+ *
+ * @param acceptedExtensions - Effective workspace attachment extensions.
+ * @returns The upload disabled flag and optional file input accept attribute.
+ */
+export function buildAttachmentUploadPolicy(
+  acceptedExtensions: string[] | null | undefined
+): AttachmentUploadPolicy {
+  if (!Array.isArray(acceptedExtensions)) {
+    return { uploadsDisabled: false }
+  }
+
+  if (acceptedExtensions.length === 0) {
+    return { uploadsDisabled: true }
+  }
+
+  return {
+    uploadsDisabled: false,
+    acceptAttribute: acceptedExtensions.join(","),
+  }
 }
 
 function getFileIcon(contentType: string) {
@@ -129,10 +155,11 @@ export function CaseAttachmentsSection({
   // Get workspace settings for allowed file extensions
   const { workspace } = useWorkspaceDetails()
 
-  // Create accept attribute from workspace settings
+  // Create upload policy from workspace settings
   const acceptedExtensions =
     workspace?.settings?.effective_allowed_attachment_extensions
-  const acceptAttribute = acceptedExtensions?.join(",") || undefined
+  const { acceptAttribute, uploadsDisabled } =
+    buildAttachmentUploadPolicy(acceptedExtensions)
 
   // Fetch attachments from API
   const {
@@ -169,140 +196,7 @@ export function CaseAttachmentsSection({
     },
     onError: (error: ApiError, file) => {
       setIsUploading(false)
-
-      // Handle structured error responses with specific HTTP status codes
-      if (
-        error.status === 415 &&
-        error.body &&
-        typeof error.body === "object"
-      ) {
-        const body = error.body as ApiErrorBody
-        const detail = body.detail
-
-        if (
-          typeof detail === "object" &&
-          detail?.error === "unsupported_file_extension"
-        ) {
-          toast({
-            title: "File type not supported",
-            description: `${file.name} cannot be uploaded. Allowed file types: ${detail.allowed_extensions?.join(", ") || "txt, pdf, png, jpeg, gif, csv"}`,
-          })
-          return
-        }
-
-        if (
-          typeof detail === "object" &&
-          detail?.error === "unsupported_content_type"
-        ) {
-          toast({
-            title: "Content type not supported",
-            description: `${file.name} has an unsupported content type. Please try a different file type.`,
-          })
-          return
-        }
-      }
-
-      if (
-        error.status === 413 &&
-        error.body &&
-        typeof error.body === "object"
-      ) {
-        const body = error.body as ApiErrorBody
-        const detail = body.detail
-
-        if (typeof detail === "object" && detail?.error === "file_too_large") {
-          toast({
-            title: "File too large",
-            description: `${file.name} is too large to upload. ${detail.message || "Please choose a smaller file."}`,
-          })
-          return
-        }
-
-        if (
-          typeof detail === "object" &&
-          detail?.error === "storage_limit_exceeded"
-        ) {
-          let description = `Adding ${file.name} would exceed the case storage limit.`
-
-          if (
-            detail.current_size_mb &&
-            detail.new_file_size_mb &&
-            detail.max_size_mb
-          ) {
-            description = `Adding ${file.name} (${detail.new_file_size_mb}MB) would exceed the case storage limit. Current usage: ${detail.current_size_mb}MB of ${detail.max_size_mb}MB allowed.`
-          }
-
-          toast({
-            title: "Case storage limit exceeded",
-            description: `${description} Please remove some attachments or choose a smaller file.`,
-          })
-          return
-        }
-      }
-
-      if (
-        error.status === 409 &&
-        error.body &&
-        typeof error.body === "object"
-      ) {
-        const body = error.body as ApiErrorBody
-        const detail = body.detail
-
-        if (
-          typeof detail === "object" &&
-          detail?.error === "max_attachments_exceeded"
-        ) {
-          let description =
-            "This case already has the maximum number of attachments allowed."
-
-          if (detail.current_count && detail.max_count) {
-            description = `This case already has ${detail.current_count} of ${detail.max_count} attachments allowed.`
-          }
-
-          toast({
-            title: "Too many attachments",
-            description: `${description} Please remove some attachments before adding new ones.`,
-          })
-          return
-        }
-      }
-
-      if (
-        error.status === 400 &&
-        error.body &&
-        typeof error.body === "object"
-      ) {
-        const body = error.body as ApiErrorBody
-        const detail = body.detail
-
-        if (
-          typeof detail === "object" &&
-          detail?.error === "file_validation_failed"
-        ) {
-          toast({
-            title: "File validation failed",
-            description: `${file.name} failed validation. Please check the file and try again.`,
-          })
-          return
-        }
-      }
-
-      // Fallback for other errors
-      let errorMessage = error.message || "Unknown error"
-      if (error.body && typeof error.body === "object") {
-        const body = error.body as ApiErrorBody
-        if (body.detail) {
-          errorMessage =
-            typeof body.detail === "string"
-              ? body.detail
-              : body.detail.message || JSON.stringify(body.detail)
-        }
-      }
-
-      toast({
-        title: "Upload failed",
-        description: `Failed to upload ${file.name}. ${errorMessage}`,
-      })
+      toast(describeAttachmentUploadError(error, file.name))
     },
   })
 
@@ -346,6 +240,13 @@ export function CaseAttachmentsSection({
     },
   })
 
+  const showUploadsDisabledToast = useCallback(() => {
+    toast({
+      title: "Attachment uploads disabled",
+      description: "Uploads are disabled for this workspace.",
+    })
+  }, [])
+
   // Add file validation function
   const validateFile = (file: File): boolean => {
     if (file.size > MAX_FILE_SIZE_BYTES) {
@@ -358,23 +259,39 @@ export function CaseAttachmentsSection({
     return true
   }
 
+  const resetFileInput = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ""
+    }
+  }
+
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (uploadsDisabled) {
+      showUploadsDisabledToast()
+      resetFileInput()
+      return
+    }
+
     const file = event.target.files?.[0]
     if (file) {
       // Validate file size before uploading
       if (!validateFile(file)) {
+        resetFileInput()
         return
       }
       setIsUploading(true)
       uploadMutation.mutate(file)
     }
     // Reset input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ""
-    }
+    resetFileInput()
   }
 
   const handleAddAttachment = () => {
+    if (uploadsDisabled) {
+      showUploadsDisabledToast()
+      return
+    }
+
     fileInputRef.current?.click()
   }
 
@@ -401,6 +318,11 @@ export function CaseAttachmentsSection({
       e.stopPropagation()
       setIsDragOver(false)
 
+      if (uploadsDisabled) {
+        showUploadsDisabledToast()
+        return
+      }
+
       const files = Array.from(e.dataTransfer.files)
       const file = files[0] // Only handle the first file
 
@@ -413,7 +335,7 @@ export function CaseAttachmentsSection({
         uploadMutation.mutate(file)
       }
     },
-    [uploadMutation]
+    [showUploadsDisabledToast, uploadMutation, uploadsDisabled]
   )
 
   const handleDownload = async (attachment: CaseAttachmentRead) => {
@@ -521,6 +443,13 @@ export function CaseAttachmentsSection({
     )
   }
 
+  let uploadControlLabel = "Add new attachment (max 20MB)"
+  if (isUploading || uploadMutation.isPending) {
+    uploadControlLabel = "Uploading..."
+  } else if (uploadsDisabled) {
+    uploadControlLabel = "Attachment uploads disabled"
+  }
+
   return (
     <TooltipProvider>
       <div className="mx-auto w-full">
@@ -531,20 +460,32 @@ export function CaseAttachmentsSection({
             onDragLeave={handleDragLeave}
             onDragOver={handleDragOver}
             onDrop={handleDrop}
+            aria-disabled={uploadsDisabled}
             className={cn(
-              "flex items-center gap-2 p-1.5 rounded-md border border-dashed transition-all cursor-pointer group",
-              isDragOver
-                ? "border-blue-500 bg-blue-50 dark:bg-blue-950/20"
-                : "border-muted-foreground/25 hover:border-muted-foreground/50 hover:bg-muted/30"
+              "flex items-center gap-2 p-1.5 rounded-md border border-dashed transition-all group",
+              uploadsDisabled
+                ? "cursor-not-allowed border-muted-foreground/20 opacity-60"
+                : "cursor-pointer border-muted-foreground/25 hover:border-muted-foreground/50 hover:bg-muted/30",
+              isDragOver &&
+                !uploadsDisabled &&
+                "border-blue-500 bg-blue-50 dark:bg-blue-950/20"
             )}
           >
-            <div className="p-1.5 rounded bg-muted group-hover:bg-muted-foreground/10 transition-colors">
+            <div
+              className={cn(
+                "p-1.5 rounded bg-muted transition-colors",
+                !uploadsDisabled && "group-hover:bg-muted-foreground/10"
+              )}
+            >
               <Plus className="h-3.5 w-3.5 text-muted-foreground" />
             </div>
-            <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
-              {isUploading || uploadMutation.isPending
-                ? "Uploading..."
-                : "Add new attachment (max 20MB)"}
+            <span
+              className={cn(
+                "text-xs text-muted-foreground transition-colors",
+                !uploadsDisabled && "group-hover:text-foreground"
+              )}
+            >
+              {uploadControlLabel}
             </span>
           </div>
 
@@ -558,8 +499,9 @@ export function CaseAttachmentsSection({
                 No attachments found
               </h3>
               <p className="text-xs text-muted-foreground/75 text-center max-w-[250px]">
-                Add files by clicking the add button above or drag and drop
-                files directly.
+                {uploadsDisabled
+                  ? "Uploads are disabled for this workspace."
+                  : "Add files by clicking the add button above or drag and drop files directly."}
               </p>
             </div>
           ) : (
@@ -663,6 +605,7 @@ export function CaseAttachmentsSection({
             onChange={handleFileSelect}
             className="hidden"
             accept={acceptAttribute}
+            disabled={uploadsDisabled}
           />
 
           {/* Image Preview Modal */}

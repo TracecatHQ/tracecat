@@ -62,7 +62,14 @@ export function describeAttachmentUploadError(
   const detailObject = typeof detail === "object" ? detail : undefined
 
   switch (detailObject?.error) {
-    case "unsupported_file_extension":
+    case "unsupported_file_extension": {
+      if (detailObject.allowed_extensions?.length === 0) {
+        return {
+          title: "Attachment uploads disabled",
+          description: `${fileName} cannot be uploaded because uploads are disabled for this workspace.`,
+        }
+      }
+
       return {
         title: "File type not supported",
         description: `${fileName} cannot be uploaded. Allowed file types: ${
@@ -70,6 +77,7 @@ export function describeAttachmentUploadError(
           "txt, pdf, png, jpeg, gif, csv"
         }`,
       }
+    }
     case "unsupported_content_type":
       return {
         title: "Content type not supported",

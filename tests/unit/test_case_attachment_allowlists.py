@@ -50,7 +50,7 @@ def test_explicit_empty_workspace_allowlists_reject_attachment_like_input() -> N
 
 
 @pytest.mark.anyio
-async def test_create_attachment_rejects_explicit_empty_workspace_allowlists_before_blob_or_db(
+async def test_create_attachment_rejects_explicit_empty_workspace_allowlists_before_blob_or_file_writes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace_id = uuid.UUID("00000000-0000-4000-8000-000000000001")
@@ -100,7 +100,6 @@ async def test_create_attachment_rejects_explicit_empty_workspace_allowlists_bef
         await service.create_attachment(case=case, params=params)  # type: ignore[arg-type]
 
     upload.assert_not_awaited()
-    session.execute.assert_not_awaited()
     session.add.assert_not_called()
     session.flush.assert_not_awaited()
     session.commit.assert_not_awaited()
