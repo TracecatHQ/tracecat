@@ -1,6 +1,8 @@
+import base64
 import os
 import uuid
 from io import BytesIO
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from dotenv import dotenv_values
@@ -87,6 +89,21 @@ def second_attachment_params() -> CaseAttachmentCreate:
     return CaseAttachmentCreate(
         file_name="second.txt",
         content_type="text/plain",
+        size=len(content),
+        content=content,
+    )
+
+
+@pytest.fixture
+def image_attachment_params() -> CaseAttachmentCreate:
+    # 1x1 transparent PNG (passes magic-number validation).
+    content = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNk"
+        "+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    )
+    return CaseAttachmentCreate(
+        file_name="pasted.png",
+        content_type="image/png",
         size=len(content),
         content=content,
     )
@@ -196,6 +213,54 @@ async def test_create_list_download_delete_attachment(
     types = [e.type for e in events]
     assert CaseEventType.ATTACHMENT_CREATED in types
     assert CaseEventType.ATTACHMENT_DELETED in types
+
+
+@pytest.mark.anyio
+async def test_preview_download_url_inline_only_for_images(
+    configure_minio_for_attachments,
+    test_case: tuple,
+    attachments_service: CaseAttachmentService,
+    image_attachment_params: CaseAttachmentCreate,
+):
+    """Preview mode serves images inline; everything else is forced to download."""
+    case, _ = test_case
+    created = await attachments_service.create_attachment(case, image_attachment_params)
+
+    # Preview requested for an image: served inline with the real content type.
+    url, _, ctype = await attachments_service.get_attachment_download_url(
+        case, created.id, preview=True
+    )
+    query = parse_qs(urlparse(url).query)
+    assert ctype == "image/png"
+    assert query.get("response-content-type") == ["image/png"]
+    assert "response-content-disposition" not in query
+
+    # No preview: forced download as octet-stream.
+    url_dl, _, _ = await attachments_service.get_attachment_download_url(
+        case, created.id, preview=False
+    )
+    query_dl = parse_qs(urlparse(url_dl).query)
+    assert query_dl.get("response-content-type") == ["application/octet-stream"]
+    assert "attachment" in query_dl.get("response-content-disposition", [""])[0]
+
+
+@pytest.mark.anyio
+async def test_preview_forces_download_for_non_image(
+    configure_minio_for_attachments,
+    test_case: tuple,
+    attachments_service: CaseAttachmentService,
+    attachment_params: CaseAttachmentCreate,
+):
+    """Preview mode must not serve non-image attachments inline."""
+    case, _ = test_case
+    created = await attachments_service.create_attachment(case, attachment_params)
+
+    url, _, _ = await attachments_service.get_attachment_download_url(
+        case, created.id, preview=True
+    )
+    query = parse_qs(urlparse(url).query)
+    assert query.get("response-content-type") == ["application/octet-stream"]
+    assert "attachment" in query.get("response-content-disposition", [""])[0]
 
 
 @pytest.mark.anyio

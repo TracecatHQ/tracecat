@@ -17,8 +17,9 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import type React from "react"
+import type { RefObject } from "react"
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react"
-import { useForm } from "react-hook-form"
+import { type UseFormReturn, useForm } from "react-hook-form"
 import { z } from "zod"
 import {
   type CaseCommentRead,
@@ -81,6 +82,11 @@ import { toast } from "@/components/ui/use-toast"
 import { useAuth } from "@/hooks/use-auth"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { SYSTEM_USER_READ, User } from "@/lib/auth"
+import {
+  createPastedImageFile,
+  extractImageFiles,
+  useCaseImageUpload,
+} from "@/lib/cases/use-case-image-upload"
 import { executionId, getWorkflowExecutionUrl } from "@/lib/event-history"
 import {
   useCaseComments,
@@ -603,7 +609,10 @@ function CommentRow({
       ) : (
         <ScrollArea className="w-full">
           <div className="min-w-0 text-sm leading-6">
-            <CaseCommentViewer content={comment.content} />
+            <CaseCommentViewer
+              content={comment.content}
+              workspaceId={workspaceId}
+            />
           </div>
         </ScrollArea>
       )}
@@ -640,6 +649,80 @@ function CommentThreadSkeleton() {
       </div>
     </div>
   )
+}
+
+/**
+ * Enable pasting images into a plain comment `<Textarea>`.
+ *
+ * Pasted images are uploaded as case attachments and inserted as
+ * `![name](attachment://...)` markdown at the cursor, preserving surrounding
+ * text. Exposes an `isUploading` flag so callers can keep submit disabled.
+ */
+function useCommentImagePaste({
+  caseId,
+  workspaceId,
+  form,
+  textareaRef,
+  adjustTextareaHeight,
+}: {
+  caseId: string
+  workspaceId: string
+  form: UseFormReturn<CommentFormSchema>
+  textareaRef: RefObject<HTMLTextAreaElement | null>
+  adjustTextareaHeight: () => void
+}) {
+  const { uploadImage } = useCaseImageUpload(caseId, workspaceId)
+  const [uploadingCount, setUploadingCount] = useState(0)
+
+  const insertAtCursor = useCallback(
+    (text: string) => {
+      const textarea = textareaRef.current
+      const current = form.getValues("content")
+      const start = textarea?.selectionStart ?? current.length
+      const end = textarea?.selectionEnd ?? current.length
+      const next = current.slice(0, start) + text + current.slice(end)
+      form.setValue("content", next, {
+        shouldDirty: true,
+        shouldValidate: true,
+      })
+      const cursor = start + text.length
+      requestAnimationFrame(() => {
+        const node = textareaRef.current
+        if (node) {
+          node.focus()
+          node.setSelectionRange(cursor, cursor)
+        }
+        adjustTextareaHeight()
+      })
+    },
+    [adjustTextareaHeight, form, textareaRef]
+  )
+
+  const handlePaste = useCallback(
+    async (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      const files = extractImageFiles(event.clipboardData)
+      if (files.length === 0) {
+        return
+      }
+      event.preventDefault()
+      setUploadingCount((count) => count + files.length)
+      for (const file of files) {
+        try {
+          const { src, fileName } = await uploadImage(
+            createPastedImageFile(file)
+          )
+          insertAtCursor(`![${fileName}](${src})`)
+        } catch {
+          // Error toast is surfaced by uploadImage.
+        } finally {
+          setUploadingCount((count) => Math.max(0, count - 1))
+        }
+      }
+    },
+    [insertAtCursor, uploadImage]
+  )
+
+  return { handlePaste, isUploading: uploadingCount > 0 }
 }
 
 function CommentComposer({
@@ -690,6 +773,14 @@ function CommentComposer({
     textarea.style.overflowY = "hidden"
   }, [isInline])
 
+  const { handlePaste, isUploading: imageUploading } = useCommentImagePaste({
+    caseId,
+    workspaceId,
+    form,
+    textareaRef,
+    adjustTextareaHeight,
+  })
+
   const content = form.watch("content")
   const trimmedContent = content.trim()
   const selectedWorkflow = useMemo(
@@ -738,6 +829,9 @@ function CommentComposer({
   const handleKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault()
+      if (createCommentIsPending || imageUploading) {
+        return
+      }
       form.handleSubmit(handleSubmit)()
     }
   }
@@ -777,6 +871,7 @@ function CommentComposer({
                       adjustTextareaHeight()
                     }}
                     onKeyDown={handleKeyDown}
+                    onPaste={(event) => void handlePaste(event)}
                     placeholder={placeholder}
                     value={field.value}
                   />
@@ -881,17 +976,26 @@ function CommentComposer({
             ) : (
               <div />
             )}
-            <Button
-              type="submit"
-              variant="outline"
-              size="icon"
-              className="size-7 shrink-0 rounded-full border-border/70"
-              disabled={createCommentIsPending || !trimmedContent}
-              aria-label="Send"
-            >
-              <ArrowUpIcon className="size-3.5" />
-              <span className="sr-only">Send</span>
-            </Button>
+            <div className="flex items-center gap-2">
+              {imageUploading ? (
+                <span className="text-xs text-muted-foreground">
+                  Uploading image…
+                </span>
+              ) : null}
+              <Button
+                type="submit"
+                variant="outline"
+                size="icon"
+                className="size-7 shrink-0 rounded-full border-border/70"
+                disabled={
+                  createCommentIsPending || imageUploading || !trimmedContent
+                }
+                aria-label="Send"
+              >
+                <ArrowUpIcon className="size-3.5" />
+                <span className="sr-only">Send</span>
+              </Button>
+            </div>
           </div>
         </form>
       </Form>
@@ -932,6 +1036,14 @@ function InlineCommentEdit({
     textarea.style.overflowY = "hidden"
   }, [])
 
+  const { handlePaste, isUploading: imageUploading } = useCommentImagePaste({
+    caseId,
+    workspaceId,
+    form,
+    textareaRef,
+    adjustTextareaHeight,
+  })
+
   const content = form.watch("content")
 
   useLayoutEffect(() => {
@@ -956,6 +1068,9 @@ function InlineCommentEdit({
   const handleKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault()
+      if (updateCommentIsPending || imageUploading) {
+        return
+      }
       form.handleSubmit(handleSubmit)()
     }
   }
@@ -983,6 +1098,7 @@ function InlineCommentEdit({
                     adjustTextareaHeight()
                   }}
                   onKeyDown={handleKeyDown}
+                  onPaste={(event) => void handlePaste(event)}
                   value={field.value}
                 />
               </FormControl>
@@ -992,6 +1108,11 @@ function InlineCommentEdit({
         />
 
         <div className="flex items-center justify-end gap-2">
+          {imageUploading ? (
+            <span className="mr-auto text-xs text-muted-foreground">
+              Uploading image…
+            </span>
+          ) : null}
           <Button
             type="button"
             variant="ghost"
@@ -1005,7 +1126,9 @@ function InlineCommentEdit({
             type="submit"
             size="sm"
             className="h-7 px-2 text-xs"
-            disabled={updateCommentIsPending || !content.trim()}
+            disabled={
+              updateCommentIsPending || imageUploading || !content.trim()
+            }
           >
             Save
           </Button>
