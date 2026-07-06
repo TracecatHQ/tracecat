@@ -210,6 +210,10 @@ function readOAuthClientCredentials(value: string) {
   return { clientId, clientSecret: clientSecret || undefined }
 }
 
+function formatJsonStringMap(value: Record<string, string> | null | undefined) {
+  return value ? JSON.stringify(value, null, 2) : ""
+}
+
 function catalogMcpProviderId(
   entry: PlatformMCPCatalogRead,
   optionId: string | null | undefined
@@ -570,6 +574,7 @@ export function MCPIntegrationDialog({
       }
       const hydratedStdioArgs =
         mcpIntegration.stdio_args?.map((arg) => ({ value: arg })) || []
+      const hydratedStdioEnv = formatJsonStringMap(mcpIntegration.stdio_env)
       form.reset({
         name: mcpIntegration.name,
         description: mcpIntegration.description || "",
@@ -584,7 +589,7 @@ export function MCPIntegrationDialog({
         custom_credentials: "", // Don't populate for security
         stdio_command: mcpIntegration.stdio_command || "",
         stdio_args: hydratedStdioArgs,
-        stdio_env: "", // Env vars are not returned from API for security
+        stdio_env: hydratedStdioEnv,
         timeout: mcpIntegration.timeout || 30,
         catalog_slug: catalogEntry?.slug || "",
         connection_option_id: catalogOptionIdForIntegration(
@@ -627,6 +632,7 @@ export function MCPIntegrationDialog({
     ) {
       const hydratedStdioArgs =
         mcpIntegration.stdio_args?.map((arg) => ({ value: arg })) || []
+      const hydratedStdioEnv = formatJsonStringMap(mcpIntegration.stdio_env)
       form.reset({
         name: mcpIntegration.name,
         description: mcpIntegration.description || "",
@@ -641,7 +647,7 @@ export function MCPIntegrationDialog({
         custom_credentials: "",
         stdio_command: mcpIntegration.stdio_command || "",
         stdio_args: hydratedStdioArgs,
-        stdio_env: "", // Env vars are not returned from API for security
+        stdio_env: hydratedStdioEnv,
         timeout: mcpIntegration.timeout || 30,
         catalog_slug: catalogEntry?.slug || "",
         connection_option_id: catalogOptionIdForIntegration(
@@ -682,6 +688,9 @@ export function MCPIntegrationDialog({
         values.server_type === "stdio" && values.stdio_env?.trim()
           ? (JSON.parse(values.stdio_env) as Record<string, string>)
           : undefined
+      const stdioEnvForUpdate: Record<string, string> = values.stdio_env?.trim()
+        ? (stdioEnv ?? {})
+        : {}
 
       const baseParams = {
         name: values.name.trim(),
@@ -720,7 +729,7 @@ export function MCPIntegrationDialog({
                 server_type: "stdio",
                 stdio_command: values.stdio_command?.trim() ?? "",
                 stdio_args: stdioArgs,
-                stdio_env: stdioEnv,
+                stdio_env: stdioEnvForUpdate,
               }
             : {
                 ...baseParams,
@@ -1422,13 +1431,14 @@ export function MCPIntegrationDialog({
                                 value={field.value || ""}
                                 onChange={field.onChange}
                                 language="json"
-                                className="font-mono text-xs [&_.cm-content]:text-xs [&_.cm-editor]:min-h-[80px]"
+                                wrapLongLines
+                                className="font-mono text-xs [&_.cm-content]:min-h-[112px] [&_.cm-content]:px-1 [&_.cm-content]:py-2 [&_.cm-content]:text-xs [&_.cm-editor]:min-h-[112px] [&_.cm-gutters]:py-2 [&_.cm-line]:pr-2 [&_.cm-scroller]:min-h-[112px]"
                               />
                             </FormControl>
                             <FormDescription className="text-xs">
                               JSON object with environment variables for the
-                              stdio command. Template expressions are supported,
-                              for example{" "}
+                              stdio command. Existing values can be edited here.
+                              Secret references are supported, for example{" "}
                               <code>
                                 {
                                   '{"GITHUB_TOKEN": "${{ SECRETS.github.TOKEN }}"}'

@@ -89,6 +89,7 @@ def _mcp_integration_read(
     mcp_integration: MCPIntegration,
     *,
     state: PlatformMCPCatalogState,
+    stdio_env: dict[str, str] | None = None,
 ) -> MCPIntegrationRead:
     return MCPIntegrationRead(
         id=mcp_integration.id,
@@ -106,6 +107,7 @@ def _mcp_integration_read(
         stdio_command=mcp_integration.stdio_command,
         stdio_args=mcp_integration.stdio_args,
         has_stdio_env=bool(mcp_integration.encrypted_stdio_env),
+        stdio_env=stdio_env,
         timeout=mcp_integration.timeout,
         tools=MCPToolSummary.validate_stored(
             mcp_integration.tools, mcp_integration_id=mcp_integration.id
@@ -1147,6 +1149,7 @@ async def get_mcp_integration(
     return _mcp_integration_read(
         integration,
         state=await svc.mcp_integration_state(mcp_integration=integration),
+        stdio_env=svc.decrypt_stdio_env(integration),
     )
 
 
