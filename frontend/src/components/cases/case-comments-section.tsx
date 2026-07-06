@@ -829,6 +829,9 @@ function CommentComposer({
   const handleKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault()
+      if (createCommentIsPending || imageUploading) {
+        return
+      }
       form.handleSubmit(handleSubmit)()
     }
   }
@@ -1065,6 +1068,9 @@ function InlineCommentEdit({
   const handleKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault()
+      if (updateCommentIsPending || imageUploading) {
+        return
+      }
       form.handleSubmit(handleSubmit)()
     }
   }
