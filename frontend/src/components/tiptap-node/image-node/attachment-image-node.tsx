@@ -124,7 +124,7 @@ function AttachmentImageNodeView({ node, extension, selected }: NodeViewProps) {
     )
   }
 
-  if (isError) {
+  if (isError || !workspaceId) {
     return (
       <NodeViewWrapper className={wrapperClass}>
         <AttachmentImagePlaceholder label={alt || "Image unavailable"} />
