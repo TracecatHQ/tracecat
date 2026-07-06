@@ -15,10 +15,11 @@ interface CaseDescriptionEditorProps {
   onBlur?: () => void
   toolbarStatus?: React.ReactNode
   autoFocus?: boolean
-  /** Enables image paste/drop uploads when paired with `workspaceId`. */
-  caseId?: string
-  /** Workspace that owns the case; required for image support. */
-  workspaceId?: string
+  /** Case and workspace to attach pasted/dropped images to; omit to disable image uploads. */
+  imageTarget?: {
+    caseId: string
+    workspaceId: string
+  }
 }
 
 export function CaseDescriptionEditor({
@@ -28,8 +29,7 @@ export function CaseDescriptionEditor({
   onBlur,
   toolbarStatus,
   autoFocus = false,
-  caseId,
-  workspaceId,
+  imageTarget,
 }: CaseDescriptionEditorProps) {
   const [value, setValue] = React.useState(initialContent ?? "")
   const [isEditorActive, setIsEditorActive] = React.useState(false)
@@ -66,8 +66,11 @@ export function CaseDescriptionEditor({
     setIsEditorActive(true)
   }, [])
 
-  const imagesEnabled = Boolean(caseId && workspaceId)
-  const { uploadImage } = useCaseImageUpload(caseId ?? "", workspaceId ?? "")
+  const imagesEnabled = Boolean(imageTarget)
+  const { uploadImage } = useCaseImageUpload(
+    imageTarget?.caseId ?? "",
+    imageTarget?.workspaceId ?? ""
+  )
   const handleImageUpload = React.useCallback(
     async (file: File) => (await uploadImage(file)).src,
     [uploadImage]
@@ -92,7 +95,7 @@ export function CaseDescriptionEditor({
         className="case-description-editor"
         autoFocus={autoFocus}
         enableImages={imagesEnabled}
-        imageWorkspaceId={workspaceId ?? null}
+        imageWorkspaceId={imageTarget?.workspaceId ?? null}
         onImageUpload={imagesEnabled ? handleImageUpload : undefined}
       />
     </div>

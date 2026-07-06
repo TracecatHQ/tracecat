@@ -171,8 +171,7 @@ export function CasePanelDescription({
                     }}
                     onBlur={handleBlur}
                     toolbarStatus={toolbarStatus}
-                    caseId={caseData.id}
-                    workspaceId={workspaceId}
+                    imageTarget={{ caseId: caseData.id, workspaceId }}
                   />
                 </FormControl>
               </FormItem>
