@@ -269,6 +269,14 @@ def call_paginated_api(
             description='Dot-separated response path for the next page token. Defaults to "nextPageToken".',
         ),
     ] = "nextPageToken",
+    max_pages: Annotated[
+        int | None,
+        Field(
+            ...,
+            ge=1,
+            description="Maximum number of pages to fetch. If null, fetches every page.",
+        ),
+    ] = None,
 ) -> list[GoogleAPIResponse]:
     if not page_token_param:
         raise ValueError("Page token request parameter cannot be empty.")
@@ -294,6 +302,8 @@ def call_paginated_api(
             )
         page = cast(GoogleAPIResponse, response)
         pages.append(page)
+        if max_pages is not None and len(pages) >= max_pages:
+            break
         next_page_token = _get_value_by_path(page, next_page_token_path)
         if not next_page_token:
             break

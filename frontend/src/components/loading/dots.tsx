@@ -13,7 +13,7 @@ export function Dots() {
       {[0, 1, 2].map((index) => (
         <motion.div
           key={index}
-          className="size-[3px] bg-gray-500 rounded-full"
+          className="size-[3px] bg-muted-foreground rounded-full"
           variants={dotVariants}
           initial="initial"
           animate="animate"

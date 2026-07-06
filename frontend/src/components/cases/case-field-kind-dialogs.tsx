@@ -8,6 +8,7 @@ import { type Diagnostic, linter, lintGutter } from "@codemirror/lint"
 import { EditorView } from "@codemirror/view"
 import CodeMirror from "@uiw/react-codemirror"
 import { ExternalLink } from "lucide-react"
+import { useTheme } from "next-themes"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { CaseDescriptionEditor } from "@/components/cases/case-description-editor"
 import { Button } from "@/components/ui/button"
@@ -207,6 +208,8 @@ export function JsonFieldDialog({
   initialValue,
   onSave,
 }: JsonFieldDialogProps) {
+  const { resolvedTheme } = useTheme()
+  const codeMirrorTheme = resolvedTheme === "dark" ? "dark" : "light"
   const serialized =
     initialValue === null || initialValue === undefined
       ? ""
@@ -273,6 +276,7 @@ export function JsonFieldDialog({
             if (error) setError(validate(val) ? null : "Invalid JSON")
           }}
           height="300px"
+          theme={codeMirrorTheme}
           extensions={extensions}
           autoFocus
           basicSetup={{

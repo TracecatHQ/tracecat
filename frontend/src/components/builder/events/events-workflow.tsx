@@ -646,7 +646,9 @@ export function getTriggerTypeIcon(
     default:
       console.error(`Unknown trigger type: ${triggerType}`)
       return (
-        <QuestionMarkIcon className={cn("size-3 text-gray-600", className)} />
+        <QuestionMarkIcon
+          className={cn("size-3 text-muted-foreground", className)}
+        />
       )
   }
 }

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -179,3 +179,17 @@ class AgentSessionForkRequest(BaseModel):
         description="Override entity type for the forked session. "
         "Use 'approval' for inbox forks to hide from main chat list.",
     )
+
+
+class AgentSessionCancelRequest(BaseModel):
+    """Request schema for cancelling the active agent session turn."""
+
+    reason: Literal["user_cancel"] = "user_cancel"
+
+
+class AgentSessionCancelResponse(BaseModel):
+    """Response schema for an accepted agent session cancellation request."""
+
+    session_id: uuid.UUID
+    run_id: uuid.UUID
+    reason: str

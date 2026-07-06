@@ -69,7 +69,7 @@ export function EventIcon({
     <div className="bg-background py-[2px]">
       <div
         className={cn(
-          "rounded-full border border-muted-foreground/70 bg-white p-px",
+          "rounded-full border border-muted-foreground/70 bg-background p-px",
           className
         )}
       >

@@ -214,6 +214,7 @@ class ChatMessage(BaseModel):
     - kind=CHAT_MESSAGE: Contains message field with user/assistant content
     - kind=APPROVAL_REQUEST/APPROVAL_DECISION: Contains approval field with approval data
     - kind=COMPACTION: Contains compaction field with compaction status data
+    - kind=CANCELLED: Contains cancelled field with turn-cancelled marker data
     """
 
     id: str = Field(..., description="Unique message identifier")
@@ -232,6 +233,10 @@ class ChatMessage(BaseModel):
     compaction: dict[str, Any] | None = Field(
         default=None,
         description="Compaction status data for badge rendering (for kind=COMPACTION)",
+    )
+    cancelled: dict[str, Any] | None = Field(
+        default=None,
+        description="Turn-cancelled marker data (for kind=CANCELLED)",
     )
 
     @classmethod

@@ -240,9 +240,12 @@ async def test_agent_executor_worker_treats_empty_numeric_env_vars_as_defaults(
             max_concurrent_activities: int,
             disable_eager_activity_execution: bool,
             activity_executor: ThreadPoolExecutor,
+            max_heartbeat_throttle_interval: timedelta,
+            default_heartbeat_throttle_interval: timedelta,
             graceful_shutdown_timeout: timedelta,
         ) -> None:
             del client, activities, workflow_runner, disable_eager_activity_execution
+            del max_heartbeat_throttle_interval, default_heartbeat_throttle_interval
             captured["task_queue"] = task_queue
             captured["max_concurrent_activities"] = max_concurrent_activities
             captured["threadpool_max_workers"] = activity_executor._max_workers

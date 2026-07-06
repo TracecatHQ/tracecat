@@ -33,7 +33,7 @@ export function WorkflowEventsList({
   return (
     <div className={cn("relative", className)}>
       {rows.length > 0 && (
-        <div className="pointer-events-none absolute bottom-6 left-[22px] top-6 w-px bg-gray-300" />
+        <div className="pointer-events-none absolute bottom-6 left-[22px] top-6 w-px bg-border" />
       )}
       {rows.map((row) => {
         const isInteractive = Boolean(row.onSelect)
@@ -77,7 +77,7 @@ export function WorkflowEventsList({
                       className={cn(
                         "h-4 px-1.5 text-[10px] font-medium text-foreground/60",
                         isIterationMeta &&
-                          "h-4 min-w-4 rounded-full border border-zinc-300 bg-zinc-200 px-1 font-semibold tabular-nums text-[9px] text-zinc-800"
+                          "h-4 min-w-4 rounded-full border border-border bg-muted px-1 font-semibold tabular-nums text-[9px] text-muted-foreground"
                       )}
                     >
                       {row.meta}

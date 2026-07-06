@@ -13,6 +13,7 @@ import { TextAlign } from "@tiptap/extension-text-align"
 import { Typography } from "@tiptap/extension-typography"
 import { Selection } from "@tiptap/extensions"
 import { Markdown } from "@tiptap/markdown"
+import type { EditorView } from "@tiptap/pm/view"
 import {
   type Editor,
   EditorContent,
@@ -23,6 +24,7 @@ import {
 import { StarterKit } from "@tiptap/starter-kit"
 import * as React from "react"
 import { HorizontalRule } from "@/components/tiptap-node/horizontal-rule-node/horizontal-rule-node-extension"
+import { AttachmentImage } from "@/components/tiptap-node/image-node/attachment-image-node"
 // --- Tiptap Node ---
 import { ImageUploadNode } from "@/components/tiptap-node/image-upload-node/image-upload-node-extension"
 import { MermaidCodeBlock } from "@/components/tiptap-node/mermaid-code-block-node/mermaid-code-block-node"
@@ -84,8 +86,37 @@ import { useTiptapEditor } from "@/hooks/use-tiptap-editor"
 import { useWindowSize } from "@/hooks/use-window-size"
 
 // --- Lib ---
+import {
+  createPastedImageFile,
+  extractImageFiles,
+} from "@/lib/cases/use-case-image-upload"
 import { handleImageUpload, MAX_FILE_SIZE } from "@/lib/tiptap-utils"
 import { cn } from "@/lib/utils"
+
+/** Upload images then insert image nodes at the drop position or selection. */
+async function uploadAndInsertImages(
+  view: EditorView,
+  files: File[],
+  upload: (file: File) => Promise<string>,
+  startPos?: number
+): Promise<void> {
+  let insertPos = startPos
+  for (const file of files) {
+    try {
+      const src = await upload(file)
+      const imageType = view.state.schema.nodes.image
+      if (!imageType) {
+        continue
+      }
+      const node = imageType.create({ src, alt: file.name })
+      const pos = insertPos ?? view.state.selection.to
+      view.dispatch(view.state.tr.insert(pos, node))
+      insertPos = pos + node.nodeSize
+    } catch {
+      // Upload failures are surfaced by the upload function's own toast.
+    }
+  }
+}
 
 // --- Styles ---
 import "@/components/tiptap-templates/simple/simple-editor.scss"
@@ -475,6 +506,23 @@ export interface SimpleEditorProps {
    * Optional inline styles for the wrapper.
    */
   style?: React.CSSProperties
+  /**
+   * Enable inline image support: registers the image node so `![](...)`
+   * markdown round-trips and, when combined with `onImageUpload`, enables
+   * paste/drop uploads.
+   * @default false
+   */
+  enableImages?: boolean
+  /**
+   * Workspace id used to resolve `attachment://` image srcs at render time.
+   * Required for images to display.
+   */
+  imageWorkspaceId?: string | null
+  /**
+   * Upload a pasted/dropped image and return its stable markdown src (e.g.
+   * `attachment://<caseId>/<attachmentId>`). Required to enable paste/drop.
+   */
+  onImageUpload?: (file: File) => Promise<string>
 }
 
 export function SimpleEditor({
@@ -493,6 +541,9 @@ export function SimpleEditor({
   renderMermaidWhenBlurred = false,
   autoFocus = false,
   style,
+  enableImages = false,
+  imageWorkspaceId = null,
+  onImageUpload,
 }: SimpleEditorProps) {
   const isMobile = useIsMobile()
   const { height } = useWindowSize()
@@ -502,6 +553,11 @@ export function SimpleEditor({
   const toolbarRef = React.useRef<HTMLDivElement>(null)
   const markdownRef = React.useRef<string>(value ?? "")
   const previousEditableRef = React.useRef(editable)
+  const imageUploadRef = React.useRef(onImageUpload)
+
+  React.useEffect(() => {
+    imageUploadRef.current = onImageUpload
+  }, [onImageUpload])
 
   const extensions = React.useMemo(
     () => [
@@ -532,6 +588,9 @@ export function SimpleEditor({
         ? [Highlight.configure({ multicolor: true })]
         : []),
       ...(SIMPLE_EDITOR_FEATURE_FLAGS.images ? [Image] : []),
+      ...(enableImages
+        ? [AttachmentImage.configure({ workspaceId: imageWorkspaceId })]
+        : []),
       Typography,
       ...(SIMPLE_EDITOR_FEATURE_FLAGS.superSub ? [Superscript, Subscript] : []),
       Selection,
@@ -552,7 +611,7 @@ export function SimpleEditor({
         },
       }),
     ],
-    [renderMermaidWhenBlurred]
+    [renderMermaidWhenBlurred, enableImages, imageWorkspaceId]
   )
 
   const editor = useEditor({
@@ -568,6 +627,40 @@ export function SimpleEditor({
         "aria-label": "Main content area, start typing to enter text.",
         class: cn("simple-editor", !editable && "simple-editor--readonly"),
         ...(placeholder ? { "data-placeholder": placeholder } : {}),
+      },
+      handlePaste: (view, event) => {
+        const upload = imageUploadRef.current
+        if (!upload) {
+          return false
+        }
+        const files = extractImageFiles(event.clipboardData)
+        if (files.length === 0) {
+          return false
+        }
+        event.preventDefault()
+        void uploadAndInsertImages(
+          view,
+          files.map(createPastedImageFile),
+          upload
+        )
+        return true
+      },
+      handleDrop: (view, event) => {
+        const upload = imageUploadRef.current
+        if (!upload) {
+          return false
+        }
+        const files = extractImageFiles(event.dataTransfer)
+        if (files.length === 0) {
+          return false
+        }
+        event.preventDefault()
+        const coords = view.posAtCoords({
+          left: event.clientX,
+          top: event.clientY,
+        })
+        void uploadAndInsertImages(view, files, upload, coords?.pos)
+        return true
       },
     },
     extensions,

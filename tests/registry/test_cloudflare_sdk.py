@@ -17,9 +17,11 @@ class FakeCloudflarePage:
 
     def __init__(self, pages: list[list[Any]]) -> None:
         self.pages = pages
+        self.pages_fetched = 0
 
     def __iter__(self) -> Any:
         for page in self.pages:
+            self.pages_fetched += 1
             yield from page
 
 
@@ -150,3 +152,64 @@ def test_call_paginated_method_flattens_all_page_items(monkeypatch) -> None:
 
     assert result == [{"id": "one"}, {"id": "two"}, {"id": "three"}]
     assert calls == {"params": {"account_id": "account-id"}}
+
+
+def test_call_paginated_method_stops_at_limit(monkeypatch) -> None:
+    page = FakeCloudflarePage(
+        [
+            [FakeCloudflareModel(id="one"), FakeCloudflareModel(id="two")],
+            [FakeCloudflareModel(id="three"), FakeCloudflareModel(id="four")],
+            [FakeCloudflareModel(id="five")],
+        ]
+    )
+
+    monkeypatch.setattr(cloudflare_sdk, "BaseSyncPage", FakeCloudflarePage)
+    monkeypatch.setattr(
+        cloudflare_sdk.secrets,
+        "get",
+        lambda key: "cf-token" if key == "CLOUDFLARE_API_TOKEN" else None,
+    )
+    monkeypatch.setattr(
+        cloudflare_sdk,
+        "Cloudflare",
+        lambda *, api_token: SimpleNamespace(
+            zones=SimpleNamespace(list=lambda **_params: page)
+        ),
+    )
+
+    result = cloudflare_sdk.call_paginated_method(
+        resource="zones",
+        method_name="list",
+        limit=3,
+    )
+
+    assert result == [{"id": "one"}, {"id": "two"}, {"id": "three"}]
+    # Iteration must stop at the limit instead of fetching remaining pages.
+    assert page.pages_fetched == 2
+
+
+def test_call_paginated_method_limit_above_total_returns_all(monkeypatch) -> None:
+    page = FakeCloudflarePage([[FakeCloudflareModel(id="one")], [{"id": "two"}]])
+
+    monkeypatch.setattr(cloudflare_sdk, "BaseSyncPage", FakeCloudflarePage)
+    monkeypatch.setattr(
+        cloudflare_sdk.secrets,
+        "get",
+        lambda key: "cf-token" if key == "CLOUDFLARE_API_TOKEN" else None,
+    )
+    monkeypatch.setattr(
+        cloudflare_sdk,
+        "Cloudflare",
+        lambda *, api_token: SimpleNamespace(
+            zones=SimpleNamespace(list=lambda **_params: page)
+        ),
+    )
+
+    result = cloudflare_sdk.call_paginated_method(
+        resource="zones",
+        method_name="list",
+        limit=10,
+    )
+
+    assert result == [{"id": "one"}, {"id": "two"}]
+    assert page.pages_fetched == 2

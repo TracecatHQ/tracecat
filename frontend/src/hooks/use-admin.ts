@@ -46,6 +46,7 @@ import {
   adminListUsers,
   adminPromoteOrgRepositoryVersion,
   adminPromoteToSuperuser,
+  adminRegistryDeleteRegistryVersion,
   adminRegistryGetRegistryStatus,
   adminRegistryListRegistryVersions,
   adminRegistryPromoteRegistryVersion,
@@ -756,6 +757,19 @@ export function useAdminRegistrySync() {
       },
     })
 
+  const { mutateAsync: deleteVersion, isPending: deletePending } = useMutation({
+    mutationFn: ({
+      repositoryId,
+      versionId,
+    }: {
+      repositoryId: string
+      versionId: string
+    }) => adminRegistryDeleteRegistryVersion({ repositoryId, versionId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "registry"] })
+    },
+  })
+
   const { mutateAsync: syncRepository, isPending: syncPending } = useMutation({
     mutationFn: ({
       repositoryId,
@@ -805,6 +819,8 @@ export function useAdminRegistrySync() {
     syncPending,
     promoteVersion,
     promotePending,
+    deleteVersion,
+    deletePending,
     backfillArtifacts,
     backfillArtifactsPending,
   }

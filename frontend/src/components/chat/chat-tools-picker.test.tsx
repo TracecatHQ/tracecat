@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, within } from "@testing-library/react"
 import type { MCPIntegrationRead, RegistryActionReadMinimal } from "@/client"
 import {
   ChatToolsPicker,
@@ -15,6 +15,11 @@ jest.mock("@/components/ui/popover", () => ({
   PopoverTrigger: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
   ),
+}))
+
+const mockToast = jest.fn()
+jest.mock("@/components/ui/use-toast", () => ({
+  toast: (...args: unknown[]) => mockToast(...args),
 }))
 
 const runrevealIntegration = {
@@ -121,6 +126,118 @@ describe("DEFAULT_CAPABILITY_GROUPS", () => {
 })
 
 describe("ChatToolsPicker", () => {
+  beforeEach(() => {
+    mockToast.mockClear()
+  })
+
+  it("disables the add toggle for an unselected tool once the limit is reached", () => {
+    const onToolsChange = jest.fn()
+    const selected = Array.from({ length: 50 }, (_, i) => `extra.tool.t${i}`)
+
+    render(
+      <ChatToolsPicker
+        registryActions={[
+          ...selected.map((action) => registryAction(action)),
+          registryAction("extra.tool.brand_new", {
+            default_title: "Brand new tool",
+            display_group: "Extras",
+          }),
+        ]}
+        selectedTools={selected}
+        onToolsChange={onToolsChange}
+        mcpIntegrations={[]}
+        selectedMcpIntegrations={[]}
+        onMcpChange={jest.fn()}
+        surface="regular"
+      />
+    )
+
+    // Footer shows a limit message (no persistent counter).
+    expect(screen.getByText(/reached the 50-tool limit/i)).toBeInTheDocument()
+
+    fireEvent.change(
+      screen.getByPlaceholderText("Search capabilities & tools..."),
+      { target: { value: "brand new" } }
+    )
+
+    // The unselected tool's toggle is disabled, so it can't be added past 50.
+    const addSwitch = screen.getByRole("switch")
+    expect(addSwitch).toBeDisabled()
+    fireEvent.click(addSwitch)
+    expect(onToolsChange).not.toHaveBeenCalled()
+  })
+
+  it("blocks a group toggle that would push past the limit with a message", () => {
+    const onToolsChange = jest.fn()
+    const filler = Array.from({ length: 48 }, (_, i) => `filler.tool.t${i}`)
+    const extras = Array.from({ length: 5 }, (_, i) => `extras.tool.e${i}`)
+
+    render(
+      <ChatToolsPicker
+        registryActions={[
+          ...filler.map((action) =>
+            registryAction(action, { display_group: "Filler" })
+          ),
+          ...extras.map((action) =>
+            registryAction(action, { display_group: "Extras" })
+          ),
+        ]}
+        selectedTools={filler}
+        onToolsChange={onToolsChange}
+        mcpIntegrations={[]}
+        selectedMcpIntegrations={[]}
+        onMcpChange={jest.fn()}
+        surface="regular"
+      />
+    )
+
+    // 48 selected + a 5-tool group would be 53, over the cap: add none, warn.
+    const extrasHeader = screen.getByText("Extras").closest("div")
+    expect(extrasHeader).not.toBeNull()
+    const groupSwitch = within(extrasHeader as HTMLElement).getByRole("switch")
+    fireEvent.click(groupSwitch)
+
+    expect(onToolsChange).not.toHaveBeenCalled()
+    expect(mockToast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Tool limit reached" })
+    )
+  })
+
+  it("still allows removing a selected tool at the limit", () => {
+    const onToolsChange = jest.fn()
+    const selected = Array.from({ length: 50 }, (_, i) => `extra.tool.t${i}`)
+
+    render(
+      <ChatToolsPicker
+        registryActions={[
+          ...selected.map((action, i) =>
+            registryAction(action, {
+              default_title: i === 0 ? "Removable tool" : undefined,
+              display_group: "Extras",
+            })
+          ),
+        ]}
+        selectedTools={selected}
+        onToolsChange={onToolsChange}
+        mcpIntegrations={[]}
+        selectedMcpIntegrations={[]}
+        onMcpChange={jest.fn()}
+        surface="regular"
+      />
+    )
+
+    fireEvent.change(
+      screen.getByPlaceholderText("Search capabilities & tools..."),
+      { target: { value: "removable" } }
+    )
+    fireEvent.click(screen.getByText("Removable tool"))
+
+    expect(onToolsChange).toHaveBeenCalledWith(
+      selected.filter((tool) => tool !== "extra.tool.t0")
+    )
+    expect(mockToast).not.toHaveBeenCalled()
+  })
+
   it("hides MCP integrations when they are not enabled for the chat surface", () => {
     render(
       <ChatToolsPicker

@@ -3378,6 +3378,44 @@ export const $AgentSessionArtifactsRead = {
   description: "Response schema for persisted agent session artifacts.",
 } as const
 
+export const $AgentSessionCancelRequest = {
+  properties: {
+    reason: {
+      type: "string",
+      const: "user_cancel",
+      title: "Reason",
+      default: "user_cancel",
+    },
+  },
+  type: "object",
+  title: "AgentSessionCancelRequest",
+  description: "Request schema for cancelling the active agent session turn.",
+} as const
+
+export const $AgentSessionCancelResponse = {
+  properties: {
+    session_id: {
+      type: "string",
+      format: "uuid",
+      title: "Session Id",
+    },
+    run_id: {
+      type: "string",
+      format: "uuid",
+      title: "Run Id",
+    },
+    reason: {
+      type: "string",
+      title: "Reason",
+    },
+  },
+  type: "object",
+  required: ["session_id", "run_id", "reason"],
+  title: "AgentSessionCancelResponse",
+  description:
+    "Response schema for an accepted agent session cancellation request.",
+} as const
+
 export const $AgentSessionCreate = {
   properties: {
     id: {
@@ -9218,6 +9256,19 @@ export const $ChatMessage = {
       description:
         "Compaction status data for badge rendering (for kind=COMPACTION)",
     },
+    cancelled: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Cancelled",
+      description: "Turn-cancelled marker data (for kind=CANCELLED)",
+    },
   },
   type: "object",
   required: ["id"],
@@ -9227,7 +9278,8 @@ export const $ChatMessage = {
 This model supports multiple message kinds:
 - kind=CHAT_MESSAGE: Contains message field with user/assistant content
 - kind=APPROVAL_REQUEST/APPROVAL_DECISION: Contains approval field with approval data
-- kind=COMPACTION: Contains compaction field with compaction status data`,
+- kind=COMPACTION: Contains compaction field with compaction status data
+- kind=CANCELLED: Contains cancelled field with turn-cancelled marker data`,
 } as const
 
 export const $ChatRead = {
@@ -16849,6 +16901,7 @@ export const $MessageKind = {
     "approval-decision",
     "internal",
     "compaction",
+    "cancelled",
   ],
   title: "MessageKind",
   description: "The type/kind of message stored in the chat.",

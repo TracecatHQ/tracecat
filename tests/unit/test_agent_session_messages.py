@@ -81,6 +81,83 @@ async def test_list_messages_preserves_compaction_metadata() -> None:
 
 
 @pytest.mark.anyio
+async def test_list_messages_maps_cancelled_marker() -> None:
+    service, agent_session = _build_service()
+    cancelled_entry = SimpleNamespace(
+        id=uuid.uuid4(),
+        kind=MessageKind.CANCELLED.value,
+        content={
+            "type": "cancelled",
+            "reason": "user_cancel",
+            "timestamp": "2026-07-02T00:00:00Z",
+        },
+    )
+
+    service.get_session = AsyncMock(return_value=agent_session)
+    service.session.execute = AsyncMock(
+        side_effect=[
+            _mock_scalar_result([cancelled_entry]),
+            _mock_scalar_result([]),
+        ]
+    )
+
+    messages = await service.list_messages(agent_session.id)
+
+    assert len(messages) == 1
+    assert messages[0].kind == MessageKind.CANCELLED
+    assert messages[0].cancelled == {"reason": "user_cancel"}
+
+
+@pytest.mark.anyio
+async def test_load_session_history_omits_cancelled_marker_rows() -> None:
+    service, _ = _build_service()
+    session_id = uuid.uuid4()
+    sdk_session = SimpleNamespace(
+        id=session_id,
+        parent_session_id=None,
+        sdk_session_id="sdk-session-123",
+        curr_run_id=None,
+    )
+    entries = [
+        SimpleNamespace(
+            kind=MessageKind.CHAT_MESSAGE.value,
+            content={
+                "type": "user",
+                "uuid": "prompt-uuid",
+                "message": {"role": "user", "content": "List cases."},
+            },
+        ),
+        SimpleNamespace(
+            kind=MessageKind.CANCELLED.value,
+            content={
+                "type": "cancelled",
+                "reason": "user_cancel",
+                "timestamp": "2026-07-02T00:00:00Z",
+            },
+        ),
+        SimpleNamespace(
+            kind=MessageKind.CHAT_MESSAGE.value,
+            content={
+                "type": "assistant",
+                "uuid": "answer-uuid",
+                "parentUuid": "prompt-uuid",
+                "message": {"content": [{"type": "text", "text": "Stopped early."}]},
+            },
+        ),
+    ]
+
+    service.get_session = AsyncMock(return_value=sdk_session)
+    service.session.execute = AsyncMock(return_value=_mock_scalar_result(entries))
+
+    history = await service.load_session_history(session_id)
+
+    assert history is not None
+    lines = [orjson.loads(line) for line in history.sdk_session_data.splitlines()]
+    assert [line["uuid"] for line in lines] == ["prompt-uuid", "answer-uuid"]
+    assert "cancelled" not in history.sdk_session_data
+
+
+@pytest.mark.anyio
 async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain() -> (
     None
 ):
