@@ -61,7 +61,7 @@ interface ApiErrorBody {
   detail?: ApiErrorDetail | string
 }
 
-/** Upload policy derived from effective workspace attachment extensions. */
+/** Upload policy derived from effective workspace attachment allowlists. */
 export interface AttachmentUploadPolicy {
   /** Whether uploads should be blocked by workspace policy. */
   uploadsDisabled: boolean
@@ -70,24 +70,31 @@ export interface AttachmentUploadPolicy {
 }
 
 /**
- * Build the browser upload policy from effective workspace attachment extensions.
+ * Build the browser upload policy from effective workspace attachment allowlists.
  *
- * An explicit empty array means the workspace disabled uploads, while `null` or
- * `undefined` means the UI should inherit server defaults instead of adding an
- * unrestricted or misleading accept hint.
+ * An explicit empty array on either allowlist means the workspace disabled
+ * uploads, while `null` or `undefined` means the UI should inherit server
+ * defaults. The browser accept hint is still extension-only because MIME
+ * allowlists are enforced by the API.
  *
  * @param acceptedExtensions - Effective workspace attachment extensions.
+ * @param acceptedMimeTypes - Effective workspace attachment MIME types.
  * @returns The upload disabled flag and optional file input accept attribute.
  */
 export function buildAttachmentUploadPolicy(
-  acceptedExtensions: string[] | null | undefined
+  acceptedExtensions: string[] | null | undefined,
+  acceptedMimeTypes: string[] | null | undefined
 ): AttachmentUploadPolicy {
-  if (!Array.isArray(acceptedExtensions)) {
-    return { uploadsDisabled: false }
+  if (Array.isArray(acceptedExtensions) && acceptedExtensions.length === 0) {
+    return { uploadsDisabled: true }
   }
 
-  if (acceptedExtensions.length === 0) {
+  if (Array.isArray(acceptedMimeTypes) && acceptedMimeTypes.length === 0) {
     return { uploadsDisabled: true }
+  }
+
+  if (!Array.isArray(acceptedExtensions) || acceptedExtensions.length === 0) {
+    return { uploadsDisabled: false }
   }
 
   return {
@@ -152,14 +159,18 @@ export function CaseAttachmentsSection({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
 
-  // Get workspace settings for allowed file extensions
+  // Get workspace settings for attachment allowlists
   const { workspace } = useWorkspaceDetails()
 
   // Create upload policy from workspace settings
   const acceptedExtensions =
     workspace?.settings?.effective_allowed_attachment_extensions
-  const { acceptAttribute, uploadsDisabled } =
-    buildAttachmentUploadPolicy(acceptedExtensions)
+  const acceptedMimeTypes =
+    workspace?.settings?.effective_allowed_attachment_mime_types
+  const { acceptAttribute, uploadsDisabled } = buildAttachmentUploadPolicy(
+    acceptedExtensions,
+    acceptedMimeTypes
+  )
 
   // Fetch attachments from API
   const {
@@ -293,6 +304,17 @@ export function CaseAttachmentsSection({
     }
 
     fileInputRef.current?.click()
+  }
+
+  const handleUploadControlKeyDown = (
+    event: React.KeyboardEvent<HTMLDivElement>
+  ) => {
+    if (event.key !== "Enter" && event.key !== " ") {
+      return
+    }
+
+    event.preventDefault()
+    handleAddAttachment()
   }
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
@@ -455,14 +477,18 @@ export function CaseAttachmentsSection({
       <div className="mx-auto w-full">
         <div className="space-y-4 p-4">
           <div
+            role="button"
+            tabIndex={uploadsDisabled ? -1 : 0}
+            aria-label={uploadControlLabel}
             onClick={handleAddAttachment}
+            onKeyDown={handleUploadControlKeyDown}
             onDragEnter={handleDragEnter}
             onDragLeave={handleDragLeave}
             onDragOver={handleDragOver}
             onDrop={handleDrop}
             aria-disabled={uploadsDisabled}
             className={cn(
-              "flex items-center gap-2 p-1.5 rounded-md border border-dashed transition-all group",
+              "flex items-center gap-2 p-1.5 rounded-md border border-dashed transition-all group focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
               uploadsDisabled
                 ? "cursor-not-allowed border-muted-foreground/20 opacity-60"
                 : "cursor-pointer border-muted-foreground/25 hover:border-muted-foreground/50 hover:bg-muted/30",

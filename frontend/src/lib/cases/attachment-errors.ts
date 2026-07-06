@@ -4,6 +4,7 @@ interface ApiErrorDetail {
   error?: string
   message?: string
   allowed_extensions?: string[]
+  allowed_types?: string[]
   current_count?: number
   max_count?: number
   current_size_mb?: number
@@ -36,6 +37,15 @@ function getErrorDetail(error: ApiError): ApiErrorDetail | string | undefined {
   return undefined
 }
 
+function buildUploadsDisabledToast(
+  fileName: string
+): AttachmentUploadErrorToast {
+  return {
+    title: "Attachment uploads disabled",
+    description: `${fileName} cannot be uploaded because uploads are disabled for this workspace.`,
+  }
+}
+
 /**
  * Map a case attachment upload failure to a human-readable toast payload.
  *
@@ -64,10 +74,7 @@ export function describeAttachmentUploadError(
   switch (detailObject?.error) {
     case "unsupported_file_extension": {
       if (detailObject.allowed_extensions?.length === 0) {
-        return {
-          title: "Attachment uploads disabled",
-          description: `${fileName} cannot be uploaded because uploads are disabled for this workspace.`,
-        }
+        return buildUploadsDisabledToast(fileName)
       }
 
       return {
@@ -79,6 +86,10 @@ export function describeAttachmentUploadError(
       }
     }
     case "unsupported_content_type":
+      if (detailObject.allowed_types?.length === 0) {
+        return buildUploadsDisabledToast(fileName)
+      }
+
       return {
         title: "Content type not supported",
         description: `${fileName} has an unsupported content type. Please try a different file type.`,

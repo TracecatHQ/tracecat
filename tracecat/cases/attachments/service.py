@@ -246,9 +246,6 @@ class CaseAttachmentService(BaseWorkspaceService):
                 f"({config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES / 1024 / 1024}MB)"
             )
 
-        # Validate case-level limits (count + storage) efficiently using actual size
-        await self._assert_case_limits(case, actual_size)
-
         # Get workspace settings for attachment validation
         workspace = await self._get_workspace()
         workspace_settings = workspace.settings or {}
@@ -281,6 +278,9 @@ class CaseAttachmentService(BaseWorkspaceService):
             filename=params.file_name,
             declared_mime_type=declared_mime_type,
         )
+
+        # Validate case-level limits (count + storage) after workspace policy checks.
+        await self._assert_case_limits(case, actual_size)
 
         # Compute content hash for deduplication and integrity
         sha256 = self._compute_sha256(params.content)

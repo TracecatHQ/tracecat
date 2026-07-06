@@ -10,7 +10,7 @@ from tracecat.cases.attachments.service import (
     CaseAttachmentService,
     _resolve_workspace_attachment_allowlist,
 )
-from tracecat.storage.exceptions import FileExtensionError
+from tracecat.storage.exceptions import FileExtensionError, MaxAttachmentsExceededError
 from tracecat.storage.validation import FileSecurityValidator
 
 
@@ -50,7 +50,7 @@ def test_explicit_empty_workspace_allowlists_reject_attachment_like_input() -> N
 
 
 @pytest.mark.anyio
-async def test_create_attachment_rejects_explicit_empty_workspace_allowlists_before_blob_or_file_writes(
+async def test_create_attachment_rejects_explicit_empty_workspace_allowlists_before_case_limits_or_writes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace_id = uuid.UUID("00000000-0000-4000-8000-000000000001")
@@ -70,7 +70,14 @@ async def test_create_attachment_rejects_explicit_empty_workspace_allowlists_bef
         rollback=AsyncMock(),
     )
     service = CaseAttachmentService(session=session, role=role)  # type: ignore[arg-type]
-    monkeypatch.setattr(service, "_assert_case_limits", AsyncMock())
+    assert_case_limits = AsyncMock(
+        side_effect=MaxAttachmentsExceededError(
+            "Case already has 100 attachments. Maximum allowed is 100",
+            current_count=100,
+            max_count=100,
+        )
+    )
+    monkeypatch.setattr(service, "_assert_case_limits", assert_case_limits)
     monkeypatch.setattr(
         service,
         "_get_workspace",
@@ -99,6 +106,7 @@ async def test_create_attachment_rejects_explicit_empty_workspace_allowlists_bef
     with pytest.raises(FileExtensionError):
         await service.create_attachment(case=case, params=params)  # type: ignore[arg-type]
 
+    assert_case_limits.assert_not_awaited()
     upload.assert_not_awaited()
     session.add.assert_not_called()
     session.flush.assert_not_awaited()

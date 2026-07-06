@@ -158,6 +158,7 @@ export function WorkspaceFilesSettings({
                   type="button"
                   variant="ghost"
                   size="sm"
+                  aria-label="Restore inherited file extensions"
                   onClick={() => {
                     setInheritAttachmentExtensions(true)
                     field.onChange(
@@ -185,7 +186,8 @@ export function WorkspaceFilesSettings({
               </FormControl>
               <FormDescription>
                 Add file extensions that users can upload as attachments (e.g.,
-                .pdf, .docx, .png)
+                .pdf, .docx, .png). Clearing all values disables uploads; use
+                the reset button to restore inherited defaults.
               </FormDescription>
               <FormMessage />
             </FormItem>
@@ -203,6 +205,7 @@ export function WorkspaceFilesSettings({
                   type="button"
                   variant="ghost"
                   size="sm"
+                  aria-label="Restore inherited MIME types"
                   onClick={() => {
                     setInheritAttachmentMimeTypes(true)
                     field.onChange(
@@ -230,7 +233,8 @@ export function WorkspaceFilesSettings({
               </FormControl>
               <FormDescription>
                 Add MIME types that are allowed for attachments (e.g.,
-                application/pdf, image/jpeg)
+                application/pdf, image/jpeg). Clearing all values disables
+                uploads; use the reset button to restore inherited defaults.
               </FormDescription>
               <FormMessage />
             </FormItem>

@@ -3,23 +3,31 @@ import { describeAttachmentUploadError } from "@/lib/cases/attachment-errors"
 
 describe("case attachment upload policy", () => {
   it("disables uploads when effective extensions are explicitly empty", () => {
-    expect(buildAttachmentUploadPolicy([])).toEqual({
+    expect(buildAttachmentUploadPolicy([], undefined)).toEqual({
+      uploadsDisabled: true,
+    })
+  })
+
+  it("disables uploads when effective MIME types are explicitly empty", () => {
+    expect(buildAttachmentUploadPolicy([".pdf"], [])).toEqual({
       uploadsDisabled: true,
     })
   })
 
   it("builds an accept attribute for non-empty effective extensions", () => {
-    expect(buildAttachmentUploadPolicy([".pdf", ".png"])).toEqual({
+    expect(
+      buildAttachmentUploadPolicy([".pdf", ".png"], ["application/pdf"])
+    ).toEqual({
       uploadsDisabled: false,
       acceptAttribute: ".pdf,.png",
     })
   })
 
   it("inherits server defaults for null or undefined effective extensions", () => {
-    expect(buildAttachmentUploadPolicy(null)).toEqual({
+    expect(buildAttachmentUploadPolicy(null, null)).toEqual({
       uploadsDisabled: false,
     })
-    expect(buildAttachmentUploadPolicy(undefined)).toEqual({
+    expect(buildAttachmentUploadPolicy(undefined, undefined)).toEqual({
       uploadsDisabled: false,
     })
   })
@@ -66,6 +74,28 @@ describe("describeAttachmentUploadError", () => {
       title: "File type not supported",
       description:
         "blocked.exe cannot be uploaded. Allowed file types: txt, pdf, png, jpeg, gif, csv",
+    })
+  })
+
+  it("treats empty allowed MIME types as disabled uploads", () => {
+    const toast = describeAttachmentUploadError(
+      {
+        status: 415,
+        message: "Unsupported content type",
+        body: {
+          detail: {
+            error: "unsupported_content_type",
+            allowed_types: [],
+          },
+        },
+      },
+      "blocked.txt"
+    )
+
+    expect(toast).toEqual({
+      title: "Attachment uploads disabled",
+      description:
+        "blocked.txt cannot be uploaded because uploads are disabled for this workspace.",
     })
   })
 })
