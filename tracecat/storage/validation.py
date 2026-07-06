@@ -31,6 +31,37 @@ from tracecat.storage.exceptions import (
 )
 
 
+def _normalize_mime_type(mime_type: str) -> str:
+    """Normalize a MIME type to its base form (lowercased, parameters stripped)."""
+    if not mime_type:
+        return ""
+    return mime_type.split(";", 1)[0].strip().lower()
+
+
+def mime_equivalence_key(mime_type: str) -> str:
+    """Compute a normalized equivalence key for related MIME type variants.
+
+    Args:
+        mime_type: The MIME type to normalize and canonicalize.
+
+    Returns:
+        A MIME type key with parameters stripped, case normalized, a single
+        leading experimental subtype prefix removed, and a trailing compressed
+        qualifier removed.
+    """
+    base = _normalize_mime_type(mime_type)
+    if "/" not in base:
+        return base
+    type_part, sub = base.split("/", 1)
+    # remove leading experimental prefix
+    if sub.startswith("x-"):
+        sub = sub[2:]
+    # strip trailing qualifier commonly seen in legacy types
+    if sub.endswith("-compressed"):
+        sub = sub[: -len("-compressed")]
+    return f"{type_part}/{sub}"
+
+
 class FileValidationResult(BaseModel):
     """Result of file validation."""
 
@@ -261,9 +292,7 @@ class FileSecurityValidator:
     @staticmethod
     def _normalize_mime_type(mime_type: str) -> str:
         """Normalize a MIME type to its base form (lowercased, parameters stripped)."""
-        if not mime_type:
-            return ""
-        return mime_type.split(";", 1)[0].strip().lower()
+        return _normalize_mime_type(mime_type)
 
     @staticmethod
     def _mime_equivalence_key(mime_type: str) -> str:
@@ -275,17 +304,7 @@ class FileSecurityValidator:
         - Remove a trailing "-compressed" qualifier.
         This avoids one-off mappings while handling common vendor variants consistently.
         """
-        base = FileSecurityValidator._normalize_mime_type(mime_type)
-        if "/" not in base:
-            return base
-        type_part, sub = base.split("/", 1)
-        # remove leading experimental prefix
-        if sub.startswith("x-"):
-            sub = sub[2:]
-        # strip trailing qualifier commonly seen in legacy types
-        if sub.endswith("-compressed"):
-            sub = sub[: -len("-compressed")]
-        return f"{type_part}/{sub}"
+        return mime_equivalence_key(mime_type)
 
     def _sanitize_filename(self, filename: str) -> str:
         """Sanitize filename to prevent security issues while preserving user-provided names.

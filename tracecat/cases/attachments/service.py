@@ -31,7 +31,7 @@ from tracecat.storage.exceptions import (
     MaxAttachmentsExceededError,
     StorageLimitExceededError,
 )
-from tracecat.storage.validation import FileSecurityValidator
+from tracecat.storage.validation import FileSecurityValidator, mime_equivalence_key
 
 # Image MIME types that are safe to preview inline in the browser.
 IMAGE_PREVIEW_MIME_TYPES = frozenset(
@@ -463,9 +463,13 @@ class CaseAttachmentService(BaseWorkspaceService):
         # Generate presigned URL for blob storage
         storage_key = attachment.storage_path
 
-        # Security: force download as octet-stream by default. Only safe image
-        # types may be served inline, and only when preview is explicitly requested.
-        if preview and attachment.file.content_type in IMAGE_PREVIEW_MIME_TYPES:
+        # Security: force download as octet-stream by default. Only canonical
+        # safe image types may be served inline, and only when preview is requested.
+        if (
+            preview
+            and mime_equivalence_key(attachment.file.content_type)
+            in IMAGE_PREVIEW_MIME_TYPES
+        ):
             force_download = False
             override_content_type = attachment.file.content_type
         else:
