@@ -4,7 +4,12 @@ import { ReactFlowProvider } from "@xyflow/react"
 import { LogOut, Plus, Shield } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
-import { useParams, usePathname, useRouter } from "next/navigation"
+import {
+  useParams,
+  usePathname,
+  useRouter,
+  useSearchParams,
+} from "next/navigation"
 import TracecatIcon from "public/icon.png"
 import type React from "react"
 import { useEffect, useMemo, useState } from "react"
@@ -19,7 +24,9 @@ import { SettingsModal } from "@/components/settings/settings-modal"
 import { AppSidebar } from "@/components/sidebar/app-sidebar"
 import { Button } from "@/components/ui/button"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
+import { WorkspaceChatSidebar } from "@/components/workspaces/workspace-chat-sidebar"
 import { useAuth, useAuthActions } from "@/hooks/use-auth"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceManager } from "@/lib/hooks"
 import { getWorkspaceLandingPath } from "@/lib/workspace-navigation"
 import { WorkflowBuilderProvider } from "@/providers/builder"
@@ -196,13 +203,34 @@ export default function WorkspaceLayout({
 function WorkspaceChildren({ children }: { children: React.ReactNode }) {
   const params = useParams<{ workflowId?: string; caseId?: string }>()
   const canReadWorkspace = useScopeCheck("workspace:read")
+  const canExecuteAgents = useScopeCheck("agent:execute")
+  const { hasEntitlement } = useEntitlements()
   const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const [chatOpen, setChatOpen] = useState(false)
   const isWorkflowBuilder = !!params?.workflowId
   const isCaseDetailPage = Boolean(params?.caseId)
   const isInboxPage = pathname?.includes("/inbox")
+  const isCasesRoute = Boolean(pathname?.match(/\/cases(\/|$)/))
   const isTablesPage = Boolean(pathname?.match(/\/tables(\/|$)/))
   const isSettingsPage = pathname?.includes("/settings")
   const isOrganizationPage = pathname?.includes("/organization")
+  const canShowChat =
+    isCasesRoute &&
+    canExecuteAgents === true &&
+    hasEntitlement("workspace_chat")
+
+  useEffect(() => {
+    if (!isCasesRoute || !pathname || searchParams?.get("chat") !== "open") {
+      return
+    }
+    setChatOpen(true)
+    const nextParams = new URLSearchParams(searchParams.toString())
+    nextParams.delete("chat")
+    const query = nextParams.toString()
+    router.replace(query ? `${pathname}?${query}` : pathname)
+  }, [isCasesRoute, pathname, searchParams, router])
 
   if (canReadWorkspace === undefined) {
     return <CenteredSpinner />
@@ -249,11 +277,17 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
       <SidebarInset>
         <CaseSelectionProvider>
           <div className="flex h-full flex-1 flex-col">
-            <ControlsHeader />
+            <ControlsHeader
+              onToggleChat={
+                canShowChat ? () => setChatOpen((prev) => !prev) : undefined
+              }
+            />
             <div className="flex-1 overflow-y-scroll">{children}</div>
           </div>
         </CaseSelectionProvider>
       </SidebarInset>
+
+      {canShowChat && chatOpen && <WorkspaceChatSidebar />}
     </SidebarProvider>
   )
 }

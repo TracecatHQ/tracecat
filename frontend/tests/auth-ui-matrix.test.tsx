@@ -28,6 +28,7 @@ const mockRegister = jest.fn()
 let mockSearchParams = new URLSearchParams()
 let mockParams: Record<string, string | undefined> = {}
 let mockPathname = "/workspaces"
+let mockHasEntitlement: (key: string) => boolean = () => false
 
 let mockUser: { email: string; isSuperuser: boolean } | null = null
 let mockAppInfo: MockAppInfo | undefined = {
@@ -92,6 +93,14 @@ jest.mock("@/components/auth/scope-guard", () => ({
   useScopeCheck: () => true,
 }))
 
+jest.mock("@/hooks/use-entitlements", () => ({
+  useEntitlements: () => ({
+    hasEntitlement: mockHasEntitlement,
+    isLoading: false,
+    hasEntitlementData: true,
+  }),
+}))
+
 jest.mock("@/hooks/use-pending-org-invitations", () => ({
   usePendingOrgInvitations: () => ({
     pendingInvitations: [],
@@ -109,7 +118,15 @@ jest.mock("@/components/cases/case-selection-context", () => ({
 }))
 
 jest.mock("@/components/nav/controls-header", () => ({
-  ControlsHeader: () => <div data-testid="controls-header" />,
+  ControlsHeader: ({ onToggleChat }: { onToggleChat?: () => void }) => (
+    <div data-testid="controls-header">
+      {onToggleChat ? (
+        <button type="button" onClick={onToggleChat}>
+          Toggle chat
+        </button>
+      ) : null}
+    </div>
+  ),
 }))
 
 jest.mock("@/components/nav/dynamic-nav", () => ({
@@ -122,6 +139,10 @@ jest.mock("@/components/settings/settings-modal", () => ({
 
 jest.mock("@/components/sidebar/app-sidebar", () => ({
   AppSidebar: () => <div data-testid="app-sidebar" />,
+}))
+
+jest.mock("@/components/workspaces/workspace-chat-sidebar", () => ({
+  WorkspaceChatSidebar: () => <div data-testid="workspace-chat-sidebar" />,
 }))
 
 jest.mock("@/components/ui/sidebar", () => ({
@@ -221,6 +242,7 @@ describe("Auth UI matrix", () => {
     consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => {})
     mockUser = null
     mockSearchParams = new URLSearchParams()
+    mockHasEntitlement = () => false
     mockAppInfo = getDefaultAppInfo()
     mockAppInfoIsLoading = false
     mockAppInfoError = null
@@ -478,6 +500,33 @@ describe("Auth UI matrix", () => {
     expect(screen.getByTestId("app-sidebar")).toBeInTheDocument()
     expect(screen.getByTestId("controls-header")).toBeInTheDocument()
     expect(screen.getByText("Cases list")).toBeInTheDocument()
+    expect(
+      screen.queryByTestId("workspace-chat-sidebar")
+    ).not.toBeInTheDocument()
+  })
+
+  it("opens workspace chat from search params on cases list routes", async () => {
+    mockWorkspaces = [{ id: "workspace-1", name: "Workspace" }]
+    mockParams = { workspaceId: "workspace-1" }
+    mockPathname = "/workspaces/workspace-1/cases"
+    mockSearchParams = new URLSearchParams("chat=open")
+    mockHasEntitlement = (key) => key === "workspace_chat"
+
+    render(
+      <WorkspaceLayout>
+        <div>Cases list</div>
+      </WorkspaceLayout>
+    )
+
+    expect(
+      screen.getByRole("button", { name: "Toggle chat" })
+    ).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByTestId("workspace-chat-sidebar")).toBeInTheDocument()
+    })
+    expect(mockRouterReplace).toHaveBeenCalledWith(
+      "/workspaces/workspace-1/cases"
+    )
   })
 
   it("leaves case detail routes to the case detail layout", () => {
