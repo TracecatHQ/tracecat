@@ -44,6 +44,7 @@ from tracecat.pagination import (
 )
 from tracecat.service import BaseWorkspaceService
 from tracecat.tables.common import (
+    ColumnHasDuplicateValuesError,
     coerce_integer_value,
     coerce_multi_select_value,
     coerce_numeric_value,
@@ -771,20 +772,27 @@ class BaseTablesService(BaseWorkspaceService):
         # Get database connection
         conn = await self.session.connection()
 
-        # Execute the CREATE UNIQUE INDEX SQL command
-        await conn.execute(
-            sa.DDL(
-                "CREATE UNIQUE INDEX %s ON %s (%s)",
-                (
-                    index_name,  # Name of the index
-                    full_table_name,  # Table to create index on
-                    quote_identifier(sanitized_column),  # Column to index
-                ),
+        # Execute the CREATE UNIQUE INDEX SQL command. A unique index can only be
+        # built when the column has no duplicate values, so an IntegrityError here
+        # means the existing data conflicts. Surface it as a typed error (mapped
+        # to a 409) instead of leaking a raw database error as a 500.
+        try:
+            await conn.execute(
+                sa.DDL(
+                    "CREATE UNIQUE INDEX %s ON %s (%s)",
+                    (
+                        index_name,  # Name of the index
+                        full_table_name,  # Table to create index on
+                        quote_identifier(sanitized_column),  # Column to index
+                    ),
+                )
             )
-        )
-
-        # Commit the transaction
-        await self.session.flush()
+            await self.session.flush()
+        except IntegrityError as e:
+            raise ColumnHasDuplicateValuesError(
+                f"Column '{resolved_column_name}' contains duplicate values. "
+                "Remove duplicates before creating a unique index."
+            ) from e
 
     async def drop_unique_index(self, table: Table, column_name: str) -> None:
         """Drop the unique index on the specified column."""
