@@ -117,7 +117,7 @@ export function ActionMultiselect<T extends FieldValues>({
             <Badge variant="secondary">{selectedActions.length} selected</Badge>
           </div>
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
             <Input
               placeholder="Search actions..."
               value={searchQuery}
@@ -140,10 +140,10 @@ export function ActionMultiselect<T extends FieldValues>({
                   <div
                     key={suggestion.value}
                     className={cn(
-                      "flex items-start space-x-3 p-3 rounded-lg transition-all duration-200 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800",
+                      "flex items-start space-x-3 p-3 rounded-lg transition-all duration-200 cursor-pointer hover:bg-accent",
                       isSelected
                         ? "bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800"
-                        : "border-gray-200 dark:border-gray-700"
+                        : "border-border"
                     )}
                   >
                     <Checkbox
@@ -185,7 +185,7 @@ export function ActionMultiselect<T extends FieldValues>({
           ))}
           {filteredSuggestions.length === 0 && searchQuery && (
             <div className="text-center py-8">
-              <p className="text-gray-500 dark:text-gray-400">
+              <p className="text-muted-foreground">
                 No actions found for "{searchQuery}"
               </p>
               <button
@@ -198,9 +198,7 @@ export function ActionMultiselect<T extends FieldValues>({
           )}
           {!suggestions?.length && (
             <div className="text-center py-8">
-              <p className="text-gray-500 dark:text-gray-400">
-                No actions available
-              </p>
+              <p className="text-muted-foreground">No actions available</p>
             </div>
           )}
         </div>
@@ -210,7 +208,7 @@ export function ActionMultiselect<T extends FieldValues>({
         <div className="text-sm font-medium">Selected Tools</div>
         <div className="space-y-4">
           {selectedActions.length === 0 ? (
-            <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-8">
+            <p className="text-sm text-muted-foreground text-center py-8">
               No actions selected yet
             </p>
           ) : (
@@ -222,7 +220,7 @@ export function ActionMultiselect<T extends FieldValues>({
                 return suggestion ? (
                   <div
                     key={actionId}
-                    className="flex items-center space-x-2 p-2 bg-gray-50 dark:bg-gray-800 rounded group"
+                    className="flex items-center space-x-2 p-2 bg-muted rounded group"
                   >
                     {suggestion.icon}
                     <span className="text-sm font-medium truncate flex-1">
@@ -243,13 +241,13 @@ export function ActionMultiselect<T extends FieldValues>({
                       className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6"
                       type="button"
                     >
-                      <X className="h-3 w-3 text-gray-500 dark:text-gray-400" />
+                      <X className="h-3 w-3 text-muted-foreground" />
                     </Button>
                   </div>
                 ) : null
               })}
               <div className="pt-3 border-t">
-                <p className="text-xs text-gray-500 dark:text-gray-400">
+                <p className="text-xs text-muted-foreground">
                   {selectedActions.length} action
                   {selectedActions.length !== 1 ? "s" : ""} selected
                 </p>

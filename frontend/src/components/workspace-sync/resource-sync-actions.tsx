@@ -217,7 +217,11 @@ export function WorkspaceResourceSyncActions({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="h-7 gap-1.5 bg-white">
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 gap-1.5 bg-background"
+        >
           <GitBranchIcon className="size-3.5" />
           Push
         </Button>

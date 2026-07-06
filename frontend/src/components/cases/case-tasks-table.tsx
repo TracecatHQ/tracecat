@@ -53,7 +53,7 @@ const STATUS_ICONS: Record<
 }
 
 const STATUS_ICON_COLORS: Record<string, string> = {
-  todo: "text-slate-400",
+  todo: "text-muted-foreground",
   in_progress: "text-blue-500",
   completed: "text-green-500",
   blocked: "text-red-500",

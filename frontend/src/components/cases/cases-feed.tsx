@@ -432,7 +432,7 @@ export function CaseFeed({
 
             <div className="relative">
               <div
-                className="absolute inset-y-0 left-2 w-px bg-gray-200"
+                className="absolute inset-y-0 left-2 w-px bg-border"
                 aria-hidden="true"
               />
               <div className="space-y-2">
