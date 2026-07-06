@@ -11,6 +11,7 @@ import {
 import { type Diagnostic, linter, lintGutter } from "@codemirror/lint"
 import { EditorView } from "@codemirror/view"
 import CodeMirror from "@uiw/react-codemirror"
+import { useTheme } from "next-themes"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTablePanel } from "@/components/tables/table-panel-context"
 import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
@@ -69,6 +70,8 @@ const viewJsonExtensions = [
 ]
 
 function ViewJsonPanel({ value }: { value: unknown }) {
+  const { resolvedTheme } = useTheme()
+  const codeMirrorTheme = resolvedTheme === "dark" ? "dark" : "light"
   const serialized =
     typeof value === "string"
       ? value
@@ -85,7 +88,7 @@ function ViewJsonPanel({ value }: { value: unknown }) {
           editable={false}
           height="100%"
           extensions={viewJsonExtensions}
-          theme="light"
+          theme={codeMirrorTheme}
           basicSetup={{
             lineNumbers: true,
             foldGutter: true,
@@ -156,6 +159,8 @@ function EditJsonPanel({
   onSave?: (parsed: unknown) => void
 }) {
   const { closePanel } = useTablePanel()
+  const { resolvedTheme } = useTheme()
+  const codeMirrorTheme = resolvedTheme === "dark" ? "dark" : "light"
 
   const serialized =
     typeof value === "string"
@@ -224,7 +229,7 @@ function EditJsonPanel({
           }}
           height="100%"
           extensions={extensions}
-          theme="light"
+          theme={codeMirrorTheme}
           autoFocus
           basicSetup={{
             lineNumbers: true,

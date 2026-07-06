@@ -45,7 +45,7 @@ function getPriorityColor(priority: CasePriority): string {
     case "medium":
       return "text-orange-600"
     case "low":
-      return "text-gray-600"
+      return "text-muted-foreground"
     default:
       return "text-muted-foreground"
   }
@@ -62,9 +62,9 @@ function getSeverityColor(severity: CaseSeverity): string {
     case "medium":
       return "text-orange-600"
     case "low":
-      return "text-gray-600"
+      return "text-muted-foreground"
     case "other":
-      return "text-gray-600"
+      return "text-muted-foreground"
     default:
       return "text-muted-foreground"
   }
@@ -83,7 +83,7 @@ function getStatusColor(status: CaseStatus): string {
     case "closed":
       return "text-violet-600"
     case "other":
-      return "text-gray-600"
+      return "text-muted-foreground"
     default:
       return "text-muted-foreground"
   }

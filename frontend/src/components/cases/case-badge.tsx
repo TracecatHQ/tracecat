@@ -15,7 +15,7 @@ export interface CaseBadgeProps<T extends CaseBadgeValue>
   color?: string
 }
 
-const defaultColor = "border-slate-400/70 bg-slate-50 text-slate-600/80"
+const defaultColor = "border-border bg-muted text-muted-foreground"
 
 export function CaseBadge<T extends CaseBadgeValue>({
   label,

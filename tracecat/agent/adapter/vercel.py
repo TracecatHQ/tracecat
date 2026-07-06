@@ -80,6 +80,7 @@ from tracecat.artifacts.schemas import ARTIFACT_DATA_PART_TYPE
 from tracecat.chat.constants import (
     APPROVAL_DATA_PART_TYPE,
     APPROVAL_REQUEST_HEADER,
+    CANCELLED_DATA_PART_TYPE,
     COMPACTION_DATA_PART_TYPE,
 )
 from tracecat.chat.enums import MessageKind
@@ -1065,6 +1066,28 @@ class VercelStreamContext:
                     data=event.artifact_data.to_dict(),
                 )
 
+            case StreamEventType.CANCELLED:
+                metadata = event.metadata or {}
+                reason = metadata.get("reason")
+                raw_tool_call_ids = metadata.get("tool_call_ids")
+                tool_call_ids = [
+                    item
+                    for item in (
+                        raw_tool_call_ids if isinstance(raw_tool_call_ids, list) else []
+                    )
+                    if isinstance(item, str)
+                ]
+                yield DataEventPayload(
+                    type=CANCELLED_DATA_PART_TYPE,
+                    data={
+                        "reason": reason if isinstance(reason, str) else None,
+                        # Structured interrupt metadata: the tool calls this
+                        # interrupt aborted, so the UI can render them as
+                        # "interrupted" without inspecting error text.
+                        "tool_call_ids": tool_call_ids,
+                    },
+                )
+
             case StreamEventType.ERROR:
                 yield ErrorEventPayload(errorText=event.error or "Unknown error")
 
@@ -1575,6 +1598,23 @@ def convert_chat_messages_to_ui(
                 ],
             )
             mutable_messages.append(mutable_message)
+            continue
+
+        # Handle turn-cancelled markers from DB (kind=CANCELLED)
+        # These render as the "stopped by user" divider in the timeline
+        if chat_message.kind == MessageKind.CANCELLED:
+            mutable_messages.append(
+                MutableMessage(
+                    id=chat_message.id,
+                    role="system",
+                    parts=[
+                        DataUIPart(
+                            type=CANCELLED_DATA_PART_TYPE,
+                            data=chat_message.cancelled or {"reason": None},
+                        )
+                    ],
+                )
+            )
             continue
 
         # Handle approval request bubbles from DB (kind=APPROVAL_REQUEST)

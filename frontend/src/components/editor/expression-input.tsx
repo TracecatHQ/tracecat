@@ -7,6 +7,7 @@ import { type Diagnostic, linter } from "@codemirror/lint"
 import { EditorState } from "@codemirror/state"
 import { EditorView, placeholder } from "@codemirror/view"
 import CodeMirror from "@uiw/react-codemirror"
+import { useTheme } from "next-themes"
 /**
  * Expression Input - A single-line input that looks like shadcn/ui Input but has
  * template expression pill functionality backed by CodeMirror
@@ -112,6 +113,8 @@ function ExpressionInputCore({
   disabled = false,
   defaultHeight = "input",
 }: ExpressionInputProps) {
+  const { resolvedTheme } = useTheme()
+  const codeMirrorTheme = resolvedTheme === "dark" ? "dark" : "light"
   const workspaceId = useWorkspaceId()
   const { workflow } = useWorkflow()
   const methods = useFormContext()
@@ -274,6 +277,7 @@ function ExpressionInputCore({
         <CodeMirror
           value={safeValue}
           height="auto"
+          theme={codeMirrorTheme}
           extensions={extensions}
           onChange={handleChange}
           editable={!disabled}

@@ -28,7 +28,7 @@ export function TableInsertButton() {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm" className="h-7 bg-white">
+          <Button variant="outline" size="sm" className="h-7 bg-background">
             <Plus className="mr-1 h-3.5 w-3.5" />
             Insert
             <ChevronDownIcon className="ml-1 h-3.5 w-3.5" />

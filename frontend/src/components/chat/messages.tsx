@@ -524,11 +524,11 @@ export function NoMessages() {
   return (
     <div className="flex h-full items-center justify-center text-center">
       <div className="max-w-sm">
-        <MessageSquare className="mx-auto h-8 w-8 text-gray-400 mb-3" />
-        <h4 className="text-sm font-medium text-gray-900 mb-1">
+        <MessageSquare className="mx-auto h-8 w-8 text-muted-foreground mb-3" />
+        <h4 className="text-sm font-medium text-foreground mb-1">
           Start a conversation
         </h4>
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-muted-foreground">
           Ask me anything or get help with your tasks.
         </p>
       </div>

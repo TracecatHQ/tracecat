@@ -15,6 +15,7 @@ import {
   type AgentSessionCreate,
   type AgentSessionEntity,
   type AgentSessionRead,
+  type AgentSessionsCancelSessionResponse,
   type AgentSessionsGetSessionResponse,
   type AgentSessionsGetSessionVercelResponse,
   type AgentSessionsListSessionsResponse,
@@ -22,6 +23,7 @@ import {
   type AgentSessionsRemoveSessionArtifactResponse,
   type AgentSessionUpdate,
   type ApiError,
+  agentSessionsCancelSession,
   agentSessionsCreateSession,
   agentSessionsDeleteSession,
   agentSessionsGetSession,
@@ -81,9 +83,71 @@ function applyOptimisticChatUpdate<T extends UpdateableChatRecord>(
   }
 }
 
+/**
+ * Extract an actionable message from a FastAPI validation error (HTTP 422).
+ *
+ * These surface as an `ApiError` whose `message` is just "Validation Error",
+ * so we reach into the response body's `detail` to explain what actually
+ * failed. Field limits such as the per-chat tool cap get a friendly message;
+ * everything else falls back to Pydantic's own `msg` text. Returns `null` when
+ * the error isn't a recognizable 422 payload.
+ */
+function parseValidationError(error: unknown): string | null {
+  if (!error || typeof error !== "object") {
+    return null
+  }
+
+  const { status, body } = error as { status?: number; body?: unknown }
+  if (status !== 422 || !body || typeof body !== "object") {
+    return null
+  }
+
+  const detail = (body as { detail?: unknown }).detail
+  if (typeof detail === "string" && detail.trim()) {
+    return detail.trim()
+  }
+  if (!Array.isArray(detail)) {
+    return null
+  }
+
+  const messages: string[] = []
+  for (const item of detail) {
+    if (!item || typeof item !== "object") {
+      continue
+    }
+    const loc = (item as { loc?: unknown }).loc
+    const field = Array.isArray(loc)
+      ? loc.filter((part) => typeof part === "string" && part !== "body").pop()
+      : undefined
+    const maxLength = (item as { ctx?: { max_length?: unknown } }).ctx
+      ?.max_length
+    if (
+      (field === "tools" || field === "mcp_integrations") &&
+      typeof maxLength === "number"
+    ) {
+      const noun = field === "tools" ? "tools" : "MCP integrations"
+      messages.push(
+        `You can add at most ${maxLength} ${noun}. Remove some and try again.`
+      )
+      continue
+    }
+    const msg = (item as { msg?: unknown }).msg
+    if (typeof msg === "string" && msg.trim()) {
+      messages.push(msg.trim())
+    }
+  }
+
+  return messages.length > 0 ? messages.join(" ") : null
+}
+
 export function parseChatError(error: unknown): string {
   if (!error) {
     return DEFAULT_CHAT_ERROR_MESSAGE
+  }
+
+  const validationMessage = parseValidationError(error)
+  if (validationMessage) {
+    return validationMessage
   }
 
   if (typeof error === "string") {
@@ -358,6 +422,41 @@ export function useDeleteChat(workspaceId: string) {
     deleteChat: mutation.mutateAsync,
     isDeleting: mutation.isPending,
     deleteError: mutation.error,
+  }
+}
+
+/** Request cancellation for the currently running agent turn. */
+export function useCancelChatTurn(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  const mutation = useMutation<
+    AgentSessionsCancelSessionResponse,
+    ApiError,
+    { chatId: string }
+  >({
+    mutationFn: ({ chatId }) =>
+      agentSessionsCancelSession({
+        sessionId: chatId,
+        workspaceId,
+        requestBody: { reason: "user_cancel" },
+      }),
+    onSettled: (_, __, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["chat", variables.chatId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["chat", variables.chatId, workspaceId, "vercel"],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["chats", workspaceId],
+      })
+    },
+  })
+
+  return {
+    cancelChatTurn: mutation.mutateAsync,
+    isCancellingChatTurn: mutation.isPending,
+    cancelChatTurnError: mutation.error,
   }
 }
 

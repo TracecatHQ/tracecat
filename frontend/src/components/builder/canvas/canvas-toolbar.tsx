@@ -164,7 +164,7 @@ const SQL_NAMESPACES = ["core.sql", "core.duckdb"]
 const CATEGORY_STYLES: Record<string, { buttonClass: string }> = {
   core: {
     buttonClass:
-      "text-muted-foreground hover:bg-zinc-100/70 hover:text-foreground data-[state=open]:bg-zinc-100/70",
+      "text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent",
   },
   ai: {
     buttonClass:
@@ -176,23 +176,23 @@ const CATEGORY_STYLES: Record<string, { buttonClass: string }> = {
   },
   "core.workflow": {
     buttonClass:
-      "text-muted-foreground hover:bg-slate-100/75 hover:text-foreground data-[state=open]:bg-slate-100/75",
+      "text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent",
   },
   "core.transform": {
     buttonClass:
-      "text-muted-foreground hover:bg-slate-100/75 hover:text-foreground data-[state=open]:bg-slate-100/75",
+      "text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent",
   },
   "core.cases": {
     buttonClass:
-      "text-muted-foreground hover:bg-slate-100/75 hover:text-foreground data-[state=open]:bg-slate-100/75",
+      "text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent",
   },
   "core.table": {
     buttonClass:
-      "text-muted-foreground hover:bg-slate-100/75 hover:text-foreground data-[state=open]:bg-slate-100/75",
+      "text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent",
   },
   "core.sql": {
     buttonClass:
-      "text-muted-foreground hover:bg-slate-100/75 hover:text-foreground data-[state=open]:bg-slate-100/75",
+      "text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent",
   },
   tools: {
     buttonClass:
@@ -464,15 +464,15 @@ function ToolbarCategoryDropdown({
   function renderActionIcon(action: RegistryActionReadMinimal) {
     if (isAiCategory) {
       return (
-        <div className="flex size-8 items-center justify-center rounded-md border border-sky-100 bg-sky-50/80">
-          <SparklesIcon className="size-4 text-zinc-700" />
+        <div className="flex size-8 items-center justify-center rounded-md border border-sky-100 bg-sky-50/80 dark:border-sky-900 dark:bg-sky-500/10">
+          <SparklesIcon className="size-4 text-foreground" />
         </div>
       )
     }
     if (isAgentCategory) {
       return (
-        <div className="flex size-8 items-center justify-center rounded-md border border-emerald-100 bg-emerald-50/80">
-          <BotIcon className="size-4 text-zinc-700" />
+        <div className="flex size-8 items-center justify-center rounded-md border border-emerald-100 bg-emerald-50/80 dark:border-emerald-900 dark:bg-emerald-500/10">
+          <BotIcon className="size-4 text-foreground" />
         </div>
       )
     }

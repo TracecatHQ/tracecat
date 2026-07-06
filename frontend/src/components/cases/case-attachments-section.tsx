@@ -91,7 +91,7 @@ function getFileColor(contentType: string) {
     return "text-orange-600 bg-orange-50"
   if (contentType.startsWith("audio/")) return "text-purple-600 bg-purple-50"
   if (contentType.startsWith("video/")) return "text-blue-600 bg-blue-50"
-  return "text-gray-600 bg-gray-50"
+  return "text-muted-foreground bg-muted"
 }
 
 function formatFileSize(bytes: number): string {
@@ -262,26 +262,6 @@ export function CaseAttachmentsSection({
           toast({
             title: "Too many attachments",
             description: `${description} Please remove some attachments before adding new ones.`,
-          })
-          return
-        }
-      }
-
-      if (
-        error.status === 422 &&
-        error.body &&
-        typeof error.body === "object"
-      ) {
-        const body = error.body as ApiErrorBody
-        const detail = body.detail
-
-        if (
-          typeof detail === "object" &&
-          detail?.error === "security_threat_detected"
-        ) {
-          toast({
-            title: "Security threat detected",
-            description: `${file.name} contains potentially dangerous content and cannot be uploaded.`,
           })
           return
         }
@@ -696,7 +676,7 @@ export function CaseAttachmentsSection({
             }}
           >
             <DialogContent className="max-w-[95vw] max-h-[95vh] overflow-hidden p-0 bg-transparent border-0 shadow-2xl w-fit h-fit">
-              <div className="relative inline-flex border border-gray-400/25 rounded-sm overflow-hidden bg-gray-900 group">
+              <div className="relative inline-flex overflow-hidden rounded-sm border border-border/25 bg-gray-900 group">
                 {/* Floating header overlay */}
                 <div className="absolute top-3 left-3 right-3 z-10 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                   <div className="bg-black/70 backdrop-blur-sm rounded-full px-3 py-1.5">

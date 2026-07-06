@@ -40,16 +40,29 @@
     --sidebar-border: 220 13% 91%;
     --sidebar-ring: 231 58% 64%;
     --json-key: 231 58% 64%;
+    --syntax-content: 211.8 8.8% 37.8%;
+    --syntax-property: 198 100% 33.3%;
+    --syntax-string: 160.1 84.1% 39.4%;
+    --syntax-number: 212 100% 38.6%;
+    --syntax-literal: 24.5 92.4% 46.3%;
+    --syntax-comment: 211.6 8.2% 45.3%;
+    --syntax-action: 217.2 91.2% 59.8%;
+    --syntax-function: 258.3 89.5% 66.3%;
+    --syntax-secret: 37.7 92.1% 50.2%;
+    --syntax-variable: 188.7 94.5% 42.7%;
+    --syntax-local-variable: 0 84.2% 60.2%;
+    --syntax-template: 225.9 70.7% 40.2%;
+    --syntax-trigger: 328.6 85.5% 70.2%;
     --tooltip: 222 47% 11%;
     --tooltip-foreground: 0 0% 100%;
   }
 
   .dark {
-    --background: 0 0% 3.9%;
+    --background: 0 0% 6.3%;
     --foreground: 0 0% 98%;
-    --card: 0 0% 3.9%;
+    --card: 0 0% 6.3%;
     --card-foreground: 0 0% 98%;
-    --popover: 0 0% 3.9%;
+    --popover: 0 0% 6.3%;
     --popover-foreground: 0 0% 98%;
     --primary: 231 58% 64%;
     --primary-foreground: 0 0% 100%;
@@ -75,6 +88,19 @@
     --sidebar-border: 240 3.7% 15.9%;
     --sidebar-ring: 231 58% 64%;
     --json-key: 231 58% 64%;
+    --syntax-content: 210 17.4% 82%;
+    --syntax-property: 208.2 100% 73.7%;
+    --syntax-string: 125.1 68.6% 70%;
+    --syntax-number: 269 100% 82.9%;
+    --syntax-literal: 28.2 100% 67.1%;
+    --syntax-comment: 211.6 8.9% 58.2%;
+    --syntax-action: 208.2 100% 73.7%;
+    --syntax-function: 269 100% 82.9%;
+    --syntax-secret: 28.2 100% 67.1%;
+    --syntax-variable: 184 66.5% 60.2%;
+    --syntax-local-variable: 3.8 100% 72.4%;
+    --syntax-template: 207.3 100% 82.4%;
+    --syntax-trigger: 328.8 88.8% 72%;
     --tooltip: 222 47% 16%;
     --tooltip-foreground: 0 0% 100%;
   }
@@ -187,5 +213,23 @@
     border: 1px solid hsl(var(--border));
     border-radius: 4px;
     box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+  }
+
+}
+
+/* Theme React Flow controls for dark mode. Unlayered on purpose: the xyflow
+   stylesheet is unlayered, so a layered rule can never override it. */
+.dark .react-flow__controls-button {
+  background: hsl(var(--background));
+  border-bottom: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground));
+
+  svg {
+    fill: currentColor;
+  }
+
+  &:hover {
+    background: hsl(var(--accent));
+    color: hsl(var(--accent-foreground));
   }
 }

@@ -8,6 +8,7 @@ import { linter, lintGutter } from "@codemirror/lint"
 import { EditorView } from "@codemirror/view"
 import CodeMirror from "@uiw/react-codemirror"
 import { AlertTriangle, Check } from "lucide-react"
+import { useTheme } from "next-themes"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type {
   CaseDropdownDefinitionRead,
@@ -615,6 +616,8 @@ function JsonField({
   onChange: (v: unknown) => void
   onValidationChange?: (hasError: boolean) => void
 }) {
+  const { resolvedTheme } = useTheme()
+  const codeMirrorTheme = resolvedTheme === "dark" ? "dark" : "light"
   const serialized =
     value === null || value === undefined ? "" : JSON.stringify(value, null, 2)
   const [draft, setDraft] = useState(serialized)
@@ -675,6 +678,7 @@ function JsonField({
         value={draft}
         onChange={handleChange}
         height="150px"
+        theme={codeMirrorTheme}
         extensions={extensions}
         basicSetup={{
           lineNumbers: true,

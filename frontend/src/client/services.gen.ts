@@ -68,6 +68,8 @@ import type {
   AdminPromoteOrgRepositoryVersionResponse,
   AdminPromoteToSuperuserData,
   AdminPromoteToSuperuserResponse,
+  AdminRegistryDeleteRegistryVersionData,
+  AdminRegistryDeleteRegistryVersionResponse,
   AdminRegistryGetPlatformRepositoryData,
   AdminRegistryGetPlatformRepositoryResponse,
   AdminRegistryGetRegistryStatusResponse,
@@ -166,6 +168,8 @@ import type {
   AgentPresetsRestoreAgentPresetVersionResponse,
   AgentPresetsUpdateAgentPresetData,
   AgentPresetsUpdateAgentPresetResponse,
+  AgentSessionsCancelSessionData,
+  AgentSessionsCancelSessionResponse,
   AgentSessionsCreateSessionData,
   AgentSessionsCreateSessionResponse,
   AgentSessionsDeleteSessionData,
@@ -6849,6 +6853,34 @@ export const agentSessionsForkSession = (
 }
 
 /**
+ * Cancel Session
+ * Request graceful cancellation for the active agent session turn.
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentSessionCancelResponse Successful Response
+ * @throws ApiError
+ */
+export const agentSessionsCancelSession = (
+  data: AgentSessionsCancelSessionData
+): CancelablePromise<AgentSessionsCancelSessionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/agent/sessions/{session_id}/cancel",
+    path: {
+      session_id: data.sessionId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Submit Approvals
  * Submit approval decisions to a running agent workflow.
  *
@@ -8087,6 +8119,31 @@ export const adminRegistryPromoteRegistryVersion = (
   return __request(OpenAPI, {
     method: "POST",
     url: "/admin/registry/{repository_id}/versions/{version_id}/promote",
+    path: {
+      repository_id: data.repositoryId,
+      version_id: data.versionId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Registry Version
+ * Delete an unused, non-current platform registry version.
+ * @param data The data for the request.
+ * @param data.repositoryId
+ * @param data.versionId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const adminRegistryDeleteRegistryVersion = (
+  data: AdminRegistryDeleteRegistryVersionData
+): CancelablePromise<AdminRegistryDeleteRegistryVersionResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/admin/registry/{repository_id}/versions/{version_id}",
     path: {
       repository_id: data.repositoryId,
       version_id: data.versionId,

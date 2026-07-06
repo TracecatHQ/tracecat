@@ -20,6 +20,7 @@ import {
   type Viewport,
   type XYPosition,
 } from "@xyflow/react"
+import { useTheme } from "next-themes"
 import React, {
   type SetStateAction,
   useCallback,
@@ -170,6 +171,9 @@ export const WorkflowCanvas = React.forwardRef<
   const { toast } = useToast()
   const { workspaceId, workflowId } = useWorkflow()
   const { selectedNodeId, setSelectedNodeId } = useWorkflowBuilder()
+  const { resolvedTheme } = useTheme()
+  const backgroundPatternColor =
+    resolvedTheme === "dark" ? "#3f3f46" : "#91919a"
   const { data: graphData } = useGraph(workspaceId, workflowId ?? "")
   const { applyGraphOperations, refetchGraph } = useGraphOperations(
     workspaceId,
@@ -1034,7 +1038,10 @@ export const WorkflowCanvas = React.forwardRef<
         connectionLineType={ConnectionLineType.SmoothStep}
         onPaneContextMenu={onPaneContextMenu}
       >
-        <Background bgColor="#fcfcfc" />
+        <Background
+          bgColor="hsl(var(--background))"
+          color={backgroundPatternColor}
+        />
         <Controls
           className="rounded-sm"
           fitViewOptions={activeFitViewOptions}

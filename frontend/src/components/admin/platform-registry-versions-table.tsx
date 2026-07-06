@@ -1,7 +1,7 @@
 "use client"
 
 import type { Row } from "@tanstack/react-table"
-import { CheckIcon, RefreshCwIcon } from "lucide-react"
+import { CheckIcon, RefreshCwIcon, Trash2Icon } from "lucide-react"
 import { useCallback, useState } from "react"
 import type { tracecat__admin__registry__schemas__RegistryVersionRead } from "@/client"
 import {
@@ -9,6 +9,16 @@ import {
   DataTableColumnHeader,
   type DataTableToolbarProps,
 } from "@/components/data-table"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -25,6 +35,9 @@ type RegistryVersionRead =
 
 export function PlatformRegistryVersionsTable() {
   const [promotingId, setPromotingId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [versionPendingDelete, setVersionPendingDelete] =
+    useState<RegistryVersionRead | null>(null)
   const [selectedVersions, setSelectedVersions] = useState<
     RegistryVersionRead[]
   >([])
@@ -34,6 +47,8 @@ export function PlatformRegistryVersionsTable() {
   const {
     promoteVersion,
     promotePending,
+    deleteVersion,
+    deletePending,
     backfillArtifacts,
     backfillArtifactsPending,
   } = useAdminRegistrySync()
@@ -99,6 +114,37 @@ export function PlatformRegistryVersionsTable() {
         description: "Please try again.",
         variant: "destructive",
       })
+    }
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!versionPendingDelete) return
+
+    setDeletingId(versionPendingDelete.id)
+    try {
+      await deleteVersion({
+        repositoryId: versionPendingDelete.repository_id,
+        versionId: versionPendingDelete.id,
+      })
+      toast({
+        title: "Version deleted",
+        description: `Version ${versionPendingDelete.version} was removed.`,
+      })
+      setSelectedVersions((versions) =>
+        versions.filter((version) => version.id !== versionPendingDelete.id)
+      )
+      setClearSelectionTrigger((value) => value + 1)
+      setVersionPendingDelete(null)
+    } catch (error) {
+      console.error("Failed to delete version", error)
+      toast({
+        title: "Failed to delete version",
+        description:
+          "Only non-current versions with no workflow usage can be deleted.",
+        variant: "destructive",
+      })
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -311,25 +357,48 @@ export function PlatformRegistryVersionsTable() {
             cell: ({ row }) => {
               const version = row.original
               const isPromoting = promotingId === version.id && promotePending
+              const isDeleting = deletingId === version.id && deletePending
+              const canDelete =
+                !(version.is_current ?? false) && !(version.in_use ?? false)
 
               if (version.is_current ?? false) return null
 
               return (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handlePromote(version)}
-                  disabled={isPromoting}
-                >
-                  {isPromoting ? (
-                    "Promoting..."
-                  ) : (
-                    <>
-                      <CheckIcon className="mr-1 size-3" />
-                      Promote
-                    </>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handlePromote(version)}
+                    disabled={isPromoting || isDeleting}
+                  >
+                    {isPromoting ? (
+                      "Promoting..."
+                    ) : (
+                      <>
+                        <CheckIcon className="mr-1 size-3" />
+                        Promote
+                      </>
+                    )}
+                  </Button>
+                  {canDelete && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setVersionPendingDelete(version)}
+                      disabled={isDeleting || isPromoting}
+                      className="text-destructive hover:text-destructive"
+                    >
+                      {isDeleting ? (
+                        "Deleting..."
+                      ) : (
+                        <>
+                          <Trash2Icon className="mr-1 size-3" />
+                          Delete
+                        </>
+                      )}
+                    </Button>
                   )}
-                </Button>
+                </div>
               )
             },
           },
@@ -339,6 +408,31 @@ export function PlatformRegistryVersionsTable() {
         onSelectionChange={handleSelectionChange}
         clearSelectionTrigger={clearSelectionTrigger}
       />
+      <AlertDialog
+        open={versionPendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setVersionPendingDelete(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete registry version?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes version {versionPendingDelete?.version}.
+              Only non-current versions with no workflow usage can be deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete version
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

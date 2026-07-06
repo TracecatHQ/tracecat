@@ -15,6 +15,10 @@ jest.mock("@/hooks/use-chat", () => ({
   useVercelChat: jest.fn(),
   useGetChat: jest.fn(() => ({ chat: null })),
   useUpdateChat: jest.fn(() => ({ updateChat: jest.fn(), isUpdating: false })),
+  useCancelChatTurn: jest.fn(() => ({
+    cancelChatTurn: jest.fn(),
+    isCancellingChatTurn: false,
+  })),
   parseChatError: (error: unknown) =>
     error instanceof Error ? error.message : "Chat error",
   makeContinueMessage: (decisions: unknown) => ({
@@ -210,6 +214,169 @@ describe("ChatSessionPane", () => {
     )
 
     expect(screen.getByText("Agent: case-management")).toBeInTheDocument()
+  })
+
+  it("renders the stop divider for a cancelled turn marker", () => {
+    const cancelledPart = {
+      type: "data-cancelled",
+      data: { reason: "user_cancel" },
+    } as unknown as Parameters<typeof MessagePart>[0]["part"]
+
+    render(
+      <TooltipProvider>
+        <MessagePart
+          part={cancelledPart}
+          partIdx={0}
+          id="msg-cancelled"
+          role="assistant"
+          isLastMessage
+          status="ready"
+        />
+      </TooltipProvider>
+    )
+
+    expect(screen.getByText("Interrupted")).toBeInTheDocument()
+    expect(screen.queryByText("Chat stopped")).not.toBeInTheDocument()
+  })
+
+  it("marks pending tool calls as interrupted in a cancelled turn", () => {
+    const pendingToolPart = {
+      type: "tool-core__table__list_tables",
+      toolCallId: "tc-pending-1",
+      state: "input-available",
+      input: {},
+    } as unknown as Parameters<typeof MessagePart>[0]["part"]
+
+    render(
+      <TooltipProvider>
+        <MessagePart
+          part={pendingToolPart}
+          partIdx={0}
+          id="msg-pending-tool"
+          role="assistant"
+          isLastMessage
+          status="ready"
+          turnCancelled
+        />
+      </TooltipProvider>
+    )
+
+    expect(screen.getByText("Interrupted")).toBeInTheDocument()
+    expect(screen.queryByText("In progress")).not.toBeInTheDocument()
+  })
+
+  it("renders SDK abort errors as interrupted instead of leaking them", () => {
+    const abortedToolPart = {
+      type: "tool-core__table__list_tables",
+      toolCallId: "tc-aborted-1",
+      state: "output-error",
+      input: {},
+      errorText: "MCP error -32001: AbortError: The operation was aborted.",
+    } as unknown as Parameters<typeof MessagePart>[0]["part"]
+
+    render(
+      <TooltipProvider>
+        <MessagePart
+          part={abortedToolPart}
+          partIdx={0}
+          id="msg-aborted-tool"
+          role="assistant"
+          isLastMessage
+          status="ready"
+          turnCancelled
+        />
+      </TooltipProvider>
+    )
+
+    expect(screen.getByText("Interrupted")).toBeInTheDocument()
+    expect(screen.queryByText("Error")).not.toBeInTheDocument()
+  })
+
+  it("marks tool calls listed in the structured interrupt metadata as interrupted", () => {
+    // Backend-recorded abort casualty: the error text is generic (no abort
+    // phrasing), so only the structured tool_call_ids signal can flag it.
+    const abortedToolPart = {
+      type: "tool-core__table__list_tables",
+      toolCallId: "tc-structured-1",
+      state: "output-error",
+      input: {},
+      errorText: "connection reset",
+    } as unknown as Parameters<typeof MessagePart>[0]["part"]
+
+    render(
+      <TooltipProvider>
+        <MessagePart
+          part={abortedToolPart}
+          partIdx={0}
+          id="msg-structured-tool"
+          role="assistant"
+          isLastMessage
+          status="ready"
+          turnCancelled
+          interruptedToolCallIds={new Set(["tc-structured-1"])}
+        />
+      </TooltipProvider>
+    )
+
+    expect(screen.getByText("Interrupted")).toBeInTheDocument()
+    expect(screen.queryByText("Error")).not.toBeInTheDocument()
+  })
+
+  it("marks structurally interrupted tool calls even without the turn flag", () => {
+    // Live streams can land the cancelled marker on a different message than
+    // the tool calls it aborted, so the message holding the tools never gets
+    // turnCancelled. The backend-recorded ids must flag them on their own.
+    const abortedToolPart = {
+      type: "tool-core__table__list_tables",
+      toolCallId: "tc-structured-2",
+      state: "output-error",
+      input: {},
+      errorText: "MCP error -32001: AbortError: The operation was aborted.",
+    } as unknown as Parameters<typeof MessagePart>[0]["part"]
+
+    render(
+      <TooltipProvider>
+        <MessagePart
+          part={abortedToolPart}
+          partIdx={0}
+          id="msg-structured-tool-no-flag"
+          role="assistant"
+          isLastMessage
+          status="ready"
+          interruptedToolCallIds={new Set(["tc-structured-2"])}
+        />
+      </TooltipProvider>
+    )
+
+    expect(screen.getByText("Interrupted")).toBeInTheDocument()
+    expect(screen.queryByText("Error")).not.toBeInTheDocument()
+  })
+
+  it("keeps genuine tool errors as errors in a cancelled turn", () => {
+    const failedToolPart = {
+      type: "tool-core__table__list_tables",
+      toolCallId: "tc-failed-1",
+      state: "output-error",
+      input: {},
+      errorText: "Table not found: alerts",
+    } as unknown as Parameters<typeof MessagePart>[0]["part"]
+
+    render(
+      <TooltipProvider>
+        <MessagePart
+          part={failedToolPart}
+          partIdx={0}
+          id="msg-failed-tool"
+          role="assistant"
+          isLastMessage
+          status="ready"
+          turnCancelled
+        />
+      </TooltipProvider>
+    )
+
+    expect(screen.getByText("Error")).toBeInTheDocument()
+    expect(screen.queryByText("Interrupted")).not.toBeInTheDocument()
   })
 
   function mockUseVercelChatStatus(status: "ready" | "submitted") {
@@ -1364,6 +1531,39 @@ describe("ChatSessionPane", () => {
 
       expect(setMessages).toHaveBeenCalledTimes(1)
       expect(setMessages.mock.calls[0][0]).toHaveLength(2)
+    })
+
+    // Regression: onFinish's refetch races finalize_turn, so on turn N the
+    // server copy can *advance* (turn N-1's rows become visible) while still
+    // hiding the just-streamed turn N. Adopting it would blank turn N. The
+    // pane must only adopt a server copy that doesn't drop live messages.
+    it("does not adopt an advanced server copy that is shorter than the live list", () => {
+      const setMessages = jest.fn()
+      // Live list holds turns 1 and 2 (turn 2 just streamed).
+      const live = [
+        userTurn("m1", "turn one"),
+        userTurn("m2", "reply one"),
+        userTurn("m3", "turn two"),
+        userTurn("m4", "reply two"),
+      ]
+      mockLiveMessages(live, setMessages)
+
+      // Mount: server only has turn 1's user message (mid-turn filter hid the
+      // rest while turn 1 was live).
+      const { rerender } = render(renderSubject([userTurn("m1", "turn one")]))
+      expect(setMessages).not.toHaveBeenCalled()
+
+      // Racing refetch: turn 1 now fully visible (shape advanced) but turn 2
+      // is still hidden behind curr_run_id. Shorter than live — must not adopt.
+      rerender(
+        renderSubject([userTurn("m1", "turn one"), userTurn("m2", "reply one")])
+      )
+      expect(setMessages).not.toHaveBeenCalled()
+
+      // Post-finalize refetch: full transcript. Now safe to adopt.
+      rerender(renderSubject(live))
+      expect(setMessages).toHaveBeenCalledTimes(1)
+      expect(setMessages.mock.calls[0][0]).toHaveLength(4)
     })
   })
 })
