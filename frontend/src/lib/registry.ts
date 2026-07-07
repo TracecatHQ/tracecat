@@ -1,4 +1,5 @@
 import type {
+  RegistryActionReadMinimal,
   RegistryActionTemplateImpl,
   RegistryActionUDFImpl,
 } from "@/client"
@@ -20,4 +21,21 @@ export function humanizeActionName(nameOrAction: string): string {
   const leaf = nameOrAction.split(".").pop() ?? nameOrAction
   const spaced = leaf.replace(/_/g, " ")
   return spaced.charAt(0).toUpperCase() + spaced.slice(1)
+}
+
+/**
+ * Map a registry action to the shared tool-selector suggestion fields used by
+ * `MultiTagCommandInput`. Callers add surface-specific fields (`label`,
+ * `icon`, `locked`, `onSelect`) at the call site.
+ */
+export function registryActionToSuggestion(action: RegistryActionReadMinimal) {
+  return {
+    id: action.action,
+    value: action.action,
+    description: action.description,
+    group: action.namespace,
+    showHoverCard: true,
+    tagLabel: action.default_title || humanizeActionName(action.name),
+    tagGroup: action.display_group || action.namespace,
+  }
 }

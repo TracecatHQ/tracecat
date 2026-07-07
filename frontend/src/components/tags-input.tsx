@@ -63,11 +63,11 @@ export interface Suggestion {
   description?: string
   group?: string
   /**
-   * When set, the selected chip shows a hover card with the provider, display
-   * name, and description. Omit for values that don't warrant a hover card
-   * (raw UUIDs, slugs).
+   * When true, the selected chip shows a hover card with the provider,
+   * display name, and description. Omit for values that don't warrant a
+   * hover card (raw UUIDs, slugs).
    */
-  tooltip?: string
+  showHoverCard?: boolean
   /**
    * Optional display name for the selected chip when the dropdown `label`
    * isn't chip-friendly (e.g. a full dotted action id). Falls back to `label`.
@@ -143,7 +143,7 @@ export function MultiTagCommandInput({
           icon: suggestion?.icon,
           group: suggestion?.tagGroup || suggestion?.group,
           description: suggestion?.description,
-          tooltip: suggestion?.tooltip,
+          showHoverCard: suggestion?.showHoverCard ?? false,
         }
       }) || []
     )
@@ -330,7 +330,7 @@ export function MultiTagCommandInput({
               )
               // The remove button lives inside the hover card trigger; its
               // click handler still fires and removes the tag.
-              if (tag.tooltip) {
+              if (tag.showHoverCard) {
                 return (
                   <HoverCard key={tag.id} openDelay={200}>
                     <HoverCardTrigger asChild>{badge}</HoverCardTrigger>
