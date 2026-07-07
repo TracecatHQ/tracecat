@@ -4,6 +4,7 @@ import asyncio
 import os
 import uuid
 from collections.abc import Iterator
+from urllib.parse import quote_plus
 
 import pytest
 import sqlalchemy as sa
@@ -33,10 +34,13 @@ def _service_role(*, workspace_id: uuid.UUID) -> Role:
 
 
 def _postgres_base_url() -> str:
-    return (
-        f"postgresql+asyncpg://postgres:postgres@localhost:"
-        f"{os.environ.get('PG_PORT', '5432')}/"
-    )
+    host = os.environ.get("PG_HOST")
+    if host is None:
+        host = "postgres_db" if os.path.exists("/.dockerenv") else "localhost"
+    port = os.environ.get("PG_PORT", "5432")
+    username = quote_plus(os.environ.get("POSTGRES_USER", "postgres"))
+    password = quote_plus(os.environ.get("POSTGRES_PASSWORD", "postgres"))
+    return f"postgresql+asyncpg://{username}:{password}@{host}:{port}/"
 
 
 def _terminate_database_connections(conn: sa.Connection, database_name: str) -> None:
@@ -80,6 +84,12 @@ def attachment_quota_db_url() -> Iterator[str]:
             _terminate_database_connections(conn, database_name)
             conn.execute(text(f'DROP DATABASE IF EXISTS "{database_name}"'))
         sys_engine.dispose()
+
+
+async def _set_transaction_timeouts(session: AsyncSession) -> None:
+    # Fail fast if the regression accidentally leaves a row lock waiting forever.
+    await session.execute(text("SET lock_timeout = '5s'"))
+    await session.execute(text("SET statement_timeout = '15s'"))
 
 
 async def _load_case(session: AsyncSession, case_id: uuid.UUID) -> Case:
@@ -185,6 +195,7 @@ async def test_concurrent_case_uploads_do_not_exceed_attachment_limit(
 
         async def create_attachment(content: bytes, filename: str) -> CaseAttachment:
             async with AsyncSession(engine, expire_on_commit=False) as session:
+                await _set_transaction_timeouts(session)
                 service = CaseAttachmentService(
                     session=session,
                     role=_service_role(workspace_id=workspace_id),
@@ -200,19 +211,35 @@ async def test_concurrent_case_uploads_do_not_exceed_attachment_limit(
                     ),
                 )
 
-        first_task = asyncio.create_task(create_attachment(first_content, "first.txt"))
-        await asyncio.wait_for(first_upload_paused.wait(), timeout=5)
+        first_task: asyncio.Task[CaseAttachment] | None = None
+        second_task: asyncio.Task[CaseAttachment] | None = None
+        try:
+            first_task = asyncio.create_task(
+                create_attachment(first_content, "first.txt")
+            )
+            await asyncio.wait_for(first_upload_paused.wait(), timeout=5)
 
-        second_task = asyncio.create_task(
-            create_attachment(second_content, "second.txt")
-        )
-        await asyncio.wait_for(second_lock_attempted.wait(), timeout=5)
+            second_task = asyncio.create_task(
+                create_attachment(second_content, "second.txt")
+            )
+            await asyncio.wait_for(second_lock_attempted.wait(), timeout=5)
 
-        release_first_upload.set()
-        results = await asyncio.wait_for(
-            asyncio.gather(first_task, second_task, return_exceptions=True),
-            timeout=10,
-        )
+            release_first_upload.set()
+            results = await asyncio.wait_for(
+                asyncio.gather(first_task, second_task, return_exceptions=True),
+                timeout=10,
+            )
+        finally:
+            release_first_upload.set()
+            pending_tasks = [
+                task
+                for task in (first_task, second_task)
+                if task is not None and not task.done()
+            ]
+            for task in pending_tasks:
+                task.cancel()
+            if pending_tasks:
+                await asyncio.gather(*pending_tasks, return_exceptions=True)
 
         successes = [result for result in results if isinstance(result, CaseAttachment)]
         limit_errors = [
