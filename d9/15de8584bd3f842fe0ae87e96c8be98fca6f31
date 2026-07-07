@@ -1,0 +1,25 @@
+tracecat/identifiers/workflow.py
+  s_87055a62d40851::t_3f5a1785420f3d 110-112
+  s_87055a62d40851::t_a551212ac70544 29-33
+tests/unit/test_identifiers.py
+  s_87055a62d40851::t_edec7629743b6b 269-295
+  s_87055a62d40851::t_8a7773e16a1902 1,7,14-19
+frontend/src/client/schemas.gen.ts
+  s_87055a62d40851::t_127cc7526ad892 12645,15016,15040,15122,21427,29792,29834,30112,30188,30297,30593,30716,30839,30964,31506
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "d915de8584bd3f842fe0ae87e96c8be98fca6f31",
+  "prompts": {},
+  "sessions": {
+    "s_87055a62d40851": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "39fbe3c7-e367-4f8b-adcb-bc4bb3f772bd",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
