@@ -1319,6 +1319,363 @@ class TestMCPIntegrationCRUD:
         assert updated is not None
         assert updated.encrypted_stdio_env is not None
 
+    async def test_readable_stdio_env_returns_safe_values(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        catalog = _catalog_entry(
+            slug="readable-stdio-env-mcp",
+            name="Readable stdio env MCP",
+            description="Test stdio env read-back",
+            connection_spec={
+                "kind": "stdio_custom",
+                "server_type": "stdio",
+                "auth_type": "CUSTOM",
+                "stdio_command": "uvx",
+                "stdio_args": ["example-mcp"],
+                "stdio_env": [],
+                "credentials": [
+                    {
+                        "key": "CONSOLE_BASE_URL",
+                        "label": "Console URL",
+                        "description": "Console base URL",
+                        "target": "stdio_env",
+                        "required": True,
+                        "secret": False,
+                    },
+                    {
+                        "key": "EXAMPLE_TOKEN",
+                        "label": "Example token",
+                        "description": "API token",
+                        "target": "stdio_env",
+                        "required": True,
+                        "secret": True,
+                    },
+                ],
+            },
+        )
+        _install_catalog_entry(monkeypatch, catalog)
+        created = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name=catalog.name,
+                description=catalog.description,
+                catalog_slug=catalog.slug,
+                stdio_command="uvx",
+                stdio_args=["example-mcp"],
+                stdio_env={
+                    "CONSOLE_BASE_URL": "https://console.example.net",
+                    "EXAMPLE_TOKEN": "${{ SECRETS.example.TOKEN }}",
+                },
+            )
+        )
+
+        assert integration_service.readable_stdio_env(created) == {
+            "CONSOLE_BASE_URL": "https://console.example.net",
+            "EXAMPLE_TOKEN": "${{ SECRETS.example.TOKEN }}",
+        }
+        assert integration_service.stdio_env_keys(created) == [
+            "CONSOLE_BASE_URL",
+            "EXAMPLE_TOKEN",
+        ]
+
+    async def test_readable_stdio_env_hides_raw_values(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        created = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Hidden stdio env MCP",
+                stdio_command="uvx",
+                stdio_args=["example-mcp"],
+                stdio_env={"EXAMPLE_TOKEN": "raw-token"},
+            )
+        )
+
+        assert integration_service.readable_stdio_env(created) is None
+        assert integration_service.stdio_env_keys(created) == ["EXAMPLE_TOKEN"]
+
+    async def test_readable_stdio_env_hides_non_reference_templates(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """Only standalone SECRETS/VARS references are shown; other templates hide.
+
+        A ``${{ FN.to_base64("user:password") }}`` value would leak the embedded
+        literal if echoed back, so anything that is not a plain SECRETS/VARS
+        attribute reference must be treated like a raw secret and omitted from
+        ``readable_stdio_env`` while still appearing in ``stdio_env_keys``.
+        """
+        created = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Non-reference template stdio env MCP",
+                stdio_command="uvx",
+                stdio_args=["example-mcp"],
+                stdio_env={
+                    # Embeds a literal that must not leak.
+                    "FN_TOKEN": '${{ FN.to_base64("user:password") }}',
+                    # A standalone template wrapping a bare literal.
+                    "LITERAL_TOKEN": '${{ "raw" }}',
+                    # Mixed content: template is not standalone.
+                    "MIXED_TOKEN": "prefix ${{ SECRETS.example.TOKEN }}",
+                    # Arithmetic / concatenation inside a standalone template.
+                    "CONCAT_TOKEN": '${{ SECRETS.example.USER + ":" + SECRETS.example.PASS }}',
+                    # Legitimate safe references remain visible.
+                    "SECRET_TOKEN": "${{ SECRETS.example.TOKEN }}",
+                    "VAR_TOKEN": "${{ VARS.foo }}",
+                },
+            )
+        )
+
+        assert integration_service.readable_stdio_env(created) == {
+            "SECRET_TOKEN": "${{ SECRETS.example.TOKEN }}",
+            "VAR_TOKEN": "${{ VARS.foo }}",
+        }
+        assert integration_service.stdio_env_keys(created) == [
+            "FN_TOKEN",
+            "LITERAL_TOKEN",
+            "MIXED_TOKEN",
+            "CONCAT_TOKEN",
+            "SECRET_TOKEN",
+            "VAR_TOKEN",
+        ]
+
+    async def test_readable_stdio_env_shows_catalog_non_secret_keys(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Catalog-declared non-secret keys stay visible even as raw values.
+
+        The tightened reference check only gates templated values; keys the
+        catalog marks non-secret are shown verbatim regardless of their shape.
+        """
+        catalog = _catalog_entry(
+            slug="catalog-non-secret-stdio-env-mcp",
+            name="Catalog non-secret stdio env MCP",
+            description="Catalog row with a non-secret stdio env key",
+            connection_spec={
+                "kind": "stdio_custom",
+                "server_type": "stdio",
+                "auth_type": "CUSTOM",
+                "stdio_command": "uvx",
+                "stdio_args": ["example-mcp"],
+                "stdio_env": [],
+                "credentials": [
+                    {
+                        "key": "CONSOLE_BASE_URL",
+                        "label": "Console URL",
+                        "description": "Console base URL",
+                        "target": "stdio_env",
+                        "required": True,
+                        "secret": False,
+                    },
+                    {
+                        "key": "EXAMPLE_TOKEN",
+                        "label": "Example token",
+                        "description": "API token",
+                        "target": "stdio_env",
+                        "required": True,
+                        "secret": True,
+                    },
+                ],
+            },
+        )
+        _install_catalog_entry(monkeypatch, catalog)
+        created = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name=catalog.name,
+                description=catalog.description,
+                catalog_slug=catalog.slug,
+                stdio_command="uvx",
+                stdio_args=["example-mcp"],
+                stdio_env={
+                    # Non-secret catalog key: shown verbatim (raw, non-templated).
+                    "CONSOLE_BASE_URL": "https://console.example.net",
+                    # Secret catalog key holding a raw secret: hidden.
+                    "EXAMPLE_TOKEN": "raw-token",
+                },
+            )
+        )
+
+        assert integration_service.readable_stdio_env(created) == {
+            "CONSOLE_BASE_URL": "https://console.example.net",
+        }
+        assert integration_service.stdio_env_keys(created) == [
+            "CONSOLE_BASE_URL",
+            "EXAMPLE_TOKEN",
+        ]
+
+    async def test_stdio_env_accessors_allow_create_only_scope(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+    ) -> None:
+        """A create-only role can create a stdio MCP and read its env metadata.
+
+        Regression: the create route shapes its response with
+        ``stdio_env_keys``/``readable_stdio_env``/``decrypt_stdio_env``. When
+        those accessors required ``integration:read`` a create-only RBAC role
+        would persist the row and then 403 on response shaping, orphaning the
+        integration.
+        """
+        create_only_role = Role(
+            type="user",
+            workspace_id=svc_role.workspace_id,
+            organization_id=svc_role.organization_id,
+            user_id=svc_role.user_id,
+            service_id="tracecat-api",
+            scopes=frozenset({"integration:create"}),
+        )
+        service = IntegrationService(session=session, role=create_only_role)
+
+        created = await service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Create-only stdio MCP",
+                stdio_command="uvx",
+                stdio_args=["example-mcp"],
+                stdio_env={
+                    "EXAMPLE_TOKEN": "raw-token",
+                    "VISIBLE_TOKEN": "${{ SECRETS.example.VISIBLE_TOKEN }}",
+                },
+            )
+        )
+
+        # These are the exact accessors the create route calls to shape the
+        # response; each must succeed under a create-only role.
+        assert service.decrypt_stdio_env(created) == {
+            "EXAMPLE_TOKEN": "raw-token",
+            "VISIBLE_TOKEN": "${{ SECRETS.example.VISIBLE_TOKEN }}",
+        }
+        assert service.readable_stdio_env(created) == {
+            "VISIBLE_TOKEN": "${{ SECRETS.example.VISIBLE_TOKEN }}",
+        }
+        assert service.stdio_env_keys(created) == ["EXAMPLE_TOKEN", "VISIBLE_TOKEN"]
+
+    async def test_stdio_env_accessors_allow_update_only_scope(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        integration_service: IntegrationService,
+    ) -> None:
+        """An update-only role can update a stdio MCP and read its env metadata.
+
+        Regression: ``_merged_stdio_env_for_update`` calls
+        ``decrypt_stdio_env`` and the update route shapes its response with the
+        readable accessors. When those required ``integration:read`` an
+        update-only role would break mid-update.
+        """
+        created = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Update-only stdio MCP",
+                stdio_command="uvx",
+                stdio_args=["example-mcp"],
+                stdio_env={
+                    "EXAMPLE_TOKEN": "raw-token",
+                    "VISIBLE_TOKEN": "${{ SECRETS.example.VISIBLE_TOKEN }}",
+                },
+            )
+        )
+
+        update_only_role = Role(
+            type="user",
+            workspace_id=svc_role.workspace_id,
+            organization_id=svc_role.organization_id,
+            user_id=svc_role.user_id,
+            service_id="tracecat-api",
+            scopes=frozenset({"integration:update"}),
+        )
+        service = IntegrationService(session=session, role=update_only_role)
+
+        updated = await service.update_mcp_integration(
+            mcp_integration_id=created.id,
+            params=MCPIntegrationUpdate(
+                stdio_env={"VISIBLE_TOKEN": "${{ SECRETS.example.UPDATED_TOKEN }}"},
+                stdio_env_preserve_keys=["EXAMPLE_TOKEN"],
+            ),
+        )
+        assert updated is not None
+
+        assert service.decrypt_stdio_env(updated) == {
+            "EXAMPLE_TOKEN": "raw-token",
+            "VISIBLE_TOKEN": "${{ SECRETS.example.UPDATED_TOKEN }}",
+        }
+        assert service.readable_stdio_env(updated) == {
+            "VISIBLE_TOKEN": "${{ SECRETS.example.UPDATED_TOKEN }}",
+        }
+        assert service.stdio_env_keys(updated) == ["EXAMPLE_TOKEN", "VISIBLE_TOKEN"]
+
+    async def test_list_response_includes_stdio_env_metadata(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """List responses expose the same readable stdio env as GET-by-id.
+
+        Mirrors the router shaping: ``list_mcp_integrations`` must populate
+        ``stdio_env_keys``/``stdio_env`` from the read-scoped accessors so the
+        list matches the GET-by-id response.
+        """
+        created = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="List env metadata MCP",
+                stdio_command="uvx",
+                stdio_args=["example-mcp"],
+                stdio_env={
+                    "EXAMPLE_TOKEN": "raw-token",
+                    "VISIBLE_TOKEN": "${{ SECRETS.example.VISIBLE_TOKEN }}",
+                },
+            )
+        )
+
+        rows = await integration_service.list_mcp_integrations_with_state()
+        listed = next(
+            item.integration for item in rows if item.integration.id == created.id
+        )
+
+        # The list route shapes these fields exactly as GET-by-id does.
+        expected_keys = ["EXAMPLE_TOKEN", "VISIBLE_TOKEN"]
+        expected_env = {"VISIBLE_TOKEN": "${{ SECRETS.example.VISIBLE_TOKEN }}"}
+
+        assert integration_service.stdio_env_keys(listed) == expected_keys
+        assert integration_service.readable_stdio_env(listed) == expected_env
+        # Consistency with the GET-by-id shaping.
+        assert integration_service.stdio_env_keys(
+            created
+        ) == integration_service.stdio_env_keys(listed)
+        assert integration_service.readable_stdio_env(
+            created
+        ) == integration_service.readable_stdio_env(listed)
+
+    async def test_update_mcp_integration_preserves_hidden_stdio_env_keys(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        created = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Preserve stdio env MCP",
+                stdio_command="uvx",
+                stdio_args=["example-mcp"],
+                stdio_env={
+                    "EXAMPLE_TOKEN": "raw-token",
+                    "VISIBLE_TOKEN": "${{ SECRETS.example.VISIBLE_TOKEN }}",
+                },
+            )
+        )
+
+        updated = await integration_service.update_mcp_integration(
+            mcp_integration_id=created.id,
+            params=MCPIntegrationUpdate(
+                stdio_env={"VISIBLE_TOKEN": "${{ SECRETS.example.UPDATED_TOKEN }}"},
+                stdio_env_preserve_keys=["EXAMPLE_TOKEN"],
+            ),
+        )
+
+        assert updated is not None
+        assert integration_service.decrypt_stdio_env(updated) == {
+            "EXAMPLE_TOKEN": "raw-token",
+            "VISIBLE_TOKEN": "${{ SECRETS.example.UPDATED_TOKEN }}",
+        }
+
     async def test_catalog_url_typed_stdio_env_requires_scheme(
         self,
         integration_service: IntegrationService,

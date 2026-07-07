@@ -15953,6 +15953,34 @@ export const $MCPIntegrationRead = {
       ],
       title: "Stdio Args",
     },
+    stdio_env_keys: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Stdio Env Keys",
+    },
+    stdio_env: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Stdio Env",
+    },
     has_stdio_env: {
       type: "boolean",
       title: "Has Stdio Env",
@@ -16274,6 +16302,22 @@ export const $MCPIntegrationUpdate = {
       ],
       title: "Stdio Env",
       description: "Environment variables for stdio-type servers",
+    },
+    stdio_env_preserve_keys: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Stdio Env Preserve Keys",
+      description:
+        "Existing stdio env keys to preserve when stdio_env only contains visible or replaced values.",
     },
     timeout: {
       anyOf: [

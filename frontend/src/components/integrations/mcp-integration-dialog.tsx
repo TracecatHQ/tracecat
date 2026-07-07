@@ -31,18 +31,25 @@ import type {
 } from "@/client/types.gen"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
+import { ExpressionInput } from "@/components/editor/expression-input"
 import { getMcpProviderIconId, ProviderIcon } from "@/components/icons"
 import {
   ALLOWED_COMMANDS,
   AUTH_TYPES,
   buildMcpIntegrationFormSchema,
+  buildStdioArgsLine,
   catalogEntryToFormValues,
   isAllowedCommand,
   MCP_INTEGRATION_FORM_DEFAULTS,
   type MCPIntegrationFormValues,
   missingRequiredOAuthClientCredentials,
   normalizeOAuthClientKey,
+  parseStdioArgsLine,
   SERVER_TYPES,
+  shouldSendStdioFields,
+  stdioEnvReadToRows,
+  stdioEnvRowsToPreserveKeys,
+  stdioEnvRowsToRecord,
   urlTypedStdioEnvKeys,
 } from "@/components/integrations/mcp-integration-schema"
 import {
@@ -409,6 +416,11 @@ export function MCPIntegrationDialog({
   const canUpdate = useScopeCheck("integration:update") === true
   const [internalOpen, setInternalOpen] = useState(false)
   const [isEditHydrated, setIsEditHydrated] = useState(false)
+  // Set when a catalog connection option's template is applied in edit mode.
+  // Switching options calls form.reset(nextValues), which clears dirtyFields,
+  // so the freshly-applied option's stdio env and args would otherwise be
+  // gated out of the update. Cleared on close and on edit-mode rehydration.
+  const [stdioTemplateApplied, setStdioTemplateApplied] = useState(false)
   const [catalogOAuthClientIsPending, setCatalogOAuthClientIsPending] =
     useState(false)
   const open = controlledOpen ?? internalOpen
@@ -436,13 +448,13 @@ export function MCPIntegrationDialog({
     defaultValues: MCP_INTEGRATION_FORM_DEFAULTS,
   })
   const {
-    fields: stdioArgFields,
-    append: appendStdioArg,
-    remove: removeStdioArg,
-    replace: replaceStdioArgs,
+    fields: stdioEnvFields,
+    append: appendStdioEnv,
+    remove: removeStdioEnv,
+    replace: replaceStdioEnv,
   } = useFieldArray({
     control: form.control,
-    name: "stdio_args",
+    name: "stdio_env",
   })
 
   const serverType = form.watch("server_type")
@@ -568,8 +580,10 @@ export function MCPIntegrationDialog({
       if (mcpIntegration.id !== mcpIntegrationId) {
         return
       }
-      const hydratedStdioArgs =
-        mcpIntegration.stdio_args?.map((arg) => ({ value: arg })) || []
+      const hydratedStdioEnv = stdioEnvReadToRows(
+        mcpIntegration.stdio_env,
+        mcpIntegration.stdio_env_keys
+      )
       form.reset({
         name: mcpIntegration.name,
         description: mcpIntegration.description || "",
@@ -583,8 +597,8 @@ export function MCPIntegrationDialog({
         oauth_client_credentials: "",
         custom_credentials: "", // Don't populate for security
         stdio_command: mcpIntegration.stdio_command || "",
-        stdio_args: hydratedStdioArgs,
-        stdio_env: "", // Env vars are not returned from API for security
+        stdio_args_line: buildStdioArgsLine(mcpIntegration.stdio_args),
+        stdio_env: hydratedStdioEnv,
         timeout: mcpIntegration.timeout || 30,
         catalog_slug: catalogEntry?.slug || "",
         connection_option_id: catalogOptionIdForIntegration(
@@ -593,7 +607,8 @@ export function MCPIntegrationDialog({
         ),
       })
       // Explicitly sync field-array state; reset() can lag on first mount.
-      replaceStdioArgs(hydratedStdioArgs)
+      replaceStdioEnv(hydratedStdioEnv)
+      setStdioTemplateApplied(false)
       setIsEditHydrated(true)
     }
   }, [
@@ -603,7 +618,7 @@ export function MCPIntegrationDialog({
     mcpIntegrationId,
     catalogEntry,
     form,
-    replaceStdioArgs,
+    replaceStdioEnv,
   ])
 
   // Prefill from a catalog entry when opening in create mode. Keyed on the
@@ -615,7 +630,7 @@ export function MCPIntegrationDialog({
     const defaultOptionId = catalogEntry.connection_options?.[0]?.id
     const values = catalogEntryToFormValues(catalogEntry, defaultOptionId)
     form.reset(values)
-    replaceStdioArgs(values.stdio_args)
+    replaceStdioEnv(values.stdio_env)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEditMode, open, catalogEntry?.slug])
 
@@ -625,8 +640,10 @@ export function MCPIntegrationDialog({
       mcpIntegration &&
       mcpIntegration.id === mcpIntegrationId
     ) {
-      const hydratedStdioArgs =
-        mcpIntegration.stdio_args?.map((arg) => ({ value: arg })) || []
+      const hydratedStdioEnv = stdioEnvReadToRows(
+        mcpIntegration.stdio_env,
+        mcpIntegration.stdio_env_keys
+      )
       form.reset({
         name: mcpIntegration.name,
         description: mcpIntegration.description || "",
@@ -640,8 +657,8 @@ export function MCPIntegrationDialog({
         oauth_client_credentials: "",
         custom_credentials: "",
         stdio_command: mcpIntegration.stdio_command || "",
-        stdio_args: hydratedStdioArgs,
-        stdio_env: "", // Env vars are not returned from API for security
+        stdio_args_line: buildStdioArgsLine(mcpIntegration.stdio_args),
+        stdio_env: hydratedStdioEnv,
         timeout: mcpIntegration.timeout || 30,
         catalog_slug: catalogEntry?.slug || "",
         connection_option_id: catalogOptionIdForIntegration(
@@ -649,11 +666,13 @@ export function MCPIntegrationDialog({
           mcpIntegration
         ),
       })
-      replaceStdioArgs(hydratedStdioArgs)
+      replaceStdioEnv(hydratedStdioEnv)
+      setStdioTemplateApplied(false)
       setIsEditHydrated(true)
     } else {
       form.reset(MCP_INTEGRATION_FORM_DEFAULTS)
-      replaceStdioArgs([])
+      replaceStdioEnv([])
+      setStdioTemplateApplied(false)
       setIsEditHydrated(false)
     }
   }
@@ -672,16 +691,22 @@ export function MCPIntegrationDialog({
   const onSubmit = async (values: MCPIntegrationFormValues) => {
     let hookHandledError = false
     try {
-      // Parse stdio_args list to string array
-      const stdioArgs = values.stdio_args
-        .map((arg) => arg.value.trim())
-        .filter(Boolean)
-
-      // Parse stdio_env from JSON string to object (only for stdio-type servers)
+      const stdioCommand = values.stdio_command?.trim() ?? ""
+      const stdioArgs = parseStdioArgsLine(values.stdio_args_line)
       const stdioEnv =
-        values.server_type === "stdio" && values.stdio_env?.trim()
-          ? (JSON.parse(values.stdio_env) as Record<string, string>)
+        values.server_type === "stdio"
+          ? stdioEnvRowsToRecord(values.stdio_env)
           : undefined
+      const stdioEnvPreserveKeys =
+        values.server_type === "stdio"
+          ? stdioEnvRowsToPreserveKeys(values.stdio_env)
+          : []
+      const { sendEnv: stdioEnvWasEdited, sendArgs: stdioArgsWasEdited } =
+        shouldSendStdioFields({
+          envDirty: Boolean(form.formState.dirtyFields.stdio_env),
+          argsDirty: Boolean(form.formState.dirtyFields.stdio_args_line),
+          templateApplied: stdioTemplateApplied,
+        })
 
       const baseParams = {
         name: values.name.trim(),
@@ -718,9 +743,18 @@ export function MCPIntegrationDialog({
             ? {
                 ...baseParams,
                 server_type: "stdio",
-                stdio_command: values.stdio_command?.trim() ?? "",
-                stdio_args: stdioArgs,
-                stdio_env: stdioEnv,
+                stdio_command: stdioCommand,
+                // Re-serializing the args line is lossy (embedded whitespace,
+                // no quoting), so only send args when the line was edited or a
+                // new option template was applied. Omitting stdio_args tells the
+                // backend to preserve the stored value verbatim.
+                ...(stdioArgsWasEdited ? { stdio_args: stdioArgs } : {}),
+                ...(stdioEnvWasEdited
+                  ? {
+                      stdio_env: stdioEnv ?? {},
+                      stdio_env_preserve_keys: stdioEnvPreserveKeys,
+                    }
+                  : {}),
               }
             : {
                 ...baseParams,
@@ -746,7 +780,7 @@ export function MCPIntegrationDialog({
           const params: MCPStdioIntegrationCreate = {
             ...createBaseParams,
             server_type: "stdio",
-            stdio_command: values.stdio_command?.trim() ?? "",
+            stdio_command: stdioCommand,
             stdio_args: stdioArgs.length > 0 ? stdioArgs : undefined,
             stdio_env: stdioEnv,
           }
@@ -1072,10 +1106,15 @@ export function MCPIntegrationDialog({
                                             values.catalog_slug,
                                         }
                                         form.reset(nextValues)
-                                        replaceStdioArgs(nextValues.stdio_args)
+                                        replaceStdioEnv(nextValues.stdio_env)
+                                        // reset() clears dirtyFields, so flag
+                                        // the applied template to force the new
+                                        // option's stdio env and args into the
+                                        // update payload.
+                                        setStdioTemplateApplied(true)
                                       } else {
                                         form.reset(values)
-                                        replaceStdioArgs(values.stdio_args)
+                                        replaceStdioEnv(values.stdio_env)
                                       }
                                     }}
                                   >
@@ -1289,7 +1328,7 @@ export function MCPIntegrationDialog({
                         name="stdio_command"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Stdio command</FormLabel>
+                            <FormLabel>Command</FormLabel>
                             <FormControl>
                               {(() => {
                                 const currentCommand = (
@@ -1313,7 +1352,7 @@ export function MCPIntegrationDialog({
                                     }
                                   >
                                     <SelectTrigger>
-                                      <SelectValue placeholder="Select stdio command">
+                                      <SelectValue placeholder="Select command">
                                         {hasLegacyValue
                                           ? `Legacy (${currentCommand})`
                                           : currentCommand || null}
@@ -1336,7 +1375,7 @@ export function MCPIntegrationDialog({
                               })()}
                             </FormControl>
                             <FormDescription className="text-xs">
-                              Stdio command to run the MCP server. Only{" "}
+                              Command to run the MCP server. Only{" "}
                               {ALLOWED_COMMANDS.join(", ")} are allowed.
                             </FormDescription>
                             <FormMessage />
@@ -1345,35 +1384,118 @@ export function MCPIntegrationDialog({
                       />
                       <FormField
                         control={form.control}
-                        name="stdio_args"
+                        name="stdio_args_line"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Arguments</FormLabel>
+                            <FormControl>
+                              <Input
+                                {...field}
+                                placeholder="@modelcontextprotocol/server-github"
+                                className="font-mono text-xs"
+                              />
+                            </FormControl>
+                            <FormDescription className="text-xs">
+                              Space-separated arguments. Quoting is not
+                              supported; each token is passed as a separate
+                              argument.
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="stdio_env"
                         render={() => (
                           <FormItem>
-                            <FormLabel>Stdio arguments</FormLabel>
+                            <FormLabel>Environment variables</FormLabel>
                             <div className="space-y-2">
-                              {stdioArgFields.length === 0 && (
+                              {stdioEnvFields.length === 0 ? (
                                 <p className="text-xs text-muted-foreground">
-                                  No arguments configured.
+                                  {isEditMode && mcpIntegration?.has_stdio_env
+                                    ? "Stored variables include raw values and are hidden."
+                                    : "No environment variables configured."}
                                 </p>
-                              )}
-                              {stdioArgFields.map((argField, index) => (
+                              ) : null}
+                              {stdioEnvFields.map((envField, index) => (
                                 <div
-                                  key={argField.id}
-                                  className="grid grid-cols-[1fr_auto] gap-2"
+                                  key={envField.id}
+                                  className="grid gap-2 sm:grid-cols-[minmax(140px,200px)_minmax(0,1fr)_auto]"
                                 >
                                   <FormField
                                     control={form.control}
-                                    name={`stdio_args.${index}.value`}
+                                    name={`stdio_env.${index}.key`}
                                     render={({ field }) => (
                                       <FormItem>
                                         <FormControl>
                                           <Input
                                             {...field}
-                                            placeholder={
-                                              index === 0
-                                                ? "@modelcontextprotocol/server-github"
-                                                : "Additional argument"
-                                            }
+                                            onChange={(event) => {
+                                              field.onChange(event)
+                                              // Renaming a hidden row breaks the
+                                              // link to the stored value (kept
+                                              // server-side under original_key),
+                                              // so it can no longer be preserved.
+                                              // Reveal it as a normal row so the
+                                              // user must enter a replacement.
+                                              const originalKey =
+                                                form.getValues(
+                                                  `stdio_env.${index}.original_key`
+                                                )
+                                              if (
+                                                form.getValues(
+                                                  `stdio_env.${index}.value_hidden`
+                                                ) === true &&
+                                                event.target.value.trim() !==
+                                                  originalKey
+                                              ) {
+                                                form.setValue(
+                                                  `stdio_env.${index}.value_hidden`,
+                                                  false,
+                                                  { shouldDirty: true }
+                                                )
+                                              }
+                                            }}
+                                            placeholder="GITHUB_TOKEN"
                                             className="font-mono text-xs"
+                                          />
+                                        </FormControl>
+                                        <FormMessage />
+                                      </FormItem>
+                                    )}
+                                  />
+                                  <FormField
+                                    control={form.control}
+                                    name={`stdio_env.${index}.value`}
+                                    render={({ field }) => (
+                                      <FormItem>
+                                        <FormControl>
+                                          <ExpressionInput
+                                            value={field.value}
+                                            onChange={(value) => {
+                                              field.onChange(value)
+                                              if (
+                                                form.getValues(
+                                                  `stdio_env.${index}.value_hidden`
+                                                ) === true
+                                              ) {
+                                                form.setValue(
+                                                  `stdio_env.${index}.value_hidden`,
+                                                  false,
+                                                  { shouldDirty: true }
+                                                )
+                                              }
+                                            }}
+                                            placeholder={
+                                              form.getValues(
+                                                `stdio_env.${index}.value_hidden`
+                                              ) === true
+                                                ? "Stored value hidden - enter replacement"
+                                                : "Type @ to begin an expression..."
+                                            }
+                                            completionScope="workspace"
+                                            className="min-w-0"
                                           />
                                         </FormControl>
                                         <FormMessage />
@@ -1384,11 +1506,11 @@ export function MCPIntegrationDialog({
                                     type="button"
                                     variant="ghost"
                                     size="icon"
-                                    onClick={() => removeStdioArg(index)}
+                                    onClick={() => removeStdioEnv(index)}
                                   >
                                     <Trash2 className="size-4" />
                                     <span className="sr-only">
-                                      Remove argument
+                                      Remove variable
                                     </span>
                                   </Button>
                                 </div>
@@ -1397,44 +1519,16 @@ export function MCPIntegrationDialog({
                                 type="button"
                                 variant="outline"
                                 size="sm"
-                                onClick={() => appendStdioArg({ value: "" })}
+                                onClick={() =>
+                                  appendStdioEnv({ key: "", value: "" })
+                                }
                               >
                                 <Plus className="mr-2 size-4" />
-                                Add argument
+                                Add variable
                               </Button>
                             </div>
                             <FormDescription className="text-xs">
-                              Add each command argument as a separate list item,
-                              in order.
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="stdio_env"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Stdio environment variables</FormLabel>
-                            <FormControl>
-                              <CodeEditor
-                                value={field.value || ""}
-                                onChange={field.onChange}
-                                language="json"
-                                className="font-mono text-xs [&_.cm-content]:text-xs [&_.cm-editor]:min-h-[80px]"
-                              />
-                            </FormControl>
-                            <FormDescription className="text-xs">
-                              JSON object with environment variables for the
-                              stdio command. Template expressions are supported,
-                              for example{" "}
-                              <code>
-                                {
-                                  '{"GITHUB_TOKEN": "${{ SECRETS.github.TOKEN }}"}'
-                                }
-                              </code>
-                              .
+                              Use template expressions for secret-backed values.
                             </FormDescription>
                             <FormMessage />
                           </FormItem>

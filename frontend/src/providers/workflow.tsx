@@ -282,8 +282,10 @@ export function WorkflowProvider({
   )
 }
 
+export const useOptionalWorkflow = () => useContext(WorkflowContext)
+
 export const useWorkflow = () => {
-  const context = useContext(WorkflowContext)
+  const context = useOptionalWorkflow()
   if (context === undefined) {
     throw new Error("useWorkflow must be used within a WorkflowProvider")
   }
