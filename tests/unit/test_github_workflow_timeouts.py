@@ -29,7 +29,13 @@ def clean_redis_db() -> Iterator[None]:
 def test_github_actions_jobs_set_timeout_minutes() -> None:
     missing_timeouts: list[str] = []
 
-    for workflow_path in sorted(WORKFLOWS_DIR.glob("*.yml")):
+    workflow_paths = sorted(
+        path
+        for suffix in (".yaml", ".yml")
+        for path in WORKFLOWS_DIR.glob(f"*{suffix}")
+    )
+
+    for workflow_path in workflow_paths:
         workflow = yaml.safe_load(workflow_path.read_text()) or {}
         jobs = workflow.get("jobs") or {}
 
