@@ -337,7 +337,11 @@ class AgentSessionService(BaseWorkspaceService):
             func.row_number()
             .over(
                 partition_by=AgentSessionHistory.session_id,
-                order_by=(rank.desc(), AgentSessionHistory.created_at.desc()),
+                order_by=(
+                    rank.desc(),
+                    AgentSessionHistory.created_at.desc(),
+                    AgentSessionHistory.surrogate_id.desc(),
+                ),
             )
             .label("per_session_rank")
         )
@@ -370,7 +374,11 @@ class AgentSessionService(BaseWorkspaceService):
         stmt = (
             select(ranked)
             .where(ranked.c.per_session_rank == 1)
-            .order_by(ranked.c.rank.desc(), ranked.c.message_created_at.desc())
+            .order_by(
+                ranked.c.rank.desc(),
+                ranked.c.message_created_at.desc(),
+                ranked.c.surrogate_id.desc(),
+            )
             .limit(min(limit * 4, 100))
         )
 
