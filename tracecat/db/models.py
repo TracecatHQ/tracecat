@@ -2977,7 +2977,7 @@ class AgentSessionHistory(WorkspaceModel):
     """
 
     __tablename__ = "agent_session_history"
-    __serialization_exclude__ = {"surrogate_id", "search_tsv"}
+    __serialization_exclude__ = {"surrogate_id", "search_text", "search_tsv"}
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,

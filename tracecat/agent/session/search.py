@@ -101,17 +101,29 @@ def _extract_user_content(content: Any) -> list[str]:
     return []
 
 
+_MEDIA_CONTENT_TYPES = (ImageUrl, AudioUrl, VideoUrl, DocumentUrl, BinaryContent)
+
+
 def _extract_tool_return_content(content: Any) -> list[str]:
     if isinstance(content, str):
         return [content]
+    # Media objects must become placeholders, never be JSON-serialized.
+    if isinstance(content, _MEDIA_CONTENT_TYPES):
+        return _extract_user_content(content)
     if isinstance(content, Sequence) and not isinstance(
         content, str | bytes | bytearray
     ):
         chunks: list[str] = []
         for item in content:
-            chunks.extend(_extract_mapping_content_item(item))
+            if isinstance(item, _MEDIA_CONTENT_TYPES):
+                chunks.extend(_extract_user_content(item))
+            else:
+                chunks.extend(_extract_mapping_content_item(item))
         if chunks:
             return chunks
+    if isinstance(content, Mapping):
+        if mapped := _extract_mapping_content_item(content):
+            return mapped
     if compacted := _compact_value(content):
         return [compacted]
     return []

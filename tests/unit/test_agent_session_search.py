@@ -108,6 +108,36 @@ def test_extract_search_text_replaces_image_and_binary_content() -> None:
     assert "image-bytes" not in text
 
 
+def test_extract_search_text_tool_return_media_becomes_placeholder() -> None:
+    # Media in tool returns must be redacted, never JSON-serialized (review P2).
+    text = extract_search_text(
+        ModelRequest(
+            parts=[
+                ToolReturnPart(
+                    tool_name="tools.browser.screenshot",
+                    content=BinaryContent(
+                        data=b"raw-image-bytes", media_type="image/png"
+                    ),
+                    tool_call_id="call_media",
+                ),
+                ToolReturnPart(
+                    tool_name="tools.browser.snapshot",
+                    content=[
+                        "Page loaded.",
+                        ImageUrl(url="https://example.test/s.png"),
+                    ],
+                    tool_call_id="call_mixed",
+                ),
+            ]
+        )
+    )
+
+    assert text is not None
+    assert "raw-image-bytes" not in text
+    assert text.count("[image]") == 2
+    assert "Page loaded." in text
+
+
 def test_extract_search_text_caps_oversized_content() -> None:
     text = extract_search_text(ModelResponse(parts=[TextPart(content="alpha " * 3000)]))
 

@@ -33,6 +33,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import (
+    TracecatNotFoundError,
     TracecatValidationError,
 )
 from tracecat.integrations.enums import OAuthGrantType
@@ -579,6 +580,10 @@ async def read_session_window(
             return session_window.model_dump(mode="json")
     except InternalToolError:
         raise
+    except (TracecatNotFoundError, TracecatValidationError) as e:
+        # Surface domain errors verbatim so the agent can distinguish
+        # "not found" / "this is your active session" from platform failures.
+        raise InternalToolError(str(e)) from e
     except Exception as e:
         logger.error(
             "Failed to read session window",

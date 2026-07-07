@@ -141,6 +141,16 @@ AUTO_TITLE_SERVICE_ID = "tracecat-api"
 APPROVAL_CONTINUATION_DEDUP_TTL_SECONDS = 5 * 60
 
 
+# Recall (session search / window reads) must only surface rows the UI
+# timeline shows; INTERNAL rows (continuation prompts, interrupt artifacts)
+# and approval bubbles stay hidden.
+_RECALL_VISIBLE_KINDS = (
+    MessageKind.CHAT_MESSAGE.value,
+    MessageKind.COMPACTION.value,
+    MessageKind.CANCELLED.value,
+)
+
+
 def _dedupe_tool_names(tools: Sequence[str]) -> list[str]:
     deduped: list[str] = []
     for tool in tools:
@@ -260,29 +270,27 @@ class AgentSessionService(BaseWorkspaceService):
                 children_by_id.setdefault(parent_session_id, []).append(session_id)
         return parent_by_id, children_by_id
 
-    @staticmethod
+    @classmethod
     def _lineage_ids(
+        cls,
         session_id: uuid.UUID,
         parent_by_id: dict[uuid.UUID, uuid.UUID | None],
         children_by_id: dict[uuid.UUID, list[uuid.UUID]],
     ) -> set[uuid.UUID]:
-        lineage = {session_id}
+        """Return the whole fork tree containing ``session_id``.
 
-        current = session_id
-        while parent_id := parent_by_id.get(current):
-            if parent_id in lineage:
-                break
-            lineage.add(parent_id)
-            current = parent_id
-
-        stack = list(children_by_id.get(session_id, []))
+        Walks down from the resolved root so sibling forks are included,
+        keeping current-lineage exclusion aligned with the root-based dedupe.
+        """
+        lineage: set[uuid.UUID] = set()
+        stack = [cls._root_session_id(session_id, parent_by_id)]
         while stack:
-            child_id = stack.pop()
-            if child_id in lineage:
+            node_id = stack.pop()
+            if node_id in lineage:
                 continue
-            lineage.add(child_id)
-            stack.extend(children_by_id.get(child_id, []))
-
+            lineage.add(node_id)
+            stack.extend(children_by_id.get(node_id, []))
+        lineage.add(session_id)
         return lineage
 
     @staticmethod
@@ -361,6 +369,7 @@ class AgentSessionService(BaseWorkspaceService):
             .where(
                 AgentSession.workspace_id == self.workspace_id,
                 self._recall_visibility_clause(),
+                AgentSessionHistory.kind.in_(_RECALL_VISIBLE_KINDS),
                 AgentSessionHistory.search_text.is_not(None),
                 AgentSessionHistory.search_tsv.op("@@")(tsquery),
             )
@@ -379,31 +388,39 @@ class AgentSessionService(BaseWorkspaceService):
                 ranked.c.message_created_at.desc(),
                 ranked.c.surrogate_id.desc(),
             )
-            .limit(min(limit * 4, 100))
         )
 
-        result = await self.session.execute(stmt)
-        rows = result.mappings().all()
-
+        # Root-lineage dedupe happens in Python, so page through best-per-session
+        # hits until enough distinct lineages are found; otherwise one fork tree
+        # with many sibling sessions could fill a single fixed scan window.
+        page_size = min(max(limit * 4, 25), 100)
+        max_pages = 5
         results_by_root: dict[uuid.UUID, SessionSearchResult] = {}
-        for row in rows:
-            session_id = row["session_id"]
-            root_id = self._root_session_id(session_id, parent_by_id)
-            if root_id in results_by_root:
-                continue
-            if not row["snippet"]:
-                continue
-            results_by_root[root_id] = SessionSearchResult(
-                session_id=session_id,
-                session_title=row["session_title"],
-                entity_type=AgentSessionEntity(row["entity_type"]),
-                entity_id=row["entity_id"],
-                surrogate_id=row["surrogate_id"],
-                snippet=row["snippet"],
-                message_created_at=row["message_created_at"],
-                rank=float(row["rank"] or 0.0),
+        for page in range(max_pages):
+            result = await self.session.execute(
+                stmt.offset(page * page_size).limit(page_size)
             )
-            if len(results_by_root) >= limit:
+            rows = result.mappings().all()
+            for row in rows:
+                session_id = row["session_id"]
+                root_id = self._root_session_id(session_id, parent_by_id)
+                if root_id in results_by_root:
+                    continue
+                if not row["snippet"]:
+                    continue
+                results_by_root[root_id] = SessionSearchResult(
+                    session_id=session_id,
+                    session_title=row["session_title"],
+                    entity_type=AgentSessionEntity(row["entity_type"]),
+                    entity_id=row["entity_id"],
+                    surrogate_id=row["surrogate_id"],
+                    snippet=row["snippet"],
+                    message_created_at=row["message_created_at"],
+                    rank=float(row["rank"] or 0.0),
+                )
+                if len(results_by_root) >= limit:
+                    break
+            if len(results_by_root) >= limit or len(rows) < page_size:
                 break
 
         return list(results_by_root.values())
@@ -471,6 +488,7 @@ class AgentSessionService(BaseWorkspaceService):
             .where(
                 AgentSessionHistory.workspace_id == self.workspace_id,
                 AgentSessionHistory.session_id == session_id,
+                AgentSessionHistory.kind.in_(_RECALL_VISIBLE_KINDS),
                 AgentSessionHistory.surrogate_id <= anchor_surrogate_id,
             )
             .order_by(AgentSessionHistory.surrogate_id.desc())
@@ -484,6 +502,7 @@ class AgentSessionService(BaseWorkspaceService):
             .where(
                 AgentSessionHistory.workspace_id == self.workspace_id,
                 AgentSessionHistory.session_id == session_id,
+                AgentSessionHistory.kind.in_(_RECALL_VISIBLE_KINDS),
                 AgentSessionHistory.surrogate_id > anchor_surrogate_id,
             )
             .order_by(AgentSessionHistory.surrogate_id)
@@ -496,12 +515,14 @@ class AgentSessionService(BaseWorkspaceService):
             messages_before_stmt = select(func.count()).where(
                 AgentSessionHistory.workspace_id == self.workspace_id,
                 AgentSessionHistory.session_id == session_id,
+                AgentSessionHistory.kind.in_(_RECALL_VISIBLE_KINDS),
                 AgentSessionHistory.surrogate_id < before_entries[0].surrogate_id,
             )
         else:
             messages_before_stmt = select(func.count()).where(
                 AgentSessionHistory.workspace_id == self.workspace_id,
                 AgentSessionHistory.session_id == session_id,
+                AgentSessionHistory.kind.in_(_RECALL_VISIBLE_KINDS),
                 AgentSessionHistory.surrogate_id <= anchor_surrogate_id,
             )
         messages_before = await self.session.scalar(messages_before_stmt)
@@ -510,12 +531,14 @@ class AgentSessionService(BaseWorkspaceService):
             messages_after_stmt = select(func.count()).where(
                 AgentSessionHistory.workspace_id == self.workspace_id,
                 AgentSessionHistory.session_id == session_id,
+                AgentSessionHistory.kind.in_(_RECALL_VISIBLE_KINDS),
                 AgentSessionHistory.surrogate_id > after_entries[-1].surrogate_id,
             )
         else:
             messages_after_stmt = select(func.count()).where(
                 AgentSessionHistory.workspace_id == self.workspace_id,
                 AgentSessionHistory.session_id == session_id,
+                AgentSessionHistory.kind.in_(_RECALL_VISIBLE_KINDS),
                 AgentSessionHistory.surrogate_id > anchor_surrogate_id,
             )
         messages_after = await self.session.scalar(messages_after_stmt)

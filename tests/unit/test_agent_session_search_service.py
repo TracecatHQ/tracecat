@@ -63,13 +63,14 @@ async def _add_history(
     *,
     agent_session: AgentSession,
     text: str,
+    kind: str = MessageKind.CHAT_MESSAGE.value,
 ) -> AgentSessionHistory:
     entry = AgentSessionHistory(
         session_id=agent_session.id,
         workspace_id=agent_session.workspace_id,
         content={"type": "user", "message": {"role": "user", "content": text}},
         search_text=text,
-        kind=MessageKind.CHAT_MESSAGE.value,
+        kind=kind,
     )
     session.add(entry)
     await session.flush()
@@ -216,6 +217,13 @@ async def test_search_session_messages_excludes_current_lineage(
         parent_session_id=parent.id,
         title="Child session",
     )
+    sibling = await _add_session(
+        session,
+        workspace_id=svc_role.workspace_id,
+        created_by=svc_role.user_id,
+        parent_session_id=parent.id,
+        title="Sibling fork",
+    )
     unrelated = await _add_session(
         session,
         workspace_id=svc_role.workspace_id,
@@ -234,6 +242,11 @@ async def test_search_session_messages_excludes_current_lineage(
     )
     await _add_history(
         session,
+        agent_session=sibling,
+        text="sibling fork recall needle is part of the same tree",
+    )
+    await _add_history(
+        session,
         agent_session=unrelated,
         text="unrelated recall needle remains searchable",
     )
@@ -246,6 +259,100 @@ async def test_search_session_messages_excludes_current_lineage(
     )
 
     assert [result.session_id for result in results] == [unrelated.id]
+
+
+@pytest.mark.anyio
+async def test_recall_hides_internal_kind_rows(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    # INTERNAL rows (continuation prompts, interrupt artifacts) are hidden from
+    # the UI timeline and must be invisible to recall too (review P2).
+    assert svc_role.workspace_id is not None
+    agent_session = await _add_session(
+        session, workspace_id=svc_role.workspace_id, created_by=svc_role.user_id
+    )
+    first = await _add_history(
+        session, agent_session=agent_session, text="visible kind needle one"
+    )
+    await _add_history(
+        session,
+        agent_session=agent_session,
+        text="hidden internal kind needle",
+        kind=MessageKind.INTERNAL.value,
+    )
+    await _add_history(
+        session, agent_session=agent_session, text="visible kind needle two"
+    )
+    await session.commit()
+
+    service = AgentSessionService(session=session, role=svc_role)
+
+    search_results = await service.search_session_messages("internal kind needle")
+    assert search_results == []
+
+    window = await service.get_session_window(
+        agent_session.id,
+        anchor_surrogate_id=first.surrogate_id,
+        window=5,
+    )
+    assert [message.text for message in window.messages] == [
+        "visible kind needle one",
+        "visible kind needle two",
+    ]
+
+
+@pytest.mark.anyio
+async def test_search_paginates_past_large_fork_lineage(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    # A fork tree with many sibling sessions must not fill the scan window and
+    # hide unrelated lineages (Codex review P2, second pass).
+    assert svc_role.workspace_id is not None
+    unrelated = await _add_session(
+        session,
+        workspace_id=svc_role.workspace_id,
+        created_by=svc_role.user_id,
+        title="Unrelated session",
+    )
+    await _add_history(
+        session,
+        agent_session=unrelated,
+        text="fork pagination needle outside the tree",
+    )
+    root = await _add_session(
+        session,
+        workspace_id=svc_role.workspace_id,
+        created_by=svc_role.user_id,
+        title="Fork root",
+    )
+    await _add_history(
+        session, agent_session=root, text="fork pagination needle root mention"
+    )
+    for index in range(30):
+        fork = await _add_session(
+            session,
+            workspace_id=svc_role.workspace_id,
+            created_by=svc_role.user_id,
+            parent_session_id=root.id,
+            title=f"Fork {index}",
+        )
+        await _add_history(
+            session,
+            agent_session=fork,
+            text=f"fork pagination needle sibling mention {index}",
+        )
+    await session.commit()
+
+    service = AgentSessionService(session=session, role=svc_role)
+    # limit=2 -> page size 25 < 31 tree hits; the older unrelated session sorts
+    # last and is only reachable by paginating past the fork tree.
+    results = await service.search_session_messages("fork pagination needle", limit=2)
+
+    root_ids = {result.session_id for result in results}
+    assert unrelated.id in root_ids
+    assert len(results) == 2
 
 
 @pytest.mark.anyio
