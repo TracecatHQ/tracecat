@@ -625,9 +625,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.google_drive": createIconRenderer(GoogleDriveIcon),
     "tools.google_api": createIconRenderer(GoogleIcon),
     "tools.gmail": createIconRenderer(GmailIcon),
-    "tools.google_secops_detection": createIconRenderer(
-      GoogleSecOpsDetectionIcon
-    ),
+    "tools.google_secops_detection": createIconRenderer(GoogleSecOpsIcon),
     "tools.google_secops_soar": createIconRenderer(GoogleSecOpsIcon),
     // Existing vendor marks reused across additional namespaces
     "tools.alertmedia": createIconRenderer(AlertMediaIcon),
@@ -2330,23 +2328,6 @@ export function GrafanaIcon({ className, ...rest }: IconProps) {
   )
 }
 
-export function GoogleSecOpsDetectionIcon({ className, ...rest }: IconProps) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      className={className}
-      {...rest}
-    >
-      <path
-        fill="#4285F4"
-        d="M12 2L3 7v10l9 5 9-5V7l-9-5zm0 2.18l6.9 3.82L12 11.82 5.1 8 12 4.18zM5 9.82l6 3.33v6.03l-6-3.33V9.82zm8 9.36v-6.03l6-3.33v6.03l-6 3.33z"
-      />
-      <circle fill="#EA4335" cx="12" cy="12" r="3" />
-    </svg>
-  )
-}
-
 export function GoogleSecOpsIcon({ className, ...rest }: IconProps) {
   return (
     <svg
@@ -2356,10 +2337,31 @@ export function GoogleSecOpsIcon({ className, ...rest }: IconProps) {
       {...rest}
     >
       <path
-        fill="#4285F4"
-        d="M12 2L3 7v10l9 5 9-5V7l-9-5zm0 2.18l6.9 3.82L12 11.82 5.1 8 12 4.18zM5 9.82l6 3.33v6.03l-6-3.33V9.82zm8 9.36v-6.03l6-3.33v6.03l-6 3.33z"
+        d="M6.4 4.8 H17.6 Q18.8 4.8 18.8 6 V11.5 C18.8 15.8 15.5 18.6 12 20.2 C8.5 18.6 5.2 15.8 5.2 11.5 V6 Q5.2 4.8 6.4 4.8 Z"
+        fill="none"
+        stroke="#4285F4"
+        strokeWidth="2.2"
+        strokeLinejoin="round"
       />
-      <path fill="#34A853" d="M12 2v9.82l6.9-3.82L12 4.18V2z" opacity="0.6" />
+      <path
+        d="M18.8 6 V11.5 C18.8 15.8 15.5 18.6 12 20.2"
+        fill="none"
+        stroke="#34A853"
+        strokeWidth="2.2"
+      />
+      <path
+        d="M9.4 8.6 H14.6 Q15.2 8.6 15.2 9.2 V11.6 C15.2 13.9 13.9 15.2 12 16.2 C10.1 15.2 8.8 13.9 8.8 11.6 V9.2 Q8.8 8.6 9.4 8.6 Z"
+        fill="none"
+        stroke="#EA4335"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M10.9 8.6 H9.4 Q8.8 8.6 8.8 9.2 V11.6 C8.8 13.9 10.1 15.2 12 16.2"
+        fill="none"
+        stroke="#FBBC04"
+        strokeWidth="2"
+      />
     </svg>
   )
 }
