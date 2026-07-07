@@ -7,6 +7,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
+import pytest
+
 from tracecat.dsl.common import build_action_statements_from_actions
 from tracecat.dsl.view import (
     RFEdge,
@@ -170,3 +172,49 @@ base_url: https://management.azure.com
     assert statements[0].args["api_version"] == "2025-09-01"
     validated_args = expectation_model.model_validate(statements[0].args)
     assert validated_args.model_dump()["api_version"] == "2025-09-01"
+
+
+def test_renamed_action_ref_error_names_missing_ref_and_lists_available() -> None:
+    """A stale ACTIONS.<old_ref> expression after a rename yields a helpful error.
+
+    Renaming an action changes its ref (the slugified title). Downstream
+    ``ACTIONS.<old_ref>`` expressions are NOT rewritten, so validation fails.
+    The error must name the missing ref, list the available refs, and hint at
+    the rename, and carry machine-readable ``detail`` (not string matching).
+    """
+    from tracecat.dsl.common import DSLEntrypoint, DSLInput
+    from tracecat.dsl.schemas import ActionStatement
+    from tracecat.exceptions import TracecatDSLError
+
+    with pytest.raises(TracecatDSLError) as exc_info:
+        DSLInput(
+            title="wf",
+            description="",
+            entrypoint=DSLEntrypoint(ref="parse_alerts"),
+            actions=[
+                ActionStatement(
+                    ref="parse_alerts",  # was "parse_events"; ref changed on rename
+                    action="core.transform.reshape",
+                    args={"value": 1},
+                ),
+                ActionStatement(
+                    ref="use_it",
+                    action="core.transform.reshape",
+                    args={"value": "${{ ACTIONS.parse_events.result }}"},
+                    depends_on=["parse_alerts"],
+                ),
+            ],
+        )
+
+    error = exc_info.value
+    message = str(error)
+    assert "parse_events" in message  # names the missing ref
+    assert "parse_alerts" in message  # lists an available ref
+    assert "renamed" in message.lower()  # hints at rename
+
+    detail = error.detail
+    assert isinstance(detail, dict)
+    assert detail["type"] == "unknown_action_ref"
+    assert detail["missing_ref"] == "parse_events"
+    assert detail["action_ref"] == "use_it"
+    assert detail["available_refs"] == ["parse_alerts", "use_it"]

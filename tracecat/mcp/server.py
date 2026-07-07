@@ -193,7 +193,6 @@ from tracecat.mcp.config import (
     TRACECAT_MCP__RATE_LIMIT_BURST,
     TRACECAT_MCP__RATE_LIMIT_RPS,
 )
-from tracecat.mcp.json_patch import apply_json_patch_operations
 from tracecat.mcp.middleware import (
     MCPInputSizeLimitMiddleware,
     MCPTimeoutMiddleware,
@@ -261,6 +260,7 @@ from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.draft import (
     WorkflowEditError,
     apply_layout_to_workflow,
+    apply_or_rebase_patch,
     build_workflow_edit_document,
     compute_workflow_edit_revision,
     extract_layout_positions,
@@ -270,9 +270,7 @@ from tracecat.workflow.management.draft import (
     replace_workflow_definition_from_dsl,
     replace_workflow_schedules,
     validate_workflow_edit_document,
-    validate_workflow_patch_payload,
     workflow_edit_document_changed_sections,
-    workflow_edit_document_payload,
 )
 from tracecat.workflow.management.folders.service import WorkflowFolderService
 from tracecat.workflow.management.layout import (
@@ -1376,7 +1374,7 @@ def _workflow_edit_error_to_tool_error(error: WorkflowEditError) -> ToolError:
     before the edit-document engine was extracted: structured validation errors
     are JSON-encoded, everything else uses the plain message.
     """
-    if error.code == "validation_error" and error.details is not None:
+    if error.details is not None and error.code == "validation_error":
         return ToolError(json.dumps(error.details, default=str))
     return ToolError(error.message)
 
@@ -2105,12 +2103,32 @@ them and create the smallest RFC 6902 patch that changes the intended fields.
 Call `get_workflow` only when the latest draft is missing, stale, or a revision
 conflict says the draft changed.
 - Patch paths are rooted at `draft_document`, so action edits use
-`/definition/actions/N/...`, not `/actions/N/...`.
+`/definition/actions/...`, not `/actions/...`.
+- Patches always apply to the LATEST revision. If your `base_revision` was stale
+the patch is still applied to the current head and the response reports
+`rebased: true`.
+- Actions MUST be addressed by ref (slug), e.g.
+`/definition/actions/parse_event/args/url`. Numeric indexes into the actions
+array are rejected — use the ref (or `/-` to append). Ref paths also survive
+concurrent reorders.
+- Ops targeting a ref that a concurrent edit deleted/renamed fail loudly —
+refetch with `get_workflow` and retry.
+- Whole-object replaces (an entire action, or a whole container like `args`) and
+any op on `/schedules` or `/layout` are last-write-wins and can clobber a
+concurrent edit. Prefer field-level ops; to guarantee no clobber precede the op
+with a JSON Patch `test` op (a `test` mismatch aborts the whole patch
+atomically).
 - `patch_ops` are applied sequentially. Every successful write returns a new \
-`draft_revision`; use it as the next `base_revision`, or refetch.
+`draft_revision`; use it as the next `base_revision`, or refetch. A patch that \
+changes nothing returns `no_op: true`; a real change lists `changed_sections`.
 - For nontrivial patches, run `edit_workflow(validate_only=true)`, then repeat \
 the same patch with `validate_only=false` and the same `base_revision`.
-- RFC 6902 array rules apply: `/-` appends, and indexes shift after array edits.
+- RFC 6902 array rules apply: `/-` appends. Address actions by ref, never by \
+numeric index.
+- When adding a new action, also add its layout position in the same patch: \
+append `{"ref": "<ref>", "x": <x>, "y": <y>}` to `/layout/actions/-`, placed \
+near/below its parent. Nodes are ~300x300, so offset by at least that; without \
+a layout entry new nodes stack at the origin.
 - Use `update_workflow` without `definition_yaml` for metadata-only updates. Use \
 inline YAML on `create_workflow`/`update_workflow` only for creation or intentional \
 bulk replacement.
@@ -2122,7 +2140,7 @@ bulk replacement.
   "patch_ops": [
     {
       "op": "replace",
-      "path": "/definition/actions/2/args/script",
+      "path": "/definition/actions/parse_event/args/script",
       "value": "def main(): return {'ok': True}"
     },
     {
@@ -2476,15 +2494,24 @@ action: tools.<integration_slug>.search
 ## Common Workflow Patterns
 
 ### HTTP Request
+`core.http_request` returns an envelope `{status_code, headers, data}`. The
+response body is under `.data` (parsed JSON, or text, or `null` for a 204), so
+reference the body as `ACTIONS.<ref>.result.data` — NOT `ACTIONS.<ref>.result`.
+Use `.result.status_code` and `.result.headers` for the status code and headers.
 ```yaml
 actions:
-  - ref: fetch_data
+  - ref: call_api
     action: core.http_request
     args:
       url: "https://api.example.com/data"
       method: GET
       headers:
         Authorization: "Bearer ${{ SECRETS.api_creds.API_TOKEN }}"
+  - ref: use_items
+    action: core.transform.reshape
+    depends_on: [call_api]
+    args:
+      value: ${{ ACTIONS.call_api.result.data.items }}
 ```
 
 ### Scatter/Gather (Parallel Fan-out/Fan-in)
@@ -2564,8 +2591,11 @@ actions:
 ```
 
 ### HTTP Pagination
-`core.http_paginate` returns a list of items from `items_jsonpath`; reference
-`ACTIONS.<ref>.result` directly as the list, not `.items` or `.data`.
+`core.http_paginate` returns the already-unwrapped list of items from
+`items_jsonpath`; reference `ACTIONS.<ref>.result` directly as the list, NOT
+`.items` or `.data`. This contrasts with `core.http_request`, which wraps the
+response body under `.data` (`ACTIONS.<ref>.result.data`) — paginate does the
+unwrapping for you, http_request does not.
 `stop_condition` and `next_request` are Python lambda strings.
 ```yaml
 actions:
@@ -3288,7 +3318,27 @@ async def edit_workflow(
     patch_ops: list[JsonPatchOperation],
     validate_only: bool = False,
 ) -> WorkflowEditResponse:
-    """Edit a draft workflow using RFC 6902 JSON Patch."""
+    """Edit a draft workflow using RFC 6902 JSON Patch.
+
+    Patches always apply to the LATEST revision: if your ``base_revision`` was
+    stale the patch is still applied to the current head and the response reports
+    ``rebased: true``. Actions MUST be addressed by ref (slug), e.g.
+    ``/definition/actions/parse_events/args/url``; numeric indexes into the
+    actions array are rejected — use the ref (or ``/-`` to append). Ref paths also
+    survive concurrent reorders. An op targeting a ref that a concurrent edit
+    deleted or renamed fails loudly — re-fetch with ``get_workflow`` and retry.
+    Whole-object replaces (an entire action, or a whole container like ``args``)
+    and any op on ``/schedules`` or ``/layout`` are last-write-wins and can
+    clobber a concurrent edit. Prefer field-level ops; to guarantee no clobber,
+    precede the op with a JSON Patch ``test`` op asserting the expected current
+    value (a ``test`` mismatch aborts the whole patch atomically). When adding a
+    new action, also add its layout
+    position in the same patch: append ``{"ref": "<ref>", "x": <x>, "y": <y>}``
+    to ``/layout/actions/-``, placed near/below its parent (nodes are ~300x300,
+    so offset by at least that); without a layout entry new nodes stack at the
+    origin. A patch that applies but changes nothing returns ``no_op: true``;
+    otherwise ``changed_sections`` lists the document sections that changed.
+    """
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -3306,21 +3356,11 @@ async def edit_workflow(
 
             draft_document = build_workflow_edit_document(workflow)
             current_revision = compute_workflow_edit_revision(draft_document)
-            if request.base_revision != current_revision:
-                raise ToolError(
-                    {
-                        "type": "conflict",
-                        "status": "conflict",
-                        "message": "Draft revision mismatch",
-                        "current_revision": current_revision,
-                    }
-                )
-
-            patched_payload = apply_json_patch_operations(
-                document=workflow_edit_document_payload(draft_document),
-                patch_ops=request.patch_ops,
+            updated_document, rebased = apply_or_rebase_patch(
+                head_document=draft_document,
+                request=request,
+                current_revision=current_revision,
             )
-            updated_document = validate_workflow_patch_payload(patched_payload)
             changed_sections = workflow_edit_document_changed_sections(
                 draft_document,
                 updated_document,
@@ -3348,15 +3388,29 @@ async def edit_workflow(
                             updated_document
                         )
                     ),
+                    changed_sections=sorted(changed_sections),
+                    no_op=not changed_sections,
+                    rebased=rebased,
                 )
 
-            await persist_workflow_edit_document(
+            persisted_sections = await persist_workflow_edit_document(
                 role=role,
                 service=svc,
                 workflow=workflow,
                 original_document=draft_document,
                 updated_document=updated_document,
             )
+            if not persisted_sections:
+                return WorkflowEditResponse(
+                    message=(
+                        "no changes detected — document unchanged after applying patch"
+                    ),
+                    workflow_id=str(workflow.id),
+                    draft_revision=current_revision,
+                    no_op=True,
+                    changed_sections=[],
+                    rebased=rebased,
+                )
             await svc.session.refresh(
                 workflow,
                 ["actions", "schedules", "case_trigger"],
@@ -3366,6 +3420,8 @@ async def edit_workflow(
                 message=f"Workflow {workflow_id} updated successfully",
                 workflow_id=str(workflow.id),
                 draft_revision=compute_workflow_edit_revision(refreshed_document),
+                changed_sections=sorted(persisted_sections),
+                rebased=rebased,
             )
     except WorkflowEditError as e:
         raise _workflow_edit_error_to_tool_error(e) from e

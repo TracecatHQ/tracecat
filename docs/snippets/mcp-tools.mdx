@@ -16,6 +16,8 @@
 
 <ResponseField name="edit_workflow" type="tool">
   Edit a draft workflow using RFC 6902 JSON Patch.
+
+  Patches always apply to the LATEST revision: if your ``base_revision`` was stale the patch is still applied to the current head and the response reports ``rebased: true``. Actions MUST be addressed by ref (slug), e.g. ``/definition/actions/parse_events/args/url``; numeric indexes into the actions array are rejected — use the ref (or ``/-`` to append). Ref paths also survive concurrent reorders. An op targeting a ref that a concurrent edit deleted or renamed fails loudly — re-fetch with ``get_workflow`` and retry. Whole-object replaces (an entire action, or a whole container like ``args``) and any op on ``/schedules`` or ``/layout`` are last-write-wins and can clobber a concurrent edit. Prefer field-level ops; to guarantee no clobber, precede the op with a JSON Patch ``test`` op asserting the expected current value (a ``test`` mismatch aborts the whole patch atomically). When adding a new action, also add its layout position in the same patch: append ``{"ref": "<ref>", "x": <x>, "y": <y>}`` to ``/layout/actions/-``, placed near/below its parent (nodes are ~300x300, so offset by at least that); without a layout entry new nodes stack at the origin. A patch that applies but changes nothing returns ``no_op: true``; otherwise ``changed_sections`` lists the document sections that changed.
 </ResponseField>
 
 <ResponseField name="update_workflow" type="tool">
