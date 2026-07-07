@@ -1,0 +1,34 @@
+tests/unit/test_mcp_auth.py
+  s_a66a712823104d::t_a3fff23a5b69b0 117,121,125-251
+  s_a66a712823104d::t_c809ede9ddf93b 2004-2107,2110-2129,2132-2241
+  s_a66a712823104d::t_bae366bcf552f3 2108-2109
+  s_a66a712823104d::t_61f18c67617a93 3-5,7,11,13,20-30,43
+  s_a66a712823104d::t_c4869cff6b9cf9 2130-2131
+tracecat/mcp/config.py
+  s_a66a712823104d::t_1466421c19c6db 38-60
+tracecat/mcp/auth.py
+  s_a66a712823104d::t_0993981c2e8513 820-914
+  s_a66a712823104d::t_c8b3e412ccd51a 767-768,773,776
+  s_a66a712823104d::t_c69a8cde1fcc0a 81,89
+  s_a66a712823104d::t_4408aa74818395 16,21-31
+  s_a66a712823104d::t_da515853f310f6 195-199
+  s_a66a712823104d::t_23c8b4e03d82dd 42,45-49
+  s_a66a712823104d::t_e5e83250970921 766,769-772,774-775,777-778,784-791
+  s_a66a712823104d::t_3f5a136c07c280 792,915
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "d6565b9d47939f4cdf2c270d518aa84a6b7b7b23",
+  "prompts": {},
+  "sessions": {
+    "s_a66a712823104d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d40dd60f-1d15-4e99-8e72-fb2116a5f6aa",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
