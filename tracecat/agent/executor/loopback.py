@@ -36,6 +36,7 @@ from tracecat.agent.common.stream_types import (
     ToolCallContent,
     UnifiedStreamEvent,
 )
+from tracecat.agent.session.search import extract_search_text_from_history_content
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.stream.artifacts import artifact_stream_event
@@ -1071,10 +1072,12 @@ class LoopbackHandler:
             ):
                 kind = "compaction"
 
+            content = _session_line_db_content(line_data)
             history_entry = AgentSessionHistory(
                 session_id=self.input.session_id,
                 workspace_id=self.input.workspace_id,
-                content=_session_line_db_content(line_data),
+                content=content,
+                search_text=extract_search_text_from_history_content(content),
                 kind=kind,
                 curr_run_id=self.input.curr_run_id,
             )

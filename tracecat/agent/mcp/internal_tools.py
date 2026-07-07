@@ -6,8 +6,8 @@ Internal tools are system-level tools that:
 - Are authorized via JWT claims (allowed_internal_tools)
 - Receive context from JWT claims (preset_id, workspace_id, etc.)
 
-This module provides the builder assistant tools that help users
-configure agent presets through natural language.
+This module provides trusted service-layer tools for builder assistants and
+agent session recall.
 """
 
 from __future__ import annotations
@@ -49,6 +49,11 @@ BUILDER_INTERNAL_TOOL_NAMES = [
     "internal.builder.update_preset",
     "internal.builder.list_sessions",
     "internal.builder.get_session",
+]
+
+AGENT_SESSION_SEARCH_INTERNAL_TOOL_NAMES = [
+    "internal.agent.search_sessions",
+    "internal.agent.read_session_window",
 ]
 
 # Registry actions that are bundled with the builder assistant
@@ -491,6 +496,100 @@ async def get_session(args: dict[str, Any], claims: MCPTokenClaims) -> dict[str,
         raise InternalToolError(f"Unable to retrieve session {session_id_str}.") from e
 
 
+async def search_sessions(
+    args: dict[str, Any],
+    claims: MCPTokenClaims,
+) -> dict[str, Any]:
+    """Search past agent session messages in the caller's workspace."""
+    from tracecat.agent.session.service import AgentSessionService
+
+    role = _build_role(claims)
+    ctx_role.set(role)
+
+    query = args.get("query")
+    if not isinstance(query, str) or not query.strip():
+        raise InternalToolError("query parameter is required")
+
+    limit = args.get("limit", 10)
+    if not isinstance(limit, int):
+        limit = 10
+
+    entity_type: AgentSessionEntity | None = None
+    entity_type_value = args.get("entity_type")
+    if entity_type_value is not None:
+        if not isinstance(entity_type_value, str):
+            raise InternalToolError("entity_type must be a string")
+        try:
+            entity_type = AgentSessionEntity(entity_type_value)
+        except ValueError as exc:
+            raise InternalToolError(
+                f"Unsupported entity_type: {entity_type_value}"
+            ) from exc
+
+    try:
+        async with AgentSessionService.with_session(role=role) as service:
+            results = await service.search_session_messages(
+                query,
+                limit=limit,
+                entity_type=entity_type,
+                exclude_session_id=claims.session_id,
+            )
+            return {"results": [result.model_dump(mode="json") for result in results]}
+    except InternalToolError:
+        raise
+    except Exception as e:
+        logger.error("Failed to search sessions", error=str(e))
+        raise InternalToolError("Unable to search sessions at this time.") from e
+
+
+async def read_session_window(
+    args: dict[str, Any],
+    claims: MCPTokenClaims,
+) -> dict[str, Any]:
+    """Read compact messages around a session search hit."""
+    from tracecat.agent.session.service import AgentSessionService
+
+    role = _build_role(claims)
+    ctx_role.set(role)
+
+    session_id_str = args.get("session_id")
+    if not isinstance(session_id_str, str):
+        raise InternalToolError("session_id parameter is required")
+    try:
+        session_id = uuid.UUID(session_id_str)
+    except ValueError as exc:
+        raise InternalToolError(f"Invalid session_id format: {session_id_str}") from exc
+
+    anchor_surrogate_id = args.get("anchor_surrogate_id")
+    if not isinstance(anchor_surrogate_id, int):
+        raise InternalToolError("anchor_surrogate_id parameter is required")
+
+    window = args.get("window", 5)
+    if not isinstance(window, int):
+        window = 5
+
+    try:
+        async with AgentSessionService.with_session(role=role) as service:
+            session_window = await service.get_session_window(
+                session_id,
+                anchor_surrogate_id=anchor_surrogate_id,
+                window=window,
+                exclude_session_id=claims.session_id,
+            )
+            return session_window.model_dump(mode="json")
+    except InternalToolError:
+        raise
+    except Exception as e:
+        logger.error(
+            "Failed to read session window",
+            error=str(e),
+            session_id=session_id_str,
+        )
+        raise InternalToolError(
+            f"Unable to read session window for {session_id_str}."
+        ) from e
+
+
 # -----------------------------------------------------------------------------
 # Internal Tool Registry
 # -----------------------------------------------------------------------------
@@ -501,6 +600,8 @@ INTERNAL_TOOL_HANDLERS: dict[str, InternalToolHandler] = {
     "internal.builder.update_preset": update_preset,
     "internal.builder.list_sessions": list_sessions,
     "internal.builder.get_session": get_session,
+    "internal.agent.search_sessions": search_sessions,
+    "internal.agent.read_session_window": read_session_window,
 }
 
 
@@ -537,6 +638,47 @@ class _GetSessionParams(BaseModel):
     session_id: str = Field(
         ...,
         description="The UUID of the session to retrieve.",
+    )
+
+
+class _SearchSessionsParams(BaseModel):
+    """Parameters for search_sessions."""
+
+    query: str = Field(
+        ...,
+        description="Keyword search query. Supports web-search syntax.",
+        min_length=1,
+        max_length=300,
+    )
+    limit: int = Field(
+        default=10,
+        description="Maximum number of search hits to return.",
+        ge=1,
+        le=25,
+    )
+    entity_type: AgentSessionEntity | None = Field(
+        default=None,
+        description="Optional session entity type to restrict search results.",
+    )
+
+
+class _ReadSessionWindowParams(BaseModel):
+    """Parameters for read_session_window."""
+
+    session_id: str = Field(
+        ...,
+        description="The UUID of the session containing the search hit.",
+    )
+    anchor_surrogate_id: int = Field(
+        ...,
+        description="The surrogate_id anchor returned by search_sessions.",
+        ge=1,
+    )
+    window: int = Field(
+        default=5,
+        description="Number of messages before and after the anchor.",
+        ge=1,
+        le=20,
     )
 
 
@@ -584,4 +726,42 @@ def get_builder_internal_tool_definitions() -> dict[str, MCPToolDefinition]:
             description="Get the full message history and metadata for a specific agent session.",
             parameters_json_schema=_GetSessionParams.model_json_schema(),
         ),
+    }
+
+
+def get_agent_internal_tool_definitions() -> dict[str, MCPToolDefinition]:
+    """Return MCPToolDefinition for agent recall internal tools."""
+    return {
+        "internal.agent.search_sessions": MCPToolDefinition(
+            name="internal.agent.search_sessions",
+            description=(
+                "Search your own past agent sessions in this workspace by keyword. "
+                "Use web-search syntax: quoted phrases, OR, and -exclusion. "
+                "Returns snippets with >>>match<<< highlighting plus a surrogate_id "
+                "anchor. Use internal.agent.read_session_window to read around a hit. "
+                "Use this when the user references a past conversation, such as "
+                "'did we discuss X' or 'what did we decide about Y', before asking "
+                "them to repeat themselves. Results exclude the current session."
+            ),
+            parameters_json_schema=_SearchSessionsParams.model_json_schema(),
+        ),
+        "internal.agent.read_session_window": MCPToolDefinition(
+            name="internal.agent.read_session_window",
+            description=(
+                "Return compact messages around a session-search anchor with "
+                "messages_before and messages_after counts. Scroll forward by "
+                "passing the last returned message's surrogate_id as the next "
+                "anchor, and backward with the first returned message's surrogate_id. "
+                "Refuses to read the current session."
+            ),
+            parameters_json_schema=_ReadSessionWindowParams.model_json_schema(),
+        ),
+    }
+
+
+def get_internal_tool_definitions() -> dict[str, MCPToolDefinition]:
+    """Return MCPToolDefinition for all internal tools."""
+    return {
+        **get_builder_internal_tool_definitions(),
+        **get_agent_internal_tool_definitions(),
     }

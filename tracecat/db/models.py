@@ -18,6 +18,7 @@ from sqlalchemy import (
     TIMESTAMP,
     Boolean,
     CheckConstraint,
+    Computed,
     Enum,
     FetchedValue,
     Float,
@@ -36,7 +37,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import (
@@ -2976,6 +2977,7 @@ class AgentSessionHistory(WorkspaceModel):
     """
 
     __tablename__ = "agent_session_history"
+    __serialization_exclude__ = {"surrogate_id", "search_tsv"}
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -2994,6 +2996,20 @@ class AgentSessionHistory(WorkspaceModel):
         JSONB,
         nullable=False,
         doc="Harness-specific message content",
+    )
+    search_text: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        doc="Plain extracted message text used for full-text search",
+    )
+    search_tsv: Mapped[str | None] = mapped_column(
+        TSVECTOR,
+        Computed(
+            "to_tsvector('english', coalesce(search_text, ''))",
+            persisted=True,
+        ),
+        nullable=True,
+        doc="Generated PostgreSQL full-text search vector for search_text",
     )
     kind: Mapped[str] = mapped_column(
         String(50),

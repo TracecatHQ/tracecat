@@ -115,6 +115,40 @@ class AgentSessionHistoryRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class SessionSearchResult(BaseModel):
+    """Search hit for a past agent session message."""
+
+    session_id: uuid.UUID
+    session_title: str
+    entity_type: AgentSessionEntity
+    entity_id: uuid.UUID
+    surrogate_id: int
+    snippet: str
+    message_created_at: datetime
+    rank: float
+
+
+class SessionWindowMessage(BaseModel):
+    """Compact message returned when reading around a session-search hit."""
+
+    role: str
+    kind: str
+    text: str | None
+    surrogate_id: int
+    created_at: datetime
+
+
+class SessionWindow(BaseModel):
+    """Window of compact messages around a session-history anchor."""
+
+    session_id: uuid.UUID
+    session_title: str
+    anchor_surrogate_id: int
+    messages: list[SessionWindowMessage]
+    messages_before: int
+    messages_after: int
+
+
 class AgentSessionRead(BaseModel):
     """Response schema for agent session."""
 
