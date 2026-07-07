@@ -42,6 +42,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Install uv
         uses: useblacksmith/setup-uv@f4588471335f14dcb60198856207b916701a9e9f # v4
@@ -79,6 +81,8 @@ jobs:
           # - ee # TODO: re-enable this when we have tests
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Install uv
         uses: useblacksmith/setup-uv@f4588471335f14dcb60198856207b916701a9e9f # v4
