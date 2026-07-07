@@ -77,7 +77,7 @@ async def test_create_attachment_locks_case_before_asserting_case_limits(
     events: list[str] = []
 
     case = Case(id=case_id, workspace_id=workspace_id)
-    session = _RecordingSession([case], events)
+    session = _RecordingSession([case, None], events)
     service = CaseAttachmentService(
         session=cast(AsyncSession, session),
         role=_service_role(
@@ -108,12 +108,13 @@ async def test_create_attachment_locks_case_before_asserting_case_limits(
     with pytest.raises(_StopAfterLimits):
         await service.create_attachment(case, params)
 
-    assert events == ["execute", "assert_case_limits", "rollback"]
+    assert events == ["execute", "execute", "assert_case_limits", "rollback"]
 
     compiled = [
         str(stmt.compile(dialect=postgresql.dialect())) for stmt in session.statements
     ]
-    assert any('FROM "case"' in sql and "FOR UPDATE" in sql for sql in compiled)
+    assert 'FROM "case"' in compiled[0]
+    assert "FOR UPDATE" in compiled[0]
     assert any('"case".workspace_id' in sql for sql in compiled)
     assert any('"case".id' in sql for sql in compiled)
 
@@ -180,9 +181,8 @@ async def test_existing_attachment_fast_path_commits_after_lock(
         return _workspace(workspace_id=workspace_id, organization_id=organization_id)
 
     async def assert_case_limits(locked_case: Case, new_size: int) -> None:
-        events.append("assert_case_limits")
-        assert locked_case.id == case_id
-        assert new_size == len(content)
+        _ = (locked_case, new_size)
+        raise AssertionError("idempotent uploads must not consume quota")
 
     monkeypatch.setattr(service, "_get_workspace", get_workspace)
     monkeypatch.setattr(service, "_assert_case_limits", assert_case_limits)
@@ -199,7 +199,6 @@ async def test_existing_attachment_fast_path_commits_after_lock(
     assert result is attachment
     assert events == [
         "execute",
-        "assert_case_limits",
         "execute",
         "execute",
         "commit",

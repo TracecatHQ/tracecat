@@ -309,8 +309,6 @@ class CaseAttachmentService(BaseWorkspaceService):
             # case. The following transaction owns all post-lock exit paths so the
             # row lock is released by an explicit commit or rollback.
             case = await self._lock_case_for_attachment_write(case)
-            await self._assert_case_limits(case, actual_size)
-
             # Determine uploader ID (may be None for workflow/service uploads)
             creator_id: uuid.UUID | None = (
                 self.role.user_id if self.role.type == "user" else None
@@ -325,7 +323,46 @@ class CaseAttachmentService(BaseWorkspaceService):
             )
             file = existing_file.scalars().first()
 
-            restored = False
+            attachment: CaseAttachment | None = None
+            if file:
+                # Check if attachment already exists for this case and file before
+                # enforcing aggregate quotas. Re-uploading an already-active
+                # attachment is idempotent and does not consume additional case
+                # count/storage quota.
+                existing_attachment = await self.session.execute(
+                    select(CaseAttachment)
+                    .where(
+                        CaseAttachment.case_id == case.id,
+                        CaseAttachment.file_id == file.id,
+                    )
+                    .options(selectinload(CaseAttachment.file))
+                )
+                attachment = existing_attachment.scalars().first()
+
+                # Verify existing file's recorded size matches actual content
+                if file.size != actual_size:
+                    logger.error(
+                        "Security: Existing file size mismatch detected",
+                        case_id=case.id,
+                        file_id=file.id,
+                        sha256=sha256,
+                        recorded_size=file.size,
+                        actual_size=actual_size,
+                        filename=params.file_name,
+                    )
+                    # Update the file record with correct size
+                    file.size = actual_size
+
+                if (
+                    attachment
+                    and file.deleted_at is None
+                    and getattr(attachment.file, "deleted_at", None) is None
+                ):
+                    await self.session.commit()
+                    return attachment
+
+            await self._assert_case_limits(case, actual_size)
+
             if not file:
                 # Create new file record
                 file = File(
@@ -346,53 +383,20 @@ class CaseAttachmentService(BaseWorkspaceService):
                     content_type=validation_result.content_type,
                 )
             else:
-                # Verify existing file's recorded size matches actual content
-                if file.size != actual_size:
-                    logger.error(
-                        "Security: Existing file size mismatch detected",
-                        case_id=case.id,
-                        file_id=file.id,
-                        sha256=sha256,
-                        recorded_size=file.size,
-                        actual_size=actual_size,
-                        filename=params.file_name,
-                    )
-                    # Update the file record with correct size
-                    file.size = actual_size
-
                 # If the file entity exists but has been soft deleted, restore and re-upload
                 if file.deleted_at is not None:
                     file.deleted_at = None
-                    restored = True
                     await self._upload_to_attachments_bucket(
                         content=params.content,
                         sha256=sha256,
                         content_type=validation_result.content_type,
                     )
 
-            # Check if attachment already exists for this case and file
-            existing_attachment = await self.session.execute(
-                select(CaseAttachment)
-                .where(
-                    CaseAttachment.case_id == case.id,
-                    CaseAttachment.file_id == file.id,
-                )
-                .options(selectinload(CaseAttachment.file))
-            )
-            attachment = existing_attachment.scalars().first()
-
             should_create_event = False
             if attachment:
-                # Attachment already exists and is active - return it
-                # (If the underlying file was restored above, emit restoration event)
-                if (
-                    not restored
-                    and file.deleted_at is None
-                    and getattr(attachment.file, "deleted_at", None) is None
-                ):
-                    await self.session.commit()
-                    return attachment
-                # Ensure relationship is consistent
+                # The attachment existed but was not active because the underlying
+                # file was soft-deleted. Ensure the relationship is consistent and
+                # emit a restoration event after quota enforcement.
                 attachment.file = file
                 should_create_event = True
             else:

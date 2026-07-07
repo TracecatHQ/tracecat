@@ -19,6 +19,10 @@ from tracecat.cases.service import CasesService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.logger import logger
+from tracecat.storage.exceptions import (
+    MaxAttachmentsExceededError,
+    StorageLimitExceededError,
+)
 
 router = APIRouter(
     tags=["internal-case-attachments"],
@@ -108,6 +112,30 @@ async def create_attachment(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
+        ) from e
+    except MaxAttachmentsExceededError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "max_attachments_exceeded",
+                "message": str(e),
+                "current_count": e.current_count,
+                "max_count": e.max_count,
+            },
+        ) from e
+    except StorageLimitExceededError as e:
+        current_mb = e.current_size / 1024 / 1024
+        new_mb = e.new_file_size / 1024 / 1024
+        max_mb = e.max_size / 1024 / 1024
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail={
+                "error": "storage_limit_exceeded",
+                "message": str(e),
+                "current_size_mb": round(current_mb, 2),
+                "new_file_size_mb": round(new_mb, 2),
+                "max_size_mb": round(max_mb, 2),
+            },
         ) from e
     return CaseAttachmentRead(
         id=attachment.id,
