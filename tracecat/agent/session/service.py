@@ -331,7 +331,17 @@ class AgentSessionService(BaseWorkspaceService):
             "StartSel=>>>, StopSel=<<<, MaxWords=40, MinWords=10, "
             'MaxFragments=2, FragmentDelimiter=" ... "',
         ).label("snippet")
-        stmt = (
+        # Rank hits per session so one chatty session cannot fill the scan
+        # window and starve other matching sessions before the lineage dedupe.
+        per_session_rank = (
+            func.row_number()
+            .over(
+                partition_by=AgentSessionHistory.session_id,
+                order_by=(rank.desc(), AgentSessionHistory.created_at.desc()),
+            )
+            .label("per_session_rank")
+        )
+        inner = (
             select(
                 AgentSessionHistory.session_id,
                 AgentSessionHistory.surrogate_id,
@@ -341,6 +351,7 @@ class AgentSessionService(BaseWorkspaceService):
                 AgentSession.entity_id,
                 rank,
                 snippet,
+                per_session_rank,
             )
             .join(AgentSession, AgentSession.id == AgentSessionHistory.session_id)
             .where(
@@ -349,13 +360,19 @@ class AgentSessionService(BaseWorkspaceService):
                 AgentSessionHistory.search_text.is_not(None),
                 AgentSessionHistory.search_tsv.op("@@")(tsquery),
             )
-            .order_by(rank.desc(), AgentSessionHistory.created_at.desc())
-            .limit(min(limit * 4, 100))
         )
         if entity_type is not None:
-            stmt = stmt.where(AgentSession.entity_type == entity_type.value)
+            inner = inner.where(AgentSession.entity_type == entity_type.value)
         if exclude_ids:
-            stmt = stmt.where(AgentSessionHistory.session_id.notin_(exclude_ids))
+            inner = inner.where(AgentSessionHistory.session_id.notin_(exclude_ids))
+
+        ranked = inner.subquery()
+        stmt = (
+            select(ranked)
+            .where(ranked.c.per_session_rank == 1)
+            .order_by(ranked.c.rank.desc(), ranked.c.message_created_at.desc())
+            .limit(min(limit * 4, 100))
+        )
 
         result = await self.session.execute(stmt)
         rows = result.mappings().all()

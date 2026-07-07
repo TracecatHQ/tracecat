@@ -249,6 +249,45 @@ async def test_search_session_messages_excludes_current_lineage(
 
 
 @pytest.mark.anyio
+async def test_search_session_messages_chatty_session_does_not_starve_others(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    # One session with many high-ranking hits must not fill the scan window
+    # and hide other matching sessions (Codex review P2).
+    assert svc_role.workspace_id is not None
+    chatty = await _add_session(
+        session,
+        workspace_id=svc_role.workspace_id,
+        created_by=svc_role.user_id,
+        title="Chatty session",
+    )
+    for index in range(60):
+        await _add_history(
+            session,
+            agent_session=chatty,
+            text=f"starvation needle repeated mention {index}",
+        )
+    quiet = await _add_session(
+        session,
+        workspace_id=svc_role.workspace_id,
+        created_by=svc_role.user_id,
+        title="Quiet session",
+    )
+    await _add_history(
+        session,
+        agent_session=quiet,
+        text="starvation needle single mention",
+    )
+    await session.commit()
+
+    service = AgentSessionService(session=session, role=svc_role)
+    results = await service.search_session_messages("starvation needle", limit=10)
+
+    assert {result.session_id for result in results} == {chatty.id, quiet.id}
+
+
+@pytest.mark.anyio
 async def test_search_session_messages_clamps_limit(
     session: AsyncSession,
     svc_role: Role,

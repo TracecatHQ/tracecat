@@ -210,6 +210,15 @@ def _extract_mapping_content_item(item: Any) -> list[str]:
         return []
 
     kind = item.get("type") or item.get("kind") or item.get("part_kind")
+    # Claude SDK content blocks carry tool calls inline in message.content;
+    # route them through the part extractor so tool names/args are indexed.
+    if isinstance(kind, str) and kind in {
+        "tool-call",
+        "tool_use",
+        "tool-return",
+        "tool_result",
+    }:
+        return _extract_mapping_part(item)
     if isinstance(kind, str) and kind in {
         "image",
         "image-url",

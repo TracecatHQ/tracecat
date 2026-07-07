@@ -88,6 +88,10 @@ def _extract_content_item(item: Any) -> list[str]:
         return []
 
     block_type = item.get("type") or item.get("kind") or item.get("part_kind")
+    # Claude SDK content blocks carry tool calls inline in message.content;
+    # route them through the part extractor so tool names/args are indexed.
+    if block_type in {"tool-call", "tool_use", "tool-return", "tool_result"}:
+        return _extract_part(item)
     if block_type in {"image", "image-url", "binary"}:
         return [_media_placeholder(item)]
     if block_type in {"audio", "audio-url", "video", "video-url", "document-url"}:

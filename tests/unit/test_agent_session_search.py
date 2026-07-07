@@ -19,7 +19,11 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
-from tracecat.agent.session.search import MAX_SEARCH_TEXT_CHARS, extract_search_text
+from tracecat.agent.session.search import (
+    MAX_SEARCH_TEXT_CHARS,
+    extract_search_text,
+    extract_search_text_from_history_content,
+)
 from tracecat.agent.types import UnifiedMessage
 
 
@@ -113,3 +117,36 @@ def test_extract_search_text_caps_oversized_content() -> None:
 
 def test_extract_search_text_returns_none_for_garbage_input() -> None:
     assert extract_search_text(cast(UnifiedMessage, object())) is None
+
+
+def test_extract_history_content_indexes_claude_tool_blocks() -> None:
+    # Persisted Claude SDK rows carry tool calls inline in message.content;
+    # tool names and args must be searchable (Codex review P2).
+    text = extract_search_text_from_history_content(
+        {
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "Looking that up."},
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_1",
+                        "name": "core.cases.get_case",
+                        "input": {"case_id": "CASE-1234"},
+                    },
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_1",
+                        "content": [{"type": "text", "text": "Case found."}],
+                    },
+                ],
+            },
+        }
+    )
+
+    assert text is not None
+    assert "Looking that up." in text
+    assert "core.cases.get_case" in text
+    assert "CASE-1234" in text
+    assert "Case found." in text
