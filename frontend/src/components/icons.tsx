@@ -13,30 +13,46 @@
  *   wrapper/size handling; use `wrapperClassName`/`iconClassName` for tweaks.
  * - Use a custom renderer only when an icon needs overlays or extra layout.
  */
+import type { LucideIcon } from "lucide-react"
 import {
   Blend,
   BlocksIcon,
   BoxIcon,
   Building2Icon,
+  CirclePlay,
   Code,
   Cpu,
   DatabaseIcon,
+  Fish,
+  FolderTree,
   Globe,
+  Headset,
   KeyRound,
+  Laptop,
+  Link,
   ListChecks,
   LogInIcon,
   MailIcon,
+  MapPin,
   MergeIcon,
   MessageCircleMore,
   MessageCirclePlus,
+  Microscope,
   Plug2,
+  Radar,
   RefreshCcw,
+  ScanSearch,
+  Search,
   SendIcon,
   ShieldAlert,
+  ShieldBan,
+  ShieldCheck,
   ShieldPlus,
   Sparkles,
   SplitIcon,
+  Swords,
   Table,
+  Users,
   WandSparkles,
   WorkflowIcon,
   ZapIcon,
@@ -261,6 +277,32 @@ function createIconRenderer(
         {...rest}
         className={cn("size-full", options?.iconClassName, iconClassName)}
       />
+    </div>
+  )
+}
+
+function createCatalogIconRenderer(
+  key: string,
+  options?: { wrapperClassName?: string; iconClassName?: string }
+) {
+  const Icon = mcpCatalogProviderIcons[key]
+  return ({ className, iconClassName, ...rest }: CustomIconProps) =>
+    Icon({
+      ...rest,
+      className: cn(basicIconsCommon, options?.wrapperClassName, className),
+      iconClassName: cn(options?.iconClassName, iconClassName),
+    })
+}
+
+function createColoredLucideRenderer(Icon: LucideIcon, colorClassName: string) {
+  return ({
+    className,
+    iconClassName,
+    flairsize: _unusedFlairSize,
+    ...rest
+  }: CustomIconProps) => (
+    <div className={cn(basicIconsCommon, colorClassName, className)}>
+      <Icon className={iconClassName} {...rest} />
     </div>
   )
 }
@@ -587,6 +629,105 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       GoogleSecOpsDetectionIcon
     ),
     "tools.google_secops_soar": createIconRenderer(GoogleSecOpsIcon),
+    // Existing vendor marks reused across additional namespaces
+    "tools.alertmedia": createIconRenderer(AlertMediaIcon),
+    "tools.amazon_s3": createIconRenderer(AwsIcon),
+    "tools.ansible": createIconRenderer(AnsibleIcon),
+    "tools.aws_boto3": createIconRenderer(AwsIcon),
+    "tools.exa": createIconRenderer(ExaIcon),
+    "tools.linear": createIconRenderer(LinearIcon),
+    "tools.notion": createIconRenderer(NotionIcon),
+    "tools.okta": createIconRenderer(OktaIcon),
+    "tools.okta_oar": createIconRenderer(OktaIcon),
+    "tools.okta_sdk": createIconRenderer(OktaIcon),
+    "tools.runreveal": createIconRenderer(RunRevealIcon),
+    "tools.sentry": createIconRenderer(SentryIcon),
+    "tools.slack_sdk": createIconRenderer(SlackIcon),
+    "tools.terraform": createIconRenderer(TerraformIcon),
+    // New brand marks
+    "tools.confluence": createIconRenderer(ConfluenceIcon),
+    "tools.google_maps": createIconRenderer(GoogleMapsIcon),
+    "tools.hackerone": createIconRenderer(HackerOneIcon),
+    "tools.hibp": createIconRenderer(HaveIBeenPwnedIcon),
+    "tools.kubernetes_sdk": createIconRenderer(KubernetesIcon),
+    "tools.minio": createIconRenderer(MinioIcon),
+    "tools.pymongo": createIconRenderer(MongoDbIcon),
+    "tools.zendesk": createIconRenderer(ZendeskIcon),
+    // MCP catalog raster brand marks reused for tool namespaces
+    "tools.cloudflare_sdk": createCatalogIconRenderer("cloudflare_mcp"),
+    "tools.crowdstrike": createCatalogIconRenderer("crowdstrike_falcon_mcp"),
+    "tools.falconpy": createCatalogIconRenderer("crowdstrike_falcon_mcp"),
+    "tools.elastic_security": createCatalogIconRenderer("elastic_mcp"),
+    "tools.elasticsearch": createCatalogIconRenderer("elastic_mcp"),
+    "tools.panther": createCatalogIconRenderer("panther_mcp"),
+    "tools.rootly": createCatalogIconRenderer("rootly_mcp"),
+    "tools.sentinel_one": createCatalogIconRenderer("sentinelone_mcp"),
+    "tools.splunk": createCatalogIconRenderer("splunk_mcp"),
+    // Semantic lucide fallbacks (no clean brand mark available)
+    "tools.abuseipdb": createColoredLucideRenderer(
+      ShieldBan,
+      "bg-red-500/10 text-red-600 dark:text-red-400"
+    ),
+    "tools.anyrun": createColoredLucideRenderer(
+      CirclePlay,
+      "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+    ),
+    "tools.caldera": createColoredLucideRenderer(
+      Swords,
+      "bg-red-500/10 text-red-600 dark:text-red-400"
+    ),
+    "tools.crowdsec": createColoredLucideRenderer(
+      Users,
+      "bg-sky-500/10 text-sky-600 dark:text-sky-400"
+    ),
+    "tools.fleetdm": createColoredLucideRenderer(
+      Laptop,
+      "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400"
+    ),
+    "tools.freshservice": createColoredLucideRenderer(
+      Headset,
+      "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+    ),
+    "tools.hybrid_analysis": createColoredLucideRenderer(
+      Microscope,
+      "bg-violet-500/10 text-violet-600 dark:text-violet-400"
+    ),
+    "tools.ipinfo": createColoredLucideRenderer(
+      MapPin,
+      "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400"
+    ),
+    "tools.ldap": createColoredLucideRenderer(
+      FolderTree,
+      "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+    ),
+    "tools.leakcheck": createColoredLucideRenderer(
+      KeyRound,
+      "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+    ),
+    "tools.phishlabs": createColoredLucideRenderer(
+      Fish,
+      "bg-orange-500/10 text-orange-600 dark:text-orange-400"
+    ),
+    "tools.tavily": createColoredLucideRenderer(
+      Search,
+      "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+    ),
+    "tools.tenable_sc": createColoredLucideRenderer(
+      ScanSearch,
+      "bg-sky-500/10 text-sky-600 dark:text-sky-400"
+    ),
+    "tools.threatstream": createColoredLucideRenderer(
+      Radar,
+      "bg-violet-500/10 text-violet-600 dark:text-violet-400"
+    ),
+    "tools.urlhaus": createColoredLucideRenderer(
+      Link,
+      "bg-rose-500/10 text-rose-600 dark:text-rose-400"
+    ),
+    "tools.wazuh": createColoredLucideRenderer(
+      ShieldCheck,
+      "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+    ),
     // AI namespace
     "ai.slackbot": createIconRenderer(SlackIcon),
   }
@@ -2029,6 +2170,102 @@ export function ClickHouseIcon({ className, ...rest }: IconProps) {
       <path fill="#FFCC01" d="M10.667 1.335h2.666v21.33h-2.666Z" />
       <path fill="#FFCC01" d="M0 22.665V1.335h2.667v21.33Z" />
       <path fill="#FFCC01" d="M5.333 1.335H8v21.33H5.333Z" />
+    </svg>
+  )
+}
+
+export function GoogleMapsIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg role="img" viewBox="0 0 24 24" className={className} {...rest}>
+      <title>Google Maps</title>
+      <path
+        fill="#4285F4"
+        d="M19.527 4.799c1.212 2.608.937 5.678-.405 8.173-1.101 2.047-2.744 3.74-4.098 5.614-.619.858-1.244 1.75-1.669 2.727-.141.325-.263.658-.383.992-.121.333-.224.673-.34 1.008-.109.314-.236.684-.627.687h-.007c-.466-.001-.579-.53-.695-.887-.284-.874-.581-1.713-1.019-2.525-.51-.944-1.145-1.817-1.79-2.671L19.527 4.799zM8.545 7.705l-3.959 4.707c.724 1.54 1.821 2.863 2.871 4.18.247.31.494.622.737.936l4.984-5.925-.029.01c-1.741.601-3.691-.291-4.392-1.987a3.377 3.377 0 0 1-.209-.716c-.063-.437-.077-.761-.004-1.198l.001-.007zM5.492 3.149l-.003.004c-1.947 2.466-2.281 5.88-1.117 8.77l4.785-5.689-.058-.05-3.607-3.035zM14.661.436l-3.838 4.563a.295.295 0 0 1 .027-.01c1.6-.551 3.403.15 4.22 1.626.176.319.323.683.377 1.045.068.446.085.773.012 1.22l-.003.016 3.836-4.561A8.382 8.382 0 0 0 14.67.439l-.009-.003zM9.466 5.868L14.162.285l-.047-.012A8.31 8.31 0 0 0 11.986 0a8.439 8.439 0 0 0-6.169 2.766l-.016.018 3.665 3.084z"
+      />
+    </svg>
+  )
+}
+
+export function HackerOneIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg role="img" viewBox="0 0 24 24" className={className} {...rest}>
+      <title>HackerOne</title>
+      <path
+        fill="currentColor"
+        d="M7.207 0c-.4836 0-.8774.1018-1.1823.3002-.3044.2003-.4592.4627-.4592.7798v21.809c0 .2766.1581.5277.4752.7609.315.2335.7031.3501 1.1664.3501.4427 0 .8306-.1166 1.1678-.3501.3352-.231.5058-.4843.5058-.761V1.0815c0-.319-.1623-.5769-.4893-.7813C8.0644.1018 7.6702 0 7.207 0zm9.5234 8.662c-.4836 0-.8717.0981-1.1683.3007l-4.439 2.7822c-.1988.1861-.2841.4687-.2473.855.0342.3826.2108.747.5238 1.0907.3145.346.6662.5626 1.0684.6547.3963.0899.6973.041.8962-.143l1.7551-1.0951v9.7817c0 .2767.1522.5278.4607.761.3007.2335.6873.3501 1.1504.3501.463 0 .863-.1166 1.1983-.3501.3371-.2332.5058-.4843.5058-.761V9.7381c0-.3193-.165-.577-.4898-.7754-.3252-.2026-.7288-.3007-1.2143-.3007z"
+      />
+    </svg>
+  )
+}
+
+export function HaveIBeenPwnedIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg role="img" viewBox="0 0 24 24" className={className} {...rest}>
+      <title>Have I Been Pwned</title>
+      <path
+        fill="currentColor"
+        d="M1.89 3.872 0 13.598h4.7l1.889-9.726ZM7.171 8.56l-.98 5.038h4.7l.98-5.038Zm5.936 1.306-.723 3.732h4.7l.722-3.732Zm6.192 0-.723 3.732h4.7L24 9.866ZM5.912 15.09l-.979 5.038h4.7l.98-5.038z"
+      />
+    </svg>
+  )
+}
+
+export function KubernetesIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg role="img" viewBox="0 0 24 24" className={className} {...rest}>
+      <title>Kubernetes</title>
+      <path
+        fill="#326CE5"
+        d="M10.204 14.35l.007.01-.999 2.413a5.171 5.171 0 0 1-2.075-2.597l2.578-.437.004.005a.44.44 0 0 1 .484.606zm-.833-2.129a.44.44 0 0 0 .173-.756l.002-.011L7.585 9.7a5.143 5.143 0 0 0-.73 3.255l2.514-.725.002-.009zm1.145-1.98a.44.44 0 0 0 .699-.337l.01-.005.15-2.62a5.144 5.144 0 0 0-3.01 1.442l2.147 1.523.004-.002zm.76 2.75l.723.349.722-.347.18-.78-.5-.623h-.804l-.5.623.179.779zm1.5-3.095a.44.44 0 0 0 .7.336l.008.003 2.134-1.513a5.188 5.188 0 0 0-2.992-1.442l.148 2.615.002.001zm10.876 5.97l-5.773 7.181a1.6 1.6 0 0 1-1.248.594l-9.261.003a1.6 1.6 0 0 1-1.247-.596l-5.776-7.18a1.583 1.583 0 0 1-.307-1.34L2.1 5.573c.108-.47.425-.864.863-1.073L11.305.513a1.606 1.606 0 0 1 1.385 0l8.345 3.985c.438.209.755.604.863 1.073l2.062 8.955c.108.47-.005.963-.308 1.34zm-3.289-2.057c-.042-.01-.103-.026-.145-.034-.174-.033-.315-.025-.479-.038-.35-.037-.638-.067-.895-.148-.105-.04-.18-.165-.216-.216l-.201-.059a6.45 6.45 0 0 0-.105-2.332 6.465 6.465 0 0 0-.936-2.163c.052-.047.15-.133.177-.159.008-.09.001-.183.094-.282.197-.185.444-.338.743-.522.142-.084.273-.137.415-.242.032-.024.076-.062.11-.089.24-.191.295-.52.123-.736-.172-.216-.506-.236-.745-.045-.034.027-.08.062-.111.088-.134.116-.217.23-.33.35-.246.25-.45.458-.673.609-.097.056-.239.037-.303.033l-.19.135a6.545 6.545 0 0 0-4.146-2.003l-.012-.223c-.065-.062-.143-.115-.163-.25-.022-.268.015-.557.057-.905.023-.163.061-.298.068-.475.001-.04-.001-.099-.001-.142 0-.306-.224-.555-.5-.555-.275 0-.499.249-.499.555l.001.014c0 .041-.002.092 0 .128.006.177.044.312.067.475.042.348.078.637.056.906a.545.545 0 0 1-.162.258l-.012.211a6.424 6.424 0 0 0-4.166 2.003 8.373 8.373 0 0 1-.18-.128c-.09.012-.18.04-.297-.029-.223-.15-.427-.358-.673-.608-.113-.12-.195-.234-.329-.349-.03-.026-.077-.062-.111-.088a.594.594 0 0 0-.348-.132.481.481 0 0 0-.398.176c-.172.216-.117.546.123.737l.007.005.104.083c.142.105.272.159.414.242.299.185.546.338.743.522.076.082.09.226.1.288l.16.143a6.462 6.462 0 0 0-1.02 4.506l-.208.06c-.055.072-.133.184-.215.217-.257.081-.546.11-.895.147-.164.014-.305.006-.48.039-.037.007-.09.02-.133.03l-.004.002-.007.002c-.295.071-.484.342-.423.608.061.267.349.429.645.365l.007-.001.01-.003.129-.029c.17-.046.294-.113.448-.172.33-.118.604-.217.87-.256.112-.009.23.069.288.101l.217-.037a6.5 6.5 0 0 0 2.88 3.596l-.09.218c.033.084.069.199.044.282-.097.252-.263.517-.452.813-.091.136-.185.242-.268.399-.02.037-.045.095-.064.134-.128.275-.034.591.213.71.248.12.556-.007.69-.282v-.002c.02-.039.046-.09.062-.127.07-.162.094-.301.144-.458.132-.332.205-.68.387-.897.05-.06.13-.082.215-.105l.113-.205a6.453 6.453 0 0 0 4.609.012l.106.192c.086.028.18.042.256.155.136.232.229.507.342.84.05.156.074.295.145.457.016.037.043.09.062.129.133.276.442.402.69.282.247-.118.341-.435.213-.71-.02-.039-.045-.096-.065-.134-.083-.156-.177-.261-.268-.398-.19-.296-.346-.541-.443-.793-.04-.13.007-.21.038-.294-.018-.022-.059-.144-.083-.202a6.499 6.499 0 0 0 2.88-3.622c.064.01.176.03.213.038.075-.05.144-.114.28-.104.266.039.54.138.87.256.154.06.277.128.448.173.036.01.088.019.13.028l.009.003.007.001c.297.064.584-.098.645-.365.06-.266-.128-.537-.423-.608zM16.4 9.701l-1.95 1.746v.005a.44.44 0 0 0 .173.757l.003.01 2.526.728a5.199 5.199 0 0 0-.108-1.674A5.208 5.208 0 0 0 16.4 9.7zm-4.013 5.325a.437.437 0 0 0-.404-.232.44.44 0 0 0-.372.233h-.002l-1.268 2.292a5.164 5.164 0 0 0 3.326.003l-1.27-2.296h-.01zm1.888-1.293a.44.44 0 0 0-.27.036.44.44 0 0 0-.214.572l-.003.004 1.01 2.438a5.15 5.15 0 0 0 2.081-2.615l-2.6-.44-.004.005z"
+      />
+    </svg>
+  )
+}
+
+export function MinioIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg role="img" viewBox="0 0 24 24" className={className} {...rest}>
+      <title>MinIO</title>
+      <path
+        fill="#C72E49"
+        d="M13.2072.006c-.6216-.0478-1.2.1943-1.6211.582a2.15 2.15 0 0 0-.0938 3.0352l3.4082 3.5507a3.042 3.042 0 0 1-.664 4.6875l-.463.2383V7.2853a15.4198 15.4198 0 0 0-8.0174 10.4862v.0176l6.5487-3.3281v7.621L13.7794 24V13.6817l.8965-.4629a4.4432 4.4432 0 0 0 1.2207-7.0292l-3.371-3.5254a.7489.7489 0 0 1 .037-1.0547.7522.7522 0 0 1 1.0567.0371l.4668.4863-.006.0059 4.0704 4.2441a.0566.0566 0 0 0 .082 0 .06.06 0 0 0 0-.0703l-3.1406-5.1425-.1484.1425.1484-.1445C14.4945.3926 13.8287.0538 13.2072.006Zm-.9024 9.8652v2.9941l-4.1523 2.1484a13.9787 13.9787 0 0 1 2.7676-3.9277 14.1784 14.1784 0 0 1 1.3847-1.2148z"
+      />
+    </svg>
+  )
+}
+
+export function MongoDbIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg role="img" viewBox="0 0 24 24" className={className} {...rest}>
+      <title>MongoDB</title>
+      <path
+        fill="#47A248"
+        d="M17.193 9.555c-1.264-5.58-4.252-7.414-4.573-8.115-.28-.394-.53-.954-.735-1.44-.036.495-.055.685-.523 1.184-.723.566-4.438 3.682-4.74 10.02-.282 5.912 4.27 9.435 4.888 9.884l.07.05A73.49 73.49 0 0111.91 24h.481c.114-1.032.284-2.056.51-3.07.417-.296.604-.463.85-.693a11.342 11.342 0 003.639-8.464c.01-.814-.103-1.662-.197-2.218zm-5.336 8.195s0-8.291.275-8.29c.213 0 .49 10.695.49 10.695-.381-.045-.765-1.76-.765-2.405z"
+      />
+    </svg>
+  )
+}
+
+export function ZendeskIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg role="img" viewBox="0 0 24 24" className={className} {...rest}>
+      <title>Zendesk</title>
+      <path
+        fill="currentColor"
+        d="M12.914 2.904V16.29L24 2.905H12.914zM0 2.906C0 5.966 2.483 8.45 5.543 8.45s5.542-2.484 5.543-5.544H0zm11.086 4.807L0 21.096h11.086V7.713zm7.37 7.84c-3.063 0-5.542 2.48-5.542 5.543H24c0-3.06-2.48-5.543-5.543-5.543z"
+      />
+    </svg>
+  )
+}
+
+export function ConfluenceIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg role="img" viewBox="0 0 24 24" className={className} {...rest}>
+      <title>Confluence</title>
+      <path
+        fill="#1868DB"
+        d="M.87 18.257c-.248.382-.53.875-.763 1.245a.764.764 0 0 0 .255 1.04l4.965 3.054a.764.764 0 0 0 1.058-.26c.199-.332.454-.763.733-1.221 1.967-3.247 3.945-2.853 7.508-1.146l4.957 2.337a.764.764 0 0 0 1.028-.382l2.364-5.346a.764.764 0 0 0-.382-1 599.851 599.851 0 0 1-4.965-2.361C10.911 10.97 5.224 11.185.87 18.257zM23.131 5.743c.249-.405.531-.875.764-1.25a.764.764 0 0 0-.256-1.034L18.675.404a.764.764 0 0 0-1.058.26c-.195.335-.451.763-.734 1.225-1.966 3.246-3.945 2.85-7.508 1.146L4.437.694a.764.764 0 0 0-1.027.382L1.046 6.422a.764.764 0 0 0 .382 1c1.039.49 3.105 1.467 4.965 2.361 6.698 3.246 12.392 3.029 16.738-4.04z"
+      />
     </svg>
   )
 }
