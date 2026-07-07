@@ -14,6 +14,7 @@ from tracecat.cases.attachments.schemas import (
     CaseAttachmentRead,
 )
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.logger import logger
 from tracecat.storage.exceptions import (
     FileContentMismatchError,
@@ -307,6 +308,17 @@ async def create_attachment(
                 "new_file_size_mb": round(new_mb, 2),
                 "max_size_mb": round(max_mb, 2),
             },
+        ) from e
+    except TracecatNotFoundError as e:
+        logger.warning(
+            "Case not found while creating attachment",
+            case_id=case_id,
+            filename=file.filename,
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
         ) from e
     except Exception as e:
         logger.error(

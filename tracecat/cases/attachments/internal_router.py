@@ -94,15 +94,21 @@ async def create_attachment(
             detail=f"Invalid base64 content: {str(e)}",
         ) from e
 
-    attachment = await service.attachments.create_attachment(
-        case,
-        CaseAttachmentCreate(
-            file_name=params.filename or "unnamed",
-            content_type=params.content_type or "application/octet-stream",
-            size=len(content),
-            content=content,
-        ),
-    )
+    try:
+        attachment = await service.attachments.create_attachment(
+            case,
+            CaseAttachmentCreate(
+                file_name=params.filename or "unnamed",
+                content_type=params.content_type or "application/octet-stream",
+                size=len(content),
+                content=content,
+            ),
+        )
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
     return CaseAttachmentRead(
         id=attachment.id,
         case_id=attachment.case_id,

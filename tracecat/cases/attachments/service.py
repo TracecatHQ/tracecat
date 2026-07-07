@@ -261,10 +261,6 @@ class CaseAttachmentService(BaseWorkspaceService):
                 f"({config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES / 1024 / 1024}MB)"
             )
 
-        # Serialize the aggregate quota check with the attachment write for this case.
-        case = await self._lock_case_for_attachment_write(case)
-        await self._assert_case_limits(case, actual_size)
-
         # Get workspace settings for attachment validation
         workspace = await self._get_workspace()
         workspace_settings = workspace.settings or {}
@@ -304,119 +300,133 @@ class CaseAttachmentService(BaseWorkspaceService):
             declared_mime_type=declared_mime_type,
         )
 
-        # Compute content hash for deduplication and integrity
+        # Compute content hash for deduplication and integrity before taking the
+        # case lock; hashing does not depend on aggregate case attachment state.
         sha256 = self._compute_sha256(params.content)
 
-        # Determine uploader ID (may be None for workflow/service uploads)
-        creator_id: uuid.UUID | None = (
-            self.role.user_id if self.role.type == "user" else None
-        )
+        try:
+            # Serialize the aggregate quota check with the attachment write for this
+            # case. The following transaction owns all post-lock exit paths so the
+            # row lock is released by an explicit commit or rollback.
+            case = await self._lock_case_for_attachment_write(case)
+            await self._assert_case_limits(case, actual_size)
 
-        # Check if file already exists (deduplication)
-        existing_file = await self.session.execute(
-            select(File).where(
-                File.sha256 == sha256,
-                File.workspace_id == self.workspace_id,
+            # Determine uploader ID (may be None for workflow/service uploads)
+            creator_id: uuid.UUID | None = (
+                self.role.user_id if self.role.type == "user" else None
             )
-        )
-        file = existing_file.scalars().first()
 
-        restored = False
-        if not file:
-            # Create new file record
-            file = File(
-                workspace_id=self.workspace_id,
-                sha256=sha256,
-                name=validation_result.filename,
-                content_type=validation_result.content_type,
-                size=actual_size,
-                creator_id=creator_id,
-            )
-            self.session.add(file)
-            await self.session.flush()
-            # Upload to blob storage
-            await self._upload_to_attachments_bucket(
-                content=params.content,
-                sha256=sha256,
-                content_type=validation_result.content_type,
-            )
-        else:
-            # Verify existing file's recorded size matches actual content
-            if file.size != actual_size:
-                logger.error(
-                    "Security: Existing file size mismatch detected",
-                    case_id=case.id,
-                    file_id=file.id,
-                    sha256=sha256,
-                    recorded_size=file.size,
-                    actual_size=actual_size,
-                    filename=params.file_name,
+            # Check if file already exists (deduplication)
+            existing_file = await self.session.execute(
+                select(File).where(
+                    File.sha256 == sha256,
+                    File.workspace_id == self.workspace_id,
                 )
-                # Update the file record with correct size
-                file.size = actual_size
+            )
+            file = existing_file.scalars().first()
 
-            # If the file entity exists but has been soft deleted, restore and re-upload
-            if file.deleted_at is not None:
-                file.deleted_at = None
-                restored = True
+            restored = False
+            if not file:
+                # Create new file record
+                file = File(
+                    workspace_id=self.workspace_id,
+                    sha256=sha256,
+                    name=validation_result.filename,
+                    content_type=validation_result.content_type,
+                    size=actual_size,
+                    creator_id=creator_id,
+                )
+                self.session.add(file)
+                await self.session.flush()
+                # Upload to blob storage while the DB transaction is still open so a
+                # storage failure can roll back the File/CaseAttachment rows.
                 await self._upload_to_attachments_bucket(
                     content=params.content,
                     sha256=sha256,
                     content_type=validation_result.content_type,
                 )
+            else:
+                # Verify existing file's recorded size matches actual content
+                if file.size != actual_size:
+                    logger.error(
+                        "Security: Existing file size mismatch detected",
+                        case_id=case.id,
+                        file_id=file.id,
+                        sha256=sha256,
+                        recorded_size=file.size,
+                        actual_size=actual_size,
+                        filename=params.file_name,
+                    )
+                    # Update the file record with correct size
+                    file.size = actual_size
 
-        # Check if attachment already exists for this case and file
-        existing_attachment = await self.session.execute(
-            select(CaseAttachment)
-            .where(
-                CaseAttachment.case_id == case.id,
-                CaseAttachment.file_id == file.id,
+                # If the file entity exists but has been soft deleted, restore and re-upload
+                if file.deleted_at is not None:
+                    file.deleted_at = None
+                    restored = True
+                    await self._upload_to_attachments_bucket(
+                        content=params.content,
+                        sha256=sha256,
+                        content_type=validation_result.content_type,
+                    )
+
+            # Check if attachment already exists for this case and file
+            existing_attachment = await self.session.execute(
+                select(CaseAttachment)
+                .where(
+                    CaseAttachment.case_id == case.id,
+                    CaseAttachment.file_id == file.id,
+                )
+                .options(selectinload(CaseAttachment.file))
             )
-            .options(selectinload(CaseAttachment.file))
-        )
-        attachment = existing_attachment.scalars().first()
+            attachment = existing_attachment.scalars().first()
 
-        should_create_event = False
-        if attachment:
-            # Attachment already exists and is active - return it
-            # (If the underlying file was restored above, emit restoration event)
-            if (
-                not restored
-                and file.deleted_at is None
-                and getattr(attachment.file, "deleted_at", None) is None
-            ):
-                return attachment
-            # Ensure relationship is consistent
-            attachment.file = file
-            should_create_event = True
-        else:
-            # Create new attachment link
-            attachment = CaseAttachment(
-                case_id=case.id,
-                file_id=file.id,
-            )
-            # Eagerly link the file relationship to avoid lazy loading in async contexts
-            attachment.file = file
-            self.session.add(attachment)
-            should_create_event = True  # New attachment event
+            should_create_event = False
+            if attachment:
+                # Attachment already exists and is active - return it
+                # (If the underlying file was restored above, emit restoration event)
+                if (
+                    not restored
+                    and file.deleted_at is None
+                    and getattr(attachment.file, "deleted_at", None) is None
+                ):
+                    await self.session.commit()
+                    return attachment
+                # Ensure relationship is consistent
+                attachment.file = file
+                should_create_event = True
+            else:
+                # Create new attachment link
+                attachment = CaseAttachment(
+                    case_id=case.id,
+                    file_id=file.id,
+                )
+                # Eagerly link the file relationship to avoid lazy loading in async contexts
+                attachment.file = file
+                self.session.add(attachment)
+                should_create_event = True  # New attachment event
 
-        # Flush to ensure the attachment gets an ID
-        await self.session.flush()
+            # Flush to ensure the attachment gets an ID
+            await self.session.flush()
 
-        # Record attachment event (for new attachments or restorations)
-        if should_create_event:
-            await self._emit_case_event(
-                case,
-                AttachmentCreatedEvent(
-                    attachment_id=attachment.id,
-                    file_name=file.name,
-                    content_type=file.content_type,
-                    size=file.size,  # This now uses the actual size from the File record
-                    wf_exec_id=None,  # populated by _emit_case_event if run context available
-                ),
-            )
+            # Record attachment event (for new attachments or restorations)
+            if should_create_event:
+                await self._emit_case_event(
+                    case,
+                    AttachmentCreatedEvent(
+                        attachment_id=attachment.id,
+                        file_name=file.name,
+                        content_type=file.content_type,
+                        size=file.size,  # This now uses the actual size from the File record
+                        wf_exec_id=None,  # populated by _emit_case_event if run context available
+                    ),
+                )
 
-        await self.session.commit()
+            await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            raise
+
         # Reload attachment with the file relationship eagerly loaded
         await self.session.refresh(attachment, attribute_names=["file"])
         return attachment
