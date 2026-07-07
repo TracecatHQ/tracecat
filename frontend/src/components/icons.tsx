@@ -742,10 +742,6 @@ const mcpProviderIconAliases: Record<string, string> = {
   "secureannex-mcp": "secureannex_mcp",
 }
 
-const providerIconClassNames: Record<string, string> = {
-  sentry_mcp: "bg-white dark:bg-white",
-}
-
 export function getMcpProviderIconId(slug: string | null | undefined): string {
   if (!slug) {
     return "custom"
@@ -789,7 +785,6 @@ export function ProviderIcon({
     <Icon
       className={cn(
         "flex shrink-0 items-center justify-center overflow-hidden rounded-sm bg-muted p-1",
-        providerIconClassNames[providerId],
         className
       )}
       {...rest}
