@@ -27,6 +27,7 @@ from sqlalchemy import (
     literal,
     or_,
     select,
+    true,
     update,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -370,6 +371,13 @@ class AgentSessionService(BaseWorkspaceService):
                 AgentSession.workspace_id == self.workspace_id,
                 self._recall_visibility_clause(),
                 AgentSessionHistory.kind.in_(_RECALL_VISIBLE_KINDS),
+                # Mirror list_messages: rows from a session's live turn are
+                # durability-only until the turn finalizes; hide them here too.
+                or_(
+                    AgentSession.curr_run_id.is_(None),
+                    AgentSessionHistory.curr_run_id.is_(None),
+                    AgentSessionHistory.curr_run_id != AgentSession.curr_run_id,
+                ),
                 AgentSessionHistory.search_text.is_not(None),
                 AgentSessionHistory.search_tsv.op("@@")(tsquery),
             )
@@ -483,12 +491,24 @@ class AgentSessionService(BaseWorkspaceService):
                 )
 
         window = max(1, min(window, 20))
+        # Mirror list_messages: while a turn is live, the active run's partial
+        # rows are durability-only and hidden from the timeline; hide them from
+        # recall windows and boundary counts as well.
+        hide_active_turn = (
+            or_(
+                AgentSessionHistory.curr_run_id.is_(None),
+                AgentSessionHistory.curr_run_id != agent_session.curr_run_id,
+            )
+            if agent_session.curr_run_id is not None
+            else true()
+        )
         before_stmt = (
             select(AgentSessionHistory)
             .where(
                 AgentSessionHistory.workspace_id == self.workspace_id,
                 AgentSessionHistory.session_id == session_id,
                 AgentSessionHistory.kind.in_(_RECALL_VISIBLE_KINDS),
+                hide_active_turn,
                 AgentSessionHistory.surrogate_id <= anchor_surrogate_id,
             )
             .order_by(AgentSessionHistory.surrogate_id.desc())
@@ -503,6 +523,7 @@ class AgentSessionService(BaseWorkspaceService):
                 AgentSessionHistory.workspace_id == self.workspace_id,
                 AgentSessionHistory.session_id == session_id,
                 AgentSessionHistory.kind.in_(_RECALL_VISIBLE_KINDS),
+                hide_active_turn,
                 AgentSessionHistory.surrogate_id > anchor_surrogate_id,
             )
             .order_by(AgentSessionHistory.surrogate_id)
@@ -516,6 +537,7 @@ class AgentSessionService(BaseWorkspaceService):
                 AgentSessionHistory.workspace_id == self.workspace_id,
                 AgentSessionHistory.session_id == session_id,
                 AgentSessionHistory.kind.in_(_RECALL_VISIBLE_KINDS),
+                hide_active_turn,
                 AgentSessionHistory.surrogate_id < before_entries[0].surrogate_id,
             )
         else:
@@ -523,6 +545,7 @@ class AgentSessionService(BaseWorkspaceService):
                 AgentSessionHistory.workspace_id == self.workspace_id,
                 AgentSessionHistory.session_id == session_id,
                 AgentSessionHistory.kind.in_(_RECALL_VISIBLE_KINDS),
+                hide_active_turn,
                 AgentSessionHistory.surrogate_id <= anchor_surrogate_id,
             )
         messages_before = await self.session.scalar(messages_before_stmt)
@@ -532,6 +555,7 @@ class AgentSessionService(BaseWorkspaceService):
                 AgentSessionHistory.workspace_id == self.workspace_id,
                 AgentSessionHistory.session_id == session_id,
                 AgentSessionHistory.kind.in_(_RECALL_VISIBLE_KINDS),
+                hide_active_turn,
                 AgentSessionHistory.surrogate_id > after_entries[-1].surrogate_id,
             )
         else:
@@ -539,6 +563,7 @@ class AgentSessionService(BaseWorkspaceService):
                 AgentSessionHistory.workspace_id == self.workspace_id,
                 AgentSessionHistory.session_id == session_id,
                 AgentSessionHistory.kind.in_(_RECALL_VISIBLE_KINDS),
+                hide_active_turn,
                 AgentSessionHistory.surrogate_id > anchor_surrogate_id,
             )
         messages_after = await self.session.scalar(messages_after_stmt)

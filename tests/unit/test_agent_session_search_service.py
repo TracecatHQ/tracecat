@@ -64,6 +64,7 @@ async def _add_history(
     agent_session: AgentSession,
     text: str,
     kind: str = MessageKind.CHAT_MESSAGE.value,
+    curr_run_id: uuid.UUID | None = None,
 ) -> AgentSessionHistory:
     entry = AgentSessionHistory(
         session_id=agent_session.id,
@@ -71,6 +72,7 @@ async def _add_history(
         content={"type": "user", "message": {"role": "user", "content": text}},
         search_text=text,
         kind=kind,
+        curr_run_id=curr_run_id,
     )
     session.add(entry)
     await session.flush()
@@ -300,6 +302,49 @@ async def test_recall_hides_internal_kind_rows(
         "visible kind needle one",
         "visible kind needle two",
     ]
+
+
+@pytest.mark.anyio
+async def test_recall_hides_active_turn_rows(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    # While a turn is live, its partial rows are durability-only and hidden
+    # from the UI timeline; recall must hide them too (Codex review P2).
+    assert svc_role.workspace_id is not None
+    live_run_id = uuid.uuid4()
+    agent_session = await _add_session(
+        session, workspace_id=svc_role.workspace_id, created_by=svc_role.user_id
+    )
+    agent_session.curr_run_id = live_run_id
+    finished = await _add_history(
+        session,
+        agent_session=agent_session,
+        text="active turn needle from a finished run",
+        curr_run_id=uuid.uuid4(),
+    )
+    await _add_history(
+        session,
+        agent_session=agent_session,
+        text="active turn needle from the live run",
+        curr_run_id=live_run_id,
+    )
+    await session.commit()
+
+    service = AgentSessionService(session=session, role=svc_role)
+
+    results = await service.search_session_messages("active turn needle")
+    assert [result.surrogate_id for result in results] == [finished.surrogate_id]
+
+    window = await service.get_session_window(
+        agent_session.id,
+        anchor_surrogate_id=finished.surrogate_id,
+        window=5,
+    )
+    assert [message.text for message in window.messages] == [
+        "active turn needle from a finished run"
+    ]
+    assert window.messages_after == 0
 
 
 @pytest.mark.anyio
