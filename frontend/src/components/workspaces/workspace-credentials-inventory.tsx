@@ -211,11 +211,7 @@ export function WorkspaceCredentialsInventory() {
     return (
       <AlertNotification
         level="error"
-        message={
-          secretDefinitionsError?.message ||
-          secretsError?.message ||
-          "Error loading credentials."
-        }
+        message="Unable to load workspace credentials."
       />
     )
   }

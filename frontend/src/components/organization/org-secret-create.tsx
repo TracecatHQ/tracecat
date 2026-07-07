@@ -76,16 +76,18 @@ export function CreateOrgSecretDialog({
   const { control, register } = methods
 
   const onSubmit = async (values: SecretCreate) => {
-    console.log("Submitting new secret", values)
     try {
       await createSecret(values)
-    } catch (error) {
-      console.error(error)
+    } catch {
+      toast({
+        title: "Failed to create secret",
+        description: "An error occurred while creating the secret.",
+        variant: "destructive",
+      })
     }
     methods.reset()
   }
   const onValidationFailed = () => {
-    console.error("Form validation failed")
     toast({
       title: "Form validation failed",
       description: "A validation error occurred while adding the new secret.",

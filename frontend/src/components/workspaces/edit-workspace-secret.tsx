@@ -570,7 +570,6 @@ export function EditCredentialsDialog({
   const onSubmit = useCallback(
     async (values: EditSecretForm) => {
       if (!selectedSecret) {
-        console.error("No secret selected")
         return
       }
       // Remove unset values from the params object
@@ -606,15 +605,14 @@ export function EditCredentialsDialog({
         keys:
           isSshKey || submittedKeys.length === 0 ? undefined : submittedKeys,
       }
-      console.log("Submitting edit secret", params)
       try {
         await updateSecretById({
           secretId: selectedSecret.id,
           params,
         })
         handleDialogOpenChange(false)
-      } catch (error) {
-        console.error(error)
+      } catch {
+        // The workspace secret mutation hook already shows a sanitized toast.
       }
     },
     [
@@ -629,8 +627,7 @@ export function EditCredentialsDialog({
     ]
   )
 
-  const onValidationFailed = (errors: unknown) => {
-    console.error("Form validation failed", errors)
+  const onValidationFailed = () => {
     toast({
       title: "Form validation failed",
       description: "A validation error occurred while editing the secret.",

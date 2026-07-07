@@ -35,7 +35,7 @@ export function OrgSecretsTable() {
     return (
       <AlertNotification
         level="error"
-        message={`Error loading secrets: ${orgSecretsError?.message || "Secrets undefined"}`}
+        message="Unable to load organization secrets."
       />
     )
   }
@@ -160,14 +160,9 @@ export function OrgSecretsTable() {
                         <DropdownMenuItem
                           onClick={() => {
                             if (!row.original) {
-                              console.error("No secret to edit")
                               return
                             }
                             setSelectedSecret(row.original)
-                            console.debug(
-                              "Selected secret to edit",
-                              row.original
-                            )
                           }}
                         >
                           Edit
@@ -179,10 +174,6 @@ export function OrgSecretsTable() {
                           className="text-rose-500 focus:text-rose-600"
                           onClick={() => {
                             setSelectedSecret(row.original)
-                            console.debug(
-                              "Selected secret to delete",
-                              row.original
-                            )
                           }}
                         >
                           Delete
@@ -217,7 +208,7 @@ export function OrgSSHKeysTable() {
     return (
       <AlertNotification
         level="error"
-        message={`Error loading secrets: ${orgSSHKeysError?.message || "Secrets undefined"}`}
+        message="Unable to load organization SSH keys."
       />
     )
   }
@@ -343,14 +334,9 @@ export function OrgSSHKeysTable() {
                           disabled
                           onClick={() => {
                             if (!row.original) {
-                              console.error("No secret to edit")
                               return
                             }
                             setSelectedSecret(row.original)
-                            console.debug(
-                              "Selected secret to edit",
-                              row.original
-                            )
                           }}
                         >
                           Edit
@@ -362,10 +348,6 @@ export function OrgSSHKeysTable() {
                           className="text-rose-500 focus:text-rose-600"
                           onClick={() => {
                             setSelectedSecret(row.original)
-                            console.debug(
-                              "Selected secret to delete",
-                              row.original
-                            )
                           }}
                         >
                           Delete

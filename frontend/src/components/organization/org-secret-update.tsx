@@ -92,7 +92,6 @@ export function UpdateOrgSecretDialog({
   const onSubmit = useCallback(
     async (values: SecretUpdate) => {
       if (!selectedSecret) {
-        console.error("No secret selected")
         return
       }
       // Remove unset values from the params object
@@ -103,14 +102,17 @@ export function UpdateOrgSecretDialog({
         environment: values.environment || undefined,
         keys: isSshKey ? undefined : values.keys,
       }
-      console.log("Submitting edit secret", params)
       try {
         await updateSecretById({
           secretId: selectedSecret.id,
           params,
         })
-      } catch (error) {
-        console.error(error)
+      } catch {
+        toast({
+          title: "Failed to update secret",
+          description: "An error occurred while updating the secret.",
+          variant: "destructive",
+        })
       }
       methods.reset()
       setSelectedSecret(null) // Only unset the selected secret after the form has been submitted
@@ -118,8 +120,7 @@ export function UpdateOrgSecretDialog({
     [selectedSecret, setSelectedSecret]
   )
 
-  const onValidationFailed = (errors: unknown) => {
-    console.error("Form validation failed", errors)
+  const onValidationFailed = () => {
     toast({
       title: "Form validation failed",
       description: "A validation error occurred while editing the secret.",

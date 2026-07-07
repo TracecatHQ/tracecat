@@ -1426,7 +1426,6 @@ export function useWorkspaceSecrets(
               "Secrets with the same name and environment are not supported.",
           })
         default:
-          console.error("Failed to create secret", error)
           return toast({
             title: "Failed to add new secret",
             description:
@@ -1467,7 +1466,6 @@ export function useWorkspaceSecrets(
             description: "You cannot update secrets in this workspace.",
           })
         default:
-          console.error("Failed to update secret", error)
           return toast({
             title: "Failed to update secret",
             description: "An error occurred while updating the secret.",
@@ -1497,7 +1495,6 @@ export function useWorkspaceSecrets(
             description: "You cannot delete secrets in this workspace.",
           })
         default:
-          console.error("Failed to delete secret", error)
           return toast({
             title: "Failed to delete secret",
             description: "An error occurred while deleting the secret.",
@@ -1807,6 +1804,13 @@ export function useOrgSecrets() {
           })
           break
       }
+    },
+    onError: () => {
+      toast({
+        title: "Failed to delete secret",
+        description: "An error occurred while deleting the secret.",
+        variant: "destructive",
+      })
     },
   })
 

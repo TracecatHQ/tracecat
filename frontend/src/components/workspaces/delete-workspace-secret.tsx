@@ -50,8 +50,12 @@ export function DeleteSecretAlertDialog({
             variant="destructive"
             onClick={async () => {
               if (selectedSecret) {
-                console.log("Deleting secret", selectedSecret)
-                await deleteSecretById(selectedSecret)
+                try {
+                  await deleteSecretById(selectedSecret)
+                } catch {
+                  // The workspace secret mutation hook shows a sanitized toast.
+                  return
+                }
               }
               setSelectedSecret(null)
             }}

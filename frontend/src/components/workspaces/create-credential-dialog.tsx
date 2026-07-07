@@ -865,18 +865,13 @@ export function CreateCredentialDialog({
     try {
       await createSecret(secret)
       onOpenChange(false)
-      toast({
-        title: "Secret created",
-        description: `Secret "${secretName}" has been created successfully.`,
-      })
       methods.reset()
-    } catch (error) {
-      console.log(error)
+    } catch {
+      // The workspace secret mutation hook already shows a sanitized toast.
     }
   }
 
   const onValidationFailed = () => {
-    console.error("Form validation failed")
     toast({
       title: "Form validation failed",
       description: "A validation error occurred while adding the new secret.",
@@ -1437,8 +1432,7 @@ export function CreateCredentialDialog({
                             </p>
                           ) : shouldHideAwsAssumeRoleNote ? null : (
                             <p className="text-xs text-destructive">
-                              {awsAssumeRoleAccessError?.message ||
-                                "Unable to load AWS role access details."}
+                              Unable to load AWS role access details.
                             </p>
                           )}
                         </div>
