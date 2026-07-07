@@ -23,7 +23,49 @@ permissions:
   packages: write
 
 jobs:
+  validate-manual-publish-ref:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Validate manual publish tag/ref
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          if [ "$EVENT_NAME" != "workflow_dispatch" ]; then
+            exit 0
+          fi
+
+          if [ -z "$INPUT_TAG" ]; then
+            echo "Manual image publish requires a tag input." >&2
+            exit 1
+          fi
+
+          if [[ "$INPUT_TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?(\+[0-9A-Za-z.]+)?$ ]]; then
+            :
+          elif [[ "$INPUT_TAG" =~ ^nightly-[0-9]{8}(-[0-9A-Fa-f]{7,40})?$ ]]; then
+            :
+          else
+            echo "Manual image publish tag '$INPUT_TAG' must be semver or nightly-YYYYMMDD." >&2
+            exit 1
+          fi
+
+          if [ "$REF_TYPE" != "tag" ]; then
+            echo "Manual image publish must run from a Git tag ref, got '$REF_TYPE'." >&2
+            exit 1
+          fi
+
+          if [ "$REF_NAME" != "$INPUT_TAG" ]; then
+            echo "Manual image publish tag '$INPUT_TAG' must match workflow ref '$REF_NAME'." >&2
+            exit 1
+          fi
+
   build-and-push-api:
+    needs: validate-manual-publish-ref
     if: >-
       github.event_name != 'workflow_dispatch' ||
       github.actor == 'github-actions[bot]' ||
@@ -165,6 +207,7 @@ jobs:
           docker buildx imagetools inspect ghcr.io/tracecathq/tracecat:${{ steps.meta.outputs.version }}
 
   build-and-push-ui:
+    needs: validate-manual-publish-ref
     if: >-
       github.event_name != 'workflow_dispatch' ||
       github.actor == 'github-actions[bot]' ||
