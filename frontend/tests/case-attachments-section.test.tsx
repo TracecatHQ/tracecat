@@ -4,7 +4,10 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { caseAttachmentsListAttachments } from "@/client"
+import {
+  caseAttachmentsCreateAttachment,
+  caseAttachmentsListAttachments,
+} from "@/client"
 import { CaseAttachmentsSection } from "@/components/cases/case-attachments-section"
 import { toast } from "@/components/ui/use-toast"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
@@ -28,6 +31,10 @@ jest.mock("@/components/ui/use-toast", () => ({
   toast: jest.fn(),
 }))
 
+const mockCaseAttachmentsCreateAttachment =
+  caseAttachmentsCreateAttachment as jest.MockedFunction<
+    typeof caseAttachmentsCreateAttachment
+  >
 const mockCaseAttachmentsListAttachments =
   caseAttachmentsListAttachments as jest.MockedFunction<
     typeof caseAttachmentsListAttachments
@@ -92,4 +99,47 @@ describe("CaseAttachmentsSection", () => {
 
     inputClickSpy.mockRestore()
   })
+
+  it.each([
+    { label: "loading", workspace: undefined, workspaceLoading: true },
+    { label: "unknown", workspace: undefined, workspaceLoading: false },
+  ])(
+    "keeps attachment uploads non-interactive while workspace settings are $label",
+    async ({ workspace, workspaceLoading }) => {
+      mockUseWorkspaceDetails.mockReturnValue({
+        workspace,
+        workspaceLoading,
+        workspaceError: null,
+      } as unknown as ReturnType<typeof useWorkspaceDetails>)
+      const inputClickSpy = jest.spyOn(HTMLInputElement.prototype, "click")
+
+      const { container } = renderCaseAttachmentsSection()
+
+      const uploadControl = await screen.findByRole("button", {
+        name: "Loading attachment policy...",
+      })
+      const fileInput =
+        container.querySelector<HTMLInputElement>('input[type="file"]')
+
+      expect(uploadControl).toHaveAttribute("aria-disabled", "true")
+      expect(fileInput).not.toBeNull()
+      expect(fileInput).toBeDisabled()
+
+      fireEvent.click(uploadControl)
+      fireEvent.keyDown(uploadControl, { key: "Enter" })
+      fireEvent.drop(uploadControl, {
+        dataTransfer: {
+          files: [
+            new File(["content"], "evidence.txt", { type: "text/plain" }),
+          ],
+        },
+      })
+
+      expect(inputClickSpy).not.toHaveBeenCalled()
+      expect(mockCaseAttachmentsCreateAttachment).not.toHaveBeenCalled()
+      expect(mockToast).not.toHaveBeenCalled()
+
+      inputClickSpy.mockRestore()
+    }
+  )
 })

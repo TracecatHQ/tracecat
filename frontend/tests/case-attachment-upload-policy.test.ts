@@ -56,7 +56,7 @@ describe("describeAttachmentUploadError", () => {
     })
   })
 
-  it("preserves default file type fallback when allowed extensions are absent", () => {
+  it("uses policy-based fallback when allowed extensions are absent", () => {
     const toast = describeAttachmentUploadError(
       {
         status: 415,
@@ -73,7 +73,7 @@ describe("describeAttachmentUploadError", () => {
     expect(toast).toEqual({
       title: "File type not supported",
       description:
-        "blocked.exe cannot be uploaded. Allowed file types: txt, pdf, png, jpeg, gif, csv",
+        "blocked.exe cannot be uploaded. Allowed file types are controlled by workspace policy.",
     })
   })
 

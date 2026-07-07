@@ -160,7 +160,7 @@ export function CaseAttachmentsSection({
   const queryClient = useQueryClient()
 
   // Get workspace settings for attachment allowlists
-  const { workspace } = useWorkspaceDetails()
+  const { workspace, workspaceLoading } = useWorkspaceDetails()
 
   // Create upload policy from workspace settings
   const acceptedExtensions =
@@ -171,6 +171,8 @@ export function CaseAttachmentsSection({
     acceptedExtensions,
     acceptedMimeTypes
   )
+  const workspaceSettingsLoaded = !workspaceLoading && !!workspace?.settings
+  const uploadControlDisabled = !workspaceSettingsLoaded || uploadsDisabled
 
   // Fetch attachments from API
   const {
@@ -277,6 +279,11 @@ export function CaseAttachmentsSection({
   }
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!workspaceSettingsLoaded) {
+      resetFileInput()
+      return
+    }
+
     if (uploadsDisabled) {
       showUploadsDisabledToast()
       resetFileInput()
@@ -298,6 +305,10 @@ export function CaseAttachmentsSection({
   }
 
   const handleAddAttachment = () => {
+    if (!workspaceSettingsLoaded) {
+      return
+    }
+
     if (uploadsDisabled) {
       showUploadsDisabledToast()
       return
@@ -340,6 +351,10 @@ export function CaseAttachmentsSection({
       e.stopPropagation()
       setIsDragOver(false)
 
+      if (!workspaceSettingsLoaded) {
+        return
+      }
+
       if (uploadsDisabled) {
         showUploadsDisabledToast()
         return
@@ -357,7 +372,12 @@ export function CaseAttachmentsSection({
         uploadMutation.mutate(file)
       }
     },
-    [showUploadsDisabledToast, uploadMutation, uploadsDisabled]
+    [
+      showUploadsDisabledToast,
+      uploadMutation,
+      uploadsDisabled,
+      workspaceSettingsLoaded,
+    ]
   )
 
   const handleDownload = async (attachment: CaseAttachmentRead) => {
@@ -468,8 +488,18 @@ export function CaseAttachmentsSection({
   let uploadControlLabel = "Add new attachment (max 20MB)"
   if (isUploading || uploadMutation.isPending) {
     uploadControlLabel = "Uploading..."
+  } else if (!workspaceSettingsLoaded) {
+    uploadControlLabel = "Loading attachment policy..."
   } else if (uploadsDisabled) {
     uploadControlLabel = "Attachment uploads disabled"
+  }
+
+  let emptyAttachmentMessage =
+    "Add files by clicking the add button above or drag and drop files directly."
+  if (!workspaceSettingsLoaded) {
+    emptyAttachmentMessage = "Attachment policy is loading."
+  } else if (uploadsDisabled) {
+    emptyAttachmentMessage = "Uploads are disabled for this workspace."
   }
 
   return (
@@ -486,21 +516,21 @@ export function CaseAttachmentsSection({
             onDragLeave={handleDragLeave}
             onDragOver={handleDragOver}
             onDrop={handleDrop}
-            aria-disabled={uploadsDisabled}
+            aria-disabled={uploadControlDisabled}
             className={cn(
               "flex items-center gap-2 p-1.5 rounded-md border border-dashed transition-all group focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
-              uploadsDisabled
+              uploadControlDisabled
                 ? "cursor-not-allowed border-muted-foreground/20 opacity-60"
                 : "cursor-pointer border-muted-foreground/25 hover:border-muted-foreground/50 hover:bg-muted/30",
               isDragOver &&
-                !uploadsDisabled &&
+                !uploadControlDisabled &&
                 "border-blue-500 bg-blue-50 dark:bg-blue-950/20"
             )}
           >
             <div
               className={cn(
                 "p-1.5 rounded bg-muted transition-colors",
-                !uploadsDisabled && "group-hover:bg-muted-foreground/10"
+                !uploadControlDisabled && "group-hover:bg-muted-foreground/10"
               )}
             >
               <Plus className="h-3.5 w-3.5 text-muted-foreground" />
@@ -508,7 +538,7 @@ export function CaseAttachmentsSection({
             <span
               className={cn(
                 "text-xs text-muted-foreground transition-colors",
-                !uploadsDisabled && "group-hover:text-foreground"
+                !uploadControlDisabled && "group-hover:text-foreground"
               )}
             >
               {uploadControlLabel}
@@ -525,9 +555,7 @@ export function CaseAttachmentsSection({
                 No attachments found
               </h3>
               <p className="text-xs text-muted-foreground/75 text-center max-w-[250px]">
-                {uploadsDisabled
-                  ? "Uploads are disabled for this workspace."
-                  : "Add files by clicking the add button above or drag and drop files directly."}
+                {emptyAttachmentMessage}
               </p>
             </div>
           ) : (
@@ -631,7 +659,7 @@ export function CaseAttachmentsSection({
             onChange={handleFileSelect}
             className="hidden"
             accept={acceptAttribute}
-            disabled={uploadsDisabled}
+            disabled={uploadControlDisabled}
           />
 
           {/* Image Preview Modal */}

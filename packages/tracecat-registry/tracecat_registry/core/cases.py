@@ -698,7 +698,7 @@ async def _upload_attachment(
 @registry.register(
     default_title="Upload attachment",
     display_group="Cases",
-    description="Upload a file attachment to a case. Workspace attachment settings control allowed extensions and MIME types; null inherits defaults, [] disables uploads, and non-empty allowlists restrict uploads to those values.",
+    description="Upload a file attachment to a case. Uploads are governed by workspace attachment settings. In workspace settings, null inherits defaults, [] disables uploads, and non-empty allowlists restrict uploads.",
     namespace="core.cases",
 )
 async def upload_attachment(
@@ -719,7 +719,7 @@ async def upload_attachment(
         Doc("The MIME type of the file (e.g., 'application/pdf')."),
     ],
 ) -> types.CaseAttachmentRead:
-    """Upload a file attachment to a case. Workspace attachment settings control allowed extensions and MIME types; null inherits defaults, [] disables uploads, and non-empty allowlists restrict uploads to those values."""
+    """Upload a file attachment to a case. Uploads are governed by workspace attachment settings. In workspace settings, null inherits defaults, [] disables uploads, and non-empty allowlists restrict uploads."""
     # Decode base64 content
     try:
         content = base64.b64decode(content_base64, validate=True)
@@ -747,7 +747,7 @@ def _infer_filename_from_url(url: str) -> str:
 @registry.register(
     default_title="Upload attachment from URL",
     display_group="Cases",
-    description="Upload a file attachment to a case from a URL. Workspace attachment settings control allowed extensions and MIME types; null inherits defaults, [] disables uploads, and non-empty allowlists restrict uploads to those values.",
+    description="Upload a file attachment to a case from a URL. Uploads are governed by workspace attachment settings. In workspace settings, null inherits defaults, [] disables uploads, and non-empty allowlists restrict uploads.",
     namespace="core.cases",
 )
 async def upload_attachment_from_url(
@@ -770,7 +770,7 @@ async def upload_attachment_from_url(
         ),
     ] = None,
 ) -> types.CaseAttachmentRead:
-    """Upload a file attachment to a case from a URL. Workspace attachment settings control allowed extensions and MIME types; null inherits defaults, [] disables uploads, and non-empty allowlists restrict uploads to those values."""
+    """Upload a file attachment to a case from a URL. Uploads are governed by workspace attachment settings. In workspace settings, null inherits defaults, [] disables uploads, and non-empty allowlists restrict uploads."""
     async with httpx.AsyncClient() as client:
         response = await client.get(url, headers=headers)
         response.raise_for_status()

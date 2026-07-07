@@ -79,10 +79,9 @@ export function describeAttachmentUploadError(
 
       return {
         title: "File type not supported",
-        description: `${fileName} cannot be uploaded. Allowed file types: ${
-          detailObject.allowed_extensions?.join(", ") ||
-          "txt, pdf, png, jpeg, gif, csv"
-        }`,
+        description: detailObject.allowed_extensions?.length
+          ? `${fileName} cannot be uploaded. Allowed file types: ${detailObject.allowed_extensions.join(", ")}`
+          : `${fileName} cannot be uploaded. Allowed file types are controlled by workspace policy.`,
       }
     }
     case "unsupported_content_type":

@@ -116,6 +116,46 @@ describe("workspace files settings", () => {
     })
   })
 
+  it("clears stale custom MIME type tags when restoring inherited defaults", async () => {
+    const workspace = createWorkspace()
+    const updateWorkspace = jest.fn().mockResolvedValue(undefined)
+    mockUseWorkspaceSettings.mockReturnValue({
+      deleteWorkspace: jest.fn(),
+      isDeleting: false,
+      isUpdating: false,
+      updateWorkspace,
+    } as unknown as ReturnType<typeof useWorkspaceSettings>)
+
+    render(createElement(WorkspaceFilesSettings, { workspace }))
+
+    expect(screen.getByText("application/x-msdownload")).toBeInTheDocument()
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Restore inherited MIME types",
+      })
+    )
+
+    expect(
+      screen.queryByText("application/x-msdownload")
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByText(/Current policy: Inherited defaults/)
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+
+    await waitFor(() => {
+      expect(updateWorkspace).toHaveBeenCalledWith({
+        settings: {
+          allowed_attachment_extensions: [".exe"],
+          allowed_attachment_mime_types: null,
+          validate_attachment_magic_number: true,
+        },
+      })
+    })
+  })
+
   it("sends empty arrays when attachment override lists are cleared", () => {
     const result = buildFilesSettingsUpdate({
       allowed_attachment_extensions: [],
