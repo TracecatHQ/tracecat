@@ -23,6 +23,7 @@ jobs:
         github.triggering_actor || github.actor
       )
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 180
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     outputs:
@@ -169,6 +170,7 @@ jobs:
     if: ${{ needs.publish-release.result == 'success' }}
     continue-on-error: true
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 10
     environment: release
     permissions:
       contents: read

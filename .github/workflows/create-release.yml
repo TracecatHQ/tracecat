@@ -25,6 +25,7 @@ jobs:
         github.triggering_actor || github.actor
       )
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 20
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:

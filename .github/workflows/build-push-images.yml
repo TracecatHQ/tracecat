@@ -32,6 +32,7 @@ jobs:
         github.triggering_actor || github.actor
       )
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -114,6 +115,7 @@ jobs:
       )
     needs: build-and-push-api
     runs-on: blacksmith-8vcpu-ubuntu-2404
+    timeout-minutes: 15
     steps:
       - name: Download digests
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -268,6 +270,7 @@ jobs:
       )
     needs: build-and-push-ui
     runs-on: blacksmith-8vcpu-ubuntu-2404
+    timeout-minutes: 15
     steps:
       - name: Download digests
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
