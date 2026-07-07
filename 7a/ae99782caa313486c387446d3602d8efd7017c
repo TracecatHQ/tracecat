@@ -1,0 +1,34 @@
+tracecat/mcp/oidc/config.py
+  s_a66a712823104d::t_66f220d4fa05ed 64-67,83-93
+  s_a66a712823104d::t_360506322a1fdb 94-95
+tests/unit/test_mcp_oidc_refresh_tokens.py
+  s_a66a712823104d::t_096a1745d984e8 578-580
+  s_a66a712823104d::t_66f220d4fa05ed 15,326,328-330
+  s_a66a712823104d::t_8cc06a2fc5dac6 370,372-374
+  s_a66a712823104d::t_044825e62b0148 412-577,581-689
+tracecat/mcp/oidc/refresh_tokens.py
+  s_a66a712823104d::t_66f220d4fa05ed 10-14,68-106,189-201,203,215-276
+  s_a66a712823104d::t_ed7e277a4e921f 277-278
+tests/integration/test_mcp_oidc_flow.py
+  s_a66a712823104d::t_a499e887260d9a 175-189,197-215,218-219,221-233,235-236,239,241-246,248-262
+  s_a66a712823104d::t_2b0909fb293dde 745-795
+  s_a66a712823104d::t_f7af6b8acbff1a 77-79
+  s_a66a712823104d::t_439a3410cda7d5 682,685-687
+  s_a66a712823104d::t_ae3467a1cb0961 234,237-238,240,247
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "7aae99782caa313486c387446d3602d8efd7017c",
+  "prompts": {},
+  "sessions": {
+    "s_a66a712823104d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d40dd60f-1d15-4e99-8e72-fb2116a5f6aa",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
