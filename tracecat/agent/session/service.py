@@ -27,7 +27,6 @@ from sqlalchemy import (
     literal,
     or_,
     select,
-    true,
     update,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -493,14 +492,18 @@ class AgentSessionService(BaseWorkspaceService):
         window = max(1, min(window, 20))
         # Mirror list_messages: while a turn is live, the active run's partial
         # rows are durability-only and hidden from the timeline; hide them from
-        # recall windows and boundary counts as well.
-        hide_active_turn = (
-            or_(
-                AgentSessionHistory.curr_run_id.is_(None),
-                AgentSessionHistory.curr_run_id != agent_session.curr_run_id,
-            )
-            if agent_session.curr_run_id is not None
-            else true()
+        # recall windows and boundary counts as well. Read the live run pointer
+        # inline (scalar subquery) rather than snapshotting it in Python, so a
+        # turn starting or finalizing between queries cannot skew the window.
+        live_run_id = (
+            select(AgentSession.curr_run_id)
+            .where(AgentSession.id == session_id)
+            .scalar_subquery()
+        )
+        hide_active_turn = or_(
+            live_run_id.is_(None),
+            AgentSessionHistory.curr_run_id.is_(None),
+            AgentSessionHistory.curr_run_id != live_run_id,
         )
         before_stmt = (
             select(AgentSessionHistory)
