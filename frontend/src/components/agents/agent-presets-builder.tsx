@@ -458,7 +458,7 @@ export function AgentPresetsBuilder({
 
   const mcpIntegrationsForForm = useMemo(() => {
     if (!mcpIntegrations) {
-      return undefined
+      return []
     }
 
     return mcpIntegrations
@@ -737,7 +737,7 @@ export function AgentPresetArtifactView({
 
   const mcpIntegrationsForForm = useMemo(() => {
     if (!mcpIntegrations) {
-      return undefined
+      return []
     }
 
     return mcpIntegrations
@@ -1374,7 +1374,7 @@ type AgentPresetFormProps = {
   namespaceSuggestions: Suggestion[]
   enabledModelOptions: EnabledModelOption[]
   enabledModelsLoaded: boolean
-  mcpIntegrations: McpIntegrationOption[] | undefined
+  mcpIntegrations: McpIntegrationOption[]
   mcpIntegrationsIsLoading: boolean
   layout?: "split" | "stacked"
   initialTab?: AgentPresetSideTab
@@ -1496,39 +1496,10 @@ function AgentPresetForm({
     name: "subagents",
   })
 
-  const mcpIntegrationsLoaded = mcpIntegrations !== undefined
-  const mcpIntegrationOptions = useMemo(
-    () => mcpIntegrations ?? [],
-    [mcpIntegrations]
-  )
-
-  const availableMcpIntegrationIds = useMemo(
-    () => new Set(mcpIntegrationOptions.map((integration) => integration.id)),
-    [mcpIntegrationOptions]
-  )
-
   useEffect(() => {
     const defaults = preset ? presetToFormValues(preset) : DEFAULT_FORM_VALUES
     form.reset(defaults, { keepDirty: false })
   }, [form, mode, preset])
-
-  useEffect(() => {
-    if (!mcpIntegrationsLoaded) {
-      return
-    }
-
-    const current = form.getValues("mcpIntegrations")
-    const next = filterAvailableMcpIntegrations(
-      current,
-      availableMcpIntegrationIds
-    )
-    if (next.length !== current.length) {
-      form.setValue("mcpIntegrations", next, {
-        shouldDirty: false,
-        shouldValidate: true,
-      })
-    }
-  }, [availableMcpIntegrationIds, form, mcpIntegrationsLoaded])
 
   const watchedName = form.watch("name")
   const catalogId = form.watch("catalog_id")
@@ -1620,16 +1591,7 @@ function AgentPresetForm({
         }
       }
 
-      const valuesForPayload = mcpIntegrationsLoaded
-        ? {
-            ...values,
-            mcpIntegrations: filterAvailableMcpIntegrations(
-              values.mcpIntegrations,
-              availableMcpIntegrationIds
-            ),
-          }
-        : values
-      const payload = formValuesToPayload(valuesForPayload, {
+      const payload = formValuesToPayload(values, {
         presetsBySlug: agentPresetsBySlug,
         versionsByPresetId: subagentVersionsByPresetId,
       })
@@ -1749,7 +1711,7 @@ function AgentPresetForm({
       namespaceSuggestions={namespaceSuggestions}
       enabledModelOptions={enabledModelOptions}
       enabledModelsLoaded={enabledModelsLoaded}
-      mcpIntegrations={mcpIntegrationOptions}
+      mcpIntegrations={mcpIntegrations}
       mcpIntegrationsIsLoading={mcpIntegrationsIsLoading}
       skillFields={skillFields}
       onAddSkillBinding={handleAddSkillBinding}
@@ -3902,13 +3864,6 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
     enableThinking: preset.enable_thinking ?? true,
     enableInternetAccess: preset.enable_internet_access ?? false,
   }
-}
-
-function filterAvailableMcpIntegrations(
-  selectedIds: string[],
-  availableIds: ReadonlySet<string>
-) {
-  return selectedIds.filter((id) => availableIds.has(id))
 }
 
 function formValuesToPayload(
