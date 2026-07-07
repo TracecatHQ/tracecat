@@ -1443,11 +1443,15 @@ class IntegrationService(BaseWorkspaceService):
             integration.encrypted_access_token = self._encrypt_token(
                 access_token.get_secret_value()
             )
-            integration.encrypted_refresh_token = (
-                self._encrypt_token(refresh_token.get_secret_value())
-                if refresh_token
-                else None
-            )
+            # Authorization code providers often omit refresh_token on later
+            # token exchanges. Preserve the existing token unless the user
+            # explicitly disconnects the integration.
+            if refresh_token:
+                integration.encrypted_refresh_token = self._encrypt_token(
+                    refresh_token.get_secret_value()
+                )
+            elif provider_key.grant_type != OAuthGrantType.AUTHORIZATION_CODE:
+                integration.encrypted_refresh_token = None
             integration.expires_at = expires_at
             integration.scope = scope
             new_authorization_endpoint = resolve_endpoint(

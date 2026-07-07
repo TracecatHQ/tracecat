@@ -261,6 +261,39 @@ class TestIntegrationService:
             "New expiry should be greater than or equal to old expiry"
         )
 
+    async def test_update_existing_authorization_code_integration_preserves_refresh_token(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """Updating auth-code tokens without a refresh token preserves the old one."""
+        provider_key = ProviderKey(
+            id="test_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+
+        initial = await integration_service.store_integration(
+            provider_key=provider_key,
+            access_token=SecretStr("initial_access"),
+            refresh_token=SecretStr("initial_refresh"),
+            expires_in=1800,
+            scope="read offline_access",
+        )
+        initial_encrypted_refresh_token = initial.encrypted_refresh_token
+
+        updated = await integration_service.store_integration(
+            provider_key=provider_key,
+            access_token=SecretStr("updated_access"),
+            refresh_token=None,
+            expires_in=3600,
+            scope="read offline_access",
+        )
+
+        assert updated.id == initial.id
+        assert updated.encrypted_refresh_token == initial_encrypted_refresh_token
+        access_token, refresh_token = integration_service.get_decrypted_tokens(updated)
+        assert access_token == "updated_access"
+        assert refresh_token == "initial_refresh"
+
     async def test_get_integration_with_filters(
         self,
         integration_service: IntegrationService,
