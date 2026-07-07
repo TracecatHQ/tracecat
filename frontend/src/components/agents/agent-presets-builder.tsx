@@ -171,6 +171,7 @@ import {
   useRegistryActions,
   useWorkspaceAgentModels,
 } from "@/lib/hooks"
+import { registryActionToSuggestion } from "@/lib/registry"
 import { cn, slugify } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -525,11 +526,8 @@ export function AgentPresetsBuilder({
     }
     return registryActions
       .map((action) => ({
-        id: action.id,
+        ...registryActionToSuggestion(action),
         label: action.default_title ?? action.name,
-        value: action.action,
-        description: action.description,
-        group: action.namespace,
         icon: getIcon(action.action, {
           className: "size-6 p-[3px] border-[0.5px]",
         }),
@@ -699,11 +697,8 @@ export function AgentPresetArtifactView({
     }
     return registryActions
       .map((action) => ({
-        id: action.id,
+        ...registryActionToSuggestion(action),
         label: action.default_title ?? action.name,
-        value: action.action,
-        description: action.description,
-        group: action.namespace,
         icon: getIcon(action.action, {
           className: "size-6 p-[3px] border-[0.5px]",
         }),
