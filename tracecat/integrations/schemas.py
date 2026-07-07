@@ -879,9 +879,9 @@ class MCPIntegrationRead(BaseModel):
 
 
 class _MCPIntegrationTestConnectionRequestBase(BaseModel):
-    """Common fields for testing an unsaved MCP configuration.
+    """Common fields for testing an MCP configuration.
 
-    Carries the (possibly edited, not yet persisted) form values. When
+    HTTP tests carry the possibly edited, not yet persisted form values. When
     ``mcp_integration_id`` is set, stored secrets from that row are used as a
     fallback for fields the caller leaves blank (e.g. unchanged credentials).
     """
@@ -927,37 +927,13 @@ class MCPHttpIntegrationTestConnectionRequest(_MCPIntegrationTestConnectionReque
         return value
 
 
-class MCPStdioIntegrationTestConnectionRequest(
-    _MCPIntegrationTestConnectionRequestBase
-):
-    """Request to test connectivity against an unsaved stdio MCP configuration."""
+class MCPStdioIntegrationTestConnectionRequest(BaseModel):
+    """Request to test connectivity against a saved stdio MCP integration."""
 
+    model_config = {"extra": "forbid"}
+
+    mcp_integration_id: UUID4
     server_type: Literal["stdio"] = Field(default="stdio")
-    stdio_command: str = Field(
-        ...,
-        max_length=500,
-        description="Stdio command to run for stdio-type servers (e.g., 'npx')",
-    )
-    stdio_args: list[str] | None = Field(
-        default=None,
-        description="Arguments for the stdio command",
-    )
-    stdio_env: dict[str, str] | None = Field(
-        default=None,
-        description="Environment variables for stdio-type servers",
-    )
-
-    @field_validator("stdio_command", mode="before")
-    @classmethod
-    def _validate_stdio_command(cls, value: str | None) -> str:
-        """Validate and sanitize stdio command."""
-        if value is None:
-            raise ValueError("stdio_command is required for stdio-type servers")
-        if isinstance(value, str):
-            value = value.strip()
-        if not value:
-            raise ValueError("stdio_command is required for stdio-type servers")
-        return value
 
 
 def _discriminate_mcp_test_connection_server_type(value: Any) -> str:
@@ -971,8 +947,6 @@ def _discriminate_mcp_test_connection_server_type(value: Any) -> str:
             server_type = value.get("server_type")
             if isinstance(server_type, str):
                 return server_type
-        if "stdio_command" in value and "server_uri" not in value:
-            return "stdio"
     return "http"
 
 

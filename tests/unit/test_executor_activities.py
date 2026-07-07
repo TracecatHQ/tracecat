@@ -16,12 +16,9 @@ from temporalio.exceptions import ApplicationError
 from tests.shared import to_data
 from tracecat.agent.executor.activity import (
     probe_stdio_mcp_connection_activity,
-    probe_stdio_mcp_draft_connection_activity,
 )
 from tracecat.agent.mcp.stdio_probe import (
-    StdioMCPDraftProbeInput,
     StdioMCPProbeInput,
-    StdioMCPProbeResult,
 )
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -37,7 +34,6 @@ from tracecat.exceptions import (
 from tracecat.executor.activities import ExecutorActivities
 from tracecat.executor.schemas import ExecutorActionErrorInfo
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.registry.lock.types import RegistryLock
 
 
@@ -552,82 +548,3 @@ class TestProbeStdioMCPConnectionActivity:
             mcp_integration_slug=integration.slug,
         )
         probe_stdio.assert_not_awaited()
-
-
-class TestProbeStdioMCPDraftConnectionActivity:
-    @pytest.mark.anyio
-    async def test_draft_probe_resolves_env_and_probes_without_db_row(
-        self,
-        mock_role: Role,
-    ) -> None:
-        """Draft probe uses the request config; it never loads a saved row."""
-        mcp_integration_id = uuid.uuid4()
-        draft_env = {"TOKEN": "${{ SECRETS.gh.TOKEN }}"}
-        resolved_env = {"TOKEN": "resolved-secret"}
-        preset_svc = SimpleNamespace(
-            session=object(),
-            role=mock_role,
-            _resolve_stdio_env=AsyncMock(return_value=resolved_env),
-        )
-
-        class FakeIntegrationService:
-            def __init__(self, session: object, *, role: Role) -> None:
-                del session, role
-
-            def _validate_stdio_server_config(
-                self,
-                *,
-                command: str | None,
-                args: list[str] | None,
-                env: dict[str, str] | None,
-            ) -> None:
-                assert command == "npx"
-                assert env == resolved_env
-
-        with (
-            patch("tracecat.agent.executor.activity.activity") as mock_activity,
-            patch(
-                "tracecat.agent.executor.activity.AgentPresetService.with_session",
-                lambda *_, **__: _AsyncContext(preset_svc),
-            ),
-            patch(
-                "tracecat.agent.executor.activity.IntegrationService",
-                FakeIntegrationService,
-            ),
-            patch(
-                "tracecat.agent.executor.activity.probe_stdio_mcp_tools_in_sandbox",
-                new_callable=AsyncMock,
-            ) as probe_stdio,
-        ):
-            mock_activity.heartbeat = MagicMock()
-            probe_stdio.return_value = StdioMCPProbeResult(
-                success=True,
-                tools=[MCPToolSummary(name="list_repos", description="List repos")],
-                message="ok",
-            )
-
-            result = await probe_stdio_mcp_draft_connection_activity(
-                StdioMCPDraftProbeInput(
-                    command="npx",
-                    args=["@example/server"],
-                    stdio_env=draft_env,
-                    timeout=15,
-                    mcp_integration_id=mcp_integration_id,
-                    mcp_integration_slug="draft-server",
-                    role=mock_role,
-                )
-            )
-
-        assert result.success is True
-        assert [tool.name for tool in result.tools] == ["list_repos"]
-        preset_svc._resolve_stdio_env.assert_awaited_once_with(
-            stdio_env=draft_env,
-            mcp_integration_id=mcp_integration_id,
-            mcp_integration_slug="draft-server",
-        )
-        probe_stdio.assert_awaited_once_with(
-            command="npx",
-            args=["@example/server"],
-            env=resolved_env,
-            timeout=15,
-        )

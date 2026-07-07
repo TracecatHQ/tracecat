@@ -10,7 +10,6 @@ import pytest
 
 from tracecat.agent.executor.activity import (
     probe_stdio_mcp_connection_activity,
-    probe_stdio_mcp_draft_connection_activity,
     run_agent_activity,
 )
 from tracecat.agent.executor_worker import (
@@ -58,7 +57,6 @@ def test_agent_executor_worker_registers_runtime_execution_activities() -> None:
     assert names == {
         _activity_name(run_agent_activity),
         _activity_name(probe_stdio_mcp_connection_activity),
-        _activity_name(probe_stdio_mcp_draft_connection_activity),
     }
 
 

@@ -14,7 +14,6 @@ from temporalio.worker import Worker
 from tracecat import config
 from tracecat.agent.executor.activity import (
     probe_stdio_mcp_connection_activity,
-    probe_stdio_mcp_draft_connection_activity,
     run_agent_activity,
 )
 from tracecat.agent.runtime_services import (
@@ -40,7 +39,6 @@ def get_activities() -> list:
     return [
         run_agent_activity,
         probe_stdio_mcp_connection_activity,
-        probe_stdio_mcp_draft_connection_activity,
     ]
 
 

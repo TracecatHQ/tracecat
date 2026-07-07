@@ -1180,8 +1180,8 @@ async def update_mcp_integration(
 
     svc = IntegrationService(session, role=role)
     try:
-        # Verification runs against the merged config BEFORE anything is
-        # persisted — a failed update never disturbs the existing connection.
+        # HTTP verification runs against the merged config before persistence.
+        # Stdio config is persisted first, then verified by saved row ID.
         integration = await svc.update_mcp_integration(
             mcp_integration_id=mcp_integration_id,
             params=params,
@@ -1255,10 +1255,10 @@ async def test_mcp_connection_config(
     session: AsyncDBSession,
     params: Annotated[MCPIntegrationTestConnectionRequest, Body(...)],
 ) -> MCPIntegrationTestConnectionResponse:
-    """Test connectivity against an unsaved MCP configuration.
+    """Test connectivity against an MCP configuration.
 
-    Ephemeral: nothing is persisted and stored verification state is never
-    touched — use this for testing edited form values before saving.
+    HTTP tests are ephemeral and never touch stored verification state. Stdio
+    tests require a saved integration ID and use saved-row verification.
     """
     if role.workspace_id is None:
         raise HTTPException(

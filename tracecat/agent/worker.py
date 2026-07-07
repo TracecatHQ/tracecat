@@ -35,7 +35,6 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.agent.session.activities import get_session_activities
     from tracecat.agent.workflows.mcp_probe import (
-        StdioMCPDraftProbeWorkflow,
         StdioMCPProbeWorkflow,
     )
     from tracecat.dsl.client import get_temporal_client
@@ -134,7 +133,6 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                 DurableAgentWorkflow,
                 ExecuteRegistryToolWorkflow,
                 StdioMCPProbeWorkflow,
-                StdioMCPDraftProbeWorkflow,
             ]
 
             async with Worker(

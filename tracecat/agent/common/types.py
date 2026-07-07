@@ -99,6 +99,26 @@ def is_stdio_mcp_server(config: MCPServerConfig) -> TypeGuard[MCPStdioServerConf
     return config.get("type") == "stdio"
 
 
+def has_stdio_mcp_server(mcp_servers: list[MCPServerConfig] | None) -> bool:
+    """Return whether a config contains a stdio MCP server."""
+    return any(is_stdio_mcp_server(server) for server in mcp_servers or ())
+
+
+def requires_sandbox_internet_access(
+    *,
+    config: SandboxAgentConfig,
+    subagents: list[SandboxSubagentConfig],
+) -> bool:
+    """Return the effective sandbox network requirement for a runtime turn."""
+    if config.enable_internet_access or has_stdio_mcp_server(config.mcp_servers):
+        return True
+    return any(
+        subagent.config.enable_internet_access
+        or has_stdio_mcp_server(subagent.config.mcp_servers)
+        for subagent in subagents
+    )
+
+
 def is_http_mcp_server(config: MCPServerConfig) -> TypeGuard[MCPHttpServerConfig]:
     """Narrow a generic ``MCPServerConfig`` to its HTTP variant.
 

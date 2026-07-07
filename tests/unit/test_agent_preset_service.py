@@ -466,6 +466,78 @@ class TestAgentPresetService:
         assert updated_preset.enable_internet_access is True
         assert [version.version for version in versions.items] == [1]
 
+    async def test_update_preset_unrelated_change_repairs_stdio_internet_access(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        stdio_mcp = await _create_stdio_mcp_integration(
+            session,
+            agent_preset_service.workspace_id,
+        )
+        stdio_mcp_id = str(stdio_mcp.id)
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "mcp_integrations": [stdio_mcp_id],
+                    "enable_internet_access": False,
+                }
+            )
+        )
+        current_version = await agent_preset_service.get_current_version_for_preset(
+            created_preset
+        )
+
+        created_preset.enable_internet_access = False
+        current_version.enable_internet_access = False
+        session.add_all([created_preset, current_version])
+        await session.commit()
+        await session.refresh(created_preset)
+
+        updated_preset = await agent_preset_service.update_preset(
+            created_preset,
+            AgentPresetUpdate(name="Renamed preset"),
+        )
+        new_current_version = await agent_preset_service.get_current_version_for_preset(
+            updated_preset
+        )
+
+        assert updated_preset.name == "Renamed preset"
+        assert updated_preset.enable_internet_access is True
+        assert new_current_version.enable_internet_access is True
+        assert new_current_version.version == 2
+
+    async def test_update_preset_unrelated_change_tolerates_dangling_mcp_integration(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        stdio_mcp = await _create_stdio_mcp_integration(
+            session,
+            agent_preset_service.workspace_id,
+        )
+        stdio_mcp_id = str(stdio_mcp.id)
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "mcp_integrations": [stdio_mcp_id],
+                    "enable_internet_access": False,
+                }
+            )
+        )
+        await session.delete(stdio_mcp)
+        await session.flush()
+
+        updated_preset = await agent_preset_service.update_preset(
+            created_preset,
+            AgentPresetUpdate(name="Renamed preset"),
+        )
+
+        assert updated_preset.name == "Renamed preset"
+        assert updated_preset.mcp_integrations == [stdio_mcp_id]
+
     async def test_create_preset_allows_custom_provider_without_base_url(
         self,
         agent_preset_service: AgentPresetService,

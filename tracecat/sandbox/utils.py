@@ -19,6 +19,7 @@ from tracecat.config import (
 )
 
 _PID_NAMESPACE_AVAILABLE: bool | None = None
+_PID_NAMESPACE_PROBE_ERROR: str | None = None
 
 
 def is_nsjail_available() -> bool:
@@ -43,14 +44,14 @@ def is_nsjail_available() -> bool:
 async def pid_namespace_available() -> bool:
     """Check whether ``unshare --pid --fork --kill-child`` works on this host.
 
-    Mirrors the probe used by ``UnsafePidExecutor``; the result is cached for
-    the process lifetime.
+    The result and any failure reason are cached for the process lifetime.
     """
-    global _PID_NAMESPACE_AVAILABLE
+    global _PID_NAMESPACE_AVAILABLE, _PID_NAMESPACE_PROBE_ERROR
     if _PID_NAMESPACE_AVAILABLE is not None:
         return _PID_NAMESPACE_AVAILABLE
 
     if shutil.which("unshare") is None:
+        _PID_NAMESPACE_PROBE_ERROR = "unshare binary not found"
         _PID_NAMESPACE_AVAILABLE = False
         return False
 
@@ -67,10 +68,28 @@ async def pid_namespace_available() -> bool:
         )
         await asyncio.wait_for(probe.wait(), timeout=2)
         _PID_NAMESPACE_AVAILABLE = probe.returncode == 0
-    except Exception:
+        _PID_NAMESPACE_PROBE_ERROR = (
+            None
+            if _PID_NAMESPACE_AVAILABLE
+            else f"unshare probe exited with status {probe.returncode}"
+        )
+    except TimeoutError:
         if probe is not None:
             with suppress(ProcessLookupError):
                 probe.kill()
             await probe.wait()
+        _PID_NAMESPACE_PROBE_ERROR = "unshare probe timed out"
+        _PID_NAMESPACE_AVAILABLE = False
+    except Exception as e:
+        if probe is not None:
+            with suppress(ProcessLookupError):
+                probe.kill()
+            await probe.wait()
+        _PID_NAMESPACE_PROBE_ERROR = f"unshare probe failed: {e}"
         _PID_NAMESPACE_AVAILABLE = False
     return _PID_NAMESPACE_AVAILABLE
+
+
+def pid_namespace_probe_error() -> str | None:
+    """Return the cached PID namespace probe failure reason, if any."""
+    return _PID_NAMESPACE_PROBE_ERROR

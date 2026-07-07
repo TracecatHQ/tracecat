@@ -95,6 +95,43 @@ async def test_probe_runs_in_sandbox_when_nsjail_available() -> None:
 
 
 @pytest.mark.anyio
+async def test_probe_filters_unsupported_stdio_tool_names() -> None:
+    """Probe results only persist tool names the runtime can expose."""
+    with (
+        patch(
+            "tracecat.agent.mcp.stdio_probe.is_nsjail_available",
+            return_value=False,
+        ),
+        patch(
+            "tracecat.agent.mcp.stdio_probe._execute_probe_without_nsjail",
+            new_callable=AsyncMock,
+        ) as fallback,
+    ):
+        fallback.return_value = MagicMock(
+            success=True,
+            output={
+                "tools": [
+                    {"name": "list_alerts", "description": "List alerts"},
+                    {"name": "issue.get", "description": "Unsupported dotted name"},
+                    {"name": "search-repos", "description": "Search repos"},
+                    {"name": "x" * 129, "description": "Too long"},
+                ]
+            },
+            error=None,
+            stderr="",
+        )
+        result = await probe_stdio_mcp_tools_in_sandbox(
+            command="python",
+            args=["-m", "example"],
+            env=None,
+            timeout=5,
+        )
+
+    assert result.success is True
+    assert [tool.name for tool in result.tools] == ["list_alerts", "search-repos"]
+
+
+@pytest.mark.anyio
 async def test_pid_fallback_probes_real_stdio_mcp_server(tmp_path: Path) -> None:
     """End-to-end: the PID fallback launches a real fastmcp stdio server."""
     server_path = tmp_path / "server.py"

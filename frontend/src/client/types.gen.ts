@@ -5104,26 +5104,11 @@ export type MCPStdioIntegrationCreate = {
 }
 
 /**
- * Request to test connectivity against an unsaved stdio MCP configuration.
+ * Request to test connectivity against a saved stdio MCP integration.
  */
 export type MCPStdioIntegrationTestConnectionRequest = {
-  mcp_integration_id?: string | null
-  timeout?: number | null
+  mcp_integration_id: string
   server_type?: "stdio"
-  /**
-   * Stdio command to run for stdio-type servers (e.g., 'npx')
-   */
-  stdio_command: string
-  /**
-   * Arguments for the stdio command
-   */
-  stdio_args?: Array<string> | null
-  /**
-   * Environment variables for stdio-type servers
-   */
-  stdio_env?: {
-    [key: string]: string
-  } | null
 }
 
 /**

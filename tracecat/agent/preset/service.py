@@ -432,9 +432,15 @@ class AgentPresetService(BaseWorkspaceService):
                 preset.mcp_integrations = mcp_integrations
                 execution_changed = True
         else:
-            requires_internet_access = await self._has_stdio_mcp_integration(
-                preset.mcp_integrations
-            )
+            requires_internet_access = False
+            if (
+                set_fields.get("enable_internet_access") is False
+                or not preset.enable_internet_access
+            ):
+                requires_internet_access = await self._has_stdio_mcp_integration(
+                    preset.mcp_integrations,
+                    raise_on_missing=False,
+                )
 
         if requires_internet_access:
             set_fields["enable_internet_access"] = True
@@ -643,12 +649,8 @@ class AgentPresetService(BaseWorkspaceService):
 
         return await self.get_current_version_for_preset(preset)
 
-    async def validate_mcp_integrations(self, mcp_integrations: list[str]) -> None:
-        """Validate MCP integration IDs for the workspace."""
-        await self._load_selected_mcp_integrations(mcp_integrations)
-
-    async def _load_selected_mcp_integrations(
-        self, mcp_integrations: list[str] | None
+    async def load_selected_mcp_integrations(
+        self, mcp_integrations: list[str] | None, *, raise_on_missing: bool = True
     ) -> list[MCPIntegration]:
         """Load selected MCP integrations after validating workspace access."""
         if not mcp_integrations:
@@ -673,8 +675,14 @@ class AgentPresetService(BaseWorkspaceService):
         # Check if all requested IDs exist
         if missing_ids := mcp_integration_ids - available_mcp_integration_ids:
             missing_str = sorted(str(mcp_id) for mcp_id in missing_ids)
-            raise TracecatValidationError(
-                f"{len(missing_ids)} MCP integrations were not found in this workspace: {missing_str}"
+            if raise_on_missing:
+                raise TracecatValidationError(
+                    f"{len(missing_ids)} MCP integrations were not found in this workspace: {missing_str}"
+                )
+            logger.warning(
+                "Skipping missing MCP integrations while checking preset transport requirements",
+                workspace_id=str(self.workspace_id),
+                missing_mcp_integration_ids=missing_str,
             )
 
         return [
@@ -684,11 +692,15 @@ class AgentPresetService(BaseWorkspaceService):
         ]
 
     async def _has_stdio_mcp_integration(
-        self, mcp_integrations: list[str] | None
+        self,
+        mcp_integrations: list[str] | None,
+        *,
+        raise_on_missing: bool = True,
     ) -> bool:
         """Return whether any selected MCP integration uses stdio transport."""
-        selected_integrations = await self._load_selected_mcp_integrations(
-            mcp_integrations
+        selected_integrations = await self.load_selected_mcp_integrations(
+            mcp_integrations,
+            raise_on_missing=raise_on_missing,
         )
         return any(
             mcp_integration.server_type == "stdio"

@@ -11892,10 +11892,10 @@ export const mcpIntegrationsUpdateMcpIntegrationToolPolicies = (
 
 /**
  * Test Mcp Connection Config
- * Test connectivity against an unsaved MCP configuration.
+ * Test connectivity against an MCP configuration.
  *
- * Ephemeral: nothing is persisted and stored verification state is never
- * touched — use this for testing edited form values before saving.
+ * HTTP tests are ephemeral and never touch stored verification state. Stdio
+ * tests require a saved integration ID and use saved-row verification.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody

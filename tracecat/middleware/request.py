@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import os
 from typing import Any
 
 from fastapi import Request
@@ -58,6 +61,14 @@ def redact_request_body(value: Any, *, depth: int = 0) -> Any:
     return value
 
 
+def _is_debug_logging_enabled(logger: Any) -> bool:
+    # Bodies are only parsed, redacted, and logged when DEBUG would emit.
+    return (
+        logger.level(os.environ.get("LOG_LEVEL", "INFO").upper()).no
+        <= logger.level("DEBUG").no
+    )
+
+
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         # Capture client IP address
@@ -75,31 +86,33 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         token = ctx_client_ip.set(client_ip)
 
         try:
-            # Extract request parameters
-            request_params = dict(request.query_params)
-            # Only try to parse JSON body for methods that typically have a body
-            request_body = {}
-            if (
-                request.method in ("POST", "PUT", "PATCH")
-                and request.headers.get("Content-Type") == "application/json"
-            ):
-                try:
-                    request_body = await request.json()
-                except Exception:
-                    pass  # Ignore parse errors for logging purposes
+            request_logger = request.app.state.logger
+            if _is_debug_logging_enabled(request_logger):
+                # Extract request parameters
+                request_params = dict(request.query_params)
+                # Only try to parse JSON body for methods that typically have a body
+                request_body = {}
+                if (
+                    request.method in ("POST", "PUT", "PATCH")
+                    and request.headers.get("Content-Type") == "application/json"
+                ):
+                    try:
+                        request_body = await request.json()
+                    except Exception:
+                        pass  # Ignore parse errors for logging purposes
 
-            # Log the incoming request with parameters. Bodies can carry provider
-            # credentials, so redact secret-bearing keys before logging.
-            request.app.state.logger.debug(
-                "Incoming request",
-                method=request.method,
-                scheme=request.url.scheme,
-                hostname=request.url.hostname,
-                path=request.url.path,
-                params=request_params,
-                body=redact_request_body(request_body),
-                client_ip=client_ip,
-            )
+                # Log the incoming request with parameters. Bodies can carry provider
+                # credentials, so redact secret-bearing keys before logging.
+                request_logger.debug(
+                    "Incoming request",
+                    method=request.method,
+                    scheme=request.url.scheme,
+                    hostname=request.url.hostname,
+                    path=request.url.path,
+                    params=request_params,
+                    body=redact_request_body(request_body),
+                    client_ip=client_ip,
+                )
 
             return await call_next(request)
         finally:

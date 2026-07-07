@@ -2267,18 +2267,26 @@ async def test_executor_starts_llm_socket_proxy_for_isolated_passthrough_runs(
 
 
 @pytest.mark.anyio
-async def test_executor_keeps_runtime_isolated_when_only_subagent_requires_internet(
+async def test_executor_enables_runtime_network_when_subagent_has_stdio_mcp(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     subagent = SandboxSubagentConfig(
-        alias="web",
-        description="Use for internet research.",
-        prompt="Research the user's request.",
+        alias="analyst",
+        description="Use for local MCP analysis.",
+        prompt="Analyze with local MCP tools.",
         config=SandboxAgentConfig(
             model_name="gpt-5-mini",
             model_provider="openai",
-            enable_internet_access=True,
+            enable_internet_access=False,
+            mcp_servers=[
+                {
+                    "type": "stdio",
+                    "name": "local-tools",
+                    "command": "uvx",
+                    "args": ["example-mcp"],
+                }
+            ],
         ),
         mcp_auth_token="child-mcp-token",
     )
@@ -2299,8 +2307,8 @@ async def test_executor_keeps_runtime_isolated_when_only_subagent_requires_inter
 
     assert result.success is True
     assert len(fake_broker.requests) == 1
-    assert fake_broker.requests[0].init_payload.config.enable_internet_access is False
-    assert fake_broker.requests[0].enable_internet_access is False
+    assert fake_broker.requests[0].init_payload.config.enable_internet_access is True
+    assert fake_broker.requests[0].enable_internet_access is True
 
 
 @pytest.mark.anyio

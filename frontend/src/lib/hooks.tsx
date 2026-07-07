@@ -386,6 +386,10 @@ import {
   type TracecatApiError,
 } from "@/lib/errors"
 import type { WorkflowExecutionReadCompact } from "@/lib/event-history"
+import {
+  hasPendingStdioMcpVerification,
+  MCP_STDIO_VERIFICATION_POLL_INTERVAL_MS,
+} from "@/lib/integrations"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 /**
@@ -4853,6 +4857,10 @@ export function useListMcpIntegrations(
     enabled: Boolean(workspaceId) && (options?.enabled ?? true),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
+    refetchInterval: (query) =>
+      hasPendingStdioMcpVerification(query.state.data)
+        ? MCP_STDIO_VERIFICATION_POLL_INTERVAL_MS
+        : false,
   })
 
   return {
@@ -4880,6 +4888,12 @@ export function useGetMcpIntegration(
     enabled: Boolean(workspaceId && mcpIntegrationId),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
+    refetchInterval: (query) =>
+      hasPendingStdioMcpVerification(
+        query.state.data ? [query.state.data] : undefined
+      )
+        ? MCP_STDIO_VERIFICATION_POLL_INTERVAL_MS
+        : false,
   })
 
   return {
@@ -5025,10 +5039,11 @@ export function useUpdateMcpIntegrationToolPolicies(workspaceId: string) {
 }
 
 /**
- * Test connectivity to a draft MCP integration config.
+ * Test connectivity to an HTTP MCP integration config.
  *
- * This hits the config-test endpoint and never persists discovered tools.
- * The save path verifies again and stores tools on success.
+ * This hits the HTTP config-test endpoint and never persists discovered tools.
+ * Stdio tests use {@link useTestMcpIntegrationConnection} because they must run
+ * against saved integration rows.
  */
 export function useTestMcpConnectionConfig(workspaceId: string) {
   const {
@@ -5082,11 +5097,10 @@ export function useTestMcpConnectionConfig(workspaceId: string) {
 /**
  * Test connectivity to a saved MCP integration and persist its tool listing.
  *
- * Unlike {@link useTestMcpConnectionConfig} (which hits the draft config-test
- * endpoint and never persists), this calls the integration-scoped
- * endpoint that refreshes and stores the discovered tools. On success it
- * invalidates the integration query so the Tools list reflects the new
- * verification result.
+ * Unlike {@link useTestMcpConnectionConfig} (which hits the HTTP config-test
+ * endpoint and never persists), this calls the integration-scoped endpoint
+ * that refreshes and stores the discovered tools. On success it invalidates the
+ * integration query so the Tools list reflects the new verification result.
  */
 export function useTestMcpIntegrationConnection(workspaceId: string) {
   const queryClient = useQueryClient()

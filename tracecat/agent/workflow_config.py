@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import cast
-
 from tracecat.agent.common.types import (
     MCPHttpServerConfig,
     MCPServerConfig,
@@ -20,25 +18,6 @@ from tracecat.agent.workflow_schemas import (
     MCPStdioServerConfigPayload,
     ResolvedSkillRefPayload,
 )
-
-
-def _stdio_tools_to_payload(
-    tools: list[MCPServerToolSummary] | None,
-) -> list[MCPServerToolSummaryPayload] | None:
-    if tools is None:
-        return None
-    return [MCPServerToolSummaryPayload.model_validate(tool) for tool in tools]
-
-
-def _stdio_tools_from_payload(
-    tools: list[MCPServerToolSummaryPayload] | None,
-) -> list[MCPServerToolSummary] | None:
-    if tools is None:
-        return None
-    return cast(
-        list[MCPServerToolSummary],
-        [tool.model_dump(exclude_none=True) for tool in tools],
-    )
 
 
 def _mcp_server_to_payload(
@@ -58,7 +37,11 @@ def _mcp_server_to_payload(
                 env=server.get("env"),
                 timeout=server.get("timeout"),
                 id=server.get("id"),
-                tools=_stdio_tools_to_payload(server.get("tools")),
+                tools=(
+                    [MCPServerToolSummaryPayload.model_validate(tool) for tool in tools]
+                    if (tools := server.get("tools")) is not None
+                    else None
+                ),
             )
         case {
             "name": str(name),
@@ -93,7 +76,18 @@ def _mcp_server_from_payload(server: MCPServerConfigPayload) -> MCPServerConfig:
                 stdio_server["timeout"] = server.timeout
             if server.id is not None:
                 stdio_server["id"] = server.id
-            if (tools := _stdio_tools_from_payload(server.tools)) is not None:
+            if server.tools is not None:
+                tools: list[MCPServerToolSummary] = []
+                for tool in server.tools:
+                    summary: MCPServerToolSummary = {
+                        "name": tool.name,
+                        "enabled": tool.enabled,
+                        "requires_approval": tool.requires_approval,
+                        "status": tool.status,
+                    }
+                    if tool.description is not None:
+                        summary["description"] = tool.description
+                    tools.append(summary)
                 stdio_server["tools"] = tools
             return stdio_server
         case MCPHttpServerConfigPayload():

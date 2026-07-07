@@ -16736,29 +16736,9 @@ export const $MCPStdioIntegrationCreate = {
 export const $MCPStdioIntegrationTestConnectionRequest = {
   properties: {
     mcp_integration_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid4",
-        },
-        {
-          type: "null",
-        },
-      ],
+      type: "string",
+      format: "uuid4",
       title: "Mcp Integration Id",
-    },
-    timeout: {
-      anyOf: [
-        {
-          type: "integer",
-          maximum: 300,
-          minimum: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Timeout",
     },
     server_type: {
       type: "string",
@@ -16766,48 +16746,13 @@ export const $MCPStdioIntegrationTestConnectionRequest = {
       title: "Server Type",
       default: "stdio",
     },
-    stdio_command: {
-      type: "string",
-      maxLength: 500,
-      title: "Stdio Command",
-      description: "Stdio command to run for stdio-type servers (e.g., 'npx')",
-    },
-    stdio_args: {
-      anyOf: [
-        {
-          items: {
-            type: "string",
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Stdio Args",
-      description: "Arguments for the stdio command",
-    },
-    stdio_env: {
-      anyOf: [
-        {
-          additionalProperties: {
-            type: "string",
-          },
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Stdio Env",
-      description: "Environment variables for stdio-type servers",
-    },
   },
+  additionalProperties: false,
   type: "object",
-  required: ["stdio_command"],
+  required: ["mcp_integration_id"],
   title: "MCPStdioIntegrationTestConnectionRequest",
   description:
-    "Request to test connectivity against an unsaved stdio MCP configuration.",
+    "Request to test connectivity against a saved stdio MCP integration.",
 } as const
 
 export const $MCPStdioNoneConnectionSpec = {

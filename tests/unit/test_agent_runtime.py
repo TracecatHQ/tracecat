@@ -1392,6 +1392,9 @@ class TestClaudeAgentRuntimeRun:
             "mcp__subagent-analyst-local-tools__*",
             "mcp__tracecat-registry-analyst__core__lookup_ip",
         ]
+        internet_tools = set(runtime_module.INTERNET_TOOLS)
+        assert internet_tools.isdisjoint(options.disallowed_tools)
+        assert internet_tools.isdisjoint(agent_def.disallowedTools or [])
         assert set(agent_def.disallowedTools or []) >= {
             "Agent",
             "Task",
@@ -1401,8 +1404,6 @@ class TestClaudeAgentRuntimeRun:
             "CronList",
             "EnterWorktree",
             "ExitWorktree",
-            "WebFetch",
-            "WebSearch",
         }
 
     def test_explicit_subagent_without_scoped_tools_stays_toolless(
@@ -1431,7 +1432,7 @@ class TestClaudeAgentRuntimeRun:
         assert agent_def.mcpServers is None
 
     @pytest.mark.anyio
-    async def test_root_internet_policy_disables_internet_tools_for_all_agents(
+    async def test_subagent_internet_policy_enables_runtime_internet_tools(
         self,
         mock_socket_writer: MagicMock,
         mock_claude_sdk_client: MagicMock,
@@ -1485,10 +1486,10 @@ class TestClaudeAgentRuntimeRun:
         assert captured_options
         options = captured_options[0]
         internet_tools = set(runtime_module.INTERNET_TOOLS)
-        assert internet_tools.issubset(options.disallowed_tools)
+        assert internet_tools.isdisjoint(options.disallowed_tools)
         assert options.agents is not None
         child_disallowed_tools = options.agents["web"].disallowedTools or []
-        assert internet_tools.issubset(child_disallowed_tools)
+        assert internet_tools.isdisjoint(child_disallowed_tools)
 
         root_result = await runtime._pre_tool_use_hook(
             input_data=make_hook_input(
@@ -1500,8 +1501,7 @@ class TestClaudeAgentRuntimeRun:
             context=make_hook_context(),
         )
         root_hook_output = get_hook_output(root_result)
-        assert root_hook_output.get("permissionDecision") == "deny"
-        assert "root" in (root_hook_output.get("permissionDecisionReason") or "")
+        assert root_hook_output.get("permissionDecision") == "allow"
 
         child_result = await runtime._pre_tool_use_hook(
             input_data=make_hook_input(
@@ -1515,8 +1515,7 @@ class TestClaudeAgentRuntimeRun:
             context=make_hook_context(),
         )
         child_hook_output = get_hook_output(child_result)
-        assert child_hook_output.get("permissionDecision") == "deny"
-        assert "root agent" in (child_hook_output.get("permissionDecisionReason") or "")
+        assert child_hook_output.get("permissionDecision") == "allow"
 
     @pytest.mark.anyio
     async def test_root_internet_policy_enables_subagent_internet_tools(

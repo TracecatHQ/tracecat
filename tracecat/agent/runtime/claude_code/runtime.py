@@ -68,6 +68,7 @@ from tracecat.agent.common.types import (
     MCPServerToolSummary,
     MCPStdioServerConfig,
     MCPToolDefinition,
+    requires_sandbox_internet_access,
 )
 from tracecat.agent.llm_routing import get_litellm_route_model
 from tracecat.agent.mcp.metadata import (
@@ -75,6 +76,7 @@ from tracecat.agent.mcp.metadata import (
     PROXY_TOOL_METADATA_KEY,
 )
 from tracecat.agent.mcp.utils import (
+    STDIO_MCP_TOOL_NAME_RE,
     action_name_to_mcp_tool_name,
     normalize_mcp_tool_name,
 )
@@ -231,9 +233,6 @@ COMMAND_LINE_TOOLS_PROMPT = (
 # Registry MCP server naming.
 # We canonicalize persisted session history to the hyphen form at the
 # resume boundary so runtime configuration only exposes one logical server.
-# Anthropic tool names must match this pattern; stdio MCP servers can report
-# names (e.g. "issue.get") that would put invalid entries in allowed_tools.
-STDIO_MCP_TOOL_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]{1,128}$")
 # Tool descriptions come from user-supplied MCP server binaries; cap what we
 # interpolate into the system prompt.
 STDIO_MCP_TOOL_DESCRIPTION_MAX_CHARS = 500
@@ -453,7 +452,7 @@ class ClaudeAgentRuntime:
             name = tool.get("name")
             if not name:
                 continue
-            if not STDIO_MCP_TOOL_NAME_RE.match(name):
+            if not STDIO_MCP_TOOL_NAME_RE.fullmatch(name):
                 logger.warning(
                     "Skipping stdio MCP tool with unsupported name",
                     tool_name=name,
@@ -535,20 +534,6 @@ class ClaudeAgentRuntime:
             tools_by_server=tools_by_server,
             approvals_by_tool=approvals_by_tool,
         )
-
-    @classmethod
-    def _stdio_mcp_servers(
-        cls,
-        *,
-        source_configs: list[MCPServerConfig] | None,
-        name_prefix: str | None = None,
-        existing_names: set[str] | None = None,
-    ) -> dict[str, McpStdioServerConfig]:
-        return cls._stdio_mcp_server_spec(
-            source_configs=source_configs,
-            name_prefix=name_prefix,
-            existing_names=existing_names,
-        ).servers
 
     @staticmethod
     def _is_subagent_scope(input_data: HookInput) -> bool:
@@ -1231,7 +1216,7 @@ class ClaudeAgentRuntime:
             )
 
             disallowed_tools = list(CHILD_AGENT_DISALLOWED_TOOLS)
-            if not payload.config.enable_internet_access:
+            if not self._runtime_internet_access_enabled:
                 disallowed_tools.extend(INTERNET_TOOLS)
 
             allowed_tools = self._allowed_tools_for_mcp_scope(
@@ -1289,7 +1274,10 @@ class ClaudeAgentRuntime:
                 if subagent.allowed_actions
             ),
         }
-        self._runtime_internet_access_enabled = payload.config.enable_internet_access
+        self._runtime_internet_access_enabled = requires_sandbox_internet_access(
+            config=payload.config,
+            subagents=payload.subagents,
+        )
 
     def _ensure_working_directory(self, session_id: uuid.UUID) -> None:
         """Create the stable Claude cwd used for session resume."""

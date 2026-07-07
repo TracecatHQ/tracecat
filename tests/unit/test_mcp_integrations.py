@@ -16,7 +16,7 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
-from pydantic import SecretStr, TypeAdapter
+from pydantic import SecretStr, TypeAdapter, ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,6 +43,7 @@ from tracecat.integrations.catalog.service import PlatformMCPCatalogService
 from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
 from tracecat.integrations.mcp_validation import (
     MCPConfigurationError,
+    MCPConnectionVerificationError,
 )
 from tracecat.integrations.providers.base import (
     DynamicRegistrationResult,
@@ -60,6 +61,7 @@ from tracecat.integrations.schemas import (
     MCPHttpIntegrationTestConnectionRequest,
     MCPHTTPOAuth2ConnectionSpec,
     MCPIntegrationCreate,
+    MCPIntegrationTestConnectionRequest,
     MCPIntegrationUpdate,
     MCPStdioIntegrationCreate,
     MCPStdioIntegrationTestConnectionRequest,
@@ -2096,6 +2098,102 @@ class TestMCPIntegrationCRUD:
         assert updated.stdio_command == "npx"
         assert updated.stdio_args == ["@example/server"]
         assert updated.encrypted_stdio_env is not None
+
+    async def test_update_http_to_stdio_verification_does_not_merge_http_tools(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """HTTP tool snapshots are discarded when switching to stdio."""
+        http_integration = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="HTTP To Stdio MCP",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.NONE,
+            )
+        )
+        http_integration.tools = [
+            MCPToolSummary(name="http_tool", description="HTTP").model_dump()
+        ]
+        integration_service.session.add(http_integration)
+        await integration_service.session.commit()
+
+        async def _probe_stdio(
+            mcp_integration: MCPIntegration,
+        ) -> list[MCPToolSummary]:
+            assert mcp_integration.id == http_integration.id
+            assert mcp_integration.server_type == "stdio"
+            assert mcp_integration.tools is None
+            return [MCPToolSummary(name="stdio_tool", description="Stdio")]
+
+        monkeypatch.setattr(
+            integration_service,
+            "_probe_mcp_stdio_server",
+            _probe_stdio,
+        )
+
+        updated = await integration_service.update_mcp_integration(
+            mcp_integration_id=http_integration.id,
+            params=MCPIntegrationUpdate(
+                server_type="stdio",
+                stdio_command="npx",
+                stdio_args=["@example/server"],
+            ),
+            verify_connection=True,
+        )
+
+        assert updated is not None
+        tools = MCPToolSummary.validate_stored(updated.tools)
+        assert tools is not None
+        assert [tool.name for tool in tools] == ["stdio_tool"]
+
+    async def test_update_stdio_to_http_verification_does_not_merge_stdio_tools(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Stdio tool snapshots are discarded when switching to HTTP."""
+        stdio_integration = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Stdio To HTTP MCP",
+                stdio_command="npx",
+                stdio_args=["@example/server"],
+            )
+        )
+        stdio_integration.tools = [
+            MCPToolSummary(name="stdio_tool", description="Stdio").model_dump()
+        ]
+        integration_service.session.add(stdio_integration)
+        await integration_service.session.commit()
+
+        async def _probe_http(
+            mcp_integration: MCPIntegration,
+        ) -> list[MCPToolSummary]:
+            assert mcp_integration.id == stdio_integration.id
+            assert mcp_integration.server_type == "http"
+            assert mcp_integration.server_uri == "https://api.example.com/mcp"
+            return [MCPToolSummary(name="http_tool", description="HTTP")]
+
+        monkeypatch.setattr(
+            integration_service,
+            "_probe_mcp_http_server",
+            _probe_http,
+        )
+
+        updated = await integration_service.update_mcp_integration(
+            mcp_integration_id=stdio_integration.id,
+            params=MCPIntegrationUpdate(
+                server_type="http",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.NONE,
+            ),
+            verify_connection=True,
+        )
+
+        assert updated is not None
+        tools = MCPToolSummary.validate_stored(updated.tools)
+        assert tools is not None
+        assert [tool.name for tool in tools] == ["http_tool"]
 
     async def test_delete_mcp_integration(
         self,
@@ -4624,39 +4722,68 @@ class TestMCPConnectionVerification:
         assert tools is not None
         assert [tool.name for tool in tools] == ["background_tool"]
 
-    async def test_test_stdio_draft_connection_does_not_persist_tools(
+    def test_stdio_test_connection_rejects_inline_config_without_saved_id(
+        self,
+    ) -> None:
+        """Stdio test-connection requires a saved integration row by ID."""
+        adapter: TypeAdapter[MCPIntegrationTestConnectionRequest] = TypeAdapter(
+            MCPIntegrationTestConnectionRequest
+        )
+
+        with pytest.raises(ValidationError) as exc_info:
+            adapter.validate_python(
+                {
+                    "server_type": "stdio",
+                    "stdio_command": "npx",
+                    "stdio_args": ["@example/server"],
+                    "stdio_env": {"TOKEN": "inline-token"},
+                }
+            )
+
+        error_types = {error["type"] for error in exc_info.value.errors()}
+        assert "missing" in error_types
+        assert "extra_forbidden" in error_types
+
+    async def test_saved_stdio_test_connection_persists_discovered_tools(
         self,
         integration_service: IntegrationService,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Draft stdio tests probe current form values without mutating storage."""
+        """Stdio tests use saved-row verification and persist discovered tools."""
         stdio_integration = await integration_service.create_mcp_integration(
             params=MCPStdioIntegrationCreate(
-                name="Stdio Draft MCP",
+                name="Stdio Saved Test MCP",
                 stdio_command="npx",
-                stdio_args=["@example/old-server"],
+                stdio_args=["@example/server"],
+                stdio_env={"TOKEN": "stored-token"},
             )
         )
 
-        async def _probe_stdio_config(**kwargs: object) -> list[MCPToolSummary]:
-            assert kwargs["command"] == "npx"
-            assert kwargs["args"] == ["@example/new-server"]
-            assert kwargs["env"] == {"TOKEN": "draft-token"}
-            return [MCPToolSummary(name="draft_tool", description="Draft")]
+        def _decrypt_stdio_env_should_not_run(*_: object, **__: object) -> None:
+            raise AssertionError("stored env must be loaded inside the activity")
+
+        async def _probe_stdio(
+            mcp_integration: MCPIntegration,
+        ) -> list[MCPToolSummary]:
+            assert mcp_integration.id == stdio_integration.id
+            assert mcp_integration.stdio_args == ["@example/server"]
+            return [MCPToolSummary(name="saved_tool", description="Saved")]
 
         monkeypatch.setattr(
             integration_service,
-            "_probe_mcp_stdio_config",
-            _probe_stdio_config,
+            "decrypt_stdio_env",
+            _decrypt_stdio_env_should_not_run,
+        )
+        monkeypatch.setattr(
+            integration_service,
+            "_probe_mcp_stdio_server",
+            _probe_stdio,
         )
 
         result = await integration_service.test_mcp_connection(
             params=MCPStdioIntegrationTestConnectionRequest(
                 mcp_integration_id=stdio_integration.id,
                 server_type="stdio",
-                stdio_command="npx",
-                stdio_args=["@example/new-server"],
-                stdio_env={"TOKEN": "draft-token"},
             )
         )
         await integration_service.session.refresh(stdio_integration)
@@ -4664,8 +4791,12 @@ class TestMCPConnectionVerification:
         assert result.success is True
         assert result.message == "Connected successfully — 1 tools available"
         assert result.tools is not None
-        assert [tool.name for tool in result.tools] == ["draft_tool"]
-        assert stdio_integration.tools is None
+        assert [tool.name for tool in result.tools] == ["saved_tool"]
+        stored_tools = MCPToolSummary.validate_stored(
+            stdio_integration.tools, mcp_integration_id=stdio_integration.id
+        )
+        assert stored_tools is not None
+        assert [tool.name for tool in stored_tools] == ["saved_tool"]
 
     async def test_update_stdio_with_verification_persists_discovered_tools(
         self,
@@ -4691,15 +4822,19 @@ class TestMCPConnectionVerification:
         integration_service.session.add(stdio_integration)
         await integration_service.session.commit()
 
-        async def _probe_stdio_config(**kwargs: object) -> list[MCPToolSummary]:
-            assert kwargs["command"] == "npx"
-            assert kwargs["args"] == ["@example/new-server"]
+        async def _probe_stdio(
+            mcp_integration: MCPIntegration,
+        ) -> list[MCPToolSummary]:
+            assert mcp_integration.id == stdio_integration.id
+            assert mcp_integration.stdio_command == "npx"
+            assert mcp_integration.stdio_args == ["@example/new-server"]
+            assert mcp_integration.tools is None
             return [MCPToolSummary(name="new_tool", description="New")]
 
         monkeypatch.setattr(
             integration_service,
-            "_probe_mcp_stdio_config",
-            _probe_stdio_config,
+            "_probe_mcp_stdio_server",
+            _probe_stdio,
         )
 
         updated = await integration_service.update_mcp_integration(
@@ -4719,6 +4854,62 @@ class TestMCPConnectionVerification:
         assert tools[1].enabled is False
         assert tools[1].requires_approval is True
         assert tools[1].status == "missing"
+
+    async def test_update_stdio_verification_failure_raises_after_saving_config(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Failed stdio update verification raises and leaves the saved config."""
+        stdio_integration = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Stdio Failed Update Verify MCP",
+                stdio_command="npx",
+                stdio_args=["@example/old-server"],
+            )
+        )
+        stdio_integration.tools = [
+            MCPToolSummary(name="old_tool", description="Old").model_dump()
+        ]
+        integration_service.session.add(stdio_integration)
+        await integration_service.session.commit()
+
+        async def _probe_stdio(
+            mcp_integration: MCPIntegration,
+        ) -> list[MCPToolSummary]:
+            assert mcp_integration.id == stdio_integration.id
+            assert mcp_integration.stdio_args == ["@example/bad-server"]
+            assert mcp_integration.tools is None
+            raise MCPConnectionVerificationError("Connection failed", "bad config")
+
+        monkeypatch.setattr(
+            integration_service,
+            "_probe_mcp_stdio_server",
+            _probe_stdio,
+        )
+
+        with pytest.raises(MCPConnectionVerificationError) as exc_info:
+            await integration_service.update_mcp_integration(
+                mcp_integration_id=stdio_integration.id,
+                params=MCPIntegrationUpdate(
+                    server_type="stdio",
+                    stdio_command="npx",
+                    stdio_args=["@example/bad-server"],
+                ),
+                verify_connection=True,
+            )
+
+        assert exc_info.value.message == "Connection failed"
+        assert exc_info.value.error == "bad config"
+        await integration_service.session.refresh(stdio_integration)
+        assert stdio_integration.stdio_args == ["@example/bad-server"]
+        assert stdio_integration.tools is None
+        assert (
+            await integration_service.mcp_integration_state(
+                mcp_integration=stdio_integration
+            )
+            == "configured"
+        )
 
     def test_merge_mcp_tool_summaries_preserves_policy_and_marks_missing(self) -> None:
         stored = [

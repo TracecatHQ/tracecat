@@ -32,6 +32,11 @@ import {
   getMcpOAuthConnectErrorDetail,
   type TracecatApiError,
 } from "@/lib/errors"
+import {
+  hasPendingStdioMcpCatalogVerification,
+  hasPendingStdioMcpVerification,
+  MCP_STDIO_VERIFICATION_POLL_INTERVAL_MS,
+} from "@/lib/integrations"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -272,6 +277,10 @@ export default function McpServersPage() {
     ),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
+    refetchInterval: (query) =>
+      hasPendingStdioMcpCatalogVerification(query.state.data?.items)
+        ? MCP_STDIO_VERIFICATION_POLL_INTERVAL_MS
+        : false,
   })
   const {
     data: workspaceMcpIntegrations,
@@ -287,6 +296,10 @@ export default function McpServersPage() {
     enabled: Boolean(workspaceId && canRead === true),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
+    refetchInterval: (query) =>
+      hasPendingStdioMcpVerification(query.state.data)
+        ? MCP_STDIO_VERIFICATION_POLL_INTERVAL_MS
+        : false,
   })
   const catalogConnectMutation = useMutation({
     mutationFn: async (entry: PlatformMCPCatalogRead) =>

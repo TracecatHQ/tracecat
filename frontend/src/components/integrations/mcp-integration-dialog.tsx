@@ -443,59 +443,34 @@ export function MCPIntegrationDialog({
   const oauthSetup = form.watch("oauth_setup")
   const connectionOptionId = form.watch("connection_option_id")
 
+  const dirtyFields = form.formState.dirtyFields
+  const stdioConnectionFieldsAreDirty = Boolean(
+    dirtyFields.server_type ||
+      dirtyFields.connection_option_id ||
+      dirtyFields.stdio_command ||
+      dirtyFields.stdio_args ||
+      dirtyFields.stdio_env ||
+      dirtyFields.timeout
+  )
+  const stdioTestRequiresSave =
+    serverType === "stdio" &&
+    (!isEditMode || !mcpIntegrationId || stdioConnectionFieldsAreDirty)
+  const stdioTestHint = stdioTestRequiresSave
+    ? isEditMode
+      ? "Save before testing stdio changes."
+      : "Save before testing stdio servers."
+    : null
+
   /**
-   * Test the connection. Clean saved configs use the integration-scoped
-   * endpoint so discovered tools persist; dirty/create configs use the draft
-   * endpoint and are verified again on save.
+   * Test the connection. Stdio tests always use the saved integration-scoped
+   * endpoint; HTTP can still test dirty form values through the config endpoint.
    */
   async function handleTestConnection() {
     const values = form.getValues()
-    const dirtyFields = form.formState.dirtyFields
-    const stdioConnectionFieldsAreDirty = Boolean(
-      dirtyFields.server_type ||
-        dirtyFields.connection_option_id ||
-        dirtyFields.stdio_command ||
-        dirtyFields.stdio_args ||
-        dirtyFields.stdio_env ||
-        dirtyFields.timeout
-    )
     if (values.server_type === "stdio") {
-      if (isEditMode && mcpIntegrationId && !stdioConnectionFieldsAreDirty) {
+      if (mcpIntegrationId && !stdioConnectionFieldsAreDirty) {
         await testMcpIntegrationConnection(mcpIntegrationId)
-        return
       }
-
-      const valid = await form.trigger([
-        "stdio_command",
-        "stdio_args",
-        "stdio_env",
-        "timeout",
-      ])
-      if (!valid) {
-        return
-      }
-
-      const stdioArgs = values.stdio_args
-        .map((arg) => arg.value.trim())
-        .filter(Boolean)
-      let stdioEnv: Record<string, string> | null = null
-      if (values.stdio_env?.trim()) {
-        try {
-          stdioEnv = JSON.parse(values.stdio_env) as Record<string, string>
-        } catch {
-          void form.trigger("stdio_env")
-          return
-        }
-      }
-
-      await testMcpConnectionConfig({
-        mcp_integration_id: mcpIntegrationId ?? null,
-        server_type: "stdio",
-        stdio_command: values.stdio_command?.trim() ?? "",
-        stdio_args: stdioArgs.length > 0 ? stdioArgs : null,
-        stdio_env: stdioEnv,
-        timeout: values.timeout ?? null,
-      })
       return
     }
 
@@ -950,24 +925,32 @@ export function MCPIntegrationDialog({
     createMcpIntegrationIsPending ||
     updateMcpIntegrationIsPending
 
-  // Clean saved configs persist discovered tools; dirty/create configs run as
-  // draft probes and are verified again on save.
+  // Saved configs persist discovered tools. HTTP can test dirty form values;
+  // stdio must be saved before testing because verification runs by row ID.
   const connectionActions = canUpdate ? (
-    <Button
-      type="button"
-      variant="outline"
-      size="sm"
-      className="h-8 shrink-0"
-      disabled={testConnectionIsPending}
-      onClick={() => void handleTestConnection()}
-    >
-      {testConnectionIsPending ? (
-        <Loader2 className="mr-2 size-4 animate-spin" />
-      ) : (
-        <PlayCircle className="mr-2 size-4" />
-      )}
-      Test
-    </Button>
+    <div className="flex flex-col items-end gap-1">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-8 shrink-0"
+        disabled={testConnectionIsPending || stdioTestRequiresSave}
+        title={stdioTestHint ?? undefined}
+        onClick={() => void handleTestConnection()}
+      >
+        {testConnectionIsPending ? (
+          <Loader2 className="mr-2 size-4 animate-spin" />
+        ) : (
+          <PlayCircle className="mr-2 size-4" />
+        )}
+        Test
+      </Button>
+      {stdioTestHint ? (
+        <p className="text-right text-xs text-muted-foreground">
+          {stdioTestHint}
+        </p>
+      ) : null}
+    </div>
   ) : null
   const createConnectionActions =
     !catalogEntry && !isEditMode && connectionActions ? (

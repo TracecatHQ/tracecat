@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import re
 import shutil
 import signal
 import sysconfig
@@ -17,7 +16,9 @@ from pathlib import Path
 import orjson
 from pydantic import BaseModel, Field
 
+from tracecat.agent.mcp.utils import STDIO_MCP_TOOL_NAME_RE
 from tracecat.auth.types import Role
+from tracecat.integrations.mcp_validation import sanitize_urls_in_text
 from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.logger import logger
 from tracecat.sandbox.exceptions import SandboxTimeoutError
@@ -27,11 +28,7 @@ from tracecat.sandbox.utils import is_nsjail_available, pid_namespace_available
 
 MCP_STDIO_PROBE_WORKFLOW_ID_PREFIX = "mcp-stdio-probe"
 MCP_STDIO_PROBE_ACTIVITY_NAME = "probe_stdio_mcp_connection_activity"
-MCP_STDIO_DRAFT_PROBE_ACTIVITY_NAME = "probe_stdio_mcp_draft_connection_activity"
 MCP_STDIO_PROBE_TIMEOUT_CAP = 60
-
-_URL_PATTERN = re.compile(r"\bhttps?://\S+", re.IGNORECASE)
-_URL_USERINFO_PATTERN = re.compile(r"^(https?://)[^/@]*@", re.IGNORECASE)
 
 _SANDBOX_PROBE_SCRIPT = r"""
 from __future__ import annotations
@@ -149,25 +146,6 @@ class StdioMCPProbeInput(BaseModel):
     role: Role
 
 
-class StdioMCPDraftProbeInput(BaseModel):
-    """Input for a draft/unsaved stdio MCP probe workflow/activity.
-
-    Carries the candidate config directly. ``stdio_env`` holds template
-    references (e.g. ``${{ SECRETS.x }}``) and workspace-owned plaintext
-    config — the same material persisted on save — which is re-resolved
-    against workspace secrets inside the executor activity, so no resolved
-    secret value crosses the workflow boundary.
-    """
-
-    command: str
-    args: list[str] | None = None
-    stdio_env: dict[str, str] | None = None
-    timeout: int | None = None
-    mcp_integration_id: uuid.UUID
-    mcp_integration_slug: str
-    role: Role
-
-
 class StdioMCPProbeResult(BaseModel):
     """Result from sandboxed stdio MCP probing."""
 
@@ -189,11 +167,7 @@ def sanitize_stdio_probe_error(
     if not text:
         return "Stdio MCP probe failed"
 
-    def _sanitize_url(match: re.Match[str]) -> str:
-        url = _URL_USERINFO_PATTERN.sub(r"\1", match.group(0))
-        return re.sub(r"[?#].*$", "", url)
-
-    sanitized = _URL_PATTERN.sub(_sanitize_url, text)
+    sanitized = sanitize_urls_in_text(text)
     for value in (env or {}).values():
         if isinstance(value, str) and len(value) >= 4:
             sanitized = sanitized.replace(value, "[redacted]")
@@ -219,6 +193,12 @@ def _parse_probe_tools(output: object) -> list[MCPToolSummary]:
             continue
         name = raw_tool.get("name")
         if not isinstance(name, str) or not name:
+            continue
+        if not STDIO_MCP_TOOL_NAME_RE.fullmatch(name):
+            logger.warning(
+                "Skipping stdio MCP tool with unsupported name",
+                tool_name=name,
+            )
             continue
         description = raw_tool.get("description")
         tools.append(
