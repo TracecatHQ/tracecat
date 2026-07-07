@@ -74,6 +74,9 @@ class _InMemoryRefreshTokenRow:
         self.client_id = client_id
         self.metadata = metadata
         self.status = "active"
+        # Monotonic timestamp of this token's active -> used rotation. Anchors
+        # the reuse-grace window (mirrors the production row's updated_at).
+        self.rotated_at: float | None = None
 
 
 class _InMemoryOIDCStorage:
@@ -169,6 +172,21 @@ class _InMemoryOIDCStorage:
             metadata=row.metadata,
         )
 
+    def _revoke_family(self, family_id: uuid.UUID) -> None:
+        for r in self.refresh_tokens.values():
+            if r.family_id == family_id:
+                r.status = "revoked"
+
+    @staticmethod
+    def _context_for(row: _InMemoryRefreshTokenRow) -> RefreshTokenContext:
+        return RefreshTokenContext(
+            family_id=row.family_id,
+            user_id=row.user_id,
+            organization_id=row.organization_id,
+            client_id=row.client_id,
+            metadata=row.metadata,
+        )
+
     async def rotate_refresh_token(
         self,
         session: Any,
@@ -176,18 +194,73 @@ class _InMemoryOIDCStorage:
         token: str,
         client_id: str,
     ) -> tuple[RefreshTokenContext, str]:
-        ctx = await self.consume_refresh_token(
-            session, token=token, client_id=client_id
-        )
+        row = self.refresh_tokens.get(token)
+        if row is None:
+            raise RefreshTokenError(
+                "invalid_grant", "Refresh token is invalid or expired"
+            )
+        # client_id binding is checked before status handling, mirroring
+        # production: a wrong-client replay always revokes, even within grace.
+        if row.client_id != client_id:
+            self._revoke_family(row.family_id)
+            raise RefreshTokenError("invalid_grant", "client_id mismatch")
+        if row.status == "used":
+            return await self._handle_used_token_replay(session, row)
+        if row.status != "active":
+            raise RefreshTokenError(
+                "invalid_grant", "Refresh token is invalid or expired"
+            )
+        # active -> used: record the rotation time that anchors the grace window.
+        row.status = "used"
+        row.rotated_at = time.monotonic()
         new_token = await self.issue_refresh_token(
             session,
-            user_id=ctx.user_id,
-            organization_id=ctx.organization_id,
+            user_id=row.user_id,
+            organization_id=row.organization_id,
             client_id=client_id,
-            metadata=ctx.metadata,
-            family_id=ctx.family_id,
+            metadata=row.metadata,
+            family_id=row.family_id,
         )
-        return ctx, new_token
+        return self._context_for(row), new_token
+
+    async def _handle_used_token_replay(
+        self,
+        session: Any,
+        row: _InMemoryRefreshTokenRow,
+    ) -> tuple[RefreshTokenContext, str]:
+        """Replaying the freshest used token within the grace window mints a
+        sibling; any other replay revokes the family (mirrors production)."""
+        grace = oidc_config.REFRESH_TOKEN_REUSE_GRACE_SECONDS
+        rotated_at = row.rotated_at
+        within_grace = (
+            grace > 0
+            and rotated_at is not None
+            and (time.monotonic() - rotated_at) <= grace
+        )
+        if within_grace and rotated_at is not None:
+            # Grace only honors the family's most recently rotated token.
+            younger_used = any(
+                r is not row
+                and r.family_id == row.family_id
+                and r.status == "used"
+                and r.rotated_at is not None
+                and r.rotated_at > rotated_at
+                for r in self.refresh_tokens.values()
+            )
+            if not younger_used:
+                new_token = await self.issue_refresh_token(
+                    session,
+                    user_id=row.user_id,
+                    organization_id=row.organization_id,
+                    client_id=row.client_id,
+                    metadata=row.metadata,
+                    family_id=row.family_id,
+                )
+                return self._context_for(row), new_token
+        self._revoke_family(row.family_id)
+        raise RefreshTokenError(
+            "invalid_grant", "Refresh token replay detected; family revoked"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -606,8 +679,12 @@ async def test_full_flow_refresh_token_rotation(
 async def test_full_flow_refresh_token_replay_revokes_family(
     client: TestClient,
     mem_storage: _InMemoryOIDCStorage,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Reusing a consumed refresh token revokes both itself and its successor."""
+    # Strict-mode contract: with the reuse grace window disabled, any replay of
+    # a consumed token revokes the entire family.
+    monkeypatch.setattr(oidc_config, "REFRESH_TOKEN_REUSE_GRACE_SECONDS", 0)
     verifier, challenge = _pkce_pair()
 
     auth_response = client.get(
@@ -663,6 +740,57 @@ async def test_full_flow_refresh_token_replay_revokes_family(
     )
     assert legit_response.status_code == 400
     assert legit_response.json()["error"] == "invalid_grant"
+
+
+@pytest.mark.anyio
+async def test_full_flow_refresh_token_replay_within_grace_returns_sibling(
+    client: TestClient,
+    mem_storage: _InMemoryOIDCStorage,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A within-grace replay returns a working sibling and does not revoke the
+    family."""
+    monkeypatch.setattr(oidc_config, "REFRESH_TOKEN_REUSE_GRACE_SECONDS", 60)
+    verifier, challenge = _pkce_pair()
+
+    auth_response = client.get(
+        "/authorize",
+        params={
+            "response_type": "code",
+            "client_id": oidc_config.INTERNAL_CLIENT_ID,
+            "redirect_uri": _REDIRECT_URI,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "scope": "openid profile email offline_access",
+            "state": "grace",
+            "resource": f"{_TEST_APP_URL}/mcp",
+        },
+        follow_redirects=False,
+    )
+    code = parse_qs(urlparse(auth_response.headers["location"]).query)["code"][0]
+    initial = _exchange_code(client, code, verifier)
+    refresh_a = initial["refresh_token"]
+
+    # Legitimate rotation A -> B.
+    rotated = _refresh_with_token(client, refresh_a)
+    refresh_b = rotated["refresh_token"]
+
+    # Immediate replay of A within the grace window: a benign retry that yields
+    # a fresh sibling C rather than revoking the family.
+    sibling = _refresh_with_token(client, refresh_a)
+    refresh_c = sibling["refresh_token"]
+    assert refresh_c not in (refresh_a, refresh_b)
+
+    # No revocation occurred anywhere in the family.
+    assert mem_storage.refresh_tokens[refresh_a].status == "used"
+    assert mem_storage.refresh_tokens[refresh_b].status == "active"
+    assert mem_storage.refresh_tokens[refresh_c].status == "active"
+    assert not any(r.status == "revoked" for r in mem_storage.refresh_tokens.values())
+
+    # The sibling is a working refresh token: rotating it succeeds.
+    rotated_c = _refresh_with_token(client, refresh_c)
+    assert rotated_c["refresh_token"] not in (refresh_a, refresh_b, refresh_c)
+    assert rotated_c["token_type"] == "Bearer"
 
 
 def test_discovery_and_jwks_verify_minted_token(client: TestClient) -> None:

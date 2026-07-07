@@ -61,8 +61,10 @@ def get_internal_discovery_url() -> str:
 
 # --- Lifetimes ---
 
-ACCESS_TOKEN_LIFETIME_SECONDS = 60 * 60
-"""Access token lifetime: 1 hour.
+ACCESS_TOKEN_LIFETIME_SECONDS = int(
+    os.environ.get("TRACECAT__MCP_OIDC_ACCESS_TOKEN_LIFETIME_SECONDS") or 60 * 60
+)
+"""Access token lifetime: 1 hour by default.
 
 Short-lived access tokens limit blast radius of token compromise.
 Clients use refresh tokens (when ``offline_access`` is requested) to
@@ -76,6 +78,19 @@ Refresh tokens rotate on every use and renew this lifetime window on
 successful refresh. Active clients therefore keep a rolling session,
 while inactive clients must re-authenticate once a refresh token has
 been idle longer than this value.
+"""
+
+REFRESH_TOKEN_REUSE_GRACE_SECONDS = int(
+    os.environ.get("TRACECAT__MCP_OIDC_REFRESH_REUSE_GRACE_SECONDS") or 60
+)
+"""Replay-grace window for rotated refresh tokens: 60 seconds by default.
+
+Presenting the most recently rotated (``used``) refresh token again within
+this window issues a fresh sibling token in the same family instead of
+revoking it. This absorbs benign replays — network retries and concurrent
+refreshes from clients with known replay bugs (e.g. OpenAI Codex CLI) —
+without weakening theft detection outside the window. Set to ``0`` for
+strict OAuth 2.1 single-use rotation (any replay revokes the family).
 """
 
 AUTH_CODE_LIFETIME_SECONDS = 5 * 60

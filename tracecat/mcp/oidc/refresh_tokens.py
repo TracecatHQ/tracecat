@@ -7,7 +7,11 @@ opaque token — the plaintext token never lives at rest.
 Rotation is single-use: every successful exchange transitions the consumed
 token to ``status='used'`` and issues a fresh one. Replay of a consumed
 token revokes the entire family (all tokens descended from the same
-authorization-code exchange).
+authorization-code exchange), with one exception: replaying the most
+recently rotated token within ``REFRESH_TOKEN_REUSE_GRACE_SECONDS`` issues
+a fresh sibling token instead. This absorbs benign replays (network
+retries, concurrent refreshes, clients with known stale-token bugs)
+without storing any successor plaintext at rest.
 """
 
 from __future__ import annotations
@@ -59,6 +63,45 @@ def _decode_metadata(blob: bytes) -> RefreshTokenMetadata:
     """Decrypt and parse the metadata JSON blob."""
     payload = decrypt_value(blob, key=get_db_encryption_key())
     return RefreshTokenMetadata.model_validate_json(payload)
+
+
+def _mint_replacement(session: AsyncSession, row: MCPRefreshToken) -> str:
+    """Insert a fresh active token descended from ``row`` and return it.
+
+    Rotation uses a rolling expiry window: each successful refresh renews
+    the family for another REFRESH_TOKEN_LIFETIME_SECONDS.
+    """
+    new_refresh_token = secrets.token_urlsafe(32)
+    session.add(
+        MCPRefreshToken(
+            token_hash=_hash_token(new_refresh_token),
+            family_id=row.family_id,
+            user_id=row.user_id,
+            organization_id=row.organization_id,
+            client_id=row.client_id,
+            encrypted_metadata=row.encrypted_metadata,
+            status="active",
+            expires_at=datetime.now(UTC)
+            + timedelta(seconds=oidc_config.REFRESH_TOKEN_LIFETIME_SECONDS),
+        )
+    )
+    return new_refresh_token
+
+
+def _decode_metadata_or_raise(row: MCPRefreshToken) -> RefreshTokenMetadata:
+    """Decode a row's encrypted metadata, mapping failures to invalid_grant."""
+    try:
+        return _decode_metadata(row.encrypted_metadata)
+    except (InvalidToken, ValidationError, ValueError) as exc:
+        logger.warning(
+            "MCP OIDC: refresh token metadata decode failed",
+            error=str(exc),
+            family_id=str(row.family_id),
+            user_id=str(row.user_id),
+        )
+        raise RefreshTokenError(
+            "invalid_grant", "Refresh token is invalid or expired"
+        ) from exc
 
 
 async def _revoke_family_rows(session: AsyncSession, family_id: uuid.UUID) -> None:
@@ -131,25 +174,6 @@ async def rotate_refresh_token(
     if row is None:
         raise RefreshTokenError("invalid_grant", "Refresh token is invalid or expired")
 
-    if row.status == "used":
-        family_id = row.family_id
-        user_id = row.user_id
-        await revoke_family(session, family_id)
-        logger.warning(
-            "MCP OIDC: refresh token replay detected, revoking family",
-            family_id=str(family_id),
-            user_id=str(user_id),
-        )
-        raise RefreshTokenError(
-            "invalid_grant", "Refresh token replay detected; family revoked"
-        )
-
-    if row.status != "active":
-        raise RefreshTokenError("invalid_grant", "Refresh token is invalid or expired")
-
-    if datetime.now(UTC) >= row.expires_at:
-        raise RefreshTokenError("invalid_grant", "Refresh token has expired")
-
     if row.client_id != client_id:
         family_id = row.family_id
         expected_client_id = row.client_id
@@ -162,35 +186,21 @@ async def rotate_refresh_token(
         )
         raise RefreshTokenError("invalid_grant", "client_id mismatch")
 
-    try:
-        metadata = _decode_metadata(row.encrypted_metadata)
-    except (InvalidToken, ValidationError, ValueError) as exc:
-        logger.warning(
-            "MCP OIDC: refresh token metadata decode failed",
-            error=str(exc),
-            family_id=str(row.family_id),
-            user_id=str(row.user_id),
-        )
-        raise RefreshTokenError(
-            "invalid_grant", "Refresh token is invalid or expired"
-        ) from exc
+    if row.status == "used":
+        return await _handle_used_token_replay(session, row)
+
+    if row.status != "active":
+        raise RefreshTokenError("invalid_grant", "Refresh token is invalid or expired")
+
+    if datetime.now(UTC) >= row.expires_at:
+        raise RefreshTokenError("invalid_grant", "Refresh token has expired")
+
+    metadata = _decode_metadata_or_raise(row)
+    # The active -> used transition bumps updated_at (onupdate), which anchors
+    # the replay-grace window: for a 'used' row, updated_at is its rotation
+    # time because rows are only ever written on status transitions.
     row.status = "used"
-    new_refresh_token = secrets.token_urlsafe(32)
-    session.add(
-        MCPRefreshToken(
-            token_hash=_hash_token(new_refresh_token),
-            family_id=row.family_id,
-            user_id=row.user_id,
-            organization_id=row.organization_id,
-            client_id=row.client_id,
-            encrypted_metadata=row.encrypted_metadata,
-            status="active",
-            # Rotation uses a rolling expiry window: each successful refresh
-            # renews the family for another REFRESH_TOKEN_LIFETIME_SECONDS.
-            expires_at=datetime.now(UTC)
-            + timedelta(seconds=oidc_config.REFRESH_TOKEN_LIFETIME_SECONDS),
-        )
-    )
+    new_refresh_token = _mint_replacement(session, row)
 
     ctx = RefreshTokenContext(
         family_id=row.family_id,
@@ -199,9 +209,71 @@ async def rotate_refresh_token(
         client_id=row.client_id,
         metadata=metadata,
     )
-    if new_refresh_token is None:  # pragma: no cover - defensive
-        raise RuntimeError("Refresh token rotation completed without a result")
     return ctx, new_refresh_token
+
+
+async def _handle_used_token_replay(
+    session: AsyncSession,
+    row: MCPRefreshToken,
+) -> tuple[RefreshTokenContext, str]:
+    """Handle presentation of an already-consumed refresh token.
+
+    Replaying the most recently rotated token in its family within
+    ``REFRESH_TOKEN_REUSE_GRACE_SECONDS`` of its consumption is treated as a
+    benign replay (network retry, concurrent refresh, or a client with a
+    stale-token bug) and issues a fresh sibling token in the same family.
+    Any other replay is treated as hostile and revokes the entire family.
+    The caller has already verified the client_id binding.
+    """
+    now = datetime.now(UTC)
+    grace = oidc_config.REFRESH_TOKEN_REUSE_GRACE_SECONDS
+    rotated_at = row.updated_at
+    within_grace = (
+        grace > 0
+        and (now - rotated_at).total_seconds() <= grace
+        and now < row.expires_at
+    )
+    if within_grace:
+        # Grace only honors the family's most recently rotated token. A
+        # younger consumed sibling means this token is at least one rotation
+        # behind — outside any benign retry pattern.
+        younger_used = await session.scalar(
+            select(MCPRefreshToken.id)
+            .where(
+                MCPRefreshToken.family_id == row.family_id,
+                MCPRefreshToken.status == "used",
+                MCPRefreshToken.updated_at > rotated_at,
+            )
+            .limit(1)
+        )
+        if younger_used is None:
+            metadata = _decode_metadata_or_raise(row)
+            new_refresh_token = _mint_replacement(session, row)
+            logger.warning(
+                "MCP OIDC: refresh token reuse within grace window; issuing sibling",
+                family_id=str(row.family_id),
+                user_id=str(row.user_id),
+            )
+            ctx = RefreshTokenContext(
+                family_id=row.family_id,
+                user_id=row.user_id,
+                organization_id=row.organization_id,
+                client_id=row.client_id,
+                metadata=metadata,
+            )
+            return ctx, new_refresh_token
+
+    family_id = row.family_id
+    user_id = row.user_id
+    await revoke_family(session, family_id)
+    logger.warning(
+        "MCP OIDC: refresh token replay detected, revoking family",
+        family_id=str(family_id),
+        user_id=str(user_id),
+    )
+    raise RefreshTokenError(
+        "invalid_grant", "Refresh token replay detected; family revoked"
+    )
 
 
 async def consume_refresh_token(
