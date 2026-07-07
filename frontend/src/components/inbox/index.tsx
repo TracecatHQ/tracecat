@@ -1,10 +1,10 @@
 "use client"
 
 import { useEffect, useRef } from "react"
-import { useInboxChat } from "@/app/workspaces/[workspaceId]/inbox/layout"
 import type { AgentSessionEntity, InboxGroup } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { InboxHeader } from "@/components/inbox/inbox-header"
+import { useInboxChat } from "@/components/inbox/inbox-shell"
 import { RunsTable } from "@/components/inbox/runs-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { toast } from "@/components/ui/use-toast"

@@ -28,6 +28,7 @@ const mockRegister = jest.fn()
 let mockSearchParams = new URLSearchParams()
 let mockParams: Record<string, string | undefined> = {}
 let mockPathname = "/workspaces"
+let mockHasEntitlement: (key: string) => boolean = () => false
 
 let mockUser: { email: string; isSuperuser: boolean } | null = null
 let mockAppInfo: MockAppInfo | undefined = {
@@ -92,6 +93,14 @@ jest.mock("@/components/auth/scope-guard", () => ({
   useScopeCheck: () => true,
 }))
 
+jest.mock("@/hooks/use-entitlements", () => ({
+  useEntitlements: () => ({
+    hasEntitlement: mockHasEntitlement,
+    isLoading: false,
+    hasEntitlementData: true,
+  }),
+}))
+
 jest.mock("@/hooks/use-pending-org-invitations", () => ({
   usePendingOrgInvitations: () => ({
     pendingInvitations: [],
@@ -108,8 +117,20 @@ jest.mock("@/components/cases/case-selection-context", () => ({
   CaseSelectionProvider: ({ children }: { children: JSX.Element }) => children,
 }))
 
+jest.mock("@/components/inbox/inbox-chat", () => ({
+  InboxChat: () => <div data-testid="inbox-chat" />,
+}))
+
 jest.mock("@/components/nav/controls-header", () => ({
-  ControlsHeader: () => null,
+  ControlsHeader: ({ onToggleChat }: { onToggleChat?: () => void }) => (
+    <div data-testid="controls-header">
+      {onToggleChat ? (
+        <button type="button" onClick={onToggleChat}>
+          Toggle chat
+        </button>
+      ) : null}
+    </div>
+  ),
 }))
 
 jest.mock("@/components/nav/dynamic-nav", () => ({
@@ -121,12 +142,22 @@ jest.mock("@/components/settings/settings-modal", () => ({
 }))
 
 jest.mock("@/components/sidebar/app-sidebar", () => ({
-  AppSidebar: () => null,
+  AppSidebar: () => <div data-testid="app-sidebar" />,
+}))
+
+jest.mock("@/components/workspaces/workspace-chat-sidebar", () => ({
+  WorkspaceChatSidebar: () => <div data-testid="workspace-chat-sidebar" />,
 }))
 
 jest.mock("@/components/ui/sidebar", () => ({
   SidebarInset: ({ children }: { children: JSX.Element }) => children,
   SidebarProvider: ({ children }: { children: JSX.Element }) => children,
+}))
+
+jest.mock("@/components/ui/resizable-sidebar", () => ({
+  ResizableSidebar: ({ children }: { children: JSX.Element }) => (
+    <div data-testid="resizable-sidebar">{children}</div>
+  ),
 }))
 
 jest.mock("@/providers/builder", () => ({
@@ -221,6 +252,7 @@ describe("Auth UI matrix", () => {
     consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => {})
     mockUser = null
     mockSearchParams = new URLSearchParams()
+    mockHasEntitlement = () => false
     mockAppInfo = getDefaultAppInfo()
     mockAppInfoIsLoading = false
     mockAppInfoError = null
@@ -462,5 +494,136 @@ describe("Auth UI matrix", () => {
 
     expect(screen.getByText("No organization access yet")).toBeInTheDocument()
     expect(mockRouterReplace).not.toHaveBeenCalledWith("/admin")
+  })
+
+  it("uses the shared workspace shell for cases list routes", () => {
+    mockWorkspaces = [{ id: "workspace-1", name: "Workspace" }]
+    mockParams = { workspaceId: "workspace-1" }
+    mockPathname = "/workspaces/workspace-1/cases"
+
+    render(
+      <WorkspaceLayout>
+        <div>Cases list</div>
+      </WorkspaceLayout>
+    )
+
+    expect(screen.getByTestId("app-sidebar")).toBeInTheDocument()
+    expect(screen.getByTestId("controls-header")).toBeInTheDocument()
+    expect(screen.getByText("Cases list")).toBeInTheDocument()
+    expect(
+      screen.queryByTestId("workspace-chat-sidebar")
+    ).not.toBeInTheDocument()
+  })
+
+  it("opens workspace chat from search params on cases list routes", async () => {
+    mockWorkspaces = [{ id: "workspace-1", name: "Workspace" }]
+    mockParams = { workspaceId: "workspace-1" }
+    mockPathname = "/workspaces/workspace-1/cases"
+    mockSearchParams = new URLSearchParams("chat=open")
+    mockHasEntitlement = (key) => key === "workspace_chat"
+
+    render(
+      <WorkspaceLayout>
+        <div>Cases list</div>
+      </WorkspaceLayout>
+    )
+
+    expect(
+      screen.getByRole("button", { name: "Toggle chat" })
+    ).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByTestId("workspace-chat-sidebar")).toBeInTheDocument()
+    })
+    expect(mockRouterReplace).toHaveBeenCalledWith(
+      "/workspaces/workspace-1/cases"
+    )
+  })
+
+  it("leaves case detail routes to the case detail layout", () => {
+    mockWorkspaces = [{ id: "workspace-1", name: "Workspace" }]
+    mockParams = { workspaceId: "workspace-1", caseId: "case-1" }
+    mockPathname = "/workspaces/workspace-1/cases/case-1"
+
+    render(
+      <WorkspaceLayout>
+        <div>Case detail</div>
+      </WorkspaceLayout>
+    )
+
+    expect(screen.queryByTestId("app-sidebar")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("controls-header")).not.toBeInTheDocument()
+    expect(screen.getByText("Case detail")).toBeInTheDocument()
+  })
+
+  it("uses the shared workspace shell for tables list routes", () => {
+    mockWorkspaces = [{ id: "workspace-1", name: "Workspace" }]
+    mockParams = { workspaceId: "workspace-1" }
+    mockPathname = "/workspaces/workspace-1/tables"
+
+    render(
+      <WorkspaceLayout>
+        <div>Tables list</div>
+      </WorkspaceLayout>
+    )
+
+    expect(screen.getByTestId("app-sidebar")).toBeInTheDocument()
+    expect(screen.getByTestId("controls-header")).toBeInTheDocument()
+    expect(screen.getByText("Tables list")).toBeInTheDocument()
+  })
+
+  it("opens workspace chat from search params on tables list routes", async () => {
+    mockWorkspaces = [{ id: "workspace-1", name: "Workspace" }]
+    mockParams = { workspaceId: "workspace-1" }
+    mockPathname = "/workspaces/workspace-1/tables"
+    mockSearchParams = new URLSearchParams("chat=open")
+    mockHasEntitlement = (key) => key === "workspace_chat"
+
+    render(
+      <WorkspaceLayout>
+        <div>Tables list</div>
+      </WorkspaceLayout>
+    )
+
+    expect(
+      screen.getByRole("button", { name: "Toggle chat" })
+    ).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByTestId("workspace-chat-sidebar")).toBeInTheDocument()
+    })
+    expect(mockRouterReplace).toHaveBeenCalledWith(
+      "/workspaces/workspace-1/tables"
+    )
+  })
+
+  it("leaves table detail routes to the table detail layout", () => {
+    mockWorkspaces = [{ id: "workspace-1", name: "Workspace" }]
+    mockParams = { workspaceId: "workspace-1", tableId: "table-1" }
+    mockPathname = "/workspaces/workspace-1/tables/table-1"
+
+    render(
+      <WorkspaceLayout>
+        <div>Table detail</div>
+      </WorkspaceLayout>
+    )
+
+    expect(screen.queryByTestId("app-sidebar")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("controls-header")).not.toBeInTheDocument()
+    expect(screen.getByText("Table detail")).toBeInTheDocument()
+  })
+
+  it("uses the shared workspace sidebar for inbox routes", () => {
+    mockWorkspaces = [{ id: "workspace-1", name: "Workspace" }]
+    mockParams = { workspaceId: "workspace-1" }
+    mockPathname = "/workspaces/workspace-1/inbox"
+
+    render(
+      <WorkspaceLayout>
+        <div>Inbox content</div>
+      </WorkspaceLayout>
+    )
+
+    expect(screen.getByTestId("app-sidebar")).toBeInTheDocument()
+    expect(screen.getByTestId("controls-header")).toBeInTheDocument()
+    expect(screen.getByText("Inbox content")).toBeInTheDocument()
   })
 })

@@ -4,7 +4,12 @@ import { ReactFlowProvider } from "@xyflow/react"
 import { LogOut, Plus, Shield } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
-import { useParams, usePathname, useRouter } from "next/navigation"
+import {
+  useParams,
+  usePathname,
+  useRouter,
+  useSearchParams,
+} from "next/navigation"
 import TracecatIcon from "public/icon.png"
 import type React from "react"
 import { useEffect, useMemo, useState } from "react"
@@ -12,6 +17,7 @@ import { ApiError } from "@/client"
 import { NoOrganizationAccess } from "@/components/auth/no-organization-access"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CaseSelectionProvider } from "@/components/cases/case-selection-context"
+import { InboxShell } from "@/components/inbox/inbox-shell"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { ControlsHeader } from "@/components/nav/controls-header"
 import { DynamicNavbar } from "@/components/nav/dynamic-nav"
@@ -19,7 +25,9 @@ import { SettingsModal } from "@/components/settings/settings-modal"
 import { AppSidebar } from "@/components/sidebar/app-sidebar"
 import { Button } from "@/components/ui/button"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
+import { WorkspaceChatSidebar } from "@/components/workspaces/workspace-chat-sidebar"
 import { useAuth, useAuthActions } from "@/hooks/use-auth"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceManager } from "@/lib/hooks"
 import { getWorkspaceLandingPath } from "@/lib/workspace-navigation"
 import { WorkflowBuilderProvider } from "@/providers/builder"
@@ -194,15 +202,46 @@ export default function WorkspaceLayout({
 }
 
 function WorkspaceChildren({ children }: { children: React.ReactNode }) {
-  const params = useParams<{ workflowId?: string }>()
+  const params = useParams<{
+    workflowId?: string
+    caseId?: string
+    tableId?: string
+  }>()
   const canReadWorkspace = useScopeCheck("workspace:read")
+  const canExecuteAgents = useScopeCheck("agent:execute")
+  const { hasEntitlement } = useEntitlements()
   const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const [chatOpen, setChatOpen] = useState(false)
   const isWorkflowBuilder = !!params?.workflowId
-  const isCasesPage = Boolean(pathname?.match(/\/cases(\/|$)/))
+  const isCaseDetailPage = Boolean(params?.caseId)
+  const isTableDetailPage = Boolean(params?.tableId)
   const isInboxPage = pathname?.includes("/inbox")
-  const isTablesPage = Boolean(pathname?.match(/\/tables(\/|$)/))
+  const isCasesRoute = Boolean(pathname?.match(/\/cases(\/|$)/))
+  const isTablesRoute = Boolean(pathname?.match(/\/tables(\/|$)/))
+  const isWorkspaceChatRoute = isCasesRoute || isTablesRoute
   const isSettingsPage = pathname?.includes("/settings")
   const isOrganizationPage = pathname?.includes("/organization")
+  const canShowChat =
+    isWorkspaceChatRoute &&
+    canExecuteAgents === true &&
+    hasEntitlement("workspace_chat")
+
+  useEffect(() => {
+    if (
+      !isWorkspaceChatRoute ||
+      !pathname ||
+      searchParams?.get("chat") !== "open"
+    ) {
+      return
+    }
+    setChatOpen(true)
+    const nextParams = new URLSearchParams(searchParams.toString())
+    nextParams.delete("chat")
+    const query = nextParams.toString()
+    router.replace(query ? `${pathname}?${query}` : pathname)
+  }, [isWorkspaceChatRoute, pathname, searchParams, router])
 
   if (canReadWorkspace === undefined) {
     return <CenteredSpinner />
@@ -227,18 +266,8 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
     return <>{children}</>
   }
 
-  // Cases pages have their own layout with an optional chat sidebar.
-  if (isCasesPage) {
-    return <>{children}</>
-  }
-
-  // Inbox pages have their own layout with chat sidebar
-  if (isInboxPage) {
-    return <>{children}</>
-  }
-
-  // Tables pages have their own layout with side panels.
-  if (isTablesPage) {
+  // Detail pages have their own layouts with optional side panels.
+  if (isCaseDetailPage || isTableDetailPage) {
     return <>{children}</>
   }
 
@@ -246,14 +275,26 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
       <AppSidebar />
-      <SidebarInset>
-        <CaseSelectionProvider>
-          <div className="flex h-full flex-1 flex-col">
-            <ControlsHeader />
-            <div className="flex-1 overflow-y-scroll">{children}</div>
-          </div>
-        </CaseSelectionProvider>
-      </SidebarInset>
+      {isInboxPage ? (
+        <InboxShell>{children}</InboxShell>
+      ) : (
+        <>
+          <SidebarInset>
+            <CaseSelectionProvider>
+              <div className="flex h-full flex-1 flex-col">
+                <ControlsHeader
+                  onToggleChat={
+                    canShowChat ? () => setChatOpen((prev) => !prev) : undefined
+                  }
+                />
+                <div className="flex-1 overflow-y-scroll">{children}</div>
+              </div>
+            </CaseSelectionProvider>
+          </SidebarInset>
+
+          {canShowChat && chatOpen && <WorkspaceChatSidebar />}
+        </>
+      )}
     </SidebarProvider>
   )
 }
