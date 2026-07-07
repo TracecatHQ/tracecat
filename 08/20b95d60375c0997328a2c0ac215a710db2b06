@@ -1,0 +1,31 @@
+frontend/src/client/schemas.gen.ts
+  s_a66a712823104d::t_52a9df3a231f85 12645,15016,15040,15122,21427,29792,29834,30112,30188,30297,30593,30716,30839,30964,31506
+tests/unit/test_identifiers.py
+  s_87055a62d40851::t_94ce1ecc27e919 1,7,14-19,269-295
+tracecat/identifiers/workflow.py
+  s_87055a62d40851::t_fce48077e9c69e 29-33,110-112
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "0820b95d60375c0997328a2c0ac215a710db2b06",
+  "prompts": {},
+  "sessions": {
+    "s_87055a62d40851": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "39fbe3c7-e367-4f8b-adcb-bc4bb3f772bd",
+        "model": "unknown"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_a66a712823104d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d40dd60f-1d15-4e99-8e72-fb2116a5f6aa",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
