@@ -73,11 +73,11 @@ class WorkspaceSettingsUpdate(Schema):
     )
     allowed_attachment_extensions: list[str] | None = Field(
         default=None,
-        description="Allowed file extensions for attachments. null or omitted inherits system defaults; [] disables uploads; non-empty lists allow only those extensions.",
+        description="Allowed file extensions for attachments. null resets to system defaults; [] disables uploads; non-empty lists allow only those extensions; omitted leaves the existing setting unchanged.",
     )
     allowed_attachment_mime_types: list[str] | None = Field(
         default=None,
-        description="Allowed MIME types for attachments. null or omitted inherits system defaults; [] disables uploads; non-empty lists allow only those MIME types.",
+        description="Allowed MIME types for attachments. null resets to system defaults; [] disables uploads; non-empty lists allow only those MIME types; omitted leaves the existing setting unchanged.",
     )
     validate_attachment_magic_number: bool | None = Field(
         default=None,

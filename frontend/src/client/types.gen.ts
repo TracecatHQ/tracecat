@@ -9576,11 +9576,11 @@ export type WorkspaceSettingsUpdate = {
    */
   workflow_default_timeout_seconds?: number | null
   /**
-   * Allowed file extensions for attachments. null or omitted inherits system defaults; [] disables uploads; non-empty lists allow only those extensions.
+   * Allowed file extensions for attachments. null resets to system defaults; [] disables uploads; non-empty lists allow only those extensions; omitted leaves the existing setting unchanged.
    */
   allowed_attachment_extensions?: Array<string> | null
   /**
-   * Allowed MIME types for attachments. null or omitted inherits system defaults; [] disables uploads; non-empty lists allow only those MIME types.
+   * Allowed MIME types for attachments. null resets to system defaults; [] disables uploads; non-empty lists allow only those MIME types; omitted leaves the existing setting unchanged.
    */
   allowed_attachment_mime_types?: Array<string> | null
   /**

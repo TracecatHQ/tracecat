@@ -144,10 +144,6 @@ interface WorkspaceFilesSettingsProps {
 export function WorkspaceFilesSettings({
   workspace,
 }: WorkspaceFilesSettingsProps) {
-  const systemDefaultExtensions =
-    workspace.settings?.effective_allowed_attachment_extensions || []
-  const systemDefaultMimeTypes =
-    workspace.settings?.effective_allowed_attachment_mime_types || []
   const [inheritAttachmentExtensions, setInheritAttachmentExtensions] =
     useState(false)
   const [inheritAttachmentMimeTypes, setInheritAttachmentMimeTypes] =
@@ -192,6 +188,9 @@ export function WorkspaceFilesSettings({
               field.value,
               inheritAttachmentExtensions
             )
+            const displayedTags = inheritAttachmentExtensions
+              ? []
+              : field.value || []
 
             return (
               <FormItem>
@@ -204,12 +203,7 @@ export function WorkspaceFilesSettings({
                     aria-label="Restore inherited file extensions"
                     onClick={() => {
                       setInheritAttachmentExtensions(true)
-                      field.onChange(
-                        systemDefaultExtensions.map((ext, index) => ({
-                          id: `ext-default-${index}`,
-                          text: ext,
-                        }))
-                      )
+                      field.onChange(undefined)
                     }}
                     className="h-auto p-1"
                   >
@@ -220,7 +214,7 @@ export function WorkspaceFilesSettings({
                   <CustomTagInput
                     {...field}
                     placeholder="Enter an extension..."
-                    tags={field.value || []}
+                    tags={displayedTags}
                     setTags={(tags) => {
                       setInheritAttachmentExtensions(false)
                       field.onChange(tags)
@@ -252,6 +246,9 @@ export function WorkspaceFilesSettings({
               field.value,
               inheritAttachmentMimeTypes
             )
+            const displayedTags = inheritAttachmentMimeTypes
+              ? []
+              : field.value || []
 
             return (
               <FormItem>
@@ -264,12 +261,7 @@ export function WorkspaceFilesSettings({
                     aria-label="Restore inherited MIME types"
                     onClick={() => {
                       setInheritAttachmentMimeTypes(true)
-                      field.onChange(
-                        systemDefaultMimeTypes.map((mime, index) => ({
-                          id: `mime-default-${index}`,
-                          text: mime,
-                        }))
-                      )
+                      field.onChange(undefined)
                     }}
                     className="h-auto p-1"
                   >
@@ -280,7 +272,7 @@ export function WorkspaceFilesSettings({
                   <CustomTagInput
                     {...field}
                     placeholder="Enter a MIME type..."
-                    tags={field.value || []}
+                    tags={displayedTags}
                     setTags={(tags) => {
                       setInheritAttachmentMimeTypes(false)
                       field.onChange(tags)
