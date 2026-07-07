@@ -107,6 +107,28 @@ class CaseAttachmentService(BaseWorkspaceService):
             self._workspace_cache = workspace
         return self._workspace_cache
 
+    async def _lock_case_for_attachment_write(self, case: Case) -> Case:
+        """Lock the case row while enforcing attachment quotas and writing rows.
+
+        Attachment count and storage limits are derived from aggregate reads. Without a
+        per-case serialization point, concurrent uploads can both observe the same
+        pre-insert state and commit over the configured limits. The row lock is held
+        by the current transaction until ``create_attachment`` commits or rolls back.
+        """
+        statement = (
+            select(Case)
+            .where(
+                Case.workspace_id == self.workspace_id,
+                Case.id == case.id,
+            )
+            .with_for_update()
+        )
+        result = await self.session.execute(statement)
+        locked_case = result.scalars().first()
+        if locked_case is None:
+            raise TracecatNotFoundError(f"Case {case.id} not found")
+        return locked_case
+
     async def _assert_case_limits(self, case: Case, new_size: int) -> None:
         """Validate case-level constraints for attachments (count and total storage)."""
         # Use COUNT(*) with join on non-deleted files (matches list_attachments semantics)
@@ -239,7 +261,8 @@ class CaseAttachmentService(BaseWorkspaceService):
                 f"({config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES / 1024 / 1024}MB)"
             )
 
-        # Validate case-level limits (count + storage) efficiently using actual size
+        # Serialize the aggregate quota check with the attachment write for this case.
+        case = await self._lock_case_for_attachment_write(case)
         await self._assert_case_limits(case, actual_size)
 
         # Get workspace settings for attachment validation
