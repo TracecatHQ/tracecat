@@ -171,6 +171,7 @@ import {
   useRegistryActions,
   useWorkspaceAgentModels,
 } from "@/lib/hooks"
+import { humanizeActionName } from "@/lib/registry"
 import { cn, slugify } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -530,6 +531,9 @@ export function AgentPresetsBuilder({
         value: action.action,
         description: action.description,
         group: action.namespace,
+        tooltip: action.action,
+        tagLabel: action.default_title || humanizeActionName(action.name),
+        tagGroup: action.display_group || action.namespace,
         icon: getIcon(action.action, {
           className: "size-6 p-[3px] border-[0.5px]",
         }),
@@ -704,6 +708,9 @@ export function AgentPresetArtifactView({
         value: action.action,
         description: action.description,
         group: action.namespace,
+        tooltip: action.action,
+        tagLabel: action.default_title || humanizeActionName(action.name),
+        tagGroup: action.display_group || action.namespace,
         icon: getIcon(action.action, {
           className: "size-6 p-[3px] border-[0.5px]",
         }),
