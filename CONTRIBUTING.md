@@ -5,7 +5,6 @@ Thank you for your interest in contributing to Tracecat!
 ## Before You Begin
 
 Join our [Discord](https://discord.gg/H4XZwsYzY4) and `#contributors` channel to get started.
-Also check out
 
 ## Feature Requests
 
