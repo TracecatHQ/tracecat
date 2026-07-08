@@ -56,6 +56,7 @@ from tracecat.db.models import (
     Skill,
     SkillVersion,
 )
+from tracecat.db.soft_delete import with_deleted
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.executor.service import get_workspace_variables
@@ -1142,6 +1143,8 @@ class AgentPresetService(BaseWorkspaceService):
         if not include_deleted:
             predicates.append(AgentPreset.deleted_at.is_(None))
         stmt = select(AgentPreset).where(*predicates)
+        if include_deleted:
+            stmt = with_deleted(stmt)
         result = await self.session.execute(stmt)
         return result.scalars().first()
 
@@ -1157,6 +1160,8 @@ class AgentPresetService(BaseWorkspaceService):
         if not include_deleted:
             predicates.append(AgentPreset.deleted_at.is_(None))
         stmt = select(AgentPreset).where(*predicates)
+        if include_deleted:
+            stmt = with_deleted(stmt)
         result = await self.session.execute(stmt)
         return result.scalars().first()
 
