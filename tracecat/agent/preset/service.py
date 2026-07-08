@@ -127,7 +127,7 @@ class AgentPresetService(BaseWorkspaceService):
         stmt = (
             select(AgentPreset)
             .where(AgentPreset.workspace_id == self.workspace_id)
-            .where(AgentPreset.archived_at.is_(None))
+            .where(AgentPreset.deleted_at.is_(None))
             .order_by(AgentPreset.created_at.desc())
             .options(selectinload(AgentPreset.tags))
         )
@@ -462,12 +462,12 @@ class AgentPresetService(BaseWorkspaceService):
     @audit_log(resource_type="agent_preset", action="delete")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def delete_preset(self, preset: AgentPreset) -> None:
-        """Archive a preset without deleting its published versions."""
+        """Soft-delete a preset without deleting its published versions."""
         await self._lock_preset_row(preset.id)
         await self._ensure_not_referenced_as_subagent(preset)
         channel_service = AgentChannelService(self.session, role=self.role)
         await channel_service.deactivate_tokens_for_preset(preset.id)
-        preset.archived_at = datetime.now(UTC)
+        preset.deleted_at = datetime.now(UTC)
         self.session.add(preset)
         await self.session.commit()
 
@@ -495,7 +495,7 @@ class AgentPresetService(BaseWorkspaceService):
             .where(
                 AgentPreset.workspace_id == self.workspace_id,
                 AgentPreset.id != preset.id,
-                AgentPreset.archived_at.is_(None),
+                AgentPreset.deleted_at.is_(None),
                 subagent_ref_exists,
             )
         )
@@ -645,7 +645,7 @@ class AgentPresetService(BaseWorkspaceService):
         config = AgentSubagentsConfig.model_validate({} if agents is None else agents)
         # Persisted refs (e.g. restored historical configs) already carry preset
         # ids; validate them before resolution, which would otherwise surface an
-        # archived child as a generic version-not-found error.
+        # soft-deleted child as a generic version-not-found error.
         persisted_refs = [
             ref
             for ref in config.subagents
@@ -676,7 +676,7 @@ class AgentPresetService(BaseWorkspaceService):
             .where(
                 AgentPreset.workspace_id == self.workspace_id,
                 AgentPreset.id.in_(preset_ids),
-                AgentPreset.archived_at.is_(None),
+                AgentPreset.deleted_at.is_(None),
             )
             # Deterministic lock order prevents ABBA deadlocks between
             # concurrent saves whose subagent sets overlap.
@@ -693,7 +693,7 @@ class AgentPresetService(BaseWorkspaceService):
                 }
             )
             raise TracecatValidationError(
-                "Cannot save preset because it references archived or missing "
+                "Cannot save preset because it references soft-deleted or missing "
                 f"subagent presets: {missing_refs}"
             )
 
@@ -1117,7 +1117,7 @@ class AgentPresetService(BaseWorkspaceService):
         stmt = select(AgentPreset).where(
             AgentPreset.workspace_id == self.workspace_id,
             AgentPreset.slug == slug,
-            AgentPreset.archived_at.is_(None),
+            AgentPreset.deleted_at.is_(None),
         )
         if exclude_id is not None:
             stmt = stmt.where(AgentPreset.id != exclude_id)
@@ -1131,30 +1131,30 @@ class AgentPresetService(BaseWorkspaceService):
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_preset(
-        self, preset_id: uuid.UUID, *, include_archived: bool = False
+        self, preset_id: uuid.UUID, *, include_deleted: bool = False
     ) -> AgentPreset | None:
         """Get an agent preset by ID with proper error handling."""
         predicates = [
             AgentPreset.workspace_id == self.workspace_id,
             AgentPreset.id == preset_id,
         ]
-        if not include_archived:
-            predicates.append(AgentPreset.archived_at.is_(None))
+        if not include_deleted:
+            predicates.append(AgentPreset.deleted_at.is_(None))
         stmt = select(AgentPreset).where(*predicates)
         result = await self.session.execute(stmt)
         return result.scalars().first()
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_preset_by_slug(
-        self, slug: str, *, include_archived: bool = False
+        self, slug: str, *, include_deleted: bool = False
     ) -> AgentPreset | None:
         """Get an agent preset by slug with proper error handling."""
         predicates = [
             AgentPreset.workspace_id == self.workspace_id,
             AgentPreset.slug == slug,
         ]
-        if not include_archived:
-            predicates.append(AgentPreset.archived_at.is_(None))
+        if not include_deleted:
+            predicates.append(AgentPreset.deleted_at.is_(None))
         stmt = select(AgentPreset).where(*predicates)
         result = await self.session.execute(stmt)
         return result.scalars().first()
@@ -1310,7 +1310,7 @@ class AgentPresetService(BaseWorkspaceService):
                 AgentPresetVersion.workspace_id == self.workspace_id,
                 AgentPresetVersion.id == version_id,
                 AgentPreset.workspace_id == self.workspace_id,
-                AgentPreset.archived_at.is_(None),
+                AgentPreset.deleted_at.is_(None),
             )
         )
         if preset_id is not None:
@@ -1505,7 +1505,7 @@ class AgentPresetService(BaseWorkspaceService):
             .where(
                 AgentPreset.workspace_id == self.workspace_id,
                 AgentPreset.id == preset_id,
-                AgentPreset.archived_at.is_(None),
+                AgentPreset.deleted_at.is_(None),
             )
             .with_for_update()
         )

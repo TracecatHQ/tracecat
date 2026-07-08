@@ -2315,7 +2315,7 @@ class IntegrationService(BaseWorkspaceService):
                 update(AgentPreset)
                 .where(
                     AgentPreset.workspace_id == self.workspace_id,
-                    AgentPreset.archived_at.is_(None),
+                    AgentPreset.deleted_at.is_(None),
                     AgentPreset.mcp_integrations.isnot(None),
                     candidate_exists,
                     AgentPreset.mcp_integrations.op("?|")(candidate_ids),
@@ -2365,7 +2365,7 @@ class IntegrationService(BaseWorkspaceService):
             select(AgentPreset)
             .where(
                 AgentPreset.workspace_id == self.workspace_id,
-                AgentPreset.archived_at.is_(None),
+                AgentPreset.deleted_at.is_(None),
                 AgentPreset.id.in_(preset_ids),
             )
             .order_by(AgentPreset.id)
@@ -3818,7 +3818,7 @@ class IntegrationService(BaseWorkspaceService):
                     .where(
                         and_(
                             AgentPreset.workspace_id == self.workspace_id,
-                            AgentPreset.archived_at.is_(None),
+                            AgentPreset.deleted_at.is_(None),
                             AgentPreset.mcp_integrations.isnot(None),
                             AgentPreset.mcp_integrations.contains([id_str]),
                         )

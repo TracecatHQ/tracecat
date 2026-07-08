@@ -835,10 +835,11 @@ async def test_project_workspace_exports_supported_non_workflow_resources(
 
 
 @pytest.mark.anyio
-async def test_agent_preset_projection_excludes_archived_presets(
+async def test_agent_preset_projection_excludes_soft_deleted_presets(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
+    """Workspace export excludes soft-deleted presets and their versions."""
     service = WorkspaceSyncService(session=session, role=svc_role)
     snapshot, diagnostics = await service.parse_files(
         _expanded_full_git_tree(include_schedules=False),
@@ -856,7 +857,7 @@ async def test_agent_preset_projection_excludes_archived_presets(
         )
     )
     assert parent_preset is not None
-    parent_preset.archived_at = datetime.now(UTC)
+    parent_preset.deleted_at = datetime.now(UTC)
     session.add(parent_preset)
     await session.flush()
 
@@ -870,11 +871,11 @@ async def test_agent_preset_projection_excludes_archived_presets(
 
 
 @pytest.mark.anyio
-async def test_skill_projection_excludes_archived_preset_version_pins(
+async def test_skill_projection_excludes_soft_deleted_preset_version_pins(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
-    """Skill version snapshots pinned only by archived presets are not exported."""
+    """Skill version snapshots pinned only by soft-deleted presets are not exported."""
     service = WorkspaceSyncService(session=session, role=svc_role)
     snapshot, diagnostics = await service.parse_files(
         _versioned_agent_skill_git_tree(),
@@ -893,7 +894,7 @@ async def test_skill_projection_excludes_archived_preset_version_pins(
         )
     )
     assert pinning_preset is not None
-    pinning_preset.archived_at = datetime.now(UTC)
+    pinning_preset.deleted_at = datetime.now(UTC)
     session.add(pinning_preset)
     await session.flush()
 
@@ -904,10 +905,11 @@ async def test_skill_projection_excludes_archived_preset_version_pins(
 
 
 @pytest.mark.anyio
-async def test_agent_preset_import_ignores_archived_source_id_mapping(
+async def test_agent_preset_import_ignores_soft_deleted_source_id_mapping(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
+    """Workspace import does not adopt a mapped soft-deleted preset row."""
     workspace_id = svc_role.workspace_id
     assert workspace_id is not None
     service = WorkspaceSyncService(session=session, role=svc_role)
@@ -916,15 +918,15 @@ async def test_agent_preset_import_ignores_archived_source_id_mapping(
         commit_sha="d" * 40,
     )
     assert diagnostics == []
-    archived_preset = AgentPreset(
+    soft_deleted_preset = AgentPreset(
         workspace_id=workspace_id,
         slug="qa-triage-parent",
-        name="Archived QA triage",
+        name="Soft-deleted QA triage",
         model_name="gpt-4o-mini",
         model_provider="openai",
-        archived_at=datetime.now(UTC),
+        deleted_at=datetime.now(UTC),
     )
-    session.add(archived_preset)
+    session.add(soft_deleted_preset)
     await session.flush()
     session.add(
         WorkspaceSyncResourceMapping(
@@ -933,7 +935,7 @@ async def test_agent_preset_import_ignores_archived_source_id_mapping(
             resource_type=SyncResourceType.AGENT_PRESET.value,
             source_id="qa-triage-parent",
             source_path=f"{AGENT_PRESET_ROOT}/qa-triage-parent/preset.yml",
-            local_id=archived_preset.id,
+            local_id=soft_deleted_preset.id,
         )
     )
     await session.flush()
@@ -949,18 +951,18 @@ async def test_agent_preset_import_ignores_archived_source_id_mapping(
         if resource.resource_type is SyncResourceType.AGENT_PRESET
         and resource.source_id == "qa-triage-parent"
     )
-    assert imported_parent.local_id != archived_preset.id
+    assert imported_parent.local_id != soft_deleted_preset.id
     active_parent = await session.scalar(
         select(AgentPreset).where(
             AgentPreset.workspace_id == workspace_id,
             AgentPreset.slug == "qa-triage-parent",
-            AgentPreset.archived_at.is_(None),
+            AgentPreset.deleted_at.is_(None),
         )
     )
     assert active_parent is not None
     assert imported_parent.local_id == active_parent.id
-    await session.refresh(archived_preset)
-    assert archived_preset.archived_at is not None
+    await session.refresh(soft_deleted_preset)
+    assert soft_deleted_preset.deleted_at is not None
 
 
 @pytest.mark.anyio
@@ -968,7 +970,7 @@ async def test_agent_preset_import_resolves_subagent_to_active_preset(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
-    """Subagent slug resolution must skip an archived preset holding the slug."""
+    """Subagent slug resolution must skip a soft-deleted preset holding the slug."""
     workspace_id = svc_role.workspace_id
     assert workspace_id is not None
     service = WorkspaceSyncService(session=session, role=svc_role)
@@ -977,29 +979,29 @@ async def test_agent_preset_import_resolves_subagent_to_active_preset(
         commit_sha="d" * 40,
     )
     assert diagnostics == []
-    # An archived preset keeps its slug and a resolvable current version, so an
+    # A soft-deleted preset keeps its slug and a resolvable current version, so an
     # unfiltered slug lookup could bind it as the parent's subagent target.
-    archived_child = AgentPreset(
+    soft_deleted_child = AgentPreset(
         workspace_id=workspace_id,
         slug="qa-evidence-child",
-        name="Archived QA evidence child",
+        name="Soft-deleted QA evidence child",
         model_name="gpt-4o-mini",
         model_provider="openai",
-        archived_at=datetime.now(UTC),
+        deleted_at=datetime.now(UTC),
     )
-    session.add(archived_child)
+    session.add(soft_deleted_child)
     await session.flush()
-    archived_version = AgentPresetVersion(
+    soft_deleted_version = AgentPresetVersion(
         workspace_id=workspace_id,
-        preset_id=archived_child.id,
+        preset_id=soft_deleted_child.id,
         version=1,
         model_name="gpt-4o-mini",
         model_provider="openai",
     )
-    session.add(archived_version)
+    session.add(soft_deleted_version)
     await session.flush()
-    archived_child.current_version_id = archived_version.id
-    session.add(archived_child)
+    soft_deleted_child.current_version_id = soft_deleted_version.id
+    session.add(soft_deleted_child)
     await session.flush()
 
     await WorkspaceResourceImportService(
@@ -1011,16 +1013,16 @@ async def test_agent_preset_import_resolves_subagent_to_active_preset(
         select(AgentPreset).where(
             AgentPreset.workspace_id == workspace_id,
             AgentPreset.slug == "qa-evidence-child",
-            AgentPreset.archived_at.is_(None),
+            AgentPreset.deleted_at.is_(None),
         )
     )
     assert active_child is not None
-    assert active_child.id != archived_child.id
+    assert active_child.id != soft_deleted_child.id
     parent_preset = await session.scalar(
         select(AgentPreset).where(
             AgentPreset.workspace_id == workspace_id,
             AgentPreset.slug == "qa-triage-parent",
-            AgentPreset.archived_at.is_(None),
+            AgentPreset.deleted_at.is_(None),
         )
     )
     assert parent_preset is not None
@@ -1031,40 +1033,40 @@ async def test_agent_preset_import_resolves_subagent_to_active_preset(
 
 
 @pytest.mark.anyio
-async def test_agent_preset_subagent_target_skips_archived_preset(
+async def test_agent_preset_subagent_target_skips_soft_deleted_preset(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
-    """A subagent slug held only by an archived preset must not resolve."""
+    """A subagent slug held only by a soft-deleted preset must not resolve."""
     workspace_id = svc_role.workspace_id
     assert workspace_id is not None
-    archived_child = AgentPreset(
+    soft_deleted_child = AgentPreset(
         workspace_id=workspace_id,
-        slug="qa-archived-only-child",
-        name="Archived QA child",
+        slug="qa-soft-deleted-only-child",
+        name="Soft-deleted QA child",
         model_name="gpt-4o-mini",
         model_provider="openai",
-        archived_at=datetime.now(UTC),
+        deleted_at=datetime.now(UTC),
     )
-    session.add(archived_child)
+    session.add(soft_deleted_child)
     await session.flush()
-    archived_version = AgentPresetVersion(
+    soft_deleted_version = AgentPresetVersion(
         workspace_id=workspace_id,
-        preset_id=archived_child.id,
+        preset_id=soft_deleted_child.id,
         version=1,
         model_name="gpt-4o-mini",
         model_provider="openai",
     )
-    session.add(archived_version)
+    session.add(soft_deleted_version)
     await session.flush()
-    archived_child.current_version_id = archived_version.id
-    session.add(archived_child)
+    soft_deleted_child.current_version_id = soft_deleted_version.id
+    session.add(soft_deleted_child)
     await session.flush()
     importer = WorkspaceResourceImportService(session=session, role=svc_role)
 
     target = await AGENT_PRESET_RESOURCE_ADAPTER._resolved_subagent_target(
         importer,
-        AgentPresetSubagentRef(slug="qa-archived-only-child"),
+        AgentPresetSubagentRef(slug="qa-soft-deleted-only-child"),
     )
 
     assert target is None

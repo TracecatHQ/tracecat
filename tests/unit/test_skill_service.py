@@ -2076,22 +2076,24 @@ class TestSkillService:
         assert archived is not None
         assert archived.archived_at is not None
 
-    async def test_archive_allows_when_only_archived_preset_references_skill(
+    async def test_archive_allows_when_only_soft_deleted_preset_references_skill(
         self,
         session: AsyncSession,
         svc_role: Role,
         skill_service: SkillService,
     ) -> None:
-        """Archived preset heads should not count as active skill usage."""
+        """Soft-deleted preset heads should not count as active skill usage."""
 
-        created = await skill_service.create_skill(SkillCreate(name="archived-preset"))
+        created = await skill_service.create_skill(
+            SkillCreate(name="soft-deleted-preset")
+        )
         skill_version = await skill_service.publish_skill(created.id)
 
         preset_service = AgentPresetService(session=session, role=svc_role)
         preset = await preset_service.create_preset(
             AgentPresetCreate(
-                name="Archived preset",
-                description="Preset archived with skill use",
+                name="Soft-deleted preset",
+                description="Preset soft-deleted with skill use",
                 instructions="Use the skill",
                 model_name="gpt-4o-mini",
                 model_provider="openai",

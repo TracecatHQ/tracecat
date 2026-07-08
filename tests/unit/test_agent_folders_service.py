@@ -254,22 +254,22 @@ async def test_move_preset_requires_agent_addons_entitlement(
 
 
 @pytest.mark.anyio
-async def test_move_preset_rejects_archived_preset(
+async def test_move_preset_rejects_soft_deleted_preset(
     folder_service: AgentFolderService,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Archived presets should not be movable through folder management."""
+    """Soft-deleted presets should not be movable through folder management."""
     monkeypatch.setattr(folder_service, "has_entitlement", AsyncMock(return_value=True))
     target = await folder_service.create_folder(name="target", parent_path="/")
     preset = AgentPreset(
         workspace_id=folder_service.workspace_id,
-        name="Archived preset",
-        slug="archived-preset",
+        name="Soft-deleted preset",
+        slug="soft-deleted-preset",
         model_name="gpt-4o-mini",
         model_provider="openai",
         retries=3,
         enable_internet_access=False,
-        archived_at=datetime.now(UTC),
+        deleted_at=datetime.now(UTC),
     )
     folder_service.session.add(preset)
     await folder_service.session.commit()
@@ -348,14 +348,14 @@ async def test_get_directory_items_returns_real_direct_item_counts(
             ),
             AgentPreset(
                 workspace_id=folder_service.workspace_id,
-                name="archived",
-                slug="archived",
+                name="soft deleted",
+                slug="soft-deleted",
                 model_name="gpt-4o-mini",
                 model_provider="openai",
                 retries=3,
                 enable_internet_access=False,
                 folder_id=parent.id,
-                archived_at=datetime.now(UTC),
+                deleted_at=datetime.now(UTC),
             ),
         ]
     )

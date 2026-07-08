@@ -2037,12 +2037,12 @@ class TestAgentPresetService:
         with pytest.raises(TracecatValidationError, match="not found"):
             await agent_preset_service.restore_version(created_preset, version_1)
 
-    async def test_restore_version_rejects_archived_subagent_bindings(
+    async def test_restore_version_rejects_soft_deleted_subagent_bindings(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Restoring a version cannot make archived subagents active again."""
+        """Restoring a version cannot make soft-deleted subagents active again."""
         child = await agent_preset_service.create_preset(
             agent_preset_create_params.model_copy(
                 update={"name": "Restored Child", "slug": "restored-child"}
@@ -2077,7 +2077,7 @@ class TestAgentPresetService:
 
         with pytest.raises(
             TracecatValidationError,
-            match="archived or missing subagent",
+            match="soft-deleted or missing subagent",
         ):
             await agent_preset_service.restore_version(parent, version_with_child)
 
@@ -2275,7 +2275,7 @@ class TestAgentPresetService:
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Deleting a preset archives it without deleting historical versions."""
+        """Deleting a preset soft-deletes it without deleting historical versions."""
         # Create preset
         created_preset = await agent_preset_service.create_preset(
             agent_preset_create_params
@@ -2288,9 +2288,9 @@ class TestAgentPresetService:
         await agent_preset_service.delete_preset(created_preset)
 
         deleted_preset = await agent_preset_service.get_preset(preset_id)
-        archived_preset = await agent_preset_service.get_preset(
+        soft_deleted_preset = await agent_preset_service.get_preset(
             preset_id,
-            include_archived=True,
+            include_deleted=True,
         )
         version = await agent_preset_service.get_version(version_id)
         active_version = await agent_preset_service.get_active_version(
@@ -2299,17 +2299,17 @@ class TestAgentPresetService:
         )
 
         assert deleted_preset is None
-        assert archived_preset is not None
-        assert archived_preset.archived_at is not None
+        assert soft_deleted_preset is not None
+        assert soft_deleted_preset.deleted_at is not None
         assert version is not None
         assert active_version is None
 
-    async def test_resolve_pinned_version_rejects_archived_preset(
+    async def test_resolve_pinned_version_rejects_soft_deleted_preset(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Pinned version resolution should not bypass archived preset state."""
+        """Pinned version resolution should not bypass soft-deleted preset state."""
         created_preset = await agent_preset_service.create_preset(
             agent_preset_create_params
         )
@@ -2340,7 +2340,7 @@ class TestAgentPresetService:
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Archiving a preset should disable external channel ingress."""
+        """Soft-deleting a preset should disable external channel ingress."""
         created_preset = await agent_preset_service.create_preset(
             agent_preset_create_params
         )
@@ -2365,7 +2365,7 @@ class TestAgentPresetService:
         agent_preset_create_params: AgentPresetCreate,
         svc_role: Role,
     ) -> None:
-        """Archiving a preset should cancel unfinished Slack OAuth installs."""
+        """Soft-deleting a preset should cancel unfinished Slack OAuth installs."""
         created_preset = await agent_preset_service.create_preset(
             agent_preset_create_params
         )
@@ -2412,12 +2412,12 @@ class TestAgentPresetService:
         assert remaining_inactive is not None
         assert remaining_inactive.is_active is False
 
-    async def test_update_preset_rejects_archived_preset(
+    async def test_update_preset_rejects_soft_deleted_preset(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Archived presets cannot be mutated through a stale model instance."""
+        """Soft-deleted presets cannot be mutated through a stale model instance."""
         created_preset = await agent_preset_service.create_preset(
             agent_preset_create_params
         )
@@ -2426,15 +2426,15 @@ class TestAgentPresetService:
         with pytest.raises(TracecatNotFoundError, match="not found"):
             await agent_preset_service.update_preset(
                 created_preset,
-                AgentPresetUpdate(name="Archived update"),
+                AgentPresetUpdate(name="Soft-deleted update"),
             )
 
-    async def test_restore_version_rejects_archived_preset(
+    async def test_restore_version_rejects_soft_deleted_preset(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Archived presets cannot be restored through a stale model instance."""
+        """Soft-deleted presets cannot be restored through a stale model instance."""
         created_preset = await agent_preset_service.create_preset(
             agent_preset_create_params
         )
@@ -2446,12 +2446,12 @@ class TestAgentPresetService:
         with pytest.raises(TracecatNotFoundError, match="not found"):
             await agent_preset_service.restore_version(created_preset, current_version)
 
-    async def test_create_version_rejects_archived_preset(
+    async def test_create_version_rejects_soft_deleted_preset(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Version creation refuses archived preset heads."""
+        """Version creation refuses soft-deleted preset heads."""
         created_preset = await agent_preset_service.create_preset(
             agent_preset_create_params
         )
@@ -2536,12 +2536,12 @@ class TestAgentPresetService:
         }
         assert await agent_preset_service.get_preset(child.id) is not None
 
-    async def test_delete_preset_archives_when_only_referenced_as_subagent_in_history(
+    async def test_delete_preset_soft_deletes_when_only_referenced_as_subagent_in_history(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Historical subagent references do not block archive or remain runnable."""
+        """Historical subagent references do not block soft-delete or remain runnable."""
         child = await agent_preset_service.create_preset(
             agent_preset_create_params.model_copy(
                 update={"name": "Historical Child", "slug": "historical-child"}
@@ -2635,7 +2635,7 @@ class TestAgentPresetService:
         assert (
             await agent_preset_service.get_preset(
                 new_child.id,
-                include_archived=True,
+                include_deleted=True,
             )
             is not None
         )
@@ -2685,20 +2685,20 @@ class TestAgentPresetService:
         ):
             await agent_preset_service.create_preset(agent_preset_create_params)
 
-    async def test_archived_preset_releases_slug(
+    async def test_soft_deleted_preset_releases_slug(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Archived presets should not reserve slugs for new presets."""
-        archived = await agent_preset_service.create_preset(agent_preset_create_params)
-        await agent_preset_service.delete_preset(archived)
+        """Soft-deleted presets should not reserve slugs for new presets."""
+        deleted = await agent_preset_service.create_preset(agent_preset_create_params)
+        await agent_preset_service.delete_preset(deleted)
 
         recreated = await agent_preset_service.create_preset(agent_preset_create_params)
 
-        assert recreated.id != archived.id
-        assert recreated.slug == archived.slug
-        assert await agent_preset_service.get_preset(archived.id) is None
+        assert recreated.id != deleted.id
+        assert recreated.slug == deleted.slug
+        assert await agent_preset_service.get_preset(deleted.id) is None
 
     async def test_slug_normalization(
         self,
@@ -2940,8 +2940,8 @@ class TestAgentPresetService:
         )
         original_lock = agent_preset_service._lock_active_subagent_presets
 
-        async def archive_child_then_lock(agents: ResolvedAgentsConfig) -> None:
-            child.archived_at = datetime.now(UTC)
+        async def soft_delete_child_then_lock(agents: ResolvedAgentsConfig) -> None:
+            child.deleted_at = datetime.now(UTC)
             agent_preset_service.session.add(child)
             await agent_preset_service.session.flush()
             await original_lock(agents)
@@ -2949,12 +2949,12 @@ class TestAgentPresetService:
         monkeypatch.setattr(
             agent_preset_service,
             "_lock_active_subagent_presets",
-            archive_child_then_lock,
+            soft_delete_child_then_lock,
         )
 
         with pytest.raises(
             TracecatValidationError,
-            match="archived or missing subagent",
+            match="soft-deleted or missing subagent",
         ):
             await agent_preset_service.create_preset(
                 agent_preset_create_params.model_copy(
@@ -3128,7 +3128,7 @@ class TestAgentPresetService:
         agent_preset_create_params: AgentPresetCreate,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Updating a parent cannot attach a child archived after resolution."""
+        """Updating a parent cannot attach a child soft-deleted after resolution."""
         child = await agent_preset_service.create_preset(
             agent_preset_create_params.model_copy(
                 update={"name": "Update Race Child", "slug": "update-race-child"}
@@ -3141,8 +3141,8 @@ class TestAgentPresetService:
         )
         original_lock = agent_preset_service._lock_active_subagent_presets
 
-        async def archive_child_then_lock(agents: ResolvedAgentsConfig) -> None:
-            child.archived_at = datetime.now(UTC)
+        async def soft_delete_child_then_lock(agents: ResolvedAgentsConfig) -> None:
+            child.deleted_at = datetime.now(UTC)
             agent_preset_service.session.add(child)
             await agent_preset_service.session.flush()
             await original_lock(agents)
@@ -3150,12 +3150,12 @@ class TestAgentPresetService:
         monkeypatch.setattr(
             agent_preset_service,
             "_lock_active_subagent_presets",
-            archive_child_then_lock,
+            soft_delete_child_then_lock,
         )
 
         with pytest.raises(
             TracecatValidationError,
-            match="archived or missing subagent",
+            match="soft-deleted or missing subagent",
         ):
             await agent_preset_service.update_preset(
                 parent,

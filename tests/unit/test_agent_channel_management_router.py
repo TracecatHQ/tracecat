@@ -113,7 +113,8 @@ async def test_start_slack_oauth_returns_404_for_missing_token() -> None:
 
 
 @pytest.mark.anyio
-async def test_start_slack_oauth_returns_404_for_archived_existing_token() -> None:
+async def test_start_slack_oauth_returns_404_for_soft_deleted_existing_token() -> None:
+    """Slack OAuth updates reject tokens whose preset is soft-deleted."""
     role = Role(
         type="service",
         service_id="tracecat-api",
@@ -168,7 +169,10 @@ async def test_start_slack_oauth_returns_404_for_archived_existing_token() -> No
 
 
 @pytest.mark.anyio
-async def test_slack_oauth_callback_rejects_archived_preset_before_exchange() -> None:
+async def test_slack_oauth_callback_rejects_soft_deleted_preset_before_exchange() -> (
+    None
+):
+    """Slack OAuth callbacks stop before token exchange for soft-deleted presets."""
     token_id = uuid.uuid4()
     workspace_id = uuid.uuid4()
     preset_id = uuid.uuid4()
@@ -258,7 +262,8 @@ async def test_slack_oauth_callback_rejects_archived_preset_before_exchange() ->
 
 
 @pytest.mark.anyio
-async def test_update_channel_token_returns_404_for_archived_preset() -> None:
+async def test_update_channel_token_returns_404_for_soft_deleted_preset() -> None:
+    """Channel token updates surface soft-deleted presets as not found."""
     role = Role(
         type="service",
         service_id="tracecat-api",

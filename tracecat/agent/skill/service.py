@@ -2146,7 +2146,7 @@ class SkillService(BaseWorkspaceService):
                 AgentPresetSkill.workspace_id == self.workspace_id,
                 AgentPresetSkill.skill_id == skill.id,
                 AgentPreset.workspace_id == self.workspace_id,
-                AgentPreset.archived_at.is_(None),
+                AgentPreset.deleted_at.is_(None),
             )
         )
         binding_count = int(

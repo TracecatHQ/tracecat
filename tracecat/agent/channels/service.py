@@ -448,7 +448,7 @@ class AgentChannelService(BaseWorkspaceService):
         stmt = select(AgentPreset.id).where(
             AgentPreset.id == preset_id,
             AgentPreset.workspace_id == self.workspace_id,
-            AgentPreset.archived_at.is_(None),
+            AgentPreset.deleted_at.is_(None),
         )
         if lock:
             stmt = stmt.with_for_update()
@@ -531,7 +531,7 @@ class AgentChannelService(BaseWorkspaceService):
         await self._require_workspace_preset(token.agent_preset_id, lock=lock)
 
     async def deactivate_tokens_for_preset(self, preset_id: uuid.UUID) -> None:
-        """Shut down channel ingress for a preset that is being archived.
+        """Shut down channel ingress for a preset that is being soft-deleted.
 
         Deletes Slack OAuth placeholder tokens that never completed the flow
         and deactivates every remaining active token.
@@ -661,7 +661,7 @@ class AgentChannelService(BaseWorkspaceService):
             .where(
                 AgentChannelToken.id == token_id,
                 AgentChannelToken.channel_type == channel_type.value,
-                AgentPreset.archived_at.is_(None),
+                AgentPreset.deleted_at.is_(None),
             )
         )
         if require_active:

@@ -240,7 +240,7 @@ class AgentTagsService(BaseWorkspaceService):
             select(AgentPreset.id).where(
                 AgentPreset.id == preset_id,
                 AgentPreset.workspace_id == self.workspace_id,
-                AgentPreset.archived_at.is_(None),
+                AgentPreset.deleted_at.is_(None),
             )
         )
         tag_exists = exists(
@@ -258,7 +258,7 @@ class AgentTagsService(BaseWorkspaceService):
             select(AgentPreset.id).where(
                 AgentPreset.id == preset_id,
                 AgentPreset.workspace_id == self.workspace_id,
-                AgentPreset.archived_at.is_(None),
+                AgentPreset.deleted_at.is_(None),
             )
         )
         is_allowed = await self.session.scalar(select(preset_exists))
@@ -277,7 +277,7 @@ class AgentTagsService(BaseWorkspaceService):
             .where(
                 AgentTagLink.preset_id == preset_id,
                 AgentPreset.workspace_id == self.workspace_id,
-                AgentPreset.archived_at.is_(None),
+                AgentPreset.deleted_at.is_(None),
                 AgentTag.workspace_id == self.workspace_id,
             )
         )
@@ -301,7 +301,7 @@ class AgentTagsService(BaseWorkspaceService):
             .where(
                 AgentTagLink.preset_id == preset_id,
                 AgentPreset.workspace_id == self.workspace_id,
-                AgentPreset.archived_at.is_(None),
+                AgentPreset.deleted_at.is_(None),
                 AgentTag.workspace_id == self.workspace_id,
             )
         )
@@ -395,7 +395,7 @@ class AgentTagsService(BaseWorkspaceService):
                 AgentTagLink.preset_id == preset_id,
                 AgentTagLink.tag_id == tag_id,
                 AgentPreset.workspace_id == self.workspace_id,
-                AgentPreset.archived_at.is_(None),
+                AgentPreset.deleted_at.is_(None),
                 AgentTag.workspace_id == self.workspace_id,
             )
         )

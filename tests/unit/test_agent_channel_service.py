@@ -180,11 +180,12 @@ async def test_update_token_rejects_null_is_active(
 
 
 @pytest.mark.anyio
-async def test_create_token_rejects_archived_preset(
+async def test_create_token_rejects_soft_deleted_preset(
     agent_channel_service: AgentChannelService,
     agent_preset: AgentPreset,
 ) -> None:
-    agent_preset.archived_at = datetime.now(UTC)
+    """Channel tokens cannot be created for soft-deleted presets."""
+    agent_preset.deleted_at = datetime.now(UTC)
     agent_channel_service.session.add(agent_preset)
     await agent_channel_service.session.commit()
 
@@ -210,6 +211,7 @@ async def test_create_active_token_locks_preset(
     agent_preset: AgentPreset,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Creating an active token locks the preset before insertion."""
     captured_locks: list[bool] = []
     original_require_workspace_preset = agent_channel_service._require_workspace_preset
 
@@ -248,6 +250,7 @@ async def test_create_pending_token_locks_preset(
     agent_preset: AgentPreset,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Creating a pending Slack token locks the preset before insertion."""
     captured_locks: list[bool] = []
     original_require_workspace_preset = agent_channel_service._require_workspace_preset
 
@@ -281,10 +284,11 @@ async def test_create_pending_token_locks_preset(
 
 
 @pytest.mark.anyio
-async def test_update_token_rejects_reactivating_archived_preset(
+async def test_update_token_rejects_reactivating_soft_deleted_preset(
     agent_channel_service: AgentChannelService,
     agent_preset: AgentPreset,
 ) -> None:
+    """Soft-deleted presets cannot have inactive tokens reactivated."""
     token = await agent_channel_service.create_token(
         AgentChannelTokenCreate(
             agent_preset_id=agent_preset.id,
@@ -298,7 +302,7 @@ async def test_update_token_rejects_reactivating_archived_preset(
             is_active=False,
         )
     )
-    agent_preset.archived_at = datetime.now(UTC)
+    agent_preset.deleted_at = datetime.now(UTC)
     agent_channel_service.session.add(agent_preset)
     await agent_channel_service.session.commit()
 
@@ -310,10 +314,11 @@ async def test_update_token_rejects_reactivating_archived_preset(
 
 
 @pytest.mark.anyio
-async def test_update_token_rejects_config_update_for_archived_preset(
+async def test_update_token_rejects_config_update_for_soft_deleted_preset(
     agent_channel_service: AgentChannelService,
     agent_preset: AgentPreset,
 ) -> None:
+    """Soft-deleted presets cannot receive channel config updates."""
     token = await agent_channel_service.create_token(
         AgentChannelTokenCreate(
             agent_preset_id=agent_preset.id,
@@ -327,7 +332,7 @@ async def test_update_token_rejects_config_update_for_archived_preset(
             is_active=False,
         )
     )
-    agent_preset.archived_at = datetime.now(UTC)
+    agent_preset.deleted_at = datetime.now(UTC)
     agent_channel_service.session.add(agent_preset)
     await agent_channel_service.session.commit()
 
@@ -352,6 +357,7 @@ async def test_update_token_locks_preset_when_reactivating(
     agent_preset: AgentPreset,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Reactivating a token locks the preset before mutation."""
     token = await agent_channel_service.create_token(
         AgentChannelTokenCreate(
             agent_preset_id=agent_preset.id,
@@ -389,10 +395,11 @@ async def test_update_token_locks_preset_when_reactivating(
 
 
 @pytest.mark.anyio
-async def test_public_token_lookup_rejects_archived_preset(
+async def test_public_token_lookup_rejects_soft_deleted_preset(
     agent_channel_service: AgentChannelService,
     agent_preset: AgentPreset,
 ) -> None:
+    """Public token lookup ignores tokens attached to soft-deleted presets."""
     token = await agent_channel_service.create_token(
         AgentChannelTokenCreate(
             agent_preset_id=agent_preset.id,
@@ -406,7 +413,7 @@ async def test_public_token_lookup_rejects_archived_preset(
             is_active=True,
         )
     )
-    agent_preset.archived_at = datetime.now(UTC)
+    agent_preset.deleted_at = datetime.now(UTC)
     agent_channel_service.session.add(agent_preset)
     await agent_channel_service.session.commit()
 

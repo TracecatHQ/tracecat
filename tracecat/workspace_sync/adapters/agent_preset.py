@@ -230,7 +230,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             select(AgentPreset)
             .where(
                 AgentPreset.workspace_id == workspace_service.workspace_id,
-                AgentPreset.archived_at.is_(None),
+                AgentPreset.deleted_at.is_(None),
             )
             .options(
                 selectinload(AgentPreset.folder),
@@ -385,8 +385,8 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             owner_label="preset",
             error_cls=TracecatValidationError,
             options=(selectinload(AgentPreset.tags),),
-            row_predicates=(AgentPreset.archived_at.is_(None),),
-            availability_predicates=(AgentPreset.archived_at.is_(None),),
+            row_predicates=(AgentPreset.deleted_at.is_(None),),
+            availability_predicates=(AgentPreset.deleted_at.is_(None),),
         )
         imported: list[ImportedResource] = []
         preset_by_source_id: dict[str, AgentPreset] = {}
@@ -628,7 +628,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             .where(
                 AgentPreset.workspace_id == workspace_service.workspace_id,
                 AgentPreset.slug == spec.slug,
-                AgentPreset.archived_at.is_(None),
+                AgentPreset.deleted_at.is_(None),
             )
             .options(selectinload(AgentPreset.tags))
         )
@@ -645,7 +645,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             source_id=source_id,
             model=AgentPreset,
             options=(selectinload(AgentPreset.tags),),
-            row_predicates=(AgentPreset.archived_at.is_(None),),
+            row_predicates=(AgentPreset.deleted_at.is_(None),),
         )
 
     async def _ensure_agent_folder(
@@ -783,14 +783,14 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         subagent: AgentPresetSubagentRef,
     ) -> tuple[AgentPreset, AgentPresetVersion] | None:
         """Resolve a subagent ref to its child preset and desired version."""
-        # Look up the child preset by slug within the same workspace. Archived
-        # presets keep their slug, so exclude them to avoid binding an archived
+        # Look up the child preset by slug within the same workspace. Soft-deleted
+        # presets keep their slug, so exclude them to avoid binding a deleted
         # child that runtime resolution would reject.
         child = await workspace_service.session.scalar(
             select(AgentPreset).where(
                 AgentPreset.workspace_id == workspace_service.workspace_id,
                 AgentPreset.slug == subagent.slug,
-                AgentPreset.archived_at.is_(None),
+                AgentPreset.deleted_at.is_(None),
             )
         )
         if child is None:

@@ -117,7 +117,7 @@ async def update_agent_preset(
     try:
         preset = await service.update_preset(preset, params)
     except TracecatNotFoundError as e:
-        # The preset can be archived between the lookup above and the
+        # The preset can be soft-deleted between the lookup above and the
         # service's row lock; surface that race as a 404, not a 500.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     return await service.build_preset_read(preset)
@@ -141,7 +141,7 @@ async def delete_agent_preset(
     try:
         await service.delete_preset(preset)
     except TracecatNotFoundError as e:
-        # The preset can be archived between the lookup above and the
+        # The preset can be soft-deleted between the lookup above and the
         # service's row lock; surface that race as a 404, not a 500.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
@@ -265,6 +265,12 @@ async def restore_agent_preset_version(
         )
     try:
         restored = await service.restore_version(preset, version)
+    except TracecatNotFoundError as exc:
+        # The preset can be soft-deleted between the lookup above and the
+        # service's row lock; surface that race as a 404, not a 500.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
     except TracecatValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
