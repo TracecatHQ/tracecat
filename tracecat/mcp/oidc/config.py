@@ -81,16 +81,22 @@ been idle longer than this value.
 """
 
 REFRESH_TOKEN_REUSE_GRACE_SECONDS = int(
-    os.environ.get("TRACECAT__MCP_OIDC_REFRESH_REUSE_GRACE_SECONDS") or 60
+    os.environ.get("TRACECAT__MCP_OIDC_REFRESH_REUSE_GRACE_SECONDS") or 0
 )
-"""Replay-grace window for rotated refresh tokens: 60 seconds by default.
+"""Replay-grace window for rotated refresh tokens. Default ``0`` = strict
+OAuth 2.1 single-use rotation (any replay of a consumed token revokes the
+whole family — full theft detection).
 
-Presenting the most recently rotated (``used``) refresh token again within
-this window issues a fresh sibling token in the same family instead of
-revoking it. This absorbs benign replays — network retries and concurrent
-refreshes from clients with known replay bugs (e.g. OpenAI Codex CLI) —
-without weakening theft detection outside the window. Set to ``0`` for
-strict OAuth 2.1 single-use rotation (any replay revokes the family).
+Set to a positive number of seconds to instead issue a fresh sibling token
+when the most recently rotated (``used``) token is replayed within the
+window. That absorbs benign concurrent/retried refreshes (e.g. multiple
+proxy replicas refreshing the same upstream token), but it is an opt-in
+security trade-off: because the client-facing FastMCP proxy presents these
+issuer refresh tokens on behalf of public MCP clients, a grace window lets
+a stolen client refresh token replayed in a concurrent race survive instead
+of tripping family revocation. Keep at ``0`` unless benign concurrent
+refreshes are causing spurious re-authentication and you accept that
+trade-off.
 """
 
 AUTH_CODE_LIFETIME_SECONDS = 5 * 60

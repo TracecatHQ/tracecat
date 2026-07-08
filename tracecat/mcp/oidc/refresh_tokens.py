@@ -224,12 +224,19 @@ async def _handle_used_token_replay(
 ) -> tuple[RefreshTokenContext, str]:
     """Handle presentation of an already-consumed refresh token.
 
-    Replaying the most recently rotated token in its family within
-    ``REFRESH_TOKEN_REUSE_GRACE_SECONDS`` of its consumption is treated as a
-    benign replay (network retry, concurrent refresh, or a client with a
-    stale-token bug) and issues a fresh sibling token in the same family.
-    Any other replay is treated as hostile and revokes the entire family.
-    The caller has already verified the client_id binding.
+    Default behaviour (``REFRESH_TOKEN_REUSE_GRACE_SECONDS == 0``): any replay
+    of a consumed token is hostile and revokes the entire family (strict
+    single-use rotation / theft detection). The caller has already verified
+    the client_id binding.
+
+    When grace is enabled (> 0), replaying the family's most recently rotated
+    token within the window issues a fresh sibling instead of revoking, to
+    absorb benign concurrent/retried refreshes. This is an opt-in trade-off:
+    the client-facing FastMCP proxy presents these issuer refresh tokens on
+    behalf of *public* MCP clients, so a grace window lets a stolen client
+    refresh token, replayed in a concurrent race, survive instead of tripping
+    revocation. There is no cross-tenant path — siblings copy the
+    family/user/org/client binding verbatim.
     """
     now = datetime.now(UTC)
     grace = oidc_config.REFRESH_TOKEN_REUSE_GRACE_SECONDS
