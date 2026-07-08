@@ -1,0 +1,19 @@
+docs/snippets/mcp-installation.mdx
+  s_a66a712823104d::t_fbf64c5523206e 59-62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "e7cc0ba70726f99c7f054c93ef416389d09aa999",
+  "prompts": {},
+  "sessions": {
+    "s_a66a712823104d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d40dd60f-1d15-4e99-8e72-fb2116a5f6aa",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
