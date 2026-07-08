@@ -1,6 +1,6 @@
 "use client"
 
-import { ExternalLink, Loader2, Zap } from "lucide-react"
+import { ExternalLink, Loader2, RefreshCw, Zap } from "lucide-react"
 import { useCallback, useMemo, useRef } from "react"
 import type { OAuthGrantType } from "@/client"
 import { ProviderIcon } from "@/components/icons"
@@ -58,8 +58,21 @@ export function OAuthIntegrationDialog({
   const requiresConfig = Boolean(provider?.metadata.requires_config)
   const isAuthCodeGrant = provider?.grant_type === "authorization_code"
   const isEnabled = provider?.metadata.enabled ?? true
-  const connectLabel = "Connect"
-  const ConnectIcon = isAuthCodeGrant ? ExternalLink : Zap
+  // Editing an already-connected authorization_code integration: the config
+  // form owns the submit outcome (reauthorize redirect when a handshake field
+  // changed, eager PUT otherwise), so the footer just submits the form.
+  const isConnectedAuthCode =
+    integration?.status === "connected" && isAuthCodeGrant
+  let submitLabel = "Connect"
+  if (isConnectedAuthCode) {
+    submitLabel = "Save & reauthorize"
+  }
+  let ConnectIcon = Zap
+  if (isConnectedAuthCode) {
+    ConnectIcon = RefreshCw
+  } else if (isAuthCodeGrant) {
+    ConnectIcon = ExternalLink
+  }
   const isConnectDisabled =
     !isEnabled ||
     providerIsLoading ||
@@ -75,6 +88,14 @@ export function OAuthIntegrationDialog({
       return
     }
 
+    // When editing a connected authorization_code integration the form already
+    // performed the reauthorize redirect (for changed handshake fields) or the
+    // eager PUT (when nothing changed); nothing more to do here.
+    if (isConnectedAuthCode) {
+      onOpenChange(false)
+      return
+    }
+
     if (isAuthCodeGrant) {
       await connectProvider(providerId)
       return
@@ -87,27 +108,36 @@ export function OAuthIntegrationDialog({
   }, [
     connectProvider,
     isAuthCodeGrant,
+    isConnectedAuthCode,
     onOpenChange,
     providerId,
     testConnection,
   ])
 
   const handleConnectClick = useCallback(() => {
-    if (!requiresConfig) {
+    if (!requiresConfig && !isConnectedAuthCode) {
       return
     }
     submitIntentRef.current = "connect"
-  }, [requiresConfig])
+  }, [isConnectedAuthCode, requiresConfig])
 
   const handleDialogOpenChange = useCallback(
     (nextOpen: boolean) => {
-      if (!nextOpen && requiresConfig && formRef.current) {
+      // Auto-save config drafts on close only for the initial connect flow.
+      // For a connected authorization_code integration, closing must not
+      // silently trigger a reauthorization redirect.
+      if (
+        !nextOpen &&
+        requiresConfig &&
+        !isConnectedAuthCode &&
+        formRef.current
+      ) {
         submitIntentRef.current = "save"
         formRef.current.requestSubmit()
       }
       onOpenChange(nextOpen)
     },
-    [onOpenChange, requiresConfig]
+    [isConnectedAuthCode, onOpenChange, requiresConfig]
   )
 
   if (!open) {
@@ -180,7 +210,7 @@ export function OAuthIntegrationDialog({
               <Loader2 className="size-4 animate-spin" />
             )}
             {ConnectIcon && <ConnectIcon className="size-4" />}
-            {connectLabel}
+            {submitLabel}
           </Button>
         </DialogFooter>
       </DialogContent>

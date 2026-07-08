@@ -1,7 +1,7 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { Info, Save } from "lucide-react"
+import { Info, RefreshCw, Save } from "lucide-react"
 import { useCallback, useMemo } from "react"
 import { useForm, useWatch } from "react-hook-form"
 import { z } from "zod"
@@ -21,7 +21,14 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { toast } from "@/components/ui/use-toast"
+import { useConnectProvider } from "@/hooks/use-integration-actions"
+import { getApiErrorCode, type TracecatApiError } from "@/lib/errors"
 import { useIntegrationProvider } from "@/lib/hooks"
+import {
+  buildReauthOverrides,
+  computeChangedHandshakeFields,
+} from "@/lib/oauth-reauth"
 import { isMCPProvider } from "@/lib/providers"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -148,6 +155,15 @@ export function ProviderConfigForm({
     grantType,
   })
 
+  const connectMutation = useConnectProvider(workspaceId)
+
+  // A connected authorization_code integration cannot eagerly change any OAuth
+  // handshake field (client id/secret, endpoints, scopes). Those changes must
+  // ride a fresh consent flow so they only take effect once the callback
+  // succeeds — the existing connection keeps working until then.
+  const isConnectedAuthCode =
+    integration?.status === "connected" && grantType === "authorization_code"
+
   const defaultValues = useMemo<OAuthSchema>(() => {
     const fallbackScopes = integration?.requested_scopes ?? defaultScopes ?? []
     return {
@@ -167,6 +183,30 @@ export function ProviderConfigForm({
 
   const onSubmit = useCallback(
     async (data: OAuthSchema) => {
+      const formValues = {
+        clientId: data.client_id ?? "",
+        clientSecret: data.client_secret ?? "",
+        authorizationEndpoint: data.authorization_endpoint ?? "",
+        tokenEndpoint: data.token_endpoint ?? "",
+        scopes: data.scopes ?? [],
+      }
+
+      // Connected authorization_code integrations must reauthorize when any
+      // handshake field changes: send only the changed fields as overrides and
+      // let the connect flow redirect to the provider's consent screen.
+      if (isConnectedAuthCode && integration) {
+        const changedFields = computeChangedHandshakeFields(
+          formValues,
+          integration
+        )
+        if (changedFields.length > 0) {
+          const overrides = buildReauthOverrides(formValues, changedFields)
+          await connectMutation.mutateAsync({ providerId: id, overrides })
+          // Redirect happens in the mutation's onSuccess; nothing else to do.
+          return
+        }
+      }
+
       const params: IntegrationUpdate = {
         client_id: data.client_id?.trim() || undefined,
         client_secret: data.client_secret?.trim() || undefined,
@@ -176,10 +216,35 @@ export function ProviderConfigForm({
         grant_type: grantType,
       }
 
-      await updateIntegration(params)
+      try {
+        await updateIntegration(params)
+      } catch (error) {
+        // A residual eager PUT that touches a handshake field on a connected
+        // authorization_code integration is rejected with 409 reauth_required.
+        // Steer the user to the reauthorization flow instead of the generic
+        // failure toast raised by the mutation hook.
+        if (getApiErrorCode(error as TracecatApiError) === "reauth_required") {
+          toast({
+            title: "Reauthorization required",
+            description:
+              "These changes affect the OAuth handshake. Use Save & Reauthorize to apply them.",
+            variant: "destructive",
+          })
+          return
+        }
+        throw error
+      }
       onSuccess?.()
     },
-    [grantType, onSuccess, updateIntegration]
+    [
+      connectMutation,
+      grantType,
+      id,
+      integration,
+      isConnectedAuthCode,
+      onSuccess,
+      updateIntegration,
+    ]
   )
 
   const hasAuthHelp = hasHelpContent(providerAuthHelp)
@@ -549,6 +614,16 @@ export function ProviderConfigForm({
               />
             </div>
           </div>
+          {isConnectedAuthCode && (
+            <Alert>
+              <RefreshCw className="h-4 w-4" />
+              <AlertDescription className="text-xs">
+                Changes to credentials, endpoints, or scopes take effect only
+                after you reauthorize with the provider. Your current connection
+                keeps working until the new consent flow completes.
+              </AlertDescription>
+            </Alert>
+          )}
           {!hideActions && (
             <div className="flex flex-wrap items-center gap-3">
               <Button
@@ -557,10 +632,20 @@ export function ProviderConfigForm({
                   integration?.status === "configured" ? "outline" : "default"
                 }
                 className="gap-2"
-                disabled={updateIntegrationIsPending}
+                disabled={
+                  updateIntegrationIsPending || connectMutation.isPending
+                }
               >
-                {submitIcon ?? <Save className="h-4 w-4" />}
-                {submitLabel ?? "Save configuration"}
+                {submitIcon ??
+                  (isConnectedAuthCode ? (
+                    <RefreshCw className="h-4 w-4" />
+                  ) : (
+                    <Save className="h-4 w-4" />
+                  ))}
+                {submitLabel ??
+                  (isConnectedAuthCode
+                    ? "Save & reauthorize"
+                    : "Save configuration")}
               </Button>
               {additionalButtons}
             </div>

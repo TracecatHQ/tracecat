@@ -4489,6 +4489,39 @@ export type IntegrationArtifact = {
 }
 
 /**
+ * Optional handshake config overrides supplied when (re)connecting.
+ *
+ * When any field is provided on a connect request for a CONNECTED
+ * authorization-code integration, the override rides the OAuth handshake and
+ * is promoted onto the integration atomically only when the callback
+ * succeeds. The live integration row is left untouched at connect time.
+ *
+ * Scopes replace (not union) the current requested scopes when provided.
+ */
+export type IntegrationConnectOverrides = {
+  /**
+   * OAuth client ID override for the provider
+   */
+  client_id?: string | null
+  /**
+   * OAuth client secret override for the provider
+   */
+  client_secret?: string | null
+  /**
+   * OAuth authorization endpoint override. Must be HTTPS.
+   */
+  authorization_endpoint?: string | null
+  /**
+   * OAuth token endpoint override. Must be HTTPS.
+   */
+  token_endpoint?: string | null
+  /**
+   * OAuth scopes to request. Replaces existing scopes when set.
+   */
+  scopes?: Array<string> | null
+}
+
+/**
  * Response for OAuth callback.
  */
 export type IntegrationOAuthCallback = {
@@ -13203,6 +13236,7 @@ export type IntegrationsUpdateIntegrationResponse = void
 
 export type IntegrationsConnectProviderData = {
   providerId: string
+  requestBody?: IntegrationConnectOverrides | null
   workspaceId: string
 }
 

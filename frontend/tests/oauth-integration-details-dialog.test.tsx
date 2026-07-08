@@ -156,7 +156,10 @@ function setupMocks(grantType: OAuthGrantType) {
   )
 }
 
-function renderDialog(grantType: OAuthGrantType) {
+function renderDialog(
+  grantType: OAuthGrantType,
+  props: { onEditConfiguration?: () => void } = {}
+) {
   setupMocks(grantType)
 
   render(
@@ -166,6 +169,7 @@ function renderDialog(grantType: OAuthGrantType) {
       open={true}
       onOpenChange={() => {}}
       canUpdate={true}
+      onEditConfiguration={props.onEditConfiguration}
     />
   )
 }
@@ -188,6 +192,27 @@ describe("OAuthIntegrationDetailsDialog", () => {
     expect(screen.getByRole("button", { name: /test/i })).toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: /reauthorize/i })
+    ).not.toBeInTheDocument()
+  })
+
+  it("shows an Edit configuration action when a handler is provided", () => {
+    const onEditConfiguration = jest.fn()
+    renderDialog("authorization_code", { onEditConfiguration })
+
+    const editButton = screen.getByRole("button", {
+      name: /edit configuration/i,
+    })
+    expect(editButton).toBeInTheDocument()
+
+    editButton.click()
+    expect(onEditConfiguration).toHaveBeenCalledTimes(1)
+  })
+
+  it("hides the Edit configuration action without a handler", () => {
+    renderDialog("authorization_code")
+
+    expect(
+      screen.queryByRole("button", { name: /edit configuration/i })
     ).not.toBeInTheDocument()
   })
 })

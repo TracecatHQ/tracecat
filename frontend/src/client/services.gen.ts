@@ -11495,9 +11495,15 @@ export const integrationsUpdateIntegration = (
  *
  * Creates a secure state parameter stored in the database to prevent CSRF attacks.
  * The state is validated on the callback to ensure it was issued by our server.
+ *
+ * An optional ``overrides`` body carries handshake config changes (scopes,
+ * client credentials, endpoints) for a connected integration. The overrides
+ * ride the handshake and are promoted onto the integration atomically only on
+ * callback success; the integration row is not mutated here.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.providerId
+ * @param data.requestBody
  * @returns IntegrationOAuthConnect Successful Response
  * @throws ApiError
  */
@@ -11511,6 +11517,8 @@ export const integrationsConnectProvider = (
       workspace_id: data.workspaceId,
       provider_id: data.providerId,
     },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

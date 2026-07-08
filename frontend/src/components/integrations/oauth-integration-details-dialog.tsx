@@ -6,6 +6,7 @@ import {
   Loader2,
   MoreHorizontal,
   PlayCircle,
+  Settings2,
   Trash2,
 } from "lucide-react"
 import { useMemo, useState } from "react"
@@ -45,6 +46,12 @@ interface OAuthIntegrationDetailsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   canUpdate?: boolean
+  /**
+   * Invoked when the user chooses "Edit configuration". When provided, an
+   * action is shown that lets the user reconfigure a connected integration
+   * (credentials, endpoints, scopes) via the config form.
+   */
+  onEditConfiguration?: () => void
 }
 
 function maskValue(value?: string | null) {
@@ -61,6 +68,7 @@ export function OAuthIntegrationDetailsDialog({
   open,
   onOpenChange,
   canUpdate = false,
+  onEditConfiguration,
 }: OAuthIntegrationDetailsDialogProps) {
   const workspaceId = useWorkspaceId()
   const [confirmDisconnectOpen, setConfirmDisconnectOpen] = useState(false)
@@ -223,7 +231,17 @@ export function OAuthIntegrationDetailsDialog({
                               )}
                             </Button>
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-44">
+                          <DropdownMenuContent align="end" className="w-48">
+                            {onEditConfiguration ? (
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  onEditConfiguration()
+                                }}
+                              >
+                                <Settings2 className="mr-2 size-4 text-muted-foreground" />
+                                Edit configuration
+                              </DropdownMenuItem>
+                            ) : null}
                             {supportsReauthorize ? (
                               <DropdownMenuItem
                                 onClick={() =>

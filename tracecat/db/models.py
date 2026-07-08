@@ -4811,6 +4811,15 @@ class OAuthStateDB(TimestampMixin, Base):
         nullable=True,
         doc="PKCE code verifier for OAuth 2.1 flows",
     )
+    encrypted_pending_config: Mapped[bytes | None] = mapped_column(
+        LargeBinary,
+        nullable=True,
+        doc=(
+            "Encrypted JSON blob of handshake config overrides "
+            "(scopes, client_id, client_secret, authorization_endpoint, "
+            "token_endpoint) staged for atomic promotion on callback success."
+        ),
+    )
 
     # Relationships
     workspace: Mapped[Workspace] = relationship()

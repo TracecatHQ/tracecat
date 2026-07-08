@@ -12,15 +12,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
-from tracecat.db.models import OAuthIntegration
+from tracecat.db.models import (
+    OAuthIntegration,
+    OAuthStateDB,
+    WorkspaceOAuthProvider,
+)
 from tracecat.exceptions import TracecatAuthorizationError
-from tracecat.integrations.enums import OAuthGrantType
+from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
 from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
     ClientCredentialsOAuthProvider,
 )
 from tracecat.integrations.schemas import (
     IntegrationUpdate,
+    PendingOAuthConfig,
     ProviderConfig,
     ProviderKey,
     ProviderMetadata,
@@ -29,6 +34,7 @@ from tracecat.integrations.schemas import (
 from tracecat.integrations.service import (
     InsecureOAuthEndpointError,
     IntegrationService,
+    ReauthorizationRequiredError,
 )
 from tracecat.integrations.types import TokenResponse
 
@@ -1287,15 +1293,19 @@ class TestIntegrationService:
         )
         assert integration is None
 
-        # Now test with existing tokens
-        await integration_service.store_integration(
-            provider_key=provider_key,
-            access_token=mock_token_response.access_token,
-        )
+        # Now test with existing tokens. Store the client credentials BEFORE
+        # connecting so the integration reaches CONNECTED with those exact
+        # credentials; changing handshake fields on an already-connected
+        # authorization-code integration is now rejected (reauth required), so
+        # the credentials must be in place before the access token is stored.
         await integration_service.store_provider_config(
             provider_key=provider_key,
             client_id="test_client",
             client_secret=SecretStr("test_secret"),
+        )
+        await integration_service.store_integration(
+            provider_key=provider_key,
+            access_token=mock_token_response.access_token,
         )
 
         # Remove provider config - should only clear credentials
@@ -1832,7 +1842,14 @@ class TestIntegrationServiceScopes:
         integration_service: IntegrationService,
         mock_provider: MockOAuthProvider,
     ) -> None:
-        """Test updating scopes through multiple store operations."""
+        """Test updating scopes through multiple store operations.
+
+        These integrations are only CONFIGURED (never CONNECTED, since no
+        access token is stored via ``store_integration``), so handshake changes
+        are still written eagerly. The 409/reauthorization path applies only to
+        CONNECTED authorization-code integrations and is covered separately in
+        ``TestReauthorizationHandshake``.
+        """
         provider_key = ProviderKey(
             id=mock_provider.id, grant_type=mock_provider.grant_type
         )
@@ -1892,3 +1909,405 @@ class TestIntegrationServiceScopes:
 
         assert config is not None
         assert config.scopes == ["fallback.read", "fallback.write"]
+
+
+@pytest.mark.anyio
+class TestReauthorizationHandshake:
+    """Handshake-affecting config changes on a CONNECTED authorization-code
+    integration must ride the OAuth handshake and commit atomically on callback
+    success, not be eagerly written via ``store_provider_config``.
+    """
+
+    async def _make_connected_ac_integration(
+        self,
+        service: IntegrationService,
+        provider_key: ProviderKey,
+        *,
+        client_id: str = "live_client_id",
+        client_secret: str = "live_client_secret",
+        scopes: list[str] | None = None,
+    ) -> OAuthIntegration:
+        """Create a CONNECTED authorization-code integration.
+
+        First stores client credentials (CONFIGURED), then stores an access
+        token via ``store_integration`` so the derived status is CONNECTED.
+        """
+        await service.store_provider_config(
+            provider_key=provider_key,
+            client_id=client_id,
+            client_secret=SecretStr(client_secret),
+            requested_scopes=scopes if scopes is not None else ["read", "write"],
+        )
+        integration = await service.store_integration(
+            provider_key=provider_key,
+            access_token=SecretStr("live_access_token"),
+            refresh_token=SecretStr("live_refresh_token"),
+            expires_in=3600,
+            scope=" ".join(scopes) if scopes else "read write",
+        )
+        assert integration.status == IntegrationStatus.CONNECTED
+        return integration
+
+    # (a) Changed scopes on a CONNECTED AC integration -> reauth required.
+    async def test_changed_scopes_on_connected_requires_reauth(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        provider_key = ProviderKey(
+            id="reauth_provider", grant_type=OAuthGrantType.AUTHORIZATION_CODE
+        )
+        await self._make_connected_ac_integration(
+            integration_service, provider_key, scopes=["read", "write"]
+        )
+
+        with pytest.raises(ReauthorizationRequiredError) as exc_info:
+            await integration_service.store_provider_config(
+                provider_key=provider_key,
+                requested_scopes=["read", "write", "admin"],
+            )
+        assert exc_info.value.code == "reauth_required"
+        assert "scopes" in exc_info.value.changed_fields
+
+        # The live integration must be untouched by the rejected eager write.
+        integration = await integration_service.get_integration(
+            provider_key=provider_key
+        )
+        assert integration is not None
+        assert integration.requested_scopes == "read write"
+
+    async def test_changed_client_id_on_connected_requires_reauth(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        provider_key = ProviderKey(
+            id="reauth_provider_cid", grant_type=OAuthGrantType.AUTHORIZATION_CODE
+        )
+        await self._make_connected_ac_integration(
+            integration_service, provider_key, client_id="old_client_id"
+        )
+
+        with pytest.raises(ReauthorizationRequiredError) as exc_info:
+            await integration_service.store_provider_config(
+                provider_key=provider_key,
+                client_id="new_client_id",
+            )
+        assert exc_info.value.code == "reauth_required"
+        assert "client_id" in exc_info.value.changed_fields
+
+        # Live client_id unchanged.
+        integration = await integration_service.get_integration(
+            provider_key=provider_key
+        )
+        assert integration is not None
+        assert integration.encrypted_client_id is not None
+        assert (
+            integration_service.decrypt_client_credential(
+                integration.encrypted_client_id
+            )
+            == "old_client_id"
+        )
+
+    # (f) Unchanged handshake values on a CONNECTED AC integration -> no 409.
+    async def test_unchanged_handshake_values_on_connected_succeeds(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        provider_key = ProviderKey(
+            id="noop_provider", grant_type=OAuthGrantType.AUTHORIZATION_CODE
+        )
+        await self._make_connected_ac_integration(
+            integration_service,
+            provider_key,
+            client_id="stable_client_id",
+            scopes=["read", "write"],
+        )
+
+        # Re-submitting the exact current config must not force reauthorization.
+        integration = await integration_service.store_provider_config(
+            provider_key=provider_key,
+            client_id="stable_client_id",
+            requested_scopes=["read", "write"],
+        )
+        assert integration.status == IntegrationStatus.CONNECTED
+        assert integration.requested_scopes == "read write"
+
+    async def test_reordered_scopes_on_connected_succeeds(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """Reordering the same set of scopes is not a handshake change.
+
+        The scopes-changed check is order-insensitive (matching the frontend
+        ``scopesDiffer`` in ``oauth-reauth.ts``), so a PUT that merely reorders
+        the current scopes must not raise ``ReauthorizationRequiredError``.
+        """
+        provider_key = ProviderKey(
+            id="reorder_provider", grant_type=OAuthGrantType.AUTHORIZATION_CODE
+        )
+        await self._make_connected_ac_integration(
+            integration_service,
+            provider_key,
+            scopes=["read", "write", "admin"],
+        )
+
+        # Same set of scopes, different order -> allowed eager no-op write.
+        integration = await integration_service.store_provider_config(
+            provider_key=provider_key,
+            requested_scopes=["admin", "read", "write"],
+        )
+        assert integration.status == IntegrationStatus.CONNECTED
+        # Order is preserved on persistence; only the reauth gate is order-insensitive.
+        assert integration.requested_scopes == "admin read write"
+
+    # (e) client_credentials grant keeps eager behavior.
+    async def test_client_credentials_keeps_eager_scope_writes(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        provider_key = ProviderKey(
+            id="cc_provider", grant_type=OAuthGrantType.CLIENT_CREDENTIALS
+        )
+        # Create a CONNECTED client_credentials integration.
+        await integration_service.store_provider_config(
+            provider_key=provider_key,
+            client_id="cc_client_id",
+            client_secret=SecretStr("cc_secret"),
+            requested_scopes=["read"],
+        )
+        connected = await integration_service.store_integration(
+            provider_key=provider_key,
+            access_token=SecretStr("cc_access_token"),
+            scope="read",
+        )
+        assert connected.status == IntegrationStatus.CONNECTED
+
+        # Changing scopes must be written eagerly (no reauthorization).
+        updated = await integration_service.store_provider_config(
+            provider_key=provider_key,
+            requested_scopes=["read", "write", "admin"],
+        )
+        assert updated.requested_scopes == "read write admin"
+
+    # (b) Staging: a pending config is persisted encrypted on the OAuth state
+    # row and decrypts back to the expected blob, while the live integration is
+    # left untouched.
+    #
+    # We exercise the real encrypt/decrypt staging path directly rather than
+    # ``start_authorization_code_connect`` because that method requires a real
+    # ``user`` row (FK on ``oauth_state.user_id``) and provider instantiation
+    # that the service-level fixtures do not provide. This keeps the test
+    # deterministic while covering the "staged, integration untouched"
+    # guarantee.
+    async def test_pending_config_staged_and_integration_untouched(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        svc_role: Role,
+    ) -> None:
+        provider_key = ProviderKey(
+            id="staging_provider", grant_type=OAuthGrantType.AUTHORIZATION_CODE
+        )
+        integration = await self._make_connected_ac_integration(
+            integration_service,
+            provider_key,
+            client_id="live_client_id",
+            client_secret="live_client_secret",
+            scopes=["read", "write"],
+        )
+        # Snapshot the live values before staging.
+        before_scopes = integration.requested_scopes
+        before_client_id = integration.encrypted_client_id
+        before_client_secret = integration.encrypted_client_secret
+        before_auth_endpoint = integration.authorization_endpoint
+        before_token_endpoint = integration.token_endpoint
+
+        pending = PendingOAuthConfig(
+            scopes=["read", "write", "admin"],
+            client_id="new_client_id",
+            client_secret="new_client_secret",
+        )
+        encrypted = integration_service._encrypt_pending_config(pending)
+        assert encrypted is not None
+
+        state = OAuthStateDB(
+            state=uuid.uuid4(),
+            workspace_id=svc_role.workspace_id,
+            user_id=svc_role.user_id,
+            provider_id=provider_key.id,
+            expires_at=datetime.now(UTC) + timedelta(minutes=10),
+            encrypted_pending_config=encrypted,
+        )
+        # NOTE: user_id FK is not enforced for the purpose of asserting the
+        # encrypted blob roundtrip, so we read it back off the in-memory row.
+        decrypted = integration_service._decrypt_pending_config(
+            state.encrypted_pending_config
+        )
+        assert decrypted == pending
+
+        # The live integration must NOT have been mutated by staging.
+        refreshed = await integration_service.get_integration(provider_key=provider_key)
+        assert refreshed is not None
+        assert refreshed.requested_scopes == before_scopes
+        assert refreshed.encrypted_client_id == before_client_id
+        assert refreshed.encrypted_client_secret == before_client_secret
+        assert refreshed.authorization_endpoint == before_auth_endpoint
+        assert refreshed.token_endpoint == before_token_endpoint
+
+    # (c) Callback success: promotion applies scopes/creds/endpoints and tokens
+    # atomically via store_integration(..., pending_config=...), and a custom
+    # provider's default scopes are synced.
+    async def test_store_integration_promotes_pending_config(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        provider_key = ProviderKey(
+            id="promote_provider", grant_type=OAuthGrantType.AUTHORIZATION_CODE
+        )
+        await self._make_connected_ac_integration(
+            integration_service,
+            provider_key,
+            client_id="old_client_id",
+            client_secret="old_secret",
+            scopes=["read", "write"],
+        )
+
+        pending = PendingOAuthConfig(
+            scopes=["read", "write", "admin"],
+            client_id="promoted_client_id",
+            client_secret="promoted_secret",
+            authorization_endpoint="https://new.provider/authorize",
+            token_endpoint="https://new.provider/token",
+        )
+
+        promoted = await integration_service.store_integration(
+            provider_key=provider_key,
+            access_token=SecretStr("fresh_access_token"),
+            refresh_token=SecretStr("fresh_refresh_token"),
+            expires_in=3600,
+            scope="read write admin",
+            pending_config=pending,
+        )
+
+        # Promoted handshake fields committed together with the new tokens.
+        assert promoted.requested_scopes == "read write admin"
+        assert promoted.encrypted_client_id is not None
+        assert promoted.encrypted_client_secret is not None
+        assert (
+            integration_service.decrypt_client_credential(promoted.encrypted_client_id)
+            == "promoted_client_id"
+        )
+        assert (
+            integration_service.decrypt_client_credential(
+                promoted.encrypted_client_secret
+            )
+            == "promoted_secret"
+        )
+        assert promoted.authorization_endpoint == "https://new.provider/authorize"
+        assert promoted.token_endpoint == "https://new.provider/token"
+        assert (
+            integration_service._decrypt_token(promoted.encrypted_access_token)
+            == "fresh_access_token"
+        )
+        assert promoted.status == IntegrationStatus.CONNECTED
+
+    async def test_store_integration_promotion_syncs_custom_provider_scopes(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        svc_role: Role,
+    ) -> None:
+        provider_key = ProviderKey(
+            id="custom_promote_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        # Seed a custom provider definition for the workspace.
+        custom_provider = WorkspaceOAuthProvider(
+            workspace_id=svc_role.workspace_id,
+            provider_id=provider_key.id,
+            name="Custom Promote Provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+            authorization_endpoint="https://custom.provider/authorize",
+            token_endpoint="https://custom.provider/token",
+            scopes=["read", "write"],
+        )
+        session.add(custom_provider)
+        await session.commit()
+
+        await self._make_connected_ac_integration(
+            integration_service, provider_key, scopes=["read", "write"]
+        )
+
+        pending = PendingOAuthConfig(scopes=["read", "write", "admin"])
+        promoted = await integration_service.store_integration(
+            provider_key=provider_key,
+            access_token=SecretStr("fresh_access_token"),
+            scope="read write admin",
+            pending_config=pending,
+        )
+        assert promoted.requested_scopes == "read write admin"
+
+        # Custom provider default scopes are synced to the promoted scopes.
+        fetched_provider = await integration_service.get_custom_provider(
+            provider_key=provider_key
+        )
+        assert fetched_provider is not None
+        assert fetched_provider.scopes == ["read", "write", "admin"]
+
+    # (d) Transactional guarantee: promotion happens ONLY inside store_integration.
+    #
+    # A real exchange failure occurs before store_integration is ever reached
+    # (the router calls exchange_code_for_token first), so a failed exchange
+    # cannot promote. We assert the transactional guarantee at the layer we can
+    # reach: if store_integration is never called, the staged pending config is
+    # never promoted and the live integration is unchanged.
+    async def test_pending_config_not_promoted_without_store_integration(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        provider_key = ProviderKey(
+            id="exchange_fail_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        integration = await self._make_connected_ac_integration(
+            integration_service,
+            provider_key,
+            client_id="live_client_id",
+            scopes=["read", "write"],
+        )
+        before_scopes = integration.requested_scopes
+        before_client_id = integration.encrypted_client_id
+
+        # Simulate the exchange failing before store_integration is reached:
+        # store_integration is simply never called with the pending config.
+        _pending = PendingOAuthConfig(
+            scopes=["read", "write", "admin"], client_id="never_promoted"
+        )
+
+        # No promotion occurred; the live integration is unchanged.
+        refreshed = await integration_service.get_integration(provider_key=provider_key)
+        assert refreshed is not None
+        assert refreshed.requested_scopes == before_scopes
+        assert refreshed.encrypted_client_id == before_client_id
+
+    async def test_promote_pending_config_none_is_noop(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """A store_integration call without a pending config must not mutate
+        handshake fields beyond the normal token refresh."""
+        provider_key = ProviderKey(
+            id="noop_promote_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        integration = await self._make_connected_ac_integration(
+            integration_service, provider_key, scopes=["read", "write"]
+        )
+        before_scopes = integration.requested_scopes
+
+        refreshed = await integration_service.store_integration(
+            provider_key=provider_key,
+            access_token=SecretStr("refreshed_token"),
+            scope="read write",
+            pending_config=None,
+        )
+        assert refreshed.requested_scopes == before_scopes

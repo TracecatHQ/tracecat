@@ -14669,6 +14669,91 @@ export const $IntegrationArtifact = {
     "Integration artifact stub. Extend when integration surfaces are wired.",
 } as const
 
+export const $IntegrationConnectOverrides = {
+  properties: {
+    client_id: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Id",
+      description: "OAuth client ID override for the provider",
+    },
+    client_secret: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+          format: "password",
+          writeOnly: true,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Secret",
+      description: "OAuth client secret override for the provider",
+    },
+    authorization_endpoint: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 8,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Authorization Endpoint",
+      description: "OAuth authorization endpoint override. Must be HTTPS.",
+    },
+    token_endpoint: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 8,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Token Endpoint",
+      description: "OAuth token endpoint override. Must be HTTPS.",
+    },
+    scopes: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Scopes",
+      description:
+        "OAuth scopes to request. Replaces existing scopes when set.",
+    },
+  },
+  type: "object",
+  title: "IntegrationConnectOverrides",
+  description: `Optional handshake config overrides supplied when (re)connecting.
+
+When any field is provided on a connect request for a CONNECTED
+authorization-code integration, the override rides the OAuth handshake and
+is promoted onto the integration atomically only when the callback
+succeeds. The live integration row is left untouched at connect time.
+
+Scopes replace (not union) the current requested scopes when provided.`,
+} as const
+
 export const $IntegrationOAuthCallback = {
   properties: {
     status: {

@@ -53,7 +53,11 @@ from tracecat.integrations.catalog.loader import (
     get_platform_mcp_catalog_entry_by_slug,
 )
 from tracecat.integrations.catalog.types import PlatformMCPCatalogEntry
-from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
+from tracecat.integrations.enums import (
+    IntegrationStatus,
+    MCPAuthType,
+    OAuthGrantType,
+)
 from tracecat.integrations.mcp_validation import (
     ALLOWED_MCP_COMMANDS,
     MAX_SERVER_NAME_LENGTH,
@@ -76,6 +80,7 @@ from tracecat.integrations.providers.base import (
 )
 from tracecat.integrations.schemas import (
     CustomOAuthProviderCreate,
+    IntegrationConnectOverrides,
     IntegrationOAuthConnect,
     MCPConnectionSpec,
     MCPHttpIntegrationCreate,
@@ -91,6 +96,7 @@ from tracecat.integrations.schemas import (
     MCPToolPolicyUpdate,
     MCPToolSummary,
     MCPVerificationStatusRead,
+    PendingOAuthConfig,
     PlatformMCPCatalogState,
     ProviderConfig,
     ProviderKey,
@@ -138,6 +144,25 @@ class InsecureOAuthEndpointError(ValueError):
 
 class ProviderConfigurationRequiredError(ValueError):
     """Raised when an OAuth provider must be configured before connection."""
+
+
+class ReauthorizationRequiredError(Exception):
+    """Raised when a handshake-affecting field is changed on a connected
+    authorization-code integration.
+
+    Such changes must ride the OAuth handshake and commit atomically on
+    callback success; they cannot be eagerly written via PUT. Carries a
+    machine-readable ``code`` for the API layer.
+    """
+
+    code = "reauth_required"
+
+    def __init__(self, changed_fields: list[str]) -> None:
+        self.changed_fields = changed_fields
+        super().__init__(
+            "Changing handshake configuration on a connected integration "
+            "requires reauthorization"
+        )
 
 
 @dataclass(frozen=True)
@@ -574,16 +599,74 @@ class IntegrationService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return result.scalars().all()
 
+    @staticmethod
+    def _pending_config_from_overrides(
+        overrides: IntegrationConnectOverrides | None,
+    ) -> PendingOAuthConfig | None:
+        """Build a stageable pending config from request overrides, if any."""
+        if overrides is None or not overrides.has_overrides():
+            return None
+        return PendingOAuthConfig(
+            scopes=overrides.scopes,
+            client_id=overrides.client_id,
+            client_secret=(
+                overrides.client_secret.get_secret_value()
+                if overrides.client_secret is not None
+                else None
+            ),
+            authorization_endpoint=overrides.authorization_endpoint,
+            token_endpoint=overrides.token_endpoint,
+        )
+
+    def _apply_pending_config_to_provider_config(
+        self,
+        *,
+        base_config: ProviderConfig | None,
+        pending: PendingOAuthConfig | None,
+    ) -> ProviderConfig | None:
+        """Merge staged overrides onto a base provider config (overrides win)."""
+        if pending is None:
+            return base_config
+        base = base_config or ProviderConfig()
+        return ProviderConfig(
+            client_id=pending.client_id
+            if pending.client_id is not None
+            else base.client_id,
+            client_secret=(
+                SecretStr(pending.client_secret)
+                if pending.client_secret is not None
+                else base.client_secret
+            ),
+            authorization_endpoint=pending.authorization_endpoint
+            if pending.authorization_endpoint is not None
+            else base.authorization_endpoint,
+            token_endpoint=pending.token_endpoint
+            if pending.token_endpoint is not None
+            else base.token_endpoint,
+            # Scopes replace (not union) when provided.
+            scopes=pending.scopes if pending.scopes is not None else base.scopes,
+        )
+
     @require_scope("integration:create", "integration:update", require_all=False)
     async def start_authorization_code_connect(
         self,
         *,
         provider_key: ProviderKey,
         provider_impl: type[AuthorizationCodeOAuthProvider],
+        overrides: IntegrationConnectOverrides | None = None,
     ) -> IntegrationOAuthConnect:
-        """Initiate an authorization-code OAuth connection for a provider."""
+        """Initiate an authorization-code OAuth connection for a provider.
+
+        When ``overrides`` carries handshake fields (scopes, client creds,
+        endpoints) they ride the handshake: the authorize URL is built from the
+        live config merged with the overrides, and the (encrypted) override blob
+        is staged on the OAuth state row for atomic promotion on callback
+        success. The integration row is NOT mutated here.
+        """
         if self.workspace_id is None or self.role.user_id is None:
             raise ValueError("Workspace and user ID is required")
+
+        pending = self._pending_config_from_overrides(overrides)
 
         integration = await self.get_integration(provider_key=provider_key)
         provider_config = (
@@ -594,6 +677,10 @@ class IntegrationService(BaseWorkspaceService):
             )
             if integration
             else None
+        )
+        # Merge staged overrides so the authorize URL reflects the new grant.
+        provider_config = self._apply_pending_config_to_provider_config(
+            base_config=provider_config, pending=pending
         )
 
         if provider_impl.metadata.requires_config:
@@ -631,6 +718,11 @@ class IntegrationService(BaseWorkspaceService):
             user_id=self.role.user_id,
             provider_id=provider_key.id,
             expires_at=expires_at,
+            encrypted_pending_config=(
+                self._encrypt_pending_config(pending)
+                if pending is not None and pending.has_values()
+                else None
+            ),
         )
         self.session.add(oauth_state)
         await self.session.commit()
@@ -644,6 +736,7 @@ class IntegrationService(BaseWorkspaceService):
             "Generated authorization URL",
             provider=provider.id,
             has_code_verifier=code_verifier is not None,
+            has_pending_config=pending is not None,
         )
         return IntegrationOAuthConnect(auth_url=auth_url, provider_id=provider.id)
 
@@ -1468,6 +1561,62 @@ class IntegrationService(BaseWorkspaceService):
         )
         return authorization_endpoint, token_endpoint
 
+    async def _promote_pending_config(
+        self,
+        *,
+        integration: OAuthIntegration,
+        provider_key: ProviderKey,
+        pending: PendingOAuthConfig | None,
+    ) -> None:
+        """Apply staged handshake overrides onto the integration in-place.
+
+        Does NOT commit; the caller commits in the same transaction as the
+        freshly exchanged tokens so promotion is atomic. Also syncs the custom
+        provider definition's default scopes when the provider is custom.
+        """
+        if pending is None or not pending.has_values():
+            return
+
+        if pending.client_id is not None:
+            integration.encrypted_client_id = self.encrypt_client_credential(
+                pending.client_id
+            )
+            integration.use_workspace_credentials = True
+        if pending.client_secret is not None:
+            integration.encrypted_client_secret = self.encrypt_client_credential(
+                pending.client_secret
+            )
+        if pending.authorization_endpoint is not None:
+            integration.authorization_endpoint = self._validate_https_endpoint(
+                pending.authorization_endpoint,
+                field_name="authorization_endpoint",
+            )
+        if pending.token_endpoint is not None:
+            integration.token_endpoint = self._validate_https_endpoint(
+                pending.token_endpoint,
+                field_name="token_endpoint",
+            )
+        if pending.scopes is not None:
+            normalized = self._normalize_scopes(pending.scopes)
+            integration.requested_scopes = " ".join(normalized) if normalized else ""
+            # Keep a custom provider's default scopes in sync with the grant.
+            custom_provider = await self.get_custom_provider(provider_key=provider_key)
+            if custom_provider is not None:
+                custom_provider.scopes = list(normalized)
+                self.session.add(custom_provider)
+
+        self.logger.info(
+            "Promoted pending OAuth config",
+            provider=provider_key,
+            promoted_scopes=pending.scopes is not None,
+            promoted_client_id=pending.client_id is not None,
+            promoted_client_secret=pending.client_secret is not None,
+            promoted_endpoints=(
+                pending.authorization_endpoint is not None
+                or pending.token_endpoint is not None
+            ),
+        )
+
     @require_scope("integration:create", "integration:update", require_all=False)
     async def store_integration(
         self,
@@ -1481,8 +1630,16 @@ class IntegrationService(BaseWorkspaceService):
         authorization_endpoint: str | None = None,
         token_endpoint: str | None = None,
         token_endpoint_auth_method: str | None = None,
+        pending_config: PendingOAuthConfig | None = None,
     ) -> OAuthIntegration:
-        """Store or update a user's integration."""
+        """Store or update a user's integration.
+
+        When ``pending_config`` is provided, the promoted handshake fields
+        (requested scopes, client credentials, endpoints) are applied to the
+        integration in the SAME transaction as the freshly exchanged tokens so
+        they commit atomically. For custom providers, the provider definition's
+        default scopes are synced to the promoted scopes as well.
+        """
         # Calculate expiration time if expires_in is provided
         expires_at = None
         if expires_in is not None:
@@ -1545,6 +1702,12 @@ class IntegrationService(BaseWorkspaceService):
             # rejects.
             integration.token_endpoint_auth_method = token_endpoint_auth_method
 
+            await self._promote_pending_config(
+                integration=integration,
+                provider_key=provider_key,
+                pending=pending_config,
+            )
+
             self.session.add(integration)
             await self.session.commit()
             await self.session.refresh(integration)
@@ -1584,6 +1747,12 @@ class IntegrationService(BaseWorkspaceService):
                     field_name="token_endpoint",
                 ),
                 token_endpoint_auth_method=token_endpoint_auth_method,
+            )
+
+            await self._promote_pending_config(
+                integration=integration,
+                provider_key=provider_key,
+                pending=pending_config,
             )
 
             self.session.add(integration)
@@ -1921,6 +2090,30 @@ class IntegrationService(BaseWorkspaceService):
             "utf-8"
         )
 
+    def _encrypt_pending_config(self, pending: PendingOAuthConfig) -> bytes:
+        """Encrypt a staged handshake config blob for the OAuth state row."""
+        payload = orjson.dumps(pending.model_dump(exclude_none=True))
+        return encrypt_value(payload, key=self._encryption_key)
+
+    def _decrypt_pending_config(
+        self, encrypted_pending_config: bytes | None
+    ) -> PendingOAuthConfig | None:
+        """Decrypt a staged handshake config blob from the OAuth state row."""
+        if not encrypted_pending_config or not is_set(encrypted_pending_config):
+            return None
+        try:
+            raw = decrypt_value(encrypted_pending_config, key=self._encryption_key)
+            loaded = orjson.loads(raw)
+        except Exception as e:
+            self.logger.error(
+                "Failed to decrypt pending OAuth config",
+                error=str(e),
+            )
+            return None
+        if not isinstance(loaded, dict):
+            return None
+        return PendingOAuthConfig.model_validate(loaded)
+
     @require_scope("integration:read")
     def decrypt_stdio_env(
         self, mcp_integration: MCPIntegration
@@ -1943,6 +2136,64 @@ class IntegrationService(BaseWorkspaceService):
                 return None
             env[key] = value
         return env
+
+    def _changed_handshake_fields(
+        self,
+        *,
+        integration: OAuthIntegration,
+        client_id: str | None,
+        client_secret: SecretStr | None,
+        authorization_endpoint: str | None,
+        token_endpoint: str | None,
+        requested_scopes: list[str] | None,
+        normalized_scopes: list[str],
+    ) -> list[str]:
+        """Return handshake fields that are provided AND differ from live values.
+
+        A field only counts as changed when the caller provided it and the new
+        value differs from the currently stored (live) value. Unchanged
+        handshake values are allowed through so idempotent PUTs (e.g. the form
+        re-submitting current config) do not force reauthorization.
+        """
+        changed: list[str] = []
+
+        if client_id is not None:
+            current_client_id = (
+                self.decrypt_client_credential(integration.encrypted_client_id)
+                if integration.encrypted_client_id
+                else None
+            )
+            if client_id != current_client_id:
+                changed.append("client_id")
+
+        if client_secret is not None:
+            current_client_secret = (
+                self.decrypt_client_credential(integration.encrypted_client_secret)
+                if integration.encrypted_client_secret
+                else None
+            )
+            if client_secret.get_secret_value() != current_client_secret:
+                changed.append("client_secret")
+
+        if (
+            authorization_endpoint is not None
+            and authorization_endpoint != integration.authorization_endpoint
+        ):
+            changed.append("authorization_endpoint")
+
+        if token_endpoint is not None and token_endpoint != integration.token_endpoint:
+            changed.append("token_endpoint")
+
+        if requested_scopes is not None:
+            current_scopes = self.parse_scopes(integration.requested_scopes) or []
+            # Compare order-insensitively: reordering the same set of scopes is
+            # not a meaningful handshake change and must not force reauth. This
+            # mirrors the frontend `scopesDiffer` check in oauth-reauth.ts.
+            # `_normalize_scopes` already dedups, so set comparison is safe.
+            if set(normalized_scopes) != set(current_scopes):
+                changed.append("scopes")
+
+        return changed
 
     @require_scope("integration:create", "integration:update", require_all=False)
     async def store_provider_config(
@@ -1976,6 +2227,27 @@ class IntegrationService(BaseWorkspaceService):
                 and requested_scopes is None
             ):
                 return integration
+
+            # Close the eager-overwrite footgun: on a CONNECTED
+            # authorization-code integration, any changed handshake field must
+            # ride the OAuth handshake (via connect + callback) so tokens and
+            # config commit atomically. client_credentials has no interactive
+            # handshake, so it keeps eager writes.
+            if (
+                integration.status == IntegrationStatus.CONNECTED
+                and integration.grant_type == OAuthGrantType.AUTHORIZATION_CODE
+            ):
+                changed = self._changed_handshake_fields(
+                    integration=integration,
+                    client_id=client_id,
+                    client_secret=client_secret,
+                    authorization_endpoint=authorization_endpoint,
+                    token_endpoint=token_endpoint,
+                    requested_scopes=requested_scopes,
+                    normalized_scopes=normalized_scopes,
+                )
+                if changed:
+                    raise ReauthorizationRequiredError(changed_fields=changed)
 
             if client_id is not None:
                 integration.encrypted_client_id = self.encrypt_client_credential(
