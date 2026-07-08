@@ -102,15 +102,19 @@ definition:
                   payload["accountIds"] = account_ids
               if query_origin is not None:
                   payload["queryOrigin"] = query_origin
-              return payload
+              # A single-account query must carry the S1-Scope header set to that
+              # account ID; multi-account and global queries omit it.
+              extra_headers = {}
+              if account_ids is not None and len(account_ids) == 1:
+                  extra_headers["S1-Scope"] = account_ids[0]
+              return {"payload": payload, "extra_headers": extra_headers}
     - ref: submit_query
       action: core.http_request
       args:
         url: ${{ inputs.base_url || VARS.sentinel_one.base_url }}/sdl/v2/api/queries
         method: POST
-        headers:
-          Authorization: Bearer ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}
-        payload: ${{ steps.build_payload.result }}
+        headers: '${{ FN.merge([{"Authorization": FN.concat("Bearer ", SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN)}, steps.build_payload.result.extra_headers]) }}'
+        payload: ${{ steps.build_payload.result.payload }}
     - ref: poll_results
       action: core.http_poll
       args:

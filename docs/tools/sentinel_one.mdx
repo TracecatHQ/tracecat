@@ -446,9 +446,25 @@ Default: `null`.
 
 <ParamField path="filters" type="object">
 
-REST-format filter object sent in the request body, e.g. resourceType, name__contains, id__in, or date-range objects, plus limit and skip for pagination.
+REST-format filter object, e.g. resourceType, name__contains, id__in, or date-range objects. Keys here override the default limit and skip.
 
 Default: `{}`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer">
+
+Maximum number of assets to return.
+
+Default: `50`.
+
+</ParamField>
+
+<ParamField path="skip" type="integer">
+
+Number of assets to skip for pagination.
+
+Default: `0`.
 
 </ParamField>
 

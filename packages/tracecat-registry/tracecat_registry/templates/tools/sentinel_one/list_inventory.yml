@@ -12,8 +12,16 @@ definition:
   expects:
     filters:
       type: dict[str, Any]
-      description: REST-format filter object sent in the request body, e.g. resourceType, name__contains, id__in, or date-range objects, plus limit and skip for pagination.
+      description: REST-format filter object, e.g. resourceType, name__contains, id__in, or date-range objects. Keys here override the default limit and skip.
       default: {}
+    limit:
+      type: int
+      description: Maximum number of assets to return.
+      default: 50
+    skip:
+      type: int
+      description: Number of assets to skip for pagination.
+      default: 0
     base_url:
       type: str | None
       description: SentinelOne tenant URL.
@@ -27,5 +35,5 @@ definition:
         headers:
           Authorization: Bearer ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}
         payload:
-          filter: ${{ inputs.filters }}
+          filter: '${{ FN.merge([{"limit": inputs.limit, "skip": inputs.skip}, inputs.filters]) }}'
   returns: ${{ steps.list_items.result.data }}
