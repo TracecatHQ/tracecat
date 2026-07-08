@@ -2,7 +2,6 @@
 
 import { XIcon } from "lucide-react"
 import type React from "react"
-import { useState } from "react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ControlsHeader } from "@/components/nav/controls-header"
 import { AppSidebar } from "@/components/sidebar/app-sidebar"
@@ -17,6 +16,7 @@ import { ResizableSidebar } from "@/components/ui/resizable-sidebar"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { WorkspaceChatSidebar } from "@/components/workspaces/workspace-chat-sidebar"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useWorkspaceChatOpen } from "@/hooks/use-workspace-chat-open"
 
 const PANEL_TITLES: Record<string, string> = {
   "view-json": "View JSON",
@@ -32,7 +32,7 @@ export default function TableDetailLayout({
   const canExecuteAgents = useScopeCheck("agent:execute")
   const { hasEntitlement } = useEntitlements()
   const workspaceChatEnabled = hasEntitlement("workspace_chat")
-  const [chatOpen, setChatOpen] = useState(true)
+  const [chatOpen, setChatOpen] = useWorkspaceChatOpen()
   const canShowChat = canExecuteAgents === true && workspaceChatEnabled
 
   return (
