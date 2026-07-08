@@ -388,6 +388,29 @@ import {
 import type { WorkflowExecutionReadCompact } from "@/lib/event-history"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
+/**
+ * Build a react-query `onError` handler that surfaces mutation failures as
+ * toasts, mapping 403s to a consistent "Forbidden" message.
+ *
+ * @param activity Human-readable activity description, e.g. "deleting the action".
+ */
+function toastMutationError(activity: string) {
+  return (error: ApiError) => {
+    if (error.status === 403) {
+      toast({
+        title: "Forbidden",
+        description: "You cannot perform this action",
+      })
+      return
+    }
+    console.error(`Error ${activity}`, error)
+    toast({
+      title: `Error ${activity}`,
+      description: `An error occurred while ${activity}: ${getApiErrorDetail(error)}`,
+    })
+  }
+}
+
 interface AppInfo {
   version: string
   public_app_url: string
@@ -488,9 +511,7 @@ export function useDeleteAction() {
         queryKey: ["actions", actionId, workspaceId],
       })
     },
-    onError: (error) => {
-      console.error("Failed to delete action:", error)
-    },
+    onError: toastMutationError("deleting the action"),
   })
   return { deleteAction }
 }
@@ -2744,6 +2765,7 @@ export function useDeleteGitHubAppCredentials() {
         queryKey: ["github-app-repositories"],
       })
     },
+    onError: toastMutationError("deleting the GitHub App credentials"),
   })
 
   return {
@@ -2801,6 +2823,7 @@ export function useDeleteGitLabTokenCredentials() {
     onSuccess: () => {
       invalidateGitLabTokenCredentialQueries(queryClient)
     },
+    onError: toastMutationError("deleting the GitLab token credentials"),
   })
 
   return {
@@ -3356,6 +3379,7 @@ export function useDeleteColumn() {
         variables.tableId
       )
     },
+    onError: toastMutationError("deleting the column"),
   })
 
   return {
@@ -3522,6 +3546,7 @@ export function useDeleteRow() {
         variables.tableId
       )
     },
+    onError: toastMutationError("deleting the row"),
   })
 
   return {
@@ -3558,6 +3583,7 @@ export function useBatchDeleteRows() {
         variables.tableId
       )
     },
+    onError: toastMutationError("deleting the selected rows"),
   })
 
   return {
@@ -4606,6 +4632,7 @@ export function useRemoveCaseTag({
       })
       invalidateCaseActivityQueries(queryClient, caseId, workspaceId)
     },
+    onError: toastMutationError("removing the case tag"),
   })
   return {
     removeCaseTag,
@@ -5834,6 +5861,7 @@ export function useDeleteProviderCredentials() {
         queryKey: ["agent-providers-status"],
       })
     },
+    onError: toastMutationError("deleting the provider credentials"),
   })
 
   return {
