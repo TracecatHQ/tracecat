@@ -586,9 +586,11 @@ class SkillAdapter(DirectoryManifestAdapter):
                 swap=swap,
             )
             if skill is None:
+                await skill_service._validate_skill_slug_available(spec.slug)
                 skill = Skill(
                     workspace_id=workspace_service.workspace_id,
                     name=spec.slug,
+                    slug=spec.slug,
                     description=getattr(spec, "description", None),
                     draft_revision=0,
                 )
@@ -596,7 +598,7 @@ class SkillAdapter(DirectoryManifestAdapter):
                 # Flush to assign skill.id before referencing it below.
                 await workspace_service.session.flush()
             else:
-                # Keep an existing skill's slug and description in sync.
+                # Keep existing name-based sync behavior; slug is stable identity.
                 skill.name = spec.slug
                 skill.description = getattr(spec, "description", None)
 

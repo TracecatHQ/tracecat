@@ -6,7 +6,7 @@ import base64
 import hashlib
 import mimetypes
 import uuid
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import PurePosixPath
@@ -15,9 +15,12 @@ from typing import Never
 import orjson
 import sqlalchemy as sa
 import yaml
+from asyncpg import UniqueViolationError as AsyncpgUniqueViolationError
+from psycopg.errors import UniqueViolation as PsycopgUniqueViolation
 from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from tracecat import config
@@ -76,6 +79,10 @@ from tracecat.tiers.enums import Entitlement
 INLINE_TEXT_LIMIT_BYTES = 256 * 1024
 DEFAULT_UPLOAD_TTL_SECONDS = 15 * 60
 MAX_CONTENT_TYPE_LENGTH = 255
+SKILL_SLUG_MAX_LENGTH = 64
+SKILL_SLUG_INSERT_ATTEMPTS = 3
+SKILL_SLUG_UNIQUE_CONSTRAINT = "uq_skill_workspace_slug_active"
+POSTGRES_UNIQUE_VIOLATION_SQLSTATE = "23505"
 # Lenient adapter for name-based lookups: accepts legacy reserved-prefix names.
 SKILL_NAME_ADAPTER = TypeAdapter(SkillName)
 # Strict adapter for draft/publish manifest validation: rejects reserved names.
@@ -154,6 +161,57 @@ type PreparedDraftPatchOperation = (
     | PreparedDraftDeleteFileOp
     | PreparedDraftMoveFileOp
 )
+type SkillDraftBlobMapFactory = Callable[[], Awaitable[dict[str, SkillFileBlobRef]]]
+
+
+def _iter_exception_chain(error: BaseException) -> Iterator[BaseException]:
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        yield current
+        current = current.__cause__ or current.__context__
+
+
+def _iter_integrity_error_sources(error: IntegrityError) -> Iterator[object]:
+    yield from _iter_exception_chain(error)
+    orig = error.orig
+    yield orig
+    if isinstance(orig, BaseException):
+        yield from _iter_exception_chain(orig)
+
+
+def _constraint_name_from_integrity_error(error: IntegrityError) -> str | None:
+    for source in _iter_integrity_error_sources(error):
+        constraint_name = getattr(source, "constraint_name", None)
+        if isinstance(constraint_name, str):
+            return constraint_name
+        diag = getattr(source, "diag", None)
+        diag_constraint_name = getattr(diag, "constraint_name", None)
+        if isinstance(diag_constraint_name, str):
+            return diag_constraint_name
+    return None
+
+
+def _is_unique_violation(error: IntegrityError) -> bool:
+    for source in _iter_integrity_error_sources(error):
+        if isinstance(source, (AsyncpgUniqueViolationError, PsycopgUniqueViolation)):
+            return True
+        sqlstate = getattr(source, "sqlstate", None)
+        pgcode = getattr(source, "pgcode", None)
+        if (
+            sqlstate == POSTGRES_UNIQUE_VIOLATION_SQLSTATE
+            or pgcode == POSTGRES_UNIQUE_VIOLATION_SQLSTATE
+        ):
+            return True
+    return False
+
+
+def _is_skill_slug_unique_violation(error: IntegrityError) -> bool:
+    return (
+        _is_unique_violation(error)
+        and _constraint_name_from_integrity_error(error) == SKILL_SLUG_UNIQUE_CONSTRAINT
+    )
 
 
 class SkillService(BaseWorkspaceService):
@@ -918,6 +976,17 @@ class SkillService(BaseWorkspaceService):
     ) -> PreparedSkillUploadDraft:
         """Validate and materialize a one-shot upload into draft blob refs."""
 
+        validation, prepared_files = self._validate_upload_draft(params)
+        return await self._materialize_upload_draft(
+            validation=validation,
+            prepared_files=prepared_files,
+        )
+
+    def _validate_upload_draft(
+        self, params: SkillUpload
+    ) -> tuple[ManifestValidationResult, list[PreparedSkillUploadFile]]:
+        """Validate a one-shot upload without writing blob rows."""
+
         prepared_files = self._prepare_upload_files(params.files)
         validation = self._validate_prepared_upload_files(prepared_files)
         if validation.errors:
@@ -939,14 +1008,22 @@ class SkillService(BaseWorkspaceService):
                     "actual_name": validation.name,
                 },
             )
+        return validation, prepared_files
 
-        path_to_blob = {
-            file.path: SkillFileBlobRef(
+    async def _materialize_upload_draft(
+        self,
+        *,
+        validation: ManifestValidationResult,
+        prepared_files: Sequence[PreparedSkillUploadFile],
+    ) -> PreparedSkillUploadDraft:
+        """Materialize validated upload files into draft blob refs."""
+
+        path_to_blob: dict[str, SkillFileBlobRef] = {}
+        for file in prepared_files:
+            path_to_blob[file.path] = SkillFileBlobRef(
                 blob=await self._get_or_create_blob(content=file.content),
                 content_type=file.content_type,
             )
-            for file in prepared_files
-        }
         return PreparedSkillUploadDraft(
             validation=validation,
             path_to_blob=path_to_blob,
@@ -1073,6 +1150,10 @@ class SkillService(BaseWorkspaceService):
             id=skill.id,
             workspace_id=skill.workspace_id,
             name=skill.name,
+            # Legacy writers (old pods during the expand window) insert rows
+            # without a slug; surface the backfill semantics (slug := name)
+            # until the contract release backfills and sets NOT NULL.
+            slug=skill.slug or skill.name,
             description=skill.description,
             current_version_id=skill.current_version_id,
             draft_revision=skill.draft_revision,
@@ -1098,6 +1179,106 @@ class SkillService(BaseWorkspaceService):
             created_at=skill.created_at,
             updated_at=skill.updated_at,
             deleted_at=skill.deleted_at or skill.archived_at,
+        )
+
+    async def _validate_skill_slug_available(self, slug: str) -> None:
+        """Ensure a live skill slug is not already reserved in this workspace.
+
+        Used by workspace-sync import, where the manifest names an exact slug
+        and silently suffixing would diverge from the commit. Interactive
+        creation uses ``_allocate_skill_slug`` instead.
+        """
+
+        if await self._skill_slug_exists(slug):
+            raise TracecatValidationError(
+                f"Skill slug '{slug}' is already in use for this workspace",
+                detail={"code": "skill_slug_conflict", "slug": slug},
+            )
+
+    async def _allocate_skill_slug(self, desired: str) -> str:
+        """Return a live-unique slug for this workspace.
+
+        Duplicate skill names remain allowed (names were never unique); the
+        slug carries live-row uniqueness instead. Collisions get the same
+        deterministic ``-2``/``-3`` suffixes the slug backfill migration uses.
+        Rare concurrent races are caught by the partial unique index.
+        """
+
+        if not await self._skill_slug_exists(desired):
+            return desired
+        counter = 2
+        while True:
+            candidate = self._suffixed_skill_slug(desired, counter)
+            if not await self._skill_slug_exists(candidate):
+                return candidate
+            counter += 1
+
+    @staticmethod
+    def _suffixed_skill_slug(slug: str, counter: int) -> str:
+        suffix = f"-{counter}"
+        return f"{slug[: SKILL_SLUG_MAX_LENGTH - len(suffix)]}{suffix}"
+
+    async def _skill_slug_exists(self, slug: str) -> bool:
+        """Check whether a live row already occupies ``slug`` in this workspace.
+
+        Legacy rows inserted by old pods during the expand window have
+        ``slug IS NULL`` and project their name as the slug (see
+        ``_build_skill_read``), so they reserve their name too. The contract
+        backfill assigns them that slug permanently.
+        """
+
+        stmt = select(
+            sa.exists().where(
+                Skill.workspace_id == self.workspace_id,
+                sa.or_(
+                    Skill.slug == slug,
+                    sa.and_(Skill.slug.is_(None), Skill.name == slug),
+                ),
+                Skill.deleted_at.is_(None),
+            )
+        )
+        return bool((await self.session.execute(stmt)).scalar_one())
+
+    async def _create_skill_with_slug_retry(
+        self,
+        *,
+        name: str,
+        description: str | None,
+        path_to_blob_factory: SkillDraftBlobMapFactory,
+    ) -> Skill:
+        """Create a skill row and draft, retrying slug races with reallocation."""
+
+        for _ in range(SKILL_SLUG_INSERT_ATTEMPTS):
+            slug = await self._allocate_skill_slug(name)
+            skill = Skill(
+                workspace_id=self.workspace_id,
+                name=name,
+                slug=slug,
+                draft_revision=0,
+                description=description,
+            )
+            self.session.add(skill)
+            try:
+                await self.session.flush()
+                await self._replace_draft_with_blob_map(
+                    skill=skill,
+                    path_to_blob=await path_to_blob_factory(),
+                )
+                await self.session.commit()
+            except IntegrityError as exc:
+                await self.session.rollback()
+                if not _is_skill_slug_unique_violation(exc):
+                    raise
+            except Exception:
+                await self.session.rollback()
+                raise
+            else:
+                await self.session.refresh(skill)
+                return skill
+
+        raise TracecatValidationError(
+            "Could not allocate a unique skill slug after concurrent writes",
+            detail={"code": "skill_slug_conflict", "name": name},
         )
 
     async def _replace_draft_with_blob_map(
@@ -1302,32 +1483,26 @@ class SkillService(BaseWorkspaceService):
             The created skill summary.
         """
 
-        skill = Skill(
-            workspace_id=self.workspace_id,
-            name=params.name,
-            draft_revision=0,
-            description=params.description,
-        )
-        self.session.add(skill)
-        await self.session.flush()
-        root_markdown = self._build_default_skill_markdown(
-            name=params.name,
-            description=params.description,
-        )
-        root_blob = await self._get_or_create_blob(
-            content=root_markdown.encode("utf-8")
-        )
-        await self._replace_draft_with_blob_map(
-            skill=skill,
-            path_to_blob={
+        async def default_draft_blob_map() -> dict[str, SkillFileBlobRef]:
+            root_markdown = self._build_default_skill_markdown(
+                name=params.name,
+                description=params.description,
+            )
+            root_blob = await self._get_or_create_blob(
+                content=root_markdown.encode("utf-8")
+            )
+            return {
                 "SKILL.md": SkillFileBlobRef(
                     blob=root_blob,
                     content_type="text/markdown; charset=utf-8",
                 )
-            },
+            }
+
+        skill = await self._create_skill_with_slug_retry(
+            name=params.name,
+            description=params.description,
+            path_to_blob_factory=default_draft_blob_map,
         )
-        await self.session.commit()
-        await self.session.refresh(skill)
         return await self._build_skill_read(skill)
 
     @require_scope("agent:create")
@@ -1342,21 +1517,20 @@ class SkillService(BaseWorkspaceService):
             The created skill summary.
         """
 
-        prepared_draft = await self._prepare_validated_upload_draft(params)
-        skill = Skill(
-            workspace_id=self.workspace_id,
+        validation, prepared_files = self._validate_upload_draft(params)
+
+        async def uploaded_draft_blob_map() -> dict[str, SkillFileBlobRef]:
+            prepared_draft = await self._materialize_upload_draft(
+                validation=validation,
+                prepared_files=prepared_files,
+            )
+            return prepared_draft.path_to_blob
+
+        skill = await self._create_skill_with_slug_retry(
             name=params.name,
-            draft_revision=0,
-            description=prepared_draft.validation.description,
+            description=validation.description,
+            path_to_blob_factory=uploaded_draft_blob_map,
         )
-        self.session.add(skill)
-        await self.session.flush()
-        await self._replace_draft_with_blob_map(
-            skill=skill,
-            path_to_blob=prepared_draft.path_to_blob,
-        )
-        await self.session.commit()
-        await self.session.refresh(skill)
         return await self._build_skill_read(skill)
 
     @require_scope("agent:update")

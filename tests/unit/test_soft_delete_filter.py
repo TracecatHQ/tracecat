@@ -49,6 +49,7 @@ def _skill(workspace_id: uuid.UUID, *, name: str, deleted: bool = False) -> Skil
     return Skill(
         workspace_id=workspace_id,
         name=name,
+        slug=name,
         draft_revision=0,
         deleted_at=datetime.now(UTC) if deleted else None,
     )

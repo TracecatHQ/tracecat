@@ -23482,6 +23482,10 @@ export const $SkillRead = {
       type: "string",
       title: "Name",
     },
+    slug: {
+      type: "string",
+      title: "Slug",
+    },
     description: {
       anyOf: [
         {
@@ -23562,6 +23566,7 @@ export const $SkillRead = {
     "id",
     "workspace_id",
     "name",
+    "slug",
     "draft_revision",
     "created_at",
     "updated_at",
