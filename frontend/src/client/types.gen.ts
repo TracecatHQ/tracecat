@@ -7029,6 +7029,7 @@ export type SkillRead = {
   id: string
   workspace_id: string
   name: string
+  slug: string
   description?: string | null
   current_version_id?: string | null
   draft_revision: number

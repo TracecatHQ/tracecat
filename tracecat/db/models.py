@@ -3766,6 +3766,18 @@ class Skill(SoftDeleteMixin, WorkspaceModel):
     """Workspace-scoped logical skill with mutable draft and immutable versions."""
 
     __tablename__ = "skill"
+    __table_args__ = (
+        Index(
+            "uq_skill_workspace_slug_active",
+            "workspace_id",
+            "slug",
+            unique=True,
+            # Matches the expand window's effective-dead semantics (legacy
+            # pods archive by setting only archived_at); the contract release
+            # re-backfills deleted_at and narrows this to deleted_at only.
+            postgresql_where=text("deleted_at IS NULL AND archived_at IS NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -3780,6 +3792,17 @@ class Skill(SoftDeleteMixin, WorkspaceModel):
         nullable=False,
         index=True,
         doc="Current active skill name and on-disk directory name",
+    )
+    slug: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+        doc=(
+            "Stable skill identity initialized from name; renames do not "
+            "update it. Nullable through the expand window (legacy writers "
+            "insert without it); the contract release backfills and sets "
+            "NOT NULL."
+        ),
     )
     current_version_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,

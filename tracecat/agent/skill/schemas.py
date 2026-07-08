@@ -98,6 +98,7 @@ class SkillRead(Schema):
     id: uuid.UUID
     workspace_id: WorkspaceID
     name: str
+    slug: str
     description: str | None = Field(default=None)
     current_version_id: uuid.UUID | None = Field(default=None)
     draft_revision: int

@@ -7,11 +7,14 @@ import os
 import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
+from asyncpg import UniqueViolationError
 from dotenv import dotenv_values
 from pydantic import ValidationError
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from tests.database import TEST_DB_CONFIG
@@ -36,7 +39,7 @@ from tracecat.agent.skill.schemas import (
     SkillVersionPublish,
     SkillVersionReadMinimal,
 )
-from tracecat.agent.skill.service import SkillService
+from tracecat.agent.skill.service import SKILL_SLUG_UNIQUE_CONSTRAINT, SkillService
 from tracecat.auth.types import Role
 from tracecat.db.models import (
     Skill,
@@ -52,6 +55,16 @@ from tracecat.pagination import CursorPaginationParams
 from tracecat.storage.blob import ensure_bucket_exists
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+def _skill_slug_unique_violation() -> IntegrityError:
+    # The service helper duck-types constraint_name off the exception chain,
+    # so an Any-typed fake keeps pyright happy without touching psycopg types.
+    unique_violation: Any = UniqueViolationError("duplicate skill slug")
+    unique_violation.constraint_name = SKILL_SLUG_UNIQUE_CONSTRAINT
+    integrity_error = IntegrityError("INSERT INTO skill", {}, unique_violation)
+    integrity_error.__cause__ = unique_violation
+    return integrity_error
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -199,6 +212,166 @@ class TestSkillService:
         assert draft.name == "triage-skill"
         assert draft.description == "Handle security triage"
         assert [file.path for file in draft.files] == ["SKILL.md"]
+
+    async def test_create_skill_suffixes_live_duplicate_slug(
+        self,
+        skill_service: SkillService,
+        session: AsyncSession,
+        svc_role: Role,
+    ) -> None:
+        """Duplicate names stay allowed; the slug gets a deterministic suffix."""
+
+        created = await skill_service.create_skill(SkillCreate(name="unique-skill"))
+
+        second = await skill_service.create_skill(SkillCreate(name="unique-skill"))
+        third = await skill_service.create_skill(SkillCreate(name="unique-skill"))
+
+        assert second.name == "unique-skill"
+        assert second.slug == "unique-skill-2"
+        assert third.slug == "unique-skill-3"
+
+        other_workspace_id = uuid.uuid4()
+        session.add(
+            Workspace(
+                id=other_workspace_id,
+                name="other-skill-workspace",
+                organization_id=svc_role.organization_id,
+            )
+        )
+        await session.commit()
+        other_service = SkillService(
+            session=session,
+            role=svc_role.model_copy(
+                update={"workspace_id": other_workspace_id},
+                deep=True,
+            ),
+        )
+
+        other_created = await other_service.create_skill(
+            SkillCreate(name="unique-skill")
+        )
+
+        assert created.slug == "unique-skill"
+        assert other_created.slug == "unique-skill"
+        assert other_created.workspace_id == other_workspace_id
+
+    async def test_create_skill_suffixes_max_length_duplicate_slug(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Max-length names use truncated suffix candidates for each probe."""
+
+        max_length_name = "a" * 64
+
+        created = await skill_service.create_skill(SkillCreate(name=max_length_name))
+        second = await skill_service.create_skill(SkillCreate(name=max_length_name))
+        third = await skill_service.create_skill(SkillCreate(name=max_length_name))
+
+        assert created.slug == max_length_name
+        assert second.slug == f"{max_length_name[:62]}-2"
+        assert third.slug == f"{max_length_name[:62]}-3"
+
+    async def test_create_skill_retries_slug_unique_violation(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Slug unique races roll back, reallocate, and retry the insert."""
+
+        allocated_slugs = ["race-skill", "race-skill-2"]
+        original_flush = skill_service.session.flush
+        original_rollback = skill_service.session.rollback
+        flush_calls = 0
+        rollback_calls = 0
+
+        async def allocate_slug(_desired: str) -> str:
+            return allocated_slugs.pop(0)
+
+        async def flush_once_then_succeed(*args: Any, **kwargs: Any) -> None:
+            nonlocal flush_calls
+            flush_calls += 1
+            if flush_calls == 1:
+                raise _skill_slug_unique_violation()
+            await original_flush(*args, **kwargs)
+
+        async def rollback_and_count() -> None:
+            nonlocal rollback_calls
+            rollback_calls += 1
+            await original_rollback()
+
+        monkeypatch.setattr(skill_service, "_allocate_skill_slug", allocate_slug)
+        monkeypatch.setattr(skill_service.session, "flush", flush_once_then_succeed)
+        monkeypatch.setattr(skill_service.session, "rollback", rollback_and_count)
+
+        created = await skill_service.create_skill(SkillCreate(name="race-skill"))
+
+        assert created.slug == "race-skill-2"
+        assert flush_calls >= 3
+        assert rollback_calls == 1
+        assert allocated_slugs == []
+
+    async def test_create_skill_reuses_slug_after_soft_delete(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Soft-deleted skill slugs can be reused by new live skills."""
+
+        deleted = await skill_service.create_skill(SkillCreate(name="reused-skill"))
+        await skill_service.archive_skill(deleted.id)
+
+        recreated = await skill_service.create_skill(SkillCreate(name="reused-skill"))
+
+        assert recreated.id != deleted.id
+        assert recreated.slug == deleted.slug
+
+    async def test_create_skill_reuses_slug_of_legacy_archived_row(
+        self,
+        skill_service: SkillService,
+        session: AsyncSession,
+    ) -> None:
+        """Rows archived by legacy pods (``archived_at`` set, ``deleted_at``
+        NULL) are effectively dead and must not reserve their slug — the
+        service check matches the ``uq_skill_workspace_slug_active`` partial
+        index predicate, which frees the slug for live rows.
+        """
+
+        legacy = await skill_service.create_skill(SkillCreate(name="legacy-archived"))
+        legacy_row = (
+            await session.execute(select(Skill).where(Skill.id == legacy.id))
+        ).scalar_one()
+        legacy_row.archived_at = datetime.now(UTC)
+        assert legacy_row.deleted_at is None
+        await session.commit()
+
+        recreated = await skill_service.create_skill(
+            SkillCreate(name="legacy-archived")
+        )
+
+        assert recreated.id != legacy.id
+        assert recreated.slug == legacy.slug
+
+    async def test_create_skill_reserves_slugless_legacy_row_name(
+        self,
+        skill_service: SkillService,
+        session: AsyncSession,
+    ) -> None:
+        """Live legacy rows without a slug reserve their name as a slug.
+
+        Old pods insert skills with ``slug IS NULL`` during the expand
+        window and reads project their name as the slug, so allocation must
+        treat that name as taken to keep apparent slugs live-unique.
+        """
+
+        legacy = await skill_service.create_skill(SkillCreate(name="legacy-slugless"))
+        legacy_row = (
+            await session.execute(select(Skill).where(Skill.id == legacy.id))
+        ).scalar_one()
+        legacy_row.slug = None
+        await session.commit()
+
+        created = await skill_service.create_skill(SkillCreate(name="legacy-slugless"))
+
+        assert created.slug == "legacy-slugless-2"
 
     async def test_create_skill_preserves_multiline_description(
         self,
@@ -706,9 +879,25 @@ class TestSkillService:
     async def test_get_skill_by_identifier_rejects_ambiguous_names(
         self,
         skill_service: SkillService,
+        session: AsyncSession,
     ) -> None:
-        await skill_service.create_skill(SkillCreate(name="duplicate-skill"))
-        await skill_service.create_skill(SkillCreate(name="duplicate-skill"))
+        session.add_all(
+            [
+                Skill(
+                    workspace_id=skill_service.workspace_id,
+                    name="duplicate-skill",
+                    slug="duplicate-skill-a",
+                    draft_revision=0,
+                ),
+                Skill(
+                    workspace_id=skill_service.workspace_id,
+                    name="duplicate-skill",
+                    slug="duplicate-skill-b",
+                    draft_revision=0,
+                ),
+            ]
+        )
+        await session.commit()
 
         with pytest.raises(TracecatValidationError) as exc_info:
             await skill_service.get_skill_by_identifier("duplicate-skill")
@@ -1760,6 +1949,77 @@ class TestSkillService:
         assert restored_file.kind == "inline"
         assert restored_file.text_content == "Version two"
         assert version_two.name == "version-two"
+
+    async def test_skill_rename_and_restore_leave_slug_stable(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Changing a skill name through publish or restore does not move slug."""
+
+        created = await skill_service.create_skill(SkillCreate(name="stable-skill"))
+        original_slug = created.slug
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        await skill_service.patch_draft(
+            skill_id=created.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content=(
+                            "---\n"
+                            "name: first-renamed-skill\n"
+                            "description: First name\n"
+                            "---\n\n"
+                            "# First renamed skill\n"
+                        ),
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            ),
+        )
+        first_version = await skill_service.publish_skill(created.id)
+
+        first_read = await skill_service.get_skill_read(created.id)
+        assert first_read is not None
+        assert first_read.name == "first-renamed-skill"
+        assert first_read.slug == original_slug
+
+        current_draft = await skill_service.get_draft(created.id)
+        assert current_draft is not None
+        await skill_service.patch_draft(
+            skill_id=created.id,
+            params=SkillDraftPatch(
+                base_revision=current_draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content=(
+                            "---\n"
+                            "name: second-renamed-skill\n"
+                            "description: Second name\n"
+                            "---\n\n"
+                            "# Second renamed skill\n"
+                        ),
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            ),
+        )
+        await skill_service.publish_skill(created.id)
+
+        restored = await skill_service.restore_version(
+            skill_id=created.id,
+            version_id=first_version.id,
+        )
+        restored_read = await skill_service.get_skill_read(created.id)
+
+        assert restored.name == "first-renamed-skill"
+        assert restored_read is not None
+        assert restored_read.name == "first-renamed-skill"
+        assert restored_read.slug == original_slug
 
     async def test_skill_read_metadata_tracks_current_version_not_draft(
         self,
