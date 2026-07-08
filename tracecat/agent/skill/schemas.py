@@ -50,10 +50,8 @@ _SKILL_NAME_CONSTRAINTS = StringConstraints(
     pattern=r"^[a-z0-9-]+$",
 )
 
-# Identifier-shaped skill name. Used for lookups (e.g. name-based skill routes),
-# so it accepts reserved-prefix names — workspaces may hold legacy skills named
-# ``tracecat-*`` from before the prefix was reserved, and those must remain
-# readable by name.
+# Identifier-shaped skill name/slug. Slug lookups use this lenient shape so
+# legacy ``tracecat-*`` rows from before the prefix was reserved remain readable.
 SkillName = Annotated[
     str,
     _SKILL_NAME_CONSTRAINTS,

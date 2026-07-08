@@ -69,6 +69,8 @@ class SkillPublishFile(TypedDict):
 
 
 def _skill_identifier(skill_id: str, skill_uuid: str | uuid.UUID | None = None) -> str:
+    """Return the skill route identifier, preferring stable UUID over authoring slug."""
+
     return str(skill_uuid) if skill_uuid is not None else skill_id
 
 

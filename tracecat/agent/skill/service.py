@@ -83,8 +83,8 @@ SKILL_SLUG_MAX_LENGTH = 64
 SKILL_SLUG_INSERT_ATTEMPTS = 3
 SKILL_SLUG_UNIQUE_CONSTRAINT = "uq_skill_workspace_slug_active"
 POSTGRES_UNIQUE_VIOLATION_SQLSTATE = "23505"
-# Lenient adapter for name-based lookups: accepts legacy reserved-prefix names.
-SKILL_NAME_ADAPTER = TypeAdapter(SkillName)
+# Lenient adapter for slug lookups: accepts legacy reserved-prefix identifiers.
+SKILL_SLUG_ADAPTER = TypeAdapter(SkillName)
 # Strict adapter for draft/publish manifest validation: rejects reserved names.
 NEW_SKILL_NAME_ADAPTER = TypeAdapter(NewSkillName)
 
@@ -1348,53 +1348,55 @@ class SkillService(BaseWorkspaceService):
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_skill_by_identifier(
-        self, skill_id: str | uuid.UUID, *, include_archived: bool = False
+        self, identifier: str | uuid.UUID
     ) -> Skill | None:
-        """Return a skill by UUID or kebab-case skill name."""
+        """Return a skill by UUID first, then by live slug.
 
-        if isinstance(skill_id, uuid.UUID):
-            return await self.get_skill(skill_id, include_archived=include_archived)
+        UUID objects and UUID-shaped strings resolve by ``Skill.id`` first. If a
+        UUID-shaped string does not match an ID, the live skill whose slug equals
+        that string remains reachable. Non-UUID strings resolve by live slug.
+        """
+
+        if isinstance(identifier, uuid.UUID):
+            return await self.get_skill(identifier)
         try:
-            parsed_skill_id = uuid.UUID(skill_id)
+            parsed_skill_id = uuid.UUID(identifier)
         except ValueError:
             parsed_skill_id = None
 
-        uuid_match: Skill | None = None
         if parsed_skill_id is not None:
-            uuid_match = await self.get_skill(
-                parsed_skill_id, include_archived=include_archived
-            )
+            if uuid_match := await self.get_skill(parsed_skill_id):
+                return uuid_match
 
         try:
-            skill_name = SKILL_NAME_ADAPTER.validate_python(skill_id)
+            skill_slug = SKILL_SLUG_ADAPTER.validate_python(identifier)
         except ValidationError:
-            return uuid_match
-        predicates = [
-            Skill.workspace_id == self.workspace_id,
-            Skill.name == skill_name,
-        ]
-        if not include_archived:
-            predicates.extend((Skill.deleted_at.is_(None), Skill.archived_at.is_(None)))
-        stmt = select(Skill).where(*predicates)
-        if include_archived:
-            stmt = with_deleted(stmt)
-        skills = (await self.session.execute(stmt)).scalars().all()
-
-        # A UUID string is also a valid skill name and names are not unique, so
-        # the identifier is ambiguous if multiple skills share the name, or if
-        # the id match and a name match point at different skills.
-        resolved_ids = {skill.id for skill in skills}
-        if uuid_match is not None:
-            resolved_ids.add(uuid_match.id)
-        if len(resolved_ids) > 1:
-            raise TracecatValidationError(
-                "Skill identifier is ambiguous",
-                detail={
-                    "code": "ambiguous_skill_id",
-                    "skill_id": skill_name,
-                },
-            ) from None
-        return uuid_match or (skills[0] if skills else None)
+            return None
+        # Legacy rows inserted by old pods during the expand window have
+        # ``slug IS NULL`` and project their name as the slug (see
+        # ``_build_skill_read``), so they must stay reachable by that slug.
+        # If both an exact-slug row and a legacy row match, the exact slug
+        # wins; ties order like the backfill migration (created_at, id).
+        stmt = (
+            select(Skill)
+            .options(selectinload(Skill.current_version))
+            .where(
+                Skill.workspace_id == self.workspace_id,
+                sa.or_(
+                    Skill.slug == skill_slug,
+                    sa.and_(Skill.slug.is_(None), Skill.name == skill_slug),
+                ),
+                Skill.deleted_at.is_(None),
+                Skill.archived_at.is_(None),
+            )
+            .order_by(
+                sa.case((Skill.slug == skill_slug, 0), else_=1),
+                Skill.created_at.asc(),
+                Skill.id.asc(),
+            )
+            .limit(1)
+        )
+        return (await self.session.execute(stmt)).scalars().first()
 
     async def _get_active_version(
         self, *, skill_id: uuid.UUID, version_id: uuid.UUID
