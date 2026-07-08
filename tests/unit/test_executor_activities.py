@@ -15,9 +15,11 @@ from temporalio.exceptions import ApplicationError
 
 from tests.shared import to_data
 from tracecat.agent.executor.activity import (
+    persist_stdio_mcp_connection_activity,
     probe_stdio_mcp_connection_activity,
 )
 from tracecat.agent.mcp.stdio_probe import (
+    StdioMCPPersistInput,
     StdioMCPProbeInput,
 )
 from tracecat.auth.types import Role
@@ -34,6 +36,7 @@ from tracecat.exceptions import (
 from tracecat.executor.activities import ExecutorActivities
 from tracecat.executor.schemas import ExecutorActionErrorInfo
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.registry.lock.types import RegistryLock
 
 
@@ -418,7 +421,7 @@ class TestProbeStdioMCPConnectionActivity:
         preset_svc = SimpleNamespace(
             session=object(),
             role=mock_role,
-            _resolve_stdio_env=AsyncMock(side_effect=resolve_error),
+            resolve_stdio_env=AsyncMock(side_effect=resolve_error),
         )
 
         class FakeIntegrationService:
@@ -437,7 +440,7 @@ class TestProbeStdioMCPConnectionActivity:
                 assert mcp_integration is integration
                 return stdio_env
 
-            def _validate_stdio_server_config(
+            def validate_stdio_server_config(
                 self,
                 *,
                 command: str | None,
@@ -472,7 +475,7 @@ class TestProbeStdioMCPConnectionActivity:
             result.message == "MCP integration stdio environment could not be resolved"
         )
         assert result.error == expected_error
-        preset_svc._resolve_stdio_env.assert_awaited_once_with(
+        preset_svc.resolve_stdio_env.assert_awaited_once_with(
             stdio_env=stdio_env,
             mcp_integration_id=integration.id,
             mcp_integration_slug=integration.slug,
@@ -491,7 +494,7 @@ class TestProbeStdioMCPConnectionActivity:
         preset_svc = SimpleNamespace(
             session=object(),
             role=mock_role,
-            _resolve_stdio_env=AsyncMock(side_effect=unexpected_error),
+            resolve_stdio_env=AsyncMock(side_effect=unexpected_error),
         )
 
         class FakeIntegrationService:
@@ -510,7 +513,7 @@ class TestProbeStdioMCPConnectionActivity:
                 assert mcp_integration is integration
                 return stdio_env
 
-            def _validate_stdio_server_config(
+            def validate_stdio_server_config(
                 self,
                 *,
                 command: str | None,
@@ -542,9 +545,61 @@ class TestProbeStdioMCPConnectionActivity:
                 )
 
         assert exc_info.value is unexpected_error
-        preset_svc._resolve_stdio_env.assert_awaited_once_with(
+        preset_svc.resolve_stdio_env.assert_awaited_once_with(
             stdio_env=stdio_env,
             mcp_integration_id=integration.id,
             mcp_integration_slug=integration.slug,
         )
         probe_stdio.assert_not_awaited()
+
+    @pytest.mark.anyio
+    async def test_persist_activity_persists_merged_tools(
+        self,
+        mock_role: Role,
+    ) -> None:
+        mcp_integration_id = uuid.uuid4()
+        discovered_tools = [
+            MCPToolSummary(name="search", description="New search"),
+            MCPToolSummary(name="create", description="Create issue"),
+        ]
+        persisted_tools = [
+            MCPToolSummary(
+                name="search",
+                description="New search",
+                enabled=False,
+                requires_approval=True,
+            ),
+            MCPToolSummary(name="create", description="Create issue"),
+        ]
+
+        class FakeIntegrationService:
+            def __init__(self) -> None:
+                self.persist_mcp_integration_tools = AsyncMock(
+                    return_value=persisted_tools
+                )
+
+        fake_svc = FakeIntegrationService()
+
+        with (
+            patch("tracecat.agent.executor.activity.activity") as mock_activity,
+            patch(
+                "tracecat.agent.executor.activity.IntegrationService.with_session",
+                lambda *_, **__: _AsyncContext(fake_svc),
+            ),
+        ):
+            mock_activity.heartbeat = MagicMock()
+            result = await persist_stdio_mcp_connection_activity(
+                StdioMCPPersistInput(
+                    mcp_integration_id=mcp_integration_id,
+                    role=mock_role,
+                    tools=discovered_tools,
+                )
+            )
+
+        assert result.success is True
+        assert result.message == "Connected successfully — 2 tools available"
+        assert result.tools == persisted_tools
+        fake_svc.persist_mcp_integration_tools.assert_awaited_once_with(
+            mcp_integration_id=mcp_integration_id,
+            discovered_tools=discovered_tools,
+        )

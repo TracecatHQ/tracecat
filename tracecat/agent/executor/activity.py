@@ -50,6 +50,7 @@ from tracecat.agent.executor.loopback import (
 from tracecat.agent.filesystem import hydrate_agent_work_dir, persist_agent_work_dir
 from tracecat.agent.llm_routing import get_litellm_route_model
 from tracecat.agent.mcp.stdio_probe import (
+    StdioMCPPersistInput,
     StdioMCPProbeInput,
     StdioMCPProbeResult,
     probe_stdio_mcp_tools_in_sandbox,
@@ -1075,7 +1076,7 @@ async def _resolve_and_probe_stdio_config(
     """
     if stdio_env:
         try:
-            stdio_env = await preset_svc._resolve_stdio_env(
+            stdio_env = await preset_svc.resolve_stdio_env(
                 stdio_env=stdio_env,
                 mcp_integration_id=mcp_integration_id,
                 mcp_integration_slug=mcp_integration_slug,
@@ -1088,7 +1089,7 @@ async def _resolve_and_probe_stdio_config(
             )
 
     try:
-        integrations_svc._validate_stdio_server_config(
+        integrations_svc.validate_stdio_server_config(
             command=command,
             args=args,
             env=stdio_env,
@@ -1151,6 +1152,34 @@ async def probe_stdio_mcp_connection_activity(
         )
         activity.heartbeat(f"Finished stdio MCP probe: {input.mcp_integration_id}")
         return result
+
+
+@activity.defn(name="persist_stdio_mcp_connection_activity")
+async def persist_stdio_mcp_connection_activity(
+    input: StdioMCPPersistInput,
+) -> StdioMCPProbeResult:
+    """Persist a successful saved stdio MCP probe result."""
+    activity.heartbeat(f"Persisting stdio MCP probe: {input.mcp_integration_id}")
+
+    async with IntegrationService.with_session(role=input.role) as integrations_svc:
+        try:
+            tools = await integrations_svc.persist_mcp_integration_tools(
+                mcp_integration_id=input.mcp_integration_id,
+                discovered_tools=input.tools,
+            )
+        except ValueError as exc:
+            return StdioMCPProbeResult(
+                success=False,
+                message="MCP integration probe result could not be persisted",
+                error=sanitize_stdio_probe_error(str(exc)),
+            )
+
+    activity.heartbeat(f"Persisted stdio MCP probe: {input.mcp_integration_id}")
+    return StdioMCPProbeResult(
+        success=True,
+        tools=tools,
+        message=f"Connected successfully — {len(tools)} tools available",
+    )
 
 
 @activity.defn

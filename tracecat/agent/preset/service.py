@@ -830,7 +830,7 @@ class AgentPresetService(BaseWorkspaceService):
                 stdio_env = integrations_service.decrypt_stdio_env(mcp_integration)
                 if stdio_env:
                     try:
-                        stdio_env = await self._resolve_stdio_env(
+                        stdio_env = await self.resolve_stdio_env(
                             stdio_env=stdio_env,
                             mcp_integration_id=mcp_integration.id,
                             mcp_integration_slug=mcp_integration.slug,
@@ -1107,7 +1107,7 @@ class AgentPresetService(BaseWorkspaceService):
             if not stdio_env:
                 return None
             try:
-                return await self._resolve_stdio_env(
+                return await self.resolve_stdio_env(
                     stdio_env=stdio_env,
                     mcp_integration_id=mcp_integration.id,
                     mcp_integration_slug=mcp_integration.slug,
@@ -1154,7 +1154,7 @@ class AgentPresetService(BaseWorkspaceService):
             return None
         return server_config.get("headers", {})
 
-    async def _resolve_stdio_env(
+    async def resolve_stdio_env(
         self,
         *,
         stdio_env: dict[str, str],

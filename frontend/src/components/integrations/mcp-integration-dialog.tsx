@@ -91,6 +91,11 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { getMcpOAuthConnectErrorDetail } from "@/lib/errors"
 import {
@@ -273,13 +278,24 @@ type MCPToolPolicyPatch = {
   requires_approval?: boolean
 }
 
+const STDIO_APPROVAL_UNSUPPORTED_HINT =
+  "Approvals are not supported for local (stdio) MCP servers."
+
 function MCPToolPolicyList({
   tools,
   canUpdate,
+  approvalsSupported,
   onPolicyChange,
 }: {
   tools: MCPToolSummary[]
   canUpdate: boolean
+  /**
+   * Whether per-tool approval can be enabled for this integration. Stdio
+   * (local) MCP servers cannot support approvals because the subprocess lives
+   * inside the per-turn sandbox and is gone by the time the approval
+   * continuation runs, so the approval toggle is rendered disabled.
+   */
+  approvalsSupported: boolean
   onPolicyChange: (tool: MCPToolSummary, patch: MCPToolPolicyPatch) => void
 }) {
   return (
@@ -334,14 +350,33 @@ function MCPToolPolicyList({
               </label>
               <label className="flex items-center justify-between gap-2 text-xs text-muted-foreground sm:justify-start">
                 Approval
-                <Switch
-                  checked={requiresApproval}
-                  disabled={disabled || !enabled}
-                  onCheckedChange={(checked) =>
-                    onPolicyChange(tool, { requires_approval: checked })
-                  }
-                  aria-label={`Require approval for ${tool.name}`}
-                />
+                {approvalsSupported ? (
+                  <Switch
+                    checked={requiresApproval}
+                    disabled={disabled || !enabled}
+                    onCheckedChange={(checked) =>
+                      onPolicyChange(tool, { requires_approval: checked })
+                    }
+                    aria-label={`Require approval for ${tool.name}`}
+                  />
+                ) : (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      {/* Wrap in a span so the tooltip still fires while the
+                          disabled Switch swallows pointer events. */}
+                      <span className="inline-flex">
+                        <Switch
+                          checked={false}
+                          disabled
+                          aria-label={`Require approval for ${tool.name}`}
+                        />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {STDIO_APPROVAL_UNSUPPORTED_HINT}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
               </label>
             </div>
           </li>
@@ -1493,6 +1528,9 @@ export function MCPIntegrationDialog({
                           <MCPToolPolicyList
                             tools={mcpIntegration.tools}
                             canUpdate={canUpdate}
+                            approvalsSupported={
+                              mcpIntegration.server_type !== "stdio"
+                            }
                             onPolicyChange={(tool, patch) =>
                               void handleToolPolicyChange(tool, patch)
                             }

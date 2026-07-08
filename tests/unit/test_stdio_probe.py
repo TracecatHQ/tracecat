@@ -1,12 +1,16 @@
 """Tests for sandboxed stdio MCP probing."""
 
 import sys
+import uuid
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tracecat.agent.mcp.stdio_probe import probe_stdio_mcp_tools_in_sandbox
+from tracecat.agent.mcp.stdio_probe import (
+    build_stdio_mcp_probe_workflow_id,
+    probe_stdio_mcp_tools_in_sandbox,
+)
 
 FAKE_MCP_SERVER = '''
 from fastmcp import FastMCP
@@ -22,6 +26,19 @@ def echo(text: str) -> str:
 
 mcp.run()
 '''
+
+
+def test_build_stdio_mcp_probe_workflow_id_is_workspace_scoped() -> None:
+    workspace_id = uuid.uuid4()
+    mcp_integration_id = uuid.uuid4()
+
+    assert (
+        build_stdio_mcp_probe_workflow_id(
+            workspace_id=workspace_id,
+            mcp_integration_id=mcp_integration_id,
+        )
+        == f"mcp-stdio-probe/ws/{workspace_id}/{mcp_integration_id}"
+    )
 
 
 @pytest.mark.anyio

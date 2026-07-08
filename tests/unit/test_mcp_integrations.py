@@ -10,8 +10,9 @@ This test suite covers MCP integration functionality including:
 
 import socket
 import uuid
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -20,10 +21,15 @@ from pydantic import SecretStr, TypeAdapter, ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 import tracecat.integrations.catalog.service as catalog_service_module
 import tracecat.integrations.router as integration_router_module
 import tracecat.integrations.service as integration_service_module
+from tracecat.agent.mcp.stdio_probe import (
+    StdioMCPProbeWorkflowInput,
+    build_stdio_mcp_probe_workflow_id,
+)
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
@@ -4648,7 +4654,7 @@ class TestMCPConnectionVerification:
         async def _verify_should_not_run(**_: object) -> object:
             raise AssertionError("stdio connect should not await verification")
 
-        def _start_stdio_verification(*, mcp_integration: MCPIntegration) -> None:
+        async def _start_stdio_verification(*, mcp_integration: MCPIntegration) -> None:
             scheduled.append(mcp_integration.id)
 
         monkeypatch.setattr(
@@ -4675,12 +4681,12 @@ class TestMCPConnectionVerification:
             == "configured"
         )
 
-    async def test_background_stdio_verification_persists_tools(
+    async def test_start_stdio_verification_starts_durable_workflow(
         self,
         integration_service: IntegrationService,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Detached stdio verification uses the saved-row path that stores tools."""
+        """Detached stdio verification starts a durable probe-and-persist workflow."""
         stdio_integration = await integration_service.create_mcp_integration(
             params=MCPStdioIntegrationCreate(
                 name="Background Stdio Verify MCP",
@@ -4688,39 +4694,73 @@ class TestMCPConnectionVerification:
                 stdio_args=["@example/mcp-server"],
             )
         )
-
-        async def _probe_stdio(
-            self: IntegrationService,
-            mcp_integration: MCPIntegration,
-        ) -> list[MCPToolSummary]:
-            assert mcp_integration.id == stdio_integration.id
-            return [MCPToolSummary(name="background_tool", description="Background")]
-
-        monkeypatch.setattr(
-            IntegrationService,
-            "_probe_mcp_stdio_server",
-            _probe_stdio,
-        )
-
-        @asynccontextmanager
-        async def _same_session():
-            yield integration_service.session
-
+        start_workflow = AsyncMock()
         monkeypatch.setattr(
             integration_service_module,
-            "get_async_session_bypass_rls_context_manager",
-            _same_session,
+            "get_temporal_client",
+            AsyncMock(return_value=SimpleNamespace(start_workflow=start_workflow)),
         )
 
-        await IntegrationService._verify_mcp_integration_in_background(
+        await integration_service.start_mcp_stdio_verification(
+            mcp_integration=stdio_integration
+        )
+
+        start_workflow.assert_awaited_once()
+        call = start_workflow.await_args
+        assert call is not None
+        workflow_input = call.args[1]
+        assert isinstance(workflow_input, StdioMCPProbeWorkflowInput)
+        assert workflow_input.mcp_integration_id == stdio_integration.id
+        assert workflow_input.role == integration_service.role
+        assert workflow_input.persist_result is True
+        assert call.kwargs["id"] == build_stdio_mcp_probe_workflow_id(
+            workspace_id=integration_service.workspace_id,
             mcp_integration_id=stdio_integration.id,
-            role=integration_service.role,
         )
-        await integration_service.session.refresh(stdio_integration)
+        assert call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE
+        assert (
+            call.kwargs["id_conflict_policy"]
+            == WorkflowIDConflictPolicy.TERMINATE_EXISTING
+        )
 
-        tools = MCPToolSummary.validate_stored(stdio_integration.tools)
-        assert tools is not None
-        assert [tool.name for tool in tools] == ["background_tool"]
+    async def test_start_stdio_verification_supersedes_in_flight_workflow(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A later save starts a replacement workflow for the deterministic id."""
+        stdio_integration = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Background Stdio Supersede MCP",
+                stdio_command="npx",
+                stdio_args=["@example/mcp-server"],
+            )
+        )
+        start_workflow = AsyncMock()
+        monkeypatch.setattr(
+            integration_service_module,
+            "get_temporal_client",
+            AsyncMock(return_value=SimpleNamespace(start_workflow=start_workflow)),
+        )
+
+        await integration_service.start_mcp_stdio_verification(
+            mcp_integration=stdio_integration
+        )
+        await integration_service.start_mcp_stdio_verification(
+            mcp_integration=stdio_integration
+        )
+
+        assert start_workflow.await_count == 2
+        expected_id = build_stdio_mcp_probe_workflow_id(
+            workspace_id=integration_service.workspace_id,
+            mcp_integration_id=stdio_integration.id,
+        )
+        for call in start_workflow.await_args_list:
+            assert call.kwargs["id"] == expected_id
+            assert (
+                call.kwargs["id_conflict_policy"]
+                == WorkflowIDConflictPolicy.TERMINATE_EXISTING
+            )
 
     def test_stdio_test_connection_rejects_inline_config_without_saved_id(
         self,
@@ -4949,6 +4989,53 @@ class TestMCPConnectionVerification:
         assert merged[2].enabled is True
         assert merged[2].requires_approval is True
 
+    async def test_persist_mcp_integration_tools_merges_policy(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        integration = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Persist Merge MCP",
+                stdio_command="npx",
+                stdio_args=["@example/server"],
+            )
+        )
+        integration.tools = [
+            MCPToolSummary(
+                name="search",
+                description="Old search",
+                enabled=False,
+                requires_approval=True,
+            ).model_dump(),
+            MCPToolSummary(
+                name="delete",
+                description="Delete issue",
+                enabled=True,
+                requires_approval=True,
+            ).model_dump(),
+        ]
+        integration_service.session.add(integration)
+        await integration_service.session.commit()
+
+        merged = await integration_service.persist_mcp_integration_tools(
+            mcp_integration_id=integration.id,
+            discovered_tools=[
+                MCPToolSummary(name="search", description="New search"),
+                MCPToolSummary(name="create", description="Create issue"),
+            ],
+        )
+        await integration_service.session.refresh(integration)
+
+        assert [tool.name for tool in merged] == ["search", "create", "delete"]
+        assert merged[0].enabled is False
+        assert merged[0].requires_approval is True
+        assert merged[1].enabled is True
+        assert merged[1].requires_approval is False
+        assert merged[2].status == "missing"
+        stored_tools = MCPToolSummary.validate_stored(integration.tools)
+        assert stored_tools is not None
+        assert [tool.name for tool in stored_tools] == ["search", "create", "delete"]
+
     async def test_update_mcp_tool_policies(
         self, integration_service: IntegrationService
     ) -> None:
@@ -5032,6 +5119,71 @@ class TestMCPConnectionVerification:
         assert tools is not None
         by_name = {tool.name: tool for tool in tools}
         assert by_name["search"].enabled is False
+        assert by_name["delete"].requires_approval is False
+
+    async def test_update_mcp_tool_policies_rejects_approval_for_stdio(
+        self, integration_service: IntegrationService
+    ) -> None:
+        """Enabling approval on a stdio MCP tool is not supported and rejected.
+
+        The stdio subprocess lives inside the per-turn sandbox and is gone by
+        the time the approval continuation runs, so an approved call could
+        never execute. Enabling approval must be rejected before it is stored.
+        """
+        integration = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Stdio Tool Policy MCP",
+                stdio_command="uvx",
+                stdio_args=["example-mcp"],
+            )
+        )
+        integration.tools = [
+            MCPToolSummary(name="search", description="Search").model_dump(),
+            MCPToolSummary(name="delete", description="Delete").model_dump(),
+        ]
+        integration_service.session.add(integration)
+        await integration_service.session.commit()
+
+        with pytest.raises(
+            ValueError, match="Approvals are not supported for stdio MCP servers"
+        ):
+            await integration_service.update_mcp_tool_policies(
+                mcp_integration_id=integration.id,
+                tools=[MCPToolPolicyUpdate(name="delete", requires_approval=True)],
+            )
+
+    async def test_update_mcp_tool_policies_allows_disable_approval_for_stdio(
+        self, integration_service: IntegrationService
+    ) -> None:
+        """Disabling approval and availability changes stay allowed for stdio."""
+        integration = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Stdio Tool Policy MCP Allow",
+                stdio_command="uvx",
+                stdio_args=["example-mcp"],
+            )
+        )
+        integration.tools = [
+            MCPToolSummary(
+                name="delete", description="Delete", requires_approval=True
+            ).model_dump(),
+        ]
+        integration_service.session.add(integration)
+        await integration_service.session.commit()
+
+        updated = await integration_service.update_mcp_tool_policies(
+            mcp_integration_id=integration.id,
+            tools=[
+                MCPToolPolicyUpdate(
+                    name="delete", enabled=False, requires_approval=False
+                )
+            ],
+        )
+        assert updated is not None
+        tools = MCPToolSummary.validate_stored(updated.tools)
+        assert tools is not None
+        by_name = {tool.name: tool for tool in tools}
+        assert by_name["delete"].enabled is False
         assert by_name["delete"].requires_approval is False
 
 

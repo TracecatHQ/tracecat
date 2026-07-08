@@ -1080,8 +1080,8 @@ class TestClaudeAgentRuntimeRun:
             "mcp__tracecat-registry__core__http_request",
             "mcp__sentinel-one__quarantine_host",
         }
-        assert runtime._stdio_tool_approvals == {
-            "mcp__sentinel-one__quarantine_host": True
+        assert runtime._stdio_approval_blocked_tools == {
+            "mcp__sentinel-one__quarantine_host"
         }
         assert "issue.get" not in options.system_prompt
         assert (
@@ -2319,35 +2319,46 @@ class TestClaudeAgentRuntimePreToolUseHook:
         runtime.client.interrupt.assert_awaited()
 
     @pytest.mark.anyio
-    async def test_stdio_mcp_tool_requires_approval(
+    async def test_stdio_mcp_tool_with_approval_is_hard_denied(
         self,
         mock_socket_writer: MagicMock,
     ) -> None:
-        """Verified stdio MCP tools with an approval policy trigger HITL."""
+        """Stdio MCP tools carrying an approval policy are hard-denied.
+
+        Approvals are unsupported for stdio (local) MCP tools: the subprocess
+        is gone by approval-continuation time. The hook must deny with the
+        not-supported reason and must NOT route the call into the approval
+        request flow (no ``_handle_approval_request`` call, no streamed event).
+        """
         runtime = ClaudeAgentRuntime(
             mock_socket_writer, transport_factory=lambda _: MagicMock()
         )
-        runtime._stdio_tool_approvals = {"mcp__sentinel-one__quarantine_host": True}
+        runtime._stdio_approval_blocked_tools = {"mcp__sentinel-one__quarantine_host"}
         runtime.client = MagicMock()
         runtime.client.interrupt = AsyncMock()
 
-        result = await runtime._pre_tool_use_hook(
-            input_data=make_hook_input(
-                tool_name="mcp__sentinel-one__quarantine_host",
-                tool_input={"host_id": "h-1"},
+        with patch.object(
+            runtime, "_handle_approval_request", new=AsyncMock()
+        ) as mock_handle_approval:
+            result = await runtime._pre_tool_use_hook(
+                input_data=make_hook_input(
+                    tool_name="mcp__sentinel-one__quarantine_host",
+                    tool_input={"host_id": "h-1"},
+                    tool_use_id="call-stdio",
+                ),
                 tool_use_id="call-stdio",
-            ),
-            tool_use_id="call-stdio",
-            context=make_hook_context(),
-        )
+                context=make_hook_context(),
+            )
 
         hook_output = get_hook_output(result)
         assert hook_output.get("permissionDecision") == "deny"
-        assert "requires approval" in (
-            hook_output.get("permissionDecisionReason") or ""
-        )
-        mock_socket_writer.send_stream_event.assert_awaited()
-        runtime.client.interrupt.assert_awaited()
+        reason = hook_output.get("permissionDecisionReason") or ""
+        assert "not supported for local (stdio) MCP tools" in reason
+
+        # Must not enter the approval flow at all.
+        mock_handle_approval.assert_not_awaited()
+        mock_socket_writer.send_stream_event.assert_not_awaited()
+        runtime.client.interrupt.assert_not_awaited()
 
     @pytest.mark.anyio
     async def test_agent_tool_denies_child_delegation(

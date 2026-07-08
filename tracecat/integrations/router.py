@@ -131,7 +131,7 @@ async def _gate_mcp_connect_verification(
         # the OAuth callback runs its own verification after token exchange.
         return
     if mcp_integration.server_type == "stdio":
-        svc.start_mcp_stdio_verification(mcp_integration=mcp_integration)
+        await svc.start_mcp_stdio_verification(mcp_integration=mcp_integration)
         return
 
     result = await svc.verify_mcp_integration(mcp_integration=mcp_integration)

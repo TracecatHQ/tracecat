@@ -163,8 +163,11 @@ class _PreparedResumeAndMCP:
 class _StdioMCPServerSpec:
     servers: dict[str, McpStdioServerConfig]
     tools_by_server: dict[str, list[MCPServerToolSummary]]
-    # Full runtime tool name (mcp__{server}__{tool}) -> requires manual approval.
-    approvals_by_tool: dict[str, bool]
+    # Full runtime tool names (mcp__{server}__{tool}) that still carry a
+    # requires_approval policy. Approvals are unsupported for stdio MCP tools
+    # (the subprocess is gone by approval time), so these are hard-denied at
+    # PreToolUse rather than routed into the approval request flow.
+    blocked_approval_tools: set[str]
 
 
 def _configure_claude_sdk_process_env() -> None:
@@ -285,7 +288,7 @@ class ClaudeAgentRuntime:
         # Public for testing - these represent runtime configuration
         self.registry_tools: dict[str, MCPToolDefinition] | None = None
         self.tool_approvals: dict[str, bool] | None = None
-        self._stdio_tool_approvals: dict[str, bool] = {}
+        self._stdio_approval_blocked_tools: set[str] = set()
         self._runtime_internet_access_enabled: bool = False
         self._explicit_subagent_aliases: set[str] = set()
         self._registry_mcp_server_names: set[str] = {REGISTRY_MCP_SERVER_NAME}
@@ -482,13 +485,13 @@ class ClaudeAgentRuntime:
     ) -> _StdioMCPServerSpec:
         servers: dict[str, McpStdioServerConfig] = {}
         tools_by_server: dict[str, list[MCPServerToolSummary]] = {}
-        approvals_by_tool: dict[str, bool] = {}
+        blocked_approval_tools: set[str] = set()
         used_names = set(existing_names or ())
         if not source_configs:
             return _StdioMCPServerSpec(
                 servers=servers,
                 tools_by_server=tools_by_server,
-                approvals_by_tool=approvals_by_tool,
+                blocked_approval_tools=blocked_approval_tools,
             )
 
         for config in source_configs:
@@ -527,12 +530,12 @@ class ClaudeAgentRuntime:
                         full_tool_name = cls._mcp_tool_name_for_user_mcp_tool(
                             server_name, tool["name"]
                         )
-                        approvals_by_tool[full_tool_name] = True
+                        blocked_approval_tools.add(full_tool_name)
 
         return _StdioMCPServerSpec(
             servers=servers,
             tools_by_server=tools_by_server,
-            approvals_by_tool=approvals_by_tool,
+            blocked_approval_tools=blocked_approval_tools,
         )
 
     @staticmethod
@@ -1064,18 +1067,32 @@ class ClaudeAgentRuntime:
                 }
             }
 
+        # Approvals are not supported for stdio (local) MCP tools: the stdio
+        # subprocess lives inside the per-turn sandbox and is gone by the time
+        # the approval continuation runs, so an approved call could never be
+        # executed. Hard-deny these instead of routing them into the approval
+        # request flow (which would strand the call and, worse, fall through to
+        # the registry-action leg on the normalized name).
+        if tool_name in self._stdio_approval_blocked_tools:
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": (
+                        f"Tool '{tool_name}' requires approval, but approvals are "
+                        "not supported for local (stdio) MCP tools. Disable the "
+                        "approval requirement for this tool to use it."
+                    ),
+                }
+            }
+
         # Preset-backed subagents cannot require manual approvals in v1.
         # Dynamic/general-purpose subagents still inherit root approvals.
         requires_approval = self._explicit_subagent_alias_for_tool(
             input_data, tool_name
         ) is None and (
-            (
-                self.tool_approvals is not None
-                and self.tool_approvals.get(action_name) is True
-            )
-            # Verified stdio MCP tools carry their own approval policy, keyed
-            # by the full runtime tool name (mcp__{server}__{tool}).
-            or self._stdio_tool_approvals.get(tool_name) is True
+            self.tool_approvals is not None
+            and self.tool_approvals.get(action_name) is True
         )
 
         if requires_approval:
@@ -1261,7 +1278,7 @@ class ClaudeAgentRuntime:
         self._query_sent_event = asyncio.Event()
         self.registry_tools = payload.allowed_actions
         self.tool_approvals = payload.config.tool_approvals
-        self._stdio_tool_approvals = {}
+        self._stdio_approval_blocked_tools = set()
         self._agents_enabled = payload.config.agents.enabled
         self._explicit_subagent_aliases = {
             subagent.alias for subagent in payload.subagents
@@ -1544,7 +1561,7 @@ class ClaudeAgentRuntime:
                 source_configs=payload.config.mcp_servers,
                 existing_names=set(mcp_servers),
             )
-            self._stdio_tool_approvals = stdio_mcp_spec.approvals_by_tool
+            self._stdio_approval_blocked_tools = stdio_mcp_spec.blocked_approval_tools
             stdio_mcp_servers = stdio_mcp_spec.servers
             mcp_servers.update(stdio_mcp_servers)
             agent_definitions = self._build_agent_definitions(payload=payload)

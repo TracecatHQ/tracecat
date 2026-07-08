@@ -7,7 +7,7 @@ import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, ClassVar, cast
+from typing import Any, cast
 from urllib.parse import urlparse, urlunparse
 from uuid import uuid4
 
@@ -20,17 +20,18 @@ from pydantic import SecretStr
 from slugify import slugify
 from sqlalchemy import and_, delete, or_, select, update
 from temporalio.client import WorkflowFailureError
+from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from tracecat import config
 from tracecat.agent.common.types import MCPHttpServerConfig
 from tracecat.agent.mcp.stdio_probe import (
     MCP_STDIO_PROBE_TIMEOUT_CAP,
-    StdioMCPProbeInput,
+    StdioMCPProbeWorkflowInput,
     build_stdio_mcp_probe_workflow_id,
+    build_unique_stdio_mcp_probe_workflow_id,
 )
 from tracecat.agent.workflows.mcp_probe import StdioMCPProbeWorkflow
 from tracecat.auth.secrets import get_db_encryption_key
-from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope, require_scope
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
@@ -176,7 +177,6 @@ class IntegrationService(BaseWorkspaceService):
     """Service for managing user integrations."""
 
     service_name = "integrations"
-    _background_stdio_verification_tasks: ClassVar[set[asyncio.Task[None]]] = set()
 
     @staticmethod
     def _escape_like_pattern(value: str) -> str:
@@ -211,7 +211,7 @@ class IntegrationService(BaseWorkspaceService):
         return normalized
 
     @staticmethod
-    def _validate_stdio_server_config(
+    def validate_stdio_server_config(
         *,
         command: str | None,
         args: list[str] | None = None,
@@ -2572,7 +2572,7 @@ class IntegrationService(BaseWorkspaceService):
                         custom_credentials
                     )
         else:
-            self._validate_stdio_server_config(
+            self.validate_stdio_server_config(
                 command=params.stdio_command,
                 args=params.stdio_args,
                 env=params.stdio_env,
@@ -3227,11 +3227,11 @@ class IntegrationService(BaseWorkspaceService):
         try:
             result = await client.execute_workflow(
                 StdioMCPProbeWorkflow.run,
-                StdioMCPProbeInput(
+                StdioMCPProbeWorkflowInput(
                     mcp_integration_id=mcp_integration.id,
                     role=self.role,
                 ),
-                id=build_stdio_mcp_probe_workflow_id(),
+                id=build_unique_stdio_mcp_probe_workflow_id(),
                 task_queue=config.TRACECAT__AGENT_QUEUE,
                 run_timeout=timedelta(seconds=MCP_STDIO_PROBE_TIMEOUT_CAP + 90),
             )
@@ -3252,6 +3252,44 @@ class IntegrationService(BaseWorkspaceService):
                 sanitize_urls_in_text(result.error or result.message),
             )
         return result.tools
+
+    async def persist_mcp_integration_tools(
+        self,
+        *,
+        mcp_integration_id: uuid.UUID,
+        discovered_tools: Sequence[MCPToolSummary],
+        previous_tools: list[dict[str, Any]] | None = None,
+    ) -> list[MCPToolSummary]:
+        """Persist discovered MCP tools while preserving stored per-tool policy.
+
+        The probe runs unlocked. This method takes the row lock before rewriting
+        the tools blob so policy updates and verification commits serialize.
+        """
+        mcp_integration = await self.get_mcp_integration(
+            mcp_integration_id=mcp_integration_id,
+            for_update=True,
+        )
+        if mcp_integration is None:
+            raise ValueError("MCP integration not found")
+
+        merge_base_tools = (
+            previous_tools if previous_tools is not None else mcp_integration.tools
+        )
+        merged_tools = self._merge_mcp_tool_summaries(
+            discovered_tools,
+            merge_base_tools,
+            mcp_integration_id=mcp_integration.id,
+        )
+        mcp_integration.tools = [tool.model_dump() for tool in merged_tools]
+        self.session.add(mcp_integration)
+        await self.session.commit()
+        await self.session.refresh(mcp_integration)
+        self.logger.info(
+            "MCP integration tools persisted",
+            mcp_integration_id=str(mcp_integration.id),
+            tool_count=len(discovered_tools),
+        )
+        return merged_tools
 
     async def test_mcp_http_connection(
         self, *, params: MCPHttpIntegrationTestConnectionRequest
@@ -3385,25 +3423,11 @@ class IntegrationService(BaseWorkspaceService):
                 error=e.error or e.message,
             )
 
-        # Lock and reload the row before merging: the probe runs unlocked (it's a
-        # network call), and merging rewrites the full tools blob, which races
-        # read-modify-write policy toggles. refresh(with_for_update) takes the
-        # row lock AND reloads tools to the latest committed value, so the merge
-        # serializes against and sees concurrent mutations.
-        await self.session.refresh(mcp_integration, with_for_update=True)
-
-        merge_base_tools = (
-            previous_tools if previous_tools is not None else mcp_integration.tools
-        )
-        merged_tools = self._merge_mcp_tool_summaries(
-            tools,
-            merge_base_tools,
+        merged_tools = await self.persist_mcp_integration_tools(
             mcp_integration_id=mcp_integration.id,
+            discovered_tools=tools,
+            previous_tools=previous_tools,
         )
-        mcp_integration.tools = [tool.model_dump() for tool in merged_tools]
-        self.session.add(mcp_integration)
-        await self.session.commit()
-        await self.session.refresh(mcp_integration)
         self.logger.info(
             "MCP integration verified",
             mcp_integration_id=str(mcp_integration.id),
@@ -3437,7 +3461,9 @@ class IntegrationService(BaseWorkspaceService):
             error=error,
         )
 
-    def start_mcp_stdio_verification(self, *, mcp_integration: MCPIntegration) -> None:
+    async def start_mcp_stdio_verification(
+        self, *, mcp_integration: MCPIntegration
+    ) -> None:
         """Launch saved stdio MCP verification without blocking the request."""
         if mcp_integration.server_type != "stdio":
             raise ValueError(
@@ -3446,48 +3472,32 @@ class IntegrationService(BaseWorkspaceService):
         if mcp_integration.id is None:
             raise ValueError("MCP integration must be saved first")
 
-        task = asyncio.create_task(
-            self._verify_mcp_integration_in_background(
+        workflow_id = build_stdio_mcp_probe_workflow_id(
+            workspace_id=self.workspace_id,
+            mcp_integration_id=mcp_integration.id,
+        )
+        client = await get_temporal_client()
+        # Running probes may be bound to older config snapshots; latest saves
+        # must supersede them.
+        await client.start_workflow(
+            StdioMCPProbeWorkflow.run,
+            StdioMCPProbeWorkflowInput(
                 mcp_integration_id=mcp_integration.id,
                 role=self.role,
-            )
+                persist_result=True,
+            ),
+            id=workflow_id,
+            task_queue=config.TRACECAT__AGENT_QUEUE,
+            run_timeout=timedelta(seconds=MCP_STDIO_PROBE_TIMEOUT_CAP + 90),
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            id_conflict_policy=WorkflowIDConflictPolicy.TERMINATE_EXISTING,
         )
-        self._background_stdio_verification_tasks.add(task)
 
-        def _log_background_failure(task: asyncio.Task[None]) -> None:
-            self._background_stdio_verification_tasks.discard(task)
-            try:
-                task.result()
-            except asyncio.CancelledError:
-                self.logger.warning(
-                    "Background stdio MCP verification was cancelled",
-                    mcp_integration_id=str(mcp_integration.id),
-                )
-            except Exception as exc:
-                self.logger.exception(
-                    "Background stdio MCP verification failed",
-                    mcp_integration_id=str(mcp_integration.id),
-                    error=sanitize_urls_in_text(str(exc)),
-                )
-
-        task.add_done_callback(_log_background_failure)
-
-    @staticmethod
-    async def _verify_mcp_integration_in_background(
-        *, mcp_integration_id: uuid.UUID, role: Role
-    ) -> None:
-        async with get_async_session_bypass_rls_context_manager() as session:
-            svc = IntegrationService(session=session, role=role)
-            mcp_integration = await svc.get_mcp_integration(
-                mcp_integration_id=mcp_integration_id
-            )
-            if mcp_integration is None:
-                svc.logger.warning(
-                    "Skipped background MCP verification for missing integration",
-                    mcp_integration_id=str(mcp_integration_id),
-                )
-                return
-            await svc.verify_mcp_integration(mcp_integration=mcp_integration)
+        self.logger.info(
+            "Started stdio MCP verification workflow",
+            mcp_integration_id=str(mcp_integration.id),
+            workflow_id=workflow_id,
+        )
 
     def _decrypt_mcp_custom_headers(
         self, mcp_integration: MCPIntegration
@@ -3756,7 +3766,7 @@ class IntegrationService(BaseWorkspaceService):
             target_stdio_env = (
                 params.stdio_env if params.stdio_env is not None else None
             )
-            self._validate_stdio_server_config(
+            self.validate_stdio_server_config(
                 command=target_stdio_command,
                 args=target_stdio_args,
                 env=target_stdio_env,
@@ -3942,6 +3952,12 @@ class IntegrationService(BaseWorkspaceService):
             for name, update in updates_by_name.items()
         )
         if enables_approval:
+            # Approvals are not supported for stdio MCP servers: the stdio
+            # subprocess lives inside the per-turn sandbox and is gone by the
+            # time the approval continuation runs, so there is no execution leg
+            # to resume the approved call. Clearing approval stays allowed.
+            if mcp_integration.server_type == "stdio":
+                raise ValueError("Approvals are not supported for stdio MCP servers.")
             await self.require_entitlement(Entitlement.AGENT_ADDONS)
 
         updated_tools: list[MCPToolSummary] = []

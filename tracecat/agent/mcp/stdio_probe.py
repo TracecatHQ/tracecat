@@ -28,6 +28,7 @@ from tracecat.sandbox.utils import is_nsjail_available, pid_namespace_available
 
 MCP_STDIO_PROBE_WORKFLOW_ID_PREFIX = "mcp-stdio-probe"
 MCP_STDIO_PROBE_ACTIVITY_NAME = "probe_stdio_mcp_connection_activity"
+MCP_STDIO_PERSIST_ACTIVITY_NAME = "persist_stdio_mcp_connection_activity"
 MCP_STDIO_PROBE_TIMEOUT_CAP = 60
 
 _SANDBOX_PROBE_SCRIPT = r"""
@@ -139,11 +140,27 @@ if __name__ == "__main__":
 """
 
 
-class StdioMCPProbeInput(BaseModel):
-    """Input for a saved stdio MCP probe workflow/activity."""
+class StdioMCPProbeWorkflowInput(BaseModel):
+    """Input for a saved stdio MCP probe workflow."""
 
     mcp_integration_id: uuid.UUID
     role: Role
+    persist_result: bool = False
+
+
+class StdioMCPProbeInput(BaseModel):
+    """Input for a saved stdio MCP probe activity."""
+
+    mcp_integration_id: uuid.UUID
+    role: Role
+
+
+class StdioMCPPersistInput(BaseModel):
+    """Input for persisting a successful stdio MCP probe result."""
+
+    mcp_integration_id: uuid.UUID
+    role: Role
+    tools: list[MCPToolSummary]
 
 
 class StdioMCPProbeResult(BaseModel):
@@ -155,9 +172,18 @@ class StdioMCPProbeResult(BaseModel):
     error: str | None = None
 
 
-def build_stdio_mcp_probe_workflow_id() -> str:
-    """Return a unique Temporal workflow id for a stdio MCP probe."""
-    return f"{MCP_STDIO_PROBE_WORKFLOW_ID_PREFIX}/{uuid.uuid4()}"
+def build_stdio_mcp_probe_workflow_id(
+    *, workspace_id: uuid.UUID, mcp_integration_id: uuid.UUID
+) -> str:
+    """Return the durable Temporal workflow id for a saved stdio MCP probe."""
+    return (
+        f"{MCP_STDIO_PROBE_WORKFLOW_ID_PREFIX}/ws/{workspace_id}/{mcp_integration_id}"
+    )
+
+
+def build_unique_stdio_mcp_probe_workflow_id() -> str:
+    """Return a unique Temporal workflow id for caller-scoped stdio MCP tests."""
+    return f"{MCP_STDIO_PROBE_WORKFLOW_ID_PREFIX}/test/{uuid.uuid4()}"
 
 
 def sanitize_stdio_probe_error(
