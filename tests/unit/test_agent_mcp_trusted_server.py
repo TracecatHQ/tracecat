@@ -779,7 +779,21 @@ async def test_partial_discovery_failure_is_not_pinned_to_token_cache(
     server = trusted_server.TokenScopedFastMCP("test")
 
     partial = await server._tools_from_request()
-    assert [tool.name for tool in partial] == ["mcp__Alpha__ping"]
+    assert [tool.name for tool in partial] == [
+        "mcp__Alpha__ping",
+        "mcp__Beta__ping",
+    ]
+    unavailable = partial[1]
+    assert unavailable.description is not None
+    assert "Unavailable user MCP tool" in unavailable.description
+    with pytest.raises(
+        ToolError,
+        match=(
+            "User MCP tool 'ping' on server 'Beta' is unavailable: "
+            "MCP discovery failed for server 'Beta' \\(TransportError\\)"
+        ),
+    ):
+        await unavailable.run({})
 
     beta_failing[0] = False
     recovered = await server._tools_from_request()
@@ -793,6 +807,91 @@ async def test_partial_discovery_failure_is_not_pinned_to_token_cache(
     # The second listing retried only the failed server (Alpha came from the
     # discovery cache); the third was served from the token cache entirely.
     assert client_instantiations == [["Alpha", "Beta"], ["Beta"]]
+
+
+@pytest.mark.anyio
+async def test_total_discovery_failure_returns_unavailable_tool_placeholder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    claims = _build_claims(
+        allowed_actions=["mcp__Jira__getIssue"],
+        user_mcp_servers=[
+            UserMCPServerClaim(name="Jira", url="https://jira.example.com/mcp"),
+        ],
+    )
+
+    async def fake_fetch_tool_definitions(
+        action_names: list[str],
+    ) -> dict[str, MCPToolDefinition]:
+        assert action_names == []
+        return {}
+
+    jira_failing = [True]
+    client_instantiations: list[list[str]] = []
+
+    class _FakeUserMCPClient:
+        parse_user_mcp_tool_name = staticmethod(UserMCPClient.parse_user_mcp_tool_name)
+
+        def __init__(self, configs: list[dict[str, Any]]) -> None:
+            client_instantiations.append([config["name"] for config in configs])
+            self.configs = configs
+
+        async def discover_tools_detailed(self) -> UserMCPDiscoveryResult:
+            if jira_failing[0]:
+                return UserMCPDiscoveryResult(
+                    definitions={},
+                    failed_servers={"Jira": "HTTPStatusError(status_code=503)"},
+                )
+            return UserMCPDiscoveryResult(
+                definitions={
+                    "mcp__Jira__getIssue": MCPToolDefinition(
+                        name="mcp__Jira__getIssue",
+                        description="Get issue",
+                        parameters_json_schema={"type": "object"},
+                    )
+                },
+                failed_servers={},
+            )
+
+    monkeypatch.setattr(
+        trusted_server,
+        "fetch_tool_definitions",
+        fake_fetch_tool_definitions,
+    )
+    monkeypatch.setattr(trusted_server, "UserMCPClient", _FakeUserMCPClient)
+    monkeypatch.setattr(
+        trusted_server,
+        "_authorization_header_from_request",
+        lambda: "Bearer test-token",
+    )
+    monkeypatch.setattr(
+        trusted_server,
+        "_claims_from_authorization_header",
+        lambda authorization: claims,
+    )
+
+    server = trusted_server.TokenScopedFastMCP("test")
+
+    degraded = await server._tools_from_request()
+    assert [tool.name for tool in degraded] == ["mcp__Jira__getIssue"]
+    assert degraded[0].description is not None
+    assert "Unavailable user MCP tool" in degraded[0].description
+    with pytest.raises(
+        ToolError,
+        match=(
+            "User MCP tool 'getIssue' on server 'Jira' is unavailable: "
+            "MCP discovery failed for server 'Jira' "
+            "\\(HTTPStatusError\\(status_code=503\\)\\)"
+        ),
+    ):
+        await degraded[0].run({"issueKey": "ISSUE-1"})
+
+    assert await server.get_tool("mcp__Jira__getIssue") is not None
+
+    jira_failing[0] = False
+    recovered = await server._tools_from_request()
+    assert [tool.description for tool in recovered] == ["Get issue"]
+    assert client_instantiations == [["Jira"], ["Jira"], ["Jira"]]
 
 
 @pytest.mark.anyio

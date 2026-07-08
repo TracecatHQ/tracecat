@@ -112,6 +112,16 @@ class TracecatScopedTool(Tool):
         return ToolResult(content=result)
 
 
+class UnavailableUserMCPTool(Tool):
+    """A placeholder for an expected user MCP tool that is unavailable now."""
+
+    error_message: SkipJsonSchema[str] = Field(exclude=True)
+
+    async def run(self, arguments: dict[str, Any]) -> ToolResult:
+        del arguments
+        raise ToolError(self.error_message)
+
+
 class TokenScopedFastMCP(FastMCP[None]):
     """FastMCP server whose visible tools are derived from the caller token."""
 
@@ -129,10 +139,10 @@ class TokenScopedFastMCP(FastMCP[None]):
             return self._tool_cache[authorization]
 
         build = await _build_token_scoped_tools(claims)
-        # A partial catalog (some user MCP servers failed discovery) must not
-        # be pinned to the token: the next listing should retry the failed
-        # servers instead of serving the reduced catalog until restart.
-        if not build.failed_user_mcp_servers:
+        # Degraded catalogs must not be pinned to the token: the next listing
+        # should retry unavailable/missing user MCP tools instead of serving
+        # placeholders until restart.
+        if build.cacheable:
             self._tool_cache[authorization] = build.tools
             if len(self._tool_cache) > _TOKEN_TOOL_CACHE_MAX_SIZE:
                 self._tool_cache.popitem(last=False)
@@ -182,13 +192,6 @@ def _safe_user_mcp_error_summary(exc: Exception) -> str:
     if isinstance(exc.__cause__, MCPSecretResolutionError):
         return f"{type(exc).__name__}(cause=MCPSecretResolutionError)"
     return type(exc).__name__
-
-
-def _format_failed_user_mcp_servers(failed_servers: dict[str, str]) -> str:
-    return "; ".join(
-        f"{server_name}: {summary}"
-        for server_name, summary in sorted(failed_servers.items())
-    )
 
 
 def _user_mcp_discovery_cache_key(
@@ -433,6 +436,49 @@ def _build_scoped_tool(
     )
 
 
+def _user_mcp_tool_unavailable_reason(
+    tool_name: str,
+    *,
+    claims: MCPTokenClaims,
+    failed_servers: dict[str, str],
+) -> str:
+    parsed = UserMCPClient.parse_user_mcp_tool_name(tool_name)
+    if parsed is None:
+        return "tool name is not a valid user MCP tool name"
+
+    server_name, _remote_tool_name = parsed
+    if error_summary := failed_servers.get(server_name):
+        return f"MCP discovery failed for server '{server_name}' ({error_summary})"
+
+    if not any(server.name == server_name for server in claims.user_mcp_servers):
+        return f"MCP server '{server_name}' is not present in this token"
+
+    return f"MCP server '{server_name}' did not advertise this tool"
+
+
+def _build_unavailable_user_mcp_tool(
+    tool_name: str,
+    *,
+    reason: str,
+) -> UnavailableUserMCPTool:
+    parsed = UserMCPClient.parse_user_mcp_tool_name(tool_name)
+    remote_tool_name = parsed[1] if parsed is not None else tool_name
+    server_name = parsed[0] if parsed is not None else "unknown"
+    error_message = (
+        f"User MCP tool '{remote_tool_name}' on server '{server_name}' "
+        f"is unavailable: {reason}"
+    )
+    return UnavailableUserMCPTool(
+        name=tool_name,
+        description=(
+            f"Unavailable user MCP tool. {reason}. Continue without this tool, "
+            "or tell the user that the integration is temporarily unavailable."
+        ),
+        parameters={"type": "object", "additionalProperties": True},
+        error_message=error_message,
+    )
+
+
 async def _discover_allowed_user_mcp_tools(
     claims: MCPTokenClaims,
 ) -> tuple[dict[str, MCPToolDefinition], dict[str, str]]:
@@ -494,6 +540,7 @@ async def _discover_allowed_user_mcp_tools(
 class _TokenScopedToolBuild(NamedTuple):
     tools: list[Tool]
     failed_user_mcp_servers: dict[str, str]
+    cacheable: bool = True
 
 
 async def build_token_scoped_tools(claims: MCPTokenClaims) -> list[Tool]:
@@ -551,20 +598,6 @@ async def _build_token_scoped_tools(claims: MCPTokenClaims) -> _TokenScopedToolB
         user_mcp_definitions,
         failed_user_mcp_servers,
     ) = await _discover_allowed_user_mcp_tools(claims)
-    if (
-        expected_user_mcp_tool_names
-        and not user_mcp_definitions
-        and failed_user_mcp_servers
-    ):
-        failed_summary = _format_failed_user_mcp_servers(failed_user_mcp_servers)
-        logger.error(
-            "Failed to resolve any expected user MCP tools",
-            session_id=str(claims.session_id),
-            workspace_id=str(claims.workspace_id),
-            failed_servers=failed_user_mcp_servers,
-        )
-        raise ToolError(f"User MCP discovery failed for all tools: {failed_summary}")
-
     if failed_user_mcp_servers:
         logger.warning(
             "Partially failed to discover token-scoped user MCP tools",
@@ -573,6 +606,9 @@ async def _build_token_scoped_tools(claims: MCPTokenClaims) -> _TokenScopedToolB
             failed_servers=failed_user_mcp_servers,
         )
 
+    unavailable_user_mcp_tool_names = expected_user_mcp_tool_names - set(
+        user_mcp_definitions
+    )
     for tool_name in claims.allowed_actions:
         if definition := user_mcp_definitions.get(tool_name):
             tools.append(
@@ -584,6 +620,18 @@ async def _build_token_scoped_tools(claims: MCPTokenClaims) -> _TokenScopedToolB
                 )
             )
             user_mcp_tool_count += 1
+        elif tool_name in unavailable_user_mcp_tool_names:
+            reason = _user_mcp_tool_unavailable_reason(
+                tool_name,
+                claims=claims,
+                failed_servers=failed_user_mcp_servers,
+            )
+            tools.append(
+                _build_unavailable_user_mcp_tool(
+                    tool_name,
+                    reason=reason,
+                )
+            )
 
     logger.info(
         "Built token-scoped MCP tool listing",
@@ -592,12 +640,14 @@ async def _build_token_scoped_tools(claims: MCPTokenClaims) -> _TokenScopedToolB
         registry_tool_count=registry_tool_count,
         internal_tool_count=internal_tool_count,
         user_mcp_tool_count=user_mcp_tool_count,
+        unavailable_user_mcp_tool_count=len(unavailable_user_mcp_tool_names),
         failed_server_names=list(failed_user_mcp_servers),
     )
 
     return _TokenScopedToolBuild(
         tools=tools,
         failed_user_mcp_servers=failed_user_mcp_servers,
+        cacheable=not unavailable_user_mcp_tool_names and not failed_user_mcp_servers,
     )
 
 
