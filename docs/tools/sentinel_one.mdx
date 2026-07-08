@@ -446,7 +446,7 @@ Default: `null`.
 
 <ParamField path="filters" type="object">
 
-API-native query parameters to pass through, including limit and pagination cursor when supported.
+REST-format filter object sent in the request body, e.g. resourceType, name__contains, id__in, or date-range objects, plus limit and skip for pagination.
 
 Default: `{}`.
 

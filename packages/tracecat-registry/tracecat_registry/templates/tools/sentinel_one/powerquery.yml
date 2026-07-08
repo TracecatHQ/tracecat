@@ -58,6 +58,51 @@ definition:
       description: SentinelOne tenant URL. /sdl is appended automatically.
       default: null
   steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          start_time: ${{ inputs.start_time }}
+          end_time: ${{ inputs.end_time }}
+          query_priority: ${{ inputs.query_priority }}
+          tenant: ${{ inputs.tenant }}
+          account_ids: ${{ inputs.account_ids }}
+          query_origin: ${{ inputs.query_origin }}
+          query: ${{ inputs.query }}
+          result_type: ${{ inputs.result_type }}
+          frequency: ${{ inputs.frequency }}
+        script: |
+          def main(
+              start_time,
+              end_time,
+              query_priority,
+              tenant,
+              account_ids,
+              query_origin,
+              query,
+              result_type,
+              frequency,
+          ):
+              # Scope fields are omitted when unset so the SDL API applies its
+              # own default scoping, instead of receiving an explicit null.
+              payload = {
+                  "startTime": start_time,
+                  "endTime": end_time,
+                  "queryType": "pq",
+                  "queryPriority": query_priority,
+                  "pq": {
+                      "query": query,
+                      "resultType": result_type,
+                      "frequency": frequency,
+                  },
+              }
+              if tenant is not None:
+                  payload["tenant"] = tenant
+              if account_ids is not None:
+                  payload["accountIds"] = account_ids
+              if query_origin is not None:
+                  payload["queryOrigin"] = query_origin
+              return payload
     - ref: submit_query
       action: core.http_request
       args:
@@ -65,18 +110,7 @@ definition:
         method: POST
         headers:
           Authorization: Bearer ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}
-        payload:
-          startTime: ${{ inputs.start_time }}
-          endTime: ${{ inputs.end_time }}
-          queryType: pq
-          queryPriority: ${{ inputs.query_priority }}
-          tenant: ${{ inputs.tenant }}
-          accountIds: ${{ inputs.account_ids }}
-          queryOrigin: ${{ inputs.query_origin }}
-          pq:
-            query: ${{ inputs.query }}
-            resultType: ${{ inputs.result_type }}
-            frequency: ${{ inputs.frequency }}
+        payload: ${{ steps.build_payload.result }}
     - ref: poll_results
       action: core.http_poll
       args:

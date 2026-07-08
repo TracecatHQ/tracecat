@@ -12,7 +12,7 @@ definition:
   expects:
     filters:
       type: dict[str, Any]
-      description: API-native query parameters to pass through, including limit and pagination cursor when supported.
+      description: REST-format filter object sent in the request body, e.g. resourceType, name__contains, id__in, or date-range objects, plus limit and skip for pagination.
       default: {}
     base_url:
       type: str | None
@@ -23,8 +23,9 @@ definition:
       action: core.http_request
       args:
         url: ${{ inputs.base_url || VARS.sentinel_one.base_url }}/web/api/v2.1/xdr/assets
-        method: GET
+        method: POST
         headers:
           Authorization: Bearer ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}
-        params: ${{ inputs.filters }}
+        payload:
+          filter: ${{ inputs.filters }}
   returns: ${{ steps.list_items.result.data }}
