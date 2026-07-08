@@ -1256,6 +1256,27 @@ class TestOrganizationServiceInvitations:
         assert new_invitation.expires_at > datetime.now(UTC)
 
     @pytest.mark.anyio
+    async def test_get_pending_invitation_rejects_expired_invitation(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+        org1_member_role: DBRole,
+    ):
+        """Expired pending invitations cannot be resent."""
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        invitation = await service.create_invitation(
+            email="resend-expired@example.com", role_id=org1_member_role.id
+        )
+        invitation.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+        await session.commit()
+
+        with pytest.raises(TracecatAuthorizationError, match="Invitation has expired"):
+            await service.get_pending_invitation(invitation.id)
+
+    @pytest.mark.anyio
     async def test_create_invitation_existing_member_raises(
         self,
         session: AsyncSession,

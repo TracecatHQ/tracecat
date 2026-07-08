@@ -577,7 +577,6 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         self.logger.info(
             "Workspace invitation accepted during registration",
             user_id=str(user.id),
-            email=user.email,
             workspace_id=str(membership.workspace_id),
         )
 

@@ -796,6 +796,8 @@ class WorkspaceService(BaseOrgService):
             raise TracecatAuthorizationError(
                 f"Cannot resend invitation with status '{invitation.status}'"
             )
+        if invitation.expires_at <= datetime.now(UTC):
+            raise TracecatAuthorizationError("Invitation has expired")
         return invitation
 
     async def get_workspace_name(self, workspace_id: WorkspaceID) -> str:

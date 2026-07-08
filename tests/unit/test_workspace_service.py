@@ -796,6 +796,29 @@ class TestCreateInvitation:
         assert new_invitation.email == email
         assert new_invitation.expires_at > datetime.now(UTC)
 
+    async def test_get_pending_invitation_rejects_expired_invitation(
+        self,
+        session: AsyncSession,
+        inv_org: Organization,
+        inv_workspace: Workspace,
+        admin_user: User,
+        rbac_roles: dict[str, str],
+    ):
+        """Expired pending invitations cannot be resent."""
+        role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
+        service = WorkspaceService(session, role=role)
+
+        params = WorkspaceInvitationCreate(
+            email="resend-expired@example.com",
+            role_id=rbac_roles["workspace-editor"],
+        )
+        invitation = await service.create_invitation(inv_workspace.id, params)
+        invitation.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+        await session.commit()
+
+        with pytest.raises(TracecatAuthorizationError, match="Invitation has expired"):
+            await service.get_pending_invitation(inv_workspace.id, invitation.id)
+
 
 @pytest.mark.anyio
 class TestListInvitations:
