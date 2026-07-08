@@ -1,0 +1,39 @@
+type: action
+definition:
+  title: List inventory
+  description: List SentinelOne inventory assets with API-native filters.
+  display_group: SentinelOne
+  doc_url: https://github.com/Sentinel-One/purple-mcp
+  namespace: tools.sentinel_one
+  name: list_inventory
+  secrets:
+    - name: sentinel_one
+      keys: ["SENTINEL_ONE_API_TOKEN"]
+  expects:
+    filters:
+      type: dict[str, Any]
+      description: REST-format filter object, e.g. resourceType, name__contains, id__in, or date-range objects. Keys here override the default limit and skip.
+      default: {}
+    limit:
+      type: int
+      description: Maximum number of assets to return.
+      default: 50
+    skip:
+      type: int
+      description: Number of assets to skip for pagination.
+      default: 0
+    base_url:
+      type: str | None
+      description: SentinelOne tenant URL.
+      default: null
+  steps:
+    - ref: list_items
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sentinel_one.base_url }}/web/api/v2.1/xdr/assets
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}
+        payload:
+          filter: '${{ FN.merge([{"limit": inputs.limit, "skip": inputs.skip}, inputs.filters]) }}'
+  returns: ${{ steps.list_items.result.data }}
