@@ -29,6 +29,7 @@ import type {
 import { ApiError } from "@/client"
 import { ExportMenuItem } from "@/components/export-workflow-dropdown-item"
 import { Spinner } from "@/components/loading/spinner"
+import { FolderPathBreadcrumb } from "@/components/nav/folder-path-breadcrumb"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -41,13 +42,6 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -97,6 +91,7 @@ import { useRepositoryBranches } from "@/hooks/use-workspace-sync"
 import type { TracecatApiError } from "@/lib/errors"
 import {
   useCreateDraftWorkflowExecution,
+  useFolders,
   useOrgAppSettings,
   useWorkflowManager,
 } from "@/lib/hooks"
@@ -122,6 +117,12 @@ export function BuilderNav() {
   const workspaceId = useWorkspaceId()
   const { workspace, workspaceLoading } = useWorkspaceDetails()
   const workflowTitle = workflow?.title ?? "Untitled workflow"
+  const { folders } = useFolders(workspaceId, {
+    enabled: Boolean(workflow?.folder_id),
+  })
+  const folderPath = workflow?.folder_id
+    ? folders?.find((folder) => folder.id === workflow.folder_id)?.path
+    : null
 
   const handleCommit = async () => {
     console.log("Saving changes...")
@@ -148,35 +149,26 @@ export function BuilderNav() {
   return (
     <div className="flex w-full items-center">
       <div className="mr-4 min-w-0 flex-1">
-        <Breadcrumb>
-          <BreadcrumbList className="flex-nowrap overflow-hidden whitespace-nowrap">
-            <BreadcrumbItem>
-              <BreadcrumbLink asChild>
-                <Link href={`/workspaces/${workspaceId}/workflows`}>
-                  {workspace.name}
-                </Link>
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator className="shrink-0 font-semibold">
-              {"/"}
-            </BreadcrumbSeparator>
-            <BreadcrumbItem>
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="truncate text-sm text-foreground">
-                  {workflowTitle}
-                </span>
-                {workflow.alias && (
-                  <Badge
-                    variant="secondary"
-                    className="font-mono text-xs font-normal tracking-tighter text-muted-foreground hover:cursor-default"
-                  >
-                    {workflow.alias}
-                  </Badge>
-                )}
-              </div>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
+        <FolderPathBreadcrumb
+          rootLabel={workspace.name}
+          rootHref={`/workspaces/${workspaceId}/workflows`}
+          folderPath={folderPath}
+          currentPage={
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="truncate text-sm text-foreground">
+                {workflowTitle}
+              </span>
+              {workflow.alias && (
+                <Badge
+                  variant="secondary"
+                  className="font-mono text-xs font-normal tracking-tighter text-muted-foreground hover:cursor-default"
+                >
+                  {workflow.alias}
+                </Badge>
+              )}
+            </span>
+          }
+        />
       </div>
 
       <div className="flex items-center justify-end space-x-6">

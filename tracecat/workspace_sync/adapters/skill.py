@@ -423,13 +423,23 @@ class SkillAdapter(DirectoryManifestAdapter):
         workspace_service: SyncMappingService,
     ) -> dict[uuid.UUID, set[int]]:
         """Return skill versions bound by exported agent preset state."""
+        # Soft-deleted presets keep their skill bindings but are excluded from the
+        # preset projection, so their pins must not keep versions exported.
         head_stmt = (
             select(SkillVersion.skill_id, SkillVersion.version)
             .join(
                 AgentPresetSkill,
                 AgentPresetSkill.skill_version_id == SkillVersion.id,
             )
-            .where(AgentPresetSkill.workspace_id == workspace_service.workspace_id)
+            .join(
+                AgentPreset,
+                AgentPresetSkill.preset_id == AgentPreset.id,
+            )
+            .where(
+                AgentPresetSkill.workspace_id == workspace_service.workspace_id,
+                AgentPreset.workspace_id == workspace_service.workspace_id,
+                AgentPreset.deleted_at.is_(None),
+            )
         )
         current_version_stmt = (
             select(SkillVersion.skill_id, SkillVersion.version)
@@ -446,6 +456,7 @@ class SkillAdapter(DirectoryManifestAdapter):
             .where(
                 AgentPresetVersionSkill.workspace_id == workspace_service.workspace_id,
                 AgentPreset.workspace_id == workspace_service.workspace_id,
+                AgentPreset.deleted_at.is_(None),
             )
         )
         versions_by_skill_id: dict[uuid.UUID, set[int]] = defaultdict(set)

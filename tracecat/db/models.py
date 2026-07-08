@@ -116,6 +116,25 @@ class TimestampMixin:
     )
 
 
+class SoftDeleteMixin:
+    """Columns-only soft-delete contract.
+
+    NULL means the row is live; set means the row is a soft-deleted tombstone.
+    UUID lookups of tombstoned rows remain valid, and a global query filter
+    arrives in a later PR.
+    """
+
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        default=None,
+        doc=(
+            "Soft-delete timestamp; NULL means live, set means a tombstone "
+            "that remains addressable by UUID."
+        ),
+    )
+
+
 class InvitationMixin:
     """Mixin for invitation columns shared between workspace and organization invitations."""
 
@@ -3480,12 +3499,18 @@ class AgentTagLink(Base):
     )
 
 
-class AgentPreset(WorkspaceModel):
+class AgentPreset(SoftDeleteMixin, WorkspaceModel):
     """Database model for storing reusable agent preset configurations."""
 
     __tablename__ = "agent_preset"
     __table_args__ = (
-        UniqueConstraint("workspace_id", "slug", name="uq_agent_preset_workspace_slug"),
+        Index(
+            "uq_agent_preset_workspace_slug_active",
+            "workspace_id",
+            "slug",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
         Index("ix_agent_preset_workspace_folder", "workspace_id", "folder_id"),
     )
 
@@ -3779,7 +3804,6 @@ class Skill(WorkspaceModel):
         nullable=True,
         doc="Timestamp for archived skills",
     )
-
     workspace: Mapped[Workspace] = relationship(back_populates="skills")
     current_version: Mapped[SkillVersion | None] = relationship(
         "SkillVersion",

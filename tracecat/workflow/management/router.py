@@ -377,6 +377,7 @@ async def get_workflow(
         alias=workflow.alias,
         git_sync_branch=workflow.git_sync_branch,
         error_handler=workflow.error_handler,
+        folder_id=workflow.folder_id,
         trigger_position_x=workflow.trigger_position_x,
         trigger_position_y=workflow.trigger_position_y,
         graph_version=workflow.graph_version,
