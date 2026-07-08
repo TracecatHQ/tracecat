@@ -258,3 +258,48 @@ async def test_restore_agent_preset_version_maps_validation_error(
     assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST
     assert exc_info.value.detail == "Skill binding could not be restored"
     service.restore_version.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_update_agent_preset_validation_error_returns_400(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invalid preset updates should return a client error instead of a 500."""
+    preset_id = uuid.uuid4()
+    role = Role(
+        type="user",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        service_id="tracecat-api",
+        scopes=frozenset({"agent:update"}),
+    )
+    service = AsyncMock()
+    service.get_preset.return_value = object()
+    service.update_preset.side_effect = TracecatValidationError(
+        "1 MCP integrations were not found in this workspace: "
+        "['00000000-0000-4000-8000-000000000001']"
+    )
+    service.build_preset_read = AsyncMock()
+    monkeypatch.setattr(
+        agent_preset_router,
+        "AgentPresetService",
+        lambda *args, **kwargs: service,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await agent_preset_router.update_agent_preset(
+            preset_id=preset_id,
+            params=agent_preset_router.AgentPresetUpdate(
+                mcp_integrations=["00000000-0000-4000-8000-000000000001"]
+            ),
+            role=role,
+            session=AsyncMock(),
+        )
+
+    assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST
+    assert (
+        exc_info.value.detail == "1 MCP integrations were not found in this workspace: "
+        "['00000000-0000-4000-8000-000000000001']"
+    )
+    service.build_preset_read.assert_not_awaited()

@@ -114,8 +114,14 @@ async def update_agent_preset(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset {preset_id} not found",
         )
-    preset = await service.update_preset(preset, params)
-    return await service.build_preset_read(preset)
+    try:
+        preset = await service.update_preset(preset, params)
+        return await service.build_preset_read(preset)
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
 
 
 @router.delete("/{preset_id}", status_code=status.HTTP_204_NO_CONTENT)

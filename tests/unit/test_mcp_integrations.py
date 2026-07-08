@@ -2118,18 +2118,28 @@ class TestMCPIntegrationCRUD:
         await integration_service.session.flush()
         agent_session_id = agent_session.id
         preset_id = preset.id
-        initial_version = AgentPresetVersion(
+        historical_version = AgentPresetVersion(
             workspace_id=integration_service.workspace_id,
             preset_id=preset_id,
             version=1,
             model_name=preset.model_name,
             model_provider=preset.model_provider,
+            mcp_integrations=[str(created.id), str(other_mcp_id)],
+        )
+        current_version = AgentPresetVersion(
+            workspace_id=integration_service.workspace_id,
+            preset_id=preset_id,
+            version=2,
+            model_name=preset.model_name,
+            model_provider=preset.model_provider,
             mcp_integrations=list(preset.mcp_integrations or []),
         )
-        integration_service.session.add(initial_version)
+        integration_service.session.add(historical_version)
+        integration_service.session.add(current_version)
         await integration_service.session.flush()
-        initial_version_id = initial_version.id
-        preset.current_version_id = initial_version_id
+        historical_version_id = historical_version.id
+        current_version_id = current_version.id
+        preset.current_version_id = current_version_id
         await integration_service.session.commit()
 
         deleted = await integration_service.delete_mcp_integration(
@@ -2148,7 +2158,7 @@ class TestMCPIntegrationCRUD:
             select(AgentPreset).where(AgentPreset.id == preset_id)
         )
         refreshed_preset = refreshed_preset_result.scalars().one()
-        assert refreshed_preset.current_version_id != initial_version_id
+        assert refreshed_preset.current_version_id == current_version_id
         assert refreshed_preset.mcp_integrations is not None
         assert str(created.id) not in refreshed_preset.mcp_integrations
 
@@ -2160,15 +2170,30 @@ class TestMCPIntegrationCRUD:
         assert str(created.id) not in refreshed_session.mcp_integrations
         assert str(other_mcp_id) in refreshed_session.mcp_integrations
 
-        current_version_result = await integration_service.session.execute(
-            select(AgentPresetVersion).where(
-                AgentPresetVersion.id == refreshed_preset.current_version_id
+        # Versions are pruned in place: current and historical rows both lose
+        # the deleted ID while unrelated references survive.
+        refreshed_current_version = (
+            await integration_service.session.scalars(
+                select(AgentPresetVersion).where(
+                    AgentPresetVersion.id == current_version_id
+                )
             )
-        )
-        current_version = current_version_result.scalars().one()
-        assert current_version.version == 2
-        assert current_version.mcp_integrations is not None
-        assert str(created.id) not in current_version.mcp_integrations
+        ).one()
+        assert refreshed_current_version.version == 2
+        assert refreshed_current_version.mcp_integrations is not None
+        assert str(created.id) not in refreshed_current_version.mcp_integrations
+
+        refreshed_historical_version = (
+            await integration_service.session.scalars(
+                select(AgentPresetVersion).where(
+                    AgentPresetVersion.id == historical_version_id
+                )
+            )
+        ).one()
+        assert refreshed_historical_version.version == 1
+        assert refreshed_historical_version.mcp_integrations is not None
+        assert str(created.id) not in refreshed_historical_version.mcp_integrations
+        assert str(other_mcp_id) in refreshed_historical_version.mcp_integrations
 
     async def test_delete_mcp_integration_shared_oauth_keeps_tokens(
         self,
@@ -2412,7 +2437,7 @@ class TestMCPIntegrationCRUD:
         assert str(duplicate_managed_mcp_id) not in refreshed_preset.mcp_integrations
         assert str(wildcard_collision_mcp_id) in refreshed_preset.mcp_integrations
         assert str(workspace_created_id) in refreshed_preset.mcp_integrations
-        assert refreshed_preset.current_version_id != initial_version_id
+        assert refreshed_preset.current_version_id == initial_version_id
 
         refreshed_session_result = await integration_service.session.execute(
             select(AgentSession).where(AgentSession.id == agent_session_id)
@@ -2426,11 +2451,11 @@ class TestMCPIntegrationCRUD:
 
         current_version_result = await integration_service.session.execute(
             select(AgentPresetVersion).where(
-                AgentPresetVersion.id == refreshed_preset.current_version_id
+                AgentPresetVersion.id == initial_version_id
             )
         )
         current_version = current_version_result.scalars().one()
-        assert current_version.version == 2
+        assert current_version.version == 1
         assert current_version.mcp_integrations is not None
         assert str(mcp_integration_id) not in current_version.mcp_integrations
         assert str(duplicate_managed_mcp_id) not in current_version.mcp_integrations
@@ -2512,7 +2537,17 @@ class TestMCPIntegrationCRUD:
         ).one()
         assert refreshed_preset.mcp_integrations is not None
         assert str(created.id) not in refreshed_preset.mcp_integrations
-        assert refreshed_preset.current_version_id != initial_version_id
+        assert refreshed_preset.current_version_id == initial_version_id
+
+        refreshed_initial_version = (
+            await integration_service.session.scalars(
+                select(AgentPresetVersion).where(
+                    AgentPresetVersion.id == initial_version_id
+                )
+            )
+        ).one()
+        assert refreshed_initial_version.mcp_integrations is not None
+        assert str(created.id) not in refreshed_initial_version.mcp_integrations
 
         refreshed_session = (
             await integration_service.session.scalars(
