@@ -612,6 +612,7 @@ export type AgentPresetRead = {
   slug: string
   description?: string | null
   current_version_id?: string | null
+  folder_id?: string | null
   skills?: Array<AgentPresetSkillBindingRead>
   created_at: string
   updated_at: string
@@ -9330,6 +9331,7 @@ export type WorkflowRead = {
   alias?: string | null
   git_sync_branch?: string | null
   error_handler?: string | null
+  folder_id?: string | null
   trigger_position_x?: number
   trigger_position_y?: number
   graph_version?: number

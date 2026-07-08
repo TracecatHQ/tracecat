@@ -2490,6 +2490,18 @@ export const $AgentPresetRead = {
       ],
       title: "Current Version Id",
     },
+    folder_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Id",
+    },
     skills: {
       items: {
         $ref: "#/components/schemas/AgentPresetSkillBindingRead",
@@ -31260,6 +31272,18 @@ export const $WorkflowRead = {
         },
       ],
       title: "Error Handler",
+    },
+    folder_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Id",
     },
     trigger_position_x: {
       type: "number",
