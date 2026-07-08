@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 import uuid
 from datetime import UTC, datetime
 
@@ -300,6 +302,26 @@ async def test_update_and_delete_statements_are_unfiltered(
 def test_soft_delete_listener_startup_assertion_passes() -> None:
     """Startup assertion passes when the global listener is imported."""
     assert_soft_delete_listener_registered()
+
+
+def test_engine_import_wires_listener_in_fresh_interpreter() -> None:
+    """Importing tracecat.db.engine alone registers the listener (fresh interpreter).
+
+    This test process already imported tracecat.db.soft_delete, so in-process
+    checks cannot detect a lost side-effect import in engine.py. A subprocess
+    proves the engine import chain does the wiring on its own.
+    """
+    code = (
+        "import sys\n"
+        "import tracecat.db.engine\n"
+        "assert 'tracecat.db.soft_delete' in sys.modules, (\n"
+        "    'tracecat.db.engine no longer imports tracecat.db.soft_delete; '\n"
+        "    'the global soft-delete listener would be unregistered in prod'\n"
+        ")\n"
+        "from tracecat.db.soft_delete import assert_soft_delete_listener_registered\n"
+        "assert_soft_delete_listener_registered()\n"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True, timeout=60)
 
 
 @pytest.mark.anyio
