@@ -30,10 +30,7 @@ from mcp.server.auth.provider import (
     AuthorizationParams,
     TokenError,
 )
-from mcp.shared.auth import (
-    InvalidRedirectUriError,
-    OAuthClientInformationFull,
-)
+from mcp.shared.auth import InvalidRedirectUriError, OAuthClientInformationFull
 from pydantic import AnyUrl, BaseModel, Field
 from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy import select
@@ -65,7 +62,6 @@ from tracecat.db.models import (
 )
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 from tracecat.logger import logger
-from tracecat.mcp import config as mcp_config
 from tracecat.mcp.oidc.config import (
     INTERNAL_CLIENT_ID,
     get_internal_client_secret,
@@ -73,7 +69,6 @@ from tracecat.mcp.oidc.config import (
 )
 from tracecat.mcp.oidc.features import (
     OFFLINE_ACCESS_SCOPE,
-    get_supported_grant_types,
     get_supported_scopes,
 )
 from tracecat.mcp.personal_access_tokens.constants import MCP_PAT_PREFIX
@@ -179,11 +174,6 @@ def _patch_oauth_metadata_route(app: ASGIApp) -> ASGIApp:
             payload["token_endpoint_auth_methods_supported"] = (
                 _MCP_TOKEN_ENDPOINT_AUTH_METHODS
             )
-            # The mcp SDK hardcodes grant_types_supported to include
-            # refresh_token even when this deployment cannot issue refresh
-            # tokens (no DB encryption key). Advertise only the grant types
-            # the internal issuer actually supports.
-            payload["grant_types_supported"] = get_supported_grant_types()
             body = json.dumps(payload).encode("utf-8")
 
         headers = MutableHeaders(raw=start_message["headers"])
@@ -750,32 +740,10 @@ def _create_oidc_auth() -> OIDCProxy:
             )
             await super().register_client(stored_client)
 
-            ttl = mcp_config.TRACECAT_MCP__OAUTH_CLIENT_TTL_SECONDS
-            registered_client_id = stored_client.client_id
-            if ttl > 0 and registered_client_id is not None:
-                # Re-store the proxy's own persisted ProxyDCRClient (not our
-                # scope-modified copy) with an idle TTL, bounding unbounded
-                # Redis growth from clients that register a fresh DCR client
-                # per run (e.g. OpenCode).
-                stored = await self._client_store.get(key=registered_client_id)
-                if stored is not None:
-                    await self._client_store.put(
-                        key=registered_client_id, value=stored, ttl=ttl
-                    )
-
         async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
             client = await super().get_client(client_id)
             if client is None:
                 return None
-
-            ttl = mcp_config.TRACECAT_MCP__OAUTH_CLIENT_TTL_SECONDS
-            if ttl > 0:
-                # Sliding-touch the RAW stored client (not the scope-merged or
-                # TracecatProxyDCRClient-wrapped value returned below) so the
-                # touch never rewrites the stored type.
-                stored = await self._client_store.get(key=client_id)
-                if stored is not None:
-                    await self._client_store.put(key=client_id, value=stored, ttl=ttl)
 
             client = client.model_copy(
                 update={"scope": merge_scope_string(client.scope, _required_scopes)}

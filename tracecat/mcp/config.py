@@ -35,17 +35,6 @@ TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS: int = int(
 )
 """Expiry time in seconds for MCP staged file transfer URLs (default 5 minutes)."""
 
-TRACECAT_MCP__OAUTH_CLIENT_TTL_SECONDS: int = int(
-    os.environ.get("TRACECAT_MCP__OAUTH_CLIENT_TTL_SECONDS") or 0
-)
-"""TTL (seconds) for stored DCR clients; 0 = disabled (stored indefinitely).
-
-When >0, registered clients expire from the store after this idle window
-(sliding: refreshed on each successful get_client), bounding unbounded Redis
-growth from clients that register a fresh DCR client per run (e.g. OpenCode).
-Any client with a live refresh token keeps getting touched via get_client on
-authorize/token/refresh, so only truly idle clients expire."""
-
 TRACECAT_MCP__STARTUP_MAX_ATTEMPTS: int = int(
     os.environ.get("TRACECAT_MCP__STARTUP_MAX_ATTEMPTS", "3")
 )

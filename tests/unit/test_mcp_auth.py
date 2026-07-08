@@ -1,33 +1,18 @@
 from __future__ import annotations
 
-import json
-import secrets
-import time
 import uuid
-from base64 import urlsafe_b64encode
 from collections.abc import Awaitable, Callable
 from types import SimpleNamespace
 from typing import cast
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
-import httpx
 import pytest
 from cryptography.fernet import Fernet
 from fastmcp import FastMCP
 from fastmcp.server.auth import AccessToken, MultiAuth
 from fastmcp.server.auth.cimd import CIMDDocument
 from fastmcp.server.auth.middleware import RequireAuthMiddleware
-
-# NOTE: These tests exercise private fastmcp OAuth proxy internals and are
-# coupled to the exact pinned fastmcp version (fastmcp==3.2.0). Re-run this
-# module when bumping fastmcp.
-from fastmcp.server.auth.oauth_proxy.models import (
-    JTIMapping,
-    ProxyDCRClient,
-    RefreshTokenMetadata,
-    UpstreamTokenSet,
-    _hash_token,
-)
+from fastmcp.server.auth.oauth_proxy.models import ProxyDCRClient
 from key_value.aio.stores.memory import MemoryStore
 from mcp.server.auth.provider import AuthorizationParams
 from mcp.shared.auth import OAuthClientInformationFull
@@ -40,7 +25,6 @@ from starlette.types import Receive, Scope, Send
 
 from tracecat.auth.types import Role
 from tracecat.mcp import auth as mcp_auth
-from tracecat.mcp import config as mcp_config
 from tracecat.mcp.personal_access_tokens.constants import MCP_PAT_PREFIX
 from tracecat.mcp.personal_access_tokens.types import MCPPATIdentity
 
@@ -114,141 +98,15 @@ def _build_test_auth(
     return auth
 
 
-def _build_test_auth_and_client(
-    monkeypatch: pytest.MonkeyPatch,
-    *,
-    enable_refresh_tokens: bool = True,
-) -> tuple[mcp_auth.OIDCProxy, TestClient]:
-    auth = _build_test_auth(monkeypatch, enable_refresh_tokens=enable_refresh_tokens)
-    mcp = FastMCP("test", auth=auth)
-    app = mcp.http_app(path="/mcp", transport="streamable-http")
-    # get_routes() (via http_app) triggers set_mcp_path which initializes the
-    # JWT issuer; guard in case route construction becomes lazy.
-    if auth._jwt_issuer is None:
-        auth.get_routes("/mcp")
-    return auth, TestClient(app)
-
-
 def _build_test_client(
     monkeypatch: pytest.MonkeyPatch,
     *,
     enable_refresh_tokens: bool = True,
 ) -> TestClient:
-    return _build_test_auth_and_client(
-        monkeypatch, enable_refresh_tokens=enable_refresh_tokens
-    )[1]
-
-
-def _fake_id_token(email: str = "user@example.com") -> str:
-    """Build an unsigned JWT-shaped id_token carrying an email claim."""
-    payload = (
-        urlsafe_b64encode(json.dumps({"sub": "user-123", "email": email}).encode())
-        .decode()
-        .rstrip("=")
-    )
-    return f"header.{payload}.signature"
-
-
-def _mock_upstream_refresh_client(rotated_refresh_tokens: list[str]) -> MagicMock:
-    """Mock the upstream OAuth client; each refresh rotates to the next token."""
-    oauth_client = MagicMock()
-    oauth_client.refresh_token = AsyncMock(
-        side_effect=[
-            {
-                "access_token": f"upstream-access-{index + 2}",
-                "expires_in": 3600,
-                "refresh_token": rotated,
-                "scope": "openid profile email offline_access",
-                "id_token": _fake_id_token(),
-            }
-            for index, rotated in enumerate(rotated_refresh_tokens)
-        ]
-    )
-    return oauth_client
-
-
-async def _seed_refresh_session(
-    auth: mcp_auth.OIDCProxy,
-    *,
-    client_id: str,
-    upstream_refresh_token: str = "rt-1",
-    scopes: list[str] | None = None,
-) -> str:
-    """Seed proxy stores with an issued refresh session; return the refresh JWT."""
-    session_scopes = scopes or ["openid", "profile", "email", "offline_access"]
-    now = time.time()
-    upstream_token_id = f"upstream-{uuid.uuid4().hex}"
-    refresh_jti = secrets.token_urlsafe(16)
-    refresh_jwt = auth.jwt_issuer.issue_refresh_token(
-        client_id=client_id,
-        scopes=session_scopes,
-        jti=refresh_jti,
-        expires_in=3600,
-    )
-    await auth._upstream_token_store.put(
-        key=upstream_token_id,
-        value=UpstreamTokenSet(
-            upstream_token_id=upstream_token_id,
-            access_token="upstream-access-1",
-            refresh_token=upstream_refresh_token,
-            refresh_token_expires_at=now + 30 * 24 * 3600,
-            expires_at=now + 3600,
-            token_type="Bearer",
-            scope=" ".join(session_scopes),
-            client_id=client_id,
-            created_at=now,
-        ),
-    )
-    await auth._jti_mapping_store.put(
-        key=refresh_jti,
-        value=JTIMapping(
-            jti=refresh_jti,
-            upstream_token_id=upstream_token_id,
-            created_at=now,
-        ),
-    )
-    await auth._refresh_token_store.put(
-        key=_hash_token(refresh_jwt),
-        value=RefreshTokenMetadata(
-            client_id=client_id,
-            scopes=session_scopes,
-            expires_at=int(now) + 3600,
-            created_at=now,
-        ),
-    )
-    return refresh_jwt
-
-
-def _register_public_client(client: TestClient) -> str:
-    response = client.post(
-        "/register",
-        json={
-            "client_name": "codex-test",
-            "redirect_uris": ["http://localhost:3333/callback"],
-            "grant_types": ["authorization_code", "refresh_token"],
-            "response_types": ["code"],
-            "token_endpoint_auth_method": "none",
-        },
-    )
-    assert response.status_code == 201
-    return response.json()["client_id"]
-
-
-def _post_refresh_token(
-    client: TestClient,
-    *,
-    client_id: str,
-    refresh_token: str,
-) -> httpx.Response:
-    """Codex-shaped refresh: no client_secret, no resource, no scope."""
-    return client.post(
-        "/token",
-        data={
-            "grant_type": "refresh_token",
-            "client_id": client_id,
-            "refresh_token": refresh_token,
-        },
-    )
+    auth = _build_test_auth(monkeypatch, enable_refresh_tokens=enable_refresh_tokens)
+    mcp = FastMCP("test", auth=auth)
+    app = mcp.http_app(path="/mcp", transport="streamable-http")
+    return TestClient(app)
 
 
 def test_oidc_consent_html_escapes_values() -> None:
@@ -2001,131 +1859,3 @@ async def test_resolve_org_role_superuser_uses_membership_org(
 
     assert role.organization_id == org_id
     assert role.is_platform_superuser is False
-
-
-def test_create_mcp_auth_metadata_gates_grant_types_when_refresh_disabled(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    client = _build_test_client(monkeypatch, enable_refresh_tokens=False)
-
-    response = client.get("/.well-known/oauth-authorization-server")
-
-    assert response.status_code == 200
-    assert response.json()["grant_types_supported"] == ["authorization_code"]
-
-
-def test_create_mcp_auth_metadata_advertises_refresh_grant_when_enabled(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    client = _build_test_client(monkeypatch)
-
-    response = client.get("/.well-known/oauth-authorization-server")
-
-    assert response.status_code == 200
-    assert response.json()["grant_types_supported"] == [
-        "authorization_code",
-        "refresh_token",
-    ]
-
-
-@pytest.mark.anyio
-async def test_refresh_token_codex_shaped_request_succeeds(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A minimal refresh request (client_id + refresh_token only) works."""
-    auth, client = _build_test_auth_and_client(monkeypatch)
-    client_id = _register_public_client(client)
-    oauth_client = _mock_upstream_refresh_client(["rt-2"])
-    monkeypatch.setattr(auth, "_create_upstream_oauth_client", lambda: oauth_client)
-    old_refresh = await _seed_refresh_session(auth, client_id=client_id)
-
-    response = _post_refresh_token(
-        client, client_id=client_id, refresh_token=old_refresh
-    )
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert set(payload) == {
-        "access_token",
-        "token_type",
-        "expires_in",
-        "refresh_token",
-        "scope",
-    }
-    assert payload["token_type"] == "Bearer"
-    assert payload["expires_in"] == 3600
-    assert payload["scope"] == "openid profile email offline_access"
-    assert payload["refresh_token"] != old_refresh
-    assert oauth_client.refresh_token.await_args_list[0].kwargs["refresh_token"] == (
-        "rt-1"
-    )
-
-
-@pytest.mark.anyio
-async def test_client_store_ttl_applied_on_register_and_get(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    auth = _build_test_auth(monkeypatch)
-    monkeypatch.setattr(mcp_config, "TRACECAT_MCP__OAUTH_CLIENT_TTL_SECONDS", 1234)
-    put_calls: list[tuple[str, float | None]] = []
-    original_put = auth._client_store.put
-
-    async def _spy_put(*, key: str, value: object, ttl: float | None = None, **kwargs):
-        put_calls.append((key, ttl))
-        return await original_put(key=key, value=value, ttl=ttl, **kwargs)  # type: ignore[arg-type]
-
-    monkeypatch.setattr(auth._client_store, "put", _spy_put)
-    client_info = OAuthClientInformationFull(
-        client_id="ttl-client",
-        redirect_uris=[AnyUrl("http://localhost:3333/callback")],
-        grant_types=["authorization_code", "refresh_token"],
-        response_types=["code"],
-        token_endpoint_auth_method="none",
-        scope="openid profile email offline_access",
-    )
-
-    await auth.register_client(client_info)
-
-    # Base registration put (no TTL) followed by the TTL re-put of the raw
-    # stored ProxyDCRClient.
-    assert put_calls == [("ttl-client", None), ("ttl-client", 1234)]
-
-    put_calls.clear()
-    client = await auth.get_client("ttl-client")
-
-    assert client is not None
-    # Sliding touch re-puts the raw stored client with the TTL on every load.
-    assert put_calls == [("ttl-client", 1234)]
-    stored = await auth._client_store.get(key="ttl-client")
-    assert isinstance(stored, ProxyDCRClient)
-
-
-@pytest.mark.anyio
-async def test_client_store_ttl_disabled_by_default(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    auth = _build_test_auth(monkeypatch)
-    monkeypatch.setattr(mcp_config, "TRACECAT_MCP__OAUTH_CLIENT_TTL_SECONDS", 0)
-    put_calls: list[tuple[str, float | None]] = []
-    original_put = auth._client_store.put
-
-    async def _spy_put(*, key: str, value: object, ttl: float | None = None, **kwargs):
-        put_calls.append((key, ttl))
-        return await original_put(key=key, value=value, ttl=ttl, **kwargs)  # type: ignore[arg-type]
-
-    monkeypatch.setattr(auth._client_store, "put", _spy_put)
-    client_info = OAuthClientInformationFull(
-        client_id="ttl-client",
-        redirect_uris=[AnyUrl("http://localhost:3333/callback")],
-        grant_types=["authorization_code", "refresh_token"],
-        response_types=["code"],
-        token_endpoint_auth_method="none",
-        scope="openid profile email offline_access",
-    )
-
-    await auth.register_client(client_info)
-    client = await auth.get_client("ttl-client")
-
-    assert client is not None
-    # Only the base registration put, with no TTL, and no touch on get.
-    assert put_calls == [("ttl-client", None)]

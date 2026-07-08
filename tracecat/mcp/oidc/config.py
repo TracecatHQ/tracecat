@@ -61,10 +61,8 @@ def get_internal_discovery_url() -> str:
 
 # --- Lifetimes ---
 
-ACCESS_TOKEN_LIFETIME_SECONDS = int(
-    os.environ.get("TRACECAT__MCP_OIDC_ACCESS_TOKEN_LIFETIME_SECONDS") or 60 * 60
-)
-"""Access token lifetime: 1 hour by default.
+ACCESS_TOKEN_LIFETIME_SECONDS = 60 * 60
+"""Access token lifetime: 1 hour.
 
 Short-lived access tokens limit blast radius of token compromise.
 Clients use refresh tokens (when ``offline_access`` is requested) to
@@ -78,25 +76,6 @@ Refresh tokens rotate on every use and renew this lifetime window on
 successful refresh. Active clients therefore keep a rolling session,
 while inactive clients must re-authenticate once a refresh token has
 been idle longer than this value.
-"""
-
-REFRESH_TOKEN_REUSE_GRACE_SECONDS = int(
-    os.environ.get("TRACECAT__MCP_OIDC_REFRESH_REUSE_GRACE_SECONDS") or 0
-)
-"""Replay-grace window for rotated refresh tokens. Default ``0`` = strict
-OAuth 2.1 single-use rotation (any replay of a consumed token revokes the
-whole family — full theft detection).
-
-Set to a positive number of seconds to instead issue a fresh sibling token
-when the most recently rotated (``used``) token is replayed within the
-window. That absorbs benign concurrent/retried refreshes (e.g. multiple
-proxy replicas refreshing the same upstream token), but it is an opt-in
-security trade-off: because the client-facing FastMCP proxy presents these
-issuer refresh tokens on behalf of public MCP clients, a grace window lets
-a stolen client refresh token replayed in a concurrent race survive instead
-of tripping family revocation. Keep at ``0`` unless benign concurrent
-refreshes are causing spurious re-authentication and you accept that
-trade-off.
 """
 
 AUTH_CODE_LIFETIME_SECONDS = 5 * 60
