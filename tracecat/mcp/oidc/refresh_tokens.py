@@ -196,10 +196,16 @@ async def rotate_refresh_token(
         raise RefreshTokenError("invalid_grant", "Refresh token has expired")
 
     metadata = _decode_metadata_or_raise(row)
-    # The active -> used transition bumps updated_at (onupdate), which anchors
-    # the replay-grace window: for a 'used' row, updated_at is its rotation
-    # time because rows are only ever written on status transitions.
+    # Anchor the replay-grace window at the actual rotation moment. The
+    # active -> used transition would otherwise bump updated_at via onupdate,
+    # but onupdate's func.now() is Postgres transaction_timestamp() (the
+    # transaction START time), which can mis-anchor the grace window inside a
+    # long-lived transaction. Assign updated_at explicitly using the same clock
+    # (datetime.now(UTC)) that _handle_used_token_replay compares against.
+    # (Explicit assignment suppresses onupdate — the backdating tests rely on
+    # exactly that.)
     row.status = "used"
+    row.updated_at = datetime.now(UTC)
     new_refresh_token = _mint_replacement(session, row)
 
     ctx = RefreshTokenContext(
