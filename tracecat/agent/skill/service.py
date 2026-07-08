@@ -164,54 +164,57 @@ type PreparedDraftPatchOperation = (
 type SkillDraftBlobMapFactory = Callable[[], Awaitable[dict[str, SkillFileBlobRef]]]
 
 
-def _iter_exception_chain(error: BaseException) -> Iterator[BaseException]:
+def _integrity_error_sources(error: IntegrityError) -> Iterator[object]:
+    """Yield every exception that may carry driver diagnostics for ``error``.
+
+    The real driver exception can hide behind SQLAlchemy or adapter wrappers,
+    so walk the ``__cause__``/``__context__`` chain of both the wrapper and
+    its DBAPI ``orig`` payload (asyncpg surfaces the violation there).
+    """
+
     seen: set[int] = set()
-    current: BaseException | None = error
-    while current is not None and id(current) not in seen:
-        seen.add(id(current))
-        yield current
-        current = current.__cause__ or current.__context__
 
+    def walk(exc: BaseException) -> Iterator[BaseException]:
+        current: BaseException | None = exc
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            yield current
+            current = current.__cause__ or current.__context__
 
-def _iter_integrity_error_sources(error: IntegrityError) -> Iterator[object]:
-    yield from _iter_exception_chain(error)
+    yield from walk(error)
     orig = error.orig
     yield orig
     if isinstance(orig, BaseException):
-        yield from _iter_exception_chain(orig)
-
-
-def _constraint_name_from_integrity_error(error: IntegrityError) -> str | None:
-    for source in _iter_integrity_error_sources(error):
-        constraint_name = getattr(source, "constraint_name", None)
-        if isinstance(constraint_name, str):
-            return constraint_name
-        diag = getattr(source, "diag", None)
-        diag_constraint_name = getattr(diag, "constraint_name", None)
-        if isinstance(diag_constraint_name, str):
-            return diag_constraint_name
-    return None
-
-
-def _is_unique_violation(error: IntegrityError) -> bool:
-    for source in _iter_integrity_error_sources(error):
-        if isinstance(source, (AsyncpgUniqueViolationError, PsycopgUniqueViolation)):
-            return True
-        sqlstate = getattr(source, "sqlstate", None)
-        pgcode = getattr(source, "pgcode", None)
-        if (
-            sqlstate == POSTGRES_UNIQUE_VIOLATION_SQLSTATE
-            or pgcode == POSTGRES_UNIQUE_VIOLATION_SQLSTATE
-        ):
-            return True
-    return False
+        yield from walk(orig)
 
 
 def _is_skill_slug_unique_violation(error: IntegrityError) -> bool:
-    return (
-        _is_unique_violation(error)
-        and _constraint_name_from_integrity_error(error) == SKILL_SLUG_UNIQUE_CONSTRAINT
-    )
+    """True when ``error`` is a unique violation on the live-slug index.
+
+    Detection is structural (repo rule: never match on error-message strings)
+    and covers both drivers: a unique violation is the driver exception type
+    or SQLSTATE 23505 (asyncpg ``sqlstate`` / psycopg ``pgcode``), and the
+    violated constraint name comes from the exception itself (asyncpg) or its
+    ``diag`` block (psycopg).
+    """
+
+    is_unique = False
+    constraint_name: str | None = None
+    for source in _integrity_error_sources(error):
+        if isinstance(source, (AsyncpgUniqueViolationError, PsycopgUniqueViolation)):
+            is_unique = True
+        elif POSTGRES_UNIQUE_VIOLATION_SQLSTATE in (
+            getattr(source, "sqlstate", None),
+            getattr(source, "pgcode", None),
+        ):
+            is_unique = True
+        if constraint_name is None:
+            name = getattr(source, "constraint_name", None)
+            if not isinstance(name, str):
+                name = getattr(getattr(source, "diag", None), "constraint_name", None)
+            if isinstance(name, str):
+                constraint_name = name
+    return is_unique and constraint_name == SKILL_SLUG_UNIQUE_CONSTRAINT
 
 
 class SkillService(BaseWorkspaceService):
