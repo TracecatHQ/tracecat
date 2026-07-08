@@ -22,9 +22,9 @@ definition:
     - ref: list_items
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.sentinel_one.base_url }}/web/api/v2.1/assets
+        url: ${{ inputs.base_url || VARS.sentinel_one.base_url }}/web/api/v2.1/xdr/assets
         method: GET
         headers:
-          Authorization: "ApiToken ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}"
+          Authorization: Bearer ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}
         params: ${{ inputs.filters }}
   returns: ${{ steps.list_items.result.data }}
