@@ -452,38 +452,6 @@ Default: `{}`.
 
 </ParamField>
 
-## List misconfigurations
-
-Action ID: `tools.sentinel_one.list_misconfigurations`
-
-List SentinelOne cloud misconfiguration findings with API-native filters.
-
-Reference: [https://github.com/Sentinel-One/purple-mcp](https://github.com/Sentinel-One/purple-mcp)
-
-### Secrets
-
-Required secrets:
-
-- `sentinel_one`: required values `SENTINEL_ONE_API_TOKEN`.
-
-### Input fields
-
-<ParamField path="base_url" type="string | null">
-
-SentinelOne tenant URL.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="filters" type="object">
-
-API-native query parameters to pass through, including limit and pagination cursor when supported.
-
-Default: `{}`.
-
-</ParamField>
-
 ## List threats
 
 Action ID: `tools.sentinel_one.list_threats`
@@ -533,38 +501,6 @@ Default: `100`.
 SentinelOne search query.
 
 Default: `null`.
-
-</ParamField>
-
-## List vulnerabilities
-
-Action ID: `tools.sentinel_one.list_vulnerabilities`
-
-List SentinelOne vulnerability findings with API-native filters.
-
-Reference: [https://github.com/Sentinel-One/purple-mcp](https://github.com/Sentinel-One/purple-mcp)
-
-### Secrets
-
-Required secrets:
-
-- `sentinel_one`: required values `SENTINEL_ONE_API_TOKEN`.
-
-### Input fields
-
-<ParamField path="base_url" type="string | null">
-
-SentinelOne tenant URL.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="filters" type="object">
-
-API-native query parameters to pass through, including limit and pagination cursor when supported.
-
-Default: `{}`.
 
 </ParamField>
 
