@@ -2031,7 +2031,9 @@ class TestAgentPresetService:
         skill_row = (
             await session.execute(select(Skill).where(Skill.id == created_skill.id))
         ).scalar_one()
-        skill_row.archived_at = datetime.now(UTC)
+        archived_at = datetime.now(UTC)
+        skill_row.archived_at = archived_at
+        skill_row.deleted_at = archived_at
         await session.commit()
 
         with pytest.raises(TracecatValidationError, match="not found"):

@@ -14,7 +14,7 @@ from tracecat.db.engine import (
     get_async_engine,
     get_async_session_bypass_rls_context_manager,
 )
-from tracecat.db.models import AgentFolder, AgentPreset, Workspace
+from tracecat.db.models import AgentFolder, AgentPreset, Skill, Workspace
 from tracecat.db.soft_delete import (
     assert_soft_delete_listener_registered,
     with_deleted,
@@ -41,6 +41,15 @@ def _agent_preset(
         model_name="gpt-4o-mini",
         model_provider="openai",
         folder_id=folder_id,
+        deleted_at=datetime.now(UTC) if deleted else None,
+    )
+
+
+def _skill(workspace_id: uuid.UUID, *, name: str, deleted: bool = False) -> Skill:
+    return Skill(
+        workspace_id=workspace_id,
+        name=name,
+        draft_revision=0,
         deleted_at=datetime.now(UTC) if deleted else None,
     )
 
@@ -82,6 +91,34 @@ async def test_entity_select_hides_tombstones_and_with_deleted_opts_out(
 
     assert [preset.slug for preset in active] == [live_slug]
     assert [preset.slug for preset in all_rows] == sorted([live_slug, deleted_slug])
+
+
+@pytest.mark.anyio
+async def test_skill_select_hides_tombstones_and_with_deleted_opts_out(
+    session: AsyncSession,
+    svc_workspace: Workspace,
+) -> None:
+    """Skill entity selects hide tombstones unless the statement opts out."""
+    live_name = _slug("skill-live")
+    deleted_name = _slug("skill-deleted")
+    session.add_all(
+        [
+            _skill(svc_workspace.id, name=live_name),
+            _skill(svc_workspace.id, name=deleted_name, deleted=True),
+        ]
+    )
+    await session.commit()
+    stmt = (
+        select(Skill)
+        .where(Skill.name.in_([live_name, deleted_name]))
+        .order_by(Skill.name)
+    )
+
+    active = (await session.scalars(stmt)).all()
+    all_rows = (await session.scalars(with_deleted(stmt))).all()
+
+    assert [skill.name for skill in active] == [live_name]
+    assert [skill.name for skill in all_rows] == sorted([live_name, deleted_name])
 
 
 @pytest.mark.anyio

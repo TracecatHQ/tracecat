@@ -39,6 +39,7 @@ from tracecat.agent.skill.schemas import (
 from tracecat.agent.skill.service import SkillService
 from tracecat.auth.types import Role
 from tracecat.db.models import (
+    Skill,
     SkillBlob,
     SkillVersion,
     Workspace,
@@ -120,6 +121,19 @@ async def configure_minio_for_skills(
     )
 
     await ensure_bucket_exists(minio_bucket)
+
+
+async def _legacy_archive_skill(session: AsyncSession, skill_id: uuid.UUID) -> datetime:
+    """Simulate an old app instance that writes only Skill.archived_at."""
+
+    skill = (
+        await session.execute(select(Skill).where(Skill.id == skill_id))
+    ).scalar_one()
+    archived_at = datetime.now(UTC)
+    skill.archived_at = archived_at
+    skill.deleted_at = None
+    await session.commit()
+    return archived_at
 
 
 @pytest.mark.anyio
@@ -2075,6 +2089,7 @@ class TestSkillService:
         archived = await skill_service.get_skill(created.id, include_archived=True)
         assert archived is not None
         assert archived.archived_at is not None
+        assert archived.deleted_at == archived.archived_at
 
     async def test_archive_allows_when_only_soft_deleted_preset_references_skill(
         self,
@@ -2112,6 +2127,119 @@ class TestSkillService:
         archived = await skill_service.get_skill(created.id, include_archived=True)
         assert archived is not None
         assert archived.archived_at is not None
+        assert archived.deleted_at == archived.archived_at
+
+    async def test_archive_skill_dual_writes_archive_and_delete_timestamps(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Archiving a skill writes both legacy and canonical tombstone columns."""
+
+        created = await skill_service.create_skill(SkillCreate(name="dual-write"))
+
+        await skill_service.archive_skill(created.id)
+
+        archived = await skill_service.get_skill(created.id, include_archived=True)
+        assert archived is not None
+        assert archived.archived_at is not None
+        assert archived.deleted_at == archived.archived_at
+
+    async def test_legacy_archived_skill_is_hidden_from_active_lookups(
+        self,
+        session: AsyncSession,
+        skill_service: SkillService,
+    ) -> None:
+        """Legacy archived-only skills are excluded from every active read path."""
+
+        created = await skill_service.create_skill(SkillCreate(name="legacy-archive"))
+        active = await skill_service.create_skill(SkillCreate(name="still-active"))
+
+        await _legacy_archive_skill(session, created.id)
+
+        listing = await skill_service.list_skills(CursorPaginationParams(limit=10))
+
+        assert [skill.id for skill in listing.items] == [active.id]
+        assert await skill_service.get_skill(created.id) is None
+        assert await skill_service.get_skill_by_identifier(created.id) is None
+        assert await skill_service.get_skill_by_identifier(created.name) is None
+        assert await skill_service.get_skill_read(created.id) is None
+
+    async def test_legacy_archived_skill_binding_and_resolution_treat_as_archived(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        skill_service: SkillService,
+    ) -> None:
+        """Legacy archived-only skills remain unbindable and resolve as archived."""
+
+        created = await skill_service.create_skill(
+            SkillCreate(name="legacy-resolution")
+        )
+        skill_version = await skill_service.publish_skill(created.id)
+        preset_service = AgentPresetService(session=session, role=svc_role)
+        preset = await preset_service.create_preset(
+            AgentPresetCreate(
+                name="Legacy archived preset",
+                description="Preset with a legacy archived skill",
+                instructions="Use the selected skill",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=created.id,
+                        skill_version_id=skill_version.id,
+                    )
+                ],
+            )
+        )
+        assert preset.current_version_id is not None
+
+        await _legacy_archive_skill(session, created.id)
+
+        with pytest.raises(TracecatValidationError) as bind_exc_info:
+            await skill_service.validate_binding_inputs(
+                [
+                    AgentPresetSkillBindingBase(
+                        skill_id=created.id,
+                        skill_version_id=skill_version.id,
+                    )
+                ]
+            )
+        bind_detail = bind_exc_info.value.detail
+        assert bind_detail is not None
+        assert bind_detail["code"] == "skill_not_found"
+
+        for use_latest_versions in (False, True):
+            with pytest.raises(TracecatValidationError) as resolve_exc_info:
+                await skill_service.get_resolved_skill_refs_for_preset_version(
+                    preset.current_version_id,
+                    use_latest_versions=use_latest_versions,
+                )
+            resolve_detail = resolve_exc_info.value.detail
+            assert resolve_detail is not None
+            assert resolve_detail["code"] == "skill_archived"
+            assert str(created.id) in str(resolve_detail["skills"])
+
+    async def test_legacy_archived_skill_api_projection_reports_deleted_at(
+        self,
+        session: AsyncSession,
+        skill_service: SkillService,
+    ) -> None:
+        """Legacy archived-only API projections expose a deleted_at tombstone."""
+
+        created = await skill_service.create_skill(SkillCreate(name="legacy-api-read"))
+        legacy_archived_at = await _legacy_archive_skill(session, created.id)
+
+        archived = await skill_service.get_skill(created.id, include_archived=True)
+        assert archived is not None
+        assert archived.archived_at == legacy_archived_at
+        assert archived.deleted_at is None
+
+        full_read = await skill_service._build_skill_read(archived)
+        minimal_read = skill_service._build_skill_read_minimal(archived)
+
+        assert full_read.deleted_at == legacy_archived_at
+        assert minimal_read.deleted_at == legacy_archived_at
 
     async def test_archive_skill_locks_skill_row(
         self,
@@ -2144,3 +2272,4 @@ class TestSkillService:
         assert lock_calls == 1
         assert archived is not None
         assert archived.archived_at is not None
+        assert archived.deleted_at == archived.archived_at

@@ -62,6 +62,7 @@ from tracecat.db.models import (
 from tracecat.db.models import (
     SkillUpload as SkillUploadModel,
 )
+from tracecat.db.soft_delete import with_deleted
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import (
     BaseCursorPaginator,
@@ -1077,7 +1078,7 @@ class SkillService(BaseWorkspaceService):
             draft_revision=skill.draft_revision,
             created_at=skill.created_at,
             updated_at=skill.updated_at,
-            archived_at=skill.archived_at,
+            deleted_at=skill.deleted_at or skill.archived_at,
             current_version=current_version_summary,
             is_draft_publishable=draft.is_publishable,
             draft_validation_errors=draft.validation_errors,
@@ -1096,7 +1097,7 @@ class SkillService(BaseWorkspaceService):
             current_version_id=skill.current_version_id,
             created_at=skill.created_at,
             updated_at=skill.updated_at,
-            archived_at=skill.archived_at,
+            deleted_at=skill.deleted_at or skill.archived_at,
         )
 
     async def _replace_draft_with_blob_map(
@@ -1143,12 +1144,16 @@ class SkillService(BaseWorkspaceService):
             Skill.id == skill_id,
         ]
         if not include_archived:
-            predicates.append(Skill.archived_at.is_(None))
+            # Expand-window check: legacy writers set only archived_at; the
+            # contract release drops the archived_at leg.
+            predicates.extend((Skill.deleted_at.is_(None), Skill.archived_at.is_(None)))
         stmt = (
             select(Skill)
             .options(selectinload(Skill.current_version))
             .where(*predicates)
         )
+        if include_archived:
+            stmt = with_deleted(stmt)
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
@@ -1179,8 +1184,10 @@ class SkillService(BaseWorkspaceService):
             Skill.name == skill_name,
         ]
         if not include_archived:
-            predicates.append(Skill.archived_at.is_(None))
+            predicates.extend((Skill.deleted_at.is_(None), Skill.archived_at.is_(None)))
         stmt = select(Skill).where(*predicates)
+        if include_archived:
+            stmt = with_deleted(stmt)
         skills = (await self.session.execute(stmt)).scalars().all()
 
         # A UUID string is also a valid skill name and names are not unique, so
@@ -1217,6 +1224,7 @@ class SkillService(BaseWorkspaceService):
                 SkillVersion.workspace_id == self.workspace_id,
                 SkillVersion.id == version_id,
                 SkillVersion.skill_id == skill_id,
+                Skill.deleted_at.is_(None),
                 Skill.archived_at.is_(None),
             )
         )
@@ -1232,8 +1240,10 @@ class SkillService(BaseWorkspaceService):
             Skill.id == skill_id,
         ]
         if not include_archived:
-            predicates.append(Skill.archived_at.is_(None))
+            predicates.extend((Skill.deleted_at.is_(None), Skill.archived_at.is_(None)))
         stmt = select(Skill).where(*predicates).with_for_update()
+        if include_archived:
+            stmt = with_deleted(stmt)
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
     async def _get_bindable_skills(
@@ -1256,6 +1266,7 @@ class SkillService(BaseWorkspaceService):
             stmt = select(Skill).where(
                 Skill.workspace_id == self.workspace_id,
                 Skill.id.in_(normalized_ids),
+                Skill.deleted_at.is_(None),
                 Skill.archived_at.is_(None),
             )
             return {
@@ -1268,6 +1279,7 @@ class SkillService(BaseWorkspaceService):
             .where(
                 Skill.workspace_id == self.workspace_id,
                 Skill.id.in_(normalized_ids),
+                Skill.deleted_at.is_(None),
                 Skill.archived_at.is_(None),
             )
             .order_by(Skill.id)
@@ -1380,6 +1392,7 @@ class SkillService(BaseWorkspaceService):
         paginator = BaseCursorPaginator(self.session)
         stmt = select(Skill).where(
             Skill.workspace_id == self.workspace_id,
+            Skill.deleted_at.is_(None),
             Skill.archived_at.is_(None),
         )
         if params.cursor:
@@ -2157,7 +2170,9 @@ class SkillService(BaseWorkspaceService):
                 "Cannot delete a skill that is still referenced by a preset",
                 detail={"code": "skill_in_use"},
             )
-        skill.archived_at = datetime.now(UTC)
+        archived_at = datetime.now(UTC)
+        skill.archived_at = archived_at
+        skill.deleted_at = archived_at
         self.session.add(skill)
         await self.session.commit()
 
@@ -2224,6 +2239,7 @@ class SkillService(BaseWorkspaceService):
                 SkillVersion.name,
                 AgentPresetVersionSkill.skill_version_id,
                 SkillVersion.manifest_sha256,
+                Skill.deleted_at,
                 Skill.archived_at,
             )
             .join(
@@ -2243,7 +2259,7 @@ class SkillService(BaseWorkspaceService):
             )
             .order_by(SkillVersion.name.asc(), AgentPresetVersionSkill.skill_id.asc())
         )
-        rows = (await self.session.execute(stmt)).tuples().all()
+        rows = (await self.session.execute(with_deleted(stmt))).tuples().all()
         resolved: list[ResolvedSkillRef] = []
         archived_skills: list[str] = []
         for (
@@ -2251,11 +2267,12 @@ class SkillService(BaseWorkspaceService):
             skill_name,
             skill_version_id,
             manifest_sha256,
+            deleted_at,
             archived_at,
         ) in rows:
             if skill_name is None:
                 continue
-            if archived_at is not None:
+            if deleted_at is not None or archived_at is not None:
                 archived_skills.append(f"{skill_name} ({skill_id})")
                 continue
             resolved.append(
@@ -2294,6 +2311,7 @@ class SkillService(BaseWorkspaceService):
                 AgentPresetVersionSkill.skill_id,
                 Skill.name,
                 Skill.current_version_id,
+                Skill.deleted_at,
                 Skill.archived_at,
                 SkillVersion.name,
                 SkillVersion.manifest_sha256,
@@ -2323,7 +2341,7 @@ class SkillService(BaseWorkspaceService):
                 AgentPresetVersionSkill.skill_id.asc(),
             )
         )
-        rows = (await self.session.execute(stmt)).tuples().all()
+        rows = (await self.session.execute(with_deleted(stmt))).tuples().all()
         resolved: list[ResolvedSkillRef] = []
         archived_skills: list[str] = []
         missing_current: list[str] = []
@@ -2331,11 +2349,12 @@ class SkillService(BaseWorkspaceService):
             skill_id,
             skill_name,
             current_version_id,
+            deleted_at,
             archived_at,
             current_version_name,
             manifest_sha256,
         ) in rows:
-            if archived_at is not None:
+            if deleted_at is not None or archived_at is not None:
                 archived_skills.append(f"{skill_name} ({skill_id})")
                 continue
             if current_version_id is None:
@@ -2382,7 +2401,7 @@ class SkillService(BaseWorkspaceService):
             SkillVersion.skill_id == Skill.id,
             SkillVersion.id == skill_version_id,
         )
-        row = (await self.session.execute(stmt)).tuples().first()
+        row = (await self.session.execute(with_deleted(stmt))).tuples().first()
         if row is None:
             raise TracecatNotFoundError(
                 f"Skill version '{skill_version_id}' not found for skill '{skill_id}'"
