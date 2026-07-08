@@ -1,0 +1,21 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/sentinel_one/purple_ai.yml
+  s_daa633238fc1fa::t_f1df7cdbc3ac0b 1-136
+packages/tracecat-registry/tracecat_registry/templates/tools/sentinel_one/powerquery.yml
+  s_daa633238fc1fa::t_f6c4c9ff34cccd 1-94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "6ad5a22112e66befbfce6f03f3ae2cadb2154fa4",
+  "prompts": {},
+  "sessions": {
+    "s_daa633238fc1fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4faddc03-47e8-4239-ab06-76675d1ec35b",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
