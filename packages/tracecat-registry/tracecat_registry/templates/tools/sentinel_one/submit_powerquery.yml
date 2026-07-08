@@ -1,0 +1,72 @@
+type: action
+definition:
+  title: Submit PowerQuery
+  description: Submit a SentinelOne Singularity Data Lake PowerQuery for event and telemetry threat hunting.
+  display_group: SentinelOne
+  doc_url: https://github.com/Sentinel-One/purple-mcp
+  namespace: tools.sentinel_one
+  name: submit_powerquery
+  secrets:
+    - name: sentinel_one
+      keys: ["SENTINEL_ONE_API_TOKEN"]
+  expects:
+    query:
+      type: str
+      description: PowerQuery string to execute.
+    start_time:
+      type: str
+      description: Start time for the query. Accepts SDL relative time or epoch strings.
+      default: 24h
+    end_time:
+      type: str
+      description: End time for the query. Accepts SDL relative time or epoch strings.
+      default: 0s
+    tenant:
+      type: bool | None
+      description: Query the tenant scope available to the token. Set to false when using account_ids.
+      default: null
+    account_ids:
+      type: list[str] | None
+      description: Optional SentinelOne account IDs to scope the query.
+      default: null
+    query_priority:
+      type: str
+      description: SDL query priority.
+      default: LOW
+    result_type:
+      type: str
+      description: PowerQuery result type.
+      default: table
+    frequency:
+      type: str
+      description: PowerQuery frequency hint.
+      default: low
+    query_origin:
+      type: str | None
+      description: Optional provenance string for SDL.
+      default: null
+    base_url:
+      type: str | None
+      description: SentinelOne tenant URL. /sdl is appended automatically.
+      default: null
+  steps:
+    - ref: submit_query
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sentinel_one.base_url }}/sdl/v2/api/queries
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}
+        payload:
+          startTime: ${{ inputs.start_time }}
+          endTime: ${{ inputs.end_time }}
+          queryType: pq
+          queryPriority: ${{ inputs.query_priority }}
+          tenant: ${{ inputs.tenant }}
+          accountIds: ${{ inputs.account_ids }}
+          queryOrigin: ${{ inputs.query_origin }}
+          pq:
+            query: ${{ inputs.query }}
+            resultType: ${{ inputs.result_type }}
+            frequency: ${{ inputs.frequency }}
+  returns: ${{ steps.submit_query.result }}
