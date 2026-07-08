@@ -1,0 +1,23 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/sentinel_one/graphql.yml
+  s_daa633238fc1fa::t_7119c5151c2f6a 1-45
+packages/tracecat-registry/tracecat_registry/templates/tools/sentinel_one/list_inventory.yml
+  s_daa633238fc1fa::t_50553a58d1af51 25,28
+docs/tools/sentinel_one.mdx
+  s_daa633238fc1fa::t_7b71bae5bc887c 37-158,235-278,423-486,539-570,953-1210
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "b51dbf6ed30b3458577fe4f8f66ebad2c9137339",
+  "prompts": {},
+  "sessions": {
+    "s_daa633238fc1fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4faddc03-47e8-4239-ab06-76675d1ec35b",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
