@@ -9507,6 +9507,7 @@ async def test_list_skills_uses_workspace_skill_service(
     assert captured["params"].limit == 10
     assert payload["items"][0]["id"] == str(skill_id)
     assert payload["items"][0]["name"] == "botsv3-ir"
+    assert payload["items"][0]["slug"] == "botsv3-ir"
 
 
 @pytest.mark.anyio

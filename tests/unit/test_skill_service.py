@@ -919,6 +919,39 @@ class TestSkillService:
         assert resolved_exact is not None
         assert resolved_exact.id == exact.id
 
+    async def test_get_skill_by_identifier_ambiguous_legacy_rows_raise(
+        self,
+        skill_service: SkillService,
+        session: AsyncSession,
+    ) -> None:
+        """Two live legacy rows projecting the same fallback slug fail loud.
+
+        ``uq_skill_workspace_slug_active`` does not constrain NULL slugs and
+        old pods enforced no name uniqueness, so the expand window can leave
+        two live same-name slugless rows. Resolving one silently would be a
+        silent substitution; the lookup must raise instead. The edge
+        disappears at contract when slugs are backfilled NOT NULL.
+        """
+
+        first = await skill_service.create_skill(SkillCreate(name="legacy-dup"))
+        second = await skill_service.create_skill(SkillCreate(name="legacy-dup"))
+        rows = (
+            (
+                await session.execute(
+                    select(Skill).where(Skill.id.in_([first.id, second.id]))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for row in rows:
+            row.name = "legacy-dup"
+            row.slug = None
+        await session.commit()
+
+        with pytest.raises(TracecatValidationError, match="ambiguous"):
+            await skill_service.get_skill_by_identifier("legacy-dup")
+
     async def test_get_skill_by_identifier_prefers_id_over_matching_slug(
         self,
         skill_service: SkillService,

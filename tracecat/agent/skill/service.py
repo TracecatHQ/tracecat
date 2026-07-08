@@ -1397,9 +1397,26 @@ class SkillService(BaseWorkspaceService):
                 Skill.created_at.asc(),
                 Skill.id.asc(),
             )
-            .limit(1)
+            .limit(2)
         )
-        return (await self.session.execute(stmt)).scalars().first()
+        skills = (await self.session.execute(stmt)).scalars().all()
+        if not skills:
+            return None
+        if skills[0].slug == skill_slug:
+            # Exact slug matches are unique among live rows
+            # (``uq_skill_workspace_slug_active``), so this is deterministic.
+            return skills[0]
+        # Only legacy (``slug IS NULL``) rows matched. The partial unique index
+        # does not constrain NULL slugs and old pods enforced no name
+        # uniqueness, so multiple live rows can project the same fallback slug.
+        # Binding one silently would be a silent substitution; fail loud. This
+        # edge self-extinguishes at contract when slugs are backfilled NOT NULL.
+        if len(skills) > 1:
+            raise TracecatValidationError(
+                "Skill identifier is ambiguous",
+                detail={"code": "ambiguous_skill_id"},
+            ) from None
+        return skills[0]
 
     async def _get_active_version(
         self, *, skill_id: uuid.UUID, version_id: uuid.UUID
