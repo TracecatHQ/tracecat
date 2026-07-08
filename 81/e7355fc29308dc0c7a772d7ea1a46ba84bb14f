@@ -1,0 +1,27 @@
+tests/integration/test_mcp_oidc_flow.py
+  s_a66a712823104d::t_6a65d594cca434 179-181,184-185,187-188,190
+tests/unit/test_mcp_auth.py
+  s_a66a712823104d::t_01f0fa014e97f5 7,15,101,105,109
+tracecat/mcp/auth.py
+  s_a66a712823104d::t_3f2b56dcd9a5d0 33
+tracecat/mcp/oidc/config.py
+  s_a66a712823104d::t_dad267b8a479d2 64-65
+tracecat/mcp/oidc/refresh_tokens.py
+  s_a66a712823104d::t_ce36834d87db81 10,134,136,139,141-144,153-176,178-193,202-203
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "81e7355fc29308dc0c7a772d7ea1a46ba84bb14f",
+  "prompts": {},
+  "sessions": {
+    "s_a66a712823104d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d40dd60f-1d15-4e99-8e72-fb2116a5f6aa",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
