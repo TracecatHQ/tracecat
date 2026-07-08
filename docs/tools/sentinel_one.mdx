@@ -34,6 +34,128 @@ Default: `null`.
 
 </ParamField>
 
+## Ask Purple AI
+
+Action ID: `tools.sentinel_one.purple_ai`
+
+Ask SentinelOne Purple AI a natural-language security question. Returns a message or a generated PowerQuery.
+
+Reference: [https://github.com/Sentinel-One/purple-mcp](https://github.com/Sentinel-One/purple-mcp)
+
+### Secrets
+
+Required secrets:
+
+- `sentinel_one`: required values `SENTINEL_ONE_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="question" type="string" required>
+
+Natural-language question to ask Purple AI.
+
+</ParamField>
+
+<ParamField path="account_id" type="string | null">
+
+Account scope ID.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+SentinelOne console URL.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="console_id" type="string | null">
+
+Console (deployment) ID. Defaults to the token's own scope when omitted.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="end_time" type="integer | null">
+
+End of the displayed time range in epoch milliseconds. Defaults to now.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="site_id" type="string | null">
+
+Site scope ID.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="start_time" type="integer | null">
+
+Start of the displayed time range in epoch milliseconds. Defaults to 24 hours ago.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="tenant_id" type="string | null">
+
+Tenant scope ID.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="version" type="string | null">
+
+Console version string.
+
+Default: `null`.
+
+</ParamField>
+
+## Delete PowerQuery
+
+Action ID: `tools.sentinel_one.delete_powerquery`
+
+Delete or cancel a SentinelOne SDL PowerQuery after polling.
+
+Reference: [https://github.com/Sentinel-One/purple-mcp](https://github.com/Sentinel-One/purple-mcp)
+
+### Secrets
+
+Required secrets:
+
+- `sentinel_one`: required values `SENTINEL_ONE_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="forward_tag" type="string" required>
+
+X-Dataset-Query-Forward-Tag returned by submit_powerquery response headers.
+
+</ParamField>
+
+<ParamField path="query_id" type="string" required>
+
+SDL query ID returned by submit_powerquery.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+SentinelOne tenant URL. /sdl is appended automatically.
+
+Default: `null`.
+
+</ParamField>
+
 ## Disable agent
 
 Action ID: `tools.sentinel_one.disable_agent`
@@ -107,6 +229,50 @@ Default: `null`.
 Whether the agent should reboot after enabling.
 
 Default: `false`.
+
+</ParamField>
+
+## Get PowerQuery results
+
+Action ID: `tools.sentinel_one.get_powerquery_results`
+
+Poll a SentinelOne SDL PowerQuery for status and incremental results.
+
+Reference: [https://github.com/Sentinel-One/purple-mcp](https://github.com/Sentinel-One/purple-mcp)
+
+### Secrets
+
+Required secrets:
+
+- `sentinel_one`: required values `SENTINEL_ONE_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="forward_tag" type="string" required>
+
+X-Dataset-Query-Forward-Tag returned by submit_powerquery response headers.
+
+</ParamField>
+
+<ParamField path="query_id" type="string" required>
+
+SDL query ID returned by submit_powerquery.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+SentinelOne tenant URL. /sdl is appended automatically.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="last_step_seen" type="integer">
+
+Last step seen for incremental polling.
+
+Default: `0`.
 
 </ParamField>
 
@@ -251,6 +417,54 @@ Default: `100`.
 SentinelOne search query.
 
 Default: `null`.
+
+</ParamField>
+
+## List inventory
+
+Action ID: `tools.sentinel_one.list_inventory`
+
+List SentinelOne inventory assets with API-native filters.
+
+Reference: [https://github.com/Sentinel-One/purple-mcp](https://github.com/Sentinel-One/purple-mcp)
+
+### Secrets
+
+Required secrets:
+
+- `sentinel_one`: required values `SENTINEL_ONE_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+SentinelOne tenant URL.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="filters" type="object">
+
+REST-format filter object, e.g. resourceType, name__contains, id__in, or date-range objects. Keys here override the default limit and skip.
+
+Default: `{}`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer">
+
+Maximum number of assets to return.
+
+Default: `50`.
+
+</ParamField>
+
+<ParamField path="skip" type="integer">
+
+Number of assets to skip for pagination.
+
+Default: `0`.
 
 </ParamField>
 
@@ -685,6 +899,264 @@ Default: `""`.
 Free-text filter by OS full name and version (supports multiple values)
 
 Default: `[]`.
+
+</ParamField>
+
+## Run GraphQL query
+
+Action ID: `tools.sentinel_one.graphql`
+
+Run an arbitrary GraphQL query against a SentinelOne GraphQL API.
+
+Reference: [https://github.com/Sentinel-One/purple-mcp](https://github.com/Sentinel-One/purple-mcp)
+
+### Secrets
+
+Required secrets:
+
+- `sentinel_one`: required values `SENTINEL_ONE_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="query" type="string" required>
+
+GraphQL query or mutation string.
+
+</ParamField>
+
+<ParamField path="auth_scheme" type="string">
+
+Authorization scheme. Use ApiToken for the console GraphQL gateway (e.g. Purple AI) or Bearer for data-lake GraphQL services (e.g. Unified Alerts).
+
+Default: `"ApiToken"`.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+SentinelOne tenant URL.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="endpoint" type="string">
+
+GraphQL endpoint path appended to base_url.
+
+Default: `"/web/api/v2.1/graphql"`.
+
+</ParamField>
+
+<ParamField path="variables" type="object">
+
+Variables to bind to the GraphQL query.
+
+Default: `{}`.
+
+</ParamField>
+
+## Run PowerQuery
+
+Action ID: `tools.sentinel_one.powerquery`
+
+Submit a SentinelOne Singularity Data Lake PowerQuery and poll until results are ready.
+
+Reference: [https://github.com/Sentinel-One/purple-mcp](https://github.com/Sentinel-One/purple-mcp)
+
+### Secrets
+
+Required secrets:
+
+- `sentinel_one`: required values `SENTINEL_ONE_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="query" type="string" required>
+
+PowerQuery string to execute.
+
+</ParamField>
+
+<ParamField path="account_ids" type="array[string] | null">
+
+Optional SentinelOne account IDs to scope the query.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+SentinelOne tenant URL. /sdl is appended automatically.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="end_time" type="string">
+
+End time for the query. Accepts SDL relative time or epoch strings.
+
+Default: `"0s"`.
+
+</ParamField>
+
+<ParamField path="frequency" type="string">
+
+PowerQuery frequency hint.
+
+Default: `"low"`.
+
+</ParamField>
+
+<ParamField path="poll_interval" type="number">
+
+Seconds between poll attempts while the query runs.
+
+Default: `2`.
+
+</ParamField>
+
+<ParamField path="poll_max_attempts" type="integer">
+
+Maximum number of poll attempts. Set to 0 to poll until timeout.
+
+Default: `30`.
+
+</ParamField>
+
+<ParamField path="query_origin" type="string | null">
+
+Optional provenance string for SDL.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="query_priority" type="string">
+
+SDL query priority.
+
+Default: `"LOW"`.
+
+</ParamField>
+
+<ParamField path="result_type" type="string">
+
+PowerQuery result type.
+
+Default: `"table"`.
+
+</ParamField>
+
+<ParamField path="start_time" type="string">
+
+Start time for the query. Accepts SDL relative time or epoch strings.
+
+Default: `"24h"`.
+
+</ParamField>
+
+<ParamField path="tenant" type="boolean | null">
+
+Query the tenant scope available to the token. Set to false when using account_ids.
+
+Default: `null`.
+
+</ParamField>
+
+## Submit PowerQuery
+
+Action ID: `tools.sentinel_one.submit_powerquery`
+
+Submit a SentinelOne Singularity Data Lake PowerQuery for event and telemetry threat hunting.
+
+Reference: [https://github.com/Sentinel-One/purple-mcp](https://github.com/Sentinel-One/purple-mcp)
+
+### Secrets
+
+Required secrets:
+
+- `sentinel_one`: required values `SENTINEL_ONE_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="query" type="string" required>
+
+PowerQuery string to execute.
+
+</ParamField>
+
+<ParamField path="account_ids" type="array[string] | null">
+
+Optional SentinelOne account IDs to scope the query.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+SentinelOne tenant URL. /sdl is appended automatically.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="end_time" type="string">
+
+End time for the query. Accepts SDL relative time or epoch strings.
+
+Default: `"0s"`.
+
+</ParamField>
+
+<ParamField path="frequency" type="string">
+
+PowerQuery frequency hint.
+
+Default: `"low"`.
+
+</ParamField>
+
+<ParamField path="query_origin" type="string | null">
+
+Optional provenance string for SDL.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="query_priority" type="string">
+
+SDL query priority.
+
+Default: `"LOW"`.
+
+</ParamField>
+
+<ParamField path="result_type" type="string">
+
+PowerQuery result type.
+
+Default: `"table"`.
+
+</ParamField>
+
+<ParamField path="start_time" type="string">
+
+Start time for the query. Accepts SDL relative time or epoch strings.
+
+Default: `"24h"`.
+
+</ParamField>
+
+<ParamField path="tenant" type="boolean | null">
+
+Query the tenant scope available to the token. Set to false when using account_ids.
+
+Default: `null`.
 
 </ParamField>
 
