@@ -197,6 +197,7 @@ class AgentPresetService(BaseWorkspaceService):
             slug=preset.slug,
             description=preset.description,
             current_version_id=preset.current_version_id,
+            folder_id=preset.folder_id,
             instructions=preset.instructions,
             model_name=preset.model_name,
             model_provider=preset.model_provider,

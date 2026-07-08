@@ -85,6 +85,7 @@ class WorkflowRead(Schema):
     alias: str | None = None
     git_sync_branch: str | None = None
     error_handler: str | None = None
+    folder_id: uuid.UUID | None = None
     trigger_position_x: float = 0.0
     trigger_position_y: float = 0.0
     graph_version: int = 1

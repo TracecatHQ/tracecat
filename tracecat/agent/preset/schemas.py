@@ -270,6 +270,7 @@ class AgentPresetRead(AgentPresetExecutionConfig):
     slug: str
     description: str | None = Field(default=None, max_length=1000)
     current_version_id: uuid.UUID | None = None
+    folder_id: uuid.UUID | None = None
     skills: list[AgentPresetSkillBindingRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
