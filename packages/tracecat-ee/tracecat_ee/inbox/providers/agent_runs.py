@@ -125,8 +125,8 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             elif session.curr_run_id is not None:
                 to_describe.append((session.id, session.curr_run_id))
             # No error and no current run: legacy/clean session. Leave unset so
-            # callers fall back to approval signals (rejected -> error, else
-            # completed).
+            # callers fall back to completion. A denied/rejected tool approval is
+            # a user decision, not a terminal run error.
 
         if not to_describe:
             return statuses
@@ -493,10 +493,6 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         pending_counts = await self._fetch_approval_counts(
             session_ids, ApprovalStatus.PENDING
         )
-        rejected_counts = await self._fetch_approval_counts(
-            session_ids, ApprovalStatus.REJECTED
-        )
-
         if group is InboxGroup.REVIEW_REQUIRED:
             return {
                 s.id: (
@@ -518,8 +514,6 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             if run_status is RunStatus.RUNNING:
                 classifications[s.id] = InboxGroup.RUNNING
             elif run_status is RunStatus.ERROR:
-                classifications[s.id] = InboxGroup.ERROR
-            elif rejected_counts.get(s.id, 0) > 0:
                 classifications[s.id] = InboxGroup.ERROR
             else:
                 classifications[s.id] = InboxGroup.COMPLETED
@@ -590,22 +584,13 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             )
         elif group is InboxGroup.ERROR:
             # Necessary (not sufficient) condition: a session lands in ERROR from
-            # a persisted error, a current run that reconciles to dead, or a
-            # rejected approval. Pre-filter to those so the scan skips the
-            # (common) clean-completed rows.
-            rejected_exists = (
-                select(Approval.id)
-                .where(
-                    Approval.session_id == AgentSession.id,
-                    Approval.status == ApprovalStatus.REJECTED,
-                )
-                .exists()
-            )
+            # a persisted error or a current run that reconciles to dead.
+            # Denied/rejected tool approvals are user decisions and should not
+            # make an otherwise-completed run appear as an error.
             base_stmt = base_stmt.where(
                 or_(
                     AgentSession.last_error.is_not(None),
                     AgentSession.curr_run_id.is_not(None),
-                    rejected_exists,
                 )
             )
 
@@ -800,7 +785,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             pending_count = sum(
                 1 for a in session_approvals if a.status == ApprovalStatus.PENDING
             )
-            failed_count = sum(
+            denied_count = sum(
                 1 for a in session_approvals if a.status == ApprovalStatus.REJECTED
             )
             run_status = run_statuses.get(session.id)
@@ -814,8 +799,6 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                 status = InboxItemStatus.PENDING
             elif run_status is RunStatus.ERROR:
                 status = InboxItemStatus.FAILED
-            elif failed_count > 0:
-                status = InboxItemStatus.FAILED
             else:
                 status = InboxItemStatus.COMPLETED
 
@@ -828,8 +811,10 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                 # Prefer the persisted error summary so the list row hints at why
                 # without opening the run; fall back to a generic label.
                 preview = last_error or "Execution failed"
-            elif failed_count > 0:
-                preview = f"{failed_count} rejected"
+            elif denied_count > 0:
+                preview = (
+                    f"{denied_count} denied tool{'s' if denied_count != 1 else ''}"
+                )
             elif run_status is None and not session_approvals:
                 preview = "Agent session"
             else:

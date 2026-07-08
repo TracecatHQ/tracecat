@@ -10,25 +10,26 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.inbox.providers.agent_runs import AgentRunsInboxProvider
 
+from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
-from tracecat.db.models import AgentSession
+from tracecat.db.models import AgentSession, Approval
 from tracecat.inbox.schemas import InboxItemRead
 from tracecat.inbox.types import InboxGroup, InboxItemStatus, InboxItemType
 from tracecat.pagination import BaseCursorPaginator, CursorPaginatedResponse
 
 
 class _ScalarResult:
-    def __init__(self, items: Sequence[AgentSession]) -> None:
+    def __init__(self, items: Sequence[Any]) -> None:
         self._items = list(items)
 
-    def all(self) -> list[AgentSession]:
+    def all(self) -> list[Any]:
         return self._items
 
 
 class _ExecuteResult:
-    def __init__(self, items: Sequence[AgentSession]) -> None:
+    def __init__(self, items: Sequence[Any]) -> None:
         self._items = items
 
     def scalars(self) -> _ScalarResult:
@@ -36,7 +37,7 @@ class _ExecuteResult:
 
 
 class _RecordingSession:
-    def __init__(self, batches: Sequence[Sequence[AgentSession]] | None = None) -> None:
+    def __init__(self, batches: Sequence[Sequence[Any]] | None = None) -> None:
         self._batches = [list(batch) for batch in batches or []]
         self.statements: list[Any] = []
 
@@ -336,13 +337,13 @@ async def test_ungrouped_reverse_returns_rows_adjacent_to_cursor(
 
 
 @pytest.mark.anyio
-async def test_classify_rejected_only_non_workflow_session_lands_in_error_group(
+async def test_classify_rejected_only_non_workflow_session_lands_in_completed_group(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Any session whose only signal is a rejected approval groups under ERROR.
+    """A rejected tool approval is a user denial, not a run error.
 
-    ``_enrich_sessions`` renders such a session FAILED, so classification must
-    place it in ERROR rather than COMPLETED even when it is not workflow-backed.
+    If the run itself did not fail, the inbox should not count the session under
+    ERROR solely because the user denied one of its tool calls.
     """
     workspace_id = uuid.uuid4()
     provider = AgentRunsInboxProvider(
@@ -363,8 +364,6 @@ async def test_classify_rejected_only_non_workflow_session_lands_in_error_group(
         session_ids: Sequence[uuid.UUID],
         status: Any,
     ) -> dict[uuid.UUID, int]:
-        from tracecat.agent.approvals.enums import ApprovalStatus
-
         if status == ApprovalStatus.REJECTED:
             return {rejected.id: 1}
         return {}
@@ -381,7 +380,37 @@ async def test_classify_rejected_only_non_workflow_session_lands_in_error_group(
         [rejected], group=InboxGroup.ERROR
     )
 
-    assert classifications[rejected.id] is InboxGroup.ERROR
+    assert classifications[rejected.id] is InboxGroup.COMPLETED
+
+
+@pytest.mark.anyio
+async def test_enrich_rejected_tool_approval_keeps_session_completed() -> None:
+    """Denied tools should be visible without making the whole run failed."""
+    workspace_id = uuid.uuid4()
+    base_time = datetime(2026, 1, 1, tzinfo=UTC)
+    agent_session = _agent_session(
+        "denied tool",
+        base_time,
+        workspace_id=workspace_id,
+    )
+    approval = Approval(
+        id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        session_id=agent_session.id,
+        tool_call_id="toolu_123",
+        tool_name="list_cases",
+        status=ApprovalStatus.REJECTED,
+    )
+    # _enrich_sessions performs three DB lookups in order: approvals, workflows,
+    # and users. The session has an entity_id/created_by defaults handled by the
+    # empty lookup batches below.
+    session = _RecordingSession([[approval], [], []])
+    provider = AgentRunsInboxProvider(cast(AsyncSession, session), _role(workspace_id))
+
+    [item] = await provider._enrich_sessions([agent_session])
+
+    assert item.status is InboxItemStatus.COMPLETED
+    assert item.preview == "1 denied tool"
 
 
 @pytest.mark.anyio
