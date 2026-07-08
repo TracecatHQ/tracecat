@@ -1,0 +1,21 @@
+tracecat/mcp/oidc/config.py
+  s_a66a712823104d::t_57c0751f74c91c 84,86-99
+tracecat/mcp/oidc/refresh_tokens.py
+  s_a66a712823104d::t_54a0c4d00d1472 227-239
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "6a004f254a0d65d4ab217a568b684fc0427677a4",
+  "prompts": {},
+  "sessions": {
+    "s_a66a712823104d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d40dd60f-1d15-4e99-8e72-fb2116a5f6aa",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
