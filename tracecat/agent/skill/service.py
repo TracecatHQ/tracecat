@@ -1225,6 +1225,11 @@ class SkillService(BaseWorkspaceService):
         ``slug IS NULL`` and project their name as the slug (see
         ``_build_skill_read``), so they reserve their name too. The contract
         backfill assigns them that slug permanently.
+
+        Liveness matches the ``uq_skill_workspace_slug_active`` partial-index
+        predicate (both columns NULL): legacy pods archive by setting only
+        ``archived_at``, and such effectively-dead rows must not report a slug
+        as taken that the index would accept.
         """
 
         stmt = select(
@@ -1235,6 +1240,7 @@ class SkillService(BaseWorkspaceService):
                     sa.and_(Skill.slug.is_(None), Skill.name == slug),
                 ),
                 Skill.deleted_at.is_(None),
+                Skill.archived_at.is_(None),
             )
         )
         return bool((await self.session.execute(stmt)).scalar_one())

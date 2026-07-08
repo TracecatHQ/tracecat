@@ -3772,7 +3772,10 @@ class Skill(SoftDeleteMixin, WorkspaceModel):
             "workspace_id",
             "slug",
             unique=True,
-            postgresql_where=text("deleted_at IS NULL"),
+            # Matches the expand window's effective-dead semantics (legacy
+            # pods archive by setting only archived_at); the contract release
+            # re-backfills deleted_at and narrows this to deleted_at only.
+            postgresql_where=text("deleted_at IS NULL AND archived_at IS NULL"),
         ),
     )
 

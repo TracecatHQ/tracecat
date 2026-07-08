@@ -324,6 +324,32 @@ class TestSkillService:
         assert recreated.id != deleted.id
         assert recreated.slug == deleted.slug
 
+    async def test_create_skill_reuses_slug_of_legacy_archived_row(
+        self,
+        skill_service: SkillService,
+        session: AsyncSession,
+    ) -> None:
+        """Rows archived by legacy pods (``archived_at`` set, ``deleted_at``
+        NULL) are effectively dead and must not reserve their slug — the
+        service check matches the ``uq_skill_workspace_slug_active`` partial
+        index predicate, which frees the slug for live rows.
+        """
+
+        legacy = await skill_service.create_skill(SkillCreate(name="legacy-archived"))
+        legacy_row = (
+            await session.execute(select(Skill).where(Skill.id == legacy.id))
+        ).scalar_one()
+        legacy_row.archived_at = datetime.now(UTC)
+        assert legacy_row.deleted_at is None
+        await session.commit()
+
+        recreated = await skill_service.create_skill(
+            SkillCreate(name="legacy-archived")
+        )
+
+        assert recreated.id != legacy.id
+        assert recreated.slug == legacy.slug
+
     async def test_create_skill_reserves_slugless_legacy_row_name(
         self,
         skill_service: SkillService,

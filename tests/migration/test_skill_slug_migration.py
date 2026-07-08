@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.pool import NullPool
 
 from tests.database import TEST_DB_CONFIG
@@ -279,7 +280,10 @@ def test_skill_slug_migration_suffixes_live_duplicates_only(
         assert rows[deleted_id]["slug"] == original_slug
         assert rows[deleted_id]["deleted_at"] is not None
         assert active_duplicate_count == 1
-        assert f"old_slug={original_slug!r} new_slug='collision-skill-2'" in output
+        # Rename report carries identifiers only — slug values derive from
+        # customer-authored names and must not land in logs.
+        assert f"skill_id={rename_id} suffix_counter=2" in output
+        assert original_slug not in output
     finally:
         engine.dispose()
 
@@ -340,7 +344,7 @@ def test_skill_slug_migration_skips_existing_suffixed_slug(
             rename_foo_id: "foo-3",
             keep_foo_2_id: "foo-2",
         }
-        assert "old_slug='foo' new_slug='foo-3'" in output
+        assert f"skill_id={rename_foo_id} suffix_counter=3" in output
     finally:
         engine.dispose()
 
@@ -398,6 +402,145 @@ def test_skill_slug_migration_suffixes_max_length_duplicate(
 
         assert rows == {keep_id: max_length_name, rename_id: suffixed_name}
         assert len(rows[rename_id]) == 64
-        assert f"old_slug={max_length_name!r} new_slug={suffixed_name!r}" in output
+        assert f"skill_id={rename_id} suffix_counter=2" in output
+    finally:
+        engine.dispose()
+
+
+def test_skill_slug_migration_treats_legacy_archived_rows_as_dead(
+    migration_db_url: str,
+) -> None:
+    """Invariant: the expand index predicate matches expand liveness semantics
+    (``deleted_at IS NULL AND archived_at IS NULL``).
+
+    Rows archived by legacy pods (``archived_at`` set, ``deleted_at`` NULL) are
+    effectively dead during the rolling window: they are excluded from the
+    dedupe pass (the truly-live row keeps the canonical slug), they never
+    reserve a slug under the partial unique index, and they never block a live
+    row from using the slug.
+    """
+    organization_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    legacy_archived_foo_id = uuid.uuid4()
+    live_foo_id = uuid.uuid4()
+    legacy_archived_bar_id = uuid.uuid4()
+    reuse_bar_id = uuid.uuid4()
+    duplicate_foo_id = uuid.uuid4()
+    archived_at = datetime(2026, 1, 5, tzinfo=UTC)
+
+    engine = create_engine(migration_db_url, poolclass=NullPool)
+    try:
+        with engine.begin() as conn:
+            _insert_organization_and_workspace(
+                conn,
+                organization_id=organization_id,
+                workspace_id=workspace_id,
+                label="legacy-archived",
+            )
+            # Legacy-archived rows created BEFORE the live row: under a
+            # deleted_at-only predicate they would win the canonical slug and
+            # permanently suffix the live row.
+            for skill_id, name, created_at, row_archived_at in (
+                (
+                    legacy_archived_foo_id,
+                    "foo",
+                    datetime(2026, 1, 1, tzinfo=UTC),
+                    archived_at,
+                ),
+                (live_foo_id, "foo", datetime(2026, 1, 2, tzinfo=UTC), None),
+                (
+                    legacy_archived_bar_id,
+                    "bar",
+                    datetime(2026, 1, 1, tzinfo=UTC),
+                    archived_at,
+                ),
+            ):
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO skill (
+                            id, workspace_id, name, draft_revision,
+                            archived_at, deleted_at, created_at, updated_at
+                        )
+                        VALUES (
+                            :id, :workspace_id, :name, 0,
+                            :archived_at, NULL, :created_at, :created_at
+                        )
+                        """
+                    ),
+                    {
+                        "id": skill_id,
+                        "workspace_id": workspace_id,
+                        "name": name,
+                        "archived_at": row_archived_at,
+                        "created_at": created_at,
+                    },
+                )
+
+        result = _run_alembic(migration_db_url, "upgrade", MIGRATION_REVISION)
+        output = f"{result.stdout}\n{result.stderr}"
+
+        with engine.begin() as conn:
+            rows = {
+                row["id"]: row["slug"]
+                for row in (
+                    conn.execute(
+                        text(
+                            """
+                            SELECT id, slug
+                            FROM skill
+                            WHERE workspace_id = :workspace_id
+                            """
+                        ),
+                        {"workspace_id": workspace_id},
+                    )
+                    .mappings()
+                    .all()
+                )
+            }
+
+        # Excluded from dedupe: the live row keeps the canonical slug; the
+        # legacy-archived duplicate is untouched (no rename, no report).
+        assert rows[live_foo_id] == "foo"
+        assert rows[legacy_archived_foo_id] == "foo"
+        assert "Renamed live skill slug collision" not in output
+
+        # Never reserves a slug: a live row can take a slug held only by a
+        # legacy-archived row.
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO skill (
+                        id, workspace_id, name, slug, draft_revision,
+                        archived_at, deleted_at, created_at, updated_at
+                    )
+                    VALUES (
+                        :id, :workspace_id, 'bar', 'bar', 0,
+                        NULL, NULL, now(), now()
+                    )
+                    """
+                ),
+                {"id": reuse_bar_id, "workspace_id": workspace_id},
+            )
+
+        # The index still enforces uniqueness between LIVE rows.
+        with pytest.raises(IntegrityError, match="uq_skill_workspace_slug_active"):
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO skill (
+                            id, workspace_id, name, slug, draft_revision,
+                            archived_at, deleted_at, created_at, updated_at
+                        )
+                        VALUES (
+                            :id, :workspace_id, 'foo', 'foo', 0,
+                            NULL, NULL, now(), now()
+                        )
+                        """
+                    ),
+                    {"id": duplicate_foo_id, "workspace_id": workspace_id},
+                )
     finally:
         engine.dispose()
