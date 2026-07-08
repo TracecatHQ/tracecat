@@ -1,0 +1,30 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/sentinel_one/submit_powerquery.yml
+  s_daa633238fc1fa::t_99ca74360aaf0d 108
+  s_daa633238fc1fa::t_3e74ef978214a1 109
+  s_daa633238fc1fa::t_1a8d33cca69d6b 97-102
+packages/tracecat-registry/tracecat_registry/templates/tools/sentinel_one/powerquery.yml
+  s_daa633238fc1fa::t_11c30a937193a9 105-110
+  s_daa633238fc1fa::t_25ed97ded6c142 117
+  s_daa633238fc1fa::t_abc5284e498fbd 116
+packages/tracecat-registry/tracecat_registry/templates/tools/sentinel_one/list_inventory.yml
+  s_daa633238fc1fa::t_bc1938192a1bab 38
+  s_daa633238fc1fa::t_6a8e4cee1f2bee 15,17-24
+docs/tools/sentinel_one.mdx
+  s_daa633238fc1fa::t_57a1a6d996f8a2 449,455-470
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "93157d0d96256e54b59e1e74a6dd718c00a0cb13",
+  "prompts": {},
+  "sessions": {
+    "s_daa633238fc1fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4faddc03-47e8-4239-ab06-76675d1ec35b",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
