@@ -395,27 +395,32 @@ class SkillAdapter(DirectoryManifestAdapter):
         resources: list[ProjectedResource] = []
         for skill in skills:
             source_id = assigner.assign(skill.id, skill.name)
-            # Keep the top-level manifest as metadata only, then emit immutable
-            # file snapshots below ``versions/`` for current and pinned versions.
-            version = skill.current_version
-            version_numbers = set((versions_by_skill_id or {}).get(skill.id, set()))
-            if version is not None:
-                version_numbers.add(version.version)
-            versions = await self._version_specs_for_skill(
-                workspace_service,
-                skill=skill,
-                version_numbers=version_numbers,
-            )
+            with self.projection_error_context(
+                source_id=source_id,
+                display_name=skill.name,
+                local_id=skill.id,
+            ):
+                # Keep the top-level manifest as metadata only, then emit immutable
+                # file snapshots below ``versions/`` for current and pinned versions.
+                version = skill.current_version
+                version_numbers = set((versions_by_skill_id or {}).get(skill.id, set()))
+                if version is not None:
+                    version_numbers.add(version.version)
+                versions = await self._version_specs_for_skill(
+                    workspace_service,
+                    skill=skill,
+                    version_numbers=version_numbers,
+                )
 
-            specs[source_id] = SkillResourceSpec(
-                id=source_id,
-                slug=skill.name,
-                name=version.name if version is not None else skill.name,
-                current_version=version.version if version is not None else None,
-                description=skill.description,
-                versions=versions,
-            )
-            resources.append(self.projected_resource(source_id, skill.id))
+                specs[source_id] = SkillResourceSpec(
+                    id=source_id,
+                    slug=skill.name,
+                    name=version.name if version is not None else skill.name,
+                    current_version=version.version if version is not None else None,
+                    description=skill.description,
+                    versions=versions,
+                )
+                resources.append(self.projected_resource(source_id, skill.id))
         return ResourceProjection(specs=specs, resources=resources)
 
     async def _exported_bound_versions_by_skill(

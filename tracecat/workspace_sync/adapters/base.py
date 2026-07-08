@@ -13,7 +13,8 @@ from __future__ import annotations
 import re
 import uuid
 from abc import ABC, abstractmethod
-from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Literal, NamedTuple, Protocol, cast
 
@@ -25,6 +26,7 @@ from sqlalchemy.sql.base import ExecutableOption
 
 from tracecat.auth.types import Role
 from tracecat.db.models import WorkspaceSyncResourceMapping
+from tracecat.exceptions import TracecatException, TracecatValidationError
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import PullDiagnostic
 from tracecat.tables.enums import SqlType
@@ -482,6 +484,106 @@ class ResourceAdapter(ABC):
             if isinstance(value, str) and (cleaned := value.strip()):
                 return cleaned
         return None
+
+    @contextmanager
+    def projection_error_context(
+        self,
+        *,
+        source_id: str,
+        display_name: str | None = None,
+        local_id: uuid.UUID | None = None,
+    ) -> Iterator[None]:
+        """Add resource identity to errors raised while building Git specs.
+
+        Workspace sync exports project many heterogeneous resources in a
+        single request. If one row cannot be serialized, the raw validation or
+        service error often lacks enough context for the user to find the bad
+        resource. Adapters wrap each per-resource projection with this helper so
+        callers get the failing resource type, source id, path, and name in one
+        consistent, user-facing error.
+        """
+        try:
+            yield
+        except TracecatValidationError as exc:
+            if str(exc).startswith("Failed to project "):
+                raise
+            raise TracecatValidationError(
+                self._projection_error_message(
+                    exc,
+                    source_id=source_id,
+                    display_name=display_name,
+                    local_id=local_id,
+                ),
+                detail=self._projection_error_detail(
+                    exc,
+                    source_id=source_id,
+                    display_name=display_name,
+                    local_id=local_id,
+                ),
+            ) from exc
+        except Exception as exc:
+            raise TracecatValidationError(
+                self._projection_error_message(
+                    exc,
+                    source_id=source_id,
+                    display_name=display_name,
+                    local_id=local_id,
+                ),
+                detail=self._projection_error_detail(
+                    exc,
+                    source_id=source_id,
+                    display_name=display_name,
+                    local_id=local_id,
+                ),
+            ) from exc
+
+    def _projection_error_message(
+        self,
+        exc: Exception,
+        *,
+        source_id: str,
+        display_name: str | None,
+        local_id: uuid.UUID | None,
+    ) -> str:
+        """Build a concise user-facing projection failure message."""
+        label = self.resource_type.value.replace("_", " ")
+        parts: list[str] = []
+        if display_name and display_name.strip():
+            parts.append(f"name {display_name.strip()!r}")
+        parts.extend(
+            [
+                f"source id {source_id!r}",
+                f"path {self.source_path(source_id)!r}",
+            ]
+        )
+        if local_id is not None:
+            parts.append(f"local id {local_id}")
+        message = str(exc).strip() or exc.__class__.__name__
+        return f"Failed to project {label} resource ({', '.join(parts)}): {message}"
+
+    def _projection_error_detail(
+        self,
+        exc: Exception,
+        *,
+        source_id: str,
+        display_name: str | None,
+        local_id: uuid.UUID | None,
+    ) -> dict[str, Any]:
+        """Machine-readable details for a workspace sync projection failure."""
+        detail: dict[str, Any] = {
+            "code": "workspace_sync_projection_resource_failed",
+            "resource_type": self.resource_type.value,
+            "source_id": source_id,
+            "source_path": self.source_path(source_id),
+            "error": str(exc),
+        }
+        if display_name and display_name.strip():
+            detail["name"] = display_name.strip()
+        if local_id is not None:
+            detail["local_id"] = str(local_id)
+        if isinstance(exc, TracecatException) and exc.detail is not None:
+            detail["cause_detail"] = exc.detail
+        return detail
 
     def import_identity(self, spec: BaseModel) -> tuple[str, ...] | None:
         """Return the import-time unique target identity for ``spec``, if any."""

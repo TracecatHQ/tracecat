@@ -249,27 +249,34 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         resources: list[ProjectedResource] = []
         for preset in presets:
             source_id = assigner.assign(preset.id, preset.slug)
-            current_version = preset.current_version
-            version_numbers = set((versions_by_preset_id or {}).get(preset.id, set()))
-            if current_version is not None:
-                version_numbers.add(current_version.version)
-            versions = await self._version_specs_for_preset(
-                workspace_service,
-                preset=preset,
-                version_numbers=version_numbers,
-            )
-            specs[source_id] = AgentPresetResourceSpec(
-                id=source_id,
-                slug=preset.slug,
-                name=preset.name,
-                current_version=(
-                    current_version.version if current_version is not None else None
-                ),
-                folder_path=preset.folder.path if preset.folder else None,
-                tags=sorted(tag.name for tag in preset.tags),
-                versions=versions,
-            )
-            resources.append(self.projected_resource(source_id, preset.id))
+            with self.projection_error_context(
+                source_id=source_id,
+                display_name=preset.slug,
+                local_id=preset.id,
+            ):
+                current_version = preset.current_version
+                version_numbers = set(
+                    (versions_by_preset_id or {}).get(preset.id, set())
+                )
+                if current_version is not None:
+                    version_numbers.add(current_version.version)
+                versions = await self._version_specs_for_preset(
+                    workspace_service,
+                    preset=preset,
+                    version_numbers=version_numbers,
+                )
+                specs[source_id] = AgentPresetResourceSpec(
+                    id=source_id,
+                    slug=preset.slug,
+                    name=preset.name,
+                    current_version=(
+                        current_version.version if current_version is not None else None
+                    ),
+                    folder_path=preset.folder.path if preset.folder else None,
+                    tags=sorted(tag.name for tag in preset.tags),
+                    versions=versions,
+                )
+                resources.append(self.projected_resource(source_id, preset.id))
         return ResourceProjection(specs=specs, resources=resources)
 
     async def _version_specs_for_preset(
