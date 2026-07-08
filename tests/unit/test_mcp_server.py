@@ -9477,6 +9477,7 @@ async def test_list_skills_uses_workspace_skill_service(
                         id=skill_id,
                         workspace_id=workspace_id,
                         name="botsv3-ir",
+                        slug="botsv3-ir",
                         description="BOTSv3 IR skill",
                         current_version_id=uuid.uuid4(),
                         created_at=now,

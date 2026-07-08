@@ -112,11 +112,17 @@ class SkillRead(Schema):
 
 
 class SkillReadMinimal(Schema):
-    """Minimal response model for listing workspace skills."""
+    """Minimal response model for listing workspace skills.
+
+    ``slug`` is the late-binding handle every skill API accepts; list
+    responses must expose it so callers never have to guess it from ``name``
+    (names are not unique — slugs are, per live row).
+    """
 
     id: uuid.UUID
     workspace_id: WorkspaceID
     name: str
+    slug: str
     description: str | None = Field(default=None)
     current_version_id: uuid.UUID | None = Field(default=None)
     created_at: datetime

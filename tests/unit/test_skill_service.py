@@ -824,6 +824,8 @@ class TestSkillService:
         assert isinstance(listing.items[0], SkillReadMinimal)
         assert listing.items[0].id == created.id
         assert listing.items[0].name == created.name
+        # List responses expose the late-binding handle callers bind with.
+        assert listing.items[0].slug == created.slug
 
     async def test_list_skills_excludes_archived_skills(
         self,

@@ -1177,6 +1177,9 @@ class SkillService(BaseWorkspaceService):
             id=skill.id,
             workspace_id=skill.workspace_id,
             name=skill.name,
+            # Same expand-window projection as SkillRead: legacy rows inserted
+            # without a slug present their name as the slug.
+            slug=skill.slug or skill.name,
             description=skill.description,
             current_version_id=skill.current_version_id,
             created_at=skill.created_at,
