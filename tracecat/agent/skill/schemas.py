@@ -103,7 +103,7 @@ class SkillRead(Schema):
     draft_revision: int
     created_at: datetime
     updated_at: datetime
-    archived_at: datetime | None = Field(default=None)
+    deleted_at: datetime | None = Field(default=None)
     current_version: SkillVersionReadMinimal | None = Field(default=None)
     is_draft_publishable: bool
     draft_validation_errors: list[SkillValidationErrorDetail] = Field(
@@ -122,7 +122,7 @@ class SkillReadMinimal(Schema):
     current_version_id: uuid.UUID | None = Field(default=None)
     created_at: datetime
     updated_at: datetime
-    archived_at: datetime | None = Field(default=None)
+    deleted_at: datetime | None = Field(default=None)
 
 
 class SkillCreate(Schema):

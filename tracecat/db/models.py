@@ -3762,7 +3762,7 @@ class AgentPresetVersion(WorkspaceModel):
     )
 
 
-class Skill(WorkspaceModel):
+class Skill(SoftDeleteMixin, WorkspaceModel):
     """Workspace-scoped logical skill with mutable draft and immutable versions."""
 
     __tablename__ = "skill"
@@ -3802,7 +3802,10 @@ class Skill(WorkspaceModel):
     archived_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True),
         nullable=True,
-        doc="Timestamp for archived skills",
+        doc=(
+            "Legacy archive timestamp for skills; dual-written with deleted_at "
+            "until the contract release drops this column."
+        ),
     )
     workspace: Mapped[Workspace] = relationship(back_populates="skills")
     current_version: Mapped[SkillVersion | None] = relationship(

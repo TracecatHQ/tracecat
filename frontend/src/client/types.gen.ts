@@ -7034,7 +7034,7 @@ export type SkillRead = {
   draft_revision: number
   created_at: string
   updated_at: string
-  archived_at?: string | null
+  deleted_at?: string | null
   current_version?: SkillVersionReadMinimal | null
   is_draft_publishable: boolean
   draft_validation_errors?: Array<SkillValidationErrorDetail>
@@ -7052,7 +7052,7 @@ export type SkillReadMinimal = {
   current_version_id?: string | null
   created_at: string
   updated_at: string
-  archived_at?: string | null
+  deleted_at?: string | null
 }
 
 /**

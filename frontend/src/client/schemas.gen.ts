@@ -23519,7 +23519,7 @@ export const $SkillRead = {
       format: "date-time",
       title: "Updated At",
     },
-    archived_at: {
+    deleted_at: {
       anyOf: [
         {
           type: "string",
@@ -23529,7 +23529,7 @@ export const $SkillRead = {
           type: "null",
         },
       ],
-      title: "Archived At",
+      title: "Deleted At",
     },
     current_version: {
       anyOf: [
@@ -23621,7 +23621,7 @@ export const $SkillReadMinimal = {
       format: "date-time",
       title: "Updated At",
     },
-    archived_at: {
+    deleted_at: {
       anyOf: [
         {
           type: "string",
@@ -23631,7 +23631,7 @@ export const $SkillReadMinimal = {
           type: "null",
         },
       ],
-      title: "Archived At",
+      title: "Deleted At",
     },
   },
   type: "object",
