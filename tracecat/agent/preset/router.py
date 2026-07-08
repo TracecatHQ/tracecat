@@ -7,6 +7,7 @@ from tracecat.agent.folders.service import AgentFolderService
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetMoveToFolder,
+    AgentPresetPinVersion,
     AgentPresetRead,
     AgentPresetReadMinimal,
     AgentPresetUpdate,
@@ -120,6 +121,55 @@ async def update_agent_preset(
         # The preset can be soft-deleted between the lookup above and the
         # service's row lock; surface that race as a 404, not a 500.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    return await service.build_preset_read(preset)
+
+
+@router.put("/{preset_id}/pin", response_model=AgentPresetRead)
+@require_scope("agent:update")
+async def pin_agent_preset_version(
+    *,
+    preset_id: uuid.UUID,
+    params: AgentPresetPinVersion,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+) -> AgentPresetRead:
+    """Pin an agent preset to an immutable version."""
+    service = AgentPresetService(session, role=role)
+    try:
+        preset = await service.pin_version(
+            preset_id=preset_id,
+            version_id=params.version_id,
+        )
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except TracecatValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=exc.detail if exc.detail is not None else str(exc),
+        ) from exc
+    return await service.build_preset_read(preset)
+
+
+@router.delete("/{preset_id}/pin", response_model=AgentPresetRead)
+@require_scope("agent:update")
+async def unpin_agent_preset_version(
+    *,
+    preset_id: uuid.UUID,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+) -> AgentPresetRead:
+    """Clear the pinned version for an agent preset."""
+    service = AgentPresetService(session, role=role)
+    try:
+        preset = await service.unpin_version(preset_id)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
     return await service.build_preset_read(preset)
 
 

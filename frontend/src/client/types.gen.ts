@@ -587,6 +587,13 @@ export type AgentPresetMoveToFolder = {
 }
 
 /**
+ * Payload for pinning a preset to an immutable version.
+ */
+export type AgentPresetPinVersion = {
+  version_id: string
+}
+
+/**
  * API model for reading agent presets.
  */
 export type AgentPresetRead = {
@@ -612,6 +619,7 @@ export type AgentPresetRead = {
   slug: string
   description?: string | null
   current_version_id?: string | null
+  pinned_version_id?: string | null
   folder_id?: string | null
   skills?: Array<AgentPresetSkillBindingRead>
   created_at: string
@@ -632,6 +640,7 @@ export type AgentPresetReadMinimal = {
   folder_id?: string | null
   tags?: Array<TagRead>
   current_version_id?: string | null
+  pinned_version_id?: string | null
   capabilities?: Array<AgentPresetCapability>
   current_version_subagent_eligibility?: AgentPresetSubagentEligibility
   created_at: string
@@ -7023,6 +7032,13 @@ export type SkillFileEntry = {
 }
 
 /**
+ * Payload for pinning a skill to an immutable version.
+ */
+export type SkillPinVersion = {
+  version_id: string
+}
+
+/**
  * Full response model for a workspace skill.
  */
 export type SkillRead = {
@@ -7032,6 +7048,7 @@ export type SkillRead = {
   slug: string
   description?: string | null
   current_version_id?: string | null
+  pinned_version_id?: string | null
   draft_revision: number
   created_at: string
   updated_at: string
@@ -7056,6 +7073,7 @@ export type SkillReadMinimal = {
   slug: string
   description?: string | null
   current_version_id?: string | null
+  pinned_version_id?: string | null
   created_at: string
   updated_at: string
   deleted_at?: string | null
@@ -11247,6 +11265,21 @@ export type AgentPresetsGetAgentPresetBySlugData = {
 
 export type AgentPresetsGetAgentPresetBySlugResponse = AgentPresetRead
 
+export type AgentPresetsPinAgentPresetVersionData = {
+  presetId: string
+  requestBody: AgentPresetPinVersion
+  workspaceId: string
+}
+
+export type AgentPresetsPinAgentPresetVersionResponse = AgentPresetRead
+
+export type AgentPresetsUnpinAgentPresetVersionData = {
+  presetId: string
+  workspaceId: string
+}
+
+export type AgentPresetsUnpinAgentPresetVersionResponse = AgentPresetRead
+
 export type AgentPresetsListAgentPresetVersionsData = {
   cursor?: string | null
   limit?: number
@@ -11536,6 +11569,21 @@ export type AgentSkillsRestoreSkillVersionData = {
 }
 
 export type AgentSkillsRestoreSkillVersionResponse = SkillReadMinimal
+
+export type AgentSkillsPinSkillVersionData = {
+  requestBody: SkillPinVersion
+  skillId: string
+  workspaceId: string
+}
+
+export type AgentSkillsPinSkillVersionResponse = SkillReadMinimal
+
+export type AgentSkillsUnpinSkillVersionData = {
+  skillId: string
+  workspaceId: string
+}
+
+export type AgentSkillsUnpinSkillVersionResponse = SkillReadMinimal
 
 export type AgentSessionsCreateSessionData = {
   requestBody: AgentSessionCreate
@@ -16224,6 +16272,34 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/agent/presets/{preset_id}/pin": {
+    put: {
+      req: AgentPresetsPinAgentPresetVersionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentPresetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AgentPresetsUnpinAgentPresetVersionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentPresetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/agent/presets/{preset_id}/versions": {
     get: {
       req: AgentPresetsListAgentPresetVersionsData
@@ -16702,6 +16778,34 @@ export type $OpenApiTs = {
   "/workspaces/{workspace_id}/agent/skills/{skill_id}/versions/{version_id}/restore": {
     post: {
       req: AgentSkillsRestoreSkillVersionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SkillReadMinimal
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/skills/{skill_id}/pin": {
+    put: {
+      req: AgentSkillsPinSkillVersionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SkillReadMinimal
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AgentSkillsUnpinSkillVersionData
       res: {
         /**
          * Successful Response
