@@ -1,9 +1,35 @@
 import {
+  buildAgentPresetUpdatePayload,
   buildDuplicateAgentPresetPayload,
   buildDuplicateAgentSlug,
   buildSkillCommandItemValue,
   canSubmitAgentPresetForm,
 } from "@/lib/agent-presets"
+
+const presetPayload = {
+  name: "Triage agent",
+  model_name: "gpt-4o-mini",
+  model_provider: "openai",
+  skills: [{ skill_id: "784dd826-072e-46f1-95a4-08d3417c784f" }],
+}
+
+describe("buildAgentPresetUpdatePayload", () => {
+  it("omits unchanged skill bindings from preset updates", () => {
+    const update = buildAgentPresetUpdatePayload(presetPayload, {
+      skillsChanged: false,
+    })
+
+    expect(update).not.toHaveProperty("skills")
+  })
+
+  it("includes changed skill bindings in preset updates", () => {
+    const update = buildAgentPresetUpdatePayload(presetPayload, {
+      skillsChanged: true,
+    })
+
+    expect(update.skills).toEqual(presetPayload.skills)
+  })
+})
 
 describe("canSubmitAgentPresetForm", () => {
   it("keeps save disabled for new presets until model config is present", () => {

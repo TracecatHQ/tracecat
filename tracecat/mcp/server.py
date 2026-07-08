@@ -7785,9 +7785,7 @@ async def create_agent_preset(
 ) -> AgentPresetRead:
     """Create an agent preset in the selected workspace.
 
-    Use `skills` to attach published skill versions. Each binding requires
-    `skill_id` and `skill_version_id` from `list_skills` and
-    `publish_skill`.
+    Use `skills` to attach published skills. Each binding contains `skill_id`.
     """
 
     try:
@@ -7868,9 +7866,9 @@ async def update_agent_preset(
 ) -> AgentPresetRead:
     """Update an existing agent preset in the selected workspace.
 
-    Use `skills` to replace attached published skill-version bindings. Each
-    binding requires `skill_id` and `skill_version_id`. Omit `skills` to
-    leave bindings unchanged, or pass an empty list to detach all skills.
+    Use `skills` to replace attached published skills. Each binding contains
+    `skill_id`. Omit `skills` to leave bindings unchanged, or pass an empty list
+    to detach all skills.
     """
 
     try:

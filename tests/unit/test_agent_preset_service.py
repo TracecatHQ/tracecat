@@ -4,7 +4,7 @@ import asyncio
 import os
 import uuid
 from datetime import UTC, datetime
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from dotenv import dotenv_values
@@ -1023,12 +1023,7 @@ class TestAgentPresetService:
                 instructions="Use the selected skill version",
                 model_name="gpt-4o-mini",
                 model_provider="openai",
-                skills=[
-                    AgentPresetSkillBindingBase(
-                        skill_id=created_skill.id,
-                        skill_version_id=skill_version.id,
-                    )
-                ],
+                skills=[AgentPresetSkillBindingBase(skill_id=created_skill.id)],
             )
         )
         current_version = await agent_preset_service.get_current_version_for_preset(
@@ -1039,6 +1034,185 @@ class TestAgentPresetService:
         assert len(version_read.skills) == 1
         assert version_read.skills[0].skill_version_id == skill_version.id
         assert version_read.skills[0].skill_version == 1
+
+    async def test_create_preset_skill_binding_without_version_stores_current_version(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Skill-only authoring stores the server-derived current skill version."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(name="skill-only-current")
+        )
+        skill_version = await skill_service.publish_skill(created_skill.id)
+
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Skill-only current preset",
+                instructions="Use the selected skill",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[AgentPresetSkillBindingBase(skill_id=created_skill.id)],
+            )
+        )
+        current_version = await agent_preset_service.get_current_version_for_preset(
+            created_preset
+        )
+        head_bindings = await agent_preset_service._list_head_skill_bindings(
+            created_preset.id
+        )
+        version_read = await agent_preset_service.build_version_read(current_version)
+
+        assert head_bindings[0].skill_version_id == skill_version.id
+        assert version_read.skills[0].skill_version_id == skill_version.id
+
+    async def test_update_preset_skill_binding_without_version_uses_current_version(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Skill-only updates store the current published Skill version."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(name="skill-only-current-update")
+        )
+        previous_version = await skill_service.publish_skill(created_skill.id)
+        draft = await skill_service.get_draft(created_skill.id)
+        assert draft is not None
+        await skill_service.patch_draft(
+            skill_id=created_skill.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="references/current.md",
+                        content="Current published version",
+                    )
+                ],
+            ),
+        )
+        current_version = await skill_service.publish_skill(created_skill.id)
+        assert current_version.id != previous_version.id
+
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Skill-only update preset",
+                instructions="No skills yet",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+            )
+        )
+        await agent_preset_service.update_preset(
+            created_preset,
+            AgentPresetUpdate(
+                skills=[AgentPresetSkillBindingBase(skill_id=created_skill.id)]
+            ),
+        )
+        updated_version = await agent_preset_service.get_current_version_for_preset(
+            created_preset
+        )
+        head_bindings = await agent_preset_service._list_head_skill_bindings(
+            created_preset.id
+        )
+        version_read = await agent_preset_service.build_version_read(updated_version)
+
+        assert head_bindings[0].skill_version_id == current_version.id
+        assert version_read.skills[0].skill_version_id == current_version.id
+
+    async def test_client_supplied_stale_skill_version_is_ignored(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Legacy extra fields are ignored and cannot select a Skill version."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(name="ignore-stale-version")
+        )
+        stale_version = await skill_service.publish_skill(created_skill.id)
+        draft = await skill_service.get_draft(created_skill.id)
+        assert draft is not None
+        await skill_service.patch_draft(
+            skill_id=created_skill.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="references/current.md",
+                        content="Current published version",
+                    )
+                ],
+            ),
+        )
+        current_published_version = await skill_service.publish_skill(created_skill.id)
+
+        binding = AgentPresetSkillBindingBase.model_validate(
+            {
+                "skill_id": str(created_skill.id),
+                "skill_version_id": str(stale_version.id),
+            }
+        )
+        assert binding.model_dump(mode="json") == {"skill_id": str(created_skill.id)}
+
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Ignore stale version preset",
+                instructions="Use the current Skill version",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[binding],
+            )
+        )
+        current_version = await agent_preset_service.get_current_version_for_preset(
+            created_preset
+        )
+        head_bindings = await agent_preset_service._list_head_skill_bindings(
+            created_preset.id
+        )
+        version_read = await agent_preset_service.build_version_read(current_version)
+
+        assert head_bindings[0].skill_version_id == current_published_version.id
+        assert version_read.skills[0].skill_version_id == current_published_version.id
+        assert current_published_version.id != stale_version.id
+
+    async def test_create_preset_rejects_unpublished_skill_binding(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Authoring rejects binding a Skill with no published version."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(name="unpublished-binding")
+        )
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await agent_preset_service.create_preset(
+                AgentPresetCreate(
+                    name="Unpublished skill preset",
+                    instructions="Use the selected skill",
+                    model_name="gpt-4o-mini",
+                    model_provider="openai",
+                    skills=[AgentPresetSkillBindingBase(skill_id=created_skill.id)],
+                )
+            )
+
+        detail = exc_info.value.detail
+        assert detail is not None
+        assert detail["code"] == "skill_not_published"
+        assert detail["skill_id"] == str(created_skill.id)
 
     async def test_resolve_config_uses_latest_skill_versions_when_setting_enabled(
         self,
@@ -1062,7 +1236,7 @@ class TestAgentPresetService:
         created_skill = await skill_service.create_skill(
             SkillCreate(name="latest-skill-v1")
         )
-        skill_version_one = await skill_service.publish_skill(created_skill.id)
+        await skill_service.publish_skill(created_skill.id)
 
         created_preset = await agent_preset_service.create_preset(
             AgentPresetCreate(
@@ -1074,7 +1248,6 @@ class TestAgentPresetService:
                 skills=[
                     AgentPresetSkillBindingBase(
                         skill_id=created_skill.id,
-                        skill_version_id=skill_version_one.id,
                     )
                 ],
             )
@@ -1131,7 +1304,7 @@ class TestAgentPresetService:
         created_skill = await skill_service.create_skill(
             SkillCreate(name="latest-archived-skill")
         )
-        skill_version = await skill_service.publish_skill(created_skill.id)
+        await skill_service.publish_skill(created_skill.id)
         created_preset = await agent_preset_service.create_preset(
             AgentPresetCreate(
                 name="Latest archived skill preset",
@@ -1142,7 +1315,6 @@ class TestAgentPresetService:
                 skills=[
                     AgentPresetSkillBindingBase(
                         skill_id=created_skill.id,
-                        skill_version_id=skill_version.id,
                     )
                 ],
             )
@@ -1189,7 +1361,7 @@ class TestAgentPresetService:
         created_skill = await skill_service.create_skill(
             SkillCreate(name="pinned-archived-skill")
         )
-        skill_version = await skill_service.publish_skill(created_skill.id)
+        await skill_service.publish_skill(created_skill.id)
         created_preset = await agent_preset_service.create_preset(
             AgentPresetCreate(
                 name="Pinned archived skill preset",
@@ -1200,7 +1372,6 @@ class TestAgentPresetService:
                 skills=[
                     AgentPresetSkillBindingBase(
                         skill_id=created_skill.id,
-                        skill_version_id=skill_version.id,
                     )
                 ],
             )
@@ -1239,7 +1410,7 @@ class TestAgentPresetService:
         created_skill = await skill_service.create_skill(
             SkillCreate(name="batched-skill")
         )
-        skill_version_one = await skill_service.publish_skill(created_skill.id)
+        await skill_service.publish_skill(created_skill.id)
 
         created_preset = await agent_preset_service.create_preset(
             AgentPresetCreate(
@@ -1251,7 +1422,6 @@ class TestAgentPresetService:
                 skills=[
                     AgentPresetSkillBindingBase(
                         skill_id=created_skill.id,
-                        skill_version_id=skill_version_one.id,
                     )
                 ],
             )
@@ -1271,7 +1441,7 @@ class TestAgentPresetService:
                 ],
             ),
         )
-        skill_version_two = await skill_service.publish_skill(created_skill.id)
+        await skill_service.publish_skill(created_skill.id)
 
         await agent_preset_service.update_preset(
             created_preset,
@@ -1280,7 +1450,6 @@ class TestAgentPresetService:
                 skills=[
                     AgentPresetSkillBindingBase(
                         skill_id=created_skill.id,
-                        skill_version_id=skill_version_two.id,
                     )
                 ],
             ),
@@ -1330,7 +1499,6 @@ class TestAgentPresetService:
                 skills=[
                     AgentPresetSkillBindingBase(
                         skill_id=created_skill.id,
-                        skill_version_id=skill_version_one.id,
                     )
                 ],
             )
@@ -1363,7 +1531,6 @@ class TestAgentPresetService:
                 skills=[
                     AgentPresetSkillBindingBase(
                         skill_id=created_skill.id,
-                        skill_version_id=skill_version_two.id,
                     )
                 ],
             ),
@@ -1390,20 +1557,33 @@ class TestAgentPresetService:
         assert len(restored_bindings) == 1
         assert restored_bindings[0].skill_version_id == skill_version_one.id
 
-    async def test_build_version_read_uses_pinned_skill_version_name(
+    async def test_build_version_read_uses_snapshot_skill_version_name(
         self,
         configure_minio_for_skills,
         session: AsyncSession,
         svc_role: Role,
         agent_preset_service: AgentPresetService,
     ) -> None:
-        """Preset version reads should expose the name from the pinned skill version."""
+        """Preset version reads expose the name from their Skill snapshot."""
 
         skill_service = SkillService(session=session, role=svc_role)
         created_skill = await skill_service.create_skill(
             SkillCreate(name="version-one")
         )
         skill_version_one = await skill_service.publish_skill(created_skill.id)
+
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Snapshot skill name preset",
+                instructions="Use the selected Skill",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[AgentPresetSkillBindingBase(skill_id=created_skill.id)],
+            )
+        )
+        preset_version_one = await agent_preset_service.get_current_version_for_preset(
+            created_preset
+        )
 
         draft = await skill_service.get_draft(created_skill.id)
         assert draft is not None
@@ -1422,34 +1602,11 @@ class TestAgentPresetService:
         )
         skill_version_two = await skill_service.publish_skill(created_skill.id)
 
-        created_preset = await agent_preset_service.create_preset(
-            AgentPresetCreate(
-                name="Pinned skill name preset",
-                instructions="Use the selected skill version",
-                model_name="gpt-4o-mini",
-                model_provider="openai",
-                skills=[
-                    AgentPresetSkillBindingBase(
-                        skill_id=created_skill.id,
-                        skill_version_id=skill_version_one.id,
-                    )
-                ],
-            )
-        )
-        preset_version_one = await agent_preset_service.get_current_version_for_preset(
-            created_preset
-        )
-
         await agent_preset_service.update_preset(
             created_preset,
             AgentPresetUpdate(
-                instructions="Bind the newer skill version",
-                skills=[
-                    AgentPresetSkillBindingBase(
-                        skill_id=created_skill.id,
-                        skill_version_id=skill_version_two.id,
-                    )
-                ],
+                instructions="Snapshot the newer Skill version",
+                skills=[AgentPresetSkillBindingBase(skill_id=created_skill.id)],
             ),
         )
 
@@ -1468,38 +1625,12 @@ class TestAgentPresetService:
         configure_minio_for_skills,
         session: AsyncSession,
         svc_role: Role,
-        svc_admin_role: Role,
         agent_preset_service: AgentPresetService,
     ) -> None:
-        """Preset version creation rejects duplicate resolved skill names."""
+        """Preset version creation rejects duplicate current Skill names."""
 
-        settings_service = SettingsService(session=session, role=svc_admin_role)
-        await settings_service.update_app_settings(
-            AppSettingsUpdate(
-                app_versioned_resource_resolution_strategy=(
-                    VersionedResourceResolutionStrategy.PINNED
-                )
-            )
-        )
         skill_service = SkillService(session=session, role=svc_role)
         skill_a = await skill_service.create_skill(SkillCreate(name="shared-name"))
-        skill_a_shared = await skill_service.publish_skill(skill_a.id)
-
-        draft_a = await skill_service.get_draft(skill_a.id)
-        assert draft_a is not None
-        await skill_service.patch_draft(
-            skill_id=skill_a.id,
-            params=SkillDraftPatch(
-                base_revision=draft_a.draft_revision,
-                operations=[
-                    SkillDraftUpsertTextFileOp(
-                        path="SKILL.md",
-                        content="---\nname: skill-a-current\n---\n\n# skill-a-current\n",
-                        content_type="text/markdown; charset=utf-8",
-                    )
-                ],
-            ),
-        )
         await skill_service.publish_skill(skill_a.id)
 
         skill_b = await skill_service.create_skill(SkillCreate(name="skill-b-current"))
@@ -1520,7 +1651,7 @@ class TestAgentPresetService:
                 ],
             ),
         )
-        skill_b_shared = await skill_service.publish_skill(skill_b.id)
+        await skill_service.publish_skill(skill_b.id)
 
         with pytest.raises(
             TracecatValidationError,
@@ -1535,11 +1666,9 @@ class TestAgentPresetService:
                     skills=[
                         AgentPresetSkillBindingBase(
                             skill_id=skill_a.id,
-                            skill_version_id=skill_a_shared.id,
                         ),
                         AgentPresetSkillBindingBase(
                             skill_id=skill_b.id,
-                            skill_version_id=skill_b_shared.id,
                         ),
                     ],
                 )
@@ -1556,38 +1685,12 @@ class TestAgentPresetService:
         configure_minio_for_skills,
         session: AsyncSession,
         svc_role: Role,
-        svc_admin_role: Role,
         agent_preset_service: AgentPresetService,
     ) -> None:
         """Preset resolution fails before runtime if a snapshot contains duplicates."""
 
-        settings_service = SettingsService(session=session, role=svc_admin_role)
-        await settings_service.update_app_settings(
-            AppSettingsUpdate(
-                app_versioned_resource_resolution_strategy=(
-                    VersionedResourceResolutionStrategy.PINNED
-                )
-            )
-        )
         skill_service = SkillService(session=session, role=svc_role)
         skill_a = await skill_service.create_skill(SkillCreate(name="shared-name"))
-        skill_a_shared = await skill_service.publish_skill(skill_a.id)
-
-        draft_a = await skill_service.get_draft(skill_a.id)
-        assert draft_a is not None
-        await skill_service.patch_draft(
-            skill_id=skill_a.id,
-            params=SkillDraftPatch(
-                base_revision=draft_a.draft_revision,
-                operations=[
-                    SkillDraftUpsertTextFileOp(
-                        path="SKILL.md",
-                        content="---\nname: skill-a-current\n---\n\n# skill-a-current\n",
-                        content_type="text/markdown; charset=utf-8",
-                    )
-                ],
-            ),
-        )
         await skill_service.publish_skill(skill_a.id)
 
         skill_b = await skill_service.create_skill(SkillCreate(name="skill-b-current"))
@@ -1619,7 +1722,6 @@ class TestAgentPresetService:
                 skills=[
                     AgentPresetSkillBindingBase(
                         skill_id=skill_a.id,
-                        skill_version_id=skill_a_shared.id,
                     )
                 ],
             )
@@ -1666,7 +1768,7 @@ class TestAgentPresetService:
         created_skill = await skill_service.create_skill(
             SkillCreate(name="create-lock-skill")
         )
-        skill_version = await skill_service.publish_skill(created_skill.id)
+        await skill_service.publish_skill(created_skill.id)
 
         captured_for_update: list[bool] = []
         original_validate_binding_inputs = (
@@ -1697,7 +1799,6 @@ class TestAgentPresetService:
                 skills=[
                     AgentPresetSkillBindingBase(
                         skill_id=created_skill.id,
-                        skill_version_id=skill_version.id,
                     )
                 ],
             )
@@ -1718,7 +1819,7 @@ class TestAgentPresetService:
         created_skill = await skill_service.create_skill(
             SkillCreate(name="clear-skill-bindings")
         )
-        skill_version = await skill_service.publish_skill(created_skill.id)
+        await skill_service.publish_skill(created_skill.id)
 
         created_preset = await agent_preset_service.create_preset(
             AgentPresetCreate(
@@ -1730,7 +1831,6 @@ class TestAgentPresetService:
                 skills=[
                     AgentPresetSkillBindingBase(
                         skill_id=created_skill.id,
-                        skill_version_id=skill_version.id,
                     )
                 ],
             )
@@ -1765,7 +1865,7 @@ class TestAgentPresetService:
         created_skill = await skill_service.create_skill(
             SkillCreate(name="update-lock-skill")
         )
-        skill_version = await skill_service.publish_skill(created_skill.id)
+        await skill_service.publish_skill(created_skill.id)
 
         created_preset = await agent_preset_service.create_preset(
             AgentPresetCreate(
@@ -1802,7 +1902,6 @@ class TestAgentPresetService:
                 skills=[
                     AgentPresetSkillBindingBase(
                         skill_id=created_skill.id,
-                        skill_version_id=skill_version.id,
                     )
                 ]
             ),
@@ -1824,7 +1923,7 @@ class TestAgentPresetService:
         created_skill = await skill_service.create_skill(
             SkillCreate(name="ordered-lock-skill")
         )
-        skill_version = await skill_service.publish_skill(created_skill.id)
+        await skill_service.publish_skill(created_skill.id)
 
         created_preset = await agent_preset_service.create_preset(
             AgentPresetCreate(
@@ -1854,9 +1953,10 @@ class TestAgentPresetService:
         async def instrumented_replace(
             preset_id: uuid.UUID,
             bindings: list[AgentPresetSkillBindingBase],
+            **kwargs: Any,
         ) -> None:
             call_order.append("replace")
-            await original_replace(preset_id, bindings)
+            await original_replace(preset_id, bindings, **kwargs)
 
         monkeypatch.setattr(
             agent_preset_service,
@@ -1880,7 +1980,6 @@ class TestAgentPresetService:
                 skills=[
                     AgentPresetSkillBindingBase(
                         skill_id=created_skill.id,
-                        skill_version_id=skill_version.id,
                     )
                 ]
             ),
@@ -1932,7 +2031,7 @@ class TestAgentPresetService:
         created_skill = await skill_service.create_skill(
             SkillCreate(name="restore-ordered-lock-skill")
         )
-        skill_version = await skill_service.publish_skill(created_skill.id)
+        await skill_service.publish_skill(created_skill.id)
 
         created_preset = await agent_preset_service.create_preset(
             AgentPresetCreate(
@@ -1944,7 +2043,6 @@ class TestAgentPresetService:
                 skills=[
                     AgentPresetSkillBindingBase(
                         skill_id=created_skill.id,
-                        skill_version_id=skill_version.id,
                     )
                 ],
             )
@@ -2003,7 +2101,7 @@ class TestAgentPresetService:
         created_skill = await skill_service.create_skill(
             SkillCreate(name="archived-restore-skill")
         )
-        skill_version = await skill_service.publish_skill(created_skill.id)
+        await skill_service.publish_skill(created_skill.id)
 
         created_preset = await agent_preset_service.create_preset(
             AgentPresetCreate(
@@ -2015,7 +2113,6 @@ class TestAgentPresetService:
                 skills=[
                     AgentPresetSkillBindingBase(
                         skill_id=created_skill.id,
-                        skill_version_id=skill_version.id,
                     )
                 ],
             )
@@ -2101,7 +2198,7 @@ class TestAgentPresetService:
         created_skill = await skill_service.create_skill(
             SkillCreate(name="restore-lock-skill")
         )
-        skill_version = await skill_service.publish_skill(created_skill.id)
+        await skill_service.publish_skill(created_skill.id)
 
         created_preset = await agent_preset_service.create_preset(
             AgentPresetCreate(
@@ -2113,7 +2210,6 @@ class TestAgentPresetService:
                 skills=[
                     AgentPresetSkillBindingBase(
                         skill_id=created_skill.id,
-                        skill_version_id=skill_version.id,
                     )
                 ],
             )
