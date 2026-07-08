@@ -1,0 +1,26 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/sentinel_one/submit_powerquery.yml
+  s_daa633238fc1fa::t_9e1cd6362277df 53-97,105
+packages/tracecat-registry/tracecat_registry/templates/tools/sentinel_one/list_inventory.yml
+  s_daa633238fc1fa::t_3b7e62a1affe69 26,29-30
+  s_daa633238fc1fa::t_e852e355326456 15
+packages/tracecat-registry/tracecat_registry/templates/tools/sentinel_one/powerquery.yml
+  s_daa633238fc1fa::t_e8531e60c05792 61-105,113
+docs/tools/sentinel_one.mdx
+  s_daa633238fc1fa::t_71e789c85a95d0 449
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "8d548704e989c41ebee3a8f14b8feed801aeb579",
+  "prompts": {},
+  "sessions": {
+    "s_daa633238fc1fa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4faddc03-47e8-4239-ab06-76675d1ec35b",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
