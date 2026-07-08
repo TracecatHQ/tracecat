@@ -13,22 +13,11 @@ from datetime import UTC, datetime
 from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
-import anyio
 import httpx
 from cryptography.fernet import Fernet
 from fastmcp.server.auth import AccessToken, AuthProvider, MultiAuth, TokenVerifier
 from fastmcp.server.auth.cimd import CIMDDocument
-
-# NOTE: We import and override private fastmcp OAuth proxy internals (stores,
-# token models, rotation behavior). This coupling is verified against the
-# exact pinned version in pyproject.toml (fastmcp==3.2.0); when bumping
-# fastmcp, re-check these APIs and re-run tests/unit/test_mcp_auth.py.
-from fastmcp.server.auth.oauth_proxy.models import (
-    JTIMapping,
-    ProxyDCRClient,
-    RefreshTokenMetadata,
-    _hash_token,
-)
+from fastmcp.server.auth.oauth_proxy.models import ProxyDCRClient
 from fastmcp.server.auth.oidc_proxy import OIDCProxy
 from fastmcp.server.auth.redirect_validation import (
     validate_redirect_uri as validate_client_redirect_uri,
@@ -39,13 +28,11 @@ from key_value.aio.wrappers.encryption import FernetEncryptionWrapper
 from key_value.aio.wrappers.prefix_collections import PrefixCollectionsWrapper
 from mcp.server.auth.provider import (
     AuthorizationParams,
-    RefreshToken,
     TokenError,
 )
 from mcp.shared.auth import (
     InvalidRedirectUriError,
     OAuthClientInformationFull,
-    OAuthToken,
 )
 from pydantic import AnyUrl, BaseModel, Field
 from redis.asyncio import Redis as AsyncRedis
@@ -816,102 +803,6 @@ def _create_oidc_auth() -> OIDCProxy:
             scopes = merge_unique_scopes(list(params.scopes or []), _required_scopes)
             params_with_scopes = params.model_copy(update={"scopes": scopes})
             return await super().authorize(client, params_with_scopes)
-
-        async def exchange_refresh_token(
-            self,
-            client: OAuthClientInformationFull,
-            refresh_token: RefreshToken,
-            scopes: list[str],
-        ) -> OAuthToken:
-            """Rotate refresh tokens with a bounded replay-grace window.
-
-            FastMCP enforces strict one-time-use refresh token rotation: the
-            pre-rotation JTI mapping and refresh-token metadata are deleted as
-            soon as a rotation succeeds. Some clients (e.g. OpenAI Codex CLI)
-            replay the pre-rotation refresh token after a successful rotation
-            and would otherwise hard-fail and force a full re-auth.
-
-            Within ``TRACECAT_MCP__REFRESH_REUSE_GRACE_SECONDS`` we resurrect
-            the pre-rotation client-facing entries with a bounded, non-sliding
-            TTL. A replayed token then resolves to the SAME upstream token set
-            (which already holds the CURRENT upstream refresh token), so the
-            internal issuer only ever sees normal rotations — never a replay —
-            and no issuer-side theft-detection property is weakened.
-
-            NOTE: coupled to fastmcp==3.2.0 ``OAuthProxy`` rotation internals
-            (see module-level import note).
-            """
-            grace = mcp_config.TRACECAT_MCP__REFRESH_REUSE_GRACE_SECONDS
-            old_hash = _hash_token(refresh_token.token)
-            old_jti: str | None = None
-            old_mapping: JTIMapping | None = None
-            old_metadata: RefreshTokenMetadata | None = None
-            if grace > 0:
-                try:
-                    payload = self.jwt_issuer.verify_token(
-                        refresh_token.token, expected_token_use="refresh"
-                    )
-                    old_jti = payload.get("jti")
-                except Exception:
-                    # super() re-verifies and raises the canonical TokenError.
-                    old_jti = None
-                if old_jti is not None:
-                    old_mapping = await self._jti_mapping_store.get(key=old_jti)
-                    old_metadata = await self._refresh_token_store.get(key=old_hash)
-
-            # Serialize same-process refreshes per upstream token set so two
-            # concurrent client refreshes cannot both replay the SAME upstream
-            # refresh token to the issuer. Cross-process/replica races are
-            # absorbed by the issuer-side grace window.
-            if old_mapping is not None:
-                token_id = old_mapping.upstream_token_id
-                if token_id not in self._refresh_locks:
-                    self._refresh_locks[token_id] = anyio.Lock()
-                async with self._refresh_locks[token_id]:
-                    result = await super().exchange_refresh_token(
-                        client, refresh_token, scopes
-                    )
-            else:
-                result = await super().exchange_refresh_token(
-                    client, refresh_token, scopes
-                )
-
-            # super() rotated: it DELETED the old JTI mapping and old refresh
-            # hash metadata, and mutated the upstream token set IN PLACE under
-            # the same upstream_token_id. Resurrect the old client-facing
-            # entries with a bounded, NON-SLIDING TTL so a replay of this same
-            # old token within the grace window resolves to the same upstream
-            # token set.
-            if (
-                grace > 0
-                and old_jti is not None
-                and old_mapping is not None
-                and old_metadata is not None
-            ):
-                now = time.time()
-                if (
-                    old_metadata.expires_at is not None
-                    and old_metadata.expires_at <= now + grace
-                ):
-                    # Already-bounded deadline (e.g. an entry resurrected by a
-                    # previous replay): keep the original deadline so repeated
-                    # replays never slide the grace window.
-                    deadline = float(old_metadata.expires_at)
-                else:
-                    deadline = now + grace
-                ttl = int(deadline - now)
-                if ttl > 0:
-                    await self._jti_mapping_store.put(
-                        key=old_jti, value=old_mapping, ttl=ttl
-                    )
-                    await self._refresh_token_store.put(
-                        key=old_hash,
-                        value=old_metadata.model_copy(
-                            update={"expires_at": int(deadline)}
-                        ),
-                        ttl=ttl,
-                    )
-            return result
 
         async def _retry_without_refresh_scope(
             self,

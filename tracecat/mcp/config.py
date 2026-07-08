@@ -35,18 +35,6 @@ TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS: int = int(
 )
 """Expiry time in seconds for MCP staged file transfer URLs (default 5 minutes)."""
 
-TRACECAT_MCP__REFRESH_REUSE_GRACE_SECONDS: int = int(
-    os.environ.get("TRACECAT_MCP__REFRESH_REUSE_GRACE_SECONDS") or 3600
-)
-"""Proxy-layer replay-grace window for rotated FastMCP refresh tokens (default 1h).
-
-Within this window a replayed (already-rotated) FastMCP refresh token is
-honored by resurrecting the pre-rotation proxy state with a bounded TTL, so
-clients with stale-token replay bugs (e.g. OpenAI Codex CLI) recover instead
-of hard-failing. 0 = strict single-use rotation. A proxy replay causes no
-family revocation today (it dies before the issuer), so no theft-detection
-property is lost; this only widens the usability window."""
-
 TRACECAT_MCP__OAUTH_CLIENT_TTL_SECONDS: int = int(
     os.environ.get("TRACECAT_MCP__OAUTH_CLIENT_TTL_SECONDS") or 0
 )
