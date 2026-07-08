@@ -120,8 +120,8 @@ class SoftDeleteMixin:
     """Columns-only soft-delete contract.
 
     NULL means the row is live; set means the row is a soft-deleted tombstone.
-    UUID lookups of tombstoned rows remain valid, and a global query filter
-    arrives in a later PR.
+    UUID lookups of tombstoned rows remain valid. Global ORM SELECT filtering
+    lives in ``tracecat.db.soft_delete``.
     """
 
     deleted_at: Mapped[datetime | None] = mapped_column(
