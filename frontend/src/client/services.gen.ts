@@ -459,6 +459,8 @@ import type {
   McpIntegrationsDisconnectMcpIntegrationResponse,
   McpIntegrationsGetMcpIntegrationData,
   McpIntegrationsGetMcpIntegrationResponse,
+  McpIntegrationsGetMcpIntegrationVerificationStatusData,
+  McpIntegrationsGetMcpIntegrationVerificationStatusResponse,
   McpIntegrationsListMcpIntegrationsData,
   McpIntegrationsListMcpIntegrationsResponse,
   McpIntegrationsListPlatformMcpCatalogData,
@@ -11852,6 +11854,31 @@ export const mcpIntegrationsDeleteMcpIntegration = (
   return __request(OpenAPI, {
     method: "DELETE",
     url: "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}",
+    path: {
+      mcp_integration_id: data.mcpIntegrationId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Mcp Integration Verification Status
+ * Get saved MCP integration verification status.
+ * @param data The data for the request.
+ * @param data.mcpIntegrationId
+ * @param data.workspaceId
+ * @returns MCPVerificationStatusRead Successful Response
+ * @throws ApiError
+ */
+export const mcpIntegrationsGetMcpIntegrationVerificationStatus = (
+  data: McpIntegrationsGetMcpIntegrationVerificationStatusData
+): CancelablePromise<McpIntegrationsGetMcpIntegrationVerificationStatusResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}/verification-status",
     path: {
       mcp_integration_id: data.mcpIntegrationId,
       workspace_id: data.workspaceId,

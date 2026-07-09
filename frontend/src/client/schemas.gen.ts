@@ -16980,6 +16980,31 @@ export const $MCPToolSummary = {
   description: "Summary of a tool discovered on a remote MCP server.",
 } as const
 
+export const $MCPVerificationStatusRead = {
+  properties: {
+    status: {
+      type: "string",
+      enum: ["idle", "verifying", "succeeded", "failed", "superseded"],
+      title: "Status",
+    },
+    error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error",
+    },
+  },
+  type: "object",
+  required: ["status"],
+  title: "MCPVerificationStatusRead",
+  description: "Response model for saved MCP verification status.",
+} as const
+
 export const $MessageKind = {
   type: "string",
   enum: [

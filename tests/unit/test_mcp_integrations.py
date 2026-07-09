@@ -12,7 +12,7 @@ import socket
 import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -21,12 +21,16 @@ from pydantic import SecretStr, TypeAdapter, ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import TerminatedError
+from temporalio.service import RPCError, RPCStatusCode
 
 import tracecat.integrations.catalog.service as catalog_service_module
 import tracecat.integrations.router as integration_router_module
 import tracecat.integrations.service as integration_service_module
 from tracecat.agent.mcp.stdio_probe import (
+    StdioMCPProbeResult,
     StdioMCPProbeWorkflowInput,
     build_stdio_mcp_probe_workflow_id,
 )
@@ -68,6 +72,7 @@ from tracecat.integrations.schemas import (
     MCPHTTPOAuth2ConnectionSpec,
     MCPIntegrationCreate,
     MCPIntegrationTestConnectionRequest,
+    MCPIntegrationTestConnectionResponse,
     MCPIntegrationUpdate,
     MCPStdioIntegrationCreate,
     MCPStdioIntegrationTestConnectionRequest,
@@ -4762,6 +4767,290 @@ class TestMCPConnectionVerification:
                 == WorkflowIDConflictPolicy.TERMINATE_EXISTING
             )
 
+    async def test_stdio_verification_status_running_is_verifying(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A running stdio probe workflow is reported as verifying."""
+        stdio_integration = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Status Running Stdio MCP",
+                stdio_command="npx",
+                stdio_args=["@example/mcp-server"],
+            )
+        )
+        handle = SimpleNamespace(
+            describe=AsyncMock(
+                return_value=SimpleNamespace(status=WorkflowExecutionStatus.RUNNING)
+            ),
+            result=AsyncMock(),
+        )
+        get_workflow_handle = Mock(return_value=handle)
+        monkeypatch.setattr(
+            integration_service_module,
+            "get_temporal_client",
+            AsyncMock(
+                return_value=SimpleNamespace(get_workflow_handle=get_workflow_handle)
+            ),
+        )
+
+        status_read = await integration_service.get_stdio_mcp_verification_status(
+            mcp_integration=stdio_integration
+        )
+
+        assert status_read.status == "verifying"
+        assert status_read.error is None
+        get_workflow_handle.assert_called_once_with(
+            build_stdio_mcp_probe_workflow_id(
+                workspace_id=integration_service.workspace_id,
+                mcp_integration_id=stdio_integration.id,
+            ),
+            result_type=StdioMCPProbeResult,
+        )
+        handle.result.assert_not_awaited()
+
+    async def test_stdio_verification_status_completed_success_is_succeeded(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A successful completed stdio probe workflow is reported as succeeded."""
+        stdio_integration = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Status Success Stdio MCP",
+                stdio_command="npx",
+                stdio_args=["@example/mcp-server"],
+            )
+        )
+        handle = SimpleNamespace(
+            describe=AsyncMock(
+                return_value=SimpleNamespace(status=WorkflowExecutionStatus.COMPLETED)
+            ),
+            result=AsyncMock(
+                return_value=StdioMCPProbeResult(
+                    success=True,
+                    tools=[],
+                    message="Connected successfully",
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            integration_service_module,
+            "get_temporal_client",
+            AsyncMock(
+                return_value=SimpleNamespace(
+                    get_workflow_handle=Mock(return_value=handle)
+                )
+            ),
+        )
+
+        status_read = await integration_service.get_stdio_mcp_verification_status(
+            mcp_integration=stdio_integration
+        )
+
+        assert status_read.status == "succeeded"
+        assert status_read.error is None
+        handle.result.assert_awaited_once()
+
+    async def test_stdio_verification_status_completed_failure_is_failed(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A completed failed stdio probe returns its sanitized error."""
+        stdio_integration = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Status Failure Stdio MCP",
+                stdio_command="npx",
+                stdio_args=["@example/mcp-server"],
+            )
+        )
+        handle = SimpleNamespace(
+            describe=AsyncMock(
+                return_value=SimpleNamespace(status=WorkflowExecutionStatus.COMPLETED)
+            ),
+            result=AsyncMock(
+                return_value=StdioMCPProbeResult(
+                    success=False,
+                    tools=[],
+                    message="Failed to connect to the stdio MCP server",
+                    error=("Failed https://user:secret@example.com/path?token=abc"),
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            integration_service_module,
+            "get_temporal_client",
+            AsyncMock(
+                return_value=SimpleNamespace(
+                    get_workflow_handle=Mock(return_value=handle)
+                )
+            ),
+        )
+
+        status_read = await integration_service.get_stdio_mcp_verification_status(
+            mcp_integration=stdio_integration
+        )
+
+        assert status_read.status == "failed"
+        assert status_read.error == "Failed https://example.com/path"
+        assert "secret" not in status_read.error
+        assert "token" not in status_read.error
+        handle.result.assert_awaited_once()
+
+    async def test_stdio_verification_status_not_found_is_idle(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A missing stdio probe workflow is reported as idle."""
+        stdio_integration = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Status Missing Stdio MCP",
+                stdio_command="npx",
+                stdio_args=["@example/mcp-server"],
+            )
+        )
+        handle = SimpleNamespace(
+            describe=AsyncMock(
+                side_effect=RPCError("not found", RPCStatusCode.NOT_FOUND, b"")
+            ),
+            result=AsyncMock(),
+        )
+        monkeypatch.setattr(
+            integration_service_module,
+            "get_temporal_client",
+            AsyncMock(
+                return_value=SimpleNamespace(
+                    get_workflow_handle=Mock(return_value=handle)
+                )
+            ),
+        )
+
+        status_read = await integration_service.get_stdio_mcp_verification_status(
+            mcp_integration=stdio_integration
+        )
+
+        assert status_read.status == "idle"
+        assert status_read.error is None
+        handle.result.assert_not_awaited()
+
+    async def test_stdio_verification_status_terminated_is_superseded(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A terminated stdio probe workflow is reported as superseded."""
+        stdio_integration = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Status Terminated Stdio MCP",
+                stdio_command="npx",
+                stdio_args=["@example/mcp-server"],
+            )
+        )
+        handle = SimpleNamespace(
+            describe=AsyncMock(
+                return_value=SimpleNamespace(status=WorkflowExecutionStatus.TERMINATED)
+            ),
+            result=AsyncMock(),
+        )
+        monkeypatch.setattr(
+            integration_service_module,
+            "get_temporal_client",
+            AsyncMock(
+                return_value=SimpleNamespace(
+                    get_workflow_handle=Mock(return_value=handle)
+                )
+            ),
+        )
+
+        status_read = await integration_service.get_stdio_mcp_verification_status(
+            mcp_integration=stdio_integration
+        )
+
+        assert status_read.status == "superseded"
+        assert status_read.error is None
+        handle.result.assert_not_awaited()
+
+    async def test_blocking_stdio_probe_supersedes_in_flight_workflow(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Blocking stdio probes use the same deterministic latest-wins id."""
+        stdio_integration = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Blocking Stdio Supersede MCP",
+                stdio_command="npx",
+                stdio_args=["@example/mcp-server"],
+            )
+        )
+        execute_workflow = AsyncMock(
+            return_value=StdioMCPProbeResult(
+                success=True,
+                tools=[MCPToolSummary(name="fresh_tool", description="Fresh")],
+                message="Connected successfully",
+            )
+        )
+        monkeypatch.setattr(
+            integration_service_module,
+            "get_temporal_client",
+            AsyncMock(return_value=SimpleNamespace(execute_workflow=execute_workflow)),
+        )
+
+        tools = await integration_service._probe_mcp_stdio_server(stdio_integration)
+
+        assert [tool.name for tool in tools] == ["fresh_tool"]
+        execute_workflow.assert_awaited_once()
+        call = execute_workflow.await_args
+        assert call is not None
+        workflow_input = call.args[1]
+        assert isinstance(workflow_input, StdioMCPProbeWorkflowInput)
+        assert workflow_input.mcp_integration_id == stdio_integration.id
+        assert workflow_input.role == integration_service.role
+        assert workflow_input.persist_result is False
+        assert call.kwargs["id"] == build_stdio_mcp_probe_workflow_id(
+            workspace_id=integration_service.workspace_id,
+            mcp_integration_id=stdio_integration.id,
+        )
+        assert call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE
+        assert (
+            call.kwargs["id_conflict_policy"]
+            == WorkflowIDConflictPolicy.TERMINATE_EXISTING
+        )
+
+    async def test_blocking_stdio_probe_reports_superseded_workflow(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A terminated blocking probe reports that a newer probe superseded it."""
+        stdio_integration = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Blocking Stdio Terminated MCP",
+                stdio_command="npx",
+                stdio_args=["@example/mcp-server"],
+            )
+        )
+        execute_workflow = AsyncMock(
+            side_effect=WorkflowFailureError(cause=TerminatedError("terminated"))
+        )
+        monkeypatch.setattr(
+            integration_service_module,
+            "get_temporal_client",
+            AsyncMock(return_value=SimpleNamespace(execute_workflow=execute_workflow)),
+        )
+
+        with pytest.raises(MCPConnectionVerificationError) as exc_info:
+            await integration_service._probe_mcp_stdio_server(stdio_integration)
+
+        assert (
+            exc_info.value.message
+            == "Stdio MCP verification was superseded by a newer verification"
+        )
+        assert exc_info.value.error == "Superseded by a newer verification"
+
     def test_stdio_test_connection_rejects_inline_config_without_saved_id(
         self,
     ) -> None:
@@ -4837,6 +5126,153 @@ class TestMCPConnectionVerification:
         )
         assert stored_tools is not None
         assert [tool.name for tool in stored_tools] == ["saved_tool"]
+
+    async def test_update_stdio_metadata_with_null_env_skips_verification(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A serialized null env does not dirty otherwise unchanged stdio config."""
+        stdio_integration = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Stdio Metadata MCP",
+                description="Original",
+                stdio_command="npx",
+                stdio_env={"TOKEN": "stored-token"},
+            )
+        )
+        stored_env = stdio_integration.encrypted_stdio_env
+        assert stored_env is not None
+        stdio_integration.timeout = None
+        stdio_integration.tools = [
+            MCPToolSummary(
+                name="existing_tool",
+                description="Existing",
+                enabled=False,
+            ).model_dump()
+        ]
+        integration_service.session.add(stdio_integration)
+        await integration_service.session.commit()
+
+        verify_mcp_integration = AsyncMock(
+            side_effect=AssertionError("metadata-only edit must not verify")
+        )
+        monkeypatch.setattr(
+            integration_service,
+            "verify_mcp_integration",
+            verify_mcp_integration,
+        )
+
+        updated = await integration_service.update_mcp_integration(
+            mcp_integration_id=stdio_integration.id,
+            params=MCPIntegrationUpdate.model_validate(
+                {
+                    "name": "Renamed Stdio Metadata MCP",
+                    "description": "Updated",
+                    "server_type": "stdio",
+                    "stdio_command": "npx",
+                    "stdio_args": [],
+                    "stdio_env": None,
+                    "timeout": 30,
+                }
+            ),
+            verify_connection=True,
+        )
+
+        assert updated is not None
+        verify_mcp_integration.assert_not_awaited()
+        assert updated.name == "Renamed Stdio Metadata MCP"
+        assert updated.description == "Updated"
+        assert updated.stdio_args == []
+        assert updated.encrypted_stdio_env == stored_env
+        assert updated.timeout == 30
+        tools = MCPToolSummary.validate_stored(updated.tools)
+        assert tools is not None
+        assert [tool.name for tool in tools] == ["existing_tool"]
+        assert tools[0].enabled is False
+
+    @pytest.mark.parametrize(
+        "update_params",
+        [
+            MCPIntegrationUpdate(
+                server_type="stdio",
+                stdio_command="uvx",
+                stdio_args=["@example/server"],
+                timeout=30,
+            ),
+            MCPIntegrationUpdate(
+                server_type="stdio",
+                stdio_command="npx",
+                stdio_args=["@example/other-server"],
+                timeout=30,
+            ),
+            MCPIntegrationUpdate(
+                server_type="stdio",
+                stdio_command="npx",
+                stdio_args=["@example/server"],
+                timeout=45,
+            ),
+            MCPIntegrationUpdate(
+                server_type="stdio",
+                stdio_command="npx",
+                stdio_args=["@example/server"],
+                stdio_env={"TOKEN": "changed"},
+                timeout=30,
+            ),
+        ],
+        ids=["command", "args", "timeout", "env"],
+    )
+    async def test_update_stdio_connection_change_runs_verification(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+        update_params: MCPIntegrationUpdate,
+    ) -> None:
+        """Actual command, args, timeout, or env edits run saved-row verification."""
+        stdio_integration = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Stdio Dirty Update MCP",
+                stdio_command="npx",
+                stdio_args=["@example/server"],
+                timeout=30,
+            )
+        )
+        stdio_integration.tools = [
+            MCPToolSummary(name="existing_tool", description="Existing").model_dump()
+        ]
+        integration_service.session.add(stdio_integration)
+        await integration_service.session.commit()
+        verified_ids: list[uuid.UUID] = []
+
+        async def _verify(
+            *,
+            mcp_integration: MCPIntegration,
+            previous_tools: list[dict[str, object]] | None = None,
+        ) -> MCPIntegrationTestConnectionResponse:
+            assert previous_tools is not None
+            assert mcp_integration.tools is None
+            verified_ids.append(mcp_integration.id)
+            return MCPIntegrationTestConnectionResponse(
+                success=True,
+                mcp_integration_id=mcp_integration.id,
+                tools=[MCPToolSummary(name="verified_tool", description="Verified")],
+                message="Connected successfully",
+            )
+
+        monkeypatch.setattr(
+            integration_service,
+            "verify_mcp_integration",
+            _verify,
+        )
+
+        updated = await integration_service.update_mcp_integration(
+            mcp_integration_id=stdio_integration.id,
+            params=update_params,
+            verify_connection=True,
+        )
+
+        assert updated is not None
+        assert verified_ids == [stdio_integration.id]
 
     async def test_update_stdio_with_verification_persists_discovered_tools(
         self,

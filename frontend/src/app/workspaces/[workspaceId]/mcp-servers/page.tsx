@@ -13,6 +13,7 @@ import {
 import type {
   MCPConnectionSpec,
   MCPIntegrationRead,
+  MCPVerificationStatusRead,
   PlatformMCPCatalogListResponse,
   PlatformMCPCatalogRead,
 } from "@/client/types.gen"
@@ -26,16 +27,24 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import {
+  markStdioMcpVerificationStarted,
+  useStdioMcpVerificationStatus,
+} from "@/hooks/use-stdio-mcp-verification-status"
 import {
   getMcpOAuthConnectErrorDetail,
   type TracecatApiError,
 } from "@/lib/errors"
 import {
-  hasPendingStdioMcpCatalogVerification,
-  hasPendingStdioMcpVerification,
-  MCP_STDIO_VERIFICATION_POLL_INTERVAL_MS,
+  getPendingStdioMcpCatalogVerificationIds,
+  getPendingStdioMcpVerificationIds,
 } from "@/lib/integrations"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -45,7 +54,7 @@ const MCP_VERIFY_ERROR_PARAM = "mcp_verify_error"
 const ALL_CATEGORY = "All"
 
 /**
- * Badge treatment for an HTTP server whose connection has not been verified
+ * Badge treatment for an MCP server whose connection has not been verified
  * (never tested, or the last test failed).
  */
 const UNVERIFIED_BADGE = {
@@ -277,10 +286,6 @@ export default function McpServersPage() {
     ),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
-    refetchInterval: (query) =>
-      hasPendingStdioMcpCatalogVerification(query.state.data?.items)
-        ? MCP_STDIO_VERIFICATION_POLL_INTERVAL_MS
-        : false,
   })
   const {
     data: workspaceMcpIntegrations,
@@ -296,10 +301,17 @@ export default function McpServersPage() {
     enabled: Boolean(workspaceId && canRead === true),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
-    refetchInterval: (query) =>
-      hasPendingStdioMcpVerification(query.state.data)
-        ? MCP_STDIO_VERIFICATION_POLL_INTERVAL_MS
-        : false,
+  })
+  const pendingStdioMcpIntegrationIds = useMemo(
+    () => [
+      ...getPendingStdioMcpCatalogVerificationIds(catalogData?.items),
+      ...getPendingStdioMcpVerificationIds(workspaceMcpIntegrations),
+    ],
+    [catalogData?.items, workspaceMcpIntegrations]
+  )
+  const stdioMcpVerificationStatuses = useStdioMcpVerificationStatus({
+    workspaceId,
+    pendingIntegrationIds: pendingStdioMcpIntegrationIds,
   })
   const catalogConnectMutation = useMutation({
     mutationFn: async (entry: PlatformMCPCatalogRead) =>
@@ -321,6 +333,13 @@ export default function McpServersPage() {
         return
       }
       const verifying = result.mcp_integration.state !== "connected"
+      if (verifying && result.mcp_integration.server_type === "stdio") {
+        markStdioMcpVerificationStarted(
+          queryClient,
+          workspaceId,
+          result.mcp_integration.id
+        )
+      }
       toast({
         title: verifying
           ? "MCP server verification started"
@@ -632,6 +651,13 @@ export default function McpServersPage() {
                 canDelete={canDeleteMcp}
                 isActionPending={isActionPending(item)}
                 isDisconnecting={isDisconnectPending(item)}
+                verification={
+                  item.entry.mcp_integration_id
+                    ? stdioMcpVerificationStatuses.get(
+                        item.entry.mcp_integration_id
+                      )
+                    : undefined
+                }
                 reconnectLocked={
                   item.kind === "catalog" &&
                   !item.entry.locked &&
@@ -732,6 +758,7 @@ interface McpCatalogCardProps {
   canDelete: boolean
   isActionPending: boolean
   isDisconnecting: boolean
+  verification?: MCPVerificationStatusRead
   reconnectLocked: boolean
   onConnect: () => void
   onConfigure: () => void
@@ -744,6 +771,7 @@ function McpCatalogCard({
   canDelete,
   isActionPending,
   isDisconnecting,
+  verification,
   reconnectLocked,
   onConnect,
   onConfigure,
@@ -802,11 +830,20 @@ function McpCatalogCard({
       (tool) => tool.status !== "missing" && tool.enabled !== false
     ).length ?? null
   const unverifiedBadge = UNVERIFIED_BADGE
+  const verificationStatus = verification?.status
+  const verificationError =
+    verification?.status === "failed" ? verification.error : null
   let statusLabel = "Not connected"
   let statusClassName = "border-muted bg-muted/30 text-muted-foreground"
   if (isActionPending) {
     statusLabel = isDisconnecting ? "Disconnecting" : "Connecting"
     statusClassName = "border-blue-200 bg-blue-50 text-blue-700"
+  } else if (verificationStatus === "verifying") {
+    statusLabel = "Verifying"
+    statusClassName = "border-blue-200 bg-blue-50 text-blue-700"
+  } else if (verificationStatus === "failed") {
+    statusLabel = "Verification failed"
+    statusClassName = "border-red-200 bg-red-50 text-red-700"
   } else if (locked) {
     statusLabel = "Locked"
     statusClassName = "border-muted bg-muted/30 text-muted-foreground"
@@ -851,6 +888,23 @@ function McpCatalogCard({
   } else if (disconnectable) {
     actionClassName = "text-destructive hover:text-destructive"
   }
+  const statusBadge = (
+    <Badge
+      variant="outline"
+      tabIndex={verificationError ? 0 : undefined}
+      aria-label={
+        verificationError ? `${statusLabel}: ${verificationError}` : statusLabel
+      }
+      className={cn(
+        "h-5 shrink-0 gap-1 px-1.5 text-[10px] font-medium",
+        statusClassName
+      )}
+    >
+      {isActionPending ? <Loader2 className="size-3 animate-spin" /> : null}
+      {!isActionPending && locked ? <Lock className="size-3" /> : null}
+      {statusLabel}
+    </Badge>
+  )
 
   return (
     <Card
@@ -896,19 +950,19 @@ function McpCatalogCard({
           <h3 className="truncate text-sm font-semibold leading-5 text-foreground">
             {entry.name}
           </h3>
-          <Badge
-            variant="outline"
-            className={cn(
-              "h-5 shrink-0 gap-1 px-1.5 text-[10px] font-medium",
-              statusClassName
-            )}
-          >
-            {isActionPending ? (
-              <Loader2 className="size-3 animate-spin" />
-            ) : null}
-            {!isActionPending && locked ? <Lock className="size-3" /> : null}
-            {statusLabel}
-          </Badge>
+          {verificationError ? (
+            <Tooltip>
+              <TooltipTrigger asChild>{statusBadge}</TooltipTrigger>
+              <TooltipContent className="max-w-sm">
+                <p className="text-xs font-medium">Verification failed</p>
+                <p className="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-xs text-muted-foreground">
+                  {verificationError}
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            statusBadge
+          )}
         </div>
         <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">
           {entry.description}

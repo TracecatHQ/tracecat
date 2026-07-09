@@ -9,13 +9,13 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from tracecat.agent.executor.activity import (
-    persist_stdio_mcp_connection_activity,
     probe_stdio_mcp_connection_activity,
     run_agent_activity,
 )
 from tracecat.agent.executor_worker import (
     get_activities as get_agent_executor_activities,
 )
+from tracecat.agent.mcp.activities import persist_stdio_mcp_connection_activity
 from tracecat.agent.preset.activities import (
     resolve_agent_preset_config_activity,
     resolve_agent_preset_version_ref_activity,
@@ -51,6 +51,7 @@ def test_agent_worker_registers_preset_resolution_activities() -> None:
     names = _activity_names(get_agent_worker_activities())
     assert _activity_name(resolve_agent_preset_config_activity) in names
     assert _activity_name(resolve_agent_preset_version_ref_activity) in names
+    assert _activity_name(persist_stdio_mcp_connection_activity) in names
 
 
 def test_agent_executor_worker_registers_runtime_execution_activities() -> None:
@@ -58,7 +59,6 @@ def test_agent_executor_worker_registers_runtime_execution_activities() -> None:
     assert names == {
         _activity_name(run_agent_activity),
         _activity_name(probe_stdio_mcp_connection_activity),
-        _activity_name(persist_stdio_mcp_connection_activity),
     }
 
 

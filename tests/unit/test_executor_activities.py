@@ -15,10 +15,10 @@ from temporalio.exceptions import ApplicationError
 
 from tests.shared import to_data
 from tracecat.agent.executor.activity import (
-    persist_stdio_mcp_connection_activity,
     probe_stdio_mcp_connection_activity,
 )
-from tracecat.agent.mcp.stdio_probe import (
+from tracecat.agent.mcp.activities import persist_stdio_mcp_connection_activity
+from tracecat.agent.mcp.stdio_probe_types import (
     StdioMCPPersistInput,
     StdioMCPProbeInput,
 )
@@ -581,9 +581,9 @@ class TestProbeStdioMCPConnectionActivity:
         fake_svc = FakeIntegrationService()
 
         with (
-            patch("tracecat.agent.executor.activity.activity") as mock_activity,
+            patch("tracecat.agent.mcp.activities.activity") as mock_activity,
             patch(
-                "tracecat.agent.executor.activity.IntegrationService.with_session",
+                "tracecat.agent.mcp.activities.IntegrationService.with_session",
                 lambda *_, **__: _AsyncContext(fake_svc),
             ),
         ):

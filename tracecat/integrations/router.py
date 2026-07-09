@@ -53,6 +53,7 @@ from tracecat.integrations.schemas import (
     MCPIntegrationUpdate,
     MCPToolPolicyUpdateRequest,
     MCPToolSummary,
+    MCPVerificationStatusRead,
     PlatformMCPCatalogListResponse,
     PlatformMCPCatalogState,
     PlatformMCPCatalogStatus,
@@ -965,7 +966,7 @@ async def get_provider(
 
 
 @mcp_router.post("", status_code=status.HTTP_201_CREATED)
-@require_scope("integration:create")
+@require_scope("integration:create", "integration:read")
 async def create_mcp_integration(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
@@ -1072,7 +1073,7 @@ async def list_platform_mcp_catalog(
 
 
 @mcp_router.post("/catalog/{catalog_slug}/connect", status_code=status.HTTP_201_CREATED)
-@require_scope("integration:create")
+@require_scope("integration:create", "integration:read")
 async def connect_platform_mcp_catalog(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
@@ -1097,7 +1098,7 @@ async def connect_platform_mcp_catalog(
 
 
 @mcp_router.post("/connect", status_code=status.HTTP_201_CREATED)
-@require_scope("integration:create")
+@require_scope("integration:create", "integration:read")
 async def connect_mcp_integration(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
@@ -1161,6 +1162,31 @@ async def get_mcp_integration(
         integration,
         state=await svc.mcp_integration_state(mcp_integration=integration),
     )
+
+
+@mcp_router.get("/{mcp_integration_id}/verification-status")
+@require_scope("integration:read")
+async def get_mcp_integration_verification_status(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    mcp_integration_id: uuid.UUID,
+) -> MCPVerificationStatusRead:
+    """Get saved MCP integration verification status."""
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+
+    svc = IntegrationService(session, role=role)
+    integration = await svc.get_mcp_integration(mcp_integration_id=mcp_integration_id)
+    if integration is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="MCP integration not found",
+        )
+
+    return await svc.get_stdio_mcp_verification_status(mcp_integration=integration)
 
 
 @mcp_router.put("/{mcp_integration_id}")

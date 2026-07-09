@@ -10,6 +10,7 @@ import pytest
 from tracecat.agent.mcp.stdio_probe import (
     build_stdio_mcp_probe_workflow_id,
     probe_stdio_mcp_tools_in_sandbox,
+    sanitize_stdio_probe_error,
 )
 
 FAKE_MCP_SERVER = '''
@@ -39,6 +40,97 @@ def test_build_stdio_mcp_probe_workflow_id_is_workspace_scoped() -> None:
         )
         == f"mcp-stdio-probe/ws/{workspace_id}/{mcp_integration_id}"
     )
+
+
+def test_sanitize_stdio_probe_error_preserves_verbose_diagnostics() -> None:
+    """User-facing probe errors retain verbose installer and server output."""
+    error = """McpError: Connection closed
+Downloading cryptography (4.5MiB)
+ Downloaded cryptography
+Installed 91 packages in 26ms
+AuthlibDeprecationWarning: authlib.jose module is deprecated
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ FastMCP 2.14.7                                                               │
+╰──────────────────────────────────────────────────────────────────────────────╯
+Authentication failed: invalid API token
+"""
+
+    sanitized = sanitize_stdio_probe_error(error)
+
+    assert sanitized == error.strip()
+    assert "Downloading" in sanitized
+    assert "FastMCP" in sanitized
+
+
+def test_sanitize_stdio_probe_error_redacts_common_sensitive_values() -> None:
+    """Verbose diagnostics redact configured and commonly formatted secrets."""
+    error = """Request failed for https://user:pass@example.com/path?token=query
+User: analyst@example.com
+Authorization: Bearer bearer-value
+api_key=inline-value
+"client_secret": "json-value"
+password: "correct horse battery staple"
+secret: 'synthetic phrase with spaces'
+Set-Cookie: session=synthetic-cookie
+JWT: eyJhbGciOiJIUzI1NiJ9.payload.signature
+Configured token: configured-value
+"""
+
+    sanitized = sanitize_stdio_probe_error(
+        error,
+        env={"PANTHER_API_TOKEN": "configured-value"},
+    )
+
+    assert "user:pass" not in sanitized
+    assert "?token=query" not in sanitized
+    assert "analyst@example.com" not in sanitized
+    assert "bearer-value" not in sanitized
+    assert "inline-value" not in sanitized
+    assert "json-value" not in sanitized
+    assert "correct horse battery staple" not in sanitized
+    assert "synthetic phrase with spaces" not in sanitized
+    assert "synthetic-cookie" not in sanitized
+    assert "eyJhbGciOiJIUzI1NiJ9.payload.signature" not in sanitized
+    assert "configured-value" not in sanitized
+    assert "[redacted email]" in sanitized
+    assert "Authorization: [redacted]" in sanitized
+    assert '"client_secret": "[redacted]"' in sanitized
+    assert 'password: "[redacted]"' in sanitized
+    assert "secret: '[redacted]'" in sanitized
+    assert "Set-Cookie: [redacted]" in sanitized
+
+
+def test_sanitize_stdio_probe_error_sanitizes_url_before_env_replacement() -> None:
+    """A query secret appended to an env base URL cannot escape redaction."""
+    error = "Request failed: https://example.test/path?signature=synthetic-secret"
+
+    sanitized = sanitize_stdio_probe_error(
+        error,
+        env={"BASE_URL": "https://example.test/path"},
+    )
+
+    assert sanitized == "Request failed: [redacted]"
+    assert "synthetic-secret" not in sanitized
+
+
+def test_sanitize_stdio_probe_error_explains_bare_connection_close() -> None:
+    """A server that exits silently still produces an actionable error."""
+    assert sanitize_stdio_probe_error("McpError: Connection closed") == (
+        "The MCP server process closed before verification completed. "
+        "Check the server URL and credentials, then try again."
+    )
+
+
+def test_sanitize_stdio_probe_error_keeps_tail_of_long_error() -> None:
+    """Late server failures survive bounded error output."""
+    sanitized = sanitize_stdio_probe_error(
+        f"McpError: Connection closed\n{'x' * 15_000}\nInvalid credentials"
+    )
+
+    assert sanitized.startswith("McpError: Connection closed\n")
+    assert "… output truncated …" in sanitized
+    assert sanitized.endswith("Invalid credentials")
+    assert len(sanitized) == 12_000
 
 
 @pytest.mark.anyio
@@ -204,3 +296,56 @@ async def test_pid_fallback_reports_launch_failure(tmp_path: Path) -> None:
     assert result.success is False
     assert result.tools == []
     assert result.error is not None
+
+
+@pytest.mark.anyio
+async def test_pid_fallback_redacts_sensitive_server_stderr(tmp_path: Path) -> None:
+    """The sandbox boundary keeps verbose stderr without returning secrets."""
+    server_path = tmp_path / "failing_server.py"
+    server_path.write_text(
+        """import os
+import sys
+
+print("diagnostic: initializing synthetic server", file=sys.stderr)
+print("user: analyst@example.com", file=sys.stderr)
+print("Authorization: Bearer synthetic-bearer-value", file=sys.stderr)
+print(f"token: {os.environ['SYNTHETIC_TOKEN']}", file=sys.stderr)
+print(f"url: {os.environ['BASE_URL']}?signature=synthetic-query-secret", file=sys.stderr)
+print('password: "synthetic phrase with spaces"', file=sys.stderr)
+raise RuntimeError("synthetic startup failure")
+""",
+        encoding="utf-8",
+    )
+
+    with (
+        patch(
+            "tracecat.agent.mcp.stdio_probe.is_nsjail_available",
+            return_value=False,
+        ),
+        patch(
+            "tracecat.agent.mcp.stdio_probe.pid_namespace_available",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
+    ):
+        result = await probe_stdio_mcp_tools_in_sandbox(
+            command=sys.executable,
+            args=[str(server_path)],
+            env={
+                "SYNTHETIC_TOKEN": "synthetic-configured-secret",
+                "BASE_URL": "https://example.test/path",
+            },
+            timeout=10,
+        )
+
+    assert result.success is False
+    assert result.error is not None
+    assert "diagnostic: initializing synthetic server" in result.error
+    assert "synthetic startup failure" in result.error
+    assert "analyst@example.com" not in result.error
+    assert "synthetic-bearer-value" not in result.error
+    assert "synthetic-configured-secret" not in result.error
+    assert "synthetic-query-secret" not in result.error
+    assert "synthetic phrase with spaces" not in result.error
+    assert "[redacted email]" in result.error
+    assert 'password: "[redacted]"' in result.error

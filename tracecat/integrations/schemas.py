@@ -605,6 +605,9 @@ PlatformMCPCatalogState = Literal[
     "error",
 ]
 MCPCatalogConnectStatus = Literal["configured", "connected", "oauth_redirect"]
+MCPVerificationStatus = Literal[
+    "idle", "verifying", "succeeded", "failed", "superseded"
+]
 MCPToolStatus = Literal["available", "missing"]
 
 
@@ -876,6 +879,13 @@ class MCPIntegrationRead(BaseModel):
     """Tools discovered at the last successful verification; null means unverified."""
     created_at: datetime
     updated_at: datetime
+
+
+class MCPVerificationStatusRead(BaseModel):
+    """Response model for saved MCP verification status."""
+
+    status: MCPVerificationStatus
+    error: str | None = None
 
 
 class _MCPIntegrationTestConnectionRequestBase(BaseModel):

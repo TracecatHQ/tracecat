@@ -50,10 +50,11 @@ from tracecat.agent.executor.loopback import (
 from tracecat.agent.filesystem import hydrate_agent_work_dir, persist_agent_work_dir
 from tracecat.agent.llm_routing import get_litellm_route_model
 from tracecat.agent.mcp.stdio_probe import (
-    StdioMCPPersistInput,
+    probe_stdio_mcp_tools_in_sandbox,
+)
+from tracecat.agent.mcp.stdio_probe_types import (
     StdioMCPProbeInput,
     StdioMCPProbeResult,
-    probe_stdio_mcp_tools_in_sandbox,
     sanitize_stdio_probe_error,
 )
 from tracecat.agent.preset.service import AgentPresetService
@@ -1152,34 +1153,6 @@ async def probe_stdio_mcp_connection_activity(
         )
         activity.heartbeat(f"Finished stdio MCP probe: {input.mcp_integration_id}")
         return result
-
-
-@activity.defn(name="persist_stdio_mcp_connection_activity")
-async def persist_stdio_mcp_connection_activity(
-    input: StdioMCPPersistInput,
-) -> StdioMCPProbeResult:
-    """Persist a successful saved stdio MCP probe result."""
-    activity.heartbeat(f"Persisting stdio MCP probe: {input.mcp_integration_id}")
-
-    async with IntegrationService.with_session(role=input.role) as integrations_svc:
-        try:
-            tools = await integrations_svc.persist_mcp_integration_tools(
-                mcp_integration_id=input.mcp_integration_id,
-                discovered_tools=input.tools,
-            )
-        except ValueError as exc:
-            return StdioMCPProbeResult(
-                success=False,
-                message="MCP integration probe result could not be persisted",
-                error=sanitize_stdio_probe_error(str(exc)),
-            )
-
-    activity.heartbeat(f"Persisted stdio MCP probe: {input.mcp_integration_id}")
-    return StdioMCPProbeResult(
-        success=True,
-        tools=tools,
-        message=f"Connected successfully — {len(tools)} tools available",
-    )
 
 
 @activity.defn

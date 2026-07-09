@@ -1,19 +1,9 @@
 from __future__ import annotations
 
-import os
-from typing import Any
-
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from tracecat.contexts import ctx_client_ip
-
-
-def _is_debug_logging_enabled(logger: Any) -> bool:
-    return (
-        logger.level(os.environ.get("LOG_LEVEL", "INFO").upper()).no
-        <= logger.level("DEBUG").no
-    )
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -34,20 +24,19 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
         try:
             request_logger = request.app.state.logger
-            if _is_debug_logging_enabled(request_logger):
-                # Extract request parameters
-                request_params = dict(request.query_params)
+            # Extract request parameters
+            request_params = dict(request.query_params)
 
-                # Log the incoming request with parameters.
-                request_logger.debug(
-                    "Incoming request",
-                    method=request.method,
-                    scheme=request.url.scheme,
-                    hostname=request.url.hostname,
-                    path=request.url.path,
-                    params=request_params,
-                    client_ip=client_ip,
-                )
+            # Log the incoming request with parameters.
+            request_logger.debug(
+                "Incoming request",
+                method=request.method,
+                scheme=request.url.scheme,
+                hostname=request.url.hostname,
+                path=request.url.path,
+                params=request_params,
+                client_ip=client_ip,
+            )
 
             return await call_next(request)
         finally:

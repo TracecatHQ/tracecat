@@ -6,13 +6,12 @@ import type {
 } from "@/client"
 
 export const MCP_STDIO_VERIFICATION_POLL_INTERVAL_MS = 3000
-export const MCP_STDIO_VERIFICATION_POLL_WINDOW_MS = 5 * 60 * 1000
 
 type PendingStdioMcpVerificationFields = {
+  id: string | null | undefined
   serverType: string | null | undefined
   state: string | null | undefined
   tools: unknown
-  updatedAt: string
 }
 
 /**
@@ -31,71 +30,51 @@ export function isMcpProvider(providerId: string): boolean {
 }
 
 /**
- * Whether a stdio integration is likely waiting on background verification.
- *
- * The backend currently exposes async stdio verification as `configured` with
- * `tools == null` until a successful probe persists tools. Bound polling to
- * recently touched rows so old unverified integrations do not poll forever.
+ * IDs for stdio integrations waiting on background verification.
  */
-export function hasPendingStdioMcpVerification(
-  integrations: MCPIntegrationRead[] | undefined,
-  now = Date.now()
-): boolean {
+export function getPendingStdioMcpVerificationIds(
+  integrations: MCPIntegrationRead[] | undefined
+): string[] {
   return (
-    integrations?.some((integration) =>
-      isPendingStdioMcpVerification(
-        {
-          serverType: integration.server_type,
-          state: integration.state,
-          tools: integration.tools,
-          updatedAt: integration.updated_at,
-        },
-        now
-      )
-    ) ?? false
+    integrations?.flatMap((integration) => {
+      const fields = {
+        id: integration.id,
+        serverType: integration.server_type,
+        state: integration.state,
+        tools: integration.tools,
+      }
+      return isPendingStdioMcpVerification(fields) ? [fields.id] : []
+    }) ?? []
   )
 }
 
-export function hasPendingStdioMcpCatalogVerification(
-  items: PlatformMCPCatalogRead[] | undefined,
-  now = Date.now()
-): boolean {
+/**
+ * MCP integration IDs for catalog rows waiting on stdio verification.
+ */
+export function getPendingStdioMcpCatalogVerificationIds(
+  items: PlatformMCPCatalogRead[] | undefined
+): string[] {
   return (
-    items?.some((item) =>
-      isPendingStdioMcpVerification(
-        {
-          serverType: item.mcp_server_type,
-          state: item.state,
-          tools: item.tools,
-          updatedAt: item.updated_at,
-        },
-        now
-      )
-    ) ?? false
+    items?.flatMap((item) => {
+      const fields = {
+        id: item.mcp_integration_id,
+        serverType: item.mcp_server_type,
+        state: item.state,
+        tools: item.tools,
+      }
+      return isPendingStdioMcpVerification(fields) ? [fields.id] : []
+    }) ?? []
   )
 }
 
 function isPendingStdioMcpVerification(
-  fields: PendingStdioMcpVerificationFields,
-  now: number
-): boolean {
-  if (
-    fields.serverType !== "stdio" ||
-    fields.state !== "configured" ||
-    fields.tools != null
-  ) {
-    return false
-  }
-  return isWithinStdioVerificationPollWindow(Date.parse(fields.updatedAt), now)
-}
-
-function isWithinStdioVerificationPollWindow(
-  updatedAt: number,
-  now: number
-): boolean {
+  fields: PendingStdioMcpVerificationFields
+): fields is PendingStdioMcpVerificationFields & { id: string } {
   return (
-    Number.isNaN(updatedAt) ||
-    now - updatedAt <= MCP_STDIO_VERIFICATION_POLL_WINDOW_MS
+    typeof fields.id === "string" &&
+    fields.serverType === "stdio" &&
+    fields.state === "configured" &&
+    fields.tools == null
   )
 }
 

@@ -19,16 +19,19 @@ from authlib.oauth2.rfc7636 import create_s256_code_challenge
 from pydantic import SecretStr
 from slugify import slugify
 from sqlalchemy import and_, delete, or_, select, update
-from temporalio.client import WorkflowFailureError
+from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import TerminatedError
+from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat import config
 from tracecat.agent.common.types import MCPHttpServerConfig
-from tracecat.agent.mcp.stdio_probe import (
+from tracecat.agent.mcp.stdio_probe_types import (
     MCP_STDIO_PROBE_TIMEOUT_CAP,
+    StdioMCPProbeResult,
     StdioMCPProbeWorkflowInput,
     build_stdio_mcp_probe_workflow_id,
-    build_unique_stdio_mcp_probe_workflow_id,
+    sanitize_stdio_probe_error,
 )
 from tracecat.agent.workflows.mcp_probe import StdioMCPProbeWorkflow
 from tracecat.auth.secrets import get_db_encryption_key
@@ -87,6 +90,7 @@ from tracecat.integrations.schemas import (
     MCPStdioIntegrationTestConnectionRequest,
     MCPToolPolicyUpdate,
     MCPToolSummary,
+    MCPVerificationStatusRead,
     PlatformMCPCatalogState,
     ProviderConfig,
     ProviderKey,
@@ -229,6 +233,61 @@ class IntegrationService(BaseWorkspaceService):
             )
         except MCPValidationError as exc:
             raise ValueError(str(exc)) from exc
+
+    @staticmethod
+    def _normalize_stdio_command(command: str | None) -> str | None:
+        """Return the stored form of a stdio command for equality checks."""
+        if command is None:
+            return None
+        stripped = command.strip()
+        return stripped or None
+
+    @staticmethod
+    def _normalize_stdio_args(args: Sequence[str] | None) -> list[str]:
+        """Return the stored-equivalent form of stdio args."""
+        return list(args or [])
+
+    @staticmethod
+    def _normalize_mcp_timeout(timeout: int | None) -> int:
+        """Return the effective MCP timeout; stored null means the UI default."""
+        return timeout or 30
+
+    @classmethod
+    def _stdio_connection_values_changed(
+        cls,
+        *,
+        existing: MCPIntegration,
+        target_command: str | None,
+        target_args: Sequence[str] | None,
+        target_timeout: int | None,
+        stdio_env_was_provided: bool,
+    ) -> bool:
+        """Whether the persisted stdio process configuration would change."""
+        if stdio_env_was_provided:
+            return True
+        return (
+            cls._normalize_stdio_command(existing.stdio_command)
+            != cls._normalize_stdio_command(target_command)
+            or cls._normalize_stdio_args(existing.stdio_args)
+            != cls._normalize_stdio_args(target_args)
+            or cls._normalize_mcp_timeout(existing.timeout)
+            != cls._normalize_mcp_timeout(target_timeout)
+        )
+
+    @staticmethod
+    def _exception_chain_contains(
+        exc: BaseException, target_type: type[BaseException]
+    ) -> bool:
+        """Return whether ``exc`` or a nested Temporal cause has ``target_type``."""
+        current: BaseException | None = exc
+        seen: set[int] = set()
+        while current is not None and id(current) not in seen:
+            if isinstance(current, target_type):
+                return True
+            seen.add(id(current))
+            next_exc = getattr(current, "cause", None) or current.__cause__
+            current = next_exc if isinstance(next_exc, BaseException) else None
+        return False
 
     @staticmethod
     def _merge_mcp_tool_summaries(
@@ -1060,7 +1119,7 @@ class IntegrationService(BaseWorkspaceService):
             provider_id=integration.provider_id,
         )
 
-    @require_scope("integration:create")
+    @require_scope("integration:create", "integration:read")
     async def connect_mcp_oauth_discovery(
         self,
         *,
@@ -2520,7 +2579,7 @@ class IntegrationService(BaseWorkspaceService):
         if url_keys:
             validate_url_credential_values(stdio_env, url_keys)
 
-    @require_scope("integration:create")
+    @require_scope("integration:create", "integration:read")
     async def create_mcp_integration(
         self, *, params: MCPIntegrationCreate
     ) -> MCPIntegration:
@@ -2674,7 +2733,7 @@ class IntegrationService(BaseWorkspaceService):
             oauth_connect=oauth_connect,
         )
 
-    @require_scope("integration:create")
+    @require_scope("integration:create", "integration:read")
     async def connect_platform_mcp_catalog(
         self, *, catalog_slug: str
     ) -> PlatformMCPCatalogConnectResult:
@@ -3224,6 +3283,10 @@ class IntegrationService(BaseWorkspaceService):
             raise MCPConnectionVerificationError("MCP integration must be saved first")
 
         client = await get_temporal_client()
+        workflow_id = build_stdio_mcp_probe_workflow_id(
+            workspace_id=self.workspace_id,
+            mcp_integration_id=mcp_integration.id,
+        )
         try:
             result = await client.execute_workflow(
                 StdioMCPProbeWorkflow.run,
@@ -3231,11 +3294,18 @@ class IntegrationService(BaseWorkspaceService):
                     mcp_integration_id=mcp_integration.id,
                     role=self.role,
                 ),
-                id=build_unique_stdio_mcp_probe_workflow_id(),
+                id=workflow_id,
                 task_queue=config.TRACECAT__AGENT_QUEUE,
                 run_timeout=timedelta(seconds=MCP_STDIO_PROBE_TIMEOUT_CAP + 90),
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                id_conflict_policy=WorkflowIDConflictPolicy.TERMINATE_EXISTING,
             )
         except WorkflowFailureError as exc:
+            if self._exception_chain_contains(exc, TerminatedError):
+                raise MCPConnectionVerificationError(
+                    "Stdio MCP verification was superseded by a newer verification",
+                    "Superseded by a newer verification",
+                ) from exc
             raise MCPConnectionVerificationError(
                 "Failed to run stdio MCP probe",
                 sanitize_urls_in_text(str(exc)),
@@ -3461,6 +3531,7 @@ class IntegrationService(BaseWorkspaceService):
             error=error,
         )
 
+    @require_scope("integration:read")
     async def start_mcp_stdio_verification(
         self, *, mcp_integration: MCPIntegration
     ) -> None:
@@ -3498,6 +3569,71 @@ class IntegrationService(BaseWorkspaceService):
             mcp_integration_id=str(mcp_integration.id),
             workflow_id=workflow_id,
         )
+
+    async def get_stdio_mcp_verification_status(
+        self, *, mcp_integration: MCPIntegration
+    ) -> MCPVerificationStatusRead:
+        """Return the durable stdio verification workflow status."""
+        if mcp_integration.server_type != "stdio" or mcp_integration.id is None:
+            return MCPVerificationStatusRead(status="idle")
+
+        workflow_id = build_stdio_mcp_probe_workflow_id(
+            workspace_id=self.workspace_id,
+            mcp_integration_id=mcp_integration.id,
+        )
+        client = await get_temporal_client()
+        handle = client.get_workflow_handle(
+            workflow_id,
+            result_type=StdioMCPProbeResult,
+        )
+        try:
+            description = await handle.describe()
+        except RPCError as exc:
+            if exc.status == RPCStatusCode.NOT_FOUND:
+                return MCPVerificationStatusRead(status="idle")
+            raise
+
+        match description.status:
+            case WorkflowExecutionStatus.RUNNING:
+                return MCPVerificationStatusRead(status="verifying")
+            case WorkflowExecutionStatus.COMPLETED:
+                try:
+                    result = StdioMCPProbeResult.model_validate(await handle.result())
+                except Exception as exc:
+                    self.logger.warning(
+                        "Failed to fetch completed stdio MCP verification result",
+                        mcp_integration_id=str(mcp_integration.id),
+                        workflow_id=workflow_id,
+                        error=sanitize_stdio_probe_error(str(exc)),
+                    )
+                    return MCPVerificationStatusRead(
+                        status="failed",
+                        error=sanitize_stdio_probe_error(
+                            "Stdio MCP verification failed"
+                        ),
+                    )
+                if result.success:
+                    return MCPVerificationStatusRead(status="succeeded")
+                return MCPVerificationStatusRead(
+                    status="failed",
+                    error=sanitize_stdio_probe_error(result.error or result.message),
+                )
+            case WorkflowExecutionStatus.TERMINATED:
+                return MCPVerificationStatusRead(status="superseded")
+            case (
+                WorkflowExecutionStatus.FAILED
+                | WorkflowExecutionStatus.TIMED_OUT
+                | WorkflowExecutionStatus.CANCELED
+            ):
+                return MCPVerificationStatusRead(
+                    status="failed",
+                    error=sanitize_stdio_probe_error("Stdio MCP verification failed"),
+                )
+            case _:
+                return MCPVerificationStatusRead(
+                    status="failed",
+                    error=sanitize_stdio_probe_error("Stdio MCP verification failed"),
+                )
 
     def _decrypt_mcp_custom_headers(
         self, mcp_integration: MCPIntegration
@@ -3689,6 +3825,9 @@ class IntegrationService(BaseWorkspaceService):
         oauth_integration_id_was_provided = (
             "oauth_integration_id" in params.model_fields_set
         )
+        # Match the persistence semantics below: null is treated as omitted,
+        # while an empty object explicitly clears the stored environment.
+        stdio_env_was_provided = params.stdio_env is not None
 
         if target_server_type == "http":
             target_server_uri = params.server_uri or mcp_integration.server_uri
@@ -3750,7 +3889,7 @@ class IntegrationService(BaseWorkspaceService):
             server_type_changed
             or params.stdio_command is not None
             or params.stdio_args is not None
-            or params.stdio_env is not None
+            or stdio_env_was_provided
             or params.timeout is not None
         ):
             target_stdio_command = (
@@ -3763,8 +3902,11 @@ class IntegrationService(BaseWorkspaceService):
                 if params.stdio_args is not None
                 else mcp_integration.stdio_args
             )
-            target_stdio_env = (
-                params.stdio_env if params.stdio_env is not None else None
+            target_stdio_env = params.stdio_env if stdio_env_was_provided else None
+            target_timeout = (
+                params.timeout
+                if params.timeout is not None
+                else mcp_integration.timeout
             )
             self.validate_stdio_server_config(
                 command=target_stdio_command,
@@ -3776,14 +3918,22 @@ class IntegrationService(BaseWorkspaceService):
                     catalog_slug=mcp_integration.catalog_slug,
                     stdio_env=target_stdio_env,
                 )
-            if verify_connection:
+            stdio_connection_changed = server_type_changed or (
+                self._stdio_connection_values_changed(
+                    existing=mcp_integration,
+                    target_command=target_stdio_command,
+                    target_args=target_stdio_args,
+                    target_timeout=target_timeout,
+                    stdio_env_was_provided=stdio_env_was_provided,
+                )
+            )
+            if stdio_connection_changed and verify_connection:
                 previous_stdio_tools = (
                     list(mcp_integration.tools)
                     if previous_server_type == "stdio"
                     and mcp_integration.tools is not None
                     else None
                 )
-            stdio_connection_changed = True
 
         # Update fields
         if params.name is not None:

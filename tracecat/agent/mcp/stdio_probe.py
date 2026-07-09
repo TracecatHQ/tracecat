@@ -9,16 +9,24 @@ import signal
 import sysconfig
 import tempfile
 import textwrap
-import uuid
 from contextlib import suppress
 from pathlib import Path
 
 import orjson
-from pydantic import BaseModel, Field
 
+from tracecat.agent.mcp.stdio_probe_types import (
+    MCP_STDIO_PERSIST_ACTIVITY_NAME,
+    MCP_STDIO_PROBE_ACTIVITY_NAME,
+    MCP_STDIO_PROBE_TIMEOUT_CAP,
+    MCP_STDIO_PROBE_WORKFLOW_ID_PREFIX,
+    StdioMCPPersistInput,
+    StdioMCPProbeInput,
+    StdioMCPProbeResult,
+    StdioMCPProbeWorkflowInput,
+    build_stdio_mcp_probe_workflow_id,
+    sanitize_stdio_probe_error,
+)
 from tracecat.agent.mcp.utils import STDIO_MCP_TOOL_NAME_RE
-from tracecat.auth.types import Role
-from tracecat.integrations.mcp_validation import sanitize_urls_in_text
 from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.logger import logger
 from tracecat.sandbox.exceptions import SandboxTimeoutError
@@ -26,10 +34,19 @@ from tracecat.sandbox.executor import NsjailExecutor
 from tracecat.sandbox.types import ResourceLimits, SandboxConfig, SandboxResult
 from tracecat.sandbox.utils import is_nsjail_available, pid_namespace_available
 
-MCP_STDIO_PROBE_WORKFLOW_ID_PREFIX = "mcp-stdio-probe"
-MCP_STDIO_PROBE_ACTIVITY_NAME = "probe_stdio_mcp_connection_activity"
-MCP_STDIO_PERSIST_ACTIVITY_NAME = "persist_stdio_mcp_connection_activity"
-MCP_STDIO_PROBE_TIMEOUT_CAP = 60
+__all__ = [
+    "MCP_STDIO_PERSIST_ACTIVITY_NAME",
+    "MCP_STDIO_PROBE_ACTIVITY_NAME",
+    "MCP_STDIO_PROBE_TIMEOUT_CAP",
+    "MCP_STDIO_PROBE_WORKFLOW_ID_PREFIX",
+    "StdioMCPPersistInput",
+    "StdioMCPProbeInput",
+    "StdioMCPProbeResult",
+    "StdioMCPProbeWorkflowInput",
+    "build_stdio_mcp_probe_workflow_id",
+    "probe_stdio_mcp_tools_in_sandbox",
+    "sanitize_stdio_probe_error",
+]
 
 _SANDBOX_PROBE_SCRIPT = r"""
 from __future__ import annotations
@@ -46,6 +63,30 @@ from fastmcp.client.transports import StdioTransport
 
 URL_PATTERN = re.compile(r"\bhttps?://\S+", re.IGNORECASE)
 URL_USERINFO_PATTERN = re.compile(r"^(https?://)[^/@]*@", re.IGNORECASE)
+EMAIL_PATTERN = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
+BEARER_TOKEN_PATTERN = re.compile(
+    r"\b(Bearer\s+)[A-Za-z0-9._~+/=-]+", re.IGNORECASE
+)
+AUTHORIZATION_VALUE_PATTERN = re.compile(
+    r"\b(Authorization\s*:\s*)[^\r\n]+", re.IGNORECASE | re.MULTILINE
+)
+COOKIE_VALUE_PATTERN = re.compile(
+    r"\b((?:Set-)?Cookie\s*:\s*)[^\r\n]+", re.IGNORECASE | re.MULTILINE
+)
+JWT_PATTERN = re.compile(
+    r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b"
+)
+SENSITIVE_VALUE_PATTERN = re.compile(
+    r"(?P<prefix>['\"]?\b(?:api[ _-]?key|access[ _-]?token|refresh[ _-]?token|"
+    r"id[ _-]?token|client[ _-]?secret|private[ _-]?key|secret[ _-]?key|token|"
+    r"password|passwd|secret)\b['\"]?\s*[:=]\s*)"
+    r"(?:"
+    r'(?P<double_quoted>"(?:\\.|[^"\\\r\n])*")|'
+    r"(?P<single_quoted>'(?:\\.|[^'\\\r\n])*')|"
+    r"(?P<unquoted>[^\s,;}\]\"']+)"
+    r")",
+    re.IGNORECASE,
+)
 
 
 def sanitize_urls(text: str) -> str:
@@ -61,7 +102,31 @@ def redact(text: str, env: dict[str, str]) -> str:
     for value in env.values():
         if isinstance(value, str) and len(value) >= 4:
             sanitized = sanitized.replace(value, "[redacted]")
-    return sanitized[:2000]
+            sanitized_value = sanitize_urls(value)
+            if sanitized_value != value:
+                sanitized = sanitized.replace(sanitized_value, "[redacted]")
+    sanitized = EMAIL_PATTERN.sub("[redacted email]", sanitized)
+    sanitized = BEARER_TOKEN_PATTERN.sub(r"\1[redacted]", sanitized)
+    sanitized = AUTHORIZATION_VALUE_PATTERN.sub(r"\1[redacted]", sanitized)
+    sanitized = COOKIE_VALUE_PATTERN.sub(r"\1[redacted]", sanitized)
+    sanitized = JWT_PATTERN.sub("[redacted token]", sanitized)
+    sanitized = SENSITIVE_VALUE_PATTERN.sub(redact_sensitive_value, sanitized)
+    # Dependency installers and server banners can put the useful failure at
+    # the end of stderr. Keep a bounded head and tail so the outer process can
+    # discard startup noise without losing the root cause.
+    if len(sanitized) <= 12000:
+        return sanitized
+    return f"{sanitized[:1000]}\n…\n{sanitized[-10997:]}"
+
+
+def redact_sensitive_value(match: re.Match[str]) -> str:
+    if match.group("double_quoted") is not None:
+        redacted = '"[redacted]"'
+    elif match.group("single_quoted") is not None:
+        redacted = "'[redacted]'"
+    else:
+        redacted = "[redacted]"
+    return f"{match.group('prefix')}{redacted}"
 
 
 def write_result(result: dict[str, Any]) -> None:
@@ -138,66 +203,6 @@ async def main() -> None:
 if __name__ == "__main__":
     asyncio.run(main())
 """
-
-
-class StdioMCPProbeWorkflowInput(BaseModel):
-    """Input for a saved stdio MCP probe workflow."""
-
-    mcp_integration_id: uuid.UUID
-    role: Role
-    persist_result: bool = False
-
-
-class StdioMCPProbeInput(BaseModel):
-    """Input for a saved stdio MCP probe activity."""
-
-    mcp_integration_id: uuid.UUID
-    role: Role
-
-
-class StdioMCPPersistInput(BaseModel):
-    """Input for persisting a successful stdio MCP probe result."""
-
-    mcp_integration_id: uuid.UUID
-    role: Role
-    tools: list[MCPToolSummary]
-
-
-class StdioMCPProbeResult(BaseModel):
-    """Result from sandboxed stdio MCP probing."""
-
-    success: bool
-    tools: list[MCPToolSummary] = Field(default_factory=list)
-    message: str
-    error: str | None = None
-
-
-def build_stdio_mcp_probe_workflow_id(
-    *, workspace_id: uuid.UUID, mcp_integration_id: uuid.UUID
-) -> str:
-    """Return the durable Temporal workflow id for a saved stdio MCP probe."""
-    return (
-        f"{MCP_STDIO_PROBE_WORKFLOW_ID_PREFIX}/ws/{workspace_id}/{mcp_integration_id}"
-    )
-
-
-def build_unique_stdio_mcp_probe_workflow_id() -> str:
-    """Return a unique Temporal workflow id for caller-scoped stdio MCP tests."""
-    return f"{MCP_STDIO_PROBE_WORKFLOW_ID_PREFIX}/test/{uuid.uuid4()}"
-
-
-def sanitize_stdio_probe_error(
-    text: str | None, *, env: dict[str, str] | None = None
-) -> str:
-    """Remove obvious secret-bearing text from probe errors."""
-    if not text:
-        return "Stdio MCP probe failed"
-
-    sanitized = sanitize_urls_in_text(text)
-    for value in (env or {}).values():
-        if isinstance(value, str) and len(value) >= 4:
-            sanitized = sanitized.replace(value, "[redacted]")
-    return sanitized[:2000]
 
 
 def _site_packages_dir() -> Path:

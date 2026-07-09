@@ -370,6 +370,10 @@ import {
 } from "@/client"
 
 import { toast } from "@/components/ui/use-toast"
+import {
+  markStdioMcpVerificationStarted,
+  useStdioMcpVerificationStatus,
+} from "@/hooks/use-stdio-mcp-verification-status"
 import { type AgentSessionWithStatus, enrichAgentSession } from "@/lib/agents"
 import { client as apiClient, getBaseUrl } from "@/lib/api"
 import {
@@ -386,10 +390,7 @@ import {
   type TracecatApiError,
 } from "@/lib/errors"
 import type { WorkflowExecutionReadCompact } from "@/lib/event-history"
-import {
-  hasPendingStdioMcpVerification,
-  MCP_STDIO_VERIFICATION_POLL_INTERVAL_MS,
-} from "@/lib/integrations"
+import { getPendingStdioMcpVerificationIds } from "@/lib/integrations"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 /**
@@ -4766,6 +4767,13 @@ export function useConnectMcpIntegration(workspaceId: string) {
       }
       if (result.mcp_integration) {
         const verifying = result.mcp_integration.state !== "connected"
+        if (verifying && result.mcp_integration.server_type === "stdio") {
+          markStdioMcpVerificationStarted(
+            queryClient,
+            workspaceId,
+            result.mcp_integration.id
+          )
+        }
         toast({
           title: verifying
             ? "MCP integration verification started"
@@ -4811,9 +4819,22 @@ export function useCreateMcpIntegration(workspaceId: string) {
       queryClient.invalidateQueries({
         queryKey: ["mcp-integrations", workspaceId],
       })
+      const verifying =
+        integration.server_type === "stdio" && integration.state !== "connected"
+      if (verifying) {
+        markStdioMcpVerificationStarted(
+          queryClient,
+          workspaceId,
+          integration.id
+        )
+      }
       toast({
-        title: "MCP integration created",
-        description: `Added ${integration.name}`,
+        title: verifying
+          ? "MCP integration verification started"
+          : "MCP integration created",
+        description: verifying
+          ? `Added ${integration.name}; tools will appear after verification succeeds.`
+          : `Added ${integration.name}`,
       })
     },
     onError: (error: TracecatApiError) => {
@@ -4846,6 +4867,7 @@ export function useListMcpIntegrations(
   source?: McpIntegrationsListMcpIntegrationsData["source"],
   options?: { enabled?: boolean }
 ) {
+  const enabled = Boolean(workspaceId) && (options?.enabled ?? true)
   const {
     data: mcpIntegrations,
     isLoading: mcpIntegrationsIsLoading,
@@ -4854,13 +4876,19 @@ export function useListMcpIntegrations(
     queryKey: ["mcp-integrations", workspaceId, source],
     queryFn: async () =>
       await mcpIntegrationsListMcpIntegrations({ workspaceId, source }),
-    enabled: Boolean(workspaceId) && (options?.enabled ?? true),
+    enabled,
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
-    refetchInterval: (query) =>
-      hasPendingStdioMcpVerification(query.state.data)
-        ? MCP_STDIO_VERIFICATION_POLL_INTERVAL_MS
-        : false,
+  })
+
+  // When the list query is disabled, React Query still returns cached data, so
+  // gate verification polling on the same enabled flag to avoid polling and
+  // failure toasts on surfaces that opted out of MCP.
+  useStdioMcpVerificationStatus({
+    workspaceId,
+    pendingIntegrationIds: enabled
+      ? getPendingStdioMcpVerificationIds(mcpIntegrations)
+      : [],
   })
 
   return {
@@ -4888,12 +4916,13 @@ export function useGetMcpIntegration(
     enabled: Boolean(workspaceId && mcpIntegrationId),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
-    refetchInterval: (query) =>
-      hasPendingStdioMcpVerification(
-        query.state.data ? [query.state.data] : undefined
-      )
-        ? MCP_STDIO_VERIFICATION_POLL_INTERVAL_MS
-        : false,
+  })
+
+  useStdioMcpVerificationStatus({
+    workspaceId,
+    pendingIntegrationIds: getPendingStdioMcpVerificationIds(
+      mcpIntegration ? [mcpIntegration] : undefined
+    ),
   })
 
   return {

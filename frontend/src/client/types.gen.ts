@@ -5174,6 +5174,21 @@ export type MCPToolSummary = {
 }
 
 /**
+ * Response model for saved MCP verification status.
+ */
+export type MCPVerificationStatusRead = {
+  status: "idle" | "verifying" | "succeeded" | "failed" | "superseded"
+  error?: string | null
+}
+
+export type status5 =
+  | "idle"
+  | "verifying"
+  | "succeeded"
+  | "failed"
+  | "superseded"
+
+/**
  * The type/kind of message stored in the chat.
  */
 export type MessageKind =
@@ -5629,7 +5644,7 @@ export type PlatformMCPCatalogRead = {
   last_refreshed_at: string | null
 }
 
-export type status5 = "available" | "coming_soon" | "deprecated" | "hidden"
+export type status6 = "available" | "coming_soon" | "deprecated" | "hidden"
 
 /**
  * Platform registry settings response.
@@ -5895,7 +5910,7 @@ export type RateLimitInfo = {
   }
 }
 
-export type status6 = "allowed" | "allowed_warning" | "rejected"
+export type status7 = "allowed" | "allowed_warning" | "rejected"
 
 /**
  * A reasoning part of a message.
@@ -6519,7 +6534,7 @@ export type RunArtifact = {
   startedAt: string
 }
 
-export type status7 = "running" | "success" | "failed" | "cancelled"
+export type status8 = "running" | "success" | "failed" | "cancelled"
 
 /**
  * This is the runtime context model for a workflow run. Passed into activities.
@@ -8770,7 +8785,7 @@ export type WorkflowCommitResponse = {
   } | null
 }
 
-export type status8 = "success" | "failure"
+export type status9 = "success" | "failure"
 
 /**
  * API response model for persisted workflow definitions.
@@ -8833,7 +8848,7 @@ export type WorkflowDslPublishResult = {
   message: string
 }
 
-export type status9 = "committed" | "no_op"
+export type status10 = "committed" | "no_op"
 
 export type WorkflowEntrypointValidationRequest = {
   expects?: {
@@ -9151,7 +9166,7 @@ export type WorkflowExecutionRead = {
   interactions?: Array<InteractionRead>
 }
 
-export type status10 =
+export type status11 =
   | "RUNNING"
   | "COMPLETED"
   | "FAILED"
@@ -13309,6 +13324,14 @@ export type McpIntegrationsDeleteMcpIntegrationData = {
 }
 
 export type McpIntegrationsDeleteMcpIntegrationResponse = void
+
+export type McpIntegrationsGetMcpIntegrationVerificationStatusData = {
+  mcpIntegrationId: string
+  workspaceId: string
+}
+
+export type McpIntegrationsGetMcpIntegrationVerificationStatusResponse =
+  MCPVerificationStatusRead
 
 export type McpIntegrationsUpdateMcpIntegrationToolPoliciesData = {
   mcpIntegrationId: string
@@ -19563,6 +19586,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}/verification-status": {
+    get: {
+      req: McpIntegrationsGetMcpIntegrationVerificationStatusData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MCPVerificationStatusRead
         /**
          * Validation Error
          */
