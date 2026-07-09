@@ -311,7 +311,7 @@ async def _handle_authorize(
 
     # --- Session resolution ---
     try:
-        session_result = await resolve_authorize_session(user)
+        session_result = await resolve_authorize_session(user, request=request)
     except OrgResolutionError as exc:
         # The OAuth client callback has already been validated at this point.
         logger.warning(

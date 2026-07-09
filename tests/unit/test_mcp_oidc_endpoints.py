@@ -1568,6 +1568,19 @@ class _FakeOrgResult:
     def all(self) -> list[tuple[uuid.UUID]]:
         return [(oid,) for oid in self._org_ids]
 
+    def scalars(self) -> _FakeScalarResult:
+        return _FakeScalarResult(self._org_ids)
+
+
+class _FakeScalarResult:
+    """Scalar result stub returning fixed org IDs."""
+
+    def __init__(self, org_ids: list[uuid.UUID]) -> None:
+        self._org_ids = org_ids
+
+    def all(self) -> list[uuid.UUID]:
+        return self._org_ids
+
 
 class _FakeOrgSession:
     """Session stub returning a fixed set of org memberships."""
