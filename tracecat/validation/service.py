@@ -37,6 +37,7 @@ from tracecat.interactions.schemas import ResponseInteraction
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.versions.schemas import RegistryVersionManifest
+from tracecat.secrets.schemas import SecretSearch
 from tracecat.secrets.service import SecretsService
 from tracecat.tiers.entitlements import Entitlement, EntitlementService
 from tracecat.tiers.service import TierService
@@ -80,16 +81,29 @@ async def validate_single_secret(
     registry_secret: RegistrySecret,
 ) -> list[SecretValidationResult]:
     """Validate a single secret against the secrets manager."""
-    if registry_secret.name in checked_keys:
+    checked_key = f"secret::{registry_secret.name}::{environment}"
+    if checked_key in checked_keys:
         return []
+    checked_keys.add(checked_key)
 
     results: list[SecretValidationResult] = []
     defined_secret = None
 
     try:
-        defined_secret = await secrets_service.get_secret_by_name(
-            registry_secret.name, environment=environment
+        matches = await secrets_service.search_secrets(
+            SecretSearch(names={registry_secret.name}, environment=environment)
         )
+        match len(matches):
+            case 1:
+                defined_secret = matches[0]
+            case 0:
+                raise TracecatNotFoundError(
+                    f"Secret {registry_secret.name!r} (env: {environment!r}) not found."
+                )
+            case _:
+                raise TracecatNotFoundError(
+                    f"Multiple secrets found for {registry_secret.name!r} (env: {environment!r})."
+                ) from MultipleResultsFound()
     except TracecatNotFoundError as e:
         # If the secret is required, we fail early
         if not registry_secret.optional:
@@ -110,8 +124,6 @@ async def validate_single_secret(
                 )
             ]
         # If the secret is optional, we just log and move on
-    finally:
-        checked_keys.add(registry_secret.name)
 
     # At this point we either have an optional secret, or the secret is defined
     # Validate secret keys

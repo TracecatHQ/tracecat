@@ -407,7 +407,7 @@ class AgentManagementService(BaseOrgService):
 
         # Check if credentials already exist
         try:
-            existing = await self.secrets_service.get_org_secret_by_name(secret_name)
+            existing = await self.secrets_service._get_org_secret_by_name(secret_name)
             # Update existing credentials
             keys = [
                 SecretKeyValue(key=k, value=SecretStr(v))
@@ -432,7 +432,7 @@ class AgentManagementService(BaseOrgService):
             )
             await self.secrets_service.create_org_secret(create_params)
             await self._auto_grant_provider_access(params.provider)
-            return await self.secrets_service.get_org_secret_by_name(secret_name)
+            return await self.secrets_service._get_org_secret_by_name(secret_name)
 
     @require_scope("agent:update")
     async def update_provider_credentials(
@@ -440,7 +440,7 @@ class AgentManagementService(BaseOrgService):
     ) -> OrganizationSecret:
         """Update existing credentials for an AI provider."""
         secret_name = self._get_credential_secret_name(provider)
-        secret = await self.secrets_service.get_org_secret_by_name(secret_name)
+        secret = await self.secrets_service._get_org_secret_by_name(secret_name)
 
         keys = [
             SecretKeyValue(key=k, value=SecretStr(v))
@@ -455,7 +455,7 @@ class AgentManagementService(BaseOrgService):
         """Get decrypted credentials for an AI provider at organization level."""
         secret_name = self._get_credential_secret_name(provider)
         try:
-            secret = await self.secrets_service.get_org_secret_by_name(secret_name)
+            secret = await self.secrets_service._get_org_secret_by_name(secret_name)
             decrypted_keys = self.secrets_service.decrypt_keys(secret.encrypted_keys)
             return {kv.key: kv.value.get_secret_value() for kv in decrypted_keys}
         except TracecatNotFoundError:
@@ -469,7 +469,7 @@ class AgentManagementService(BaseOrgService):
         """Get decrypted credentials for an AI provider at workspace level."""
         secret_name = self._get_workspace_credential_secret_name(provider)
         try:
-            secret = await self.secrets_service.get_secret_by_name(
+            secret = await self.secrets_service._get_secret_by_name(
                 secret_name,
                 DEFAULT_SECRETS_ENVIRONMENT,
             )
@@ -715,7 +715,7 @@ class AgentManagementService(BaseOrgService):
         """Delete credentials for an AI provider."""
         secret_name = self._get_credential_secret_name(provider)
         try:
-            secret = await self.secrets_service.get_org_secret_by_name(secret_name)
+            secret = await self.secrets_service._get_org_secret_by_name(secret_name)
             await self.secrets_service.delete_org_secret(secret)
             await self._auto_revoke_provider_access(provider)
         except TracecatNotFoundError:

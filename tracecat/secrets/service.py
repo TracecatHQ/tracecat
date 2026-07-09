@@ -37,6 +37,67 @@ from tracecat.secrets.schemas import (
 from tracecat.service import BaseOrgService
 
 
+def _secret_metadata(secret: BaseSecret) -> dict[str, object]:
+    return {
+        "name": secret.name,
+        "environment": secret.environment,
+        "type": secret.type,
+    }
+
+
+def _secret_read_data(
+    self: SecretsService,
+    result: BaseSecret | None,
+    **_: object,
+) -> dict[str, object] | None:
+    if result is None:
+        return None
+    return _secret_metadata(result)
+
+
+def _secret_name_read_data(
+    self: SecretsService,
+    secret_name: str,
+    environment: str | None = None,
+    result: BaseSecret | None = None,
+    **_: object,
+) -> dict[str, object]:
+    data: dict[str, object] = {"name": secret_name, "environment": environment}
+    if result is not None:
+        data.update(_secret_metadata(result))
+    return data
+
+
+def _org_secret_name_read_data(
+    self: SecretsService,
+    secret_name: str,
+    environment: str | None = None,
+    result: BaseSecret | None = None,
+    **_: object,
+) -> dict[str, object]:
+    data: dict[str, object] = {
+        "name": secret_name,
+        "environment": environment or DEFAULT_SECRETS_ENVIRONMENT,
+    }
+    if result is not None:
+        data.update(_secret_metadata(result))
+    return data
+
+
+def _registry_ssh_key_read_data(
+    self: SecretsService,
+    key_name: str | None = None,
+    environment: str | None = None,
+    result: SecretStr | None = None,
+    **_: object,
+) -> dict[str, object]:
+    return {
+        "name": key_name or REGISTRY_GIT_SSH_KEY_SECRET_NAME,
+        "environment": environment or DEFAULT_SECRETS_ENVIRONMENT,
+        "target": "registry",
+    }
+
+
 class SecretsService(BaseOrgService):
     """Secrets manager service."""
 
@@ -183,6 +244,12 @@ class SecretsService(BaseOrgService):
         return result.scalars().all()
 
     @require_scope("secret:read")
+    @audit_log(
+        resource_type="secret",
+        action="read",
+        resource_id_attr="secret_id",
+        data_fn=_secret_read_data,
+    )
     async def get_secret(self, secret_id: SecretID) -> Secret:
         """Get a workspace secret by ID."""
         workspace_id = self._require_workspace_id()
@@ -212,8 +279,7 @@ class SecretsService(BaseOrgService):
                 "Secret not found when searching by ID. Please check that the ID was correctly input."
             ) from e
 
-    @require_scope("secret:read")
-    async def get_secret_by_name(
+    async def _get_secret_by_name(
         self,
         secret_name: str,
         environment: str | None = None,
@@ -250,6 +316,16 @@ class SecretsService(BaseOrgService):
                 f"Secret {secret_name!r} (env: {environment!r}) not found when searching by name."
                 " Please double check that the name was correctly input."
             ) from e
+
+    @require_scope("secret:read")
+    @audit_log(resource_type="secret", action="read", data_fn=_secret_name_read_data)
+    async def get_secret_by_name(
+        self,
+        secret_name: str,
+        environment: str | None = None,
+    ) -> Secret:
+        """Get a workspace secret by name."""
+        return await self._get_secret_by_name(secret_name, environment)
 
     @require_scope("secret:create")
     @audit_log(resource_type="secret", action="create", emit_attempt=True)
@@ -324,6 +400,12 @@ class SecretsService(BaseOrgService):
         return result.scalars().all()
 
     @require_scope("org:secret:read")
+    @audit_log(
+        resource_type="organization_secret",
+        action="read",
+        resource_id_attr="secret_id",
+        data_fn=_secret_read_data,
+    )
     async def get_org_secret(self, secret_id: SecretID) -> OrganizationSecret:
         """Get an organization secret by ID."""
 
@@ -361,6 +443,11 @@ class SecretsService(BaseOrgService):
             ) from e
 
     @require_scope("org:secret:read")
+    @audit_log(
+        resource_type="organization_secret",
+        action="read",
+        data_fn=_org_secret_name_read_data,
+    )
     async def get_org_secret_by_name(
         self,
         secret_name: str,
@@ -435,17 +522,16 @@ class SecretsService(BaseOrgService):
     ) -> SecretStr:
         match target:
             case "registry":
-                return await self.get_registry_ssh_key(key_name, environment)
+                return await self._get_registry_ssh_key(key_name, environment)
             case _:
                 raise ValueError(f"Invalid target: {target}")
 
-    @require_scope("org:secret:read")
-    async def get_registry_ssh_key(
+    async def _get_registry_ssh_key(
         self, key_name: str | None = None, environment: str | None = None
     ) -> SecretStr:
         try:
             key_name = key_name or REGISTRY_GIT_SSH_KEY_SECRET_NAME
-            secret = await self.get_org_secret_by_name(key_name, environment)
+            secret = await self._get_org_secret_by_name(key_name, environment)
             kv = self.decrypt_keys(secret.encrypted_keys)[0]
             logger.debug("SSH key found", key_name=key_name, key_length=len(kv.value))
             raw_value = kv.value.get_secret_value()
@@ -460,3 +546,14 @@ class SecretsService(BaseOrgService):
                 f"SSH key {key_name} not found. Please check whether this key exists.\n\n"
                 " If not, please create a key in your organization's credentials page and try again."
             ) from e
+
+    @require_scope("org:secret:read")
+    @audit_log(
+        resource_type="organization_secret",
+        action="read",
+        data_fn=_registry_ssh_key_read_data,
+    )
+    async def get_registry_ssh_key(
+        self, key_name: str | None = None, environment: str | None = None
+    ) -> SecretStr:
+        return await self._get_registry_ssh_key(key_name, environment)

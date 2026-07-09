@@ -10,18 +10,26 @@ Tests cover:
 """
 
 import uuid
+from types import SimpleNamespace
+from typing import cast
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from tracecat_registry import RegistrySecret
 
+from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement, DSLConfig
 from tracecat.expressions.common import ExprType
+from tracecat.secrets.schemas import SecretSearch
+from tracecat.secrets.service import SecretsService
 from tracecat.validation.service import (
     ActionEnvPair,
     get_effective_environment,
     validate_dsl_expressions,
+    validate_single_secret,
 )
 
 
@@ -105,6 +113,39 @@ class TestActionEnvPair:
         assert pair1 in pairs_set
         assert pair3 in pairs_set
         assert pair4 in pairs_set
+
+
+@pytest.mark.anyio
+async def test_validate_single_secret_uses_search_without_audit_and_reserves_key():
+    checked_keys: set[str] = set()
+    checked_key = "secret::api::prod"
+    create_event = AsyncMock()
+
+    async def search_secrets(params: SecretSearch) -> list[object]:
+        assert checked_key in checked_keys
+        assert params.names == {"api"}
+        assert params.environment == "prod"
+        return []
+
+    secrets_service = cast(
+        SecretsService,
+        SimpleNamespace(
+            search_secrets=AsyncMock(side_effect=search_secrets),
+            decrypt_keys=AsyncMock(),
+        ),
+    )
+
+    with patch.object(AuditService, "create_event", create_event):
+        results = await validate_single_secret(
+            secrets_service,
+            checked_keys,
+            "prod",
+            RegistrySecret(name="api", keys=["TOKEN"], optional=True),
+        )
+
+    assert results == []
+    assert checked_keys == {checked_key}
+    create_event.assert_not_awaited()
 
 
 @pytest.mark.anyio

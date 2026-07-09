@@ -1,8 +1,11 @@
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from cryptography import x509
+from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ed25519, rsa
 from cryptography.hazmat.primitives.serialization import (
@@ -14,7 +17,12 @@ from cryptography.x509.oid import NameOID
 from pydantic import SecretStr, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat import config
+from tracecat.audit.enums import AuditEventStatus
+from tracecat.audit.service import AuditService
+from tracecat.auth.sandbox import AuthSandbox
 from tracecat.auth.types import Role
+from tracecat.contexts import ctx_role
 from tracecat.exceptions import (
     ScopeDeniedError,
     TracecatCredentialsNotFoundError,
@@ -32,10 +40,40 @@ from tracecat.secrets.service import SecretsService
 pytestmark = pytest.mark.usefixtures("db")
 
 
+@pytest.fixture(autouse=True)
+def db_encryption_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__DB_ENCRYPTION_KEY",
+        Fernet.generate_key().decode(),
+    )
+
+
 @pytest.fixture
 async def service(session: AsyncSession, svc_admin_role: Role) -> SecretsService:
     """Create a secrets service instance for testing."""
     return SecretsService(session=session, role=svc_admin_role)
+
+
+@contextmanager
+def audit_role_context(role: Role) -> Iterator[None]:
+    token = ctx_role.set(role)
+    try:
+        yield
+    finally:
+        ctx_role.reset(token)
+
+
+@contextmanager
+def capture_audit_events(role: Role) -> Iterator[list[dict[str, object]]]:
+    create_event_calls: list[dict[str, object]] = []
+
+    async def mock_create_event(*args: object, **kwargs: object) -> None:
+        create_event_calls.append(kwargs)
+
+    with audit_role_context(role):
+        with patch.object(AuditService, "create_event", side_effect=mock_create_event):
+            yield create_event_calls
 
 
 @pytest.fixture(scope="session")
@@ -234,6 +272,171 @@ def test_secret_create_normalizes_mtls_values(
 
 @pytest.mark.anyio
 class TestSecretsService:
+    async def test_get_secret_by_id_audits_read_metadata_only(
+        self,
+        service: SecretsService,
+        svc_admin_role: Role,
+    ) -> None:
+        create_params = SecretCreate(
+            name="audited-secret-by-id",
+            type=SecretType.CUSTOM,
+            keys=[SecretKeyValue(key="token", value=SecretStr("secret-value"))],
+            environment="audit-test",
+        )
+        await service.create_secret(create_params)
+        secret = await service.get_secret_by_name(create_params.name)
+
+        with capture_audit_events(svc_admin_role) as create_event_calls:
+            await service.get_secret(secret.id)
+
+        assert len(create_event_calls) == 1
+        assert create_event_calls[0]["resource_type"] == "secret"
+        assert create_event_calls[0]["action"] == "read"
+        assert create_event_calls[0]["resource_id"] == str(secret.id)
+        assert create_event_calls[0]["status"] == AuditEventStatus.SUCCESS
+        assert create_event_calls[0]["data"] == {
+            "name": create_params.name,
+            "environment": create_params.environment,
+            "type": SecretType.CUSTOM,
+        }
+        assert "secret-value" not in str(create_event_calls[0])
+
+    async def test_get_secret_by_name_audits_read_metadata_only(
+        self,
+        service: SecretsService,
+        svc_admin_role: Role,
+    ) -> None:
+        create_params = SecretCreate(
+            name="audited-secret-by-name",
+            type=SecretType.CUSTOM,
+            keys=[SecretKeyValue(key="token", value=SecretStr("secret-value"))],
+            environment="audit-test",
+        )
+        await service.create_secret(create_params)
+
+        with capture_audit_events(svc_admin_role) as create_event_calls:
+            secret = await service.get_secret_by_name(
+                create_params.name, create_params.environment
+            )
+
+        assert len(create_event_calls) == 1
+        assert create_event_calls[0]["resource_type"] == "secret"
+        assert create_event_calls[0]["action"] == "read"
+        assert create_event_calls[0]["resource_id"] == str(secret.id)
+        assert create_event_calls[0]["status"] == AuditEventStatus.SUCCESS
+        assert create_event_calls[0]["data"] == {
+            "name": create_params.name,
+            "environment": create_params.environment,
+            "type": SecretType.CUSTOM,
+        }
+        assert "secret-value" not in str(create_event_calls[0])
+
+    async def test_get_org_secret_reads_audit_metadata_only(
+        self,
+        service: SecretsService,
+        svc_admin_role: Role,
+    ) -> None:
+        create_params = SecretCreate(
+            name="audited-org-secret",
+            type=SecretType.CUSTOM,
+            keys=[SecretKeyValue(key="token", value=SecretStr("secret-value"))],
+            environment="audit-test",
+        )
+        await service.create_org_secret(create_params)
+        org_secret = await service.get_org_secret_by_name(
+            create_params.name, create_params.environment
+        )
+
+        with capture_audit_events(svc_admin_role) as create_event_calls:
+            by_id = await service.get_org_secret(org_secret.id)
+            by_name = await service.get_org_secret_by_name(
+                create_params.name, create_params.environment
+            )
+
+        assert by_id.id == org_secret.id
+        assert by_name.id == org_secret.id
+        assert len(create_event_calls) == 2
+        assert [call["resource_type"] for call in create_event_calls] == [
+            "organization_secret",
+            "organization_secret",
+        ]
+        assert [call["action"] for call in create_event_calls] == ["read", "read"]
+        assert [call["resource_id"] for call in create_event_calls] == [
+            str(org_secret.id),
+            str(org_secret.id),
+        ]
+        assert all(
+            call["status"] == AuditEventStatus.SUCCESS for call in create_event_calls
+        )
+        assert create_event_calls[0]["data"] == {
+            "name": create_params.name,
+            "environment": create_params.environment,
+            "type": SecretType.CUSTOM,
+        }
+        assert create_event_calls[1]["data"] == {
+            "name": create_params.name,
+            "environment": create_params.environment,
+            "type": SecretType.CUSTOM,
+        }
+        assert "secret-value" not in str(create_event_calls)
+
+    async def test_get_registry_ssh_key_audits_decryption_metadata_only(
+        self,
+        service: SecretsService,
+        svc_admin_role: Role,
+        ssh_private_key: str,
+    ) -> None:
+        create_params = SecretCreate(
+            name="audited-registry-ssh-key",
+            type=SecretType.SSH_KEY,
+            keys=[SecretKeyValue(key="PRIVATE_KEY", value=SecretStr(ssh_private_key))],
+            environment="audit-test",
+        )
+        await service.create_org_secret(create_params)
+
+        with capture_audit_events(svc_admin_role) as create_event_calls:
+            ssh_key = await service.get_registry_ssh_key(
+                create_params.name, create_params.environment
+            )
+
+        assert ssh_key.get_secret_value() == f"{ssh_private_key}\n"
+        assert len(create_event_calls) == 1
+        assert create_event_calls[0]["resource_type"] == "organization_secret"
+        assert create_event_calls[0]["action"] == "read"
+        assert create_event_calls[0]["status"] == AuditEventStatus.SUCCESS
+        assert create_event_calls[0]["data"] == {
+            "name": create_params.name,
+            "environment": create_params.environment,
+            "target": "registry",
+        }
+        assert ssh_private_key not in str(create_event_calls[0])
+
+    async def test_auth_sandbox_secret_fetch_does_not_audit(
+        self,
+        service: SecretsService,
+        secret_create_params: SecretCreate,
+        svc_admin_role: Role,
+    ) -> None:
+        await service.create_secret(secret_create_params)
+
+        @asynccontextmanager
+        async def mock_with_session(
+            *args: object, **kwargs: object
+        ) -> AsyncIterator[SecretsService]:
+            yield service
+
+        with capture_audit_events(svc_admin_role) as create_event_calls:
+            with patch.object(SecretsService, "with_session", mock_with_session):
+                sandbox = AuthSandbox(
+                    role=svc_admin_role,
+                    secrets={secret_create_params.name},
+                    environment=secret_create_params.environment,
+                )
+                secrets = await sandbox._get_secrets_from_service()
+
+        assert [secret.name for secret in secrets] == [secret_create_params.name]
+        assert create_event_calls == []
+
     async def test_create_and_get_secret(
         self, service: SecretsService, secret_create_params: SecretCreate
     ) -> None:

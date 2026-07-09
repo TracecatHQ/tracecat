@@ -389,7 +389,7 @@ class GitHubAppService(BaseOrgService):
         """
         try:
             secrets_service = SecretsService(session=self.session, role=self.role)
-            secret = await secrets_service.get_org_secret_by_name(
+            secret = await secrets_service._get_org_secret_by_name(
                 "github-app-credentials"
             )
             await secrets_service.delete_org_secret(secret)

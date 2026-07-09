@@ -3,7 +3,7 @@
 import uuid
 from types import SimpleNamespace
 from typing import cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import sqlalchemy as sa
@@ -19,13 +19,16 @@ from tracecat.agent.preset.activities import _load_custom_model_provider_creds
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.types import AgentConfig
+from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
+from tracecat.contexts import ctx_role
 from tracecat.db.models import (
     AgentCatalog,
     AgentCustomProvider,
     AgentModelAccess,
     Organization,
     OrganizationSecret,
+    Secret,
     Workspace,
 )
 from tracecat.integrations.aws_assume_role import build_workspace_external_id
@@ -33,6 +36,15 @@ from tracecat.secrets import secrets_manager
 from tracecat.secrets.encryption import encrypt_keyvalues
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretKeyValue
+
+
+@pytest.fixture(autouse=True)
+def db_encryption_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        tracecat_config,
+        "TRACECAT__DB_ENCRYPTION_KEY",
+        Fernet.generate_key().decode(),
+    )
 
 
 @pytest.fixture
@@ -76,6 +88,32 @@ async def _seed_org_secret(
     session.add(
         OrganizationSecret(
             organization_id=org_id,
+            name=name,
+            type=SecretType.CUSTOM.value,
+            encrypted_keys=encrypted_keys,
+        )
+    )
+    await session.flush()
+
+
+async def _seed_workspace_secret(
+    session: AsyncSession,
+    *,
+    workspace_id: uuid.UUID,
+    name: str,
+    values: dict[str, str],
+    encryption_key: str,
+) -> None:
+    encrypted_keys = encrypt_keyvalues(
+        [
+            SecretKeyValue(key=key, value=SecretStr(value))
+            for key, value in values.items()
+        ],
+        key=encryption_key,
+    )
+    session.add(
+        Secret(
+            workspace_id=workspace_id,
             name=name,
             type=SecretType.CUSTOM.value,
             encrypted_keys=encrypted_keys,
@@ -186,6 +224,65 @@ async def test_get_catalog_credentials_respects_workspace_override_access(
         await service.get_catalog_credentials(inherited_catalog.id)
     credentials = await service.get_catalog_credentials(workspace_catalog.id)
     assert credentials == {"ANTHROPIC_API_KEY": "live-anthropic"}
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_provider_credential_resolution_does_not_audit_secret_reads(
+    session: AsyncSession,
+    svc_organization: Organization,
+    svc_workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    encryption_key = Fernet.generate_key().decode()
+    monkeypatch.setattr(
+        tracecat_config,
+        "TRACECAT__DB_ENCRYPTION_KEY",
+        encryption_key,
+    )
+    catalog = await _seed_catalog(
+        session,
+        org_id=svc_organization.id,
+        provider="openai",
+        model_name="gpt-4.1",
+    )
+    await _grant_access(
+        session,
+        org_id=svc_organization.id,
+        catalog_id=catalog.id,
+    )
+    await _seed_org_secret(
+        session,
+        org_id=svc_organization.id,
+        name="agent-openai-credentials",
+        values={"OPENAI_API_KEY": "live-openai"},
+        encryption_key=encryption_key,
+    )
+    await _seed_workspace_secret(
+        session,
+        workspace_id=svc_workspace.id,
+        name="openai",
+        values={"OPENAI_API_KEY": "workspace-openai"},
+        encryption_key=encryption_key,
+    )
+    await session.commit()
+
+    role = _db_role(svc_organization, svc_workspace)
+    service = AgentManagementService(session=session, role=role)
+    create_event = AsyncMock()
+    token = ctx_role.set(role)
+    try:
+        with patch.object(AuditService, "create_event", create_event):
+            catalog_credentials = await service.get_catalog_credentials(catalog.id)
+            workspace_credentials = await service.get_workspace_provider_credentials(
+                "openai"
+            )
+    finally:
+        ctx_role.reset(token)
+
+    assert catalog_credentials == {"OPENAI_API_KEY": "live-openai"}
+    assert workspace_credentials == {"OPENAI_API_KEY": "workspace-openai"}
+    create_event.assert_not_awaited()
 
 
 @pytest.mark.anyio
