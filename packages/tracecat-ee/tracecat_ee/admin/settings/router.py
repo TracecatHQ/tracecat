@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, status
 
+from tracecat.audit.test_fire import (
+    AuditWebhookNotConfiguredError,
+    AuditWebhookTestResult,
+    test_fire_audit_webhook,
+)
 from tracecat.auth.credentials import SuperuserRole
 from tracecat.db.dependencies import AsyncDBSessionBypass
 from tracecat_ee.admin.settings.schemas import (
@@ -36,6 +41,26 @@ async def update_audit_settings(
     """Update platform audit settings."""
     service = AdminSettingsService(session, role)
     return await service.update_audit_settings(params)
+
+
+@router.post("/audit/test", response_model=AuditWebhookTestResult)
+async def test_audit_webhook(
+    role: SuperuserRole,
+    session: AsyncDBSessionBypass,
+) -> AuditWebhookTestResult:
+    """Send a test event to the platform audit webhook."""
+    try:
+        return await test_fire_audit_webhook(
+            sink="platform",
+            organization_id=None,
+            role=role,
+            session=session,
+        )
+    except AuditWebhookNotConfiguredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Audit webhook is not configured",
+        ) from exc
 
 
 @router.get("/registry", response_model=PlatformRegistrySettingsRead)

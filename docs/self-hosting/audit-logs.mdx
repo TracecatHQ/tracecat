@@ -16,6 +16,12 @@ Tracecat adds these headers to each delivery:
 | `X-Tracecat-Event-Id` | The audit event `id`. |
 | `X-Tracecat-Timestamp` | The audit event `created_at` timestamp. |
 
+## Test webhook delivery
+
+Use the test action in audit log settings to send a synchronous test event to the configured webhook. Tracecat sends the request with the same headers, payload wrapper, custom payload, and TLS verification setting as normal delivery, but skips the Redis delivery buffer.
+
+The test delivery is marked with `X-Tracecat-Test: true`. The event also includes `data.test: true` unless a custom payload overrides `data`, and the UI shows the receiver status code or request error category.
+
 ## Envelope v1
 
 Audit events use this JSON envelope:

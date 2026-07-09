@@ -24,6 +24,7 @@ import {
   ApiError,
   type AppSettingsRead,
   type AuditSettingsRead,
+  type AuditWebhookTestResult,
   type AwsAssumeRoleAccessRead,
   actionsDeleteAction,
   actionsGetAction,
@@ -251,6 +252,7 @@ import {
   settingsGetAuditSettings,
   settingsGetGitSettings,
   settingsGetSamlSettings,
+  settingsTestAuditWebhook,
   settingsUpdateAgentSettings,
   settingsUpdateAppSettings,
   settingsUpdateAuditSettings,
@@ -372,6 +374,10 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { type AgentSessionWithStatus, enrichAgentSession } from "@/lib/agents"
 import { client as apiClient, getBaseUrl } from "@/lib/api"
+import {
+  getAuditWebhookTestDescription,
+  getAuditWebhookTestTitle,
+} from "@/lib/audit-webhook-test"
 import {
   listCaseDurationDefinitions,
   listCaseDurations,
@@ -3041,6 +3047,34 @@ export function useOrgAuditSettings() {
     },
   })
 
+  const { mutate: testAuditWebhook, isPending: testAuditWebhookIsPending } =
+    useMutation<AuditWebhookTestResult, TracecatApiError>({
+      mutationFn: settingsTestAuditWebhook,
+      onSuccess: (result) => {
+        toast({
+          title: getAuditWebhookTestTitle(result),
+          description: getAuditWebhookTestDescription(result),
+          variant: result.ok ? "default" : "destructive",
+        })
+      },
+      onError: (error: TracecatApiError) => {
+        switch (error.status) {
+          case 403:
+            toast({
+              title: "Forbidden",
+              description: "You cannot perform this action",
+            })
+            break
+          default:
+            console.error("Failed to test audit webhook", error)
+            toast({
+              title: "Failed to test audit webhook",
+              description: getApiErrorDetail(error) ?? "Unknown error",
+            })
+        }
+      },
+    })
+
   return {
     // Get
     auditSettings,
@@ -3050,6 +3084,9 @@ export function useOrgAuditSettings() {
     updateAuditSettings,
     updateAuditSettingsIsPending,
     updateAuditSettingsError,
+    // Test
+    testAuditWebhook,
+    testAuditWebhookIsPending,
   }
 }
 

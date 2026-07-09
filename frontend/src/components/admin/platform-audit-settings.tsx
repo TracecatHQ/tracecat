@@ -10,6 +10,8 @@ export function PlatformAuditSettings() {
     auditSettingsError,
     updateAuditSettings,
     updateAuditSettingsIsPending,
+    testAuditWebhook,
+    testAuditWebhookIsPending,
   } = useAdminAuditSettings()
 
   return (
@@ -19,6 +21,8 @@ export function PlatformAuditSettings() {
       auditSettingsError={auditSettingsError}
       updateAuditSettings={updateAuditSettings}
       updateAuditSettingsIsPending={updateAuditSettingsIsPending}
+      testAuditWebhook={testAuditWebhook}
+      testAuditWebhookIsPending={testAuditWebhookIsPending}
       decryptFailureTitle="Unable to decrypt platform settings"
     />
   )

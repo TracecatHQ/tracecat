@@ -12,6 +12,7 @@ import orjson
 from cryptography.fernet import InvalidToken
 from pydantic import ValidationError
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.audit.constants import (
@@ -49,6 +50,125 @@ _AUDIT_WEBHOOK_SETTING_KEYS = (
     _WEBHOOK_VERIFY_SSL_KEY,
     _WEBHOOK_PAYLOAD_ATTRIBUTE_KEY,
 )
+
+
+async def resolve_audit_sink_config(
+    session: AsyncSession,
+    sink: AuditSink,
+    organization_id: uuid.UUID | None,
+) -> AuditWebhookConfig | None:
+    """Resolve and validate the webhook config used for audit delivery."""
+    values = await get_audit_sink_settings(session, sink, organization_id)
+    return build_audit_sink_config(values)
+
+
+async def get_audit_sink_settings(
+    session: AsyncSession,
+    sink: AuditSink,
+    organization_id: uuid.UUID | None,
+) -> dict[str, Any]:
+    if sink == "platform":
+        return await get_platform_audit_sink_settings(session)
+    if organization_id is None:
+        return {}
+
+    role = get_audit_sink_service_role(organization_id)
+    return {
+        _WEBHOOK_URL_KEY: await get_setting(
+            _WEBHOOK_URL_KEY, role=role, session=session
+        ),
+        _WEBHOOK_CUSTOM_HEADERS_KEY: await get_setting(
+            _WEBHOOK_CUSTOM_HEADERS_KEY, role=role, session=session
+        ),
+        _WEBHOOK_CUSTOM_PAYLOAD_KEY: await get_setting(
+            _WEBHOOK_CUSTOM_PAYLOAD_KEY, role=role, session=session
+        ),
+        _WEBHOOK_VERIFY_SSL_KEY: await get_setting(
+            _WEBHOOK_VERIFY_SSL_KEY,
+            role=role,
+            session=session,
+            default=True,
+        ),
+        _WEBHOOK_PAYLOAD_ATTRIBUTE_KEY: await get_setting(
+            _WEBHOOK_PAYLOAD_ATTRIBUTE_KEY, role=role, session=session
+        ),
+    }
+
+
+async def get_platform_audit_sink_settings(
+    session: AsyncSession,
+) -> dict[str, Any]:
+    result = await session.execute(
+        select(PlatformSetting).where(
+            PlatformSetting.key.in_(_AUDIT_WEBHOOK_SETTING_KEYS)
+        )
+    )
+    values: dict[str, Any] = {}
+    for setting in result.scalars().all():
+        value = setting.value
+        if setting.is_encrypted:
+            try:
+                value = decrypt_value(value, key=get_db_encryption_key())
+            except (InvalidToken, ValueError) as exc:
+                logger.warning(
+                    "Failed to decrypt platform audit setting",
+                    key=setting.key,
+                    error_type=type(exc).__name__,
+                )
+                continue
+        values[setting.key] = orjson.loads(value)
+    return values
+
+
+def build_audit_sink_config(values: dict[str, Any]) -> AuditWebhookConfig | None:
+    webhook_url = clean_audit_sink_string(values.get(_WEBHOOK_URL_KEY))
+    if webhook_url is None:
+        return None
+
+    custom_headers = values.get(_WEBHOOK_CUSTOM_HEADERS_KEY)
+    if custom_headers is not None and not isinstance(custom_headers, dict):
+        logger.warning("audit_webhook_custom_headers must be a dict")
+        custom_headers = None
+
+    custom_payload = values.get(_WEBHOOK_CUSTOM_PAYLOAD_KEY)
+    if custom_payload is not None and not isinstance(custom_payload, dict):
+        logger.warning("audit_webhook_custom_payload must be a dict")
+        custom_payload = None
+
+    verify_ssl = values.get(_WEBHOOK_VERIFY_SSL_KEY, True)
+    if not isinstance(verify_ssl, bool):
+        logger.warning("audit_webhook_verify_ssl must be a bool")
+        verify_ssl = True
+
+    payload_attribute = clean_audit_sink_string(
+        values.get(_WEBHOOK_PAYLOAD_ATTRIBUTE_KEY)
+    )
+
+    return AuditWebhookConfig(
+        webhook_url=webhook_url,
+        custom_headers=custom_headers,
+        custom_payload=custom_payload,
+        verify_ssl=verify_ssl,
+        payload_attribute=payload_attribute,
+    )
+
+
+def clean_audit_sink_string(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def get_audit_sink_service_role(organization_id: uuid.UUID) -> Role:
+    return Role(
+        type="service",
+        workspace_id=None,
+        organization_id=organization_id,
+        user_id=None,
+        service_id="tracecat-api",
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-api"],
+    )
 
 
 class AuditDeliveryConsumer:
@@ -335,106 +455,13 @@ class AuditDeliveryConsumer:
                 return sink_config
 
         async with get_async_session_bypass_rls_context_manager() as session:
-            if sink == "platform":
-                values = await self._get_platform_settings(session)
-            elif organization_id is not None:
-                role = self._get_service_role(organization_id)
-                values = {
-                    _WEBHOOK_URL_KEY: await get_setting(
-                        _WEBHOOK_URL_KEY, role=role, session=session
-                    ),
-                    _WEBHOOK_CUSTOM_HEADERS_KEY: await get_setting(
-                        _WEBHOOK_CUSTOM_HEADERS_KEY, role=role, session=session
-                    ),
-                    _WEBHOOK_CUSTOM_PAYLOAD_KEY: await get_setting(
-                        _WEBHOOK_CUSTOM_PAYLOAD_KEY, role=role, session=session
-                    ),
-                    _WEBHOOK_VERIFY_SSL_KEY: await get_setting(
-                        _WEBHOOK_VERIFY_SSL_KEY,
-                        role=role,
-                        session=session,
-                        default=True,
-                    ),
-                    _WEBHOOK_PAYLOAD_ATTRIBUTE_KEY: await get_setting(
-                        _WEBHOOK_PAYLOAD_ATTRIBUTE_KEY, role=role, session=session
-                    ),
-                }
-            else:
-                values = {}
-
-        sink_config = self._build_sink_config(values)
+            sink_config = await resolve_audit_sink_config(
+                session=session,
+                sink=sink,
+                organization_id=organization_id,
+            )
         self._config_cache[cache_key] = (now + _CONFIG_CACHE_TTL_SECONDS, sink_config)
         return sink_config
-
-    async def _get_platform_settings(self, session) -> dict[str, Any]:
-        result = await session.execute(
-            select(PlatformSetting).where(
-                PlatformSetting.key.in_(_AUDIT_WEBHOOK_SETTING_KEYS)
-            )
-        )
-        values: dict[str, Any] = {}
-        for setting in result.scalars().all():
-            value = setting.value
-            if setting.is_encrypted:
-                try:
-                    value = decrypt_value(value, key=get_db_encryption_key())
-                except (InvalidToken, ValueError) as exc:
-                    logger.warning(
-                        "Failed to decrypt platform audit setting",
-                        key=setting.key,
-                        error_type=type(exc).__name__,
-                    )
-                    continue
-            values[setting.key] = orjson.loads(value)
-        return values
-
-    def _build_sink_config(self, values: dict[str, Any]) -> AuditWebhookConfig | None:
-        webhook_url = self._clean_string(values.get(_WEBHOOK_URL_KEY))
-        if webhook_url is None:
-            return None
-
-        custom_headers = values.get(_WEBHOOK_CUSTOM_HEADERS_KEY)
-        if custom_headers is not None and not isinstance(custom_headers, dict):
-            logger.warning("audit_webhook_custom_headers must be a dict")
-            custom_headers = None
-
-        custom_payload = values.get(_WEBHOOK_CUSTOM_PAYLOAD_KEY)
-        if custom_payload is not None and not isinstance(custom_payload, dict):
-            logger.warning("audit_webhook_custom_payload must be a dict")
-            custom_payload = None
-
-        verify_ssl = values.get(_WEBHOOK_VERIFY_SSL_KEY, True)
-        if not isinstance(verify_ssl, bool):
-            logger.warning("audit_webhook_verify_ssl must be a bool")
-            verify_ssl = True
-
-        payload_attribute = self._clean_string(
-            values.get(_WEBHOOK_PAYLOAD_ATTRIBUTE_KEY)
-        )
-
-        return AuditWebhookConfig(
-            webhook_url=webhook_url,
-            custom_headers=custom_headers,
-            custom_payload=custom_payload,
-            verify_ssl=verify_ssl,
-            payload_attribute=payload_attribute,
-        )
-
-    def _clean_string(self, value: Any) -> str | None:
-        if not isinstance(value, str):
-            return None
-        cleaned = value.strip()
-        return cleaned or None
-
-    def _get_service_role(self, organization_id: uuid.UUID) -> Role:
-        return Role(
-            type="service",
-            workspace_id=None,
-            organization_id=organization_id,
-            user_id=None,
-            service_id="tracecat-api",
-            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-api"],
-        )
 
     async def _is_circuit_open(
         self, sink: AuditSink, organization_id: uuid.UUID | None
