@@ -158,9 +158,9 @@ async def test_admin_user_audit_logs_target_user_ids(
         for call in create_event_calls
         if call["status"] == AuditEventStatus.SUCCESS
     }
-    assert ("create", created.id) in success_events
-    assert ("promote", promoted.id) in success_events
-    assert ("demote", demoted.id) in success_events
+    assert ("create", str(created.id)) in success_events
+    assert ("promote", str(promoted.id)) in success_events
+    assert ("demote", str(demoted.id)) in success_events
 
 
 @pytest.mark.anyio

@@ -4,7 +4,7 @@ import asyncio
 import base64
 import builtins
 from collections.abc import Awaitable, Sequence
-from typing import Any, TypeVar
+from typing import Any
 
 import boto3
 import redis.asyncio as redis
@@ -22,10 +22,8 @@ from tenacity import (
 from tracecat.config import REDIS_CHAT_TTL_SECONDS, REDIS_URL, REDIS_URL__ARN
 from tracecat.logger import logger
 
-T = TypeVar("T")
 
-
-async def _resolve_redis_result(value: T | Awaitable[T]) -> T:
+async def _resolve_redis_result[T](value: T | Awaitable[T]) -> T:
     if isinstance(value, Awaitable):
         return await value
     return value

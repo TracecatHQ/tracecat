@@ -116,7 +116,7 @@ async def test_create_service_account_audit_logs_created_service_account_id(
         for call in create_event_calls
         if call["status"] == AuditEventStatus.SUCCESS
     )
-    assert success_call["resource_id"] == service_account_id
+    assert success_call["resource_id"] == str(service_account_id)
 
 
 def _role_with_scope(scope: str) -> Role:
@@ -135,7 +135,7 @@ def _has_audit_call(
     *,
     resource_type: str,
     action: str,
-    resource_id: object,
+    resource_id: str,
     status: AuditEventStatus,
 ) -> bool:
     return any(
@@ -191,14 +191,14 @@ async def test_api_key_issue_and_revoke_audit_logs_api_key_id(
         create_event_calls,
         resource_type="service_account_api_key",
         action="create",
-        resource_id=api_key_id,
+        resource_id=str(api_key_id),
         status=AuditEventStatus.SUCCESS,
     )
     assert _has_audit_call(
         create_event_calls,
         resource_type="service_account_api_key",
         action="revoke",
-        resource_id=api_key_id,
+        resource_id=str(api_key_id),
         status=AuditEventStatus.SUCCESS,
     )
 
@@ -242,7 +242,7 @@ async def test_disable_and_enable_service_account_audit_logs_service_account_id(
         for call in create_event_calls
         if call["resource_type"] == "service_account"
         and call["action"] == "update"
-        and call["resource_id"] == service_account_id
+        and call["resource_id"] == str(service_account_id)
         and call["status"] == AuditEventStatus.SUCCESS
     ]
     assert len(update_success_calls) == 2
