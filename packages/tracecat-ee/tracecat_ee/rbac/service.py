@@ -91,7 +91,7 @@ class RBACService(BaseOrgService):
         return scope
 
     @require_scope("org:rbac:create")
-    @audit_log(resource_type="rbac_scope", action="create")
+    @audit_log(resource_type="rbac_scope", action="create", emit_attempt=True)
     async def create_scope(
         self,
         *,
@@ -135,7 +135,12 @@ class RBACService(BaseOrgService):
         return scope
 
     @require_scope("org:rbac:delete")
-    @audit_log(resource_type="rbac_scope", action="delete", resource_id_attr="scope_id")
+    @audit_log(
+        resource_type="rbac_scope",
+        action="delete",
+        resource_id_attr="scope_id",
+        emit_attempt=True,
+    )
     async def delete_scope(self, scope_id: UUID) -> None:
         """Delete a custom scope.
 
@@ -187,7 +192,7 @@ class RBACService(BaseOrgService):
         return role
 
     @require_scope("org:rbac:create")
-    @audit_log(resource_type="rbac_role", action="create")
+    @audit_log(resource_type="rbac_role", action="create", emit_attempt=True)
     async def create_role(
         self,
         *,
@@ -217,7 +222,12 @@ class RBACService(BaseOrgService):
         return role
 
     @require_scope("org:rbac:update")
-    @audit_log(resource_type="rbac_role", action="update", resource_id_attr="role_id")
+    @audit_log(
+        resource_type="rbac_role",
+        action="update",
+        resource_id_attr="role_id",
+        emit_attempt=True,
+    )
     async def update_role(
         self,
         role_id: UUID,
@@ -249,7 +259,12 @@ class RBACService(BaseOrgService):
         return role
 
     @require_scope("org:rbac:delete")
-    @audit_log(resource_type="rbac_role", action="delete", resource_id_attr="role_id")
+    @audit_log(
+        resource_type="rbac_role",
+        action="delete",
+        resource_id_attr="role_id",
+        emit_attempt=True,
+    )
     async def delete_role(self, role_id: UUID) -> None:
         """Delete a role.
 
@@ -360,7 +375,7 @@ class RBACService(BaseOrgService):
         return group
 
     @require_scope("org:rbac:create")
-    @audit_log(resource_type="rbac_group", action="create")
+    @audit_log(resource_type="rbac_group", action="create", emit_attempt=True)
     async def create_group(
         self,
         *,
@@ -380,7 +395,12 @@ class RBACService(BaseOrgService):
         return group
 
     @require_scope("org:rbac:update")
-    @audit_log(resource_type="rbac_group", action="update", resource_id_attr="group_id")
+    @audit_log(
+        resource_type="rbac_group",
+        action="update",
+        resource_id_attr="group_id",
+        emit_attempt=True,
+    )
     async def update_group(
         self,
         group_id: UUID,
@@ -401,7 +421,12 @@ class RBACService(BaseOrgService):
         return group
 
     @require_scope("org:rbac:delete")
-    @audit_log(resource_type="rbac_group", action="delete", resource_id_attr="group_id")
+    @audit_log(
+        resource_type="rbac_group",
+        action="delete",
+        resource_id_attr="group_id",
+        emit_attempt=True,
+    )
     async def delete_group(self, group_id: UUID) -> None:
         """Delete a group."""
         group = await self.get_group(group_id)
@@ -410,7 +435,10 @@ class RBACService(BaseOrgService):
 
     @require_scope("org:rbac:update")
     @audit_log(
-        resource_type="rbac_group_member", action="create", resource_id_attr="group_id"
+        resource_type="rbac_group_member",
+        action="create",
+        resource_id_attr="group_id",
+        emit_attempt=True,
     )
     async def add_group_member(self, group_id: UUID, user_id: UUID) -> None:
         """Add a user to a group."""
@@ -441,7 +469,10 @@ class RBACService(BaseOrgService):
 
     @require_scope("org:rbac:update")
     @audit_log(
-        resource_type="rbac_group_member", action="delete", resource_id_attr="group_id"
+        resource_type="rbac_group_member",
+        action="delete",
+        resource_id_attr="group_id",
+        emit_attempt=True,
     )
     async def remove_group_member(self, group_id: UUID, user_id: UUID) -> None:
         """Remove a user from a group."""
@@ -531,7 +562,7 @@ class RBACService(BaseOrgService):
         return assignment
 
     @require_scope("org:rbac:create")
-    @audit_log(resource_type="rbac_assignment", action="create")
+    @audit_log(resource_type="rbac_assignment", action="create", emit_attempt=True)
     async def create_group_role_assignment(
         self,
         *,
@@ -580,6 +611,7 @@ class RBACService(BaseOrgService):
         resource_type="rbac_assignment",
         action="update",
         resource_id_attr="assignment_id",
+        emit_attempt=True,
     )
     async def update_group_role_assignment(
         self,
@@ -603,6 +635,7 @@ class RBACService(BaseOrgService):
         resource_type="rbac_assignment",
         action="delete",
         resource_id_attr="assignment_id",
+        emit_attempt=True,
     )
     async def delete_group_role_assignment(self, assignment_id: UUID) -> None:
         """Delete a group assignment."""
@@ -660,7 +693,7 @@ class RBACService(BaseOrgService):
         return assignment
 
     @require_scope("org:rbac:create")
-    @audit_log(resource_type="rbac_user_assignment", action="create")
+    @audit_log(resource_type="rbac_user_assignment", action="create", emit_attempt=True)
     async def create_user_assignment(
         self,
         *,
@@ -723,6 +756,7 @@ class RBACService(BaseOrgService):
         resource_type="rbac_user_assignment",
         action="update",
         resource_id_attr="assignment_id",
+        emit_attempt=True,
     )
     async def update_user_assignment(
         self,
@@ -746,6 +780,7 @@ class RBACService(BaseOrgService):
         resource_type="rbac_user_assignment",
         action="delete",
         resource_id_attr="assignment_id",
+        emit_attempt=True,
     )
     async def delete_user_assignment(self, assignment_id: UUID) -> None:
         """Delete a user role assignment."""

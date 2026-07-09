@@ -252,7 +252,7 @@ class SecretsService(BaseOrgService):
             ) from e
 
     @require_scope("secret:create")
-    @audit_log(resource_type="secret", action="create")
+    @audit_log(resource_type="secret", action="create", emit_attempt=True)
     async def create_secret(self, params: SecretCreate) -> None:
         """Create a workspace secret."""
         workspace_id = self._require_workspace_id()
@@ -275,14 +275,14 @@ class SecretsService(BaseOrgService):
         await self.session.commit()
 
     @require_scope("secret:update")
-    @audit_log(resource_type="secret", action="update")
+    @audit_log(resource_type="secret", action="update", emit_attempt=True)
     async def update_secret(self, secret: Secret, params: SecretUpdate) -> None:
         """Update a workspace secret."""
 
         await self._update_secret(secret=secret, params=params)
 
     @require_scope("secret:delete")
-    @audit_log(resource_type="secret", action="delete")
+    @audit_log(resource_type="secret", action="delete", emit_attempt=True)
     async def delete_secret(self, secret: Secret) -> None:
         """Delete a workspace secret."""
 
@@ -383,7 +383,7 @@ class SecretsService(BaseOrgService):
         """Create a new organization secret."""
         await self._create_org_secret(params)
 
-    @audit_log(resource_type="organization_secret", action="create")
+    @audit_log(resource_type="organization_secret", action="create", emit_attempt=True)
     async def _create_org_secret(self, params: SecretCreate) -> None:
         """Create an organization secret for callers with their own access gate."""
         if params.type == SecretType.SSH_KEY:
@@ -410,7 +410,7 @@ class SecretsService(BaseOrgService):
     ) -> None:
         await self._update_org_secret(secret=secret, params=params)
 
-    @audit_log(resource_type="organization_secret", action="update")
+    @audit_log(resource_type="organization_secret", action="update", emit_attempt=True)
     async def _update_org_secret(
         self, secret: OrganizationSecret, params: SecretUpdate
     ) -> None:
@@ -421,10 +421,7 @@ class SecretsService(BaseOrgService):
     async def delete_org_secret(self, org_secret: OrganizationSecret) -> None:
         await self._delete_org_secret(org_secret)
 
-    @audit_log(
-        resource_type="organization_secret",
-        action="delete",
-    )
+    @audit_log(resource_type="organization_secret", action="delete", emit_attempt=True)
     async def _delete_org_secret(self, org_secret: OrganizationSecret) -> None:
         """Delete an organization secret for callers with their own access gate."""
         await self._delete_secret(org_secret)

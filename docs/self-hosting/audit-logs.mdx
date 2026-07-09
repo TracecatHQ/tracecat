@@ -61,3 +61,4 @@ The v1 envelope is additive for most receivers. Update parsers for these changes
 - `source`, `user_agent`, `request_id`, `parent_resource_type`, and `parent_resource_id` are new fields.
 - `resource_id` is now a string. It can contain UUIDs, aliases, slugs, or provider-native IDs.
 - Case comment audit data no longer includes the comment body. Events include `redacted_fields: ["content"]` instead.
+- Global `ATTEMPT` events are no longer emitted for every audited action, so consumers that pair `ATTEMPT` and `SUCCESS` events will see fewer events. `ATTEMPT` remains only for security-sensitive secret writes (workspace + organization), service-account API key issue/revoke, MCP personal-access-token create/revoke, RBAC/role/membership mutations, superuser promote/demote, organization/workspace deletes, and tier changes.

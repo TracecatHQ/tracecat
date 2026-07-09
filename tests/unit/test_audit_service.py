@@ -672,6 +672,8 @@ async def test_audit_log_organization_invitation_create_uses_returned_id(
     finally:
         ctx_role.reset(token)
 
+    assert len(create_event_calls) == 1
+    assert create_event_calls[0]["status"] == AuditEventStatus.SUCCESS
     success_call = next(
         call
         for call in create_event_calls
@@ -713,11 +715,13 @@ async def test_audit_log_explicit_invitation_id_overrides_result_id(
         ctx_role.reset(token)
 
     resource_ids = [call["resource_id"] for call in create_event_calls]
-    assert resource_ids == [str(invitation_id), str(invitation_id)]
+    assert resource_ids == [str(invitation_id)]
 
 
 @pytest.mark.anyio
-async def test_audit_log_data_fn_runs_only_on_terminal_event(role: Role) -> None:
+async def test_audit_log_emit_attempt_emits_attempt_then_terminal(
+    role: Role,
+) -> None:
     workflow_id = "wf_alias"
 
     def metadata(self, workflow_id: str, result):
@@ -727,7 +731,12 @@ async def test_audit_log_data_fn_runs_only_on_terminal_event(role: Role) -> None
         def __init__(self):
             self.session = AsyncMock()
 
-        @audit_log(resource_type="workflow", action="create", data_fn=metadata)
+        @audit_log(
+            resource_type="workflow",
+            action="create",
+            data_fn=metadata,
+            emit_attempt=True,
+        )
         async def create_workflow(self, workflow_id: str):
             return SimpleNamespace(id="created")
 
@@ -744,6 +753,7 @@ async def test_audit_log_data_fn_runs_only_on_terminal_event(role: Role) -> None
     finally:
         ctx_role.reset(token)
 
+    assert len(create_event_calls) == 2
     assert create_event_calls[0]["status"] == AuditEventStatus.ATTEMPT
     assert "data" not in create_event_calls[0]
     assert create_event_calls[1]["status"] == AuditEventStatus.SUCCESS
@@ -780,8 +790,8 @@ async def test_audit_log_data_fn_failure_emits_none_data(role: Role) -> None:
     finally:
         ctx_role.reset(token)
 
-    assert create_event_calls[1]["status"] == AuditEventStatus.SUCCESS
-    assert create_event_calls[1]["data"] is None
+    assert create_event_calls[0]["status"] == AuditEventStatus.SUCCESS
+    assert create_event_calls[0]["data"] is None
 
 
 @pytest.mark.anyio
@@ -811,10 +821,8 @@ async def test_audit_log_inner_function_failure_logs_failure_event(role: Role):
     finally:
         ctx_role.reset(token)
 
-    assert len(create_event_calls) >= 1
-    assert create_event_calls[0][1]["status"] == AuditEventStatus.ATTEMPT
-    assert len(create_event_calls) >= 2
-    assert create_event_calls[1][1]["status"] == AuditEventStatus.FAILURE
+    assert len(create_event_calls) == 1
+    assert create_event_calls[0][1]["status"] == AuditEventStatus.FAILURE
 
 
 @pytest.mark.anyio
@@ -825,7 +833,7 @@ async def test_audit_log_attempt_logging_failure_still_executes_function(role: R
         def __init__(self):
             self.session = AsyncMock()
 
-        @audit_log(resource_type="workflow", action="create")
+        @audit_log(resource_type="workflow", action="create", emit_attempt=True)
         async def create_workflow(self, workflow_id: uuid.UUID):
             return {"id": str(workflow_id), "status": "created"}
 
@@ -859,7 +867,7 @@ async def test_audit_log_success_logging_failure_still_returns_result(role: Role
         def __init__(self):
             self.session = AsyncMock()
 
-        @audit_log(resource_type="workflow", action="create")
+        @audit_log(resource_type="workflow", action="create", emit_attempt=True)
         async def create_workflow(self, workflow_id: uuid.UUID):
             return expected_result
 
@@ -1150,7 +1158,7 @@ async def test_audit_log_failure_logging_failure_still_raises_original_exception
         def __init__(self):
             self.session = AsyncMock()
 
-        @audit_log(resource_type="workflow", action="create")
+        @audit_log(resource_type="workflow", action="create", emit_attempt=True)
         async def create_workflow(self, workflow_id: uuid.UUID):
             raise ValueError("Original error")
 

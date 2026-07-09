@@ -289,7 +289,7 @@ class OrgService(BaseOrgService):
         return result.scalar_one()
 
     @require_scope("org:member:remove")
-    @audit_log(resource_type="organization_member", action="delete")
+    @audit_log(resource_type="organization_member", action="delete", emit_attempt=True)
     async def delete_member(self, user_id: UserID) -> None:
         """
         Remove a member of the organization.
@@ -368,7 +368,7 @@ class OrgService(BaseOrgService):
         await self.session.commit()
 
     @require_scope("org:member:update")
-    @audit_log(resource_type="organization_member", action="update")
+    @audit_log(resource_type="organization_member", action="update", emit_attempt=True)
     async def update_member(self, user_id: UserID, params: UserUpdate) -> User:
         """
         Update a member of the organization.
@@ -395,7 +395,7 @@ class OrgService(BaseOrgService):
             )
         return updated_user
 
-    @audit_log(resource_type="organization_member", action="create")
+    @audit_log(resource_type="organization_member", action="create", emit_attempt=True)
     async def add_member(
         self,
         *,
@@ -428,7 +428,7 @@ class OrgService(BaseOrgService):
         await self.session.refresh(membership)
         return membership
 
-    @audit_log(resource_type="organization", action="delete")
+    @audit_log(resource_type="organization", action="delete", emit_attempt=True)
     @require_scope("org:delete")
     async def delete_organization(self, *, confirmation: str | None) -> None:
         """Delete the current organization and all associated resources."""

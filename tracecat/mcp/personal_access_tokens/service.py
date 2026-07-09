@@ -205,6 +205,7 @@ class MCPPersonalAccessTokenService(BaseWorkspaceService):
         resource_type="mcp_personal_access_token",
         action="create",
         resource_id_attr="token_id",
+        emit_attempt=True,
     )
     async def create_token(
         self,
@@ -263,6 +264,7 @@ class MCPPersonalAccessTokenService(BaseWorkspaceService):
         resource_type="mcp_personal_access_token",
         action="revoke",
         resource_id_attr="token_id",
+        emit_attempt=True,
     )
     async def revoke_token(self, token_id: uuid.UUID) -> None:
         token = await self.get_token(token_id, for_update=True)

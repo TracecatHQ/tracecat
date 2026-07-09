@@ -77,7 +77,12 @@ class AdminUserService(BasePlatformService):
             raise ValueError(f"User {user_id} not found")
         return AdminUserRead.model_validate(user)
 
-    @audit_log(resource_type="user", action="promote", resource_id_attr="user_id")
+    @audit_log(
+        resource_type="user",
+        action="promote",
+        resource_id_attr="user_id",
+        emit_attempt=True,
+    )
     async def promote_superuser(self, user_id: uuid.UUID) -> AdminUserRead:
         """Promote a user to superuser."""
         stmt = select(User).where(cast(Mapped[uuid.UUID], User.id) == user_id)
@@ -99,7 +104,12 @@ class AdminUserService(BasePlatformService):
         await self.session.refresh(user)
         return AdminUserRead.model_validate(user)
 
-    @audit_log(resource_type="user", action="demote", resource_id_attr="user_id")
+    @audit_log(
+        resource_type="user",
+        action="demote",
+        resource_id_attr="user_id",
+        emit_attempt=True,
+    )
     async def demote_superuser(
         self, user_id: uuid.UUID, current_user_id: uuid.UUID
     ) -> AdminUserRead:

@@ -627,6 +627,7 @@ class OrganizationServiceAccountService(BaseOrgService, BaseServiceAccountServic
         resource_type="service_account",
         action="create",
         resource_id_attr="service_account_id",
+        emit_attempt=True,
     )
     async def create_service_account(
         self,
@@ -693,6 +694,7 @@ class OrganizationServiceAccountService(BaseOrgService, BaseServiceAccountServic
         resource_type="service_account_api_key",
         action="create",
         resource_id_attr="api_key_id",
+        emit_attempt=True,
     )
     async def issue_api_key(
         self,
@@ -708,6 +710,7 @@ class OrganizationServiceAccountService(BaseOrgService, BaseServiceAccountServic
         resource_type="service_account_api_key",
         action="revoke",
         resource_id_attr="api_key_id",
+        emit_attempt=True,
     )
     async def revoke_api_key(
         self,
@@ -747,6 +750,7 @@ class WorkspaceServiceAccountService(BaseWorkspaceService, BaseServiceAccountSer
         resource_type="service_account",
         action="create",
         resource_id_attr="service_account_id",
+        emit_attempt=True,
     )
     async def create_service_account(
         self,
@@ -813,6 +817,7 @@ class WorkspaceServiceAccountService(BaseWorkspaceService, BaseServiceAccountSer
         resource_type="service_account_api_key",
         action="create",
         resource_id_attr="api_key_id",
+        emit_attempt=True,
     )
     async def issue_api_key(
         self,
@@ -828,6 +833,7 @@ class WorkspaceServiceAccountService(BaseWorkspaceService, BaseServiceAccountSer
         resource_type="service_account_api_key",
         action="revoke",
         resource_id_attr="api_key_id",
+        emit_attempt=True,
     )
     async def revoke_api_key(
         self,

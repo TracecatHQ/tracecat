@@ -39,14 +39,16 @@ def audit_log(
     action: AuditAction,
     resource_id_attr: str | None = None,
     data_fn: Callable[..., dict[str, Any] | None] | None = None,
+    emit_attempt: bool = False,
 ) -> Callable[
     [Callable[Concatenate[Any, P], Awaitable[R]]],
     Callable[Concatenate[Any, P], Awaitable[R]],
 ]:
-    """Decorator to emit audit attempt/success/failure around service methods.
+    """Decorator to emit audit success/failure around service methods.
 
     If no user role or session is available, auditing is skipped without failing the call.
 
+    ATTEMPT events are opt-in via emit_attempt for security-sensitive actions.
     The resource_id_attr is automatically derived from resource_type if not provided,
     using the _RESOURCE_ID_ATTR_MAP. Falls back to "id" if no mapping exists.
     """
@@ -93,17 +95,17 @@ def audit_log(
             except Exception as exc:
                 logger.warning("Audit resource_id extraction failed", error=str(exc))
 
-            async with AuditService.with_session(role, session=session) as svc:
-                # Log attempt
-                try:
-                    await svc.create_event(
-                        resource_type=resource_type,
-                        action=action,
-                        resource_id=resource_id,
-                        status=AuditEventStatus.ATTEMPT,
-                    )
-                except Exception as exc:
-                    logger.warning("Audit attempt log failed", error=str(exc))
+            if emit_attempt:
+                async with AuditService.with_session(role, session=session) as svc:
+                    try:
+                        await svc.create_event(
+                            resource_type=resource_type,
+                            action=action,
+                            resource_id=resource_id,
+                            status=AuditEventStatus.ATTEMPT,
+                        )
+                    except Exception as exc:
+                        logger.warning("Audit attempt log failed", error=str(exc))
 
             # NOTE: Do not execute the function while holding the audit service session open
             try:

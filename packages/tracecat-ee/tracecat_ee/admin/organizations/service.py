@@ -129,7 +129,7 @@ class AdminOrgService(BasePlatformService):
         await self.session.refresh(org)
         return OrgRead.model_validate(org)
 
-    @audit_log(resource_type="organization", action="delete")
+    @audit_log(resource_type="organization", action="delete", emit_attempt=True)
     async def delete_organization(
         self,
         org_id: uuid.UUID,

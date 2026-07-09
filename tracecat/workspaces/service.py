@@ -218,7 +218,7 @@ class WorkspaceService(BaseOrgService):
         return workspace
 
     @require_scope("workspace:delete")
-    @audit_log(resource_type="workspace", action="delete")
+    @audit_log(resource_type="workspace", action="delete", emit_attempt=True)
     async def delete_workspace(self, workspace_id: WorkspaceID) -> None:
         """Delete a workspace."""
         all_workspaces = await self.admin_list_workspaces()
@@ -434,7 +434,7 @@ class WorkspaceService(BaseOrgService):
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
 
-    @audit_log(resource_type="workspace_invitation", action="accept")
+    @audit_log(resource_type="workspace_invitation", action="accept", emit_attempt=True)
     async def accept_invitation(
         self,
         token: str,
