@@ -19,7 +19,9 @@ import {
   listCatalog,
   listCustomProviders,
   listEnabledModels,
+  workspacesListWorkspaces,
 } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ProviderIcon } from "@/components/icons"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -44,10 +46,15 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { toast } from "@/components/ui/use-toast"
 import { getApiErrorDetail, retryHandler } from "@/lib/errors"
-import { useWorkspaceManager } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 
 const CURSOR_PAGE_SIZE = 100
+export const WORKSPACE_MODEL_ACCESS_REQUIRED_SCOPES = [
+  "agent:read",
+  "agent:create",
+  "agent:delete",
+  "org:workspace:read",
+]
 
 const workspaceModelAccessSchema = z
   .object({
@@ -190,8 +197,21 @@ export function WorkspaceModelAccessSection() {
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<
     string | undefined
   >()
-  const { workspaces, workspacesLoading, workspacesError } =
-    useWorkspaceManager()
+  const canManageWorkspaceModelAccess =
+    useScopeCheck(undefined, WORKSPACE_MODEL_ACCESS_REQUIRED_SCOPES, {
+      all: true,
+    }) === true
+  const {
+    data: workspaces,
+    error: workspacesError,
+    isLoading: workspacesLoading,
+  } = useQuery<WorkspaceReadMinimal[], ApiError>({
+    queryKey: ["workspaces"],
+    queryFn: async () => await workspacesListWorkspaces(),
+    staleTime: 5 * 60 * 1000,
+    retry: retryHandler,
+    enabled: canManageWorkspaceModelAccess,
+  })
   const orderedWorkspaces = useMemo(
     () => [...(workspaces ?? [])].sort(compareWorkspaces),
     [workspaces]
@@ -209,6 +229,10 @@ export function WorkspaceModelAccessSection() {
     }
     setSelectedWorkspaceId(undefined)
   }, [selectedWorkspace, selectedWorkspaceId])
+
+  if (!canManageWorkspaceModelAccess) {
+    return null
+  }
 
   if (workspacesLoading) {
     return (

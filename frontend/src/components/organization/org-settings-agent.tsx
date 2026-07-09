@@ -41,7 +41,10 @@ import {
   RbacListContainer,
   RbacListItem,
 } from "@/components/organization/rbac-list-item"
-import { WorkspaceModelAccessSection } from "@/components/organization/workspace-model-access-section"
+import {
+  WORKSPACE_MODEL_ACCESS_REQUIRED_SCOPES,
+  WorkspaceModelAccessSection,
+} from "@/components/organization/workspace-model-access-section"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1887,7 +1890,10 @@ export function OrgSettingsAgentForm() {
   const queryClient = useQueryClient()
   const { hasEntitlement } = useEntitlements()
   const agentAddonsEnabled = hasEntitlement("agent_addons")
-  const canManageWorkspaceModelAccess = useScopeCheck("agent:create") === true
+  const canManageWorkspaceModelAccess =
+    useScopeCheck(undefined, WORKSPACE_MODEL_ACCESS_REQUIRED_SCOPES, {
+      all: true,
+    }) === true
   const [credentialsProvider, setCredentialsProvider] = useState<string | null>(
     null
   )
