@@ -5555,6 +5555,42 @@ export const $AuditSettingsUpdate = {
   description: "Settings for audit logging.",
 } as const
 
+export const $AuditWebhookTestResult = {
+  properties: {
+    ok: {
+      type: "boolean",
+      title: "Ok",
+    },
+    receiver_status_code: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Receiver Status Code",
+    },
+    error_category: {
+      anyOf: [
+        {
+          type: "string",
+          enum: ["receiver_error", "timeout", "request_error"],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error Category",
+    },
+  },
+  type: "object",
+  required: ["ok"],
+  title: "AuditWebhookTestResult",
+  description: "Result of a synchronous audit webhook test-fire request.",
+} as const
+
 export const $AuthDiscoverRequest = {
   properties: {
     email: {

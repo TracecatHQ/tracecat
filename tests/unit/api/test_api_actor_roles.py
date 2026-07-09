@@ -515,6 +515,7 @@ def test_org_settings_routes_remain_user_only() -> None:
         settings_router.update_app_settings,
         settings_router.get_audit_settings,
         settings_router.update_audit_settings,
+        settings_router.test_audit_webhook,
         settings_router.get_agent_settings,
         settings_router.update_agent_settings,
     ]

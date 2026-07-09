@@ -3,6 +3,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
+from tracecat.audit.test_fire import (
+    AuditWebhookNotConfiguredError,
+    AuditWebhookTestResult,
+    test_fire_audit_webhook,
+)
 from tracecat.auth.dependencies import OrgUserRole
 from tracecat.auth.enums import AuthType
 from tracecat.authz.controls import require_scope
@@ -226,6 +231,27 @@ async def update_audit_settings(
 ) -> None:
     service = SettingsService(session, role)
     await service.update_audit_settings(params)
+
+
+@router.post("/audit/test", response_model=AuditWebhookTestResult)
+@require_scope("org:settings:update")
+async def test_audit_webhook(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+) -> AuditWebhookTestResult:
+    try:
+        return await test_fire_audit_webhook(
+            sink="organization",
+            organization_id=role.organization_id,
+            role=role,
+            session=session,
+        )
+    except AuditWebhookNotConfiguredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Audit webhook is not configured",
+        ) from exc
 
 
 @router.get("/agent", response_model=AgentSettingsRead)

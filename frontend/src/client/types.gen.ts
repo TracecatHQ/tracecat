@@ -1401,6 +1401,15 @@ export type AuditSettingsUpdate = {
 }
 
 /**
+ * Result of a synchronous audit webhook test-fire request.
+ */
+export type AuditWebhookTestResult = {
+  ok: boolean
+  receiver_status_code?: number | null
+  error_category?: "receiver_error" | "timeout" | "request_error" | null
+}
+
+/**
  * Request payload for pre-auth discovery.
  */
 export type AuthDiscoverRequest = {
@@ -11911,6 +11920,8 @@ export type AdminUpdateAuditSettingsData = {
 
 export type AdminUpdateAuditSettingsResponse = PlatformAuditSettingsRead
 
+export type AdminTestAuditWebhookResponse = AuditWebhookTestResult
+
 export type AdminGetRegistrySettingsResponse = PlatformRegistrySettingsRead
 
 export type AdminUpdateRegistrySettingsData = {
@@ -12280,6 +12291,8 @@ export type SettingsUpdateAuditSettingsData = {
 }
 
 export type SettingsUpdateAuditSettingsResponse = void
+
+export type SettingsTestAuditWebhookResponse = AuditWebhookTestResult
 
 export type SettingsGetAgentSettingsResponse = AgentSettingsRead
 
@@ -17356,6 +17369,16 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/admin/settings/audit/test": {
+    post: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AuditWebhookTestResult
+      }
+    }
+  }
   "/admin/settings/registry": {
     get: {
       res: {
@@ -18098,6 +18121,16 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/settings/audit/test": {
+    post: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AuditWebhookTestResult
       }
     }
   }

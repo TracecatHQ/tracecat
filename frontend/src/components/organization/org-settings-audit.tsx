@@ -6,6 +6,7 @@ import {
   CheckCircle2Icon,
   LogsIcon,
   PlusIcon,
+  SendIcon,
   Trash2Icon,
   UnlinkIcon,
 } from "lucide-react"
@@ -150,6 +151,8 @@ interface AuditSettingsFormProps {
     requestBody: AuditSettingsUpdateBody
   }) => Promise<unknown>
   updateAuditSettingsIsPending: boolean
+  testAuditWebhook: () => void
+  testAuditWebhookIsPending: boolean
   decryptFailureTitle?: string
 }
 
@@ -245,6 +248,8 @@ export function AuditSettingsForm({
   auditSettingsError,
   updateAuditSettings,
   updateAuditSettingsIsPending,
+  testAuditWebhook,
+  testAuditWebhookIsPending,
   decryptFailureTitle = "Unable to decrypt organization settings",
 }: AuditSettingsFormProps) {
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -408,41 +413,56 @@ export function AuditSettingsForm({
         </Alert>
       )}
 
-      <div className="flex items-center justify-between rounded-lg border p-4">
-        <div className="flex items-center gap-3">
+      <div className="space-y-2">
+        <div className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
+            {isConnected ? (
+              <CheckCircle2Icon className="size-5 text-green-500" />
+            ) : (
+              <LogsIcon className="size-5 text-muted-foreground" />
+            )}
+            <div>
+              <p className="text-sm font-medium">Audit logs endpoint</p>
+              <p className="text-xs text-muted-foreground">
+                {connectionDescription}
+              </p>
+            </div>
+          </div>
           {isConnected ? (
-            <CheckCircle2Icon className="size-5 text-green-500" />
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => testAuditWebhook()}
+                disabled={
+                  testAuditWebhookIsPending || updateAuditSettingsIsPending
+                }
+                className="gap-2"
+              >
+                <SendIcon className="size-3.5" />
+                {testAuditWebhookIsPending ? "Testing..." : "Test"}
+              </Button>
+              <Button size="sm" onClick={() => handleDialogOpenChange(true)}>
+                Update
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={handleDisconnect}
+                disabled={updateAuditSettingsIsPending}
+              >
+                <UnlinkIcon className="size-3.5" />
+                <span className="sr-only">Disconnect audit logs endpoint</span>
+              </Button>
+            </div>
           ) : (
-            <LogsIcon className="size-5 text-muted-foreground" />
-          )}
-          <div>
-            <p className="text-sm font-medium">Audit logs endpoint</p>
-            <p className="text-xs text-muted-foreground">
-              {connectionDescription}
-            </p>
-          </div>
-        </div>
-        {isConnected ? (
-          <div className="flex items-center gap-2">
             <Button size="sm" onClick={() => handleDialogOpenChange(true)}>
-              Update
+              Connect
             </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              onClick={handleDisconnect}
-              disabled={updateAuditSettingsIsPending}
-            >
-              <UnlinkIcon className="size-3.5" />
-              <span className="sr-only">Disconnect audit logs endpoint</span>
-            </Button>
-          </div>
-        ) : (
-          <Button size="sm" onClick={() => handleDialogOpenChange(true)}>
-            Connect
-          </Button>
-        )}
+          )}
+        </div>
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={handleDialogOpenChange}>
@@ -638,6 +658,8 @@ export function OrgSettingsAuditForm() {
     auditSettingsError,
     updateAuditSettings,
     updateAuditSettingsIsPending,
+    testAuditWebhook,
+    testAuditWebhookIsPending,
   } = useOrgAuditSettings()
 
   return (
@@ -647,6 +669,8 @@ export function OrgSettingsAuditForm() {
       auditSettingsError={auditSettingsError}
       updateAuditSettings={updateAuditSettings}
       updateAuditSettingsIsPending={updateAuditSettingsIsPending}
+      testAuditWebhook={testAuditWebhook}
+      testAuditWebhookIsPending={testAuditWebhookIsPending}
     />
   )
 }
