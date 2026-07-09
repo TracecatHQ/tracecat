@@ -240,6 +240,37 @@ def test_action_gateway_enabled_defaults_true_and_allows_false(
         importlib.reload(tracecat_config)
 
 
+def test_audit_delivery_config_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    env_vars = [
+        "TRACECAT__AUDIT_DELIVERY_ENABLED",
+        "TRACECAT__AUDIT_DELIVERY_MAXLEN",
+        "TRACECAT__AUDIT_DELIVERY_TTL_SECONDS",
+        "TRACECAT__AUDIT_DELIVERY_BLOCK_MS",
+        "TRACECAT__AUDIT_DELIVERY_BATCH",
+        "TRACECAT__AUDIT_DELIVERY_MAX_ATTEMPTS",
+        "TRACECAT__AUDIT_DELIVERY_CIRCUIT_THRESHOLD",
+        "TRACECAT__AUDIT_DELIVERY_CIRCUIT_TTL_SECONDS",
+        "TRACECAT__AUDIT_DELIVERY_TIMEOUT_SECONDS",
+    ]
+    try:
+        with monkeypatch.context() as env:
+            for env_var in env_vars:
+                env.delenv(env_var, raising=False)
+            reloaded_config = importlib.reload(tracecat_config)
+
+            assert reloaded_config.TRACECAT__AUDIT_DELIVERY_ENABLED is True
+            assert reloaded_config.TRACECAT__AUDIT_DELIVERY_MAXLEN == 30000
+            assert reloaded_config.TRACECAT__AUDIT_DELIVERY_TTL_SECONDS == 259200
+            assert reloaded_config.TRACECAT__AUDIT_DELIVERY_BLOCK_MS == 2000
+            assert reloaded_config.TRACECAT__AUDIT_DELIVERY_BATCH == 100
+            assert reloaded_config.TRACECAT__AUDIT_DELIVERY_MAX_ATTEMPTS == 10
+            assert reloaded_config.TRACECAT__AUDIT_DELIVERY_CIRCUIT_THRESHOLD == 5
+            assert reloaded_config.TRACECAT__AUDIT_DELIVERY_CIRCUIT_TTL_SECONDS == 60
+            assert reloaded_config.TRACECAT__AUDIT_DELIVERY_TIMEOUT_SECONDS == 10
+    finally:
+        importlib.reload(tracecat_config)
+
+
 def test_bound_env_rejects_invalid_numeric_value(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

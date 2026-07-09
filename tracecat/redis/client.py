@@ -2,8 +2,9 @@
 
 import asyncio
 import base64
+import builtins
 from collections.abc import Awaitable, Sequence
-from typing import Any
+from typing import Any, TypeVar
 
 import boto3
 import redis.asyncio as redis
@@ -20,6 +21,14 @@ from tenacity import (
 
 from tracecat.config import REDIS_CHAT_TTL_SECONDS, REDIS_URL, REDIS_URL__ARN
 from tracecat.logger import logger
+
+T = TypeVar("T")
+
+
+async def _resolve_redis_result(value: T | Awaitable[T]) -> T:
+    if isinstance(value, Awaitable):
+        return await value
+    return value
 
 
 def _resolve_redis_url() -> str:
@@ -137,35 +146,96 @@ class RedisClient:
             The ID of the added entry
         """
         try:
-            client = await self._get_client()
-            kwargs: dict[str, Any] = {"fields": fields}
-            if maxlen is not None:
-                kwargs["maxlen"] = maxlen
-                kwargs["approximate"] = approximate
-
-            message_id = await client.xadd(name=stream_key, **kwargs)
-
-            # Set TTL if specified
-            if expire_seconds is not None:
-                await client.expire(name=stream_key, time=expire_seconds)
-                logger.trace(
-                    "Set TTL for Redis stream",
-                    stream_key=stream_key,
-                    expire_seconds=expire_seconds,
-                )
-
-            logger.trace(
-                "Added entry to Redis stream",
-                stream_key=stream_key,
-                message_id=message_id,
+            return await self._xadd_entry(
+                stream_key,
+                fields,
+                maxlen=maxlen,
+                approximate=approximate,
+                expire_seconds=expire_seconds,
             )
-            return message_id
         except (RedisError, RuntimeError) as e:
             logger.error(
                 "Failed to add entry to Redis stream",
                 stream_key=stream_key,
                 error=str(e),
             )
+            await self._reset_connection()
+            raise
+
+    async def xadd_audit(
+        self,
+        stream_key: str,
+        fields: dict[str, Any],
+        *,
+        maxlen: int | None = None,
+        approximate: bool = True,
+        expire_seconds: int | None = None,
+        timeout_seconds: float = 0.2,
+    ) -> str:
+        """Add an audit entry to a Redis stream without retries."""
+
+        try:
+            return await asyncio.wait_for(
+                self._xadd_entry(
+                    stream_key,
+                    fields,
+                    maxlen=maxlen,
+                    approximate=approximate,
+                    expire_seconds=expire_seconds,
+                ),
+                timeout=timeout_seconds,
+            )
+        except (TimeoutError, RedisError, RuntimeError):
+            await self._reset_connection()
+            raise
+
+    async def _xadd_entry(
+        self,
+        stream_key: str,
+        fields: dict[str, Any],
+        *,
+        maxlen: int | None,
+        approximate: bool,
+        expire_seconds: int | None,
+    ) -> str:
+        client = await self._get_client()
+        kwargs: dict[str, Any] = {"fields": fields}
+        if maxlen is not None:
+            kwargs["maxlen"] = maxlen
+            kwargs["approximate"] = approximate
+
+        message_id = await client.xadd(name=stream_key, **kwargs)
+        if expire_seconds is not None:
+            await client.expire(name=stream_key, time=expire_seconds)
+            logger.trace(
+                "Set TTL for Redis stream",
+                stream_key=stream_key,
+                expire_seconds=expire_seconds,
+            )
+
+        logger.trace(
+            "Added entry to Redis stream",
+            stream_key=stream_key,
+            message_id=message_id,
+        )
+        return message_id
+
+    async def sadd_audit(
+        self,
+        key: str,
+        value: str,
+        *,
+        timeout_seconds: float = 0.2,
+    ) -> int:
+        """Add an audit discovery entry without retries."""
+
+        async def add_member() -> int:
+            client = await self._get_client()
+            return int(await _resolve_redis_result(client.sadd(key, value)))
+
+        try:
+            return await asyncio.wait_for(add_member(), timeout=timeout_seconds)
+        except (TimeoutError, RedisError, RuntimeError):
             await self._reset_connection()
             raise
 
@@ -475,6 +545,87 @@ class RedisClient:
                 key=key,
                 error=str(e),
             )
+            await self._reset_connection()
+            raise
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type((RedisError, RuntimeError)),
+    )
+    async def sadd(self, key: str, *values: str) -> int:
+        """Add values to a Redis set."""
+        try:
+            client = await self._get_client()
+            return int(await _resolve_redis_result(client.sadd(key, *values)))
+        except (RedisError, RuntimeError) as e:
+            logger.error("Failed to add Redis set members", key=key, error=str(e))
+            await self._reset_connection()
+            raise
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type((RedisError, RuntimeError)),
+    )
+    async def smembers(self, key: str) -> builtins.set[str]:
+        """Return all members from a Redis set."""
+        try:
+            client = await self._get_client()
+            result = await _resolve_redis_result(client.smembers(key))
+            return {str(value) for value in result}
+        except (RedisError, RuntimeError) as e:
+            logger.error("Failed to read Redis set members", key=key, error=str(e))
+            await self._reset_connection()
+            raise
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type((RedisError, RuntimeError)),
+    )
+    async def srem(self, key: str, *values: str) -> int:
+        """Remove values from a Redis set."""
+        try:
+            client = await self._get_client()
+            return int(await _resolve_redis_result(client.srem(key, *values)))
+        except (RedisError, RuntimeError) as e:
+            logger.error("Failed to remove Redis set members", key=key, error=str(e))
+            await self._reset_connection()
+            raise
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type((RedisError, RuntimeError)),
+    )
+    async def expire(self, key: str, seconds: int) -> bool:
+        """Set a Redis key TTL."""
+        try:
+            client = await self._get_client()
+            result = await client.expire(name=key, time=seconds)
+            return bool(result)
+        except (RedisError, RuntimeError) as e:
+            logger.error("Failed to set Redis key TTL", key=key, error=str(e))
+            await self._reset_connection()
+            raise
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type((RedisError, RuntimeError)),
+    )
+    async def incr_with_expire(self, key: str, *, expire_seconds: int) -> int:
+        """Increment a Redis counter and refresh its TTL."""
+        try:
+            client = await self._get_client()
+            pipeline = client.pipeline()
+            pipeline.incr(key)
+            pipeline.expire(key, expire_seconds)
+            results = await pipeline.execute()
+            return int(results[0])
+        except (RedisError, RuntimeError) as e:
+            logger.error("Failed to increment Redis key", key=key, error=str(e))
             await self._reset_connection()
             raise
 

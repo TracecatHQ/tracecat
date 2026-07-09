@@ -1,9 +1,10 @@
 from __future__ import annotations
+import uuid
 
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from tracecat.contexts import ctx_client_ip
+from tracecat.contexts import ctx_client_ip, ctx_request_id, ctx_user_agent
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -20,7 +21,14 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         if not client_ip and request.client:
             client_ip = request.client.host
 
-        token = ctx_client_ip.set(client_ip)
+        user_agent = request.headers.get("User-Agent")
+        request_id = request.headers.get("X-Request-ID")
+        request_id = request_id.strip()[:128] if request_id else ""
+        request_id = request_id or uuid.uuid4().hex
+
+        client_ip_token = ctx_client_ip.set(client_ip)
+        user_agent_token = ctx_user_agent.set(user_agent)
+        request_id_token = ctx_request_id.set(request_id)
 
         try:
             request_logger = request.app.state.logger
@@ -36,8 +44,11 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 path=request.url.path,
                 params=request_params,
                 client_ip=client_ip,
+                request_id=request_id,
             )
 
             return await call_next(request)
         finally:
-            ctx_client_ip.reset(token)
+            ctx_request_id.reset(request_id_token)
+            ctx_user_agent.reset(user_agent_token)
+            ctx_client_ip.reset(client_ip_token)

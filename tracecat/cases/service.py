@@ -1727,7 +1727,7 @@ class CaseCommentsService(BaseWorkspaceService):
             "is_reply": parent_id is not None,
         }
         if content is not None:
-            data["content"] = content
+            data["redacted_fields"] = ["content"]
         if delete_mode is not None:
             data["delete_mode"] = delete_mode
         if workflow is not None:

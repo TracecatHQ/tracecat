@@ -3,26 +3,74 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Any, Self
+from dataclasses import dataclass
+from typing import Any, Self, cast
 
-import httpx
 import orjson
 from cryptography.fernet import InvalidToken
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat import config
+from tracecat.audit.constants import (
+    AUDIT_DELIVERY_STREAMS_KEY,
+    audit_delivery_stream_key,
+)
 from tracecat.audit.enums import AuditEventActor, AuditEventStatus
 from tracecat.audit.types import AuditAction, AuditEvent, AuditResourceType, AuditSink
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import PlatformRole, Role
-from tracecat.contexts import ctx_client_ip, ctx_role
+from tracecat.contexts import (
+    ctx_client_ip,
+    ctx_request_id,
+    ctx_role,
+    ctx_session,
+    ctx_user_agent,
+)
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import PlatformSetting, ServiceAccount, User
+from tracecat.redis.client import get_redis_client
 from tracecat.secrets.encryption import decrypt_value
 from tracecat.service import BaseService
 
 # Union type for roles that can be used for audit logging
 AuditableRole = Role | PlatformRole
+
+
+@dataclass(frozen=True)
+class AuditWebhookConfig:
+    webhook_url: str
+    custom_headers: dict[str, str] | None = None
+    custom_payload: dict[str, Any] | None = None
+    verify_ssl: bool = True
+    payload_attribute: str | None = None
+
+
+def build_audit_webhook_request(
+    *,
+    payload: AuditEvent,
+    config: AuditWebhookConfig,
+) -> tuple[dict[str, Any], dict[str, str]]:
+    event_payload = payload.model_dump(mode="json")
+    if config.custom_payload:
+        custom_payload = {
+            key: value
+            for key, value in config.custom_payload.items()
+            if key not in {"id", "version"}
+        }
+        event_payload = {**event_payload, **custom_payload}
+
+    if config.payload_attribute:
+        request_payload = {config.payload_attribute: event_payload}
+    else:
+        request_payload = event_payload
+
+    headers = {
+        **(config.custom_headers or {}),
+        "X-Tracecat-Event-Id": str(payload.id),
+        "X-Tracecat-Timestamp": payload.created_at.isoformat(),
+    }
+    return request_payload, headers
 
 
 class AuditService(BaseService):
@@ -108,13 +156,7 @@ class AuditService(BaseService):
         )
 
     async def _get_webhook_url(self) -> str | None:
-        """Fetch the configured audit webhook URL.
-
-        Precedence:
-        1. `AUDIT_WEBHOOK_URL` env var
-        2. Organization setting `audit_webhook_url`
-        """
-
+        """Fetch the configured audit webhook URL."""
         value = await self._get_audit_setting("audit_webhook_url")
         if value is None:
             return None
@@ -128,95 +170,6 @@ class AuditService(BaseService):
 
         cleaned = value.strip()
         return cleaned or None
-
-    async def _get_custom_headers(self) -> dict[str, str] | None:
-        """Fetch the configured custom headers for the audit webhook.
-
-        Note: Uses get_setting (uncached) to ensure changes take effect immediately.
-        """
-        value = await self._get_audit_setting("audit_webhook_custom_headers")
-        if value is None:
-            return None
-        if not isinstance(value, dict):
-            self.logger.warning(
-                "audit_webhook_custom_headers must be a dict",
-                value_type=type(value),
-            )
-            return None
-
-        return value
-
-    async def _get_custom_payload(self) -> dict[str, Any] | None:
-        """Fetch the configured custom payload for the audit webhook."""
-        value = await self._get_audit_setting("audit_webhook_custom_payload")
-        if value is None:
-            return None
-        if not isinstance(value, dict):
-            self.logger.warning(
-                "audit_webhook_custom_payload must be a dict",
-                value_type=type(value),
-            )
-            return None
-        return value
-
-    async def _get_verify_ssl(self) -> bool:
-        """Fetch SSL verification setting for audit webhook requests."""
-        value = await self._get_audit_setting("audit_webhook_verify_ssl", default=True)
-        if not isinstance(value, bool):
-            self.logger.warning(
-                "audit_webhook_verify_ssl must be a bool",
-                value=value,
-                value_type=type(value),
-            )
-            return True
-        return value
-
-    async def _get_payload_attribute(self) -> str | None:
-        """Fetch optional wrapper attribute for webhook payloads."""
-        value = await self._get_audit_setting("audit_webhook_payload_attribute")
-        if value is None:
-            return None
-        if not isinstance(value, str):
-            self.logger.warning(
-                "audit_webhook_payload_attribute must be a string",
-                value=value,
-                value_type=type(value),
-            )
-            return None
-
-        cleaned = value.strip()
-        return cleaned or None
-
-    async def _post_event(self, *, webhook_url: str, payload: AuditEvent) -> None:
-        response: httpx.Response | None = None
-        try:
-            custom_headers = await self._get_custom_headers()
-            custom_payload = await self._get_custom_payload()
-            verify_ssl = await self._get_verify_ssl()
-            payload_attribute = await self._get_payload_attribute()
-            event_payload = payload.model_dump(mode="json")
-            if custom_payload:
-                event_payload = {**event_payload, **custom_payload}
-            request_payload: dict[str, Any]
-            if payload_attribute:
-                request_payload = {payload_attribute: event_payload}
-            else:
-                request_payload = event_payload
-
-            async with httpx.AsyncClient(timeout=10.0, verify=verify_ssl) as client:
-                response = await client.post(
-                    webhook_url,
-                    json=request_payload,
-                    headers=custom_headers,
-                )
-                response.raise_for_status()
-        except Exception as exc:
-            self.logger.warning(
-                "Failed to deliver audit webhook",
-                error=str(exc),
-                webhook_url=webhook_url,
-                status_code=getattr(response, "status_code", None),
-            )
 
     async def _get_actor_label(self) -> str | None:
         if self.role is None:
@@ -251,73 +204,118 @@ class AuditService(BaseService):
             self.logger.warning("Failed to fetch actor email", error=str(exc))
         return actor_label
 
-    def _build_payload(
-        self,
-        *,
-        resource_type: AuditResourceType,
-        action: AuditAction,
-        resource_id: uuid.UUID | None,
-        status: AuditEventStatus,
-        actor_label: str | None,
-        ip_address: str | None,
-        data: dict[str, Any] | None,
-    ) -> AuditEvent:
-        if self.role is None or self.role.actor_id is None:
-            raise ValueError("Audit payload requires an auditable actor")
-        organization_id = getattr(self.role, "organization_id", None)
-        workspace_id = getattr(self.role, "workspace_id", None)
-        actor_type = (
-            AuditEventActor.SERVICE_ACCOUNT
-            if getattr(self.role, "type", None) == "service_account"
-            else AuditEventActor.USER
+    async def _get_cached_org_webhook_url(self) -> str | None:
+        if not isinstance(self.role, Role):
+            return None
+
+        from tracecat.settings.service import get_setting_cached
+
+        role_token = ctx_role.set(self.role)
+        session_token = ctx_session.set(self.session)
+        try:
+            value = await get_setting_cached("audit_webhook_url")
+        finally:
+            ctx_session.reset(session_token)
+            ctx_role.reset(role_token)
+
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            self.logger.warning(
+                "audit_webhook_url must be a string",
+                value=value,
+                value_type=type(value),
+            )
+            return None
+
+        cleaned = value.strip()
+        return cleaned or None
+
+    async def _has_configured_sink(self) -> bool:
+        if self.audit_sink == "organization":
+            return bool(await self._get_cached_org_webhook_url())
+        return bool(await self._get_webhook_url())
+
+    async def _publish_event(self, payload: AuditEvent) -> None:
+        stream_key = audit_delivery_stream_key(
+            cast(AuditSink, self.audit_sink), payload.organization_id
         )
-        return AuditEvent(
-            organization_id=organization_id,
-            workspace_id=workspace_id,
-            actor_type=actor_type,
-            actor_id=self.role.actor_id,
-            actor_label=actor_label,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            action=action,
-            status=status,
-            ip_address=ip_address,
-            data=data,
+        redis = await get_redis_client()
+        await redis.xadd_audit(
+            stream_key,
+            {"event": payload.model_dump_json()},
+            maxlen=config.TRACECAT__AUDIT_DELIVERY_MAXLEN,
+            approximate=True,
+            expire_seconds=config.TRACECAT__AUDIT_DELIVERY_TTL_SECONDS,
         )
+        await redis.sadd_audit(AUDIT_DELIVERY_STREAMS_KEY, stream_key)
 
     async def create_event(
         self,
         *,
         resource_type: AuditResourceType,
         action: AuditAction,
-        resource_id: uuid.UUID | None = None,
+        resource_id: str | uuid.UUID | None = None,
+        parent_resource_type: AuditResourceType | None = None,
+        parent_resource_id: str | uuid.UUID | None = None,
         status: AuditEventStatus = AuditEventStatus.SUCCESS,
         data: dict[str, Any] | None = None,
         include_actor_label: bool = True,
         include_ip_address: bool = True,
     ) -> None:
-        if self.role is None or getattr(self.role, "actor_id", None) is None:
+        role = self.role
+        if role is None or role.actor_id is None:
             self.logger.debug(
-                "Skipping audit log", reason="non_auditable_role", role=self.role
+                "Skipping audit log", reason="non_auditable_role", role=role
             )
             return
 
-        webhook_url = await self._get_webhook_url()
-        if not webhook_url:
+        if not config.TRACECAT__AUDIT_DELIVERY_ENABLED:
+            self.logger.debug("Skipping audit log", reason="audit_delivery_disabled")
+            return
+
+        if not await self._has_configured_sink():
             self.logger.debug("Skipping audit log", reason="webhook_unconfigured")
             return
 
         actor_label = await self._get_actor_label() if include_actor_label else None
-        payload = self._build_payload(
-            resource_type=resource_type,
-            action=action,
-            resource_id=resource_id,
-            status=status,
+        actor_type = (
+            AuditEventActor.SERVICE_ACCOUNT
+            if getattr(role, "type", None) == "service_account"
+            else AuditEventActor.USER
+        )
+        payload = AuditEvent(
+            organization_id=getattr(role, "organization_id", None),
+            workspace_id=getattr(role, "workspace_id", None),
+            actor_type=actor_type,
+            actor_id=role.actor_id,
             actor_label=actor_label,
+            resource_type=resource_type,
+            resource_id=str(resource_id) if resource_id is not None else None,
+            parent_resource_type=parent_resource_type,
+            parent_resource_id=str(parent_resource_id)
+            if parent_resource_id is not None
+            else None,
+            action=action,
+            status=status,
             ip_address=ctx_client_ip.get() if include_ip_address else None,
+            user_agent=ctx_user_agent.get(),
+            request_id=ctx_request_id.get(),
             data=data,
         )
-        await self._post_event(webhook_url=webhook_url, payload=payload)
+        try:
+            await self._publish_event(payload)
+        except Exception as exc:
+            self.logger.warning(
+                "Failed to enqueue audit event",
+                event_id=str(payload.id),
+                audit_sink=self.audit_sink,
+                error=str(exc),
+            )
+            return
         self.logger.debug(
-            "Streamed audit event", resource_type=resource_type, action=action
+            "Queued audit event",
+            event_id=str(payload.id),
+            resource_type=resource_type,
+            action=action,
         )

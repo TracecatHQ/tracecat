@@ -20,6 +20,8 @@ __all__ = [
     "ctx_stream_id",
     "ctx_session",
     "ctx_client_ip",
+    "ctx_user_agent",
+    "ctx_request_id",
     "ctx_logical_time",
     "get_env",
 ]
@@ -31,6 +33,8 @@ ctx_interaction: ContextVar[InteractionContext | None] = ContextVar(
     "interaction", default=None
 )
 ctx_client_ip: ContextVar[str | None] = ContextVar("client-ip", default=None)
+ctx_user_agent: ContextVar[str | None] = ContextVar("user-agent", default=None)
+ctx_request_id: ContextVar[str | None] = ContextVar("request-id", default=None)
 ctx_stream_id: ContextVar[StreamID] = ContextVar("stream-id", default=ROOT_STREAM)
 ctx_env: ContextVar[dict[str, str] | None] = ContextVar("env", default=None)
 ctx_session: ContextVar[AsyncSession | None] = ContextVar("session", default=None)

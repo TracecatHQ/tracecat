@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import functools
 import inspect
-import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Concatenate, ParamSpec, TypeVar
 
@@ -39,6 +38,7 @@ def audit_log(
     resource_type: AuditResourceType,
     action: AuditAction,
     resource_id_attr: str | None = None,
+    data_fn: Callable[..., dict[str, Any] | None] | None = None,
 ) -> Callable[
     [Callable[Concatenate[Any, P], Awaitable[R]]],
     Callable[Concatenate[Any, P], Awaitable[R]],
@@ -81,7 +81,7 @@ def audit_log(
             except TypeError as exc:
                 logger.warning("Audit argument binding failed", error=str(exc))
 
-            resource_id: uuid.UUID | None = None
+            resource_id: str | None = None
             try:
                 resource_id = _extract_resource_id(
                     args,
@@ -120,6 +120,9 @@ def audit_log(
                         resolved_resource_id_attr,
                         bound_arguments=bound_arguments,
                     )
+                    data = _build_audit_data(
+                        data_fn, bound_arguments=bound_arguments, result=result
+                    )
                     async with AuditService.with_session(role, session=session) as svc:
                         await svc.create_event(
                             resource_type=resource_type,
@@ -130,6 +133,7 @@ def audit_log(
                                 if getattr(result, "success", None) is False
                                 else AuditEventStatus.SUCCESS
                             ),
+                            data=data,
                         )
                 except Exception as exc:
                     logger.warning("Audit success log failed", error=str(exc))
@@ -137,12 +141,16 @@ def audit_log(
             except Exception:
                 # Log failure
                 try:
+                    data = _build_audit_data(
+                        data_fn, bound_arguments=bound_arguments, result=None
+                    )
                     async with AuditService.with_session(role, session=session) as svc:
                         await svc.create_event(
                             resource_type=resource_type,
                             action=action,
                             resource_id=resource_id,
                             status=AuditEventStatus.FAILURE,
+                            data=data,
                         )
                 except Exception as exc:
                     logger.warning("Audit failure log failed", error=str(exc))
@@ -160,7 +168,7 @@ def _extract_resource_id(
     attr: str,
     *,
     bound_arguments: Mapping[str, Any] | None = None,
-) -> uuid.UUID | None:
+) -> str | None:
     """Heuristic to find a resource id.
 
     Priority:
@@ -187,26 +195,25 @@ def _extract_resource_id(
     if raw is None:
         return None
 
-    return _coerce_uuid(raw, attr)
+    return _coerce_resource_id(raw)
 
 
-def _coerce_uuid(value: Any, source: str) -> uuid.UUID | None:
-    """Convert UUID-like values to uuid.UUID or None, raising on invalid types."""
-
+def _coerce_resource_id(value: Any) -> str | None:
     if value is None:
         return None
+    return str(value)
 
-    if isinstance(value, uuid.UUID):
-        return value
 
-    if isinstance(value, str):
-        try:
-            return uuid.UUID(value)
-        except ValueError as exc:
-            raise ValueError(
-                f"Resource ID {source!r} must be a UUID; got invalid string"
-            ) from exc
-
-    raise TypeError(
-        f"Resource ID {source!r} must be a UUID or stringified UUID, got {type(value).__name__}"
-    )
+def _build_audit_data(
+    data_fn: Callable[..., dict[str, Any] | None] | None,
+    *,
+    bound_arguments: Mapping[str, Any],
+    result: Any | None,
+) -> dict[str, Any] | None:
+    if data_fn is None:
+        return None
+    try:
+        return data_fn(**bound_arguments, result=result)
+    except Exception as exc:
+        logger.warning("Audit data_fn failed", error=str(exc))
+        return None

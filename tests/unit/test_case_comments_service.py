@@ -213,7 +213,8 @@ class TestCaseCommentsService:
             AuditEventStatus.SUCCESS.value,
         ]
         assert all(event.resource_type == "case_comment" for event in audit_events)
-        assert audit_events[-1].data["content"] == comment_create_params.content
+        assert "content" not in audit_events[-1].data
+        assert audit_events[-1].data["redacted_fields"] == ["content"]
 
         # Retrieve comment
         retrieved_comment = await case_comments_service.get_comment(created_comment.id)
@@ -802,7 +803,8 @@ class TestCaseCommentsService:
             AuditEventStatus.ATTEMPT.value,
             AuditEventStatus.SUCCESS.value,
         ]
-        assert update_audits[-1].data["content"] == update_params.content
+        assert "content" not in update_audits[-1].data
+        assert update_audits[-1].data["redacted_fields"] == ["content"]
 
     async def test_update_reply_emits_reply_activity(
         self,

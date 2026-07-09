@@ -82,6 +82,15 @@ module "ecs" {
   result_externalization_enabled                = var.result_externalization_enabled
   collection_manifests_enabled                  = var.collection_manifests_enabled
   result_externalization_threshold_bytes        = var.result_externalization_threshold_bytes
+  audit_delivery_enabled                        = var.audit_delivery_enabled
+  audit_delivery_maxlen                         = var.audit_delivery_maxlen
+  audit_delivery_ttl_seconds                    = var.audit_delivery_ttl_seconds
+  audit_delivery_block_ms                       = var.audit_delivery_block_ms
+  audit_delivery_batch                          = var.audit_delivery_batch
+  audit_delivery_max_attempts                   = var.audit_delivery_max_attempts
+  audit_delivery_circuit_threshold              = var.audit_delivery_circuit_threshold
+  audit_delivery_circuit_ttl_seconds            = var.audit_delivery_circuit_ttl_seconds
+  audit_delivery_timeout_seconds                = var.audit_delivery_timeout_seconds
   workflow_artifact_retention_days              = var.workflow_artifact_retention_days
 
   # Database connection pool

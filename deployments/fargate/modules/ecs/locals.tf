@@ -59,6 +59,15 @@ locals {
     TRACECAT__RESULT_EXTERNALIZATION_ENABLED         = var.result_externalization_enabled
     TRACECAT__COLLECTION_MANIFESTS_ENABLED           = var.collection_manifests_enabled
     TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES = var.result_externalization_threshold_bytes
+    TRACECAT__AUDIT_DELIVERY_ENABLED                 = var.audit_delivery_enabled
+    TRACECAT__AUDIT_DELIVERY_MAXLEN                  = var.audit_delivery_maxlen
+    TRACECAT__AUDIT_DELIVERY_TTL_SECONDS             = var.audit_delivery_ttl_seconds
+    TRACECAT__AUDIT_DELIVERY_BLOCK_MS                = var.audit_delivery_block_ms
+    TRACECAT__AUDIT_DELIVERY_BATCH                   = var.audit_delivery_batch
+    TRACECAT__AUDIT_DELIVERY_MAX_ATTEMPTS            = var.audit_delivery_max_attempts
+    TRACECAT__AUDIT_DELIVERY_CIRCUIT_THRESHOLD       = var.audit_delivery_circuit_threshold
+    TRACECAT__AUDIT_DELIVERY_CIRCUIT_TTL_SECONDS     = var.audit_delivery_circuit_ttl_seconds
+    TRACECAT__AUDIT_DELIVERY_TIMEOUT_SECONDS         = var.audit_delivery_timeout_seconds
     TRACECAT__DB_SSLMODE                             = "require"
   }
 

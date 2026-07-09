@@ -1,23 +1,36 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
-import orjson
 import pytest
-import respx
+from starlette.requests import Request
+from starlette.responses import Response
 
+from tracecat.audit.constants import (
+    AUDIT_DELIVERY_STREAMS_KEY,
+    audit_delivery_stream_key,
+)
+from tracecat.audit.delivery import AuditDeliveryConsumer
 from tracecat.audit.enums import AuditEventActor, AuditEventStatus
 from tracecat.audit.logger import audit_log
-from tracecat.audit.service import AuditService
+from tracecat.audit.service import (
+    AuditService,
+    AuditWebhookConfig,
+    build_audit_webhook_request,
+)
 from tracecat.audit.types import AuditEvent
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.auth.users import UserManager
 from tracecat.authz.scopes import ADMIN_SCOPES
-from tracecat.contexts import ctx_client_ip, ctx_role
+from tracecat.cases.service import CaseCommentsService
+from tracecat.contexts import ctx_client_ip, ctx_request_id, ctx_role, ctx_user_agent
+from tracecat.middleware.request import RequestLoggingMiddleware
 
 
 @pytest.fixture
@@ -37,74 +50,143 @@ def audit_service(role: Role) -> AuditService:
     return AuditService(AsyncMock(), role=role)
 
 
+def _sample_audit_event(
+    *, organization_id: uuid.UUID | None = None, resource_id: str | None = None
+) -> AuditEvent:
+    return AuditEvent(
+        organization_id=organization_id or uuid.uuid4(),
+        workspace_id=None,
+        actor_type=AuditEventActor.USER,
+        actor_id=uuid.uuid4(),
+        actor_label="user@example.com",
+        resource_type="workflow",
+        resource_id=resource_id or str(uuid.uuid4()),
+        action="create",
+        status=AuditEventStatus.SUCCESS,
+    )
+
+
+@pytest.mark.anyio
+async def test_request_logging_middleware_truncates_request_id() -> None:
+    app = SimpleNamespace(
+        state=SimpleNamespace(logger=SimpleNamespace(debug=MagicMock()))
+    )
+    middleware = RequestLoggingMiddleware(cast(Any, app))
+    long_request_id = f"  {'x' * 200}  "
+    captured: dict[str, str | None] = {}
+
+    async def receive() -> dict[str, object]:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def call_next(request: Request) -> Response:
+        captured["request_id"] = ctx_request_id.get()
+        return Response("ok")
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "scheme": "http",
+            "server": ("testserver", 80),
+            "client": ("127.0.0.1", 12345),
+            "path": "/",
+            "query_string": b"",
+            "headers": [(b"x-request-id", long_request_id.encode())],
+            "app": app,
+        },
+        receive=receive,
+    )
+
+    await middleware.dispatch(request, call_next)
+
+    assert captured["request_id"] == "x" * 128
+
+
 @pytest.mark.anyio
 async def test_create_event_skips_without_webhook(
     monkeypatch: pytest.MonkeyPatch, audit_service: AuditService
 ) -> None:
-    monkeypatch.setattr(audit_service, "_get_webhook_url", AsyncMock(return_value=None))
-    post_mock = AsyncMock()
-    monkeypatch.setattr(audit_service, "_post_event", post_mock)
+    monkeypatch.setattr(
+        audit_service, "_has_configured_sink", AsyncMock(return_value=False)
+    )
+    publish_mock = AsyncMock()
+    monkeypatch.setattr(audit_service, "_publish_event", publish_mock)
 
     await audit_service.create_event(resource_type="workflow", action="create")
 
-    post_mock.assert_not_awaited()
+    publish_mock.assert_not_awaited()
 
 
-@respx.mock
 @pytest.mark.anyio
-async def test_create_event_streams_to_webhook(
+async def test_create_event_queues_audit_event_envelope(
     monkeypatch: pytest.MonkeyPatch, audit_service: AuditService
 ) -> None:
-    webhook_url = "https://example.com/audit"
+    resource_id = uuid.uuid4()
+    request_id = "req-123"
+    user_agent = "tracecat-test"
+    fake_redis = MagicMock()
+    fake_redis.xadd_audit = AsyncMock(return_value="1-0")
+    fake_redis.sadd_audit = AsyncMock(return_value=1)
     monkeypatch.setattr(
-        audit_service, "_get_webhook_url", AsyncMock(return_value=webhook_url)
+        audit_service, "_has_configured_sink", AsyncMock(return_value=True)
     )
     monkeypatch.setattr(
-        audit_service, "_get_custom_headers", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(
-        audit_service, "_get_custom_payload", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(audit_service, "_get_verify_ssl", AsyncMock(return_value=True))
-    monkeypatch.setattr(
-        audit_service, "_get_payload_attribute", AsyncMock(return_value=None)
+        "tracecat.audit.service.get_redis_client", AsyncMock(return_value=fake_redis)
     )
     mock_user = MagicMock()
     mock_user.email = "user@example.com"
     result_mock = MagicMock()
     result_mock.scalar_one_or_none = MagicMock(return_value=mock_user)
     audit_service.session.execute = AsyncMock(return_value=result_mock)
-    route = respx.post(webhook_url).mock(return_value=httpx.Response(200))
+    request_id_token = ctx_request_id.set(request_id)
+    user_agent_token = ctx_user_agent.set(user_agent)
 
-    await audit_service.create_event(
-        resource_type="workflow",
-        action="create",
-        resource_id=uuid.uuid4(),
-        status=AuditEventStatus.SUCCESS,
+    try:
+        await audit_service.create_event(
+            resource_type="workflow",
+            action="create",
+            resource_id=resource_id,
+            status=AuditEventStatus.SUCCESS,
+        )
+    finally:
+        ctx_user_agent.reset(user_agent_token)
+        ctx_request_id.reset(request_id_token)
+
+    assert isinstance(audit_service.role, Role)
+    stream_key = audit_delivery_stream_key(
+        "organization", audit_service.role.organization_id
     )
-
-    assert route.called
-    payload = orjson.loads(route.calls[0].request.content)
-    assert payload["resource_type"] == "workflow"
-    assert payload["action"] == "create"
-    assert payload["status"] == AuditEventStatus.SUCCESS.value
-    assert payload["actor_label"] == "user@example.com"
+    fake_redis.xadd_audit.assert_awaited_once()
+    assert fake_redis.xadd_audit.await_args.args[0] == stream_key
+    fields = fake_redis.xadd_audit.await_args.args[1]
+    payload = AuditEvent.model_validate_json(fields["event"])
+    assert payload.version == 1
+    assert payload.source == "api"
+    assert payload.resource_type == "workflow"
+    assert payload.resource_id == str(resource_id)
+    assert payload.action == "create"
+    assert payload.status == AuditEventStatus.SUCCESS
+    assert payload.actor_label == "user@example.com"
+    assert payload.user_agent == user_agent
+    assert payload.request_id == request_id
+    fake_redis.sadd_audit.assert_awaited_once_with(
+        AUDIT_DELIVERY_STREAMS_KEY, stream_key
+    )
 
 
 @pytest.mark.anyio
-async def test_create_event_includes_case_comment_data_in_payload(
+async def test_create_event_preserves_metadata_data_in_queued_event(
     monkeypatch: pytest.MonkeyPatch, audit_service: AuditService
 ) -> None:
-    webhook_url = "https://example.com/audit"
-    post_mock = AsyncMock()
-    data = {"case_id": str(uuid.uuid4()), "content": "hello"}
+    publish_mock = AsyncMock()
+    data = {"case_id": str(uuid.uuid4()), "redacted_fields": ["content"]}
     monkeypatch.setattr(
-        audit_service, "_get_webhook_url", AsyncMock(return_value=webhook_url)
+        audit_service, "_has_configured_sink", AsyncMock(return_value=True)
     )
     monkeypatch.setattr(
         audit_service, "_get_actor_label", AsyncMock(return_value="user@example.com")
     )
-    monkeypatch.setattr(audit_service, "_post_event", post_mock)
+    monkeypatch.setattr(audit_service, "_publish_event", publish_mock)
 
     await audit_service.create_event(
         resource_type="case_comment",
@@ -114,18 +196,40 @@ async def test_create_event_includes_case_comment_data_in_payload(
         data=data,
     )
 
-    assert post_mock.await_count == 1
-    assert post_mock.await_args is not None
-    payload = post_mock.await_args.kwargs["payload"]
+    assert publish_mock.await_count == 1
+    assert publish_mock.await_args is not None
+    payload = publish_mock.await_args.args[0]
     assert payload.resource_type == "case_comment"
     assert payload.data == data
+
+
+@pytest.mark.anyio
+async def test_create_event_drops_redis_errors_without_raising(
+    monkeypatch: pytest.MonkeyPatch, audit_service: AuditService
+) -> None:
+    logger_mock = SimpleNamespace(debug=MagicMock(), warning=MagicMock())
+    audit_service.logger = cast(Any, logger_mock)
+    monkeypatch.setattr(
+        audit_service, "_has_configured_sink", AsyncMock(return_value=True)
+    )
+    monkeypatch.setattr(
+        audit_service, "_publish_event", AsyncMock(side_effect=RuntimeError("down"))
+    )
+
+    await audit_service.create_event(
+        resource_type="workflow",
+        action="create",
+        include_actor_label=False,
+    )
+
+    logger_mock.warning.assert_called_once()
+    assert logger_mock.warning.call_args.kwargs["event_id"]
 
 
 @pytest.mark.anyio
 async def test_create_event_can_emit_sanitized_platform_org_auth_event(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    webhook_url = "https://example.com/platform-audit"
     client_ip = "203.0.113.10"
     role = Role(
         type="user",
@@ -134,13 +238,13 @@ async def test_create_event_can_emit_sanitized_platform_org_auth_event(
         service_id="tracecat-api",
     )
     audit_service = AuditService(AsyncMock(), role=role, audit_sink="platform")
-    post_mock = AsyncMock()
+    publish_mock = AsyncMock()
     actor_label_mock = AsyncMock()
     monkeypatch.setattr(
-        audit_service, "_get_webhook_url", AsyncMock(return_value=webhook_url)
+        audit_service, "_has_configured_sink", AsyncMock(return_value=True)
     )
     monkeypatch.setattr(audit_service, "_get_actor_label", actor_label_mock)
-    monkeypatch.setattr(audit_service, "_post_event", post_mock)
+    monkeypatch.setattr(audit_service, "_publish_event", publish_mock)
     token = ctx_client_ip.set(client_ip)
 
     try:
@@ -155,8 +259,8 @@ async def test_create_event_can_emit_sanitized_platform_org_auth_event(
         ctx_client_ip.reset(token)
 
     actor_label_mock.assert_not_awaited()
-    assert post_mock.await_args is not None
-    payload = post_mock.await_args.kwargs["payload"]
+    assert publish_mock.await_args is not None
+    payload = publish_mock.await_args.args[0]
     assert payload.organization_id == role.organization_id
     assert payload.actor_id == role.user_id
     assert payload.actor_label is None
@@ -475,40 +579,7 @@ async def test_platform_role_defaults_to_platform_audit_sink(
     get_platform_setting.assert_awaited_once_with("audit_webhook_url")
 
 
-@pytest.mark.anyio
-async def test_post_event_uses_custom_payload_headers_and_verify_ssl(
-    monkeypatch: pytest.MonkeyPatch, audit_service: AuditService
-) -> None:
-    webhook_url = "https://example.com/audit"
-    monkeypatch.setattr(
-        audit_service,
-        "_get_custom_headers",
-        AsyncMock(return_value={"X-Custom-Header": "custom-value"}),
-    )
-    monkeypatch.setattr(
-        audit_service,
-        "_get_custom_payload",
-        AsyncMock(return_value={"resource_type": "organization", "custom": "yes"}),
-    )
-    monkeypatch.setattr(
-        audit_service,
-        "_get_verify_ssl",
-        AsyncMock(return_value=False),
-    )
-    monkeypatch.setattr(
-        audit_service,
-        "_get_payload_attribute",
-        AsyncMock(return_value=None),
-    )
-
-    response_mock = MagicMock()
-    response_mock.raise_for_status = MagicMock()
-    client_mock = AsyncMock()
-    client_mock.post = AsyncMock(return_value=response_mock)
-    async_client_context_mock = AsyncMock()
-    async_client_context_mock.__aenter__.return_value = client_mock
-    async_client_context_mock.__aexit__.return_value = None
-
+def test_build_audit_webhook_request_uses_headers_and_custom_payload() -> None:
     event = AuditEvent(
         organization_id=uuid.uuid4(),
         workspace_id=None,
@@ -516,62 +587,37 @@ async def test_post_event_uses_custom_payload_headers_and_verify_ssl(
         actor_id=uuid.uuid4(),
         actor_label="user@example.com",
         resource_type="workflow",
-        resource_id=uuid.uuid4(),
+        resource_id=str(uuid.uuid4()),
         action="create",
         status=AuditEventStatus.SUCCESS,
     )
-
-    with patch(
-        "tracecat.audit.service.httpx.AsyncClient",
-        return_value=async_client_context_mock,
-    ) as async_client_ctor:
-        await audit_service._post_event(webhook_url=webhook_url, payload=event)
-
-    async_client_ctor.assert_called_once_with(timeout=10.0, verify=False)
-    assert client_mock.post.await_count == 1
-    args = client_mock.post.await_args.args
-    kwargs = client_mock.post.await_args.kwargs
-    assert args[0] == webhook_url
-    assert kwargs["headers"] == {"X-Custom-Header": "custom-value"}
-    assert kwargs["json"]["custom"] == "yes"
-    assert kwargs["json"]["resource_type"] == "organization"
-    assert kwargs["json"]["actor_label"] == "user@example.com"
-
-
-@pytest.mark.anyio
-async def test_post_event_wraps_payload_when_attribute_configured(
-    monkeypatch: pytest.MonkeyPatch, audit_service: AuditService
-) -> None:
-    webhook_url = "https://example.com/audit"
-    monkeypatch.setattr(
-        audit_service,
-        "_get_custom_headers",
-        AsyncMock(return_value={"X-Custom-Header": "custom-value"}),
-    )
-    monkeypatch.setattr(
-        audit_service,
-        "_get_custom_payload",
-        AsyncMock(return_value={"custom": "yes"}),
-    )
-    monkeypatch.setattr(
-        audit_service,
-        "_get_verify_ssl",
-        AsyncMock(return_value=True),
-    )
-    monkeypatch.setattr(
-        audit_service,
-        "_get_payload_attribute",
-        AsyncMock(return_value="event"),
+    webhook_config = AuditWebhookConfig(
+        webhook_url="https://example.com/audit",
+        custom_headers={"X-Custom-Header": "custom-value"},
+        custom_payload={
+            "id": "customer-id",
+            "version": 99,
+            "resource_type": "organization",
+            "custom": "yes",
+        },
+        verify_ssl=False,
     )
 
-    response_mock = MagicMock()
-    response_mock.raise_for_status = MagicMock()
-    client_mock = AsyncMock()
-    client_mock.post = AsyncMock(return_value=response_mock)
-    async_client_context_mock = AsyncMock()
-    async_client_context_mock.__aenter__.return_value = client_mock
-    async_client_context_mock.__aexit__.return_value = None
+    body, headers = build_audit_webhook_request(payload=event, config=webhook_config)
 
+    assert headers == {
+        "X-Custom-Header": "custom-value",
+        "X-Tracecat-Event-Id": str(event.id),
+        "X-Tracecat-Timestamp": event.created_at.isoformat(),
+    }
+    assert body["id"] == str(event.id)
+    assert body["version"] == 1
+    assert body["custom"] == "yes"
+    assert body["resource_type"] == "organization"
+    assert body["actor_label"] == "user@example.com"
+
+
+def test_build_audit_webhook_request_wraps_payload_when_attribute_configured() -> None:
     event = AuditEvent(
         organization_id=uuid.uuid4(),
         workspace_id=None,
@@ -579,23 +625,24 @@ async def test_post_event_wraps_payload_when_attribute_configured(
         actor_id=uuid.uuid4(),
         actor_label="user@example.com",
         resource_type="workflow",
-        resource_id=uuid.uuid4(),
+        resource_id=str(uuid.uuid4()),
         action="create",
         status=AuditEventStatus.SUCCESS,
     )
+    webhook_config = AuditWebhookConfig(
+        webhook_url="https://example.com/audit",
+        custom_headers={"X-Custom-Header": "custom-value"},
+        custom_payload={"custom": "yes"},
+        payload_attribute="event",
+    )
 
-    with patch(
-        "tracecat.audit.service.httpx.AsyncClient",
-        return_value=async_client_context_mock,
-    ) as async_client_ctor:
-        await audit_service._post_event(webhook_url=webhook_url, payload=event)
+    body, headers = build_audit_webhook_request(payload=event, config=webhook_config)
 
-    async_client_ctor.assert_called_once_with(timeout=10.0, verify=True)
-    kwargs = client_mock.post.await_args.kwargs
-    wrapped_payload = kwargs["json"]
-    assert set(wrapped_payload.keys()) == {"event"}
-    assert wrapped_payload["event"]["custom"] == "yes"
-    assert wrapped_payload["event"]["actor_label"] == "user@example.com"
+    assert set(body.keys()) == {"event"}
+    assert body["event"]["custom"] == "yes"
+    assert body["event"]["actor_label"] == "user@example.com"
+    assert headers["X-Tracecat-Event-Id"] == str(event.id)
+    assert headers["X-Tracecat-Timestamp"] == event.created_at.isoformat()
 
 
 @pytest.mark.anyio
@@ -630,7 +677,7 @@ async def test_audit_log_organization_invitation_create_uses_returned_id(
         for call in create_event_calls
         if call["status"] == AuditEventStatus.SUCCESS
     )
-    assert success_call["resource_id"] == invitation_id
+    assert success_call["resource_id"] == str(invitation_id)
 
 
 @pytest.mark.anyio
@@ -666,7 +713,75 @@ async def test_audit_log_explicit_invitation_id_overrides_result_id(
         ctx_role.reset(token)
 
     resource_ids = [call["resource_id"] for call in create_event_calls]
-    assert resource_ids == [invitation_id, invitation_id]
+    assert resource_ids == [str(invitation_id), str(invitation_id)]
+
+
+@pytest.mark.anyio
+async def test_audit_log_data_fn_runs_only_on_terminal_event(role: Role) -> None:
+    workflow_id = "wf_alias"
+
+    def metadata(self, workflow_id: str, result):
+        return {"workflow_id": workflow_id, "result_id": result.id}
+
+    class MockService:
+        def __init__(self):
+            self.session = AsyncMock()
+
+        @audit_log(resource_type="workflow", action="create", data_fn=metadata)
+        async def create_workflow(self, workflow_id: str):
+            return SimpleNamespace(id="created")
+
+    service = MockService()
+    token = ctx_role.set(role)
+    create_event_calls: list[dict[str, object]] = []
+
+    async def mock_create_event(*args, **kwargs):
+        create_event_calls.append(kwargs)
+
+    try:
+        with patch.object(AuditService, "create_event", side_effect=mock_create_event):
+            await service.create_workflow(workflow_id)
+    finally:
+        ctx_role.reset(token)
+
+    assert create_event_calls[0]["status"] == AuditEventStatus.ATTEMPT
+    assert "data" not in create_event_calls[0]
+    assert create_event_calls[1]["status"] == AuditEventStatus.SUCCESS
+    assert create_event_calls[1]["resource_id"] == "wf_alias"
+    assert create_event_calls[1]["data"] == {
+        "workflow_id": workflow_id,
+        "result_id": "created",
+    }
+
+
+@pytest.mark.anyio
+async def test_audit_log_data_fn_failure_emits_none_data(role: Role) -> None:
+    def bad_metadata(**kwargs):
+        raise RuntimeError("metadata failed")
+
+    class MockService:
+        def __init__(self):
+            self.session = AsyncMock()
+
+        @audit_log(resource_type="workflow", action="create", data_fn=bad_metadata)
+        async def create_workflow(self, workflow_id: uuid.UUID):
+            return SimpleNamespace(workflow_id=workflow_id)
+
+    service = MockService()
+    token = ctx_role.set(role)
+    create_event_calls: list[dict[str, object]] = []
+
+    async def mock_create_event(*args, **kwargs):
+        create_event_calls.append(kwargs)
+
+    try:
+        with patch.object(AuditService, "create_event", side_effect=mock_create_event):
+            await service.create_workflow(uuid.uuid4())
+    finally:
+        ctx_role.reset(token)
+
+    assert create_event_calls[1]["status"] == AuditEventStatus.SUCCESS
+    assert create_event_calls[1]["data"] is None
 
 
 @pytest.mark.anyio
@@ -767,6 +882,262 @@ async def test_audit_log_success_logging_failure_still_returns_result(role: Role
     assert result == expected_result
     assert len(create_event_calls) == 1
     assert create_event_calls[0][1]["status"] == AuditEventStatus.ATTEMPT
+
+
+@pytest.mark.anyio
+async def test_audit_delivery_consumer_acks_on_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid.uuid4()
+    stream_key = audit_delivery_stream_key("organization", org_id)
+    event = _sample_audit_event(organization_id=org_id)
+    client = MagicMock()
+    client.get = AsyncMock(return_value=None)
+    client.delete = AsyncMock(return_value=1)
+    client.xack = AsyncMock(return_value=1)
+    consumer = AuditDeliveryConsumer(client)
+    sink_config = AuditWebhookConfig(webhook_url="https://example.com/audit")
+    deliver_event = AsyncMock(return_value=None)
+    monkeypatch.setattr(
+        consumer, "_get_sink_config", AsyncMock(return_value=sink_config)
+    )
+    monkeypatch.setattr(consumer, "_deliver_event", deliver_event)
+
+    await consumer._handle_message(
+        stream_key, "1-0", {"event": event.model_dump_json()}, attempts=1
+    )
+
+    deliver_event.assert_awaited_once()
+    client.xack.assert_awaited_once_with(stream_key, consumer.group, ["1-0"])
+    client.delete.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_audit_delivery_consumer_acks_on_attempt_exhaustion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid.uuid4()
+    stream_key = audit_delivery_stream_key("organization", org_id)
+    event = _sample_audit_event(organization_id=org_id)
+    client = MagicMock()
+    client.get = AsyncMock(return_value=None)
+    client.incr_with_expire = AsyncMock(return_value=2)
+    client.xack = AsyncMock(return_value=1)
+    consumer = AuditDeliveryConsumer(client)
+    consumer.max_attempts = 2
+    monkeypatch.setattr(
+        consumer,
+        "_get_sink_config",
+        AsyncMock(
+            return_value=AuditWebhookConfig(webhook_url="https://example.com/audit")
+        ),
+    )
+    monkeypatch.setattr(
+        consumer, "_deliver_event", AsyncMock(side_effect=httpx.HTTPError("failed"))
+    )
+
+    await consumer._handle_message(
+        stream_key, "1-0", {"event": event.model_dump_json()}, attempts=2
+    )
+
+    client.incr_with_expire.assert_awaited_once_with(
+        consumer._circuit_key("organization", org_id),
+        expire_seconds=consumer.circuit_ttl,
+    )
+    client.xack.assert_awaited_once_with(stream_key, consumer.group, ["1-0"])
+
+
+@pytest.mark.anyio
+async def test_audit_delivery_consumer_circuit_open_leaves_pending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid.uuid4()
+    stream_key = audit_delivery_stream_key("organization", org_id)
+    event = _sample_audit_event(organization_id=org_id)
+    client = MagicMock()
+    client.get = AsyncMock(return_value="5")
+    client.xack = AsyncMock(return_value=0)
+    consumer = AuditDeliveryConsumer(client)
+    consumer.circuit_threshold = 5
+    get_sink_config = AsyncMock()
+    deliver_event = AsyncMock()
+    monkeypatch.setattr(consumer, "_get_sink_config", get_sink_config)
+    monkeypatch.setattr(consumer, "_deliver_event", deliver_event)
+
+    await consumer._handle_message(
+        stream_key, "1-0", {"event": event.model_dump_json()}, attempts=1
+    )
+
+    get_sink_config.assert_not_awaited()
+    deliver_event.assert_not_awaited()
+    client.xack.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_audit_delivery_consumer_records_failures_with_incr() -> None:
+    org_id = uuid.uuid4()
+    client = MagicMock()
+    client.incr_with_expire = AsyncMock(return_value=1)
+    consumer = AuditDeliveryConsumer(client)
+
+    await consumer._record_sink_failure("organization", org_id)
+
+    client.incr_with_expire.assert_awaited_once_with(
+        consumer._circuit_key("organization", org_id),
+        expire_seconds=consumer.circuit_ttl,
+    )
+
+
+@pytest.mark.anyio
+async def test_audit_delivery_config_exception_leaves_message_pending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid.uuid4()
+    stream_key = audit_delivery_stream_key("organization", org_id)
+    event = _sample_audit_event(organization_id=org_id)
+    client = MagicMock()
+    client.get = AsyncMock(return_value=None)
+    client.xack = AsyncMock(return_value=0)
+    consumer = AuditDeliveryConsumer(client)
+    deliver_event = AsyncMock()
+    monkeypatch.setattr(
+        consumer,
+        "_get_sink_config",
+        AsyncMock(side_effect=RuntimeError("database unavailable")),
+    )
+    monkeypatch.setattr(consumer, "_deliver_event", deliver_event)
+
+    await consumer._handle_message(
+        stream_key, "1-0", {"event": event.model_dump_json()}, attempts=1
+    )
+
+    deliver_event.assert_not_awaited()
+    client.xack.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_audit_delivery_pending_sweep_runs_when_reads_return_messages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid.uuid4()
+    stream_key = audit_delivery_stream_key("organization", org_id)
+    event = _sample_audit_event(organization_id=org_id)
+    client = MagicMock()
+    client.smembers = AsyncMock(return_value={stream_key})
+    client.exists = AsyncMock(return_value=True)
+    client.xgroup_create = AsyncMock(return_value=True)
+    client.xreadgroup = AsyncMock(
+        side_effect=[
+            [(stream_key, [("1-0", {"event": event.model_dump_json()})])],
+            asyncio.CancelledError(),
+        ]
+    )
+    consumer = AuditDeliveryConsumer(client)
+    monkeypatch.setattr(
+        "tracecat.audit.delivery.monotonic",
+        MagicMock(side_effect=[0.0, consumer._pending_check_interval + 1.0]),
+    )
+    handle_message = AsyncMock()
+    claim_idle_messages = AsyncMock()
+    monkeypatch.setattr(consumer, "_handle_message", handle_message)
+    monkeypatch.setattr(consumer, "_claim_idle_messages", claim_idle_messages)
+
+    with pytest.raises(asyncio.CancelledError):
+        await consumer.run()
+
+    handle_message.assert_awaited_once_with(
+        stream_key, "1-0", {"event": event.model_dump_json()}, attempts=1
+    )
+    claim_idle_messages.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_audit_delivery_consumer_acks_unconfigured_sink(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid.uuid4()
+    stream_key = audit_delivery_stream_key("organization", org_id)
+    event = _sample_audit_event(organization_id=org_id)
+    client = MagicMock()
+    client.get = AsyncMock(return_value=None)
+    client.xack = AsyncMock(return_value=1)
+    consumer = AuditDeliveryConsumer(client)
+    deliver_event = AsyncMock()
+    monkeypatch.setattr(consumer, "_get_sink_config", AsyncMock(return_value=None))
+    monkeypatch.setattr(consumer, "_deliver_event", deliver_event)
+
+    await consumer._handle_message(
+        stream_key, "1-0", {"event": event.model_dump_json()}, attempts=1
+    )
+
+    deliver_event.assert_not_awaited()
+    client.xack.assert_awaited_once_with(stream_key, consumer.group, ["1-0"])
+
+
+@pytest.mark.anyio
+async def test_audit_delivery_claim_uses_times_delivered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid.uuid4()
+    stream_key = audit_delivery_stream_key("organization", org_id)
+    event = _sample_audit_event(organization_id=org_id)
+    client = MagicMock()
+    client.smembers = AsyncMock(return_value={stream_key})
+    client.exists = AsyncMock(return_value=True)
+    client.xgroup_create = AsyncMock(return_value=True)
+    client.xpending_range = AsyncMock(
+        return_value=[
+            {"message_id": "1-0", "times_delivered": 3},
+            {"message_id": "2-0", "times_delivered": 1},
+        ]
+    )
+    client.expire = AsyncMock(return_value=True)
+    client.get = AsyncMock(return_value=None)
+    client.xack = AsyncMock(return_value=1)
+    client.xclaim = AsyncMock(
+        return_value=[("2-0", {"event": event.model_dump_json()})]
+    )
+    consumer = AuditDeliveryConsumer(client)
+    consumer.max_attempts = 3
+    handle_message = AsyncMock()
+    monkeypatch.setattr(consumer, "_handle_message", handle_message)
+
+    await consumer._claim_idle_messages()
+
+    client.expire.assert_awaited_once_with(stream_key, consumer.stream_ttl)
+    client.xack.assert_awaited_once_with(stream_key, consumer.group, ["1-0"])
+    client.xclaim.assert_awaited_once_with(
+        stream_key,
+        consumer.group,
+        consumer.consumer_name,
+        consumer.claim_idle_ms,
+        ["2-0"],
+    )
+    handle_message.assert_awaited_once_with(
+        stream_key,
+        "2-0",
+        {"event": event.model_dump_json()},
+        attempts=2,
+    )
+
+
+def test_case_comment_audit_data_redacts_content() -> None:
+    service = CaseCommentsService.__new__(CaseCommentsService)
+    case_id = uuid.uuid4()
+    comment_id = uuid.uuid4()
+
+    data = service._comment_audit_data(
+        case_id=case_id,
+        comment_id=comment_id,
+        parent_id=None,
+        content="sensitive",
+    )
+
+    assert data["case_id"] == str(case_id)
+    assert data["comment_id"] == str(comment_id)
+    assert data["parent_id"] is None
+    assert data["redacted_fields"] == ["content"]
+    assert "content" not in data
 
 
 @pytest.mark.anyio
