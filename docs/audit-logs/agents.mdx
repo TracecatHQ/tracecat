@@ -6,7 +6,7 @@ keywords: ["agent telemetry", "OpenTelemetry", "OTLP", "Claude Code"]
 
 Agent runs emit Claude Code OpenTelemetry signals. Point them at your own OTLP collector to track token usage, cost, tool activity, and session outcomes alongside the rest of your observability data.
 
-Tracecat exports metrics, log events, and traces over OTLP. Traces are off by default while Claude Code tracing is in beta; when you turn them on, Tracecat sets the beta tracing flag for the agent run.
+Tracecat exports metrics, log events, and traces over OTLP/HTTP with protobuf. Traces are off by default while Claude Code tracing is in beta; when you turn them on, Tracecat sets the beta tracing flag for the agent run.
 
 Telemetry is off until an organization administrator enables it, and each organization configures its own exporter.
 See [Claude Code monitoring](https://code.claude.com/docs/en/monitoring-usage) for the metrics and events each signal carries.
@@ -68,7 +68,6 @@ The remaining fields tune transport and export cadence:
 
 | Field | Values | Description |
 | :---- | :----- | :---------- |
-| `protocol` | `grpc`, `http/json`, `http/protobuf` | OTLP transport protocol for all signals. |
 | `metrics_temporality` | `delta`, `cumulative` | Metrics aggregation temporality. |
 | `metric_export_interval_ms` | Positive integer | Metrics export interval in milliseconds. |
 | `logs_export_interval_ms` | Positive integer | Logs export interval in milliseconds. |
@@ -80,7 +79,7 @@ Leave a field unset to keep the Claude Code default.
 Self-hosted operators can pin every organization to one collector. Set `TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_CONFIG` on the agent executor to a JSON object with the same fields as the organization configuration:
 
 ```bash
-TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_CONFIG='{"enabled":true,"endpoint":"https://otel.example.com","protocol":"http/protobuf","metrics_enabled":true,"logs_enabled":true,"log_user_prompts":false,"resource_attributes":{"deployment.environment":"production"}}'
+TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_CONFIG='{"enabled":true,"endpoint":"https://otel.example.com","metrics_enabled":true,"logs_enabled":true,"log_user_prompts":false,"resource_attributes":{"deployment.environment":"production"}}'
 ```
 
 The override wins wholesale: when it is set, every organization's own settings are ignored, including an override that sets `enabled` to `false` to disable telemetry platform-wide. Leave the variable unset so organization settings apply.
