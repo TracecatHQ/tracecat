@@ -95,8 +95,10 @@ class LoopbackInput:
 
     session_id: uuid.UUID
     workspace_id: uuid.UUID
+    role: Role
     active_stream_id: uuid.UUID | None = None
     curr_run_id: uuid.UUID | None = None
+    defer_done_on_approval: bool = False
 
 
 @dataclass(kw_only=True, slots=True)
@@ -202,9 +204,11 @@ class FanoutStreamSink:
         self,
         operation_name: str,
         operation: SinkOperation,
+        sinks: tuple[LoopbackEventSink, ...] | None = None,
     ) -> None:
+        targets = self.sinks if sinks is None else sinks
         failures = 0
-        for sink in self.sinks:
+        for sink in targets:
             try:
                 await operation(sink)
             except Exception as exc:
@@ -215,7 +219,7 @@ class FanoutStreamSink:
                     sink_type=type(sink).__name__,
                     error=str(exc),
                 )
-        if failures == len(self.sinks):
+        if targets and failures == len(targets):
             raise RuntimeError(f"All fanout sinks failed for method '{operation_name}'")
 
     async def append(self, event: UnifiedStreamEvent) -> None:
@@ -226,6 +230,17 @@ class FanoutStreamSink:
 
     async def done(self) -> None:
         await self._broadcast("done", lambda sink: sink.done())
+
+    async def done_external(self) -> None:
+        """Complete external-channel sinks while leaving Redis open."""
+        external_sinks = tuple(
+            sink for sink in self.sinks if not isinstance(sink, AgentStreamSink)
+        )
+        await self._broadcast(
+            "done_external",
+            lambda sink: sink.done(),
+            external_sinks,
+        )
 
 
 def _runtime_envelope_from_json(payload: bytes) -> RuntimeEventEnvelope:
@@ -268,6 +283,7 @@ class LoopbackHandler:
         self._result = LoopbackResult(success=False)
         self._sdk_session_id: str | None = None  # Track SDK session ID for this run
         self._stream_done_emitted: bool = False  # Dedupe flag for stream.done()
+        self._external_stream_done_emitted: bool = False
         self._interrupt_notice_emitted: bool = False  # Dedupe for cancelled event
         # Track which session lines have been persisted to avoid duplicates
         self._persisted_line_uuids: set[str] = set()
@@ -358,12 +374,34 @@ class LoopbackHandler:
         This helper ensures the stream end marker is emitted exactly once,
         even if multiple code paths could trigger it (e.g., error + finally).
         """
+        if self._should_defer_done_for_approval():
+            if (
+                isinstance(self._stream_sink, FanoutStreamSink)
+                and not self._external_stream_done_emitted
+            ):
+                self._external_stream_done_emitted = True
+                try:
+                    await self._stream_sink.done_external()
+                except Exception as e:
+                    logger.warning(
+                        "Failed to emit external stream done",
+                        error=str(e),
+                    )
+            return
         if self._stream_sink and not self._stream_done_emitted:
             self._stream_done_emitted = True
             try:
                 await self._stream_sink.done()
             except Exception as e:
                 logger.warning("Failed to emit stream done", error=str(e))
+
+    def _should_defer_done_for_approval(self) -> bool:
+        return (
+            self.input.defer_done_on_approval
+            and self._result.approval_requested
+            and self._result.error is None
+            and not self._result.cancelled
+        )
 
     async def _emit_terminal_stream_error(
         self,

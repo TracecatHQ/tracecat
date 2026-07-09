@@ -350,6 +350,22 @@ type CompactionData = {
   phase?: "started" | "completed" | "failed"
 }
 
+type KeptToolPart = {
+  position: string
+  hasOutput: boolean
+}
+
+function getApprovalToolCallId(approval: unknown): string | null {
+  if (!approval || typeof approval !== "object") {
+    return null
+  }
+
+  const toolCallId = (approval as { tool_call_id?: unknown }).tool_call_id
+  return typeof toolCallId === "string" && toolCallId.length > 0
+    ? toolCallId
+    : null
+}
+
 /**
  * Concatenates all text parts from a message into a single string.
  * Skips non-text parts and preserves paragraph breaks between multiple parts.
@@ -387,6 +403,8 @@ export function getAssistantText(parts: UIMessage["parts"]): string {
  * - Streaming tool inputs remain visible
  * - Completed tool calls collapse their input and approval parts
  * - Pending approvals (without output) remain visible
+ * - Duplicate DB/stream seam copies render once: latest output wins, otherwise
+ *   the latest occurrence wins
  *
  * @param messages - Array of UI messages to transform
  * @returns Transformed messages with appropriate parts hidden/visible
@@ -399,6 +417,10 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
   >()
   // Array positions to ignore (using "msgIndex-partIndex" string format)
   const ignorePos = new Set<string>()
+  const keptToolParts = new Map<string, KeptToolPart>()
+  const resolvedToolCallIds = new Set<string>()
+  const lastApprovalPosition = new Map<string, string>()
+  let hasDuplicateApprovalRequests = false
   let pendingCompactionStartPos: string | null = null
 
   for (const [i, message] of messages.entries()) {
@@ -407,6 +429,24 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
 
       if (ai.isToolUIPart(part)) {
         const { state, toolCallId } = part
+        const hasOutput =
+          state === "output-available" || state === "output-error"
+        const keptToolPart = keptToolParts.get(toolCallId)
+        if (hasOutput) {
+          resolvedToolCallIds.add(toolCallId)
+          if (keptToolPart) {
+            ignorePos.add(keptToolPart.position)
+          }
+          keptToolParts.set(toolCallId, { position: posKey, hasOutput: true })
+        } else if (keptToolPart?.hasOutput) {
+          ignorePos.add(posKey)
+        } else {
+          if (keptToolPart) {
+            ignorePos.add(keptToolPart.position)
+          }
+          keptToolParts.set(toolCallId, { position: posKey, hasOutput: false })
+        }
+
         if (state === "input-available") {
           // OPEN STATE
           // If we encounter an input-available part, we open a tool call state
@@ -439,15 +479,23 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
           ? part.data
           : []
         for (const approval of approvals) {
+          const toolCallId = getApprovalToolCallId(approval)
+          if (toolCallId) {
+            const previousPosition = lastApprovalPosition.get(toolCallId)
+            if (previousPosition && previousPosition !== posKey) {
+              hasDuplicateApprovalRequests = true
+            }
+            lastApprovalPosition.set(toolCallId, posKey)
+          }
           // For each approval find the matching open state and update the approval state
-          if (approval.tool_call_id) {
-            const currState = states.get(approval.tool_call_id)
+          if (toolCallId) {
+            const currState = states.get(toolCallId)
             if (currState) {
               // If we already have a close state, ignore this approval request
               if (currState.close) {
                 ignorePos.add(posKey)
               }
-              states.set(approval.tool_call_id, {
+              states.set(toolCallId, {
                 ...currState,
                 approval: posKey,
               })
@@ -478,11 +526,36 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
 
   // Finally walk through each message and filter out the ignored positions
   const finalMessages: ai.UIMessage[] = []
+  const shouldFilterApprovalParts =
+    resolvedToolCallIds.size > 0 || hasDuplicateApprovalRequests
   for (const [i, message] of messages.entries()) {
     const newParts: ai.UIMessagePart<ai.UIDataTypes, ai.UITools>[] = []
     for (const [j, part] of message.parts.entries()) {
       const posKey = `${i}-${j}`
       if (ignorePos.has(posKey)) continue
+      if (
+        shouldFilterApprovalParts &&
+        part.type === "data-approval-request" &&
+        Array.isArray(part.data)
+      ) {
+        const remaining = part.data.filter((approval) => {
+          const toolCallId = getApprovalToolCallId(approval)
+          if (!toolCallId) {
+            return true
+          }
+          return (
+            !resolvedToolCallIds.has(toolCallId) &&
+            lastApprovalPosition.get(toolCallId) === posKey
+          )
+        })
+        if (remaining.length === 0) {
+          continue
+        }
+        if (remaining.length !== part.data.length) {
+          newParts.push({ ...part, data: remaining })
+          continue
+        }
+      }
       // Merge input from open state into output parts
       if (
         ai.isToolUIPart(part) &&

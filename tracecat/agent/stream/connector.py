@@ -46,6 +46,7 @@ class AgentStream:
 
     KEEPALIVE_INTERVAL_SECONDS = 10
     COMPLETED_STREAM_TTL_SECONDS = 5 * 60
+    CONTINUATION_START_KIND = "approval-continuation-start"
 
     def __init__(
         self,
@@ -95,6 +96,25 @@ class AgentStream:
     async def done(self) -> None:
         """Emit an end-of-turn marker."""
         await self.append({tokens.END_TOKEN: tokens.END_TOKEN_VALUE})
+
+    async def mark_approval_continuation(self) -> None:
+        """Mark a fresh stream as the live suffix of an approval continuation."""
+        await self.append({"kind": self.CONTINUATION_START_KIND})
+
+    async def is_open_approval_continuation(self) -> bool:
+        """Return whether this is a marked continuation without a terminal frame."""
+        first_entries = await self.client.xrange(self._stream_key, count=1)
+        if not first_entries:
+            return False
+        first_data = orjson.loads(first_entries[0][1][tokens.DATA_KEY])
+        if first_data != {"kind": self.CONTINUATION_START_KIND}:
+            return False
+
+        last_entries = await self.client.xrevrange(self._stream_key, count=1)
+        if not last_entries:
+            return False
+        last_data = orjson.loads(last_entries[0][1][tokens.DATA_KEY])
+        return last_data != {tokens.END_TOKEN: tokens.END_TOKEN_VALUE}
 
     async def clear_buffer(self) -> None:
         """Delete the stream buffer for this key.
@@ -171,6 +191,11 @@ class AgentStream:
                     case {tokens.END_TOKEN: tokens.END_TOKEN_VALUE}:
                         stream_completed = True
                         yield StreamEnd(id=msg_id)
+                    case {"kind": "approval-continuation-start"}:
+                        # Transport-only marker. It lets reconnect distinguish a
+                        # newly rotated suffix from the closed approval-pause
+                        # stream while approval decisions are still committing.
+                        yield StreamKeepAlive()
                     case {"event_kind": _}:
                         legacy_event = AgentStreamEventTA.validate_python(data)
                         yield StreamDelta(id=msg_id, event=legacy_event)

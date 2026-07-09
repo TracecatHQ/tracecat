@@ -136,6 +136,13 @@ class EmitSessionErrorInputs(BaseModel):
     should_stream: bool = True
 
 
+class EmitSessionDoneInputs(BaseModel):
+    role: Role
+    session_id: uuid.UUID
+    workspace_id: uuid.UUID
+    active_stream_id: uuid.UUID | None = None
+
+
 # Cap stored error summaries so a runaway traceback can't bloat the session row
 # or the inbox payload. The detail banner only needs a short, human-readable
 # reason.
@@ -552,6 +559,17 @@ class AgentActivities:
             stream_id=args.active_stream_id,
         )
         await stream.error(args.message)
+        await stream.done()
+
+    @activity.defn
+    async def emit_session_done(self, args: EmitSessionDoneInputs) -> None:
+        """Push a terminal done marker to the active agent stream."""
+        ctx_role.set(args.role)
+        stream = await AgentStream.new(
+            session_id=args.session_id,
+            workspace_id=args.workspace_id,
+            stream_id=args.active_stream_id,
+        )
         await stream.done()
 
     @activity.defn

@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.executor.schemas import ToolExecutionResult
 from tracecat.agent.session.service import AgentSessionService
-from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.chat.enums import MessageKind
@@ -139,6 +139,60 @@ async def test_has_pending_approvals_reflects_status(
     await session.commit()
 
     assert await service.has_pending_approvals(external_agent_session.id) is False
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("continuation_is_open", "expected_live"),
+    [(False, False), (True, True)],
+)
+async def test_stream_resume_distinguishes_pause_from_rotated_continuation(
+    session: AsyncSession,
+    svc_role: Role,
+    external_agent_session: AgentSession,
+    continuation_is_open: bool,
+    expected_live: bool,
+) -> None:
+    """Pending approvals only suppress the closed pre-approval stream."""
+    run_id = uuid.uuid4()
+    stream_id = uuid.uuid4()
+    external_agent_session.curr_run_id = run_id
+    external_agent_session.active_stream_id = stream_id
+    session.add(
+        Approval(
+            workspace_id=svc_role.workspace_id,
+            session_id=external_agent_session.id,
+            tool_call_id="call_resume",
+            tool_name="core.http_request",
+            tool_call_args={"url": "https://example.com"},
+            status=ApprovalStatus.PENDING,
+        )
+    )
+    await session.commit()
+
+    service = AgentSessionService(session=session, role=svc_role)
+    stream = SimpleNamespace(
+        is_open_approval_continuation=AsyncMock(return_value=continuation_is_open)
+    )
+    with (
+        patch.object(
+            service,
+            "get_turn_lifecycle",
+            AsyncMock(return_value=(TurnLifecycle.RUNNING, run_id)),
+        ),
+        patch(
+            "tracecat.agent.session.service.AgentStream.new",
+            AsyncMock(return_value=stream),
+        ) as stream_new,
+    ):
+        state = await service.get_stream_resume_state(external_agent_session)
+
+    assert state.has_live_stream is expected_live
+    stream_new.assert_awaited_once_with(
+        session_id=external_agent_session.id,
+        workspace_id=svc_role.workspace_id,
+        stream_id=stream_id,
+    )
 
 
 @pytest.mark.anyio
@@ -859,12 +913,19 @@ async def test_run_turn_continue_with_inbox_source_for_non_external_session(
             "tracecat.agent.session.service.get_redis_client",
             AsyncMock(return_value=fake_redis),
         ),
+        patch(
+            "tracecat.agent.stream.connector.get_redis_client",
+            AsyncMock(return_value=fake_redis),
+        ),
     ):
         result = await service.run_turn(agent_session.id, continuation)
 
-    assert result is None
+    # A real approval submission rotates the stream and returns the fresh id.
+    assert result is not None
+    assert result.active_stream_id is not None
     get_workflow_handle_for.assert_called_once()
     fake_handle.execute_update.assert_awaited_once()
+    fake_redis.xadd.assert_awaited_once()
 
 
 @pytest.mark.anyio
@@ -923,15 +984,28 @@ async def test_run_turn_continue_override_maps_to_tool_approved(
             "tracecat.agent.session.service.get_redis_client",
             AsyncMock(return_value=fake_redis),
         ),
+        patch(
+            "tracecat.agent.stream.connector.get_redis_client",
+            AsyncMock(return_value=fake_redis),
+        ),
     ):
         result = await service.run_turn(agent_session.id, continuation)
 
-    assert result is None
     fake_handle.execute_update.assert_awaited_once()
     submission = fake_handle.execute_update.await_args.args[1]
     decision = submission.approvals["tool_call_123"]
     assert isinstance(decision, ToolApproved)
     assert decision.override_args == {"url": "https://modified.example.com"}
+
+    # Stream rotation: the continuation mints a fresh stream id, pins it on the
+    # session row, threads it into the submission payload, and returns it so the
+    # HTTP layer attaches to the fresh (suffix-only) stream.
+    assert result is not None
+    assert result.active_stream_id is not None
+    assert submission.new_stream_id == result.active_stream_id
+    fake_redis.xadd.assert_awaited_once()
+    await session.refresh(agent_session)
+    assert agent_session.active_stream_id == result.active_stream_id
 
 
 @pytest.mark.anyio
@@ -939,6 +1013,7 @@ async def test_run_turn_continue_without_pending_approvals_is_noop(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
+    rotated_stream_id = uuid.uuid4()
     agent_session = AgentSession(
         id=uuid.uuid4(),
         title="Preset chat",
@@ -946,6 +1021,7 @@ async def test_run_turn_continue_without_pending_approvals_is_noop(
         entity_type=AgentSessionEntity.AGENT_PRESET.value,
         entity_id=uuid.uuid4(),
         curr_run_id=uuid.uuid4(),
+        active_stream_id=rotated_stream_id,
     )
     session.add(agent_session)
     await session.commit()
@@ -965,13 +1041,18 @@ async def test_run_turn_continue_without_pending_approvals_is_noop(
     fake_handle = SimpleNamespace(execute_update=AsyncMock(return_value=None))
     get_workflow_handle_for = Mock(return_value=fake_handle)
     fake_client = SimpleNamespace(get_workflow_handle_for=get_workflow_handle_for)
-    with patch(
-        "tracecat.agent.session.service.get_temporal_client",
-        AsyncMock(return_value=fake_client),
+    get_redis = AsyncMock()
+    with (
+        patch(
+            "tracecat.agent.session.service.get_temporal_client",
+            AsyncMock(return_value=fake_client),
+        ),
+        patch("tracecat.agent.session.service.get_redis_client", get_redis),
     ):
         result = await service.run_turn(agent_session.id, continuation)
 
     assert result is None
+    get_redis.assert_not_awaited()
     get_workflow_handle_for.assert_not_called()
     fake_handle.execute_update.assert_not_awaited()
 
@@ -981,6 +1062,7 @@ async def test_run_turn_continue_duplicate_submission_is_noop(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
+    rotated_stream_id = uuid.uuid4()
     agent_session = AgentSession(
         id=uuid.uuid4(),
         title="Preset chat",
@@ -988,6 +1070,7 @@ async def test_run_turn_continue_duplicate_submission_is_noop(
         entity_type=AgentSessionEntity.AGENT_PRESET.value,
         entity_id=uuid.uuid4(),
         curr_run_id=uuid.uuid4(),
+        active_stream_id=rotated_stream_id,
     )
     session.add(agent_session)
     session.add(
@@ -1036,6 +1119,7 @@ async def test_run_turn_continue_duplicate_submission_is_noop(
 
     assert result is None
     fake_redis.set_if_not_exists.assert_awaited_once()
+    fake_redis.xadd.assert_not_awaited()
     fake_handle.execute_update.assert_not_awaited()
 
 

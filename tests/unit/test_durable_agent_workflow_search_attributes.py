@@ -374,6 +374,41 @@ async def test_load_terminal_message_history_skips_activity_without_patch_marker
 
 
 @pytest.mark.anyio
+async def test_approval_pause_done_failure_does_not_abort_workflow() -> None:
+    """A Redis close failure must not strand already-persisted approvals."""
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "secret:read"}),
+    )
+    workflow_instance = DurableAgentWorkflow(_build_workflow_args(role))
+    activity_error = ActivityError(
+        "stream close failed",
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity="worker",
+        activity_type="emit_session_done",
+        activity_id="activity-id",
+        retry_state=None,
+    )
+
+    with (
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.execute_activity_method",
+            AsyncMock(side_effect=activity_error),
+        ),
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.patched",
+            return_value=True,
+        ),
+    ):
+        await workflow_instance._emit_approval_pause_done(uuid.uuid4())
+
+
+@pytest.mark.anyio
 async def test_build_config_prefers_pinned_preset_version_id() -> None:
     role = Role(
         type="user",

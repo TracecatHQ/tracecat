@@ -70,10 +70,11 @@ from tracecat.agent.session.types import (
     TurnLifecycle,
     TurnLifecycleResult,
 )
+from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.subagents import (
     ResolvedAgentsConfig,
 )
-from tracecat.agent.types import AgentConfig, ClaudeSDKMessageTA, StreamKey
+from tracecat.agent.types import AgentConfig, ClaudeSDKMessageTA
 from tracecat.artifacts.bindings import ArtifactSideEffect
 from tracecat.artifacts.schemas import Artifact, ArtifactAdapter, ArtifactType
 from tracecat.audit.logger import audit_log
@@ -81,7 +82,6 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.prompts import CaseCopilotPrompts
 from tracecat.cases.service import CasesService
-from tracecat.chat import tokens
 from tracecat.chat.enums import MessageKind
 from tracecat.chat.schemas import (
     ApprovalRead,
@@ -188,6 +188,16 @@ class SessionHistoryData:
     sdk_session_id: str
     sdk_session_data: str
     is_fork: bool = False  # If True, SDK should use fork_session=True
+
+
+@dataclass(frozen=True)
+class StreamResumeState:
+    """Transport-neutral state for deciding whether a session stream is live."""
+
+    lifecycle: TurnLifecycle
+    curr_run_id: uuid.UUID | None
+    active_stream_id: uuid.UUID | None
+    has_live_stream: bool
 
 
 class AgentSessionService(BaseWorkspaceService):
@@ -1169,39 +1179,6 @@ class AgentSessionService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Session with ID {session_id} not found")
         return source
 
-    async def _emit_noop_continuation_done(
-        self,
-        *,
-        session_id: uuid.UUID,
-        active_stream_id: uuid.UUID | None,
-    ) -> None:
-        """Emit an end marker so duplicate/no-op continuations don't hang SSE clients."""
-        if self.workspace_id is None:
-            return
-        try:
-            redis_client = await get_redis_client()
-            await redis_client.xadd(
-                StreamKey(
-                    workspace_id=self.workspace_id,
-                    session_id=session_id,
-                    stream_id=active_stream_id,
-                ),
-                {
-                    tokens.DATA_KEY: orjson.dumps(
-                        {tokens.END_TOKEN: tokens.END_TOKEN_VALUE},
-                        default=str,
-                    ).decode()
-                },
-                maxlen=10000,
-                approximate=True,
-            )
-        except Exception as exc:
-            logger.warning(
-                "Failed to emit no-op continuation done marker",
-                session_id=str(session_id),
-                error=str(exc),
-            )
-
     @staticmethod
     def _approval_dedup_key(
         *,
@@ -1395,7 +1372,9 @@ class AgentSessionService(BaseWorkspaceService):
             request: Either a ChatRequest (start) or ContinueRunRequest (continue).
 
         Returns:
-            ChatResponse if starting a new turn, None if continuing.
+            ChatResponse when starting a new turn or continuing with approvals
+            (the continuation response carries the rotated ``active_stream_id``).
+            None only for a no-op continuation (already resolved / duplicate).
 
         Raises:
             TracecatNotFoundError: If the session is not found.
@@ -1619,6 +1598,41 @@ class AgentSessionService(BaseWorkspaceService):
                 # FAILED | TERMINATED | TIMED_OUT
                 return TurnLifecycleResult(TurnLifecycle.FAILED, curr_run_id)
 
+    async def get_stream_resume_state(
+        self, agent_session: AgentSession
+    ) -> StreamResumeState:
+        """Resolve whether the session has a live stream a client can attach to."""
+        lifecycle, curr_run_id = await self.get_turn_lifecycle(agent_session)
+        has_live_stream = lifecycle is TurnLifecycle.RUNNING
+        if has_live_stream and await self.has_pending_approvals(agent_session.id):
+            # Approval-paused runs are still RUNNING in Temporal. A freshly
+            # rotated continuation is the exception: its marker is written
+            # before the stream id is committed, so reconnects can safely wait
+            # on the new suffix while approval decisions finish committing.
+            has_live_stream = False
+            if agent_session.active_stream_id is not None:
+                try:
+                    stream = await AgentStream.new(
+                        session_id=agent_session.id,
+                        workspace_id=self.workspace_id,
+                        stream_id=agent_session.active_stream_id,
+                    )
+                    has_live_stream = await stream.is_open_approval_continuation()
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to inspect approval continuation stream",
+                        session_id=str(agent_session.id),
+                        stream_id=str(agent_session.active_stream_id),
+                        error=str(exc),
+                    )
+
+        return StreamResumeState(
+            lifecycle=lifecycle,
+            curr_run_id=curr_run_id,
+            active_stream_id=agent_session.active_stream_id,
+            has_live_stream=has_live_stream,
+        )
+
     async def validate_turn_request(
         self,
         session_id: uuid.UUID,
@@ -1650,15 +1664,24 @@ class AgentSessionService(BaseWorkspaceService):
         self,
         session_id: uuid.UUID,
         request: ContinueRunRequest,
-    ) -> None:
+    ) -> ChatResponse | None:
         """Continue an agent workflow by submitting approval decisions.
 
         Uses Temporal's workflow update mechanism to signal the waiting workflow
-        with the approval decisions.
+        with the approval decisions. Rotates the per-turn stream id: a fresh
+        stream id is minted, pinned on the session row before the update, and
+        passed to the workflow so every post-approval event (reconciled tool
+        results + resumed model output) lands in the fresh, suffix-only stream
+        rather than the pre-approval stream, which may already be TTL-evicted.
 
         Args:
             session_id: The ID of the agent session to continue.
             request: The continuation request containing approval decisions.
+
+        Returns:
+            A ChatResponse carrying the rotated ``active_stream_id`` the caller
+            should attach to, or None when the continuation is a no-op (already
+            resolved / duplicate submission).
 
         Raises:
             TracecatNotFoundError: If no active session exists.
@@ -1691,10 +1714,6 @@ class AgentSessionService(BaseWorkspaceService):
                 session_id=str(session_id),
                 run_id=str(curr_run_id),
                 source=source,
-            )
-            await self._emit_noop_continuation_done(
-                session_id=session_id,
-                active_stream_id=agent_session.active_stream_id,
             )
             return None
 
@@ -1752,10 +1771,6 @@ class AgentSessionService(BaseWorkspaceService):
                         source=source,
                         dedup_key=dedup_key,
                     )
-                    await self._emit_noop_continuation_done(
-                        session_id=session_id,
-                        active_stream_id=agent_session.active_stream_id,
-                    )
                     return None
             except Exception as exc:
                 logger.warning(
@@ -1783,6 +1798,21 @@ class AgentSessionService(BaseWorkspaceService):
             str(workflow_id),
         )
 
+        # Rotate the per-turn stream id. Mark the fresh Redis stream before
+        # committing its id so a reader that joins while approval decisions are
+        # still pending can distinguish it from the closed pause stream and wait
+        # for the suffix instead of returning 204.
+        new_stream_id = uuid.uuid4()
+        continuation_stream = await AgentStream.new(
+            session_id=session_id,
+            workspace_id=self.workspace_id,
+            stream_id=new_stream_id,
+        )
+        await continuation_stream.mark_approval_continuation()
+        agent_session.active_stream_id = new_stream_id
+        self.session.add(agent_session)
+        await self.session.commit()
+
         try:
             await handle.execute_update(
                 DurableAgentWorkflow.set_approvals,
@@ -1790,6 +1820,7 @@ class AgentSessionService(BaseWorkspaceService):
                     approvals=approval_map,
                     approved_by=self.role.user_id,
                     decision_metadata=decision_metadata or None,
+                    new_stream_id=new_stream_id,
                 ),
             )
         except Exception:
@@ -1803,9 +1834,15 @@ class AgentSessionService(BaseWorkspaceService):
             "Approval decisions submitted successfully",
             workflow_id=str(workflow_id),
             session_id=str(session_id),
+            new_stream_id=str(new_stream_id),
         )
 
-        return None
+        return ChatResponse(
+            stream_url=f"/api/agent/sessions/{session_id}/stream",
+            chat_id=session_id,
+            active_stream_id=new_stream_id,
+            curr_run_id=curr_run_id,
+        )
 
     async def request_cancel(
         self,
@@ -2163,28 +2200,6 @@ class AgentSessionService(BaseWorkspaceService):
         if agent_session and agent_session.parent_session_id:
             session_ids.insert(0, agent_session.parent_session_id)
 
-        # Fetch all history entries (both chat-message and internal)
-        # Internal entries are needed for tool result enrichment in the adapter
-        all_history_stmt = (
-            select(AgentSessionHistory)
-            .where(AgentSessionHistory.session_id.in_(session_ids))
-            .order_by(AgentSessionHistory.surrogate_id)
-        )
-        # While a turn is live (curr_run_id set), the active run's partial rows
-        # are durability-only - the live assistant streams from Redis. Hide them
-        # here so the active assistant has exactly one source (no dedupe). The
-        # gate is the cheap curr_run_id pointer; terminal nulls it (see
-        # finish/fail paths), at which point the final rows become visible.
-        if not include_active and agent_session.curr_run_id is not None:
-            all_history_stmt = all_history_stmt.where(
-                or_(
-                    AgentSessionHistory.curr_run_id.is_(None),
-                    AgentSessionHistory.curr_run_id != agent_session.curr_run_id,
-                )
-            )
-        all_history_result = await self.session.execute(all_history_stmt)
-        all_entries = list(all_history_result.scalars().all())
-
         # Fetch approvals for this session and parent session (for forked sessions)
         approval_stmt = select(Approval).where(Approval.session_id.in_(session_ids))
         approval_result = await self.session.execute(approval_stmt)
@@ -2192,6 +2207,71 @@ class AgentSessionService(BaseWorkspaceService):
         approval_by_tool_id: dict[str, Approval] = {
             a.tool_call_id: a for a in approvals
         }
+
+        # Hide active-run DB rows while Redis supplies the live stream. Approval
+        # turns are the exception: their stream may expire while paused, so keep
+        # the DB prefix through the latest approved tool call visible. Rows after
+        # that boundary belong to the continuation suffix and remain hidden while
+        # Redis replays them. Since approvals lack run IDs, match tool call IDs to
+        # avoid exposing unrelated runs from the same session.
+        current_run_id = agent_session.curr_run_id
+        current_run_approval_boundary: int | None = None
+        if not include_active and current_run_id is not None and approval_by_tool_id:
+            current_run_stmt = (
+                select(AgentSessionHistory)
+                .where(
+                    AgentSessionHistory.session_id.in_(session_ids),
+                    AgentSessionHistory.curr_run_id == current_run_id,
+                )
+                .order_by(AgentSessionHistory.surrogate_id)
+            )
+            current_run_result = await self.session.execute(current_run_stmt)
+            current_run_entries = current_run_result.scalars().all()
+            for entry in current_run_entries:
+                content = entry.content
+                if not content:
+                    continue
+                inner_message = content.get("message") or content
+                for tool_use in self._extract_tool_uses_from_message(inner_message):
+                    tool_use_id = tool_use.get("id")
+                    if tool_use_id and tool_use_id in approval_by_tool_id:
+                        current_run_approval_boundary = entry.surrogate_id
+                        break
+
+        # Fetch all history entries (both chat-message and internal).
+        # Internal entries are needed for tool result enrichment in the adapter.
+        all_history_stmt = (
+            select(AgentSessionHistory)
+            .where(AgentSessionHistory.session_id.in_(session_ids))
+            .order_by(AgentSessionHistory.surrogate_id)
+        )
+        if not include_active and current_run_id is not None:
+            active_run_filter = or_(
+                AgentSessionHistory.curr_run_id.is_(None),
+                AgentSessionHistory.curr_run_id != current_run_id,
+            )
+            if current_run_approval_boundary is not None:
+                active_run_filter = or_(
+                    active_run_filter,
+                    and_(
+                        AgentSessionHistory.curr_run_id == current_run_id,
+                        AgentSessionHistory.surrogate_id
+                        <= current_run_approval_boundary,
+                    ),
+                )
+            all_history_stmt = all_history_stmt.where(active_run_filter)
+        all_history_result = await self.session.execute(all_history_stmt)
+        all_entries = list(all_history_result.scalars().all())
+        if not include_active and current_run_id is not None:
+            all_entries = [
+                entry
+                for entry in all_entries
+                if entry.curr_run_id != current_run_id
+                or (
+                    current_run_approval_boundary is not None
+                    and entry.surrogate_id <= current_run_approval_boundary
+                )
+            ]
 
         # Build timeline with interleaved approvals
         # Process both chat-message and internal entries in order

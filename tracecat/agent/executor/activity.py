@@ -138,6 +138,9 @@ class AgentExecutorInput(BaseModel):
     sdk_session_data: str | None = Field(default=None, deprecated=True)
     # True when resuming after an approval decision.
     is_approval_continuation: bool = False
+    # True when the durable workflow will emit stream.done() after approval
+    # rows are persisted, instead of the executor loopback doing it immediately.
+    defer_done_on_approval: bool = False
     # True when forking from parent session (SDK should use fork_session=True)
     is_fork: bool = False
 
@@ -447,8 +450,10 @@ class SandboxedAgentExecutor:
             loopback_input = LoopbackInput(
                 session_id=self.input.session_id,
                 workspace_id=self.input.workspace_id,
+                role=self.input.role,
                 active_stream_id=self.input.active_stream_id,
                 curr_run_id=self.input.curr_run_id,
+                defer_done_on_approval=self.input.defer_done_on_approval,
             )
             handler = LoopbackHandler(input=loopback_input)
 

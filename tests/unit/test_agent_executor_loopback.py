@@ -4,6 +4,7 @@ import asyncio
 import uuid
 from pathlib import Path
 from types import TracebackType
+from typing import cast
 from unittest.mock import AsyncMock
 from uuid import UUID
 
@@ -13,13 +14,18 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from tracecat.agent.common.protocol import RuntimeEventEnvelope
 from tracecat.agent.common.socket_io import MessageType, build_message
-from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
+from tracecat.agent.common.stream_types import (
+    StreamEventType,
+    ToolCallContent,
+    UnifiedStreamEvent,
+)
 from tracecat.agent.executor.loopback import (
     AgentStreamSink,
     FanoutStreamSink,
     LoopbackHandler,
     LoopbackInput,
 )
+from tracecat.agent.stream.connector import AgentStream
 from tracecat.artifacts.bindings import ArtifactSideEffect
 from tracecat.artifacts.schemas import CaseArtifact
 from tracecat.auth.types import Role
@@ -61,6 +67,16 @@ class _FakeArtifactPersistenceSession:
         self.scalar = AsyncMock(return_value=organization_id)
 
 
+def _role(workspace_id: uuid.UUID) -> Role:
+    return Role(
+        type="service",
+        service_id="tracecat-agent-executor",
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute"}),
+    )
+
+
 def _reader_for_envelopes(*envelopes: RuntimeEventEnvelope) -> asyncio.StreamReader:
     reader = asyncio.StreamReader()
     for envelope in envelopes:
@@ -77,9 +93,11 @@ def _reader_for_envelopes(*envelopes: RuntimeEventEnvelope) -> asyncio.StreamRea
 @pytest.fixture
 def loopback_input(tmp_path: Path) -> LoopbackInput:
     del tmp_path
+    workspace_id = uuid.uuid4()
     return LoopbackInput(
         session_id=uuid.uuid4(),
-        workspace_id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        role=_role(workspace_id),
     )
 
 
@@ -208,11 +226,13 @@ async def test_prepare_initializes_stream_sink_once(
     initialize_stream_sink.assert_awaited_once()
 
 
-def _make_handler() -> LoopbackHandler:
+def _make_handler(*, defer_done_on_approval: bool = False) -> LoopbackHandler:
     return LoopbackHandler(
         input=LoopbackInput(
             session_id=UUID("00000000-0000-0000-0000-000000000001"),
             workspace_id=UUID("00000000-0000-0000-0000-000000000002"),
+            role=_role(UUID("00000000-0000-0000-0000-000000000002")),
+            defer_done_on_approval=defer_done_on_approval,
         )
     )
 
@@ -466,6 +486,74 @@ async def test_persist_artifact_side_effects_uses_workspace_organization(
         handler.input.session_id,
         [effect],
     )
+
+
+@pytest.mark.anyio
+async def test_emit_stream_done_emits_on_approval_pause_when_not_deferred() -> None:
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    handler._result.approval_requested = True
+    handler._result.approval_items = [
+        ToolCallContent(
+            id="tool_call_123",
+            name="core.cases.list_cases",
+            input={"limit": 10},
+            metadata={"scope": "case"},
+        )
+    ]
+
+    await handler._emit_stream_done()
+
+    stream.done.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_emit_stream_done_skips_deferred_approval_pause() -> None:
+    handler = _make_handler(defer_done_on_approval=True)
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    handler._result.approval_requested = True
+
+    await handler._emit_stream_done()
+
+    stream.done.assert_not_awaited()
+    assert handler._stream_done_emitted is False
+
+
+@pytest.mark.anyio
+async def test_emit_stream_done_closes_external_sink_on_approval_pause() -> None:
+    handler = _make_handler(defer_done_on_approval=True)
+    redis_stream = _FakeStream()
+    external_stream = _FakeExternalSink()
+    handler._stream_sink = FanoutStreamSink(
+        sinks=(
+            AgentStreamSink(stream=cast(AgentStream, redis_stream)),
+            external_stream,
+        )
+    )
+    handler._result.approval_requested = True
+
+    await handler._emit_stream_done()
+    await handler._emit_stream_done()
+
+    redis_stream.done.assert_not_awaited()
+    external_stream.done.assert_awaited_once()
+    assert handler._stream_done_emitted is False
+    assert handler._external_stream_done_emitted is True
+
+
+@pytest.mark.anyio
+async def test_emit_stream_done_emits_non_approval_when_deferred() -> None:
+    handler = _make_handler(defer_done_on_approval=True)
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    handler._result.approval_requested = False
+
+    await handler._emit_stream_done()
+
+    stream.done.assert_awaited_once()
+    assert handler._stream_done_emitted is True
 
 
 @pytest.mark.anyio

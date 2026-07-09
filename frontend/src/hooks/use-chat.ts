@@ -1,5 +1,6 @@
 import * as aiSdk from "@ai-sdk/react"
 import {
+  type QueryClient,
   type UseQueryResult,
   useMutation,
   useQuery,
@@ -483,6 +484,10 @@ export function useGetChatVercel({
       })
     },
     enabled: !!chatId,
+    // A remount must never render a stale cache snapshot as the final
+    // transcript: always refetch so the pane adopts the current server copy
+    // (e.g. after an approval was resolved from another surface).
+    refetchOnMount: "always",
   })
   return { chat, chatLoading, chatError }
 }
@@ -525,6 +530,34 @@ export function useRemoveSessionArtifact(workspaceId: string) {
     isRemovingArtifact: mutation.isPending,
     removeArtifactError: mutation.error,
   }
+}
+
+/**
+ * Refresh all queries whose data can change when a chat turn finishes.
+ */
+export function invalidateChatTurnQueries(
+  queryClient: QueryClient,
+  {
+    chatId,
+    workspaceId,
+  }: {
+    chatId?: string
+    workspaceId: string
+  }
+) {
+  queryClient.invalidateQueries({
+    queryKey: ["chat", chatId, workspaceId, "vercel"],
+  })
+  queryClient.invalidateQueries({ queryKey: ["chats", workspaceId] })
+  // A completed turn can change a session's inbox status (e.g. an approval
+  // continuation moves a row from "Review required" to "Completed"). The inbox
+  // detail pane derives its status/approval state from these queries, so refresh
+  // them here too. Both are already polled, so this just makes the update
+  // prompt; it is a no-op when no inbox view is mounted to observe them.
+  queryClient.invalidateQueries({ queryKey: ["inbox-items"] })
+  queryClient.invalidateQueries({
+    queryKey: ["pending-approvals-count", workspaceId],
+  })
 }
 
 // Combined hook for chat functionality with Vercel AI SDK streaming
@@ -618,23 +651,9 @@ export function useVercelChat({
     },
     onFinish: () => {
       setLastError(null)
-      queryClient.invalidateQueries({
-        queryKey: ["chat", chatId, workspaceId, "vercel"],
-      })
-      queryClient.invalidateQueries({ queryKey: ["chats", workspaceId] })
-      // A completed turn can change a session's inbox status (e.g. an approval
-      // continuation moves a row from "Review required" to "Completed"). The
-      // inbox detail pane derives its status/approval state from these queries,
-      // so refresh them here too — otherwise the open pane keeps showing the
-      // stale "Approval required" card until a hard reload. Both are already
-      // polled, so this just makes the update prompt; it is a no-op when no
-      // inbox view is mounted to observe them.
-      queryClient.invalidateQueries({ queryKey: ["inbox-items"] })
-      queryClient.invalidateQueries({
-        queryKey: ["pending-approvals-count", workspaceId],
-      })
+      invalidateChatTurnQueries(queryClient, { chatId, workspaceId })
       // First-prompt auto-titling runs as a detached backend task that can
-      // commit after the invalidation above on fast turns, leaving the
+      // commit after the immediate invalidation on fast turns, leaving the
       // placeholder title ("Chat 1", ...) in the sidebar until the next
       // mutation. Re-check on a delay — the second point covers the titling
       // LLM call's 15s timeout. No-op when nothing is stale or mounted.

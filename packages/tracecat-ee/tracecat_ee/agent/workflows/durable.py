@@ -111,6 +111,7 @@ with workflow.unsafe.imports_passed_through():
         BuildToolDefsArgs,
         BuildToolDefsResult,
         EmitSessionCancelledInputs,
+        EmitSessionDoneInputs,
         EmitSessionErrorInputs,
         ExecuteRemoteMCPToolArgs,
     )
@@ -432,6 +433,15 @@ class WorkflowApprovalSubmission(BaseModel):
     approvals: ApprovalMap
     approved_by: uuid.UUID | None = None
     decision_metadata: dict[str, dict[str, Any]] | None = None
+    new_stream_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Rotated per-turn Redis stream id. When set (and the rotation patch "
+            "is active), the workflow redirects every post-approval emission to "
+            "this fresh, suffix-only stream so events never collide with the "
+            "pre-approval buffer, which may already be TTL-evicted."
+        ),
+    )
 
 
 class WorkflowCancelRequest(BaseModel):
@@ -482,6 +492,13 @@ def _preserved_agents_binding(
 
 FINALIZE_TURN_PATCH = "durable-agent-finalize-turn-v1"
 REMINT_SCOPE_TOKENS_PATCH = "durable-agent-remint-scope-tokens-v1"
+# Rotate the per-turn stream id on approval continuation so post-approval events
+# land in a fresh, suffix-only Redis stream (immune to the pre-approval buffer's
+# TTL eviction). Gated so replays of histories recorded before this change keep
+# emitting to the original stream id and stay deterministic.
+APPROVAL_STREAM_ROTATION_PATCH = "approval-stream-rotation-v1"
+WORKFLOW_OWNED_APPROVAL_DONE_PATCH = "workflow-owned-approval-done-v1"
+BEST_EFFORT_APPROVAL_DONE_PATCH = "best-effort-approval-done-v1"
 
 
 @workflow.defn
@@ -1025,13 +1042,52 @@ class DurableAgentWorkflow:
                 error=str(emit_error),
             )
 
+    async def _emit_approval_pause_done(
+        self, active_stream_id: uuid.UUID | None
+    ) -> None:
+        """Close the approval-pause stream after approval rows are durable."""
+        try:
+            await workflow.execute_activity_method(
+                AgentActivities.emit_session_done,
+                EmitSessionDoneInputs(
+                    role=self.role,
+                    session_id=self.session_id,
+                    workspace_id=self.workspace_id,
+                    active_stream_id=active_stream_id,
+                ),
+                start_to_close_timeout=timedelta(seconds=10),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+        except ActivityError as emit_error:
+            logger.warning(
+                "Failed to emit approval-pause stream done",
+                session_id=self.session_id,
+                error=str(emit_error),
+            )
+            # Preserve the old terminal failure on replay. New executions keep
+            # waiting for the already-persisted approval decisions even when
+            # the best-effort Redis close marker cannot be written.
+            if not workflow.patched(BEST_EFFORT_APPROVAL_DONE_PATCH):
+                raise
+
     @workflow.update
     def set_approvals(self, submission: WorkflowApprovalSubmission) -> None:
         logger.info(
             "Setting approvals",
             approvals=submission.approvals,
             approved_by=submission.approved_by,
+            new_stream_id=str(submission.new_stream_id)
+            if submission.new_stream_id
+            else None,
         )
+        # Rotate the per-turn stream id so all post-approval emission sites
+        # (reconciled tool results + resumed model output) write to the fresh,
+        # suffix-only stream the client is now attached to. Gated for replay
+        # determinism: old histories keep emitting to the original stream id.
+        if submission.new_stream_id is not None and workflow.patched(
+            APPROVAL_STREAM_ROTATION_PATCH
+        ):
+            self.active_stream_id = submission.new_stream_id
         self.approvals.set(
             submission.approvals,
             approved_by=submission.approved_by,
@@ -1202,6 +1258,9 @@ class DurableAgentWorkflow:
             model_settings=cfg.model_settings,
             routes=compiled_run.llm_routes,
         )
+        workflow_owned_approval_done = workflow.patched(
+            WORKFLOW_OWNED_APPROVAL_DONE_PATCH
+        )
 
         # Prepare executor input
         executor_input = AgentExecutorInput(
@@ -1218,6 +1277,7 @@ class DurableAgentWorkflow:
             subagents=compiled_run.sandbox_subagents,
             sdk_session_id=load_result.sdk_session_id,
             sdk_session_data=load_result.sdk_session_data,
+            defer_done_on_approval=workflow_owned_approval_done,
             is_fork=load_result.is_fork,
         )
 
@@ -1328,6 +1388,8 @@ class DurableAgentWorkflow:
                         tool_call_parts,
                         request_metadata=request_metadata,
                     )
+                if workflow_owned_approval_done:
+                    await self._emit_approval_pause_done(self.active_stream_id)
                 # Wait for either approval decisions or a user cancellation.
                 await workflow.wait_condition(
                     lambda: self.approvals.is_ready() or self._cancel_requested
@@ -1407,7 +1469,10 @@ class DurableAgentWorkflow:
                         denied_tools=denied_tools,
                         registry_lock=root_registry_lock,
                         mcp_auth_token=compiled_run.root.mcp_auth_token,
-                        active_stream_id=args.agent_args.active_stream_id,
+                        # Post-approval: emit to the (possibly rotated) stream.
+                        # set_approvals rotated self.active_stream_id when the
+                        # rotation patch is active; otherwise it is the original.
+                        active_stream_id=self.active_stream_id,
                     )
                     logger.info(
                         "Tool execution completed",
@@ -1446,11 +1511,12 @@ class DurableAgentWorkflow:
 
                 # Update executor input for resume. Reconcile has replaced the
                 # interrupt artifacts with the real tool_result entry; the
-                # runtime only sends a hidden continuation tick.
+                # runtime only sends a hidden continuation tick. Emit the resumed
+                # model output to the (possibly rotated) post-approval stream.
                 executor_input = AgentExecutorInput(
                     session_id=self.session_id,
                     workspace_id=self.workspace_id,
-                    active_stream_id=args.agent_args.active_stream_id,
+                    active_stream_id=self.active_stream_id,
                     curr_run_id=curr_run_id,
                     user_prompt=args.agent_args.user_prompt,
                     config=cfg,
@@ -1461,6 +1527,7 @@ class DurableAgentWorkflow:
                     subagents=compiled_run.sandbox_subagents,
                     sdk_session_id=reload_result.sdk_session_id,
                     sdk_session_data=reload_result.sdk_session_data,
+                    defer_done_on_approval=workflow_owned_approval_done,
                     is_fork=reload_result.is_fork,
                     is_approval_continuation=True,
                 )

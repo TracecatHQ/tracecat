@@ -76,6 +76,15 @@ class ChatResponse(BaseModel):
 
     stream_url: str = Field(..., description="URL to connect for SSE streaming")
     chat_id: uuid.UUID = Field(..., description="Unique chat identifier")
+    active_stream_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Per-turn Redis stream id the caller should attach to. On approval "
+            "continuations this is the freshly rotated stream id (a suffix-only "
+            "stream), so callers must attach here rather than the pre-approval "
+            "stream, which may already be TTL-evicted."
+        ),
+    )
     curr_run_id: uuid.UUID | None = Field(
         default=None,
         description=(

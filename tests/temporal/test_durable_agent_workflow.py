@@ -35,6 +35,7 @@ from tracecat_ee.agent.activities import (
     BuildAgentToolDefsArgs,
     BuildAgentToolDefsResult,
     BuildToolDefsResult,
+    EmitSessionDoneInputs,
     EmitSessionErrorInputs,
     ExecuteRemoteMCPToolArgs,
     PersistApprovalsActivityInputs,
@@ -277,6 +278,26 @@ def create_mock_reconcile_tool_results_activity() -> Callable[..., Any]:
     return mock_reconcile_tool_results_activity
 
 
+def create_mock_emit_session_done_activity(
+    *,
+    captured_inputs: list[EmitSessionDoneInputs] | None = None,
+    call_order: list[str] | None = None,
+    done_event: asyncio.Event | None = None,
+) -> Callable[..., Any]:
+    """Create a mock emit_session_done activity for approval-pause closure."""
+
+    @activity.defn(name="emit_session_done")
+    async def mock_emit_session_done(input: EmitSessionDoneInputs) -> None:
+        if captured_inputs is not None:
+            captured_inputs.append(input)
+        if call_order is not None:
+            call_order.append("emit_session_done")
+        if done_event is not None:
+            done_event.set()
+
+    return mock_emit_session_done
+
+
 def create_activities_with_mock_executor(
     response_callback: Callable[[int, AgentExecutorInput], AgentExecutorResult],
     tool_exec_callback: Callable[[RunActionInput], InlineObject[dict[str, str]]]
@@ -306,6 +327,7 @@ def create_activities_with_mock_executor(
         create_mock_run_agent_activity(response_callback),
         create_mock_execute_action_activity(tool_exec_callback),
         create_mock_reconcile_tool_results_activity(),
+        create_mock_emit_session_done_activity(),
         *ApprovalManager.get_activities(),
     ]
     return activities
@@ -967,6 +989,8 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
     monkeypatch.setattr(config, "TRACECAT__EXECUTOR_QUEUE", executor_queue)
 
     approval_request_recorded = asyncio.Event()
+    approval_done_emitted = asyncio.Event()
+    approval_pause_call_order: list[str] = []
     resumed_after_approval = asyncio.Event()
     agent_executor_task_queues: list[str] = []
     executor_task_queues: list[str] = []
@@ -1129,6 +1153,7 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
     @activity.defn(name="record_approval_requests")
     async def mock_record_approval_requests(input: Any) -> None:
         del input
+        approval_pause_call_order.append("record_approval_requests")
         approval_request_recorded.set()
 
     @activity.defn(name="apply_approval_decisions")
@@ -1149,6 +1174,11 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
                 "executor_queue": activity.info().task_queue,
             }
         )
+
+    mock_emit_session_done = create_mock_emit_session_done_activity(
+        call_order=approval_pause_call_order,
+        done_event=approval_done_emitted,
+    )
 
     # curr_run_id must match the workflow-derived run id (the workflow launches
     # with id=AgentWorkflowID(mock_session_id), so create_session_activity sets
@@ -1180,6 +1210,7 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
             mock_build_tool_definitions,
             mock_record_approval_requests,
             mock_apply_approval_decisions,
+            mock_emit_session_done,
         ],
         workflows=[DurableAgentWorkflow],
         workflow_runner=UnsandboxedWorkflowRunner(),
@@ -1211,6 +1242,11 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
         )
 
         await asyncio.wait_for(approval_request_recorded.wait(), timeout=10)
+        await asyncio.wait_for(approval_done_emitted.wait(), timeout=10)
+        assert approval_pause_call_order == [
+            "record_approval_requests",
+            "emit_session_done",
+        ]
 
         # Paused at approval: the terminal `finally` has NOT run, so curr_run_id
         # must still be set. Guards the invariant that _finalize_turn fires only
@@ -1300,6 +1336,8 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
     monkeypatch.setattr(config, "TRACECAT__EXECUTOR_QUEUE", executor_queue)
 
     approval_request_recorded = asyncio.Event()
+    approval_done_emitted = asyncio.Event()
+    approval_pause_call_order: list[str] = []
     continuation_seen = asyncio.Event()
     captured_agent_inputs: list[AgentExecutorInput] = []
     captured_run_inputs: list[RunActionInput] = []
@@ -1437,6 +1475,7 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
             "call_safe",
             "call_risky",
         ]
+        approval_pause_call_order.append("record_approval_requests")
         approval_request_recorded.set()
 
     @activity.defn(name="apply_approval_decisions")
@@ -1473,6 +1512,11 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
             ]
         )
 
+    mock_emit_session_done = create_mock_emit_session_done_activity(
+        call_order=approval_pause_call_order,
+        done_event=approval_done_emitted,
+    )
+
     workflow_args = AgentWorkflowArgs(
         role=svc_role,
         agent_args=RunAgentArgs(
@@ -1494,6 +1538,7 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
             mock_build_tool_definitions,
             mock_record_approval_requests,
             mock_apply_approval_decisions,
+            mock_emit_session_done,
             mock_reconcile_tool_results_activity,
         ],
         workflows=[DurableAgentWorkflow],
@@ -1526,6 +1571,11 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
         )
 
         await asyncio.wait_for(approval_request_recorded.wait(), timeout=10)
+        await asyncio.wait_for(approval_done_emitted.wait(), timeout=10)
+        assert approval_pause_call_order == [
+            "record_approval_requests",
+            "emit_session_done",
+        ]
         await wf_handle.execute_update(
             DurableAgentWorkflow.set_approvals,
             WorkflowApprovalSubmission(
@@ -1600,6 +1650,8 @@ async def test_agent_workflow_routes_approved_user_mcp_tool_to_remote_activity(
     queue = f"test-agent-queue-{mock_session_id}"
     integration_id = uuid.uuid4()
     approval_request_recorded = asyncio.Event()
+    approval_done_emitted = asyncio.Event()
+    approval_pause_call_order: list[str] = []
     agent_inputs: list[AgentExecutorInput] = []
     remote_activity_inputs: list[ExecuteRemoteMCPToolArgs] = []
     registry_activity_inputs: list[RunActionInput] = []
@@ -1675,6 +1727,7 @@ async def test_agent_workflow_routes_approved_user_mcp_tool_to_remote_activity(
         assert [approval.tool_call_id for approval in input.approvals] == [
             "call-user-mcp"
         ]
+        approval_pause_call_order.append("record_approval_requests")
         approval_request_recorded.set()
 
     @activity.defn(name="apply_approval_decisions")
@@ -1744,6 +1797,10 @@ async def test_agent_workflow_routes_approved_user_mcp_tool_to_remote_activity(
         mock_run_agent_activity,
         mock_record_approval_requests,
         mock_apply_approval_decisions,
+        create_mock_emit_session_done_activity(
+            call_order=approval_pause_call_order,
+            done_event=approval_done_emitted,
+        ),
         mock_execute_remote_mcp_tool,
         mock_execute_action_activity,
         mock_reconcile_tool_results_activity,
@@ -1762,6 +1819,11 @@ async def test_agent_workflow_routes_approved_user_mcp_tool_to_remote_activity(
         )
 
         await asyncio.wait_for(approval_request_recorded.wait(), timeout=10)
+        await asyncio.wait_for(approval_done_emitted.wait(), timeout=10)
+        assert approval_pause_call_order == [
+            "record_approval_requests",
+            "emit_session_done",
+        ]
         suspended_history = await fetch_history_after_completed_workflow_task(wf_handle)
         await replay_durable_agent_workflow_history(temporal_client, suspended_history)
 
@@ -1801,6 +1863,8 @@ async def test_agent_workflow_replays_suspended_legacy_sdk_session_data_history(
     """A suspended workflow with legacy SDK JSONL payloads should replay."""
     queue = f"test-agent-queue-{mock_session_id}"
     approval_request_recorded = asyncio.Event()
+    approval_done_emitted = asyncio.Event()
+    approval_pause_call_order: list[str] = []
     captured_agent_inputs: list[AgentExecutorInput] = []
     legacy_sdk_session_data = (
         '{"type":"user","message":{"content":"legacy prompt"}}\n'
@@ -1861,6 +1925,7 @@ async def test_agent_workflow_replays_suspended_legacy_sdk_session_data_history(
         input: PersistApprovalsActivityInputs,
     ) -> None:
         assert [approval.tool_call_id for approval in input.approvals] == ["call_123"]
+        approval_pause_call_order.append("record_approval_requests")
         approval_request_recorded.set()
 
     @activity.defn(name="apply_approval_decisions")
@@ -1890,6 +1955,10 @@ async def test_agent_workflow_replays_suspended_legacy_sdk_session_data_history(
         create_mock_reconcile_tool_results_activity(),
         mock_record_approval_requests,
         mock_apply_approval_decisions,
+        create_mock_emit_session_done_activity(
+            call_order=approval_pause_call_order,
+            done_event=approval_done_emitted,
+        ),
     ]
 
     async with agent_worker_factory(
@@ -1905,6 +1974,11 @@ async def test_agent_workflow_replays_suspended_legacy_sdk_session_data_history(
         )
 
         await asyncio.wait_for(approval_request_recorded.wait(), timeout=10)
+        await asyncio.wait_for(approval_done_emitted.wait(), timeout=10)
+        assert approval_pause_call_order == [
+            "record_approval_requests",
+            "emit_session_done",
+        ]
         suspended_history = await fetch_history_after_completed_workflow_task(wf_handle)
         await replay_durable_agent_workflow_history(temporal_client, suspended_history)
 
@@ -1949,6 +2023,8 @@ async def test_agent_workflow_does_not_retry_approved_tool_failures(
     monkeypatch.setattr(config, "TRACECAT__EXECUTOR_QUEUE", executor_queue)
 
     approval_request_recorded = asyncio.Event()
+    approval_done_emitted = asyncio.Event()
+    approval_pause_call_order: list[str] = []
     resumed_after_approval = asyncio.Event()
     executor_attempts = 0
     run_agent_call_count = 0
@@ -2106,6 +2182,7 @@ async def test_agent_workflow_does_not_retry_approved_tool_failures(
     @activity.defn(name="record_approval_requests")
     async def mock_record_approval_requests(input: Any) -> None:
         del input
+        approval_pause_call_order.append("record_approval_requests")
         approval_request_recorded.set()
 
     @activity.defn(name="apply_approval_decisions")
@@ -2123,6 +2200,11 @@ async def test_agent_workflow_does_not_retry_approved_tool_failures(
         if executor_attempts == 1:
             raise ApplicationError("transient tool failure")
         return InlineObject(data={"status": "success"})
+
+    mock_emit_session_done = create_mock_emit_session_done_activity(
+        call_order=approval_pause_call_order,
+        done_event=approval_done_emitted,
+    )
 
     workflow_args = AgentWorkflowArgs(
         role=svc_role,
@@ -2146,6 +2228,7 @@ async def test_agent_workflow_does_not_retry_approved_tool_failures(
             mock_build_tool_definitions,
             mock_record_approval_requests,
             mock_apply_approval_decisions,
+            mock_emit_session_done,
         ],
         workflows=[DurableAgentWorkflow],
         workflow_runner=UnsandboxedWorkflowRunner(),
@@ -2177,6 +2260,11 @@ async def test_agent_workflow_does_not_retry_approved_tool_failures(
         )
 
         await asyncio.wait_for(approval_request_recorded.wait(), timeout=10)
+        await asyncio.wait_for(approval_done_emitted.wait(), timeout=10)
+        assert approval_pause_call_order == [
+            "record_approval_requests",
+            "emit_session_done",
+        ]
         await wf_handle.execute_update(
             DurableAgentWorkflow.set_approvals,
             WorkflowApprovalSubmission(

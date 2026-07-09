@@ -24,6 +24,7 @@ from tracecat_ee.agent.activities import (
     BuildAgentScopeToolDefsArgs,
     BuildAgentToolDefsArgs,
     BuildToolDefsArgs,
+    EmitSessionDoneInputs,
 )
 
 from tracecat.agent.common.protocol import RuntimeInitPayload
@@ -1225,6 +1226,38 @@ class TestRunAgentActivity:
             mock_executor_cls.assert_called_once_with(input=mock_executor_input)
 
     @pytest.mark.anyio
+    async def test_emit_session_done_pushes_done_to_active_stream(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        workspace_id = mock_role.workspace_id or uuid.uuid4()
+        active_stream_id = uuid.uuid4()
+        stream = SimpleNamespace(done=AsyncMock())
+        stream_new = AsyncMock(return_value=stream)
+        monkeypatch.setattr(
+            "tracecat_ee.agent.activities.AgentStream.new",
+            stream_new,
+        )
+
+        await AgentActivities().emit_session_done(
+            EmitSessionDoneInputs(
+                role=mock_role,
+                session_id=mock_session_id,
+                workspace_id=workspace_id,
+                active_stream_id=active_stream_id,
+            )
+        )
+
+        stream_new.assert_awaited_once_with(
+            session_id=mock_session_id,
+            workspace_id=workspace_id,
+            stream_id=active_stream_id,
+        )
+        stream.done.assert_awaited_once()
+
+    @pytest.mark.anyio
     async def test_returns_approval_requested_on_approval_interrupt(
         self, mock_executor_input: AgentExecutorInput
     ):
@@ -1495,6 +1528,7 @@ class TestSandboxedAgentExecutorCancellation:
             input=LoopbackInput(
                 session_id=executor.input.session_id,
                 workspace_id=executor.input.workspace_id,
+                role=executor.input.role,
             )
         )
 
@@ -1625,6 +1659,7 @@ class TestSandboxedAgentExecutorCancellation:
             input=LoopbackInput(
                 session_id=executor.input.session_id,
                 workspace_id=executor.input.workspace_id,
+                role=executor.input.role,
             )
         )
 
