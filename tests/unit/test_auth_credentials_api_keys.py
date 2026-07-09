@@ -31,6 +31,16 @@ def enable_service_accounts_entitlement(monkeypatch: pytest.MonkeyPatch) -> None
     )
 
 
+@pytest.fixture(autouse=True)
+def usage_audit(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    mock = AsyncMock()
+    monkeypatch.setattr(
+        "tracecat.auth.credentials.emit_credential_usage_audit",
+        mock,
+    )
+    return mock
+
+
 async def _get_scopes(session, *names: str) -> list[Scope]:
     result = await session.execute(select(Scope).where(Scope.name.in_(names)))
     return list(result.scalars().all())
@@ -40,6 +50,7 @@ async def _get_scopes(session, *names: str) -> list[Scope]:
 async def test_authenticate_org_service_account_key_for_workspace_route(
     session,
     monkeypatch: pytest.MonkeyPatch,
+    usage_audit: AsyncMock,
 ) -> None:
     organization = Organization(
         name="Auth test org", slug="auth-test-org", is_active=True
@@ -84,7 +95,6 @@ async def test_authenticate_org_service_account_key_for_workspace_route(
         "tracecat.auth.credentials._get_workspace_org_id",
         AsyncMock(return_value=organization.id),
     )
-
     role = await _authenticate_api_key(
         api_key=generated.raw,
         workspace_id=workspace.id,
@@ -97,6 +107,12 @@ async def test_authenticate_org_service_account_key_for_workspace_route(
     assert role.workspace_id == workspace.id
     assert role.bound_workspace_id is None
     assert role.scopes == frozenset({"org:read", "workflow:read"})
+    usage_audit.assert_awaited_once_with(
+        role=role,
+        credential_type="service_account_api_key",
+        credential_key_id=generated.key_id,
+        resource_id=generated.key_id,
+    )
 
 
 @pytest.mark.anyio

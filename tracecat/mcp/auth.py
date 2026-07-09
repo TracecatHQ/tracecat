@@ -9,6 +9,7 @@ import time
 import uuid
 from base64 import urlsafe_b64decode
 from collections.abc import Mapping, Sequence
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
@@ -22,10 +23,12 @@ from fastmcp.server.auth.oidc_proxy import OIDCProxy
 from fastmcp.server.auth.redirect_validation import (
     validate_redirect_uri as validate_client_redirect_uri,
 )
-from fastmcp.server.dependencies import get_access_token
+from fastmcp.server.dependencies import get_access_token, get_http_request
 from key_value.aio.stores.redis import RedisStore
 from key_value.aio.wrappers.encryption import FernetEncryptionWrapper
 from key_value.aio.wrappers.prefix_collections import PrefixCollectionsWrapper
+from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
+from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend
 from mcp.server.auth.provider import (
     AuthorizationParams,
     TokenError,
@@ -35,7 +38,9 @@ from pydantic import AnyUrl, BaseModel, Field
 from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy import select
 from starlette.datastructures import MutableHeaders
-from starlette.requests import Request
+from starlette.middleware import Middleware
+from starlette.middleware.authentication import AuthenticationMiddleware
+from starlette.requests import HTTPConnection, Request
 from starlette.responses import HTMLResponse, RedirectResponse
 from starlette.routing import Route
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -95,6 +100,10 @@ _MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS = 24 * 60 * 60
 _MCP_OAUTH_TRANSACTION_TTL_SECONDS = 15 * 60
 _MCP_TOKEN_ENDPOINT_AUTH_METHODS = ["none", "client_secret_post", "client_secret_basic"]
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+_ctx_mcp_auth_client_ip: ContextVar[str | None] = ContextVar(
+    "mcp-auth-client-ip",
+    default=None,
+)
 
 
 class _UserinfoFetchError(RuntimeError):
@@ -379,14 +388,53 @@ def _expires_at_timestamp(expires_at: datetime | None) -> int | None:
     return int(expires_at.timestamp())
 
 
+def _current_request_client_ip() -> str | None:
+    if client_ip := _ctx_mcp_auth_client_ip.get():
+        return client_ip
+    try:
+        request = get_http_request()
+    except Exception:
+        return None
+    return _client_ip_from_connection(request)
+
+
+def _client_ip_from_connection(conn: HTTPConnection) -> str | None:
+    if forwarded_for := conn.headers.get("X-Forwarded-For"):
+        return forwarded_for.split(",")[0].strip() or None
+    if real_ip := conn.headers.get("X-Real-IP"):
+        return real_ip.strip() or None
+    return conn.client.host if conn.client else None
+
+
+class MCPPATBearerAuthBackend(BearerAuthBackend):
+    async def authenticate(self, conn: HTTPConnection):
+        token = _ctx_mcp_auth_client_ip.set(_client_ip_from_connection(conn))
+        try:
+            return await super().authenticate(conn)
+        finally:
+            _ctx_mcp_auth_client_ip.reset(token)
+
+
 class MCPPATTokenVerifier(TokenVerifier):
     """FastMCP token verifier for workspace-scoped MCP personal access tokens."""
+
+    def get_middleware(self) -> list[Middleware]:
+        return [
+            Middleware(
+                AuthenticationMiddleware,
+                backend=MCPPATBearerAuthBackend(self),
+            ),
+            Middleware(AuthContextMiddleware),
+        ]
 
     async def verify_token(self, token: str) -> AccessToken | None:
         if not token.startswith(MCP_PAT_PREFIX):
             return None
 
-        identity = await verify_mcp_personal_access_token(token)
+        identity = await verify_mcp_personal_access_token(
+            token,
+            source_ip=_current_request_client_ip(),
+        )
         if identity is None:
             return None
 

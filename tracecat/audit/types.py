@@ -29,6 +29,7 @@ AuditAction = Literal[
     "sync",
     "promote",
     "demote",
+    "use",
 ]
 AuditResourceType = Literal[
     "user",

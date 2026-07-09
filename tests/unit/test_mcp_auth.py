@@ -813,8 +813,11 @@ async def test_mcp_pat_token_verifier_returns_fastmcp_access_token(
     workspace_id = uuid.uuid4()
     raw_token = f"{MCP_PAT_PREFIX}raw-secret"
 
-    async def _verify_mcp_personal_access_token(token: str) -> MCPPATIdentity | None:
+    async def _verify_mcp_personal_access_token(
+        token: str, **kwargs: object
+    ) -> MCPPATIdentity | None:
         assert token == raw_token
+        assert kwargs == {"source_ip": None}
         return MCPPATIdentity(
             key_id="pat_key_123",
             user_id=user_id,
@@ -850,7 +853,9 @@ async def test_mcp_pat_token_verifier_returns_fastmcp_access_token(
 async def test_mcp_pat_token_verifier_ignores_other_bearer_tokens(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def _verify_mcp_personal_access_token(_token: str) -> MCPPATIdentity | None:
+    async def _verify_mcp_personal_access_token(
+        _token: str, **_kwargs: object
+    ) -> MCPPATIdentity | None:
         raise AssertionError("non-MCP PAT tokens should not hit the PAT verifier")
 
     monkeypatch.setattr(
@@ -870,8 +875,11 @@ async def test_mcp_pat_bearer_header_reaches_auth_middleware(
     workspace_id = uuid.uuid4()
     raw_token = f"{MCP_PAT_PREFIX}raw-secret"
 
-    async def _verify_mcp_personal_access_token(token: str) -> MCPPATIdentity | None:
+    async def _verify_mcp_personal_access_token(
+        token: str, **kwargs: object
+    ) -> MCPPATIdentity | None:
         assert token == raw_token
+        assert kwargs == {"source_ip": "198.51.100.24"}
         return MCPPATIdentity(
             key_id="pat_key_123",
             user_id=uuid.uuid4(),
@@ -910,7 +918,10 @@ async def test_mcp_pat_bearer_header_reaches_auth_middleware(
 
     response = TestClient(app).post(
         "/mcp",
-        headers={"Authorization": f"Bearer {raw_token}"},
+        headers={
+            "Authorization": f"Bearer {raw_token}",
+            "X-Forwarded-For": "198.51.100.24, 10.0.0.1",
+        },
     )
 
     assert response.status_code == 200

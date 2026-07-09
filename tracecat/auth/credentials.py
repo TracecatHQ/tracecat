@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from tracecat import config
+from tracecat.audit.usage import emit_credential_usage_audit
 from tracecat.auth.api_keys import (
     ORG_API_KEY_PREFIX,
     WORKSPACE_API_KEY_PREFIX,
@@ -447,10 +448,8 @@ async def _authenticate_api_key(
                 )
             resolved_workspace_id = workspace_id or bound_workspace_id
 
-        record.last_used_at = datetime.now(UTC)
-        session.add(record)
-        await session.commit()
-        return Role(
+        key_id = record.key_id
+        role = Role(
             type="service_account",
             service_id="tracecat-api",
             organization_id=service_account.organization_id,
@@ -459,6 +458,16 @@ async def _authenticate_api_key(
             service_account_id=service_account.id,
             scopes=frozenset(scope.name for scope in service_account.scopes),
         )
+        record.last_used_at = datetime.now(UTC)
+        session.add(record)
+        await session.commit()
+        await emit_credential_usage_audit(
+            role=role,
+            credential_type="service_account_api_key",
+            credential_key_id=key_id,
+            resource_id=key_id,
+        )
+        return role
 
 
 @contextmanager

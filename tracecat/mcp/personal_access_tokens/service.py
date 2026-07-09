@@ -11,11 +11,13 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.audit.logger import audit_log
+from tracecat.audit.usage import emit_credential_usage_audit
 from tracecat.auth.api_keys import (
     generate_managed_api_key,
     parse_managed_api_key,
     verify_api_key,
 )
+from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
@@ -275,7 +277,11 @@ class MCPPersonalAccessTokenService(BaseWorkspaceService):
         await self.session.commit()
 
 
-async def verify_mcp_personal_access_token(raw_token: str) -> MCPPATIdentity | None:
+async def verify_mcp_personal_access_token(
+    raw_token: str,
+    *,
+    source_ip: str | None = None,
+) -> MCPPATIdentity | None:
     """Verify an MCP personal access token and return its resolved identity."""
     parsed = parse_managed_api_key(raw_token, prefixes=(MCP_PAT_PREFIX,))
     if parsed is None:
@@ -307,7 +313,8 @@ async def verify_mcp_personal_access_token(raw_token: str) -> MCPPATIdentity | N
             return None
         if not verify_api_key(raw_token, record.salt, record.hashed):
             return None
-        if record.workspace_id is None:
+        workspace_id = record.workspace_id
+        if workspace_id is None:
             return None
         if not user.is_superuser:
             result = await session.execute(
@@ -322,17 +329,37 @@ async def verify_mcp_personal_access_token(raw_token: str) -> MCPPATIdentity | N
             session,
             user_id=user.id,
             organization_id=record.organization_id,
-            workspace_id=record.workspace_id,
+            workspace_id=workspace_id,
         ):
             return None
 
+        token_id = record.id
+        key_id = record.key_id
+        user_id = record.user_id
+        organization_id = record.organization_id
+        expires_at = record.expires_at
+        role = Role(
+            type="user",
+            user_id=user_id,
+            organization_id=organization_id,
+            workspace_id=workspace_id,
+            service_id="tracecat-api",
+            scopes=frozenset(),
+        )
         record.last_used_at = datetime.now(UTC)
         await session.commit()
+        await emit_credential_usage_audit(
+            role=role,
+            credential_type="mcp_personal_access_token",
+            credential_key_id=key_id,
+            resource_id=token_id,
+            source_ip=source_ip,
+        )
         return MCPPATIdentity(
-            key_id=record.key_id,
-            user_id=record.user_id,
+            key_id=key_id,
+            user_id=user_id,
             email=user.email,
-            organization_id=record.organization_id,
-            workspace_id=record.workspace_id,
-            expires_at=record.expires_at,
+            organization_id=organization_id,
+            workspace_id=workspace_id,
+            expires_at=expires_at,
         )

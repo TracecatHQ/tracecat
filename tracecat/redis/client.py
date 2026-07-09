@@ -65,6 +65,7 @@ class RedisClient:
     _pool: ConnectionPool | None = None
     _client: redis.Redis | None = None
     _loop: asyncio.AbstractEventLoop | None = None
+    _reset_tasks: set[asyncio.Task[None]] = set()
 
     def __new__(cls) -> "RedisClient":
         """Create a singleton instance."""
@@ -186,7 +187,7 @@ class RedisClient:
                 timeout=timeout_seconds,
             )
         except (TimeoutError, RedisError, RuntimeError):
-            await self._reset_connection()
+            self._reset_connection_soon()
             raise
 
     async def _xadd_entry(
@@ -236,7 +237,32 @@ class RedisClient:
         try:
             return await asyncio.wait_for(add_member(), timeout=timeout_seconds)
         except (TimeoutError, RedisError, RuntimeError):
-            await self._reset_connection()
+            self._reset_connection_soon()
+            raise
+
+    async def set_audit_get(
+        self,
+        key: str,
+        value: str,
+        *,
+        expire_seconds: int,
+        timeout_seconds: float = 0.2,
+    ) -> str | None:
+        """Set an audit marker with TTL and return the previous value without retries."""
+
+        async def set_marker() -> str | None:
+            client = await self._get_client()
+            result = await _resolve_redis_result(
+                client.set(name=key, value=value, ex=expire_seconds, get=True)
+            )
+            if result is None:
+                return None
+            return str(result)
+
+        try:
+            return await asyncio.wait_for(set_marker(), timeout=timeout_seconds)
+        except (TimeoutError, RedisError, RuntimeError):
+            self._reset_connection_soon()
             raise
 
     @retry(
@@ -699,6 +725,28 @@ class RedisClient:
         await self.close()
         # Re-initialize the pool for subsequent calls
         self._init_pool()
+
+    def _reset_connection_soon(self) -> None:
+        """Schedule connection reset without extending audit helper latency."""
+        if RedisClient._reset_tasks:
+            return
+        try:
+            task = asyncio.create_task(self._reset_connection())
+        except RuntimeError as exc:
+            logger.warning("Failed to schedule Redis connection reset", error=str(exc))
+            return
+        RedisClient._reset_tasks.add(task)
+        task.add_done_callback(self._handle_reset_task_done)
+
+    @staticmethod
+    def _handle_reset_task_done(task: asyncio.Task[None]) -> None:
+        RedisClient._reset_tasks.discard(task)
+        if task.cancelled():
+            return
+        try:
+            task.result()
+        except Exception as exc:
+            logger.warning("Background Redis connection reset failed", error=str(exc))
 
 
 # Global singleton instance

@@ -4,6 +4,7 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import select
@@ -30,6 +31,13 @@ from tracecat.mcp.personal_access_tokens.service import (
 from tracecat.pagination import CursorPaginationParams
 
 pytestmark = pytest.mark.anyio
+
+
+@pytest.fixture(autouse=True)
+def usage_audit(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    mock = AsyncMock()
+    monkeypatch.setattr(mcp_pat_service, "emit_credential_usage_audit", mock)
+    return mock
 
 
 async def _create_user_org_workspace(
@@ -253,6 +261,7 @@ async def test_revoke_mcp_personal_access_token_rejects_other_workspace_token(
 async def test_verify_mcp_personal_access_token_updates_last_used(
     monkeypatch: pytest.MonkeyPatch,
     session: AsyncSession,
+    usage_audit: AsyncMock,
 ) -> None:
     _use_verifier_session(monkeypatch, session)
     user, organization, workspace = await _create_user_org_workspace(session)
@@ -262,7 +271,6 @@ async def test_verify_mcp_personal_access_token_updates_last_used(
         organization=organization,
         workspace_id=workspace.id,
     )
-
     identity = await mcp_pat_service.verify_mcp_personal_access_token(raw_token)
 
     assert identity is not None
@@ -276,6 +284,19 @@ async def test_verify_mcp_personal_access_token_updates_last_used(
     )
     assert refreshed is not None
     assert refreshed.last_used_at is not None
+    usage_audit.assert_awaited_once()
+    assert usage_audit.await_args is not None
+    usage_kwargs = usage_audit.await_args.kwargs
+    audit_role = usage_kwargs["role"]
+    assert isinstance(audit_role, Role)
+    assert audit_role.type == "user"
+    assert audit_role.user_id == user.id
+    assert audit_role.organization_id == organization.id
+    assert audit_role.workspace_id == workspace.id
+    assert usage_kwargs["credential_type"] == "mcp_personal_access_token"
+    assert usage_kwargs["credential_key_id"] == token.key_id
+    assert usage_kwargs["resource_id"] == token.id
+    assert usage_kwargs["source_ip"] is None
 
 
 async def test_verify_mcp_personal_access_token_allows_org_member_without_workspace_membership(
