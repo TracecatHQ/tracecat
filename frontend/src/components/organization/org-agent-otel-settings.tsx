@@ -111,7 +111,7 @@ export function OrgAgentOtelSettings() {
   const [mode, setMode] = useState<EditMode>("form")
   const [rawEnv, setRawEnv] = useState("")
   const [headerRows, setHeaderRows] = useState<HeaderRow[]>([])
-  const [headersDirty, setHeadersDirty] = useState(false)
+  const [clearSavedHeaders, setClearSavedHeaders] = useState(false)
 
   // Seed form state from server values once they load.
   useEffect(() => {
@@ -123,7 +123,7 @@ export function OrgAgentOtelSettings() {
     setMode("form")
     setRawEnv("")
     setHeaderRows([])
-    setHeadersDirty(false)
+    setClearSavedHeaders(false)
   }, [agentOtelSettings])
 
   function updateForm(patch: Partial<AgentOtelForm>) {
@@ -143,6 +143,17 @@ export function OrgAgentOtelSettings() {
       return
     }
     // Leaving raw: parse the buffer back into structured fields.
+    const issues = validateEnvText(rawEnv, {
+      requireOtlpEndpoint: enabled,
+    })
+    if (issues.length > 0) {
+      const first = issues[0]
+      toast({
+        title: "Invalid environment",
+        description: `Line ${first.lineNumber}: ${first.message}`,
+      })
+      return
+    }
     setForm(envTextToForm(rawEnv))
     setMode("form")
   }
@@ -155,20 +166,24 @@ export function OrgAgentOtelSettings() {
   }
 
   function handleHeaderRowChange(id: string, patch: Partial<HeaderRow>): void {
-    setHeadersDirty(true)
+    setClearSavedHeaders(false)
     setHeaderRows((prev) =>
       prev.map((row) => (row.id === id ? { ...row, ...patch } : row))
     )
   }
 
   function handleAddHeaderRow() {
-    setHeadersDirty(true)
+    setClearSavedHeaders(false)
     setHeaderRows((prev) => [...prev, newHeaderRow()])
   }
 
   function handleRemoveHeaderRow(id: string) {
-    setHeadersDirty(true)
     setHeaderRows((prev) => prev.filter((row) => row.id !== id))
+  }
+
+  function handleClearSavedHeaders() {
+    setHeaderRows([])
+    setClearSavedHeaders(true)
   }
 
   function handleReset() {
@@ -177,7 +192,7 @@ export function OrgAgentOtelSettings() {
     setMode("form")
     setRawEnv("")
     setHeaderRows([])
-    setHeadersDirty(false)
+    setClearSavedHeaders(false)
   }
 
   // Serialize header rows into a name -> value map for validation and save.
@@ -197,13 +212,32 @@ export function OrgAgentOtelSettings() {
   // the merged-map rules via `validateForm`, and additionally line-validate the
   // Advanced tail so dupes/malformed lines there are blocked client-side instead
   // of being silently dropped on save (the backend would reject them anyway).
-  const rawIssues = mode === "raw" ? validateEnvText(rawEnv) : []
+  const rawIssues =
+    mode === "raw"
+      ? validateEnvText(rawEnv, { requireOtlpEndpoint: enabled })
+      : []
   const advancedIssues =
-    mode === "form" ? validateEnvText(form.advancedEnv) : []
-  const formIssues = mode === "form" ? validateForm(form) : []
+    mode === "form"
+      ? validateEnvText(form.advancedEnv, { requireOtlpEndpoint: enabled })
+      : []
+  const formIssues =
+    mode === "form" ? validateForm(form, { requireOtlpEndpoint: enabled }) : []
+  const nonEmptyHeaderRows = headerRows.filter(
+    (row) => row.name.trim() !== "" || row.value.trim() !== ""
+  )
+  const headersDirty = nonEmptyHeaderRows.length > 0
   const headersJson = headerRowsToJson()
-  const headerIssues =
-    headersDirty && headersJson !== "" ? validateHeadersJson(headersJson) : []
+  const hasIncompleteHeaderRow = nonEmptyHeaderRows.some(
+    (row) => row.name.trim() === "" || row.value.trim() === ""
+  )
+  let headerIssues: string[] = []
+  if (hasIncompleteHeaderRow) {
+    headerIssues = [
+      "Headers must map non-empty names to non-empty string values.",
+    ]
+  } else if (headersDirty) {
+    headerIssues = validateHeadersJson(headersJson)
+  }
   const hasIssues =
     rawIssues.length > 0 ||
     advancedIssues.length > 0 ||
@@ -233,13 +267,12 @@ export function OrgAgentOtelSettings() {
     const env =
       mode === "raw" ? formToEnvMap(envTextToForm(rawEnv)) : formToEnvMap(form)
 
-    // Headers semantics: untouched -> omit; cleared -> {}; non-empty -> replace.
-    let headersField: Record<string, string> | null | undefined
-    if (!headersDirty) {
-      headersField = undefined
-    } else if (headersJson === "") {
+    // Only an explicit clear action replaces saved write-only headers with {}.
+    // Blank or removed draft rows otherwise leave the saved value unchanged.
+    let headersField: Record<string, string> | undefined
+    if (clearSavedHeaders) {
       headersField = {}
-    } else {
+    } else if (headersDirty) {
       headersField = parseHeadersJson(headersJson)
     }
 
@@ -250,7 +283,7 @@ export function OrgAgentOtelSettings() {
       },
     })
     setHeaderRows([])
-    setHeadersDirty(false)
+    setClearSavedHeaders(false)
   }
 
   const saveDisabled =
@@ -463,15 +496,32 @@ export function OrgAgentOtelSettings() {
               ))}
             </div>
           )}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={handleAddHeaderRow}
-            disabled={!enabled}
-          >
-            Add header
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleAddHeaderRow}
+              disabled={!enabled}
+            >
+              Add header
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleClearSavedHeaders}
+              disabled={!enabled || clearSavedHeaders}
+              className="text-destructive hover:text-destructive"
+            >
+              Clear saved headers
+            </Button>
+          </div>
+          {clearSavedHeaders && (
+            <p className="text-xs text-muted-foreground">
+              Saved headers will be cleared when you save.
+            </p>
+          )}
         </div>
       </div>
 

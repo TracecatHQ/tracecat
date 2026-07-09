@@ -105,17 +105,17 @@ const OTEL_ENV_SPECS: readonly OTelEnvSpec[] = [
   {
     key: "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA",
     group: "Traces (beta)",
-    values: ["true", "false"],
+    hint: "true or false",
   },
   {
     key: "ENABLE_ENHANCED_TELEMETRY_BETA",
     group: "Traces (beta)",
-    values: ["true", "false"],
+    hint: "true or false",
   },
   {
     key: "ENABLE_BETA_TRACING_DETAILED",
     group: "Traces (beta)",
-    values: ["true", "false"],
+    hint: "true or false",
   },
   {
     key: "BETA_TRACING_ENDPOINT",
@@ -125,37 +125,37 @@ const OTEL_ENV_SPECS: readonly OTelEnvSpec[] = [
   {
     key: "OTEL_LOG_USER_PROMPTS",
     group: "Content",
-    values: ["true", "false"],
+    hint: "true or false",
   },
   {
     key: "OTEL_LOG_TOOL_DETAILS",
     group: "Content",
-    values: ["true", "false"],
+    hint: "true or false",
   },
   {
     key: "OTEL_LOG_TOOL_CONTENT",
     group: "Content",
-    values: ["true", "false"],
+    hint: "true or false",
   },
   {
     key: "OTEL_LOG_RAW_API_BODIES",
     group: "Content",
-    values: ["true", "false"],
+    hint: "true or false",
   },
   {
     key: "OTEL_METRICS_INCLUDE_SESSION_ID",
     group: "Metrics",
-    values: ["true", "false"],
+    hint: "true or false",
   },
   {
     key: "OTEL_METRICS_INCLUDE_VERSION",
     group: "Metrics",
-    values: ["true", "false"],
+    hint: "true or false",
   },
   {
     key: "OTEL_METRICS_INCLUDE_ACCOUNT_UUID",
     group: "Metrics",
-    values: ["true", "false"],
+    hint: "true or false",
   },
   {
     key: "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE",
@@ -191,6 +191,12 @@ const CSV_ENUM_KEYS = new Set([
   "OTEL_TRACES_EXPORTER",
 ])
 
+/** Enum keys the backend validates case-insensitively. */
+const CASE_INSENSITIVE_ENUM_KEYS = new Set([
+  ...CSV_ENUM_KEYS,
+  "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE",
+])
+
 const SIGNAL_ENDPOINT_KEYS = {
   OTEL_METRICS_EXPORTER: "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
   OTEL_LOGS_EXPORTER: "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
@@ -203,6 +209,12 @@ export interface EnvIssue {
   message: string
 }
 
+/** Options controlling context-dependent environment validation. */
+export interface EnvValidationOptions {
+  /** Require an endpoint for each signal configured with the OTLP exporter. */
+  requireOtlpEndpoint?: boolean
+}
+
 /**
  * First-class OTel env keys surfaced as dedicated form fields. Every other
  * allowlisted key stays reachable through the Advanced env editor.
@@ -212,8 +224,8 @@ const FIRST_CLASS_PROTOCOL_KEY = "OTEL_EXPORTER_OTLP_PROTOCOL"
 const FIRST_CLASS_METRIC_INTERVAL_KEY = "OTEL_METRIC_EXPORT_INTERVAL"
 
 /**
- * Signal toggle key -> exporter env key. A signal that is ON writes
- * `<EXPORTER_KEY>=otlp`; OFF removes the key from the env map.
+ * Signal toggle key -> exporter env key. A signal that is ON includes `otlp`;
+ * OFF removes only `otlp` while preserving any other configured exporters.
  */
 const FIRST_CLASS_SIGNAL_KEYS = {
   traces: "OTEL_TRACES_EXPORTER",
@@ -259,9 +271,8 @@ export interface AgentOtelForm {
  * Split a flat OTel `env` map into the structured form shape. First-class keys
  * become dedicated fields; the remaining keys are serialized into
  * `advancedEnv` via {@link envMapToText}. A signal toggle is ON iff its
- * exporter key resolves to exactly `otlp`; any exporter key with a non-`otlp`
- * value (e.g. `console`) is left in `advancedEnv` so nothing is silently
- * dropped and the round-trip stays faithful.
+ * exporter list contains `otlp`. Other exporters remain in `advancedEnv`, so
+ * the toggle controls OTLP without silently dropping values such as `console`.
  */
 export function envMapToForm(env: Record<string, string>): AgentOtelForm {
   const advanced: Record<string, string> = {}
@@ -277,11 +288,16 @@ export function envMapToForm(env: Record<string, string>): AgentOtelForm {
     )
     if (signalEntry) {
       const signalName = signalEntry[0] as keyof AgentOtelSignals
-      // Only a bare `otlp` exporter maps cleanly to the toggle; anything else
-      // (console/none/prometheus, or otlp mixed with others) stays in Advanced.
-      if (value.trim() === "otlp") {
+      const exporters = value.split(",").map((part) => part.trim())
+      const otherExporters = exporters.filter(
+        (exporter) => exporter.toLowerCase() !== "otlp"
+      )
+      if (otherExporters.length < exporters.length) {
         signals[signalName] = true
-      } else {
+      }
+      if (otherExporters.length > 0) {
+        advanced[key] = otherExporters.join(",")
+      } else if (!signals[signalName]) {
         advanced[key] = value
       }
       continue
@@ -304,8 +320,8 @@ export function envMapToForm(env: Record<string, string>): AgentOtelForm {
  * Inverse of {@link envMapToForm}. Starts from the parsed `advancedEnv` tail
  * and overlays the first-class fields on top, so first-class fields win on key
  * collision. Non-empty first-class text fields are written trimmed; empty ones
- * are omitted entirely (no `KEY=`). Each ON signal writes
- * `<EXPORTER_KEY>=otlp`.
+ * are omitted entirely (no `KEY=`). Each signal toggle adds or removes `otlp`
+ * while preserving any other exporters in the advanced tail.
  */
 export function formToEnvMap(form: AgentOtelForm): Record<string, string> {
   const env: Record<string, string> = parseEnvText(form.advancedEnv)
@@ -334,8 +350,16 @@ export function formToEnvMap(form: AgentOtelForm): Record<string, string> {
   for (const [signalName, exporterKey] of Object.entries(
     FIRST_CLASS_SIGNAL_KEYS
   )) {
+    const otherExporters = (env[exporterKey] ?? "")
+      .split(",")
+      .map((part) => part.trim())
+      .filter((exporter) => exporter && exporter.toLowerCase() !== "otlp")
     if (form.signals[signalName as keyof AgentOtelSignals]) {
-      env[exporterKey] = "otlp"
+      env[exporterKey] = ["otlp", ...otherExporters].join(",")
+    } else if (otherExporters.length > 0) {
+      env[exporterKey] = otherExporters.join(",")
+    } else {
+      delete env[exporterKey]
     }
   }
 
@@ -366,17 +390,19 @@ function envValueIssues(spec: OTelEnvSpec, value: string): string[] {
   if (spec.values) {
     const allowed = new Set<string>(spec.values)
     const parts = CSV_ENUM_KEYS.has(spec.key)
-      ? value.split(",").map((part) => part.trim())
+      ? value
+          .split(",")
+          .map((part) => part.trim())
+          .filter(Boolean)
       : [value]
-    if (parts.some((part) => !allowed.has(part))) {
+    const normalizedParts = CASE_INSENSITIVE_ENUM_KEYS.has(spec.key)
+      ? parts.map((part) => part.toLowerCase())
+      : parts
+    if (normalizedParts.some((part) => !allowed.has(part))) {
       issues.push(`${spec.key} supports ${spec.values.join(", ")}.`)
     }
   }
-  const numericValue = Number(value)
-  if (
-    POSITIVE_INTEGER_KEYS.has(spec.key) &&
-    (!Number.isInteger(numericValue) || numericValue <= 0)
-  ) {
+  if (POSITIVE_INTEGER_KEYS.has(spec.key) && !/^[1-9]\d*$/.test(value)) {
     issues.push(`${spec.key} must be a positive integer.`)
   }
   return issues
@@ -393,7 +419,10 @@ function envValueIssues(spec: OTelEnvSpec, value: string): string[] {
  * duplicate keys or empty values because a map has already collapsed those;
  * the text path handles those line-oriented checks separately.
  */
-export function validateEnvMap(env: Record<string, string>): string[] {
+export function validateEnvMap(
+  env: Record<string, string>,
+  { requireOtlpEndpoint = true }: EnvValidationOptions = {}
+): string[] {
   const issues: string[] = []
 
   for (const [key, value] of Object.entries(env)) {
@@ -415,17 +444,21 @@ export function validateEnvMap(env: Record<string, string>): string[] {
     }
   }
 
-  const generic = env[FIRST_CLASS_ENDPOINT_KEY]
-  for (const [exporterKey, endpointKey] of Object.entries(
-    SIGNAL_ENDPOINT_KEYS
-  )) {
-    const value = env[exporterKey]
-    if (value === undefined) continue
-    const exporters = value.split(",").map((part) => part.trim())
-    if (exporters.includes("otlp") && !generic && !env[endpointKey]) {
-      issues.push(
-        `${exporterKey}=otlp needs ${endpointKey} or ${FIRST_CLASS_ENDPOINT_KEY}.`
-      )
+  if (requireOtlpEndpoint) {
+    const generic = env[FIRST_CLASS_ENDPOINT_KEY]
+    for (const [exporterKey, endpointKey] of Object.entries(
+      SIGNAL_ENDPOINT_KEYS
+    )) {
+      const value = env[exporterKey]
+      if (value === undefined) continue
+      const exporters = value
+        .split(",")
+        .map((part) => part.trim().toLowerCase())
+      if (exporters.includes("otlp") && !generic && !env[endpointKey]) {
+        issues.push(
+          `${exporterKey}=otlp needs ${endpointKey} or ${FIRST_CLASS_ENDPOINT_KEY}.`
+        )
+      }
     }
   }
 
@@ -437,8 +470,11 @@ export function validateEnvMap(env: Record<string, string>): string[] {
  * {@link formToEnvMap} and running the shared {@link validateEnvMap} rules.
  * Returns human-readable messages; empty list means acceptable.
  */
-export function validateForm(form: AgentOtelForm): string[] {
-  return validateEnvMap(formToEnvMap(form))
+export function validateForm(
+  form: AgentOtelForm,
+  options?: EnvValidationOptions
+): string[] {
+  return validateEnvMap(formToEnvMap(form), options)
 }
 
 /**
@@ -446,7 +482,10 @@ export function validateForm(form: AgentOtelForm): string[] {
  * Returns a list of issues with their 1-indexed line numbers. Empty list
  * means the input is acceptable.
  */
-export function validateEnvText(text: string): EnvIssue[] {
+export function validateEnvText(
+  text: string,
+  { requireOtlpEndpoint = true }: EnvValidationOptions = {}
+): EnvIssue[] {
   const issues: EnvIssue[] = []
   const seen: Record<string, { lineNumber: number; value: string }> = {}
   const lines = text.split("\n")
@@ -490,18 +529,22 @@ export function validateEnvText(text: string): EnvIssue[] {
     seen[key] = { lineNumber, value }
   })
 
-  const generic = seen.OTEL_EXPORTER_OTLP_ENDPOINT
-  for (const [exporterKey, endpointKey] of Object.entries(
-    SIGNAL_ENDPOINT_KEYS
-  )) {
-    const entry = seen[exporterKey]
-    if (!entry) continue
-    const exporters = entry.value.split(",").map((part) => part.trim())
-    if (exporters.includes("otlp") && !generic && !seen[endpointKey]) {
-      issues.push({
-        lineNumber: entry.lineNumber,
-        message: `${exporterKey}=otlp needs ${endpointKey} or OTEL_EXPORTER_OTLP_ENDPOINT.`,
-      })
+  if (requireOtlpEndpoint) {
+    const generic = seen.OTEL_EXPORTER_OTLP_ENDPOINT
+    for (const [exporterKey, endpointKey] of Object.entries(
+      SIGNAL_ENDPOINT_KEYS
+    )) {
+      const entry = seen[exporterKey]
+      if (!entry) continue
+      const exporters = entry.value
+        .split(",")
+        .map((part) => part.trim().toLowerCase())
+      if (exporters.includes("otlp") && !generic && !seen[endpointKey]) {
+        issues.push({
+          lineNumber: entry.lineNumber,
+          message: `${exporterKey}=otlp needs ${endpointKey} or OTEL_EXPORTER_OTLP_ENDPOINT.`,
+        })
+      }
     }
   }
 

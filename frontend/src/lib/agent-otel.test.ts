@@ -6,6 +6,7 @@ import {
   formToEnvText,
   parseEnvText,
   validateEnvMap,
+  validateEnvText,
   validateForm,
 } from "@/lib/agent-otel"
 
@@ -40,18 +41,17 @@ describe("envMapToForm", () => {
     )
   })
 
-  it("leaves a non-otlp exporter value in advanced rather than lighting the toggle", () => {
+  it("maps otlp to the toggle while preserving other exporters in advanced", () => {
     const form = envMapToForm({
       OTEL_EXPORTER_OTLP_ENDPOINT: "https://c.example.com",
       OTEL_TRACES_EXPORTER: "console",
       OTEL_METRICS_EXPORTER: "otlp,console",
     })
 
-    // Neither is a bare `otlp`, so both stay in advanced and toggles stay off.
-    expect(form.signals).toEqual({ traces: false, metrics: false, logs: false })
+    expect(form.signals).toEqual({ traces: false, metrics: true, logs: false })
     expect(parseEnvText(form.advancedEnv)).toEqual({
       OTEL_TRACES_EXPORTER: "console",
-      OTEL_METRICS_EXPORTER: "otlp,console",
+      OTEL_METRICS_EXPORTER: "console",
     })
   })
 })
@@ -97,6 +97,17 @@ describe("formToEnvMap", () => {
     expect(env.OTEL_EXPORTER_OTLP_ENDPOINT).toBe(
       "https://first-class.example.com"
     )
+  })
+
+  it("removes only otlp when a mixed-exporter signal is unchecked", () => {
+    const form = envMapToForm({
+      OTEL_METRICS_EXPORTER: "otlp,console",
+    })
+    form.signals.metrics = false
+
+    expect(formToEnvMap(form)).toEqual({
+      OTEL_METRICS_EXPORTER: "console",
+    })
   })
 })
 
@@ -192,5 +203,56 @@ describe("validateForm / validateEnvMap", () => {
     expect(validateEnvMap({ OTEL_METRIC_EXPORT_INTERVAL: "0" })).toEqual([
       "OTEL_METRIC_EXPORT_INTERVAL must be a positive integer.",
     ])
+  })
+
+  it.each(["1e3", "1.0", "0x10"])(
+    "rejects non-decimal interval value %s",
+    (value) => {
+      expect(validateEnvMap({ OTEL_METRIC_EXPORT_INTERVAL: value })).toEqual([
+        "OTEL_METRIC_EXPORT_INTERVAL must be a positive integer.",
+      ])
+    }
+  )
+
+  it("accepts free-form values for boolean-like keys accepted by the backend", () => {
+    expect(validateEnvMap({ OTEL_LOG_USER_PROMPTS: "1" })).toEqual([])
+  })
+
+  it("accepts case-insensitive exporter and temporality values", () => {
+    expect(
+      validateEnvMap({
+        OTEL_EXPORTER_OTLP_ENDPOINT: "https://c.example.com",
+        OTEL_METRICS_EXPORTER: "OTLP,CONSOLE",
+        OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE: "DELTA",
+      })
+    ).toEqual([])
+  })
+
+  it.each(["console,", ",console", "console,,"])(
+    "ignores empty exporter tokens in %s",
+    (value) => {
+      expect(validateEnvMap({ OTEL_LOGS_EXPORTER: value })).toEqual([])
+      expect(validateEnvText(`OTEL_LOGS_EXPORTER=${value}`)).toEqual([])
+    }
+  )
+
+  it("keeps protocol validation case-sensitive and single-valued", () => {
+    expect(
+      validateEnvMap({ OTEL_EXPORTER_OTLP_PROTOCOL: "GRPC,http/json" })
+    ).toEqual([
+      "OTEL_EXPORTER_OTLP_PROTOCOL supports http/protobuf, http/json, grpc.",
+    ])
+  })
+
+  it("accepts signal-specific protocol keys", () => {
+    expect(
+      validateEnvMap({ OTEL_EXPORTER_OTLP_LOGS_PROTOCOL: "http/protobuf" })
+    ).toEqual([])
+  })
+
+  it("skips endpoint requirements when telemetry is disabled", () => {
+    const options = { requireOtlpEndpoint: false }
+    expect(validateEnvMap({ OTEL_LOGS_EXPORTER: "otlp" }, options)).toEqual([])
+    expect(validateEnvText("OTEL_LOGS_EXPORTER=otlp", options)).toEqual([])
   })
 })
