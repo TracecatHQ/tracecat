@@ -31,6 +31,7 @@ from tracecat.agent.common.config import (
     CONTROL_SOCKET_NAME,
     JAILED_CONTROL_SOCKET_PATH,
     JAILED_LLM_SOCKET_PATH,
+    JAILED_OTEL_SOCKET_PATH,
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
     TRACECAT__AGENT_SANDBOX_TIMEOUT,
     TRUSTED_MCP_SOCKET_PATH,
@@ -222,6 +223,7 @@ def build_agent_nsjail_config(
     session_work_dir: Path | None = None,
     enable_internet_access: bool = False,
     skills_dir: Path | None = None,
+    otel_socket_path: Path | None = None,
 ) -> str:
     """Build nsjail protobuf config for agent runtime execution.
 
@@ -270,6 +272,8 @@ def build_agent_nsjail_config(
         _validate_path(llm_socket_path, "llm_socket_path")
     if mcp_socket_path is not None:
         _validate_path(mcp_socket_path, "mcp_socket_path")
+    if otel_socket_path is not None:
+        _validate_path(otel_socket_path, "otel_socket_path")
     if skills_dir is not None:
         _validate_path(skills_dir, "skills_dir")
 
@@ -394,6 +398,15 @@ def build_agent_nsjail_config(
                 "",
                 "# Per-job LLM socket (proxied to LLM gateway on host)",
                 f'mount {{ src: "{llm_socket_path}" dst: "{JAILED_LLM_SOCKET_PATH}" is_bind: true rw: false }}',
+            ]
+        )
+
+    if otel_socket_path is not None:
+        lines.extend(
+            [
+                "",
+                "# Per-job OTel relay socket (forwarded to tenant collector on host)",
+                f'mount {{ src: "{otel_socket_path}" dst: "{JAILED_OTEL_SOCKET_PATH}" is_bind: true rw: false }}',
             ]
         )
 

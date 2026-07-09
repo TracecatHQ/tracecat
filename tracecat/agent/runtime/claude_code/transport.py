@@ -95,6 +95,7 @@ class SandboxedCLITransport(Transport):
         enable_internet_access: bool,
         use_jailed_paths: bool,
         skills_dir: Path | None = None,
+        otel_socket_path: Path | None = None,
     ) -> None:
         self._options = options
         self._session_id = session_id
@@ -105,6 +106,7 @@ class SandboxedCLITransport(Transport):
         self._enable_internet_access = enable_internet_access
         self._use_jailed_paths = use_jailed_paths
         self._skills_dir = skills_dir
+        self._otel_socket_path = otel_socket_path
         self._process: asyncio.subprocess.Process | None = None
         self._spawned_runtime: SpawnedRuntime | None = None
         self._ready = False
@@ -179,6 +181,7 @@ class SandboxedCLITransport(Transport):
                 enable_internet_access=self._enable_internet_access,
                 skills_dir=self._skills_dir,
                 inherited_fds=mcp_binding.inherited_fds,
+                otel_socket_path=self._otel_socket_path,
             )
         self._process = self._spawned_runtime.process
         if self._process.stdin is None or self._process.stdout is None:

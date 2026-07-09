@@ -15,19 +15,22 @@ import os
 import socket
 import sys
 from pathlib import Path
-from typing import BinaryIO, NotRequired, TypedDict
+from typing import BinaryIO, Literal, NotRequired, TypedDict
 
 LOGGER = logging.getLogger(__name__)
 
 INIT_PAYLOAD_ENV_VAR = "TRACECAT__AGENT_INIT_PAYLOAD_PATH"
 LLM_SOCKET_ENV_VAR = "TRACECAT__AGENT_LLM_SOCKET_PATH"
 MCP_SOCKET_ENV_VAR = "TRACECAT__AGENT_MCP_SOCKET_PATH"
+OTEL_SOCKET_ENV_VAR = "TRACECAT__AGENT_OTEL_SOCKET_PATH"
 DEFAULT_AGENT_RUNTIME_DIR = Path("/run/tracecat")
 DEFAULT_LLM_SOCKET_PATH = str(DEFAULT_AGENT_RUNTIME_DIR / "llm.sock")
 DEFAULT_MCP_SOCKET_PATH = str(DEFAULT_AGENT_RUNTIME_DIR / "mcp.sock")
-LLM_BRIDGE_HOST = "127.0.0.1"
+DEFAULT_OTEL_SOCKET_PATH = str(DEFAULT_AGENT_RUNTIME_DIR / "otel.sock")
+BRIDGE_HOST = "127.0.0.1"
 TRUSTED_MCP_BRIDGE_PATH = "/mcp"
-MAX_BODY_SIZE = 10 * 1024 * 1024
+LLM_MAX_BODY_SIZE = 10 * 1024 * 1024
+OTEL_MAX_BODY_SIZE = 16 * 1024 * 1024
 
 
 class ClaudeShimInitPayload(TypedDict):
@@ -40,18 +43,28 @@ class ClaudeShimInitPayload(TypedDict):
     mcp_bridge_fd: NotRequired[int | None]
 
 
-class LLMBridge:
-    """HTTP bridge that forwards localhost traffic to a Unix socket."""
+class SandboxSocketBridge:
+    """Pure byte-pipe: 127.0.0.1:<port> -> UDS at ``socket_path``.
+
+    Holds no credentials and applies no policy beyond the body cap and
+    UDS-failure mode passed at construction.
+    """
 
     def __init__(
         self,
         *,
         socket_path: Path,
         port: int = 0,
+        max_body_size: int,
+        on_uds_failure: Literal["error", "drop"],
+        log_label: str,
         listener_fd: int | None = None,
     ) -> None:
         self.socket_path = socket_path
         self._requested_port = port
+        self._max_body_size = max_body_size
+        self._on_uds_failure = on_uds_failure
+        self._log_label = log_label
         self._listener_fd = listener_fd
         self._actual_port: int | None = None
         self._server: asyncio.Server | None = None
@@ -62,7 +75,7 @@ class LLMBridge:
         if self._listener_fd is None:
             self._server = await asyncio.start_server(
                 self._handle_connection,
-                host=LLM_BRIDGE_HOST,
+                host=BRIDGE_HOST,
                 port=self._requested_port,
             )
         else:
@@ -73,13 +86,14 @@ class LLMBridge:
                 sock=listener,
             )
         if not self._server.sockets:
-            raise RuntimeError("LLM bridge did not expose a listening socket")
+            raise RuntimeError(f"{self._log_label} did not expose a listening socket")
         actual_port = int(self._server.sockets[0].getsockname()[1])
         self._actual_port = actual_port
         self._serve_task = asyncio.create_task(self._server.serve_forever())
         self._serve_task.add_done_callback(self._on_serve_done)
         LOGGER.info(
-            "LLM bridge started",
+            "%s started",
+            self._log_label,
             extra={
                 "requested_port": self._requested_port,
                 "actual_port": actual_port,
@@ -100,7 +114,7 @@ class LLMBridge:
             self._server.close()
             await self._server.wait_closed()
             self._server = None
-            LOGGER.info("LLM bridge stopped")
+            LOGGER.info("%s stopped", self._log_label)
 
     def _on_serve_done(self, task: asyncio.Task[None]) -> None:
         """Log unexpected bridge task failures."""
@@ -113,14 +127,14 @@ class LLMBridge:
         if isinstance(exc, RuntimeError) and str(exc) == "server is closed":
             return
         if exc:
-            LOGGER.error("LLM bridge server failed: %s", exc)
+            LOGGER.error("%s server failed: %s", self._log_label, exc)
 
     async def _handle_connection(
         self,
         client_reader: asyncio.StreamReader,
         client_writer: asyncio.StreamWriter,
     ) -> None:
-        """Forward one HTTP client connection to the Unix socket proxy."""
+        """Forward one HTTP client connection to the Unix socket."""
         try:
             request_data = await self._read_http_request(client_reader)
             if not request_data:
@@ -131,36 +145,50 @@ class LLMBridge:
                     str(self.socket_path)
                 )
             except (OSError, ConnectionRefusedError) as exc:
-                LOGGER.error("Failed to connect to LLM socket: %s", exc)
-                await self._send_error_response(
-                    client_writer,
-                    status_code=502,
-                    message="LLM proxy unavailable",
-                )
+                await self._handle_uds_failure(client_writer, exc)
                 return
 
             try:
                 sock_writer.write(request_data)
                 await sock_writer.drain()
-                await self._stream_response(sock_reader, client_writer)
+                while chunk := await sock_reader.read(8192):
+                    client_writer.write(chunk)
+                    await client_writer.drain()
             finally:
                 sock_writer.close()
-                await sock_writer.wait_closed()
+                with contextlib.suppress(Exception):
+                    await sock_writer.wait_closed()
 
         except asyncio.IncompleteReadError:
-            LOGGER.debug("Client disconnected during request")
+            LOGGER.debug("%s client disconnected during request", self._log_label)
         except Exception as exc:
-            LOGGER.exception("LLM bridge error: %s", exc)
-            with contextlib.suppress(Exception):
-                await self._send_error_response(
-                    client_writer,
-                    status_code=500,
-                    message="Internal bridge error",
-                )
+            LOGGER.warning("%s error: %s", self._log_label, exc)
+            if self._on_uds_failure == "error":
+                with contextlib.suppress(Exception):
+                    await self._send_error_response(
+                        client_writer,
+                        status_code=500,
+                        message="Internal bridge error",
+                    )
         finally:
             with contextlib.suppress(Exception):
                 client_writer.close()
                 await client_writer.wait_closed()
+
+    async def _handle_uds_failure(
+        self,
+        client_writer: asyncio.StreamWriter,
+        exc: Exception,
+    ) -> None:
+        if self._on_uds_failure == "error":
+            LOGGER.error("%s failed to connect to UDS: %s", self._log_label, exc)
+            await self._send_error_response(
+                client_writer,
+                status_code=502,
+                message="Upstream socket unavailable",
+            )
+        else:
+            LOGGER.warning("%s failed to connect to UDS: %s", self._log_label, exc)
 
     async def _read_http_request(self, reader: asyncio.StreamReader) -> bytes | None:
         """Read a full HTTP request including headers and optional body."""
@@ -175,18 +203,18 @@ class LLMBridge:
 
         content_length = 0
         for line in headers_data.split(b"\r\n"):
-            lower_line = line.lower()
-            if lower_line.startswith(b"content-length:"):
+            if line.lower().startswith(b"content-length:"):
                 with contextlib.suppress(ValueError, IndexError):
                     content_length = int(line.split(b":", 1)[1].strip())
                 break
 
-        if content_length > MAX_BODY_SIZE:
+        if content_length > self._max_body_size:
             LOGGER.warning(
-                "Request body too large",
+                "%s request body too large",
+                self._log_label,
                 extra={
                     "content_length": content_length,
-                    "max_size": MAX_BODY_SIZE,
+                    "max_size": self._max_body_size,
                 },
             )
             return None
@@ -195,16 +223,6 @@ class LLMBridge:
         if content_length > 0:
             body = await reader.readexactly(content_length)
         return headers_data + body
-
-    async def _stream_response(
-        self,
-        sock_reader: asyncio.StreamReader,
-        client_writer: asyncio.StreamWriter,
-    ) -> None:
-        """Stream the Unix-socket response back to the HTTP client."""
-        while chunk := await sock_reader.read(8192):
-            client_writer.write(chunk)
-            await client_writer.drain()
 
     async def _send_error_response(
         self,
@@ -234,7 +252,7 @@ class LLMBridge:
 
 
 def _trusted_mcp_bridge_url(port: int) -> str:
-    return f"http://{LLM_BRIDGE_HOST}:{port}{TRUSTED_MCP_BRIDGE_PATH}"
+    return f"http://{BRIDGE_HOST}:{port}{TRUSTED_MCP_BRIDGE_PATH}"
 
 
 def _rewrite_mcp_bridge_command_port(
@@ -254,24 +272,33 @@ def _rewrite_mcp_bridge_command_port(
 
 async def run_sandboxed_claude_shim() -> None:
     """Read shim config, start the LLM bridge, and proxy Claude stdio."""
-    llm_bridge: LLMBridge | None = None
-    mcp_bridge: LLMBridge | None = None
+    llm_bridge: SandboxSocketBridge | None = None
+    mcp_bridge: SandboxSocketBridge | None = None
+    otel_bridge: SandboxSocketBridge | None = None
     process: asyncio.subprocess.Process | None = None
     stdout_task: asyncio.Task[None] | None = None
     stderr_task: asyncio.Task[None] | None = None
 
     try:
         init_payload = await _read_init_payload(_resolve_init_payload_path())
-        llm_bridge = LLMBridge(socket_path=_resolve_llm_socket_path(), port=0)
+        llm_socket = Path(os.environ.get(LLM_SOCKET_ENV_VAR) or DEFAULT_LLM_SOCKET_PATH)
+        llm_bridge = SandboxSocketBridge(
+            socket_path=llm_socket,
+            port=0,
+            max_body_size=LLM_MAX_BODY_SIZE,
+            on_uds_failure="error",
+            log_label="LLM bridge",
+        )
         bridge_port = await llm_bridge.start()
-        LOGGER.info("LLM bridge started for shim on port %s", bridge_port)
-        mcp_bridge = LLMBridge(
+        mcp_bridge = SandboxSocketBridge(
             socket_path=_resolve_mcp_socket_path(),
             port=init_payload["mcp_bridge_port"],
+            max_body_size=LLM_MAX_BODY_SIZE,
+            on_uds_failure="error",
+            log_label="MCP bridge",
             listener_fd=init_payload.get("mcp_bridge_fd"),
         )
         mcp_bridge_port = await mcp_bridge.start()
-        LOGGER.info("MCP bridge started for shim on port %s", mcp_bridge_port)
         command = _rewrite_mcp_bridge_command_port(
             init_payload["command"],
             requested_port=init_payload["mcp_bridge_port"],
@@ -284,7 +311,37 @@ async def run_sandboxed_claude_shim() -> None:
         }
         child_env["TRACECAT__LLM_BRIDGE_PORT"] = str(bridge_port)
         child_env["TRACECAT__MCP_BRIDGE_PORT"] = str(mcp_bridge_port)
-        child_env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{bridge_port}"
+        child_env["ANTHROPIC_BASE_URL"] = f"http://{BRIDGE_HOST}:{bridge_port}"
+
+        # Telemetry path: start the OTel bridge before spawning Claude so the
+        # SDK's exporters connect to the bridge instead of leaving the sandbox.
+        # The host-side relay holds tenant headers and the real collector URL.
+        if child_env.get("CLAUDE_CODE_ENABLE_TELEMETRY") == "1":
+            otel_socket = Path(
+                os.environ.get(OTEL_SOCKET_ENV_VAR) or DEFAULT_OTEL_SOCKET_PATH
+            )
+            otel_bridge = SandboxSocketBridge(
+                socket_path=otel_socket,
+                port=0,
+                max_body_size=OTEL_MAX_BODY_SIZE,
+                on_uds_failure="drop",
+                log_label="OTel bridge",
+            )
+            try:
+                otel_port = await otel_bridge.start()
+            except Exception as exc:
+                LOGGER.warning(
+                    "Failed to start OTel bridge; telemetry disabled: %s", exc
+                )
+                with contextlib.suppress(Exception):
+                    await otel_bridge.stop()
+                otel_bridge = None
+                child_env.pop("CLAUDE_CODE_ENABLE_TELEMETRY", None)
+            else:
+                child_env["OTEL_EXPORTER_OTLP_ENDPOINT"] = (
+                    f"http://{BRIDGE_HOST}:{otel_port}"
+                )
+
         process = await asyncio.create_subprocess_exec(
             *command,
             stdin=asyncio.subprocess.PIPE,
@@ -329,6 +386,8 @@ async def run_sandboxed_claude_shim() -> None:
             await llm_bridge.stop()
         if mcp_bridge is not None:
             await mcp_bridge.stop()
+        if otel_bridge is not None:
+            await otel_bridge.stop()
 
 
 async def _read_init_payload(init_path: Path) -> ClaudeShimInitPayload:
@@ -377,11 +436,6 @@ def _resolve_init_payload_path() -> Path:
     if init_payload_path := os.environ.get(INIT_PAYLOAD_ENV_VAR):
         return Path(init_payload_path)
     raise RuntimeError(f"{INIT_PAYLOAD_ENV_VAR} is not set")
-
-
-def _resolve_llm_socket_path() -> Path:
-    """Resolve the mounted LLM socket path."""
-    return Path(os.environ.get(LLM_SOCKET_ENV_VAR) or DEFAULT_LLM_SOCKET_PATH)
 
 
 def _resolve_mcp_socket_path() -> Path:

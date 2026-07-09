@@ -13,14 +13,12 @@ describe("envMapToForm", () => {
   it("pulls first-class keys into dedicated fields", () => {
     const form = envMapToForm({
       OTEL_EXPORTER_OTLP_ENDPOINT: "https://collector.example.com",
-      OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf",
       OTEL_METRIC_EXPORT_INTERVAL: "60000",
       OTEL_TRACES_EXPORTER: "otlp",
       OTEL_METRICS_EXPORTER: "otlp",
     })
 
     expect(form.endpoint).toBe("https://collector.example.com")
-    expect(form.protocol).toBe("http/protobuf")
     expect(form.metricIntervalMs).toBe("60000")
     expect(form.signals).toEqual({ traces: true, metrics: true, logs: false })
     expect(form.advancedEnv).toBe("")
@@ -59,7 +57,6 @@ describe("envMapToForm", () => {
 describe("formToEnvMap", () => {
   const base: AgentOtelForm = {
     endpoint: "",
-    protocol: "",
     metricIntervalMs: "",
     signals: { traces: false, metrics: false, logs: false },
     advancedEnv: "",
@@ -73,14 +70,12 @@ describe("formToEnvMap", () => {
     const env = formToEnvMap({
       ...base,
       endpoint: "  https://c.example.com  ",
-      protocol: "grpc",
       metricIntervalMs: " 30000 ",
       signals: { traces: true, metrics: false, logs: true },
     })
 
     expect(env).toEqual({
       OTEL_EXPORTER_OTLP_ENDPOINT: "https://c.example.com",
-      OTEL_EXPORTER_OTLP_PROTOCOL: "grpc",
       OTEL_METRIC_EXPORT_INTERVAL: "30000",
       OTEL_TRACES_EXPORTER: "otlp",
       OTEL_LOGS_EXPORTER: "otlp",
@@ -104,7 +99,6 @@ describe("round-trip fidelity", () => {
   it.each<Record<string, string>>([
     {
       OTEL_EXPORTER_OTLP_ENDPOINT: "https://c.example.com",
-      OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf",
       OTEL_METRIC_EXPORT_INTERVAL: "60000",
       OTEL_TRACES_EXPORTER: "otlp",
       OTEL_METRICS_EXPORTER: "otlp",
@@ -126,7 +120,6 @@ describe("Raw mode helpers", () => {
   it("formToEnvText serializes the whole form as sorted KEY=value text", () => {
     const text = formToEnvText({
       endpoint: "https://c.example.com",
-      protocol: "grpc",
       metricIntervalMs: "",
       signals: { traces: true, metrics: false, logs: false },
       advancedEnv: "OTEL_RESOURCE_ATTRIBUTES=service.name=agent",
@@ -135,7 +128,6 @@ describe("Raw mode helpers", () => {
     expect(text).toBe(
       [
         "OTEL_EXPORTER_OTLP_ENDPOINT=https://c.example.com",
-        "OTEL_EXPORTER_OTLP_PROTOCOL=grpc",
         "OTEL_RESOURCE_ATTRIBUTES=service.name=agent",
         "OTEL_TRACES_EXPORTER=otlp",
       ].join("\n")
@@ -145,7 +137,6 @@ describe("Raw mode helpers", () => {
   it("form -> text -> form is identity through the Raw round-trip", () => {
     const form: AgentOtelForm = {
       endpoint: "https://c.example.com",
-      protocol: "http/protobuf",
       metricIntervalMs: "60000",
       signals: { traces: true, metrics: true, logs: false },
       advancedEnv: "OTEL_RESOURCE_ATTRIBUTES=service.name=agent",
@@ -166,7 +157,6 @@ describe("validateForm / validateEnvMap", () => {
   it("flags an otlp signal with no endpoint", () => {
     const form: AgentOtelForm = {
       endpoint: "",
-      protocol: "",
       metricIntervalMs: "",
       signals: { traces: true, metrics: false, logs: false },
       advancedEnv: "",
@@ -191,6 +181,17 @@ describe("validateForm / validateEnvMap", () => {
   it("rejects a non-positive interval", () => {
     expect(validateEnvMap({ OTEL_METRIC_EXPORT_INTERVAL: "0" })).toEqual([
       "OTEL_METRIC_EXPORT_INTERVAL must be a positive integer.",
+    ])
+  })
+
+  it.each([
+    "OTEL_EXPORTER_OTLP_PROTOCOL",
+    "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL",
+    "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
+    "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
+  ])("rejects relay-managed protocol key %s", (key) => {
+    expect(validateEnvMap({ [key]: "http/protobuf" })).toEqual([
+      `${key} is managed by Tracecat.`,
     ])
   })
 })

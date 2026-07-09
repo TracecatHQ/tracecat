@@ -11,13 +11,9 @@ AGENT_OTEL_ENV_VARS: frozenset[str] = frozenset(
         "OTEL_METRICS_EXPORTER",
         "OTEL_LOGS_EXPORTER",
         "OTEL_TRACES_EXPORTER",
-        "OTEL_EXPORTER_OTLP_PROTOCOL",
         "OTEL_EXPORTER_OTLP_ENDPOINT",
-        "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL",
         "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
-        "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
         "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
-        "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
         "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
         "CLAUDE_CODE_OTEL_HEADERS_HELPER_DEBOUNCE_MS",
         "OTEL_METRIC_EXPORT_INTERVAL",
@@ -47,6 +43,10 @@ _RESERVED_AGENT_OTEL_ENV_VARS = frozenset(
         "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
         "OTEL_EXPORTER_OTLP_LOGS_HEADERS",
         "OTEL_EXPORTER_OTLP_TRACES_HEADERS",
+        "OTEL_EXPORTER_OTLP_PROTOCOL",
+        "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL",
+        "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
+        "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
     }
 )
 """Supported semantics that are modeled outside the raw env map."""
@@ -56,15 +56,6 @@ _EXPORTER_VALUES = {
     "OTEL_LOGS_EXPORTER": frozenset({"console", "otlp", "none"}),
     "OTEL_TRACES_EXPORTER": frozenset({"console", "otlp", "none"}),
 }
-_PROTOCOL_KEYS = frozenset(
-    {
-        "OTEL_EXPORTER_OTLP_PROTOCOL",
-        "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL",
-        "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
-        "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
-    }
-)
-_PROTOCOL_VALUES = frozenset({"grpc", "http/json", "http/protobuf"})
 _INTERVAL_KEYS = frozenset(
     {
         "CLAUDE_CODE_OTEL_HEADERS_HELPER_DEBOUNCE_MS",
@@ -83,11 +74,6 @@ _SIGNAL_ENDPOINT_KEYS = {
     "metrics": "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
     "logs": "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
     "traces": "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
-}
-_SIGNAL_PROTOCOL_KEYS = {
-    "metrics": "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL",
-    "logs": "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
-    "traces": "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
 }
 
 
@@ -145,7 +131,7 @@ def validate_agent_otel_env(env: Mapping[str, str]) -> dict[str, str]:
     normalized: dict[str, str] = {}
     for key, value in env.items():
         if key in _RESERVED_AGENT_OTEL_ENV_VARS:
-            raise ValueError(f"{key} is modeled separately and cannot be set in env")
+            raise ValueError(f"{key} is managed by Tracecat and cannot be set in env")
         if key not in AGENT_OTEL_ENV_VARS:
             raise ValueError(
                 f"Unsupported Claude Code OTel environment variable: {key}"
@@ -207,6 +193,36 @@ def resolve_agent_otel_config(
     )
 
 
+async def load_org_agent_otel_inputs(
+    *,
+    role: Any,
+) -> tuple[AgentOtelConfig | None, dict[str, str] | None]:
+    """Load the org's saved Agent OTel config and decrypted headers.
+
+    Returns ``(None, None)`` when the org has no settings rows yet so the
+    resolver can fall back to its defaults.
+    """
+    from tracecat.settings.service import SettingsService
+
+    async with SettingsService.with_session(role=role) as service:
+        settings = await service.list_org_settings(
+            keys={"agent_otel_config", "agent_otel_headers"}
+        )
+        values, _ = service.get_values_with_decryption_fallback(settings)
+
+    raw_config = values.get("agent_otel_config")
+    config_value: AgentOtelConfig | None = None
+    if isinstance(raw_config, dict):
+        config_value = AgentOtelConfig.model_validate(raw_config)
+
+    raw_headers = values.get("agent_otel_headers")
+    headers_value: dict[str, str] | None = None
+    if isinstance(raw_headers, dict):
+        headers_value = {str(k): str(v) for k, v in raw_headers.items()}
+
+    return config_value, headers_value
+
+
 def load_agent_otel_platform_override(
     *,
     enabled: str | None = config.TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_ENABLED,
@@ -241,8 +257,6 @@ def _build_sandbox_env(
     sandbox_env["OTEL_EXPORTER_OTLP_PROTOCOL"] = "http/protobuf"
     for endpoint_key in _SIGNAL_ENDPOINT_KEYS.values():
         sandbox_env.pop(endpoint_key, None)
-    for protocol_key in _SIGNAL_PROTOCOL_KEYS.values():
-        sandbox_env.pop(protocol_key, None)
     return sandbox_env
 
 
@@ -255,9 +269,6 @@ def _validate_agent_otel_env_value(key: str, value: str) -> None:
                 f"{key} contains unsupported exporter(s): {', '.join(sorted(invalid_exporters))}"
             )
         return
-
-    if key in _PROTOCOL_KEYS and value not in _PROTOCOL_VALUES:
-        raise ValueError(f"{key} must be one of: {', '.join(sorted(_PROTOCOL_VALUES))}")
 
     if key in _INTERVAL_KEYS:
         _parse_positive_int(value, name=key)

@@ -60,7 +60,7 @@ def test_platform_override_false_wins_over_enabled_org_config() -> None:
 
 
 def test_agent_otel_config_rejects_headers_in_env_map() -> None:
-    with pytest.raises(ValidationError, match="modeled separately"):
+    with pytest.raises(ValidationError, match="managed by Tracecat"):
         AgentOtelConfig(
             enabled=True,
             env={"OTEL_EXPORTER_OTLP_HEADERS": "Authorization=Bearer token"},
@@ -70,6 +70,22 @@ def test_agent_otel_config_rejects_headers_in_env_map() -> None:
 def test_agent_otel_config_rejects_unknown_env_var() -> None:
     with pytest.raises(ValidationError, match="Unsupported Claude Code OTel"):
         AgentOtelConfig(enabled=True, env={"OTEL_SOMETHING_ELSE": "1"})
+
+
+@pytest.mark.parametrize(
+    "protocol_key",
+    [
+        "OTEL_EXPORTER_OTLP_PROTOCOL",
+        "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL",
+        "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
+        "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
+    ],
+)
+def test_agent_otel_config_rejects_relay_managed_protocols(
+    protocol_key: str,
+) -> None:
+    with pytest.raises(ValidationError, match="managed by Tracecat"):
+        AgentOtelConfig(enabled=True, env={protocol_key: "http/protobuf"})
 
 
 def test_resolve_requires_endpoint_for_otlp_exporter() -> None:
