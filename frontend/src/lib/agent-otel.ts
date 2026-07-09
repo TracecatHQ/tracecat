@@ -48,6 +48,21 @@ const OTEL_ENV_SPECS: readonly OTelEnvSpec[] = [
     values: ["http/protobuf", "http/json", "grpc"],
   },
   {
+    key: "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL",
+    group: "OTLP",
+    values: ["http/protobuf", "http/json", "grpc"],
+  },
+  {
+    key: "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
+    group: "OTLP",
+    values: ["http/protobuf", "http/json", "grpc"],
+  },
+  {
+    key: "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
+    group: "OTLP",
+    values: ["http/protobuf", "http/json", "grpc"],
+  },
+  {
     key: "OTEL_EXPORTER_OTLP_ENDPOINT",
     group: "OTLP",
     hint: "https://collector.example.com",
@@ -165,6 +180,17 @@ const POSITIVE_INTEGER_KEYS = new Set([
   "OTEL_TRACES_EXPORT_INTERVAL",
 ])
 
+/**
+ * Enum keys whose value is a comma-separated list of allowed tokens. The
+ * backend only CSV-splits the signal exporter keys; every other enum key
+ * (e.g. the OTLP protocol keys) must be a single literal value.
+ */
+const CSV_ENUM_KEYS = new Set([
+  "OTEL_METRICS_EXPORTER",
+  "OTEL_LOGS_EXPORTER",
+  "OTEL_TRACES_EXPORTER",
+])
+
 const SIGNAL_ENDPOINT_KEYS = {
   OTEL_METRICS_EXPORTER: "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
   OTEL_LOGS_EXPORTER: "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
@@ -177,11 +203,171 @@ export interface EnvIssue {
   message: string
 }
 
+/**
+ * First-class OTel env keys surfaced as dedicated form fields. Every other
+ * allowlisted key stays reachable through the Advanced env editor.
+ */
+const FIRST_CLASS_ENDPOINT_KEY = "OTEL_EXPORTER_OTLP_ENDPOINT"
+const FIRST_CLASS_PROTOCOL_KEY = "OTEL_EXPORTER_OTLP_PROTOCOL"
+const FIRST_CLASS_METRIC_INTERVAL_KEY = "OTEL_METRIC_EXPORT_INTERVAL"
+
+/**
+ * Signal toggle key -> exporter env key. A signal that is ON writes
+ * `<EXPORTER_KEY>=otlp`; OFF removes the key from the env map.
+ */
+const FIRST_CLASS_SIGNAL_KEYS = {
+  traces: "OTEL_TRACES_EXPORTER",
+  metrics: "OTEL_METRICS_EXPORTER",
+  logs: "OTEL_LOGS_EXPORTER",
+} as const
+
+/** The set of env keys owned by first-class form fields. */
+const FIRST_CLASS_KEYS: ReadonlySet<string> = new Set<string>([
+  FIRST_CLASS_ENDPOINT_KEY,
+  FIRST_CLASS_PROTOCOL_KEY,
+  FIRST_CLASS_METRIC_INTERVAL_KEY,
+  ...Object.values(FIRST_CLASS_SIGNAL_KEYS),
+])
+
+/** Which OTel signals are exported as `otlp`. */
+export interface AgentOtelSignals {
+  traces: boolean
+  metrics: boolean
+  logs: boolean
+}
+
+/**
+ * Structured presentation of the flat OTel `env` map. First-class fields are
+ * pulled out into dedicated inputs; everything else lives in `advancedEnv` as
+ * raw `KEY=value` text. This is purely a presentation layer over the wire
+ * format `env` map and never changes the API contract.
+ */
+export interface AgentOtelForm {
+  /** OTEL_EXPORTER_OTLP_ENDPOINT value (empty string when unset). */
+  endpoint: string
+  /** OTEL_EXPORTER_OTLP_PROTOCOL value (empty string when unset). */
+  protocol: string
+  /** OTEL_METRIC_EXPORT_INTERVAL value, kept as a string for the input. */
+  metricIntervalMs: string
+  /** Per-signal `otlp` exporter toggles. */
+  signals: AgentOtelSignals
+  /** Raw `KEY=value` text for all non-first-class env keys. */
+  advancedEnv: string
+}
+
+/**
+ * Split a flat OTel `env` map into the structured form shape. First-class keys
+ * become dedicated fields; the remaining keys are serialized into
+ * `advancedEnv` via {@link envMapToText}. A signal toggle is ON iff its
+ * exporter key resolves to exactly `otlp`; any exporter key with a non-`otlp`
+ * value (e.g. `console`) is left in `advancedEnv` so nothing is silently
+ * dropped and the round-trip stays faithful.
+ */
+export function envMapToForm(env: Record<string, string>): AgentOtelForm {
+  const advanced: Record<string, string> = {}
+  const signals: AgentOtelSignals = {
+    traces: false,
+    metrics: false,
+    logs: false,
+  }
+
+  for (const [key, value] of Object.entries(env)) {
+    const signalEntry = Object.entries(FIRST_CLASS_SIGNAL_KEYS).find(
+      ([, exporterKey]) => exporterKey === key
+    )
+    if (signalEntry) {
+      const signalName = signalEntry[0] as keyof AgentOtelSignals
+      // Only a bare `otlp` exporter maps cleanly to the toggle; anything else
+      // (console/none/prometheus, or otlp mixed with others) stays in Advanced.
+      if (value.trim() === "otlp") {
+        signals[signalName] = true
+      } else {
+        advanced[key] = value
+      }
+      continue
+    }
+    if (!FIRST_CLASS_KEYS.has(key)) {
+      advanced[key] = value
+    }
+  }
+
+  return {
+    endpoint: env[FIRST_CLASS_ENDPOINT_KEY] ?? "",
+    protocol: env[FIRST_CLASS_PROTOCOL_KEY] ?? "",
+    metricIntervalMs: env[FIRST_CLASS_METRIC_INTERVAL_KEY] ?? "",
+    signals,
+    advancedEnv: envMapToText(advanced),
+  }
+}
+
+/**
+ * Inverse of {@link envMapToForm}. Starts from the parsed `advancedEnv` tail
+ * and overlays the first-class fields on top, so first-class fields win on key
+ * collision. Non-empty first-class text fields are written trimmed; empty ones
+ * are omitted entirely (no `KEY=`). Each ON signal writes
+ * `<EXPORTER_KEY>=otlp`.
+ */
+export function formToEnvMap(form: AgentOtelForm): Record<string, string> {
+  const env: Record<string, string> = parseEnvText(form.advancedEnv)
+
+  const endpoint = form.endpoint.trim()
+  if (endpoint) {
+    env[FIRST_CLASS_ENDPOINT_KEY] = endpoint
+  } else {
+    delete env[FIRST_CLASS_ENDPOINT_KEY]
+  }
+
+  const protocol = form.protocol.trim()
+  if (protocol) {
+    env[FIRST_CLASS_PROTOCOL_KEY] = protocol
+  } else {
+    delete env[FIRST_CLASS_PROTOCOL_KEY]
+  }
+
+  const metricInterval = form.metricIntervalMs.trim()
+  if (metricInterval) {
+    env[FIRST_CLASS_METRIC_INTERVAL_KEY] = metricInterval
+  } else {
+    delete env[FIRST_CLASS_METRIC_INTERVAL_KEY]
+  }
+
+  for (const [signalName, exporterKey] of Object.entries(
+    FIRST_CLASS_SIGNAL_KEYS
+  )) {
+    if (form.signals[signalName as keyof AgentOtelSignals]) {
+      env[exporterKey] = "otlp"
+    }
+  }
+
+  return env
+}
+
+/**
+ * Serialize the whole form (first-class fields merged with the advanced tail)
+ * into raw `KEY=value` editor text, sorted by key. This is the text shown by
+ * the Raw editing mode, so it must round-trip with {@link parseEnvText} +
+ * {@link envMapToForm}.
+ */
+export function formToEnvText(form: AgentOtelForm): string {
+  return envMapToText(formToEnvMap(form))
+}
+
+/**
+ * Parse raw `KEY=value` editor text back into the structured form. Inverse of
+ * {@link formToEnvText}; used when leaving Raw mode so edits made as text are
+ * reflected in the first-class fields.
+ */
+export function envTextToForm(text: string): AgentOtelForm {
+  return envMapToForm(parseEnvText(text))
+}
+
 function envValueIssues(spec: OTelEnvSpec, value: string): string[] {
   const issues: string[] = []
   if (spec.values) {
     const allowed = new Set<string>(spec.values)
-    const parts = value.split(",").map((part) => part.trim())
+    const parts = CSV_ENUM_KEYS.has(spec.key)
+      ? value.split(",").map((part) => part.trim())
+      : [value]
     if (parts.some((part) => !allowed.has(part))) {
       issues.push(`${spec.key} supports ${spec.values.join(", ")}.`)
     }
@@ -194,6 +380,65 @@ function envValueIssues(spec: OTelEnvSpec, value: string): string[] {
     issues.push(`${spec.key} must be a positive integer.`)
   }
   return issues
+}
+
+/**
+ * Validate an already-parsed `KEY -> value` env map against the same rules the
+ * backend enforces: allowlist membership, reserved keys, per-key value rules
+ * (enum/positive-int), and the OTLP-endpoint-required-when-exporter=otlp
+ * cross-check. Returns human-readable messages; empty list means acceptable.
+ *
+ * This is the shared validator behind both {@link validateEnvText} (the raw
+ * editor) and {@link validateForm} (the structured form). It cannot detect
+ * duplicate keys or empty values because a map has already collapsed those;
+ * the text path handles those line-oriented checks separately.
+ */
+export function validateEnvMap(env: Record<string, string>): string[] {
+  const issues: string[] = []
+
+  for (const [key, value] of Object.entries(env)) {
+    if (RESERVED_ENV_VARS.has(key)) {
+      issues.push(`${key} is managed by Tracecat.`)
+      continue
+    }
+    const spec = OTEL_ENV_SPEC_BY_KEY.get(key)
+    if (!spec) {
+      issues.push(`${key} is not supported.`)
+      continue
+    }
+    if (value.trim() === "") {
+      issues.push(`${key} needs a value.`)
+      continue
+    }
+    for (const message of envValueIssues(spec, value)) {
+      issues.push(message)
+    }
+  }
+
+  const generic = env[FIRST_CLASS_ENDPOINT_KEY]
+  for (const [exporterKey, endpointKey] of Object.entries(
+    SIGNAL_ENDPOINT_KEYS
+  )) {
+    const value = env[exporterKey]
+    if (value === undefined) continue
+    const exporters = value.split(",").map((part) => part.trim())
+    if (exporters.includes("otlp") && !generic && !env[endpointKey]) {
+      issues.push(
+        `${exporterKey}=otlp needs ${endpointKey} or ${FIRST_CLASS_ENDPOINT_KEY}.`
+      )
+    }
+  }
+
+  return issues
+}
+
+/**
+ * Validate the structured form by materializing its merged env map via
+ * {@link formToEnvMap} and running the shared {@link validateEnvMap} rules.
+ * Returns human-readable messages; empty list means acceptable.
+ */
+export function validateForm(form: AgentOtelForm): string[] {
+  return validateEnvMap(formToEnvMap(form))
 }
 
 /**
