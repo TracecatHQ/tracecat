@@ -62,6 +62,8 @@ from tracecat.auth.dependencies import ServiceRole, verify_auth_type
 from tracecat.auth.enums import AuthType
 from tracecat.auth.org_context import resolve_auth_organization_id
 from tracecat.auth.users import (
+    AUTH_FAILURE_REASON_INACTIVE_USER,
+    AUTH_FAILURE_REASON_ORG_ACCESS_DENIED,
     AuthBackendStrategyDep,
     UserManagerDep,
     auth_backend,
@@ -523,6 +525,32 @@ def should_allow_saml_org_access(
     )
 
 
+async def saml_failure_org_ids(
+    session: AsyncSession,
+    *,
+    user: User,
+    organization_id: OrganizationID,
+    pending_invitation: OrganizationInvitation | None,
+    has_existing_membership: bool | None = None,
+) -> set[OrganizationID]:
+    """Return target org only when SAML has a real user/org association."""
+    if (
+        pending_invitation is not None
+        and pending_invitation.organization_id == organization_id
+    ):
+        return {organization_id}
+    if has_existing_membership is None:
+        membership_stmt = select(OrganizationMembership).where(
+            OrganizationMembership.user_id == user.id,  # pyright: ignore[reportArgumentType]
+            OrganizationMembership.organization_id == organization_id,
+        )
+        existing_membership = (
+            await session.execute(membership_stmt)
+        ).scalar_one_or_none()
+        has_existing_membership = existing_membership is not None
+    return {organization_id} if has_existing_membership else set()
+
+
 async def create_saml_client(
     saml_idp_metadata_url: str,
 ) -> Saml2Client:
@@ -921,6 +949,17 @@ async def sso_acs(
 
     if not user.is_active:
         logger.error("Inactive user attempted SAML login")
+        await user_manager._emit_auth_failure_audit(
+            user=user,
+            auth_method="saml",
+            reason=AUTH_FAILURE_REASON_INACTIVE_USER,
+            org_ids=await saml_failure_org_ids(
+                db_session,
+                user=user,
+                organization_id=organization_id,
+                pending_invitation=pending_invitation,
+            ),
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Authentication failed",
@@ -972,6 +1011,18 @@ async def sso_acs(
         logger.warning(
             "SAML login denied: user has no org membership and no pending invitation",
             email=email,
+        )
+        await user_manager._emit_auth_failure_audit(
+            user=user,
+            auth_method="saml",
+            reason=AUTH_FAILURE_REASON_ORG_ACCESS_DENIED,
+            org_ids=await saml_failure_org_ids(
+                db_session,
+                user=user,
+                organization_id=organization_id,
+                pending_invitation=pending_invitation,
+                has_existing_membership=has_existing_membership,
+            ),
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

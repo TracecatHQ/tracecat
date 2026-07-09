@@ -3,8 +3,9 @@ import hashlib
 import os
 import uuid
 from collections.abc import AsyncGenerator, Iterable, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -39,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.api.common import bootstrap_role
+from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.service import AuditService
 from tracecat.auth.enums import AuthType
 from tracecat.auth.schemas import UserCreate, UserUpdate
@@ -63,6 +65,13 @@ from tracecat.organization.domains import normalize_domain
 from tracecat.organization.management import ensure_single_tenant_user_defaults
 from tracecat.settings.service import get_setting
 
+AUTH_FAILURE_REASON_AUTH_POLICY_BLOCKED = "auth_policy_blocked"
+AUTH_FAILURE_REASON_BASIC_DISABLED = "basic_auth_disabled"
+AUTH_FAILURE_REASON_INACTIVE_USER = "inactive_user"
+AUTH_FAILURE_REASON_ORG_ACCESS_DENIED = "org_access_denied"
+AUTH_FAILURE_REASON_SAML_ENFORCED = "saml_enforced"
+_AUTH_METHOD_STATE_KEY = "tracecat_auth_method"
+
 
 class InvalidEmailException(FastAPIUsersException):
     """Exception raised on registration with an invalid email."""
@@ -73,6 +82,13 @@ class InvalidEmailException(FastAPIUsersException):
 
 class PermissionsException(FastAPIUsersException):
     """Exception raised on permissions error."""
+
+
+@dataclass(frozen=True)
+class AuthPolicyDecision:
+    allowed: bool
+    reason: str | None = None
+    org_ids: frozenset[OrganizationID] = frozenset()
 
 
 class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
@@ -160,35 +176,71 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         user = await super().authenticate(credentials)
         if user is None:
             return None
-        if await self._is_local_password_login_allowed(user):
+        decision = await self._check_local_password_login_policy(user)
+        if decision.allowed:
             return user
         self.logger.info(
             "Blocked local email/password login by auth policy",
             user_id=str(user.id),
             email=user.email,
         )
+        await self._emit_auth_failure_audit(
+            user=user,
+            auth_method="password",
+            reason=decision.reason or AUTH_FAILURE_REASON_AUTH_POLICY_BLOCKED,
+            org_ids=set(decision.org_ids),
+        )
         return None
 
     async def _is_local_password_login_allowed(self, user: User) -> bool:
+        return (await self._check_local_password_login_policy(user)).allowed
+
+    async def _check_local_password_login_policy(
+        self, user: User
+    ) -> AuthPolicyDecision:
         if AuthType.BASIC not in config.TRACECAT__AUTH_TYPES:
-            return False
+            return AuthPolicyDecision(
+                allowed=False,
+                reason=AUTH_FAILURE_REASON_BASIC_DISABLED,
+            )
 
         org_ids = await self._list_user_org_ids(user.id)
         if not org_ids:
-            return True
+            return AuthPolicyDecision(allowed=True)
 
         target_org_id = await self._resolve_target_org_for_email(user.email, org_ids)
         if target_org_id is not None:
             # Even with a domain-matched org, block local auth if any membership
             # enforces SAML to avoid cross-org policy bypass.
-            return not await self._any_org_saml_enforced(org_ids)
+            enforced_org_ids = await self._list_saml_enforced_org_ids(org_ids)
+            if enforced_org_ids:
+                return AuthPolicyDecision(
+                    allowed=False,
+                    reason=AUTH_FAILURE_REASON_SAML_ENFORCED,
+                    org_ids=frozenset(enforced_org_ids),
+                )
+            return AuthPolicyDecision(allowed=True)
 
         if len(org_ids) == 1:
-            return not await self._is_org_saml_enforced(next(iter(org_ids)))
+            org_id = next(iter(org_ids))
+            if await self._is_org_saml_enforced(org_id):
+                return AuthPolicyDecision(
+                    allowed=False,
+                    reason=AUTH_FAILURE_REASON_SAML_ENFORCED,
+                    org_ids=frozenset({org_id}),
+                )
+            return AuthPolicyDecision(allowed=True)
 
         # If org is ambiguous (multi-org user with no matching domain), block if any
         # org membership enforces SAML to avoid bypassing org login policy.
-        return not await self._any_org_saml_enforced(org_ids)
+        enforced_org_ids = await self._list_saml_enforced_org_ids(org_ids)
+        if enforced_org_ids:
+            return AuthPolicyDecision(
+                allowed=False,
+                reason=AUTH_FAILURE_REASON_SAML_ENFORCED,
+                org_ids=frozenset(enforced_org_ids),
+            )
+        return AuthPolicyDecision(allowed=True)
 
     async def _list_user_org_ids(self, user_id: uuid.UUID) -> set[OrganizationID]:
         statement = select(OrganizationMembership.organization_id).where(
@@ -245,11 +297,17 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         )
         return bool(saml_enforced)
 
-    async def _any_org_saml_enforced(self, org_ids: set[OrganizationID]) -> bool:
+    async def _list_saml_enforced_org_ids(
+        self, org_ids: set[OrganizationID]
+    ) -> set[OrganizationID]:
+        enforced_org_ids: set[OrganizationID] = set()
         for org_id in org_ids:
             if await self._is_org_saml_enforced(org_id):
-                return True
-        return False
+                enforced_org_ids.add(org_id)
+        return enforced_org_ids
+
+    async def _any_org_saml_enforced(self, org_ids: set[OrganizationID]) -> bool:
+        return bool(await self._list_saml_enforced_org_ids(org_ids))
 
     async def _is_saml_enforced_for_oauth(self, email: str) -> bool:
         """Check if SAML enforcement blocks OAuth for this email.
@@ -257,25 +315,44 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         Checks both the email-domain-mapped org *and* all orgs the user is a
         member of, matching the policy applied to local password logins.
         """
-        if AuthType.SAML not in config.TRACECAT__AUTH_TYPES:
-            return False
+        return (await self._check_oauth_login_policy(email)).allowed is False
 
+    async def _check_oauth_login_policy(
+        self, email: str, *, user: User | None = None
+    ) -> AuthPolicyDecision:
+        if AuthType.SAML not in config.TRACECAT__AUTH_TYPES:
+            return AuthPolicyDecision(allowed=True)
+
+        org_ids: set[OrganizationID] = set()
+        resolved_user = user
+        if resolved_user is None:
+            try:
+                resolved_user = await self.get_by_email(email)
+            except UserNotExists:
+                resolved_user = None
+        if resolved_user is not None:
+            org_ids = await self._list_user_org_ids(resolved_user.id)
+
+        blocked_org_ids: set[OrganizationID] = set()
         # 1. Domain-based check: the org owning this email domain enforces SAML
         _, _, email_domain = email.rpartition("@")
         if email_domain:
             org_id = await self._get_org_id_for_email_domain(email)
             if org_id is not None and await self._is_org_saml_enforced(org_id):
-                return True
+                blocked_org_ids.add(org_id)
 
         # 2. Membership-based check: the user belongs to any enforced org
-        try:
-            user = await self.get_by_email(email)
-        except UserNotExists:
-            return False
-        org_ids = await self._list_user_org_ids(user.id)
-        if not org_ids:
-            return False
-        return await self._any_org_saml_enforced(org_ids)
+        if org_ids:
+            blocked_org_ids.update(await self._list_saml_enforced_org_ids(org_ids))
+
+        if blocked_org_ids:
+            recipient_org_ids = blocked_org_ids & org_ids
+            return AuthPolicyDecision(
+                allowed=False,
+                reason=AUTH_FAILURE_REASON_SAML_ENFORCED,
+                org_ids=frozenset(recipient_org_ids),
+            )
+        return AuthPolicyDecision(allowed=True)
 
     async def oauth_callback(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
@@ -291,16 +368,33 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         is_verified_by_default: bool = False,
     ) -> User:
         await self.validate_email(account_email)
-        if await self._is_saml_enforced_for_oauth(account_email):
+        existing_user: User | None = None
+        try:
+            existing_user = await self.get_by_email(account_email)
+        except UserNotExists:
+            existing_user = None
+        decision = await self._check_oauth_login_policy(
+            account_email, user=existing_user
+        )
+        if not decision.allowed:
             self.logger.info(
                 "Blocked OAuth login by SAML enforcement policy",
                 email=account_email,
                 oauth_name=oauth_name,
             )
+            if existing_user is not None:
+                await self._emit_auth_failure_audit(
+                    user=existing_user,
+                    auth_method=oauth_name,
+                    reason=decision.reason or AUTH_FAILURE_REASON_AUTH_POLICY_BLOCKED,
+                    org_ids=set(decision.org_ids),
+                )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="SAML authentication is enforced for this organization",
             )
+        if request is not None:
+            setattr(request.state, _AUTH_METHOD_STATE_KEY, oauth_name)
         return await super().oauth_callback(  # pyright: ignore[reportAttributeAccessIssue]
             oauth_name,
             access_token,
@@ -461,15 +555,16 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         """Return a coarse auth method label without user-provided data."""
         if request is None:
             return "unknown"
+        auth_method = getattr(request.state, _AUTH_METHOD_STATE_KEY, None)
+        if isinstance(auth_method, str) and auth_method:
+            return auth_method
         path = request.url.path
         if path.startswith("/auth/saml"):
             return "saml"
         if path.startswith("/auth/oauth"):
-            return "oidc"
-        if path.startswith("/auth/register"):
-            return "basic"
+            return "oauth"
         if path.startswith("/auth/login"):
-            return "basic"
+            return "password"
         return "unknown"
 
     async def _emit_auth_success_audit(
@@ -479,34 +574,78 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         auth_method: str,
         org_ids: set[OrganizationID] | None = None,
     ) -> None:
-        """Emit sanitized auth success events to the relevant audit sinks.
+        """Emit sanitized auth success events to the relevant audit sinks."""
+        await self._emit_auth_audit(
+            user=user,
+            auth_method=auth_method,
+            org_ids=org_ids,
+        )
+
+    async def _emit_auth_failure_audit(
+        self,
+        *,
+        user: User,
+        auth_method: str,
+        reason: str,
+        org_ids: set[OrganizationID] | None = None,
+    ) -> None:
+        """Emit sanitized auth failure events for resolved users only."""
+        await self._emit_auth_audit(
+            user=user,
+            auth_method=auth_method,
+            org_ids=org_ids,
+            reason=reason,
+        )
+
+    async def _emit_auth_audit(
+        self,
+        *,
+        user: User,
+        auth_method: str,
+        org_ids: set[OrganizationID] | None = None,
+        reason: str | None = None,
+    ) -> None:
+        """Emit sanitized auth events to the relevant audit sinks.
 
         ``org_ids`` is the set of organizations the login is explicitly scoped
-        to. It is empty (or ``None``) for context-less logins (basic/OIDC),
-        which are recorded in the platform sink only. Organization-scoped sinks
-        receive a sign-in event only for orgs in ``org_ids`` -- we never fan out
-        across all of a user's memberships for a login that carried no org
-        context, since that would attribute a non-org-specific login (including
-        platform-superuser sessions) into org-controlled audit sinks.
+        to. It is empty (or ``None``) for context-less logins (password/OAuth),
+        which are recorded in the platform sink only and must not be attributed
+        into org-controlled audit sinks. Organization-scoped sinks receive
+        sign-in events only for orgs in ``org_ids``.
         """
-        if user.is_superuser:
-            audit_role = PlatformRole(
-                type="user",
-                user_id=user.id,
-                service_id="tracecat-api",
-            )
+        org_ids = org_ids or set()
+        data = {"auth_method": auth_method}
+        if reason is not None:
+            data["reason"] = reason
+        event_kwargs: dict[str, Any] = {
+            "resource_type": "auth",
+            "action": "sign_in",
+            "resource_id": user.id,
+            "data": data,
+            "include_actor_label": False,
+        }
+        if reason is not None:
+            event_kwargs["status"] = AuditEventStatus.FAILURE
+
+        if user.is_superuser or not org_ids:
+            if user.is_superuser:
+                audit_role: PlatformRole | Role = PlatformRole(
+                    type="user",
+                    user_id=user.id,
+                    service_id="tracecat-api",
+                )
+            else:
+                audit_role = Role(
+                    type="user",
+                    user_id=user.id,
+                    service_id="tracecat-api",
+                )
             try:
                 async with AuditService.with_session(
                     role=audit_role,
                     audit_sink="platform",
                 ) as audit_svc:
-                    await audit_svc.create_event(
-                        resource_type="auth",
-                        action="sign_in",
-                        resource_id=user.id,
-                        data={"auth_method": auth_method},
-                        include_actor_label=False,
-                    )
+                    await audit_svc.create_event(**event_kwargs)
             except Exception as exc:
                 self.logger.warning(
                     "Failed to emit auth audit event",
@@ -516,7 +655,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                     error=str(exc),
                 )
 
-        for org_id in org_ids or set():
+        for org_id in org_ids:
             audit_role = Role(
                 type="user",
                 user_id=user.id,
@@ -529,13 +668,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                         role=audit_role,
                         audit_sink=audit_sink,
                     ) as audit_svc:
-                        await audit_svc.create_event(
-                            resource_type="auth",
-                            action="sign_in",
-                            resource_id=user.id,
-                            data={"auth_method": auth_method},
-                            include_actor_label=False,
-                        )
+                        await audit_svc.create_event(**event_kwargs)
                 except Exception as exc:
                     self.logger.warning(
                         "Failed to emit auth audit event",
