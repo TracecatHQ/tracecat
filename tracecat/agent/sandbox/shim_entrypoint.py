@@ -269,6 +269,7 @@ def _rewrite_mcp_bridge_command_port(
     actual_url = _trusted_mcp_bridge_url(actual_port)
     return [arg.replace(requested_url, actual_url) for arg in command]
 
+
 async def run_sandboxed_claude_shim() -> None:
     """Read shim config, start the LLM bridge, and proxy Claude stdio."""
     llm_bridge: SandboxSocketBridge | None = None
@@ -326,10 +327,20 @@ async def run_sandboxed_claude_shim() -> None:
                 on_uds_failure="drop",
                 log_label="OTel bridge",
             )
-            otel_port = await otel_bridge.start()
-            child_env["OTEL_EXPORTER_OTLP_ENDPOINT"] = (
-                f"http://{BRIDGE_HOST}:{otel_port}"
-            )
+            try:
+                otel_port = await otel_bridge.start()
+            except Exception as exc:
+                LOGGER.warning(
+                    "Failed to start OTel bridge; telemetry disabled: %s", exc
+                )
+                with contextlib.suppress(Exception):
+                    await otel_bridge.stop()
+                otel_bridge = None
+                child_env.pop("CLAUDE_CODE_ENABLE_TELEMETRY", None)
+            else:
+                child_env["OTEL_EXPORTER_OTLP_ENDPOINT"] = (
+                    f"http://{BRIDGE_HOST}:{otel_port}"
+                )
 
         process = await asyncio.create_subprocess_exec(
             *command,
