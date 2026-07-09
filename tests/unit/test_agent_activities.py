@@ -1642,6 +1642,7 @@ class TestSandboxedAgentExecutorCancellation:
                 socket_dir=job_dir / "sockets",
                 llm_socket_path=job_dir / "sockets" / "llm.sock",
                 artifact_working_set=None,
+                otel_socket_path=None,
             )
 
         task = asyncio.create_task(run_it())
@@ -1787,6 +1788,7 @@ class TestSandboxedAgentExecutorCancellation:
                 socket_dir=job_dir / "sockets",
                 llm_socket_path=job_dir / "sockets" / "llm.sock",
                 artifact_working_set=None,
+                otel_socket_path=None,
             )
 
         task = asyncio.create_task(run_it())

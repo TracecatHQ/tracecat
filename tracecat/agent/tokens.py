@@ -472,13 +472,14 @@ def mint_agent_otel_token(
         workspace_id: Workspace UUID for authorization context.
         organization_id: Organization UUID for authorization context.
         session_id: Agent session UUID for relay claim matching.
-        ttl_seconds: Token TTL in seconds (defaults to executor token TTL).
+        ttl_seconds: Token TTL in seconds (defaults to the agent sandbox
+            timeout plus a small buffer so the token outlives a full turn).
 
     Returns:
         Signed JWT string.
     """
     now = datetime.now(UTC)
-    ttl = ttl_seconds or config.TRACECAT__EXECUTOR_TOKEN_TTL_SECONDS
+    ttl = ttl_seconds or config.TRACECAT__AGENT_SANDBOX_TIMEOUT + 60
 
     payload: dict[str, Any] = {
         "iss": AGENT_OTEL_TOKEN_ISSUER,
