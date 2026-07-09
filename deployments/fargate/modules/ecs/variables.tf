@@ -293,6 +293,60 @@ variable "result_externalization_threshold_bytes" {
   default     = 128000
 }
 
+variable "audit_delivery_enabled" {
+  type        = bool
+  description = "Enable Redis-backed audit webhook delivery"
+  default     = true
+}
+
+variable "audit_delivery_maxlen" {
+  type        = number
+  description = "Approximate max length for each audit delivery stream"
+  default     = 30000
+}
+
+variable "audit_delivery_ttl_seconds" {
+  type        = number
+  description = "TTL for idle audit delivery streams in seconds"
+  default     = 259200
+}
+
+variable "audit_delivery_block_ms" {
+  type        = number
+  description = "Audit delivery XREADGROUP block timeout in milliseconds"
+  default     = 2000
+}
+
+variable "audit_delivery_batch" {
+  type        = number
+  description = "Maximum audit events to read per batch"
+  default     = 100
+}
+
+variable "audit_delivery_max_attempts" {
+  type        = number
+  description = "Maximum audit webhook delivery attempts"
+  default     = 10
+}
+
+variable "audit_delivery_circuit_threshold" {
+  type        = number
+  description = "Audit delivery failures before opening a sink circuit"
+  default     = 5
+}
+
+variable "audit_delivery_circuit_ttl_seconds" {
+  type        = number
+  description = "TTL for audit delivery circuit counters in seconds"
+  default     = 60
+}
+
+variable "audit_delivery_timeout_seconds" {
+  type        = number
+  description = "HTTP request timeout for audit webhook delivery"
+  default     = 10
+}
+
 variable "workflow_artifact_retention_days" {
   type        = number
   description = "Retention period in days for workflow artifacts in blob storage (0 disables expiration)"

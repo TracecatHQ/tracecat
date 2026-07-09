@@ -151,6 +151,7 @@
               "self-hosting/aws-fargate",
               "self-hosting/kubernetes",
               "self-hosting/environment-variables",
+              "self-hosting/audit-logs",
               "self-hosting/security"
             ]
           },

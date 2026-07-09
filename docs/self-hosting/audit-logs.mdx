@@ -1,0 +1,63 @@
+---
+title: Audit logs
+description: "Receive Tracecat audit events through webhook delivery: schema versioning, delivery semantics, deduplication, and migration notes."
+---
+
+## Delivery contract
+
+Tracecat sends audit events to the configured audit webhook with at-least-once delivery over a bounded, transient Redis buffer. Your SIEM is the system of record. Do not treat Tracecat's delivery buffer as guaranteed durable audit storage.
+
+Receivers should order events by `created_at` and deduplicate by `id`. Retries can deliver the same event more than once, and delivery order can differ from creation order during retries or sink outages.
+
+Tracecat adds these headers to each delivery:
+
+| Header | Value |
+| :----- | :---- |
+| `X-Tracecat-Event-Id` | The audit event `id`. |
+| `X-Tracecat-Timestamp` | The audit event `created_at` timestamp. |
+
+## Envelope v1
+
+Audit events use this JSON envelope:
+
+```json
+{
+  "id": "2f9e3e19-8d0e-46f6-9f80-f4e2c7e9d0f4",
+  "version": 1,
+  "source": "api",
+  "organization_id": "8df8a61c-8e29-48f1-ae2d-901a7f59b63f",
+  "workspace_id": "6fb8ec96-5485-48ad-85ea-d0cf8d3dfc4c",
+  "actor_type": "user",
+  "actor_id": "870dbdaf-56b1-4e7d-8653-5485b8e3442d",
+  "actor_label": "user@example.com",
+  "ip_address": "203.0.113.10",
+  "user_agent": "Mozilla/5.0",
+  "request_id": "9e2e4a47a4274e338bd5ca07ce9394d8",
+  "resource_type": "workflow",
+  "resource_id": "workflow-alias-or-uuid",
+  "parent_resource_type": null,
+  "parent_resource_id": null,
+  "action": "create",
+  "status": "success",
+  "data": {
+    "metadata": "value"
+  },
+  "created_at": "2026-07-09T12:00:00Z"
+}
+```
+
+`source` is `api` for normal API traffic and `mcp` for the MCP service. Events emitted outside an HTTP request can have `ip_address`, `user_agent`, and `request_id` set to `null`.
+
+## Versioning
+
+Tracecat bumps `version` only for breaking envelope changes. Additive fields do not change the version. Custom payload settings can add or override ordinary payload fields, but they cannot override `id` or `version`.
+
+## Migration from v0 to v1
+
+The v1 envelope is additive for most receivers. Update parsers for these changes:
+
+- `version` is required and always `1`.
+- `id` is required and should be used as the deduplication key.
+- `source`, `user_agent`, `request_id`, `parent_resource_type`, and `parent_resource_id` are new fields.
+- `resource_id` is now a string. It can contain UUIDs, aliases, slugs, or provider-native IDs.
+- Case comment audit data no longer includes the comment body. Events include `redacted_fields: ["content"]` instead.

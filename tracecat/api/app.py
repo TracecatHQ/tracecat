@@ -57,6 +57,7 @@ from tracecat.api.common import (
     http_exception_handler,
     tracecat_exception_handler,
 )
+from tracecat.audit.delivery import start_audit_delivery_consumer
 from tracecat.auth.credentials import authenticated_user_only
 from tracecat.auth.dependencies import (
     require_any_auth_type_enabled,
@@ -251,6 +252,14 @@ async def lifespan(app: FastAPI):
         )
         logger.debug("Spawned background task for case trigger consumer")
 
+    audit_delivery_task = None
+    if config.TRACECAT__AUDIT_DELIVERY_ENABLED:
+        audit_delivery_task = asyncio.create_task(
+            start_audit_delivery_consumer(),
+            name="audit_delivery_consumer",
+        )
+        logger.debug("Spawned background task for audit delivery consumer")
+
     logger.info(
         "Feature flags", feature_flags=[f.value for f in config.TRACECAT__FEATURE_FLAGS]
     )
@@ -320,6 +329,15 @@ async def lifespan(app: FastAPI):
             logger.debug("Case trigger consumer task cancelled")
         except Exception as e:
             logger.warning("Case trigger consumer stopped with error", error=e)
+
+    if audit_delivery_task is not None:
+        audit_delivery_task.cancel()
+        try:
+            await audit_delivery_task
+        except asyncio.CancelledError:
+            logger.debug("Audit delivery consumer task cancelled")
+        except Exception as e:
+            logger.warning("Audit delivery consumer stopped with error", error=e)
 
     await close_storage_client_cache()
 

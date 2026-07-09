@@ -98,3 +98,17 @@
 | `REDIS_HOST` | `redis` | Redis hostname. |
 | `REDIS_PORT` | `6379` | Redis port. |
 | `REDIS_URL` | `redis://${REDIS_HOST}:${REDIS_PORT}` | Full Redis connection URL. Override this when using an external Redis instance. |
+
+### Audit delivery
+
+| Variable | Default | Description |
+| :------- | :------ | :---------- |
+| `TRACECAT__AUDIT_DELIVERY_ENABLED` | `true` | Enable Redis-backed audit webhook delivery. |
+| `TRACECAT__AUDIT_DELIVERY_MAXLEN` | `30000` | Approximate max length for each audit delivery stream. |
+| `TRACECAT__AUDIT_DELIVERY_TTL_SECONDS` | `259200` | TTL for idle audit delivery streams. |
+| `TRACECAT__AUDIT_DELIVERY_BLOCK_MS` | `2000` | Audit delivery consumer block timeout in milliseconds. |
+| `TRACECAT__AUDIT_DELIVERY_BATCH` | `100` | Maximum audit events to read per delivery batch. |
+| `TRACECAT__AUDIT_DELIVERY_MAX_ATTEMPTS` | `10` | Maximum delivery attempts before Tracecat drops an event from the transient buffer. |
+| `TRACECAT__AUDIT_DELIVERY_CIRCUIT_THRESHOLD` | `5` | Delivery failures before Tracecat pauses a sink. |
+| `TRACECAT__AUDIT_DELIVERY_CIRCUIT_TTL_SECONDS` | `60` | TTL for audit delivery circuit counters. |
+| `TRACECAT__AUDIT_DELIVERY_TIMEOUT_SECONDS` | `10` | HTTP request timeout for audit webhook delivery. |
