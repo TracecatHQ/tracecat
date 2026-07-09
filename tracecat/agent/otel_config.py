@@ -18,7 +18,6 @@ from pydantic import (
 
 from tracecat import config
 
-OtelProtocol = Literal["grpc", "http/json", "http/protobuf"]
 MetricsTemporality = Literal["delta", "cumulative"]
 
 
@@ -52,11 +51,6 @@ class AgentOtelConfig(BaseModel):
     enabled: bool = Field(
         default=False,
         description="Whether Claude Code telemetry is enabled for agent runs.",
-    )
-
-    # Transport
-    protocol: OtelProtocol | None = Field(
-        default=None, description="OTLP transport protocol for all signals."
     )
     endpoint: OtlpEndpoint | None = Field(
         default=None, description="OTLP collector endpoint for all signals."
@@ -137,7 +131,6 @@ class AgentOtelConfig(BaseModel):
     def to_env(self) -> dict[str, str]:
         """Serialize validated configuration for the Claude Code process."""
         env: dict[str, str] = {}
-        _set_env(env, "OTEL_EXPORTER_OTLP_PROTOCOL", self.protocol)
         _set_env(env, "OTEL_EXPORTER_OTLP_ENDPOINT", self.endpoint)
 
         # OTLP via the relay is the only egress from the sandbox; pull-based and
@@ -193,6 +186,7 @@ class ResolvedAgentOtelConfig(BaseModel):
     collector_env: dict[str, str] = Field(default_factory=dict)
     headers: dict[str, SecretStr] = Field(default_factory=dict)
     source: Literal["org", "platform"] = Field(default="org")
+    relay_timeout_seconds: float = Field(default=10.0)
 
 
 def resolve_agent_otel_config(
@@ -201,6 +195,7 @@ def resolve_agent_otel_config(
     org_headers: Mapping[str, str] | None,
     platform_override: AgentOtelPlatformOverride | None,
     relay_endpoint: str | None = None,
+    relay_timeout_seconds: float = config.TRACECAT__AGENT_OTEL_RELAY_TIMEOUT_SECONDS,
 ) -> ResolvedAgentOtelConfig:
     """Resolve platform and org OTel inputs into one runtime config.
 
@@ -218,7 +213,11 @@ def resolve_agent_otel_config(
         headers = secret_otel_headers(org_headers)
 
     if not config_value.enabled:
-        return ResolvedAgentOtelConfig(enabled=False, source=source)
+        return ResolvedAgentOtelConfig(
+            enabled=False,
+            source=source,
+            relay_timeout_seconds=relay_timeout_seconds,
+        )
 
     collector_env = config_value.to_env()
     sandbox_env = _build_sandbox_env(collector_env, relay_endpoint=relay_endpoint)
@@ -229,6 +228,7 @@ def resolve_agent_otel_config(
         collector_env=collector_env,
         headers=headers,
         source=source,
+        relay_timeout_seconds=relay_timeout_seconds,
     )
 
 

@@ -1970,19 +1970,6 @@ export const $AgentOtelConfig = {
       description: "Whether Claude Code telemetry is enabled for agent runs.",
       default: false,
     },
-    protocol: {
-      anyOf: [
-        {
-          type: "string",
-          enum: ["grpc", "http/json", "http/protobuf"],
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Protocol",
-      description: "OTLP transport protocol for all signals.",
-    },
     endpoint: {
       anyOf: [
         {

@@ -531,10 +531,6 @@ export type AgentOtelConfig = {
    */
   enabled?: boolean
   /**
-   * OTLP transport protocol for all signals.
-   */
-  protocol?: "grpc" | "http/json" | "http/protobuf" | null
-  /**
    * OTLP collector endpoint for all signals.
    */
   endpoint?: string | null

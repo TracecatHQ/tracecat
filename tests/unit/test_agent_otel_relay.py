@@ -9,7 +9,7 @@ from pathlib import Path
 
 import httpx
 import pytest
-from pydantic import SecretStr
+from pydantic import HttpUrl, SecretStr
 
 from tracecat import config
 from tracecat.agent.otel_config import (
@@ -30,15 +30,6 @@ class _RelayIdentity:
     organization_id: uuid.UUID
     session_id: uuid.UUID
     token: str
-
-
-def _make_config(
-    env: dict[str, str], headers: dict[str, str] | None = None
-) -> tuple[AgentOtelConfig, dict[str, str] | None]:
-    return (
-        AgentOtelConfig(enabled=True, env=env),
-        headers,
-    )
 
 
 class _MockTransport(httpx.AsyncBaseTransport):
@@ -381,41 +372,34 @@ async def test_resolve_disabled_telemetry_returns_empty_envs() -> None:
     assert resolved.headers == {}
 
 
-@pytest.mark.anyio
-async def test_sandbox_env_strips_per_signal_endpoints_and_protocols() -> None:
-    config_value, headers = _make_config(
-        env={
-            "OTEL_LOGS_EXPORTER": "otlp",
-            "OTEL_TRACES_EXPORTER": "otlp",
-            "OTEL_EXPORTER_OTLP_ENDPOINT": "https://generic.example.com",
-            "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "https://traces.example.com",
-            "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "grpc",
-            "OTEL_LOG_USER_PROMPTS": "true",
-            "OTEL_RESOURCE_ATTRIBUTES": "service.name=tracecat",
-        },
-        headers={"Authorization": "Bearer t"},
+def test_sandbox_env_redirects_typed_config_to_relay() -> None:
+    config_value = AgentOtelConfig(
+        enabled=True,
+        endpoint=HttpUrl("https://generic.example.com"),
+        traces_enabled=True,
+        log_user_prompts=True,
+        resource_attributes={"service.name": "tracecat"},
     )
     resolved = resolve_agent_otel_config(
         org_config=config_value,
-        org_headers=headers,
+        org_headers={"Authorization": "Bearer t"},
         platform_override=None,
         relay_endpoint="http://127.0.0.1",
     )
 
     sandbox_env = resolved.sandbox_env
-    # Per-signal endpoints and protocols stripped
-    assert "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT" not in sandbox_env
-    assert "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL" not in sandbox_env
-    # Allowed sandbox-safe knobs preserved
+    assert sandbox_env["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://127.0.0.1"
+    assert sandbox_env["OTEL_EXPORTER_OTLP_PROTOCOL"] == "http/protobuf"
     assert sandbox_env["OTEL_LOGS_EXPORTER"] == "otlp"
-    assert sandbox_env["OTEL_LOG_USER_PROMPTS"] == "true"
+    assert sandbox_env["OTEL_TRACES_EXPORTER"] == "otlp"
+    assert sandbox_env["OTEL_LOG_USER_PROMPTS"] == "1"
     assert sandbox_env["OTEL_RESOURCE_ATTRIBUTES"] == "service.name=tracecat"
     # Tenant headers never reach the resolver's sandbox env (the activity later
     # injects only a relay-bearer JWT as OTEL_EXPORTER_OTLP_HEADERS).
     assert "OTEL_EXPORTER_OTLP_HEADERS" not in sandbox_env
-    # Tenant headers + collector env remain trusted-side only
+    # Tenant headers and collector endpoint remain trusted-side only.
     assert resolved.collector_env["OTEL_EXPORTER_OTLP_ENDPOINT"] == (
-        "https://generic.example.com"
+        "https://generic.example.com/"
     )
     assert resolved.headers["Authorization"].get_secret_value() == "Bearer t"
 
