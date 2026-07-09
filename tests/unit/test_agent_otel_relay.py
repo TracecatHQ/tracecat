@@ -382,14 +382,13 @@ async def test_resolve_disabled_telemetry_returns_empty_envs() -> None:
 
 
 @pytest.mark.anyio
-async def test_sandbox_env_strips_per_signal_endpoints_and_protocols() -> None:
+async def test_sandbox_env_strips_per_signal_endpoints() -> None:
     config_value, headers = _make_config(
         env={
             "OTEL_LOGS_EXPORTER": "otlp",
             "OTEL_TRACES_EXPORTER": "otlp",
             "OTEL_EXPORTER_OTLP_ENDPOINT": "https://generic.example.com",
             "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "https://traces.example.com",
-            "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "grpc",
             "OTEL_LOG_USER_PROMPTS": "true",
             "OTEL_RESOURCE_ATTRIBUTES": "service.name=tracecat",
         },
@@ -403,9 +402,8 @@ async def test_sandbox_env_strips_per_signal_endpoints_and_protocols() -> None:
     )
 
     sandbox_env = resolved.sandbox_env
-    # Per-signal endpoints and protocols stripped
+    # Per-signal endpoints are stripped
     assert "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT" not in sandbox_env
-    assert "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL" not in sandbox_env
     # Allowed sandbox-safe knobs preserved
     assert sandbox_env["OTEL_LOGS_EXPORTER"] == "otlp"
     assert sandbox_env["OTEL_LOG_USER_PROMPTS"] == "true"

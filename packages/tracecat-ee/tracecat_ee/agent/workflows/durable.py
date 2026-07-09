@@ -1406,6 +1406,11 @@ class DurableAgentWorkflow:
                         model_settings=cfg.model_settings,
                         routes=compiled_run.llm_routes,
                     )
+                    agent_otel_auth_token = mint_agent_otel_token(
+                        workspace_id=self.workspace_id,
+                        organization_id=self.organization_id,
+                        session_id=self.session_id,
+                    )
 
                 # Execute approved tools and reconcile the SDK transcript.
                 approved_tools, denied_tools = self._build_tool_lists_from_approvals(

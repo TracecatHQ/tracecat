@@ -7,13 +7,6 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import { type ToggleTabOption, ToggleTabs } from "@/components/ui/toggle-tabs"
@@ -33,8 +26,6 @@ import {
 } from "@/lib/agent-otel"
 import { useOrgAgentOtelSettings } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
-
-const PROTOCOL_OPTIONS = ["http/protobuf", "http/json", "grpc"] as const
 
 /** Which editing surface the env config is shown in. */
 type EditMode = "form" | "raw"
@@ -72,7 +63,6 @@ const SIGNAL_LABELS: { key: keyof AgentOtelSignals; label: string }[] = [
 
 const EMPTY_FORM: AgentOtelForm = {
   endpoint: "",
-  protocol: "",
   metricIntervalMs: "",
   signals: { traces: false, metrics: false, logs: false },
   advancedEnv: "",
@@ -327,48 +317,24 @@ export function OrgAgentOtelSettings() {
               />
             </div>
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="otel-protocol" className="text-xs">
-                  Protocol
-                </Label>
-                <Select
-                  value={form.protocol}
-                  onValueChange={(value) => updateForm({ protocol: value })}
-                  disabled={!enabled}
-                >
-                  <SelectTrigger id="otel-protocol" className="text-xs">
-                    <SelectValue placeholder="Select a protocol" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PROTOCOL_OPTIONS.map((option) => (
-                      <SelectItem key={option} value={option}>
-                        {option}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="otel-metric-interval" className="text-xs">
-                  Export interval (ms)
-                </Label>
-                <Input
-                  id="otel-metric-interval"
-                  type="number"
-                  min={1}
-                  step={1}
-                  inputMode="numeric"
-                  value={form.metricIntervalMs}
-                  onChange={(e) =>
-                    updateForm({ metricIntervalMs: e.target.value })
-                  }
-                  disabled={!enabled}
-                  placeholder="60000"
-                  className="text-xs"
-                />
-              </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="otel-metric-interval" className="text-xs">
+                Export interval (ms)
+              </Label>
+              <Input
+                id="otel-metric-interval"
+                type="number"
+                min={1}
+                step={1}
+                inputMode="numeric"
+                value={form.metricIntervalMs}
+                onChange={(e) =>
+                  updateForm({ metricIntervalMs: e.target.value })
+                }
+                disabled={!enabled}
+                placeholder="60000"
+                className="text-xs"
+              />
             </div>
 
             <div className="space-y-2">

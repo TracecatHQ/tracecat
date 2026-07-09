@@ -12,6 +12,10 @@ const RESERVED_ENV_VARS = new Set([
   "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
   "OTEL_EXPORTER_OTLP_LOGS_HEADERS",
   "OTEL_EXPORTER_OTLP_TRACES_HEADERS",
+  "OTEL_EXPORTER_OTLP_PROTOCOL",
+  "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL",
+  "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
+  "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
 ])
 
 interface OTelEnvSpec {
@@ -41,26 +45,6 @@ const OTEL_ENV_SPECS: readonly OTelEnvSpec[] = [
     key: "OTEL_TRACES_EXPORTER",
     group: "Exporters",
     values: ["otlp", "console", "none"],
-  },
-  {
-    key: "OTEL_EXPORTER_OTLP_PROTOCOL",
-    group: "OTLP",
-    values: ["http/protobuf", "http/json", "grpc"],
-  },
-  {
-    key: "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL",
-    group: "OTLP",
-    values: ["http/protobuf", "http/json", "grpc"],
-  },
-  {
-    key: "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
-    group: "OTLP",
-    values: ["http/protobuf", "http/json", "grpc"],
-  },
-  {
-    key: "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
-    group: "OTLP",
-    values: ["http/protobuf", "http/json", "grpc"],
   },
   {
     key: "OTEL_EXPORTER_OTLP_ENDPOINT",
@@ -182,8 +166,8 @@ const POSITIVE_INTEGER_KEYS = new Set([
 
 /**
  * Enum keys whose value is a comma-separated list of allowed tokens. The
- * backend only CSV-splits the signal exporter keys; every other enum key
- * (e.g. the OTLP protocol keys) must be a single literal value.
+ * backend only CSV-splits the signal exporter keys; every other enum key must
+ * be a single literal value.
  */
 const CSV_ENUM_KEYS = new Set([
   "OTEL_METRICS_EXPORTER",
@@ -208,7 +192,6 @@ export interface EnvIssue {
  * allowlisted key stays reachable through the Advanced env editor.
  */
 const FIRST_CLASS_ENDPOINT_KEY = "OTEL_EXPORTER_OTLP_ENDPOINT"
-const FIRST_CLASS_PROTOCOL_KEY = "OTEL_EXPORTER_OTLP_PROTOCOL"
 const FIRST_CLASS_METRIC_INTERVAL_KEY = "OTEL_METRIC_EXPORT_INTERVAL"
 
 /**
@@ -224,7 +207,6 @@ const FIRST_CLASS_SIGNAL_KEYS = {
 /** The set of env keys owned by first-class form fields. */
 const FIRST_CLASS_KEYS: ReadonlySet<string> = new Set<string>([
   FIRST_CLASS_ENDPOINT_KEY,
-  FIRST_CLASS_PROTOCOL_KEY,
   FIRST_CLASS_METRIC_INTERVAL_KEY,
   ...Object.values(FIRST_CLASS_SIGNAL_KEYS),
 ])
@@ -245,8 +227,6 @@ export interface AgentOtelSignals {
 export interface AgentOtelForm {
   /** OTEL_EXPORTER_OTLP_ENDPOINT value (empty string when unset). */
   endpoint: string
-  /** OTEL_EXPORTER_OTLP_PROTOCOL value (empty string when unset). */
-  protocol: string
   /** OTEL_METRIC_EXPORT_INTERVAL value, kept as a string for the input. */
   metricIntervalMs: string
   /** Per-signal `otlp` exporter toggles. */
@@ -293,7 +273,6 @@ export function envMapToForm(env: Record<string, string>): AgentOtelForm {
 
   return {
     endpoint: env[FIRST_CLASS_ENDPOINT_KEY] ?? "",
-    protocol: env[FIRST_CLASS_PROTOCOL_KEY] ?? "",
     metricIntervalMs: env[FIRST_CLASS_METRIC_INTERVAL_KEY] ?? "",
     signals,
     advancedEnv: envMapToText(advanced),
@@ -315,13 +294,6 @@ export function formToEnvMap(form: AgentOtelForm): Record<string, string> {
     env[FIRST_CLASS_ENDPOINT_KEY] = endpoint
   } else {
     delete env[FIRST_CLASS_ENDPOINT_KEY]
-  }
-
-  const protocol = form.protocol.trim()
-  if (protocol) {
-    env[FIRST_CLASS_PROTOCOL_KEY] = protocol
-  } else {
-    delete env[FIRST_CLASS_PROTOCOL_KEY]
   }
 
   const metricInterval = form.metricIntervalMs.trim()

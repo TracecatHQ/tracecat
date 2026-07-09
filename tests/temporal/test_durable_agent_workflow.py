@@ -16,6 +16,7 @@ from typing import Any
 
 import orjson
 import pytest
+import tracecat_ee.agent.workflows.durable as durable_workflow_module
 
 pytestmark = [pytest.mark.temporal, pytest.mark.usefixtures("db")]
 
@@ -1305,6 +1306,16 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
     captured_run_inputs: list[RunActionInput] = []
     captured_pending_result_batches: list[list[Any]] = []
     captured_approval_decisions: list[Any] = []
+    minted_otel_tokens = iter(["initial-otel-token", "continuation-otel-token"])
+
+    def mock_mint_agent_otel_token(**_kwargs: object) -> str:
+        return next(minted_otel_tokens)
+
+    monkeypatch.setattr(
+        durable_workflow_module,
+        "mint_agent_otel_token",
+        mock_mint_agent_otel_token,
+    )
 
     parent_sdk_session_data = (
         '{"type":"user","message":{"content":"parent prompt"}}\n'
@@ -1552,6 +1563,9 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
     assert [
         agent_input.is_approval_continuation for agent_input in captured_agent_inputs
     ] == [False, True]
+    assert [
+        agent_input.agent_otel_auth_token for agent_input in captured_agent_inputs
+    ] == ["initial-otel-token", "continuation-otel-token"]
 
     assert len(captured_run_inputs) == 1
     assert captured_run_inputs[0].task.action == "core__http_request"
