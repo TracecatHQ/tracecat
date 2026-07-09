@@ -1159,6 +1159,7 @@ class SkillService(BaseWorkspaceService):
             slug=skill.slug or skill.name,
             description=skill.description,
             current_version_id=skill.current_version_id,
+            pinned_version_id=skill.pinned_version_id,
             draft_revision=skill.draft_revision,
             created_at=skill.created_at,
             updated_at=skill.updated_at,
@@ -1182,6 +1183,7 @@ class SkillService(BaseWorkspaceService):
             slug=skill.slug or skill.name,
             description=skill.description,
             current_version_id=skill.current_version_id,
+            pinned_version_id=skill.pinned_version_id,
             created_at=skill.created_at,
             updated_at=skill.updated_at,
             deleted_at=skill.deleted_at or skill.archived_at,
@@ -2340,6 +2342,52 @@ class SkillService(BaseWorkspaceService):
         skill.current_version_id = version.id
         skill.name = version.name
         skill.description = version.description
+        self.session.add(skill)
+        await self.session.commit()
+        await self.session.refresh(skill)
+        return self._build_skill_read_minimal(skill)
+
+    @require_scope("agent:update")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def pin_version(
+        self, *, skill_id: uuid.UUID, version_id: uuid.UUID
+    ) -> SkillReadMinimal:
+        """Pin an active skill to one of its immutable published versions."""
+
+        skill = await self._get_skill_for_update(skill_id)
+        if skill is None:
+            raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
+
+        version = await self.get_version(version_id)
+        if version is None:
+            raise TracecatNotFoundError(f"Skill version '{version_id}' not found")
+        if version.skill_id != skill.id:
+            raise TracecatValidationError(
+                "Skill version does not belong to the selected skill",
+                detail={
+                    "code": "version_resource_mismatch",
+                    "resource_type": "skill",
+                    "skill_id": str(skill.id),
+                    "version_id": str(version.id),
+                },
+            )
+
+        skill.pinned_version_id = version.id
+        self.session.add(skill)
+        await self.session.commit()
+        await self.session.refresh(skill)
+        return self._build_skill_read_minimal(skill)
+
+    @require_scope("agent:update")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def unpin_version(self, skill_id: uuid.UUID) -> SkillReadMinimal:
+        """Clear the pinned version pointer for an active skill."""
+
+        skill = await self._get_skill_for_update(skill_id)
+        if skill is None:
+            raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
+
+        skill.pinned_version_id = None
         self.session.add(skill)
         await self.session.commit()
         await self.session.refresh(skill)

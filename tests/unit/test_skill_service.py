@@ -2359,6 +2359,129 @@ class TestSkillService:
 
         assert lock_calls == 1
 
+    async def test_pin_and_unpin_version_round_trips_through_skill_reads(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Invariant: pinning is exposed on reads and unpinning clears the pointer."""
+
+        created = await skill_service.create_skill(SkillCreate(name="pin-read-skill"))
+        version = await skill_service.publish_skill(created.id)
+
+        pinned = await skill_service.pin_version(
+            skill_id=created.id,
+            version_id=version.id,
+        )
+        read = await skill_service.get_skill_read(created.id)
+
+        assert pinned.pinned_version_id == version.id
+        assert read is not None
+        assert read.pinned_version_id == version.id
+
+        unpinned = await skill_service.unpin_version(created.id)
+        read_after_unpin = await skill_service.get_skill_read(created.id)
+
+        assert unpinned.pinned_version_id is None
+        assert read_after_unpin is not None
+        assert read_after_unpin.pinned_version_id is None
+
+    async def test_pin_version_rejects_version_from_another_skill(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Invariant: pinning another skill's version fails with a validation code."""
+
+        first = await skill_service.create_skill(SkillCreate(name="pin-first-skill"))
+        second = await skill_service.create_skill(SkillCreate(name="pin-second-skill"))
+        second_version = await skill_service.publish_skill(second.id)
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.pin_version(
+                skill_id=first.id,
+                version_id=second_version.id,
+            )
+
+        assert exc_info.value.detail == {
+            "code": "version_resource_mismatch",
+            "resource_type": "skill",
+            "skill_id": str(first.id),
+            "version_id": str(second_version.id),
+        }
+
+    async def test_pin_version_rejects_soft_deleted_skill(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Invariant: pinning on a soft-deleted skill is treated as not found."""
+
+        created = await skill_service.create_skill(
+            SkillCreate(name="pin-deleted-skill")
+        )
+        version = await skill_service.publish_skill(created.id)
+        await skill_service.archive_skill(created.id)
+
+        with pytest.raises(TracecatNotFoundError, match=f"Skill '{created.id}'"):
+            await skill_service.pin_version(skill_id=created.id, version_id=version.id)
+
+    async def test_delete_pinned_version_is_blocked_by_restrict(
+        self,
+        session: AsyncSession,
+        skill_service: SkillService,
+    ) -> None:
+        """Invariant: deleting a pinned skill version is blocked by the DB FK."""
+
+        created = await skill_service.create_skill(
+            SkillCreate(name="pin-restrict-skill")
+        )
+        version = await skill_service.publish_skill(created.id)
+        await skill_service.pin_version(skill_id=created.id, version_id=version.id)
+
+        version_row = await skill_service.get_version(version.id)
+        assert version_row is not None
+        await session.delete(version_row)
+        with pytest.raises(IntegrityError):
+            await session.flush()
+        await session.rollback()
+
+    async def test_pin_survives_skill_rename(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Invariant: renaming a skill does not clear its pinned version pointer."""
+
+        created = await skill_service.create_skill(SkillCreate(name="pin-rename-skill"))
+        pinned_version = await skill_service.publish_skill(created.id)
+        await skill_service.pin_version(
+            skill_id=created.id,
+            version_id=pinned_version.id,
+        )
+
+        renamed_version = await skill_service.publish_skill_version(
+            skill_id=created.id,
+            params=SkillVersionPublish(
+                base_version_id=pinned_version.id,
+                files=[
+                    SkillUploadFile(
+                        path="SKILL.md",
+                        content_base64=base64.b64encode(
+                            b"---\n"
+                            b"name: renamed-pin-skill\n"
+                            b"description: Renamed while pinned\n"
+                            b"---\n\n"
+                            b"# renamed-pin-skill\n"
+                        ).decode(),
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            ),
+        )
+        read = await skill_service.get_skill_read(created.id)
+
+        assert read is not None
+        assert read.name == "renamed-pin-skill"
+        assert read.current_version_id == renamed_version.id
+        assert read.pinned_version_id == pinned_version.id
+
     async def test_archive_blocks_when_preset_head_references_skill(
         self,
         session: AsyncSession,

@@ -3542,6 +3542,15 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
         nullable=True,
         doc="Current immutable version for this preset.",
     )
+    pinned_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("agent_preset_version.id", ondelete="RESTRICT"),
+        nullable=True,
+        doc=(
+            "Pinned immutable version for this preset. RESTRICT prevents deleting "
+            "a pinned version from silently unpinning the preset back to floating."
+        ),
+    )
     instructions: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
@@ -3641,6 +3650,15 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
     current_version: Mapped[AgentPresetVersion | None] = relationship(
         "AgentPresetVersion",
         foreign_keys=[current_version_id],
+        uselist=False,
+        post_update=True,
+    )
+    # post_update makes ORM teardown (workspace/org hard delete via active
+    # cascades) null the pin before deleting version rows; the RESTRICT FK
+    # still blocks direct deletes of a pinned version.
+    pinned_version: Mapped[AgentPresetVersion | None] = relationship(
+        "AgentPresetVersion",
+        foreign_keys=[pinned_version_id],
         uselist=False,
         post_update=True,
     )
@@ -3810,6 +3828,15 @@ class Skill(SoftDeleteMixin, WorkspaceModel):
         nullable=True,
         doc="Current published skill version",
     )
+    pinned_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("skill_version.id", ondelete="RESTRICT"),
+        nullable=True,
+        doc=(
+            "Pinned published skill version. RESTRICT prevents deleting a pinned "
+            "version from silently unpinning the skill back to floating."
+        ),
+    )
     draft_revision: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
@@ -3834,6 +3861,15 @@ class Skill(SoftDeleteMixin, WorkspaceModel):
     current_version: Mapped[SkillVersion | None] = relationship(
         "SkillVersion",
         foreign_keys=[current_version_id],
+        uselist=False,
+        post_update=True,
+    )
+    # post_update makes ORM teardown (workspace/org hard delete via active
+    # cascades) null the pin before deleting version rows; the RESTRICT FK
+    # still blocks direct deletes of a pinned version.
+    pinned_version: Mapped[SkillVersion | None] = relationship(
+        "SkillVersion",
+        foreign_keys=[pinned_version_id],
         uselist=False,
         post_update=True,
     )
