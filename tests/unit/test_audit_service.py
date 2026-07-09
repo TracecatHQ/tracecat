@@ -66,6 +66,11 @@ def _sample_audit_event(
     )
 
 
+def test_organization_delivery_stream_key_requires_organization_id() -> None:
+    with pytest.raises(ValueError, match="requires an organization ID"):
+        audit_delivery_stream_key("organization", None)
+
+
 @pytest.mark.anyio
 async def test_request_logging_middleware_truncates_request_id() -> None:
     app = SimpleNamespace(
@@ -118,6 +123,28 @@ async def test_create_event_skips_without_webhook(
 
 
 @pytest.mark.anyio
+async def test_organization_sink_check_bypasses_stale_settings_cache(
+    monkeypatch: pytest.MonkeyPatch, audit_service: AuditService
+) -> None:
+    get_setting = AsyncMock(return_value="https://example.com/audit")
+    get_setting_cached = AsyncMock(return_value=None)
+    monkeypatch.setattr("tracecat.settings.service.get_setting", get_setting)
+    monkeypatch.setattr(
+        "tracecat.settings.service.get_setting_cached", get_setting_cached
+    )
+
+    assert await audit_service._has_configured_sink() is True
+
+    get_setting.assert_awaited_once_with(
+        "audit_webhook_url",
+        role=audit_service.role,
+        session=audit_service.session,
+        default=None,
+    )
+    get_setting_cached.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_create_event_queues_audit_event_envelope(
     monkeypatch: pytest.MonkeyPatch, audit_service: AuditService
 ) -> None:
@@ -125,8 +152,7 @@ async def test_create_event_queues_audit_event_envelope(
     request_id = "req-123"
     user_agent = "tracecat-test"
     fake_redis = MagicMock()
-    fake_redis.xadd_audit = AsyncMock(return_value="1-0")
-    fake_redis.sadd_audit = AsyncMock(return_value=1)
+    fake_redis.publish_audit = AsyncMock(return_value="1-0")
     monkeypatch.setattr(
         audit_service, "_has_configured_sink", AsyncMock(return_value=True)
     )
@@ -156,9 +182,13 @@ async def test_create_event_queues_audit_event_envelope(
     stream_key = audit_delivery_stream_key(
         "organization", audit_service.role.organization_id
     )
-    fake_redis.xadd_audit.assert_awaited_once()
-    assert fake_redis.xadd_audit.await_args.args[0] == stream_key
-    fields = fake_redis.xadd_audit.await_args.args[1]
+    fake_redis.publish_audit.assert_awaited_once()
+    assert fake_redis.publish_audit.await_args.args[0] == stream_key
+    assert (
+        fake_redis.publish_audit.await_args.kwargs["discovery_key"]
+        == AUDIT_DELIVERY_STREAMS_KEY
+    )
+    fields = fake_redis.publish_audit.await_args.args[1]
     payload = AuditEvent.model_validate_json(fields["event"])
     assert payload.version == 1
     assert payload.source == "api"
@@ -169,9 +199,6 @@ async def test_create_event_queues_audit_event_envelope(
     assert payload.actor_label == "user@example.com"
     assert payload.user_agent == user_agent
     assert payload.request_id == request_id
-    fake_redis.sadd_audit.assert_awaited_once_with(
-        AUDIT_DELIVERY_STREAMS_KEY, stream_key
-    )
 
 
 @pytest.mark.anyio
@@ -720,7 +747,7 @@ async def test_audit_log_explicit_invitation_id_overrides_result_id(
 async def test_audit_log_data_fn_runs_only_on_terminal_event(role: Role) -> None:
     workflow_id = "wf_alias"
 
-    def metadata(self, workflow_id: str, result):
+    def metadata(workflow_id: str, result):
         return {"workflow_id": workflow_id, "result_id": result.id}
 
     class MockService:
@@ -1033,9 +1060,14 @@ async def test_audit_delivery_pending_sweep_runs_when_reads_return_messages(
         ]
     )
     consumer = AuditDeliveryConsumer(client)
+    monotonic_calls = iter([0.0])
     monkeypatch.setattr(
         "tracecat.audit.delivery.monotonic",
-        MagicMock(side_effect=[0.0, consumer._pending_check_interval + 1.0]),
+        MagicMock(
+            side_effect=lambda: next(
+                monotonic_calls, consumer._pending_check_interval + 1.0
+            )
+        ),
     )
     handle_message = AsyncMock()
     claim_idle_messages = AsyncMock()
@@ -1049,6 +1081,105 @@ async def test_audit_delivery_pending_sweep_runs_when_reads_return_messages(
         stream_key, "1-0", {"event": event.model_dump_json()}, attempts=1
     )
     claim_idle_messages.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_audit_delivery_dispatches_streams_independently(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    slow_stream = audit_delivery_stream_key("organization", uuid.uuid4())
+    fast_stream = audit_delivery_stream_key("organization", uuid.uuid4())
+    slow_started = asyncio.Event()
+    release_slow = asyncio.Event()
+    fast_finished = asyncio.Event()
+    consumer = AuditDeliveryConsumer(MagicMock())
+
+    async def handle_message(
+        stream_key: str,
+        message_id: str,
+        fields: dict[str, str],
+        *,
+        attempts: int,
+    ) -> None:
+        if stream_key == slow_stream:
+            slow_started.set()
+            await release_slow.wait()
+        else:
+            fast_finished.set()
+
+    monkeypatch.setattr(consumer, "_handle_message", handle_message)
+    consumer._dispatch_streams(
+        [
+            (slow_stream, [("1-0", {"event": "slow"})]),
+            (fast_stream, [("2-0", {"event": "fast"})]),
+        ]
+    )
+    tasks = list(consumer._stream_tasks.values())
+
+    await asyncio.wait_for(slow_started.wait(), timeout=1.0)
+    await asyncio.wait_for(fast_finished.wait(), timeout=1.0)
+    assert not consumer._stream_tasks[slow_stream].done()
+
+    release_slow.set()
+    await asyncio.gather(*tasks)
+    await asyncio.sleep(0)
+    assert consumer._stream_tasks == {}
+
+
+@pytest.mark.anyio
+async def test_audit_delivery_reads_rotated_sink_config_immediately(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    organization_id = uuid.uuid4()
+    service = MagicMock()
+    service.list_org_settings = AsyncMock(return_value=[])
+    service.get_values_with_decryption_fallback = MagicMock(
+        side_effect=[
+            (
+                {
+                    "audit_webhook_url": "https://old.example.com/audit",
+                    "audit_webhook_custom_headers": {
+                        "Authorization": "Bearer old-token"
+                    },
+                },
+                [],
+            ),
+            (
+                {
+                    "audit_webhook_url": "https://new.example.com/audit",
+                    "audit_webhook_custom_headers": {
+                        "Authorization": "Bearer new-token"
+                    },
+                },
+                [],
+            ),
+        ]
+    )
+
+    @asynccontextmanager
+    async def fake_session():
+        yield AsyncMock()
+
+    monkeypatch.setattr(
+        "tracecat.audit.delivery.get_async_session_bypass_rls_context_manager",
+        fake_session,
+    )
+    monkeypatch.setattr(
+        "tracecat.audit.delivery.SettingsService",
+        MagicMock(return_value=service),
+    )
+    consumer = AuditDeliveryConsumer(MagicMock())
+
+    old_config = await consumer._get_sink_config("organization", organization_id)
+    new_config = await consumer._get_sink_config("organization", organization_id)
+
+    assert old_config is not None
+    assert old_config.webhook_url == "https://old.example.com/audit"
+    assert old_config.custom_headers == {"Authorization": "Bearer old-token"}
+    assert new_config is not None
+    assert new_config.webhook_url == "https://new.example.com/audit"
+    assert new_config.custom_headers == {"Authorization": "Bearer new-token"}
+    assert service.list_org_settings.await_count == 2
 
 
 @pytest.mark.anyio
@@ -1082,9 +1213,6 @@ async def test_audit_delivery_claim_uses_times_delivered(
     stream_key = audit_delivery_stream_key("organization", org_id)
     event = _sample_audit_event(organization_id=org_id)
     client = MagicMock()
-    client.smembers = AsyncMock(return_value={stream_key})
-    client.exists = AsyncMock(return_value=True)
-    client.xgroup_create = AsyncMock(return_value=True)
     client.xpending_range = AsyncMock(
         return_value=[
             {"message_id": "1-0", "times_delivered": 3},
@@ -1102,7 +1230,7 @@ async def test_audit_delivery_claim_uses_times_delivered(
     handle_message = AsyncMock()
     monkeypatch.setattr(consumer, "_handle_message", handle_message)
 
-    await consumer._claim_idle_messages()
+    await consumer._claim_idle_stream(stream_key)
 
     client.expire.assert_awaited_once_with(stream_key, consumer.stream_ttl)
     client.xack.assert_awaited_once_with(stream_key, consumer.group, ["1-0"])

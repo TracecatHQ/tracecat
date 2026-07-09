@@ -4,6 +4,8 @@ import asyncio
 import os
 import socket
 import uuid
+from collections.abc import Coroutine
+from functools import partial
 from time import monotonic
 from typing import Any
 
@@ -13,9 +15,8 @@ from cryptography.fernet import InvalidToken
 from pydantic import ValidationError
 from sqlalchemy import select
 
-from tracecat import config
 from tracecat.audit.constants import (
-    AUDIT_DELIVERY_GROUP,
+    AUDIT_DELIVERY_STREAM_TTL_SECONDS,
     AUDIT_DELIVERY_STREAMS_KEY,
     parse_audit_delivery_stream_key,
 )
@@ -28,15 +29,21 @@ from tracecat.db.models import PlatformSetting
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
 from tracecat.secrets.encryption import decrypt_value
-from tracecat.settings.service import get_setting
+from tracecat.settings.service import SettingsService
 
 from .service import (
     AuditWebhookConfig,
     build_audit_webhook_request,
 )
 
-_CONFIG_CACHE_TTL_SECONDS = 60.0
 _RESTART_BACKOFF_SECONDS = 1.0
+_GROUP = "audit-delivery"
+_BLOCK_MS = 2_000
+_BATCH_SIZE = 100
+_MAX_ATTEMPTS = 10
+_CIRCUIT_THRESHOLD = 5
+_CIRCUIT_TTL_SECONDS = 60
+_REQUEST_TIMEOUT_SECONDS = 10.0
 _WEBHOOK_URL_KEY = "audit_webhook_url"
 _WEBHOOK_CUSTOM_HEADERS_KEY = "audit_webhook_custom_headers"
 _WEBHOOK_CUSTOM_PAYLOAD_KEY = "audit_webhook_custom_payload"
@@ -58,27 +65,20 @@ class AuditDeliveryConsumer:
         self, client: RedisClient, *, consumer_name: str | None = None
     ) -> None:
         self.client = client
-        self.group = AUDIT_DELIVERY_GROUP
-        self.block_ms = config.TRACECAT__AUDIT_DELIVERY_BLOCK_MS
-        self.batch = config.TRACECAT__AUDIT_DELIVERY_BATCH
-        self.max_attempts = config.TRACECAT__AUDIT_DELIVERY_MAX_ATTEMPTS
-        self.stream_ttl = config.TRACECAT__AUDIT_DELIVERY_TTL_SECONDS
-        self.circuit_threshold = config.TRACECAT__AUDIT_DELIVERY_CIRCUIT_THRESHOLD
-        self.circuit_ttl = config.TRACECAT__AUDIT_DELIVERY_CIRCUIT_TTL_SECONDS
-        self.timeout = config.TRACECAT__AUDIT_DELIVERY_TIMEOUT_SECONDS
+        self.group = _GROUP
+        self.block_ms = _BLOCK_MS
+        self.batch = _BATCH_SIZE
+        self.max_attempts = _MAX_ATTEMPTS
+        self.stream_ttl = AUDIT_DELIVERY_STREAM_TTL_SECONDS
+        self.circuit_threshold = _CIRCUIT_THRESHOLD
+        self.circuit_ttl = _CIRCUIT_TTL_SECONDS
+        self.timeout = _REQUEST_TIMEOUT_SECONDS
         self.claim_idle_ms = max(self.block_ms * 10, 30_000)
         self.consumer_name = consumer_name or f"{socket.gethostname()}:{os.getpid()}"
         self._pending_check_interval = max(self.claim_idle_ms / 1000.0, 30.0)
-        self._config_cache: dict[
-            tuple[AuditSink, uuid.UUID | None],
-            tuple[float, AuditWebhookConfig | None],
-        ] = {}
+        self._stream_tasks: dict[str, asyncio.Task[None]] = {}
 
     async def run(self) -> None:
-        if not config.TRACECAT__AUDIT_DELIVERY_ENABLED:
-            logger.info("Audit delivery disabled; skipping consumer")
-            return
-
         logger.info(
             "Audit delivery consumer started",
             group=self.group,
@@ -87,24 +87,22 @@ class AuditDeliveryConsumer:
         last_pending_check = monotonic()
         try:
             while True:
-                streams = await self._discover_streams()
+                streams = [
+                    stream_key
+                    for stream_key in await self._discover_streams()
+                    if stream_key not in self._stream_tasks
+                ]
                 if not streams:
                     await asyncio.sleep(self.block_ms / 1000.0)
-                    continue
-
-                messages = await self.client.xreadgroup(
-                    group_name=self.group,
-                    consumer_name=self.consumer_name,
-                    streams=dict.fromkeys(streams, ">"),
-                    count=self.batch,
-                    block=self.block_ms,
-                )
-                if messages:
-                    for stream_key, entries in messages:
-                        for message_id, fields in entries:
-                            await self._handle_message(
-                                stream_key, message_id, fields, attempts=1
-                            )
+                else:
+                    messages = await self.client.xreadgroup(
+                        group_name=self.group,
+                        consumer_name=self.consumer_name,
+                        streams=dict.fromkeys(streams, ">"),
+                        count=self.batch,
+                        block=self.block_ms,
+                    )
+                    self._dispatch_streams(messages)
 
                 now = monotonic()
                 if now - last_pending_check >= self._pending_check_interval:
@@ -120,6 +118,62 @@ class AuditDeliveryConsumer:
                 error_type=type(exc).__name__,
             )
             raise
+        finally:
+            await self._cancel_stream_tasks()
+
+    def _dispatch_streams(
+        self,
+        messages: Any,
+    ) -> None:
+        for stream_key, entries in messages:
+            if not entries or stream_key in self._stream_tasks:
+                continue
+            self._start_stream_task(
+                stream_key,
+                self._handle_stream_entries(stream_key, entries),
+            )
+
+    def _start_stream_task(
+        self,
+        stream_key: str,
+        coroutine: Coroutine[Any, Any, None],
+    ) -> None:
+        task = asyncio.create_task(
+            coroutine,
+            name=f"audit_delivery:{stream_key}",
+        )
+        self._stream_tasks[stream_key] = task
+        task.add_done_callback(partial(self._stream_task_done, stream_key))
+
+    async def _handle_stream_entries(
+        self,
+        stream_key: str,
+        entries: Any,
+    ) -> None:
+        for message_id, fields in entries:
+            await self._handle_message(stream_key, message_id, fields, attempts=1)
+
+    def _stream_task_done(self, stream_key: str, task: asyncio.Task[None]) -> None:
+        if self._stream_tasks.get(stream_key) is task:
+            self._stream_tasks.pop(stream_key)
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            logger.warning(
+                "Audit delivery stream task failed",
+                stream_key=stream_key,
+                error_type=type(exc).__name__,
+            )
+
+    async def _cancel_stream_tasks(self) -> None:
+        tasks = list(self._stream_tasks.values())
+        self._stream_tasks.clear()
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _discover_streams(self) -> list[str]:
         streams: list[str] = []
@@ -261,62 +315,70 @@ class AuditDeliveryConsumer:
 
     async def _claim_idle_messages(self) -> None:
         for stream_key in await self._discover_streams():
-            pending = await self.client.xpending_range(
+            if stream_key in self._stream_tasks:
+                continue
+            self._start_stream_task(
                 stream_key,
-                self.group,
-                min_id="-",
-                max_id="+",
-                count=self.batch,
-                idle=self.claim_idle_ms,
+                self._claim_idle_stream(stream_key),
             )
-            if not pending:
-                continue
 
-            await self.client.expire(stream_key, self.stream_ttl)
+    async def _claim_idle_stream(self, stream_key: str) -> None:
+        pending = await self.client.xpending_range(
+            stream_key,
+            self.group,
+            min_id="-",
+            max_id="+",
+            count=self.batch,
+            idle=self.claim_idle_ms,
+        )
+        if not pending:
+            return
 
-            parsed = parse_audit_delivery_stream_key(stream_key)
-            if parsed is None:
-                continue
-            sink, organization_id = parsed
-            if await self._is_circuit_open(sink, organization_id):
-                continue
+        await self.client.expire(stream_key, self.stream_ttl)
 
-            delivery_counts = self._pending_delivery_counts(pending)
-            exhausted_ids = [
-                message_id
-                for message_id, attempts in delivery_counts.items()
-                if attempts >= self.max_attempts
-            ]
-            if exhausted_ids:
-                logger.warning(
-                    "Dropping audit events after max delivery attempts",
-                    stream_key=stream_key,
-                    count=len(exhausted_ids),
-                )
-                await self.client.xack(stream_key, self.group, exhausted_ids)
+        parsed = parse_audit_delivery_stream_key(stream_key)
+        if parsed is None:
+            return
+        sink, organization_id = parsed
+        if await self._is_circuit_open(sink, organization_id):
+            return
 
-            claim_ids = [
-                message_id
-                for message_id, attempts in delivery_counts.items()
-                if attempts < self.max_attempts
-            ]
-            if not claim_ids:
-                continue
+        delivery_counts = self._pending_delivery_counts(pending)
+        exhausted_ids = [
+            message_id
+            for message_id, attempts in delivery_counts.items()
+            if attempts >= self.max_attempts
+        ]
+        if exhausted_ids:
+            logger.warning(
+                "Dropping audit events after max delivery attempts",
+                stream_key=stream_key,
+                count=len(exhausted_ids),
+            )
+            await self.client.xack(stream_key, self.group, exhausted_ids)
 
-            claimed = await self.client.xclaim(
+        claim_ids = [
+            message_id
+            for message_id, attempts in delivery_counts.items()
+            if attempts < self.max_attempts
+        ]
+        if not claim_ids:
+            return
+
+        claimed = await self.client.xclaim(
+            stream_key,
+            self.group,
+            self.consumer_name,
+            self.claim_idle_ms,
+            claim_ids,
+        )
+        for message_id, fields in claimed:
+            await self._handle_message(
                 stream_key,
-                self.group,
-                self.consumer_name,
-                self.claim_idle_ms,
-                claim_ids,
+                message_id,
+                fields,
+                attempts=delivery_counts.get(message_id, 0) + 1,
             )
-            for message_id, fields in claimed:
-                await self._handle_message(
-                    stream_key,
-                    message_id,
-                    fields,
-                    attempts=delivery_counts.get(message_id, 0) + 1,
-                )
 
     def _pending_delivery_counts(self, pending: list[dict[str, Any]]) -> dict[str, int]:
         return {
@@ -326,45 +388,20 @@ class AuditDeliveryConsumer:
     async def _get_sink_config(
         self, sink: AuditSink, organization_id: uuid.UUID | None
     ) -> AuditWebhookConfig | None:
-        cache_key = (sink, organization_id)
-        cached = self._config_cache.get(cache_key)
-        now = monotonic()
-        if cached is not None:
-            expires_at, sink_config = cached
-            if expires_at > now:
-                return sink_config
-
         async with get_async_session_bypass_rls_context_manager() as session:
             if sink == "platform":
                 values = await self._get_platform_settings(session)
             elif organization_id is not None:
                 role = self._get_service_role(organization_id)
-                values = {
-                    _WEBHOOK_URL_KEY: await get_setting(
-                        _WEBHOOK_URL_KEY, role=role, session=session
-                    ),
-                    _WEBHOOK_CUSTOM_HEADERS_KEY: await get_setting(
-                        _WEBHOOK_CUSTOM_HEADERS_KEY, role=role, session=session
-                    ),
-                    _WEBHOOK_CUSTOM_PAYLOAD_KEY: await get_setting(
-                        _WEBHOOK_CUSTOM_PAYLOAD_KEY, role=role, session=session
-                    ),
-                    _WEBHOOK_VERIFY_SSL_KEY: await get_setting(
-                        _WEBHOOK_VERIFY_SSL_KEY,
-                        role=role,
-                        session=session,
-                        default=True,
-                    ),
-                    _WEBHOOK_PAYLOAD_ATTRIBUTE_KEY: await get_setting(
-                        _WEBHOOK_PAYLOAD_ATTRIBUTE_KEY, role=role, session=session
-                    ),
-                }
+                service = SettingsService(session, role=role)
+                settings = await service.list_org_settings(
+                    keys=set(_AUDIT_WEBHOOK_SETTING_KEYS)
+                )
+                values, _ = service.get_values_with_decryption_fallback(settings)
             else:
                 values = {}
 
-        sink_config = self._build_sink_config(values)
-        self._config_cache[cache_key] = (now + _CONFIG_CACHE_TTL_SECONDS, sink_config)
-        return sink_config
+        return self._build_sink_config(values)
 
     async def _get_platform_settings(self, session) -> dict[str, Any]:
         result = await session.execute(
@@ -439,8 +476,6 @@ class AuditDeliveryConsumer:
     async def _is_circuit_open(
         self, sink: AuditSink, organization_id: uuid.UUID | None
     ) -> bool:
-        if self.circuit_threshold <= 0:
-            return False
         raw = await self.client.get(self._circuit_key(sink, organization_id))
         if raw is None:
             return False
@@ -456,7 +491,7 @@ class AuditDeliveryConsumer:
             self._circuit_key(sink, organization_id),
             expire_seconds=self.circuit_ttl,
         )
-        if failures >= self.circuit_threshold > 0:
+        if failures >= self.circuit_threshold:
             logger.warning(
                 "Audit delivery circuit opened",
                 sink=sink,

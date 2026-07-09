@@ -998,51 +998,6 @@ TRACECAT__CASE_TRIGGERS_LOCK_TTL_SECONDS = int(
 )
 """TTL for case trigger lock keys in seconds."""
 
-TRACECAT__AUDIT_DELIVERY_ENABLED = env_bool(
-    "TRACECAT__AUDIT_DELIVERY_ENABLED", default=True
-)
-"""Enable Redis-backed audit webhook delivery. Defaults to true."""
-
-TRACECAT__AUDIT_DELIVERY_MAXLEN = int(
-    os.environ.get("TRACECAT__AUDIT_DELIVERY_MAXLEN") or 30000
-)
-"""Approximate max length for each audit delivery stream."""
-
-TRACECAT__AUDIT_DELIVERY_TTL_SECONDS = int(
-    os.environ.get("TRACECAT__AUDIT_DELIVERY_TTL_SECONDS") or 72 * 60 * 60
-)
-"""TTL for idle audit delivery streams in seconds. Defaults to 72 hours."""
-
-TRACECAT__AUDIT_DELIVERY_BLOCK_MS = int(
-    os.environ.get("TRACECAT__AUDIT_DELIVERY_BLOCK_MS") or 2000
-)
-"""XREADGROUP block timeout in milliseconds for audit delivery."""
-
-TRACECAT__AUDIT_DELIVERY_BATCH = int(
-    os.environ.get("TRACECAT__AUDIT_DELIVERY_BATCH") or 100
-)
-"""Maximum number of audit events to read per batch."""
-
-TRACECAT__AUDIT_DELIVERY_MAX_ATTEMPTS = int(
-    os.environ.get("TRACECAT__AUDIT_DELIVERY_MAX_ATTEMPTS") or 10
-)
-"""Maximum delivery attempts before an audit event is acknowledged and dropped."""
-
-TRACECAT__AUDIT_DELIVERY_CIRCUIT_THRESHOLD = int(
-    os.environ.get("TRACECAT__AUDIT_DELIVERY_CIRCUIT_THRESHOLD") or 5
-)
-"""Consecutive delivery failures before opening a sink circuit."""
-
-TRACECAT__AUDIT_DELIVERY_CIRCUIT_TTL_SECONDS = int(
-    os.environ.get("TRACECAT__AUDIT_DELIVERY_CIRCUIT_TTL_SECONDS") or 60
-)
-"""TTL for audit delivery circuit breaker counters."""
-
-TRACECAT__AUDIT_DELIVERY_TIMEOUT_SECONDS = float(
-    os.environ.get("TRACECAT__AUDIT_DELIVERY_TIMEOUT_SECONDS") or 10
-)
-"""HTTP request timeout for audit webhook delivery."""
-
 # === File limits === #
 TRACECAT__MAX_ATTACHMENT_SIZE_BYTES = int(
     os.environ.get("TRACECAT__MAX_ATTACHMENT_SIZE_BYTES") or 20 * 1024 * 1024

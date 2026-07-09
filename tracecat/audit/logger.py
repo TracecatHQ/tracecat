@@ -213,7 +213,10 @@ def _build_audit_data(
     if data_fn is None:
         return None
     try:
-        return data_fn(**bound_arguments, result=result)
+        data_arguments = {
+            name: value for name, value in bound_arguments.items() if name != "self"
+        }
+        return data_fn(**data_arguments, result=result)
     except Exception as exc:
         logger.warning("Audit data_fn failed", error=str(exc))
         return None

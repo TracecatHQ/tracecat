@@ -11,8 +11,8 @@ from cryptography.fernet import InvalidToken
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat import config
 from tracecat.audit.constants import (
+    AUDIT_DELIVERY_STREAM_TTL_SECONDS,
     AUDIT_DELIVERY_STREAMS_KEY,
     audit_delivery_stream_key,
 )
@@ -24,7 +24,6 @@ from tracecat.contexts import (
     ctx_client_ip,
     ctx_request_id,
     ctx_role,
-    ctx_session,
     ctx_user_agent,
 )
 from tracecat.db.engine import get_async_session_context_manager
@@ -35,6 +34,7 @@ from tracecat.service import BaseService
 
 # Union type for roles that can be used for audit logging
 AuditableRole = Role | PlatformRole
+_AUDIT_DELIVERY_STREAM_MAXLEN = 30_000
 
 
 @dataclass(frozen=True)
@@ -204,36 +204,7 @@ class AuditService(BaseService):
             self.logger.warning("Failed to fetch actor email", error=str(exc))
         return actor_label
 
-    async def _get_cached_org_webhook_url(self) -> str | None:
-        if not isinstance(self.role, Role):
-            return None
-
-        from tracecat.settings.service import get_setting_cached
-
-        role_token = ctx_role.set(self.role)
-        session_token = ctx_session.set(self.session)
-        try:
-            value = await get_setting_cached("audit_webhook_url")
-        finally:
-            ctx_session.reset(session_token)
-            ctx_role.reset(role_token)
-
-        if value is None:
-            return None
-        if not isinstance(value, str):
-            self.logger.warning(
-                "audit_webhook_url must be a string",
-                value=value,
-                value_type=type(value),
-            )
-            return None
-
-        cleaned = value.strip()
-        return cleaned or None
-
     async def _has_configured_sink(self) -> bool:
-        if self.audit_sink == "organization":
-            return bool(await self._get_cached_org_webhook_url())
         return bool(await self._get_webhook_url())
 
     async def _publish_event(self, payload: AuditEvent) -> None:
@@ -241,14 +212,14 @@ class AuditService(BaseService):
             cast(AuditSink, self.audit_sink), payload.organization_id
         )
         redis = await get_redis_client()
-        await redis.xadd_audit(
+        await redis.publish_audit(
             stream_key,
             {"event": payload.model_dump_json()},
-            maxlen=config.TRACECAT__AUDIT_DELIVERY_MAXLEN,
+            discovery_key=AUDIT_DELIVERY_STREAMS_KEY,
+            maxlen=_AUDIT_DELIVERY_STREAM_MAXLEN,
             approximate=True,
-            expire_seconds=config.TRACECAT__AUDIT_DELIVERY_TTL_SECONDS,
+            expire_seconds=AUDIT_DELIVERY_STREAM_TTL_SECONDS,
         )
-        await redis.sadd_audit(AUDIT_DELIVERY_STREAMS_KEY, stream_key)
 
     async def create_event(
         self,
@@ -268,10 +239,6 @@ class AuditService(BaseService):
             self.logger.debug(
                 "Skipping audit log", reason="non_auditable_role", role=role
             )
-            return
-
-        if not config.TRACECAT__AUDIT_DELIVERY_ENABLED:
-            self.logger.debug("Skipping audit log", reason="audit_delivery_disabled")
             return
 
         if not await self._has_configured_sink():

@@ -160,27 +160,43 @@ class RedisClient:
             await self._reset_connection()
             raise
 
-    async def xadd_audit(
+    async def publish_audit(
         self,
         stream_key: str,
         fields: dict[str, Any],
         *,
+        discovery_key: str,
         maxlen: int | None = None,
         approximate: bool = True,
         expire_seconds: int | None = None,
         timeout_seconds: float = 0.2,
     ) -> str:
-        """Add an audit entry to a Redis stream without retries."""
+        """Atomically enqueue and register an audit delivery stream."""
+
+        async def publish() -> str:
+            client = await self._get_client()
+            pipeline = client.pipeline(transaction=True)
+            kwargs: dict[str, Any] = {"fields": fields}
+            if maxlen is not None:
+                kwargs["maxlen"] = maxlen
+                kwargs["approximate"] = approximate
+
+            pipeline.xadd(name=stream_key, **kwargs)
+            if expire_seconds is not None:
+                pipeline.expire(name=stream_key, time=expire_seconds)
+            pipeline.sadd(discovery_key, stream_key)
+            results = await pipeline.execute()
+            message_id = str(results[0])
+            logger.trace(
+                "Published audit event to Redis stream",
+                stream_key=stream_key,
+                message_id=message_id,
+            )
+            return message_id
 
         try:
             return await asyncio.wait_for(
-                self._xadd_entry(
-                    stream_key,
-                    fields,
-                    maxlen=maxlen,
-                    approximate=approximate,
-                    expire_seconds=expire_seconds,
-                ),
+                publish(),
                 timeout=timeout_seconds,
             )
         except (TimeoutError, RedisError, RuntimeError):
@@ -217,25 +233,6 @@ class RedisClient:
             message_id=message_id,
         )
         return message_id
-
-    async def sadd_audit(
-        self,
-        key: str,
-        value: str,
-        *,
-        timeout_seconds: float = 0.2,
-    ) -> int:
-        """Add an audit discovery entry without retries."""
-
-        async def add_member() -> int:
-            client = await self._get_client()
-            return int(await _resolve_redis_result(client.sadd(key, value)))
-
-        try:
-            return await asyncio.wait_for(add_member(), timeout=timeout_seconds)
-        except (TimeoutError, RedisError, RuntimeError):
-            await self._reset_connection()
-            raise
 
     @retry(
         stop=stop_after_attempt(3),

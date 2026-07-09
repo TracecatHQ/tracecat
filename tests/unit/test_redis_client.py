@@ -25,6 +25,36 @@ class DummyConnectionPool:
         cls.instances.clear()
 
 
+class DummyPipeline:
+    instances: list[DummyPipeline] = []
+
+    def __init__(self, *, transaction: bool) -> None:
+        self.transaction = transaction
+        self.commands: list[tuple[str, tuple[object, ...], dict[str, object]]] = []
+        self.execute_count = 0
+        DummyPipeline.instances.append(self)
+
+    def xadd(self, *args: object, **kwargs: object) -> DummyPipeline:
+        self.commands.append(("xadd", args, kwargs))
+        return self
+
+    def expire(self, *args: object, **kwargs: object) -> DummyPipeline:
+        self.commands.append(("expire", args, kwargs))
+        return self
+
+    def sadd(self, *args: object, **kwargs: object) -> DummyPipeline:
+        self.commands.append(("sadd", args, kwargs))
+        return self
+
+    async def execute(self) -> list[object]:
+        self.execute_count += 1
+        return ["1-0", True, 1]
+
+    @classmethod
+    def reset(cls) -> None:
+        cls.instances.clear()
+
+
 class DummyRedis:
     instances: list[DummyRedis] = []
     xadd_call_count = 0
@@ -53,6 +83,9 @@ class DummyRedis:
     async def expire(self, *args, **kwargs) -> None:
         DummyRedis.expire_call_count += 1
         return None
+
+    def pipeline(self, *, transaction: bool = True) -> DummyPipeline:
+        return DummyPipeline(transaction=transaction)
 
     async def xread(
         self, *args, **kwargs
@@ -86,6 +119,7 @@ def reset_singleton() -> None:
 @pytest.fixture(autouse=True)
 def patch_redis(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     DummyRedis.reset()
+    DummyPipeline.reset()
     DummyConnectionPool.reset()
     reset_singleton()
 
@@ -96,6 +130,7 @@ def patch_redis(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
 
     reset_singleton()
     DummyRedis.reset()
+    DummyPipeline.reset()
     DummyConnectionPool.reset()
 
 
@@ -166,3 +201,48 @@ def test_xadd_allows_disabling_ttl() -> None:
     asyncio.run(client.xadd("stream", {"field": "value"}, expire_seconds=None))
 
     assert DummyRedis.expire_call_count == 0
+
+
+def test_publish_audit_atomically_enqueues_and_registers_stream() -> None:
+    client = RedisClient()
+
+    result = asyncio.run(
+        client.publish_audit(
+            "audit:delivery:organization:org-id",
+            {"event": "payload"},
+            discovery_key="audit:delivery:streams",
+            maxlen=30_000,
+            expire_seconds=259_200,
+        )
+    )
+
+    assert result == "1-0"
+    assert len(DummyPipeline.instances) == 1
+    pipeline = DummyPipeline.instances[0]
+    assert pipeline.transaction is True
+    assert pipeline.execute_count == 1
+    assert pipeline.commands == [
+        (
+            "xadd",
+            (),
+            {
+                "name": "audit:delivery:organization:org-id",
+                "fields": {"event": "payload"},
+                "maxlen": 30_000,
+                "approximate": True,
+            },
+        ),
+        (
+            "expire",
+            (),
+            {
+                "name": "audit:delivery:organization:org-id",
+                "time": 259_200,
+            },
+        ),
+        (
+            "sadd",
+            ("audit:delivery:streams", "audit:delivery:organization:org-id"),
+            {},
+        ),
+    ]

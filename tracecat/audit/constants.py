@@ -5,19 +5,22 @@ from typing import cast
 
 from tracecat.audit.types import AuditSink
 
-AUDIT_DELIVERY_GROUP = "audit-delivery"
 AUDIT_DELIVERY_STREAMS_KEY = "audit:delivery:streams"
-AUDIT_DELIVERY_STREAM_PREFIX = "audit:delivery"
-AUDIT_PLATFORM_STREAM_ORG_ID = "_"
+AUDIT_DELIVERY_STREAM_TTL_SECONDS = 72 * 60 * 60
+_AUDIT_DELIVERY_STREAM_PREFIX = "audit:delivery"
+_AUDIT_PLATFORM_STREAM_ORG_ID = "_"
 
 
 def audit_delivery_stream_key(
     sink: AuditSink, organization_id: uuid.UUID | None
 ) -> str:
+    if sink == "organization" and organization_id is None:
+        raise ValueError("Organization audit delivery requires an organization ID")
+
     org_key = (
-        AUDIT_PLATFORM_STREAM_ORG_ID if sink == "platform" else str(organization_id)
+        _AUDIT_PLATFORM_STREAM_ORG_ID if sink == "platform" else str(organization_id)
     )
-    return f"{AUDIT_DELIVERY_STREAM_PREFIX}:{sink}:{org_key}"
+    return f"{_AUDIT_DELIVERY_STREAM_PREFIX}:{sink}:{org_key}"
 
 
 def parse_audit_delivery_stream_key(
@@ -28,7 +31,7 @@ def parse_audit_delivery_stream_key(
         return None
     sink = parts[2]
     org_key = parts[3]
-    if sink == "platform" and org_key == AUDIT_PLATFORM_STREAM_ORG_ID:
+    if sink == "platform" and org_key == _AUDIT_PLATFORM_STREAM_ORG_ID:
         return "platform", None
     if sink != "organization":
         return None
