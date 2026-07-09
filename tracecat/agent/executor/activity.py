@@ -645,8 +645,19 @@ class SandboxedAgentExecutor:
         self._log_benchmark_phase("broker_llm_proxy_ready")
 
         if self._otel_relay is not None:
-            await self._otel_relay.start()
-            self._log_benchmark_phase("broker_otel_relay_ready")
+            try:
+                await self._otel_relay.start()
+            except Exception as e:
+                logger.warning(
+                    "Failed to start OTel relay; running without telemetry",
+                    error_type=type(e).__name__,
+                    error=str(e),
+                )
+                self._otel_relay = None
+                otel_socket_path = None
+                init_payload.agent_otel_sandbox_env = None
+            else:
+                self._log_benchmark_phase("broker_otel_relay_ready")
 
         request = ClaudeTurnRequest(
             init_payload=init_payload,

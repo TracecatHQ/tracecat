@@ -2448,7 +2448,7 @@ class _DummyBridge:
 
     async def start(self) -> int:
         self.started = True
-        return self.port if self.port else 4312
+        return self.port if isinstance(self.port, int) else 4312
 
     async def stop(self) -> None:
         self.stopped = True
@@ -2492,11 +2492,11 @@ async def test_transport_shim_init_payload_excludes_otel_auth_token_field(
     to know about beyond the env it's given.
     """
     captured: dict[str, Path] = {}
-    path_mapping = session_paths_module.ClaudeSandboxPathMapping(
+    path_mapping = session_paths_module.AgentSandboxPathMapping(
         host_home_dir=tmp_path / "home",
-        host_project_dir=tmp_path / "project",
+        host_work_dir=tmp_path / "project",
         runtime_home_dir=tmp_path / "home",
-        runtime_cwd=tmp_path / "project",
+        runtime_work_dir=tmp_path / "project",
     )
     transport = SandboxedCLITransport(
         options=ClaudeAgentOptions(env={"ANTHROPIC_AUTH_TOKEN": "fake-llm-token"}),
@@ -2601,6 +2601,11 @@ async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
         "_pump_stdin_to_process",
         fake_pump_stdin_to_process,
     )
+
+    # The shim merges os.environ into child_env, so clear these to keep the
+    # "not in child_env" assertions independent of the host environment.
+    monkeypatch.delenv("agent_otel_auth_token", raising=False)
+    monkeypatch.delenv("TRACECAT__AGENT_OTEL_AUTH_TOKEN", raising=False)
 
     await shim_entrypoint.run_sandboxed_claude_shim()
 

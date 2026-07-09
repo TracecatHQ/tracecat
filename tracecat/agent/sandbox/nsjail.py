@@ -34,6 +34,7 @@ from pathlib import Path
 
 from tracecat.agent.common.config import (
     CONTROL_SOCKET_NAME,
+    JAILED_OTEL_SOCKET_PATH,
     TRACECAT__AGENT_MCP_SOCKET_PATH,
     TRACECAT__DISABLE_NSJAIL,
 )
@@ -464,6 +465,11 @@ async def _spawn_nsjail_runtime(
             env_map["HOME"] = str(JAILED_AGENT_HOME_DIR)
         if session_work_dir is not None:
             env_map[SESSION_WORK_DIR_ENV_VAR] = str(JAILED_AGENT_WORK_DIR)
+        # The relay socket is bind-mounted inside the jail at
+        # JAILED_OTEL_SOCKET_PATH, so the shim must resolve that path (not the
+        # host source path) or telemetry is silently dropped in `drop` mode.
+        if otel_socket_path is not None:
+            env_map["TRACECAT__AGENT_OTEL_SOCKET_PATH"] = str(JAILED_OTEL_SOCKET_PATH)
         env_args: list[str] = []
         for key, value in env_map.items():
             env_args.extend(["--env", f"{key}={value}"])
