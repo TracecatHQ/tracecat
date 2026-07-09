@@ -99,7 +99,9 @@ export function OrganizationSidebar({
       title: "Agent",
       url: "/organization/settings/agent",
       icon: BotIcon,
-      isActive: pathname?.includes("/organization/settings/agent"),
+      isActive:
+        pathname === "/organization/settings/agent" ||
+        pathname?.startsWith("/organization/settings/agent/"),
       visible: canViewSettings === true,
       locked: false,
     },
