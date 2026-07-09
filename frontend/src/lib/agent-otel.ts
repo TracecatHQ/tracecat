@@ -1,6 +1,7 @@
 import { type Diagnostic, linter, lintGutter } from "@codemirror/lint"
 import type { Extension } from "@codemirror/state"
 import type { EditorView } from "@codemirror/view"
+import type { AgentOtelConfig } from "@/client"
 
 /**
  * Claude Code OTel env vars Tracecat manages itself; users may not set them.
@@ -12,160 +13,74 @@ const RESERVED_ENV_VARS = new Set([
   "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
   "OTEL_EXPORTER_OTLP_LOGS_HEADERS",
   "OTEL_EXPORTER_OTLP_TRACES_HEADERS",
+  "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA",
+  "OTEL_EXPORTER_OTLP_PROTOCOL",
+  "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL",
+  "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
+  "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
 ])
 
 interface OTelEnvSpec {
   key: string
-  group: string
   values?: readonly string[]
-  hint?: string
 }
 
 /**
- * Allowlisted Claude Code OTel env vars. Mirrors `ALLOWED` in
- * tracecat/agent/otel_config.py and the Claude Code monitoring docs:
- * https://code.claude.com/docs/en/monitoring-usage
+ * Environment variables represented by the typed Agent OTel API. Raw mode is
+ * an alternate editor for these fields, not an escape hatch around the API.
  */
 const OTEL_ENV_SPECS: readonly OTelEnvSpec[] = [
   {
     key: "OTEL_METRICS_EXPORTER",
-    group: "Exporters",
-    values: ["otlp", "prometheus", "console", "none"],
+    values: ["otlp", "none"],
   },
   {
     key: "OTEL_LOGS_EXPORTER",
-    group: "Exporters",
-    values: ["otlp", "console", "none"],
+    values: ["otlp", "none"],
   },
   {
     key: "OTEL_TRACES_EXPORTER",
-    group: "Exporters",
-    values: ["otlp", "console", "none"],
-  },
-  {
-    key: "OTEL_EXPORTER_OTLP_PROTOCOL",
-    group: "OTLP",
-    values: ["http/protobuf", "http/json", "grpc"],
-  },
-  {
-    key: "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL",
-    group: "OTLP",
-    values: ["http/protobuf", "http/json", "grpc"],
-  },
-  {
-    key: "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
-    group: "OTLP",
-    values: ["http/protobuf", "http/json", "grpc"],
-  },
-  {
-    key: "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
-    group: "OTLP",
-    values: ["http/protobuf", "http/json", "grpc"],
+    values: ["otlp", "none"],
   },
   {
     key: "OTEL_EXPORTER_OTLP_ENDPOINT",
-    group: "OTLP",
-    hint: "https://collector.example.com",
-  },
-  {
-    key: "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
-    group: "OTLP",
-    hint: "Optional signal override",
-  },
-  {
-    key: "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
-    group: "OTLP",
-    hint: "Optional signal override",
-  },
-  {
-    key: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
-    group: "OTLP",
-    hint: "Optional signal override",
-  },
-  {
-    key: "CLAUDE_CODE_OTEL_HEADERS_HELPER_DEBOUNCE_MS",
-    group: "Intervals",
-    hint: "Positive integer",
   },
   {
     key: "OTEL_METRIC_EXPORT_INTERVAL",
-    group: "Intervals",
-    hint: "Positive integer",
   },
   {
     key: "OTEL_LOGS_EXPORT_INTERVAL",
-    group: "Intervals",
-    hint: "Positive integer",
-  },
-  {
-    key: "OTEL_TRACES_EXPORT_INTERVAL",
-    group: "Intervals",
-    hint: "Positive integer",
-  },
-  {
-    key: "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA",
-    group: "Traces (beta)",
-    values: ["true", "false"],
-  },
-  {
-    key: "ENABLE_ENHANCED_TELEMETRY_BETA",
-    group: "Traces (beta)",
-    values: ["true", "false"],
-  },
-  {
-    key: "ENABLE_BETA_TRACING_DETAILED",
-    group: "Traces (beta)",
-    values: ["true", "false"],
-  },
-  {
-    key: "BETA_TRACING_ENDPOINT",
-    group: "Traces (beta)",
-    hint: "https://traces.example.com",
   },
   {
     key: "OTEL_LOG_USER_PROMPTS",
-    group: "Content",
-    values: ["true", "false"],
+    values: ["true", "false", "1", "0"],
   },
   {
     key: "OTEL_LOG_TOOL_DETAILS",
-    group: "Content",
-    values: ["true", "false"],
+    values: ["true", "false", "1", "0"],
   },
   {
     key: "OTEL_LOG_TOOL_CONTENT",
-    group: "Content",
-    values: ["true", "false"],
-  },
-  {
-    key: "OTEL_LOG_RAW_API_BODIES",
-    group: "Content",
-    values: ["true", "false"],
+    values: ["true", "false", "1", "0"],
   },
   {
     key: "OTEL_METRICS_INCLUDE_SESSION_ID",
-    group: "Metrics",
-    values: ["true", "false"],
+    values: ["true", "false", "1", "0"],
   },
   {
     key: "OTEL_METRICS_INCLUDE_VERSION",
-    group: "Metrics",
-    values: ["true", "false"],
+    values: ["true", "false", "1", "0"],
   },
   {
     key: "OTEL_METRICS_INCLUDE_ACCOUNT_UUID",
-    group: "Metrics",
-    values: ["true", "false"],
+    values: ["true", "false", "1", "0"],
   },
   {
     key: "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE",
-    group: "Metrics",
     values: ["cumulative", "delta"],
   },
   {
     key: "OTEL_RESOURCE_ATTRIBUTES",
-    group: "Resource",
-    hint: "key=value,key=value",
   },
 ] as const
 
@@ -174,28 +89,29 @@ const OTEL_ENV_SPEC_BY_KEY: ReadonlyMap<string, OTelEnvSpec> = new Map(
 )
 
 const POSITIVE_INTEGER_KEYS = new Set([
-  "CLAUDE_CODE_OTEL_HEADERS_HELPER_DEBOUNCE_MS",
   "OTEL_METRIC_EXPORT_INTERVAL",
   "OTEL_LOGS_EXPORT_INTERVAL",
-  "OTEL_TRACES_EXPORT_INTERVAL",
 ])
 
-/**
- * Enum keys whose value is a comma-separated list of allowed tokens. The
- * backend only CSV-splits the signal exporter keys; every other enum key
- * (e.g. the OTLP protocol keys) must be a single literal value.
- */
-const CSV_ENUM_KEYS = new Set([
+/** Enum keys the backend validates case-insensitively. */
+const CASE_INSENSITIVE_ENUM_KEYS = new Set([
   "OTEL_METRICS_EXPORTER",
   "OTEL_LOGS_EXPORTER",
   "OTEL_TRACES_EXPORTER",
+  "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE",
+  "OTEL_LOG_USER_PROMPTS",
+  "OTEL_LOG_TOOL_DETAILS",
+  "OTEL_LOG_TOOL_CONTENT",
+  "OTEL_METRICS_INCLUDE_SESSION_ID",
+  "OTEL_METRICS_INCLUDE_VERSION",
+  "OTEL_METRICS_INCLUDE_ACCOUNT_UUID",
 ])
 
-const SIGNAL_ENDPOINT_KEYS = {
-  OTEL_METRICS_EXPORTER: "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
-  OTEL_LOGS_EXPORTER: "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
-  OTEL_TRACES_EXPORTER: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
-} as const
+const SIGNAL_EXPORTER_KEYS = [
+  "OTEL_METRICS_EXPORTER",
+  "OTEL_LOGS_EXPORTER",
+  "OTEL_TRACES_EXPORTER",
+] as const
 
 /** A validation issue tied to a 1-indexed line in the env editor. */
 export interface EnvIssue {
@@ -203,17 +119,22 @@ export interface EnvIssue {
   message: string
 }
 
+/** Options controlling context-dependent environment validation. */
+export interface EnvValidationOptions {
+  /** Require an endpoint for each signal configured with the OTLP exporter. */
+  requireOtlpEndpoint?: boolean
+}
+
 /**
  * First-class OTel env keys surfaced as dedicated form fields. Every other
  * allowlisted key stays reachable through the Advanced env editor.
  */
 const FIRST_CLASS_ENDPOINT_KEY = "OTEL_EXPORTER_OTLP_ENDPOINT"
-const FIRST_CLASS_PROTOCOL_KEY = "OTEL_EXPORTER_OTLP_PROTOCOL"
 const FIRST_CLASS_METRIC_INTERVAL_KEY = "OTEL_METRIC_EXPORT_INTERVAL"
 
 /**
- * Signal toggle key -> exporter env key. A signal that is ON writes
- * `<EXPORTER_KEY>=otlp`; OFF removes the key from the env map.
+ * Signal toggle key -> exporter env key. The relay supports only OTLP export,
+ * so each typed toggle maps to either `otlp` or no raw value.
  */
 const FIRST_CLASS_SIGNAL_KEYS = {
   traces: "OTEL_TRACES_EXPORTER",
@@ -224,7 +145,6 @@ const FIRST_CLASS_SIGNAL_KEYS = {
 /** The set of env keys owned by first-class form fields. */
 const FIRST_CLASS_KEYS: ReadonlySet<string> = new Set<string>([
   FIRST_CLASS_ENDPOINT_KEY,
-  FIRST_CLASS_PROTOCOL_KEY,
   FIRST_CLASS_METRIC_INTERVAL_KEY,
   ...Object.values(FIRST_CLASS_SIGNAL_KEYS),
 ])
@@ -239,14 +159,12 @@ export interface AgentOtelSignals {
 /**
  * Structured presentation of the flat OTel `env` map. First-class fields are
  * pulled out into dedicated inputs; everything else lives in `advancedEnv` as
- * raw `KEY=value` text. This is purely a presentation layer over the wire
- * format `env` map and never changes the API contract.
+ * raw `KEY=value` text. This env map is a presentation layer over the typed API
+ * contract and is converted at the request boundary.
  */
 export interface AgentOtelForm {
   /** OTEL_EXPORTER_OTLP_ENDPOINT value (empty string when unset). */
   endpoint: string
-  /** OTEL_EXPORTER_OTLP_PROTOCOL value (empty string when unset). */
-  protocol: string
   /** OTEL_METRIC_EXPORT_INTERVAL value, kept as a string for the input. */
   metricIntervalMs: string
   /** Per-signal `otlp` exporter toggles. */
@@ -259,9 +177,7 @@ export interface AgentOtelForm {
  * Split a flat OTel `env` map into the structured form shape. First-class keys
  * become dedicated fields; the remaining keys are serialized into
  * `advancedEnv` via {@link envMapToText}. A signal toggle is ON iff its
- * exporter key resolves to exactly `otlp`; any exporter key with a non-`otlp`
- * value (e.g. `console`) is left in `advancedEnv` so nothing is silently
- * dropped and the round-trip stays faithful.
+ * exporter value is `otlp`.
  */
 export function envMapToForm(env: Record<string, string>): AgentOtelForm {
   const advanced: Record<string, string> = {}
@@ -277,13 +193,7 @@ export function envMapToForm(env: Record<string, string>): AgentOtelForm {
     )
     if (signalEntry) {
       const signalName = signalEntry[0] as keyof AgentOtelSignals
-      // Only a bare `otlp` exporter maps cleanly to the toggle; anything else
-      // (console/none/prometheus, or otlp mixed with others) stays in Advanced.
-      if (value.trim() === "otlp") {
-        signals[signalName] = true
-      } else {
-        advanced[key] = value
-      }
+      signals[signalName] = value.trim().toLowerCase() === "otlp"
       continue
     }
     if (!FIRST_CLASS_KEYS.has(key)) {
@@ -293,7 +203,6 @@ export function envMapToForm(env: Record<string, string>): AgentOtelForm {
 
   return {
     endpoint: env[FIRST_CLASS_ENDPOINT_KEY] ?? "",
-    protocol: env[FIRST_CLASS_PROTOCOL_KEY] ?? "",
     metricIntervalMs: env[FIRST_CLASS_METRIC_INTERVAL_KEY] ?? "",
     signals,
     advancedEnv: envMapToText(advanced),
@@ -304,8 +213,8 @@ export function envMapToForm(env: Record<string, string>): AgentOtelForm {
  * Inverse of {@link envMapToForm}. Starts from the parsed `advancedEnv` tail
  * and overlays the first-class fields on top, so first-class fields win on key
  * collision. Non-empty first-class text fields are written trimmed; empty ones
- * are omitted entirely (no `KEY=`). Each ON signal writes
- * `<EXPORTER_KEY>=otlp`.
+ * are omitted entirely (no `KEY=`). Each signal toggle writes `otlp` when on
+ * and removes the exporter key when off.
  */
 export function formToEnvMap(form: AgentOtelForm): Record<string, string> {
   const env: Record<string, string> = parseEnvText(form.advancedEnv)
@@ -315,13 +224,6 @@ export function formToEnvMap(form: AgentOtelForm): Record<string, string> {
     env[FIRST_CLASS_ENDPOINT_KEY] = endpoint
   } else {
     delete env[FIRST_CLASS_ENDPOINT_KEY]
-  }
-
-  const protocol = form.protocol.trim()
-  if (protocol) {
-    env[FIRST_CLASS_PROTOCOL_KEY] = protocol
-  } else {
-    delete env[FIRST_CLASS_PROTOCOL_KEY]
   }
 
   const metricInterval = form.metricIntervalMs.trim()
@@ -336,6 +238,8 @@ export function formToEnvMap(form: AgentOtelForm): Record<string, string> {
   )) {
     if (form.signals[signalName as keyof AgentOtelSignals]) {
       env[exporterKey] = "otlp"
+    } else {
+      delete env[exporterKey]
     }
   }
 
@@ -361,23 +265,220 @@ export function envTextToForm(text: string): AgentOtelForm {
   return envMapToForm(parseEnvText(text))
 }
 
+function setOptionalBooleanEnv(
+  env: Record<string, string>,
+  key: string,
+  value: boolean | null | undefined
+): void {
+  if (value !== null && value !== undefined) {
+    env[key] = value ? "1" : "0"
+  }
+}
+
+function parseOptionalBooleanEnv(
+  env: Record<string, string>,
+  key: string
+): boolean | undefined {
+  const value = env[key]?.trim().toLowerCase()
+  if (value === undefined) {
+    return undefined
+  }
+  return value === "true" || value === "1"
+}
+
+function serializeResourceAttributes(
+  attributes: Record<string, string>
+): string {
+  return Object.entries(attributes)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(
+      ([key, value]) =>
+        `${encodeURIComponent(key)}=${encodeURIComponent(value)}`
+    )
+    .join(",")
+}
+
+function parseResourceAttributes(value: string): Record<string, string> {
+  const attributes: Record<string, string> = {}
+  for (const item of value.split(",")) {
+    const separator = item.indexOf("=")
+    if (separator <= 0 || separator === item.length - 1) {
+      throw new Error(
+        "OTEL_RESOURCE_ATTRIBUTES must contain comma-separated key=value pairs."
+      )
+    }
+
+    let key: string
+    let attributeValue: string
+    try {
+      key = decodeURIComponent(item.slice(0, separator)).trim()
+      attributeValue = decodeURIComponent(item.slice(separator + 1)).trim()
+    } catch {
+      throw new Error(
+        "OTEL_RESOURCE_ATTRIBUTES contains invalid percent encoding."
+      )
+    }
+    if (!key || !attributeValue) {
+      throw new Error(
+        "OTEL_RESOURCE_ATTRIBUTES names and values cannot be empty."
+      )
+    }
+    if (attributes[key] !== undefined) {
+      throw new Error(`OTEL_RESOURCE_ATTRIBUTES contains duplicate key ${key}.`)
+    }
+    attributes[key] = attributeValue
+  }
+  return attributes
+}
+
+/** Convert the typed API contract into the env-shaped UI presentation model. */
+export function agentOtelConfigToEnvMap(
+  config: AgentOtelConfig | undefined
+): Record<string, string> {
+  const env: Record<string, string> = {
+    OTEL_METRICS_EXPORTER: (config?.metrics_enabled ?? true) ? "otlp" : "none",
+    OTEL_LOGS_EXPORTER: (config?.logs_enabled ?? true) ? "otlp" : "none",
+    OTEL_TRACES_EXPORTER: (config?.traces_enabled ?? false) ? "otlp" : "none",
+  }
+
+  if (config?.endpoint) {
+    env.OTEL_EXPORTER_OTLP_ENDPOINT = config.endpoint
+  }
+  if (config?.metrics_temporality) {
+    env.OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE =
+      config.metrics_temporality
+  }
+  if (
+    config?.metric_export_interval_ms !== null &&
+    config?.metric_export_interval_ms !== undefined
+  ) {
+    env.OTEL_METRIC_EXPORT_INTERVAL = String(config.metric_export_interval_ms)
+  }
+  if (
+    config?.logs_export_interval_ms !== null &&
+    config?.logs_export_interval_ms !== undefined
+  ) {
+    env.OTEL_LOGS_EXPORT_INTERVAL = String(config.logs_export_interval_ms)
+  }
+  setOptionalBooleanEnv(
+    env,
+    "OTEL_METRICS_INCLUDE_SESSION_ID",
+    config?.metrics_include_session_id
+  )
+  setOptionalBooleanEnv(
+    env,
+    "OTEL_METRICS_INCLUDE_VERSION",
+    config?.metrics_include_version
+  )
+  setOptionalBooleanEnv(
+    env,
+    "OTEL_METRICS_INCLUDE_ACCOUNT_UUID",
+    config?.metrics_include_account_uuid
+  )
+  setOptionalBooleanEnv(env, "OTEL_LOG_USER_PROMPTS", config?.log_user_prompts)
+  setOptionalBooleanEnv(env, "OTEL_LOG_TOOL_DETAILS", config?.log_tool_details)
+  setOptionalBooleanEnv(env, "OTEL_LOG_TOOL_CONTENT", config?.log_tool_content)
+  if (
+    config?.resource_attributes &&
+    Object.keys(config.resource_attributes).length > 0
+  ) {
+    env.OTEL_RESOURCE_ATTRIBUTES = serializeResourceAttributes(
+      config.resource_attributes
+    )
+  }
+  return env
+}
+
+/** Convert the env-shaped UI presentation model into the typed API contract. */
+export function envMapToAgentOtelConfig(
+  enabled: boolean,
+  env: Record<string, string>
+): AgentOtelConfig {
+  const config: AgentOtelConfig = {
+    enabled,
+    metrics_enabled: env.OTEL_METRICS_EXPORTER?.trim().toLowerCase() === "otlp",
+    logs_enabled: env.OTEL_LOGS_EXPORTER?.trim().toLowerCase() === "otlp",
+    traces_enabled: env.OTEL_TRACES_EXPORTER?.trim().toLowerCase() === "otlp",
+  }
+
+  const endpoint = env.OTEL_EXPORTER_OTLP_ENDPOINT?.trim()
+  if (endpoint) {
+    config.endpoint = endpoint
+  }
+  const temporality =
+    env.OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE?.trim().toLowerCase()
+  if (temporality === "delta" || temporality === "cumulative") {
+    config.metrics_temporality = temporality
+  }
+  if (env.OTEL_METRIC_EXPORT_INTERVAL !== undefined) {
+    config.metric_export_interval_ms = Number.parseInt(
+      env.OTEL_METRIC_EXPORT_INTERVAL,
+      10
+    )
+  }
+  if (env.OTEL_LOGS_EXPORT_INTERVAL !== undefined) {
+    config.logs_export_interval_ms = Number.parseInt(
+      env.OTEL_LOGS_EXPORT_INTERVAL,
+      10
+    )
+  }
+  config.metrics_include_session_id = parseOptionalBooleanEnv(
+    env,
+    "OTEL_METRICS_INCLUDE_SESSION_ID"
+  )
+  config.metrics_include_version = parseOptionalBooleanEnv(
+    env,
+    "OTEL_METRICS_INCLUDE_VERSION"
+  )
+  config.metrics_include_account_uuid = parseOptionalBooleanEnv(
+    env,
+    "OTEL_METRICS_INCLUDE_ACCOUNT_UUID"
+  )
+  config.log_user_prompts = parseOptionalBooleanEnv(
+    env,
+    "OTEL_LOG_USER_PROMPTS"
+  )
+  config.log_tool_details = parseOptionalBooleanEnv(
+    env,
+    "OTEL_LOG_TOOL_DETAILS"
+  )
+  config.log_tool_content = parseOptionalBooleanEnv(
+    env,
+    "OTEL_LOG_TOOL_CONTENT"
+  )
+  if (env.OTEL_RESOURCE_ATTRIBUTES !== undefined) {
+    config.resource_attributes = parseResourceAttributes(
+      env.OTEL_RESOURCE_ATTRIBUTES
+    )
+  }
+  return config
+}
+
 function envValueIssues(spec: OTelEnvSpec, value: string): string[] {
   const issues: string[] = []
   if (spec.values) {
     const allowed = new Set<string>(spec.values)
-    const parts = CSV_ENUM_KEYS.has(spec.key)
-      ? value.split(",").map((part) => part.trim())
-      : [value]
-    if (parts.some((part) => !allowed.has(part))) {
+    const parts = [value]
+    const normalizedParts = CASE_INSENSITIVE_ENUM_KEYS.has(spec.key)
+      ? parts.map((part) => part.toLowerCase())
+      : parts
+    if (normalizedParts.some((part) => !allowed.has(part))) {
       issues.push(`${spec.key} supports ${spec.values.join(", ")}.`)
     }
   }
-  const numericValue = Number(value)
-  if (
-    POSITIVE_INTEGER_KEYS.has(spec.key) &&
-    (!Number.isInteger(numericValue) || numericValue <= 0)
-  ) {
+  if (POSITIVE_INTEGER_KEYS.has(spec.key) && !/^[1-9]\d*$/.test(value)) {
     issues.push(`${spec.key} must be a positive integer.`)
+  }
+  if (spec.key === "OTEL_RESOURCE_ATTRIBUTES") {
+    try {
+      parseResourceAttributes(value)
+    } catch (error) {
+      issues.push(
+        error instanceof Error
+          ? error.message
+          : "OTEL_RESOURCE_ATTRIBUTES is invalid."
+      )
+    }
   }
   return issues
 }
@@ -393,7 +494,10 @@ function envValueIssues(spec: OTelEnvSpec, value: string): string[] {
  * duplicate keys or empty values because a map has already collapsed those;
  * the text path handles those line-oriented checks separately.
  */
-export function validateEnvMap(env: Record<string, string>): string[] {
+export function validateEnvMap(
+  env: Record<string, string>,
+  { requireOtlpEndpoint = true }: EnvValidationOptions = {}
+): string[] {
   const issues: string[] = []
 
   for (const [key, value] of Object.entries(env)) {
@@ -415,17 +519,14 @@ export function validateEnvMap(env: Record<string, string>): string[] {
     }
   }
 
-  const generic = env[FIRST_CLASS_ENDPOINT_KEY]
-  for (const [exporterKey, endpointKey] of Object.entries(
-    SIGNAL_ENDPOINT_KEYS
-  )) {
-    const value = env[exporterKey]
-    if (value === undefined) continue
-    const exporters = value.split(",").map((part) => part.trim())
-    if (exporters.includes("otlp") && !generic && !env[endpointKey]) {
-      issues.push(
-        `${exporterKey}=otlp needs ${endpointKey} or ${FIRST_CLASS_ENDPOINT_KEY}.`
-      )
+  if (requireOtlpEndpoint) {
+    const generic = env[FIRST_CLASS_ENDPOINT_KEY]
+    for (const exporterKey of SIGNAL_EXPORTER_KEYS) {
+      const value = env[exporterKey]
+      if (value === undefined) continue
+      if (value.trim().toLowerCase() === "otlp" && !generic) {
+        issues.push(`${exporterKey}=otlp needs ${FIRST_CLASS_ENDPOINT_KEY}.`)
+      }
     }
   }
 
@@ -437,8 +538,11 @@ export function validateEnvMap(env: Record<string, string>): string[] {
  * {@link formToEnvMap} and running the shared {@link validateEnvMap} rules.
  * Returns human-readable messages; empty list means acceptable.
  */
-export function validateForm(form: AgentOtelForm): string[] {
-  return validateEnvMap(formToEnvMap(form))
+export function validateForm(
+  form: AgentOtelForm,
+  options?: EnvValidationOptions
+): string[] {
+  return validateEnvMap(formToEnvMap(form), options)
 }
 
 /**
@@ -446,7 +550,10 @@ export function validateForm(form: AgentOtelForm): string[] {
  * Returns a list of issues with their 1-indexed line numbers. Empty list
  * means the input is acceptable.
  */
-export function validateEnvText(text: string): EnvIssue[] {
+export function validateEnvText(
+  text: string,
+  { requireOtlpEndpoint = true }: EnvValidationOptions = {}
+): EnvIssue[] {
   const issues: EnvIssue[] = []
   const seen: Record<string, { lineNumber: number; value: string }> = {}
   const lines = text.split("\n")
@@ -490,18 +597,17 @@ export function validateEnvText(text: string): EnvIssue[] {
     seen[key] = { lineNumber, value }
   })
 
-  const generic = seen.OTEL_EXPORTER_OTLP_ENDPOINT
-  for (const [exporterKey, endpointKey] of Object.entries(
-    SIGNAL_ENDPOINT_KEYS
-  )) {
-    const entry = seen[exporterKey]
-    if (!entry) continue
-    const exporters = entry.value.split(",").map((part) => part.trim())
-    if (exporters.includes("otlp") && !generic && !seen[endpointKey]) {
-      issues.push({
-        lineNumber: entry.lineNumber,
-        message: `${exporterKey}=otlp needs ${endpointKey} or OTEL_EXPORTER_OTLP_ENDPOINT.`,
-      })
+  if (requireOtlpEndpoint) {
+    const generic = seen.OTEL_EXPORTER_OTLP_ENDPOINT
+    for (const exporterKey of SIGNAL_EXPORTER_KEYS) {
+      const entry = seen[exporterKey]
+      if (!entry) continue
+      if (entry.value.trim().toLowerCase() === "otlp" && !generic) {
+        issues.push({
+          lineNumber: entry.lineNumber,
+          message: `${exporterKey}=otlp needs OTEL_EXPORTER_OTLP_ENDPOINT.`,
+        })
+      }
     }
   }
 

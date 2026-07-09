@@ -7,13 +7,6 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import { type ToggleTabOption, ToggleTabs } from "@/components/ui/toggle-tabs"
@@ -21,7 +14,9 @@ import { toast } from "@/components/ui/use-toast"
 import {
   type AgentOtelForm,
   type AgentOtelSignals,
+  agentOtelConfigToEnvMap,
   envLintExtensions,
+  envMapToAgentOtelConfig,
   envMapToForm,
   envTextToForm,
   formToEnvMap,
@@ -33,8 +28,6 @@ import {
 } from "@/lib/agent-otel"
 import { useOrgAgentOtelSettings } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
-
-const PROTOCOL_OPTIONS = ["http/protobuf", "http/json", "grpc"] as const
 
 /** Which editing surface the env config is shown in. */
 type EditMode = "form" | "raw"
@@ -72,7 +65,6 @@ const SIGNAL_LABELS: { key: keyof AgentOtelSignals; label: string }[] = [
 
 const EMPTY_FORM: AgentOtelForm = {
   endpoint: "",
-  protocol: "",
   metricIntervalMs: "",
   signals: { traces: false, metrics: false, logs: false },
   advancedEnv: "",
@@ -111,7 +103,7 @@ export function OrgAgentOtelSettings() {
   const [mode, setMode] = useState<EditMode>("form")
   const [rawEnv, setRawEnv] = useState("")
   const [headerRows, setHeaderRows] = useState<HeaderRow[]>([])
-  const [headersDirty, setHeadersDirty] = useState(false)
+  const [clearSavedHeaders, setClearSavedHeaders] = useState(false)
 
   // Seed form state from server values once they load.
   useEffect(() => {
@@ -119,11 +111,13 @@ export function OrgAgentOtelSettings() {
       return
     }
     setEnabled(agentOtelSettings.agent_otel_config?.enabled ?? false)
-    setForm(envMapToForm(agentOtelSettings.agent_otel_config?.env ?? {}))
+    setForm(
+      envMapToForm(agentOtelConfigToEnvMap(agentOtelSettings.agent_otel_config))
+    )
     setMode("form")
     setRawEnv("")
     setHeaderRows([])
-    setHeadersDirty(false)
+    setClearSavedHeaders(false)
   }, [agentOtelSettings])
 
   function updateForm(patch: Partial<AgentOtelForm>) {
@@ -143,6 +137,17 @@ export function OrgAgentOtelSettings() {
       return
     }
     // Leaving raw: parse the buffer back into structured fields.
+    const issues = validateEnvText(rawEnv, {
+      requireOtlpEndpoint: enabled,
+    })
+    if (issues.length > 0) {
+      const first = issues[0]
+      toast({
+        title: "Invalid environment",
+        description: `Line ${first.lineNumber}: ${first.message}`,
+      })
+      return
+    }
     setForm(envTextToForm(rawEnv))
     setMode("form")
   }
@@ -155,29 +160,37 @@ export function OrgAgentOtelSettings() {
   }
 
   function handleHeaderRowChange(id: string, patch: Partial<HeaderRow>): void {
-    setHeadersDirty(true)
+    setClearSavedHeaders(false)
     setHeaderRows((prev) =>
       prev.map((row) => (row.id === id ? { ...row, ...patch } : row))
     )
   }
 
   function handleAddHeaderRow() {
-    setHeadersDirty(true)
+    setClearSavedHeaders(false)
     setHeaderRows((prev) => [...prev, newHeaderRow()])
   }
 
   function handleRemoveHeaderRow(id: string) {
-    setHeadersDirty(true)
     setHeaderRows((prev) => prev.filter((row) => row.id !== id))
+  }
+
+  function handleClearSavedHeaders() {
+    setHeaderRows([])
+    setClearSavedHeaders(true)
   }
 
   function handleReset() {
     setEnabled(agentOtelSettings?.agent_otel_config?.enabled ?? false)
-    setForm(envMapToForm(agentOtelSettings?.agent_otel_config?.env ?? {}))
+    setForm(
+      envMapToForm(
+        agentOtelConfigToEnvMap(agentOtelSettings?.agent_otel_config)
+      )
+    )
     setMode("form")
     setRawEnv("")
     setHeaderRows([])
-    setHeadersDirty(false)
+    setClearSavedHeaders(false)
   }
 
   // Serialize header rows into a name -> value map for validation and save.
@@ -197,13 +210,32 @@ export function OrgAgentOtelSettings() {
   // the merged-map rules via `validateForm`, and additionally line-validate the
   // Advanced tail so dupes/malformed lines there are blocked client-side instead
   // of being silently dropped on save (the backend would reject them anyway).
-  const rawIssues = mode === "raw" ? validateEnvText(rawEnv) : []
+  const rawIssues =
+    mode === "raw"
+      ? validateEnvText(rawEnv, { requireOtlpEndpoint: enabled })
+      : []
   const advancedIssues =
-    mode === "form" ? validateEnvText(form.advancedEnv) : []
-  const formIssues = mode === "form" ? validateForm(form) : []
+    mode === "form"
+      ? validateEnvText(form.advancedEnv, { requireOtlpEndpoint: enabled })
+      : []
+  const formIssues =
+    mode === "form" ? validateForm(form, { requireOtlpEndpoint: enabled }) : []
+  const nonEmptyHeaderRows = headerRows.filter(
+    (row) => row.name.trim() !== "" || row.value.trim() !== ""
+  )
+  const headersDirty = nonEmptyHeaderRows.length > 0
   const headersJson = headerRowsToJson()
-  const headerIssues =
-    headersDirty && headersJson !== "" ? validateHeadersJson(headersJson) : []
+  const hasIncompleteHeaderRow = nonEmptyHeaderRows.some(
+    (row) => row.name.trim() === "" || row.value.trim() === ""
+  )
+  let headerIssues: string[] = []
+  if (hasIncompleteHeaderRow) {
+    headerIssues = [
+      "Headers must map non-empty names to non-empty string values.",
+    ]
+  } else if (headersDirty) {
+    headerIssues = validateHeadersJson(headersJson)
+  }
   const hasIssues =
     rawIssues.length > 0 ||
     advancedIssues.length > 0 ||
@@ -233,24 +265,23 @@ export function OrgAgentOtelSettings() {
     const env =
       mode === "raw" ? formToEnvMap(envTextToForm(rawEnv)) : formToEnvMap(form)
 
-    // Headers semantics: untouched -> omit; cleared -> {}; non-empty -> replace.
-    let headersField: Record<string, string> | null | undefined
-    if (!headersDirty) {
-      headersField = undefined
-    } else if (headersJson === "") {
+    // Only an explicit clear action replaces saved write-only headers with {}.
+    // Blank or removed draft rows otherwise leave the saved value unchanged.
+    let headersField: Record<string, string> | undefined
+    if (clearSavedHeaders) {
       headersField = {}
-    } else {
+    } else if (headersDirty) {
       headersField = parseHeadersJson(headersJson)
     }
 
     await updateAgentOtelSettings({
       requestBody: {
-        agent_otel_config: { enabled, env },
+        agent_otel_config: envMapToAgentOtelConfig(enabled, env),
         agent_otel_headers: headersField,
       },
     })
     setHeaderRows([])
-    setHeadersDirty(false)
+    setClearSavedHeaders(false)
   }
 
   const saveDisabled =
@@ -327,48 +358,24 @@ export function OrgAgentOtelSettings() {
               />
             </div>
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="otel-protocol" className="text-xs">
-                  Protocol
-                </Label>
-                <Select
-                  value={form.protocol}
-                  onValueChange={(value) => updateForm({ protocol: value })}
-                  disabled={!enabled}
-                >
-                  <SelectTrigger id="otel-protocol" className="text-xs">
-                    <SelectValue placeholder="Select a protocol" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PROTOCOL_OPTIONS.map((option) => (
-                      <SelectItem key={option} value={option}>
-                        {option}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="otel-metric-interval" className="text-xs">
-                  Export interval (ms)
-                </Label>
-                <Input
-                  id="otel-metric-interval"
-                  type="number"
-                  min={1}
-                  step={1}
-                  inputMode="numeric"
-                  value={form.metricIntervalMs}
-                  onChange={(e) =>
-                    updateForm({ metricIntervalMs: e.target.value })
-                  }
-                  disabled={!enabled}
-                  placeholder="60000"
-                  className="text-xs"
-                />
-              </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="otel-metric-interval" className="text-xs">
+                Export interval (ms)
+              </Label>
+              <Input
+                id="otel-metric-interval"
+                type="number"
+                min={1}
+                step={1}
+                inputMode="numeric"
+                value={form.metricIntervalMs}
+                onChange={(e) =>
+                  updateForm({ metricIntervalMs: e.target.value })
+                }
+                disabled={!enabled}
+                placeholder="60000"
+                className="text-xs"
+              />
             </div>
 
             <div className="space-y-2">
@@ -463,15 +470,32 @@ export function OrgAgentOtelSettings() {
               ))}
             </div>
           )}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={handleAddHeaderRow}
-            disabled={!enabled}
-          >
-            Add header
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleAddHeaderRow}
+              disabled={!enabled}
+            >
+              Add header
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleClearSavedHeaders}
+              disabled={!enabled || clearSavedHeaders}
+              className="text-destructive hover:text-destructive"
+            >
+              Clear saved headers
+            </Button>
+          </div>
+          {clearSavedHeaders && (
+            <p className="text-xs text-muted-foreground">
+              Saved headers will be cleared when you save.
+            </p>
+          )}
         </div>
       </div>
 
