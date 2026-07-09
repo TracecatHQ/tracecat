@@ -7,11 +7,14 @@ import os
 import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
+from asyncpg import UniqueViolationError
 from dotenv import dotenv_values
 from pydantic import ValidationError
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from tests.database import TEST_DB_CONFIG
@@ -36,9 +39,10 @@ from tracecat.agent.skill.schemas import (
     SkillVersionPublish,
     SkillVersionReadMinimal,
 )
-from tracecat.agent.skill.service import SkillService
+from tracecat.agent.skill.service import SKILL_SLUG_UNIQUE_CONSTRAINT, SkillService
 from tracecat.auth.types import Role
 from tracecat.db.models import (
+    Skill,
     SkillBlob,
     SkillVersion,
     Workspace,
@@ -51,6 +55,16 @@ from tracecat.pagination import CursorPaginationParams
 from tracecat.storage.blob import ensure_bucket_exists
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+def _skill_slug_unique_violation() -> IntegrityError:
+    # The service helper duck-types constraint_name off the exception chain,
+    # so an Any-typed fake keeps pyright happy without touching psycopg types.
+    unique_violation: Any = UniqueViolationError("duplicate skill slug")
+    unique_violation.constraint_name = SKILL_SLUG_UNIQUE_CONSTRAINT
+    integrity_error = IntegrityError("INSERT INTO skill", {}, unique_violation)
+    integrity_error.__cause__ = unique_violation
+    return integrity_error
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -122,6 +136,19 @@ async def configure_minio_for_skills(
     await ensure_bucket_exists(minio_bucket)
 
 
+async def _legacy_archive_skill(session: AsyncSession, skill_id: uuid.UUID) -> datetime:
+    """Simulate an old app instance that writes only Skill.archived_at."""
+
+    skill = (
+        await session.execute(select(Skill).where(Skill.id == skill_id))
+    ).scalar_one()
+    archived_at = datetime.now(UTC)
+    skill.archived_at = archived_at
+    skill.deleted_at = None
+    await session.commit()
+    return archived_at
+
+
 @pytest.mark.anyio
 class TestSkillService:
     async def test_insert_blob_row_reuses_existing_blob_identity(
@@ -185,6 +212,166 @@ class TestSkillService:
         assert draft.name == "triage-skill"
         assert draft.description == "Handle security triage"
         assert [file.path for file in draft.files] == ["SKILL.md"]
+
+    async def test_create_skill_suffixes_live_duplicate_slug(
+        self,
+        skill_service: SkillService,
+        session: AsyncSession,
+        svc_role: Role,
+    ) -> None:
+        """Duplicate names stay allowed; the slug gets a deterministic suffix."""
+
+        created = await skill_service.create_skill(SkillCreate(name="unique-skill"))
+
+        second = await skill_service.create_skill(SkillCreate(name="unique-skill"))
+        third = await skill_service.create_skill(SkillCreate(name="unique-skill"))
+
+        assert second.name == "unique-skill"
+        assert second.slug == "unique-skill-2"
+        assert third.slug == "unique-skill-3"
+
+        other_workspace_id = uuid.uuid4()
+        session.add(
+            Workspace(
+                id=other_workspace_id,
+                name="other-skill-workspace",
+                organization_id=svc_role.organization_id,
+            )
+        )
+        await session.commit()
+        other_service = SkillService(
+            session=session,
+            role=svc_role.model_copy(
+                update={"workspace_id": other_workspace_id},
+                deep=True,
+            ),
+        )
+
+        other_created = await other_service.create_skill(
+            SkillCreate(name="unique-skill")
+        )
+
+        assert created.slug == "unique-skill"
+        assert other_created.slug == "unique-skill"
+        assert other_created.workspace_id == other_workspace_id
+
+    async def test_create_skill_suffixes_max_length_duplicate_slug(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Max-length names use truncated suffix candidates for each probe."""
+
+        max_length_name = "a" * 64
+
+        created = await skill_service.create_skill(SkillCreate(name=max_length_name))
+        second = await skill_service.create_skill(SkillCreate(name=max_length_name))
+        third = await skill_service.create_skill(SkillCreate(name=max_length_name))
+
+        assert created.slug == max_length_name
+        assert second.slug == f"{max_length_name[:62]}-2"
+        assert third.slug == f"{max_length_name[:62]}-3"
+
+    async def test_create_skill_retries_slug_unique_violation(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Slug unique races roll back, reallocate, and retry the insert."""
+
+        allocated_slugs = ["race-skill", "race-skill-2"]
+        original_flush = skill_service.session.flush
+        original_rollback = skill_service.session.rollback
+        flush_calls = 0
+        rollback_calls = 0
+
+        async def allocate_slug(_desired: str) -> str:
+            return allocated_slugs.pop(0)
+
+        async def flush_once_then_succeed(*args: Any, **kwargs: Any) -> None:
+            nonlocal flush_calls
+            flush_calls += 1
+            if flush_calls == 1:
+                raise _skill_slug_unique_violation()
+            await original_flush(*args, **kwargs)
+
+        async def rollback_and_count() -> None:
+            nonlocal rollback_calls
+            rollback_calls += 1
+            await original_rollback()
+
+        monkeypatch.setattr(skill_service, "_allocate_skill_slug", allocate_slug)
+        monkeypatch.setattr(skill_service.session, "flush", flush_once_then_succeed)
+        monkeypatch.setattr(skill_service.session, "rollback", rollback_and_count)
+
+        created = await skill_service.create_skill(SkillCreate(name="race-skill"))
+
+        assert created.slug == "race-skill-2"
+        assert flush_calls >= 3
+        assert rollback_calls == 1
+        assert allocated_slugs == []
+
+    async def test_create_skill_reuses_slug_after_soft_delete(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Soft-deleted skill slugs can be reused by new live skills."""
+
+        deleted = await skill_service.create_skill(SkillCreate(name="reused-skill"))
+        await skill_service.archive_skill(deleted.id)
+
+        recreated = await skill_service.create_skill(SkillCreate(name="reused-skill"))
+
+        assert recreated.id != deleted.id
+        assert recreated.slug == deleted.slug
+
+    async def test_create_skill_reuses_slug_of_legacy_archived_row(
+        self,
+        skill_service: SkillService,
+        session: AsyncSession,
+    ) -> None:
+        """Rows archived by legacy pods (``archived_at`` set, ``deleted_at``
+        NULL) are effectively dead and must not reserve their slug — the
+        service check matches the ``uq_skill_workspace_slug_active`` partial
+        index predicate, which frees the slug for live rows.
+        """
+
+        legacy = await skill_service.create_skill(SkillCreate(name="legacy-archived"))
+        legacy_row = (
+            await session.execute(select(Skill).where(Skill.id == legacy.id))
+        ).scalar_one()
+        legacy_row.archived_at = datetime.now(UTC)
+        assert legacy_row.deleted_at is None
+        await session.commit()
+
+        recreated = await skill_service.create_skill(
+            SkillCreate(name="legacy-archived")
+        )
+
+        assert recreated.id != legacy.id
+        assert recreated.slug == legacy.slug
+
+    async def test_create_skill_reserves_slugless_legacy_row_name(
+        self,
+        skill_service: SkillService,
+        session: AsyncSession,
+    ) -> None:
+        """Live legacy rows without a slug reserve their name as a slug.
+
+        Old pods insert skills with ``slug IS NULL`` during the expand
+        window and reads project their name as the slug, so allocation must
+        treat that name as taken to keep apparent slugs live-unique.
+        """
+
+        legacy = await skill_service.create_skill(SkillCreate(name="legacy-slugless"))
+        legacy_row = (
+            await session.execute(select(Skill).where(Skill.id == legacy.id))
+        ).scalar_one()
+        legacy_row.slug = None
+        await session.commit()
+
+        created = await skill_service.create_skill(SkillCreate(name="legacy-slugless"))
+
+        assert created.slug == "legacy-slugless-2"
 
     async def test_create_skill_preserves_multiline_description(
         self,
@@ -637,6 +824,8 @@ class TestSkillService:
         assert isinstance(listing.items[0], SkillReadMinimal)
         assert listing.items[0].id == created.id
         assert listing.items[0].name == created.name
+        # List responses expose the late-binding handle callers bind with.
+        assert listing.items[0].slug == created.slug
 
     async def test_list_skills_excludes_archived_skills(
         self,
@@ -660,67 +849,159 @@ class TestSkillService:
         assert listing.items[0].id == active.id
         assert listing.items[0].name == active.name
 
-    async def test_get_skill_by_identifier_accepts_uuid_or_name(
+    async def test_get_skill_by_identifier_accepts_uuid_or_slug(
         self,
         skill_service: SkillService,
     ) -> None:
+        """Identifiers resolve by UUID or live slug."""
+
         created = await skill_service.create_skill(SkillCreate(name="lookup-skill"))
 
         by_uuid = await skill_service.get_skill_by_identifier(created.id)
         by_uuid_string = await skill_service.get_skill_by_identifier(str(created.id))
-        by_name = await skill_service.get_skill_by_identifier("lookup-skill")
+        by_slug = await skill_service.get_skill_by_identifier(created.slug)
 
         assert by_uuid is not None
         assert by_uuid.id == created.id
         assert by_uuid_string is not None
         assert by_uuid_string.id == created.id
-        assert by_name is not None
-        assert by_name.id == created.id
+        assert by_slug is not None
+        assert by_slug.id == created.id
 
-    async def test_get_skill_by_identifier_falls_back_to_uuid_like_name(
+    async def test_get_skill_by_identifier_falls_back_to_uuid_like_slug(
         self,
         skill_service: SkillService,
     ) -> None:
-        uuid_like_name = "00000000-0000-4000-8000-000000000001"
-        created = await skill_service.create_skill(SkillCreate(name=uuid_like_name))
+        """UUID-shaped slugs remain reachable when no skill ID matches."""
 
-        by_uuid_like_name = await skill_service.get_skill_by_identifier(uuid_like_name)
+        uuid_like_slug = "00000000-0000-4000-8000-000000000001"
+        created = await skill_service.create_skill(SkillCreate(name=uuid_like_slug))
 
-        assert by_uuid_like_name is not None
-        assert by_uuid_like_name.id == created.id
+        by_uuid_like_slug = await skill_service.get_skill_by_identifier(uuid_like_slug)
 
-    async def test_get_skill_by_identifier_rejects_ambiguous_names(
+        assert by_uuid_like_slug is not None
+        assert by_uuid_like_slug.id == created.id
+
+    async def test_get_skill_by_identifier_resolves_slugless_legacy_row(
+        self,
+        skill_service: SkillService,
+        session: AsyncSession,
+    ) -> None:
+        """Live legacy rows without a slug stay reachable by their name.
+
+        Old pods insert skills with ``slug IS NULL`` during the expand
+        window; reads advertise their name as the slug, so identifier
+        lookup must honor it. An exact slug match wins over the fallback.
+        """
+
+        legacy = await skill_service.create_skill(SkillCreate(name="legacy-lookup"))
+        legacy_row = (
+            await session.execute(select(Skill).where(Skill.id == legacy.id))
+        ).scalar_one()
+        legacy_row.slug = None
+        await session.commit()
+
+        resolved = await skill_service.get_skill_by_identifier("legacy-lookup")
+
+        assert resolved is not None
+        assert resolved.id == legacy.id
+
+        exact = await skill_service.create_skill(SkillCreate(name="legacy-lookup"))
+        assert exact.slug == "legacy-lookup-2"
+        exact_row = (
+            await session.execute(select(Skill).where(Skill.id == exact.id))
+        ).scalar_one()
+        exact_row.slug = "legacy-lookup"
+        await session.commit()
+
+        resolved_exact = await skill_service.get_skill_by_identifier("legacy-lookup")
+
+        assert resolved_exact is not None
+        assert resolved_exact.id == exact.id
+
+    async def test_get_skill_by_identifier_ambiguous_legacy_rows_raise(
+        self,
+        skill_service: SkillService,
+        session: AsyncSession,
+    ) -> None:
+        """Two live legacy rows projecting the same fallback slug fail loud.
+
+        ``uq_skill_workspace_slug_active`` does not constrain NULL slugs and
+        old pods enforced no name uniqueness, so the expand window can leave
+        two live same-name slugless rows. Resolving one silently would be a
+        silent substitution; the lookup must raise instead. The edge
+        disappears at contract when slugs are backfilled NOT NULL.
+        """
+
+        first = await skill_service.create_skill(SkillCreate(name="legacy-dup"))
+        second = await skill_service.create_skill(SkillCreate(name="legacy-dup"))
+        rows = (
+            (
+                await session.execute(
+                    select(Skill).where(Skill.id.in_([first.id, second.id]))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for row in rows:
+            row.name = "legacy-dup"
+            row.slug = None
+        await session.commit()
+
+        with pytest.raises(TracecatValidationError, match="ambiguous"):
+            await skill_service.get_skill_by_identifier("legacy-dup")
+
+    async def test_get_skill_by_identifier_prefers_id_over_matching_slug(
         self,
         skill_service: SkillService,
     ) -> None:
-        await skill_service.create_skill(SkillCreate(name="duplicate-skill"))
-        await skill_service.create_skill(SkillCreate(name="duplicate-skill"))
-
-        with pytest.raises(TracecatValidationError) as exc_info:
-            await skill_service.get_skill_by_identifier("duplicate-skill")
-
-        assert exc_info.value.detail == {
-            "code": "ambiguous_skill_id",
-            "skill_id": "duplicate-skill",
-        }
-
-    async def test_get_skill_by_identifier_rejects_id_name_collision(
-        self,
-        skill_service: SkillService,
-    ) -> None:
-        """A UUID-like identifier matching one skill's id and a different
-        skill's name must be reported as ambiguous, not silently resolved."""
+        """A UUID string matching one ID and another slug resolves to the ID."""
 
         by_id = await skill_service.create_skill(SkillCreate(name="collision-id"))
-        await skill_service.create_skill(SkillCreate(name=str(by_id.id)))
+        by_slug = await skill_service.create_skill(SkillCreate(name=str(by_id.id)))
 
-        with pytest.raises(TracecatValidationError) as exc_info:
-            await skill_service.get_skill_by_identifier(str(by_id.id))
+        resolved = await skill_service.get_skill_by_identifier(str(by_id.id))
 
-        assert exc_info.value.detail == {
-            "code": "ambiguous_skill_id",
-            "skill_id": str(by_id.id),
-        }
+        assert resolved is not None
+        assert resolved.id == by_id.id
+        assert resolved.id != by_slug.id
+
+    async def test_get_skill_by_identifier_excludes_soft_deleted_slugs(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Slug lookup ignores soft-deleted rows."""
+
+        deleted = await skill_service.create_skill(SkillCreate(name="deleted-lookup"))
+
+        await skill_service.archive_skill(deleted.id)
+
+        assert await skill_service.get_skill_by_identifier(deleted.slug) is None
+
+    async def test_get_skill_by_identifier_recreated_slug_resolves_to_new_skill(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Reused slugs resolve to the new live skill, not the tombstone."""
+
+        deleted = await skill_service.create_skill(SkillCreate(name="recreated-lookup"))
+        await skill_service.archive_skill(deleted.id)
+        recreated = await skill_service.create_skill(SkillCreate(name=deleted.slug))
+
+        resolved = await skill_service.get_skill_by_identifier(deleted.slug)
+
+        assert resolved is not None
+        assert resolved.id == recreated.id
+        assert resolved.id != deleted.id
+
+    async def test_get_skill_by_identifier_unknown_returns_none(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Unknown identifiers remain not found."""
+
+        assert await skill_service.get_skill_by_identifier("missing-skill") is None
 
     async def test_patch_draft_enforces_revision(
         self,
@@ -1747,6 +2028,77 @@ class TestSkillService:
         assert restored_file.text_content == "Version two"
         assert version_two.name == "version-two"
 
+    async def test_skill_rename_and_restore_leave_slug_stable(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Changing a skill name through publish or restore does not move slug."""
+
+        created = await skill_service.create_skill(SkillCreate(name="stable-skill"))
+        original_slug = created.slug
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        await skill_service.patch_draft(
+            skill_id=created.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content=(
+                            "---\n"
+                            "name: first-renamed-skill\n"
+                            "description: First name\n"
+                            "---\n\n"
+                            "# First renamed skill\n"
+                        ),
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            ),
+        )
+        first_version = await skill_service.publish_skill(created.id)
+
+        first_read = await skill_service.get_skill_read(created.id)
+        assert first_read is not None
+        assert first_read.name == "first-renamed-skill"
+        assert first_read.slug == original_slug
+
+        current_draft = await skill_service.get_draft(created.id)
+        assert current_draft is not None
+        await skill_service.patch_draft(
+            skill_id=created.id,
+            params=SkillDraftPatch(
+                base_revision=current_draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content=(
+                            "---\n"
+                            "name: second-renamed-skill\n"
+                            "description: Second name\n"
+                            "---\n\n"
+                            "# Second renamed skill\n"
+                        ),
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            ),
+        )
+        await skill_service.publish_skill(created.id)
+
+        restored = await skill_service.restore_version(
+            skill_id=created.id,
+            version_id=first_version.id,
+        )
+        restored_read = await skill_service.get_skill_read(created.id)
+
+        assert restored.name == "first-renamed-skill"
+        assert restored_read is not None
+        assert restored_read.name == "first-renamed-skill"
+        assert restored_read.slug == original_slug
+
     async def test_skill_read_metadata_tracks_current_version_not_draft(
         self,
         skill_service: SkillService,
@@ -2075,6 +2427,7 @@ class TestSkillService:
         archived = await skill_service.get_skill(created.id, include_archived=True)
         assert archived is not None
         assert archived.archived_at is not None
+        assert archived.deleted_at == archived.archived_at
 
     async def test_archive_allows_when_only_soft_deleted_preset_references_skill(
         self,
@@ -2112,6 +2465,119 @@ class TestSkillService:
         archived = await skill_service.get_skill(created.id, include_archived=True)
         assert archived is not None
         assert archived.archived_at is not None
+        assert archived.deleted_at == archived.archived_at
+
+    async def test_archive_skill_dual_writes_archive_and_delete_timestamps(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Archiving a skill writes both legacy and canonical tombstone columns."""
+
+        created = await skill_service.create_skill(SkillCreate(name="dual-write"))
+
+        await skill_service.archive_skill(created.id)
+
+        archived = await skill_service.get_skill(created.id, include_archived=True)
+        assert archived is not None
+        assert archived.archived_at is not None
+        assert archived.deleted_at == archived.archived_at
+
+    async def test_legacy_archived_skill_is_hidden_from_active_lookups(
+        self,
+        session: AsyncSession,
+        skill_service: SkillService,
+    ) -> None:
+        """Legacy archived-only skills are excluded from every active read path."""
+
+        created = await skill_service.create_skill(SkillCreate(name="legacy-archive"))
+        active = await skill_service.create_skill(SkillCreate(name="still-active"))
+
+        await _legacy_archive_skill(session, created.id)
+
+        listing = await skill_service.list_skills(CursorPaginationParams(limit=10))
+
+        assert [skill.id for skill in listing.items] == [active.id]
+        assert await skill_service.get_skill(created.id) is None
+        assert await skill_service.get_skill_by_identifier(created.id) is None
+        assert await skill_service.get_skill_by_identifier(created.slug) is None
+        assert await skill_service.get_skill_read(created.id) is None
+
+    async def test_legacy_archived_skill_binding_and_resolution_treat_as_archived(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        skill_service: SkillService,
+    ) -> None:
+        """Legacy archived-only skills remain unbindable and resolve as archived."""
+
+        created = await skill_service.create_skill(
+            SkillCreate(name="legacy-resolution")
+        )
+        skill_version = await skill_service.publish_skill(created.id)
+        preset_service = AgentPresetService(session=session, role=svc_role)
+        preset = await preset_service.create_preset(
+            AgentPresetCreate(
+                name="Legacy archived preset",
+                description="Preset with a legacy archived skill",
+                instructions="Use the selected skill",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=created.id,
+                        skill_version_id=skill_version.id,
+                    )
+                ],
+            )
+        )
+        assert preset.current_version_id is not None
+
+        await _legacy_archive_skill(session, created.id)
+
+        with pytest.raises(TracecatValidationError) as bind_exc_info:
+            await skill_service.validate_binding_inputs(
+                [
+                    AgentPresetSkillBindingBase(
+                        skill_id=created.id,
+                        skill_version_id=skill_version.id,
+                    )
+                ]
+            )
+        bind_detail = bind_exc_info.value.detail
+        assert bind_detail is not None
+        assert bind_detail["code"] == "skill_not_found"
+
+        for use_latest_versions in (False, True):
+            with pytest.raises(TracecatValidationError) as resolve_exc_info:
+                await skill_service.get_resolved_skill_refs_for_preset_version(
+                    preset.current_version_id,
+                    use_latest_versions=use_latest_versions,
+                )
+            resolve_detail = resolve_exc_info.value.detail
+            assert resolve_detail is not None
+            assert resolve_detail["code"] == "skill_archived"
+            assert str(created.id) in str(resolve_detail["skills"])
+
+    async def test_legacy_archived_skill_api_projection_reports_deleted_at(
+        self,
+        session: AsyncSession,
+        skill_service: SkillService,
+    ) -> None:
+        """Legacy archived-only API projections expose a deleted_at tombstone."""
+
+        created = await skill_service.create_skill(SkillCreate(name="legacy-api-read"))
+        legacy_archived_at = await _legacy_archive_skill(session, created.id)
+
+        archived = await skill_service.get_skill(created.id, include_archived=True)
+        assert archived is not None
+        assert archived.archived_at == legacy_archived_at
+        assert archived.deleted_at is None
+
+        full_read = await skill_service._build_skill_read(archived)
+        minimal_read = skill_service._build_skill_read_minimal(archived)
+
+        assert full_read.deleted_at == legacy_archived_at
+        assert minimal_read.deleted_at == legacy_archived_at
 
     async def test_archive_skill_locks_skill_row(
         self,
@@ -2144,3 +2610,4 @@ class TestSkillService:
         assert lock_calls == 1
         assert archived is not None
         assert archived.archived_at is not None
+        assert archived.deleted_at == archived.archived_at

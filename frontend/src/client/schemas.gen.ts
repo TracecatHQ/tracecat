@@ -23482,6 +23482,10 @@ export const $SkillRead = {
       type: "string",
       title: "Name",
     },
+    slug: {
+      type: "string",
+      title: "Slug",
+    },
     description: {
       anyOf: [
         {
@@ -23519,7 +23523,7 @@ export const $SkillRead = {
       format: "date-time",
       title: "Updated At",
     },
-    archived_at: {
+    deleted_at: {
       anyOf: [
         {
           type: "string",
@@ -23529,7 +23533,7 @@ export const $SkillRead = {
           type: "null",
         },
       ],
-      title: "Archived At",
+      title: "Deleted At",
     },
     current_version: {
       anyOf: [
@@ -23562,6 +23566,7 @@ export const $SkillRead = {
     "id",
     "workspace_id",
     "name",
+    "slug",
     "draft_revision",
     "created_at",
     "updated_at",
@@ -23587,6 +23592,10 @@ export const $SkillReadMinimal = {
     name: {
       type: "string",
       title: "Name",
+    },
+    slug: {
+      type: "string",
+      title: "Slug",
     },
     description: {
       anyOf: [
@@ -23621,7 +23630,7 @@ export const $SkillReadMinimal = {
       format: "date-time",
       title: "Updated At",
     },
-    archived_at: {
+    deleted_at: {
       anyOf: [
         {
           type: "string",
@@ -23631,13 +23640,17 @@ export const $SkillReadMinimal = {
           type: "null",
         },
       ],
-      title: "Archived At",
+      title: "Deleted At",
     },
   },
   type: "object",
-  required: ["id", "workspace_id", "name", "created_at", "updated_at"],
+  required: ["id", "workspace_id", "name", "slug", "created_at", "updated_at"],
   title: "SkillReadMinimal",
-  description: "Minimal response model for listing workspace skills.",
+  description: `Minimal response model for listing workspace skills.
+
+\`\`slug\`\` is the late-binding handle every skill API accepts; list
+responses must expose it so callers never have to guess it from \`\`name\`\`
+(names are not unique — slugs are, per live row).`,
 } as const
 
 export const $SkillUpload = {

@@ -7029,12 +7029,13 @@ export type SkillRead = {
   id: string
   workspace_id: string
   name: string
+  slug: string
   description?: string | null
   current_version_id?: string | null
   draft_revision: number
   created_at: string
   updated_at: string
-  archived_at?: string | null
+  deleted_at?: string | null
   current_version?: SkillVersionReadMinimal | null
   is_draft_publishable: boolean
   draft_validation_errors?: Array<SkillValidationErrorDetail>
@@ -7043,16 +7044,21 @@ export type SkillRead = {
 
 /**
  * Minimal response model for listing workspace skills.
+ *
+ * ``slug`` is the late-binding handle every skill API accepts; list
+ * responses must expose it so callers never have to guess it from ``name``
+ * (names are not unique — slugs are, per live row).
  */
 export type SkillReadMinimal = {
   id: string
   workspace_id: string
   name: string
+  slug: string
   description?: string | null
   current_version_id?: string | null
   created_at: string
   updated_at: string
-  archived_at?: string | null
+  deleted_at?: string | null
 }
 
 /**

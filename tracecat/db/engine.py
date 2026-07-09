@@ -13,6 +13,7 @@ from tracecat import config
 from tracecat.contexts import ctx_role
 from tracecat.db import (
     session_events,  # noqa: F401  # pyright: ignore[reportUnusedImport] - side effect import to register listeners
+    soft_delete,  # noqa: F401  # pyright: ignore[reportUnusedImport] - side effect import to register listeners
 )
 from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 
