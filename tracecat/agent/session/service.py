@@ -130,6 +130,7 @@ from tracecat.db.models import (
     APPROVAL_STATUS_ENUM,
     AgentSession,
     AgentSessionHistory,
+    AgentTurnProvenance,
     Approval,
     Case,
     Chat,
@@ -413,6 +414,29 @@ class AgentSessionService(BaseWorkspaceService):
         scopes = (self.role.scopes or frozenset()) | AGENT_SESSION_EXECUTION_SCOPES
         return self.role.model_copy(update={"scopes": scopes})
 
+    def _stage_root_only_turn_provenance(
+        self,
+        *,
+        session_id: uuid.UUID,
+        run_id: uuid.UUID,
+        config: AgentConfig,
+    ) -> None:
+        """Stage root-only resolution provenance when no subagent activity will run."""
+
+        if config.resolved_refs is None:
+            return
+        if config.agents.enabled and config.agents.subagents:
+            return
+
+        self.session.add(
+            AgentTurnProvenance(
+                workspace_id=self.workspace_id,
+                session_id=session_id,
+                wf_exec_id=str(run_id),
+                resolved_refs=config.resolved_refs.model_dump(mode="json"),
+            )
+        )
+
     async def _get_default_tools(self, entity_type: AgentSessionEntity) -> list[str]:
         """Get entitlement-aware default tools for a session entity type."""
         agent_addons_enabled = True
@@ -550,7 +574,7 @@ class AgentSessionService(BaseWorkspaceService):
             entity_id=args.entity_id,
             agent_preset_id=args.agent_preset_id,
         )
-        pinned_preset_version_id = await self._validate_preset_version_for_assignment(
+        selected_preset_version_id = await self._validate_preset_version_for_assignment(
             entity_type=args.entity_type,
             entity_id=args.entity_id,
             agent_preset_id=args.agent_preset_id,
@@ -561,7 +585,7 @@ class AgentSessionService(BaseWorkspaceService):
         else:
             resolved_agents_binding = (
                 await self._resolve_agents_binding_for_preset_version_id(
-                    pinned_preset_version_id
+                    selected_preset_version_id
                 )
             )
         await self._validate_session_mcp_integrations(args.mcp_integrations)
@@ -577,7 +601,7 @@ class AgentSessionService(BaseWorkspaceService):
             tools=tools,
             mcp_integrations=args.mcp_integrations,
             agent_preset_id=logical_preset_id,
-            agent_preset_version_id=pinned_preset_version_id,
+            agent_preset_version_id=selected_preset_version_id,
             agents_binding=resolved_agents_binding,
             # Harness
             harness_type=args.harness_type,
@@ -614,7 +638,7 @@ class AgentSessionService(BaseWorkspaceService):
         agent_preset_id: uuid.UUID | None,
         agent_preset_version_id: uuid.UUID | None,
     ) -> uuid.UUID | None:
-        """Validate and return the pinned preset version for a session assignment."""
+        """Validate and return an exact preset version selected for a session."""
         logical_preset_id = self._resolve_logical_preset_id(
             entity_type=entity_type,
             entity_id=entity_id,
@@ -645,7 +669,7 @@ class AgentSessionService(BaseWorkspaceService):
     async def _resolve_agents_binding_for_preset_version_id(
         self, preset_version_id: uuid.UUID | None
     ) -> dict[str, Any] | None:
-        """Resolve the normalized subagent binding for a pinned preset version."""
+        """Resolve the normalized subagent binding for an exact preset version."""
         if preset_version_id is None:
             return None
 
@@ -1005,7 +1029,7 @@ class AgentSessionService(BaseWorkspaceService):
                 if preset_id_updated and (
                     requested_preset_id != agent_session.agent_preset_id
                 ):
-                    pinned_version_id = (
+                    selected_version_id = (
                         await self._validate_preset_version_for_assignment(
                             entity_type=entity_type,
                             entity_id=agent_session.entity_id,
@@ -1016,9 +1040,9 @@ class AgentSessionService(BaseWorkspaceService):
                         )
                     )
                 elif version_id_updated and requested_version_id is None:
-                    pinned_version_id = None
+                    selected_version_id = None
                 elif version_id_updated:
-                    pinned_version_id = (
+                    selected_version_id = (
                         await self._validate_preset_version_for_assignment(
                             entity_type=entity_type,
                             entity_id=agent_session.entity_id,
@@ -1027,12 +1051,12 @@ class AgentSessionService(BaseWorkspaceService):
                         )
                     )
                 else:
-                    pinned_version_id = requested_version_id
+                    selected_version_id = requested_version_id
                 agent_session.agent_preset_id = logical_preset_id
-                agent_session.agent_preset_version_id = pinned_version_id
+                agent_session.agent_preset_version_id = selected_version_id
                 agent_session.agents_binding = (
                     await self._resolve_agents_binding_for_preset_version_id(
-                        pinned_version_id
+                        selected_version_id
                     )
                 )
 
@@ -2094,6 +2118,13 @@ class AgentSessionService(BaseWorkspaceService):
         # Snapshot here so the detached task cannot overwrite a mid-flight rename.
         expected_title = agent_session.title
 
+        run_id = uuid.uuid4()
+        # Per-turn stream id: use the HTTP-minted id when provided, else mint
+        # one. Pinned into the workflow input so the worker producer writes to
+        # the same per-turn Redis key the reader joins (immune to the
+        # stale-turn overwrite race).
+        stream_id = active_stream_id or uuid.uuid4()
+
         # Build agent config and spawn workflow for new turn
         async with self._build_agent_config(agent_session) as agent_config:
             if request_instructions:
@@ -2109,12 +2140,11 @@ class AgentSessionService(BaseWorkspaceService):
                 await check_entitlement(
                     self.session, self.role, Entitlement.AGENT_ADDONS
                 )
-            run_id = uuid.uuid4()
-            # Per-turn stream id: use the HTTP-minted id when provided, else mint
-            # one. Pinned into the workflow input so the worker producer writes to
-            # the same per-turn Redis key the reader joins (immune to the
-            # stale-turn overwrite race).
-            stream_id = active_stream_id or uuid.uuid4()
+            self._stage_root_only_turn_provenance(
+                session_id=session_id,
+                run_id=run_id,
+                config=agent_config,
+            )
 
             args = RunAgentArgs(
                 user_prompt=user_prompt or "",
@@ -2876,6 +2906,10 @@ class AgentSessionService(BaseWorkspaceService):
                             catalog_id=preset_config.catalog_id,
                             actions=[],  # No tools for forked sessions
                             enable_thinking=preset_config.enable_thinking,
+                            # Value-only snapshot of what resolution saw; the
+                            # fork still strips tools/skills/subagents from
+                            # the runtime config itself.
+                            resolved_refs=preset_config.resolved_refs,
                         )
                 else:
                     # No preset - use org default model with fork context

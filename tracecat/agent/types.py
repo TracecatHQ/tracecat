@@ -18,6 +18,7 @@ from pydantic import Discriminator, TypeAdapter
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.constants import AGENT_TIMEOUT_SECONDS_DEFAULT
+from tracecat.agent.preset.resolved_refs import ResolvedRefs
 from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.config import (
@@ -163,6 +164,7 @@ class AgentConfig:
     enable_thinking: bool = True
     enable_internet_access: bool = False
     resolved_skills: list[ResolvedSkillRef] | None = None
+    resolved_refs: ResolvedRefs | None = None
     builtin_skills: list[str] | None = None
     """Names of built-in platform skills to stage into the agent's skills
     directory, independent of preset-bound ``resolved_skills``. Names only (not
