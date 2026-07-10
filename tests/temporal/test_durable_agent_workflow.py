@@ -991,6 +991,106 @@ async def test_agent_workflow_persists_refs_for_empty_binding_on_resume(
 
 @pytest.mark.anyio
 @pytest.mark.integration
+async def test_agent_workflow_uses_dispatch_resolved_agents_without_legacy_activity(
+    svc_role: Role,
+    temporal_client: Client,
+    agent_worker_factory,
+    mock_session_id: uuid.UUID,
+) -> None:
+    """Invariant: dispatch-resolved turns do not schedule legacy resolution."""
+    queue = f"test-agent-queue-{mock_session_id}"
+    child_ref = ResolvedAttachedSubagentRef(
+        preset="analyst",
+        preset_version=1,
+        preset_id=uuid.uuid4(),
+        preset_version_id=uuid.uuid4(),
+    )
+    root_config = AgentConfig(
+        model_name="claude-3-5-sonnet-20241022",
+        model_provider="anthropic",
+        actions=[],
+        agents=AgentSubagentsConfig(enabled=True, subagents=[child_ref]),
+    )
+    resolved_agents = ResolvedAgentsRuntimeConfig(
+        enabled=True,
+        subagents=[
+            ResolvedSubagentConfig(
+                binding=child_ref,
+                description="Stored analyst",
+                prompt="Complete the delegated analysis.",
+                config=agent_config_to_payload(
+                    AgentConfig(
+                        model_name="claude-3-5-sonnet-20241022",
+                        model_provider="anthropic",
+                        actions=[],
+                    )
+                ),
+            )
+        ],
+    )
+    create_inputs: list[CreateSessionInput] = []
+    agent_inputs: list[AgentExecutorInput] = []
+
+    @activity.defn(name="create_session_activity")
+    async def mock_create_session_activity(
+        input: CreateSessionInput,
+    ) -> CreateSessionResult:
+        create_inputs.append(input)
+        return CreateSessionResult(session_id=input.session_id, success=True)
+
+    @activity.defn(name="run_agent_activity")
+    async def mock_run_agent_activity(
+        input: AgentExecutorInput,
+    ) -> AgentExecutorResult:
+        agent_inputs.append(input)
+        return AgentExecutorResult(success=True, output={"status": "ok"})
+
+    workflow_args = AgentWorkflowArgs(
+        role=svc_role,
+        agent_args=RunAgentArgs(
+            session_id=mock_session_id,
+            user_prompt="Use the dispatch snapshot",
+            config=root_config,
+            resolved_agents_config=resolved_agents,
+        ),
+        entity_type=AgentSessionEntity.WORKFLOW,
+        entity_id=uuid.uuid4(),
+        resolved_agent_config=agent_config_to_payload(root_config),
+    )
+
+    activities = [
+        mock_create_session_activity,
+        create_mock_load_session_activity(),
+        create_mock_load_session_messages_activity(),
+        create_mock_build_tool_definitions_activity(),
+        mock_run_agent_activity,
+        create_mock_execute_action_activity(),
+        create_mock_reconcile_tool_results_activity(),
+        *ApprovalManager.get_activities(),
+    ]
+
+    async with agent_worker_factory(
+        temporal_client, task_queue=queue, custom_activities=activities
+    ):
+        result = await temporal_client.execute_workflow(
+            DurableAgentWorkflow.run,
+            workflow_args,
+            id=AgentWorkflowID(mock_session_id),
+            task_queue=queue,
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            execution_timeout=timedelta(seconds=30),
+        )
+
+    assert result.session_id == mock_session_id
+    assert result.output == {"status": "ok"}
+    assert len(create_inputs) == 1
+    assert create_inputs[0].agents_binding is None
+    assert len(agent_inputs) == 1
+    assert [subagent.alias for subagent in agent_inputs[0].subagents] == ["analyst"]
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
 async def test_agent_workflow_preserves_legacy_activity_message_history(
     svc_role: Role,
     temporal_client: Client,

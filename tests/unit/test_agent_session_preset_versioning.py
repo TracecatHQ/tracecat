@@ -7,16 +7,26 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.preset.resolved_refs import ResolvedRef, ResolvedRefs
+from tracecat.agent.preset.resolver import ResolvedAgentsRuntimeConfig
+from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
+from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.session.schemas import AgentSessionCreate, AgentSessionUpdate
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
-from tracecat.agent.subagents import ResolvedAgentsConfig
+from tracecat.agent.subagents import (
+    AgentSubagentsConfig,
+    ResolvedAgentsConfig,
+    ResolvedAttachedSubagentRef,
+)
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
+from tracecat.chat.enums import MessageKind
+from tracecat.chat.schemas import BasicChatRequest
 from tracecat.chat.tools import WORKSPACE_CHAT_DEFAULT_TOOLS, get_default_tools
-from tracecat.db.models import AgentSession
+from tracecat.db.models import AgentSession, AgentSessionHistory, AgentTurnProvenance
 from tracecat.exceptions import TracecatValidationError
 from tracecat.tiers.enums import Entitlement
 
@@ -55,6 +65,32 @@ def _build_service() -> tuple[_TestAgentSessionService, SimpleNamespace, Role]:
     )
     service = _TestAgentSessionService(cast(Any, session), role)
     return service, session, role
+
+
+def _agent_preset_create(
+    *,
+    name: str,
+    slug: str,
+    instructions: str,
+    agents: AgentSubagentsConfig | None = None,
+) -> AgentPresetCreate:
+    return AgentPresetCreate(
+        name=name,
+        slug=slug,
+        description=f"{name} description",
+        instructions=instructions,
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        base_url=None,
+        output_type=None,
+        actions=None,
+        namespaces=None,
+        tool_approvals=None,
+        mcp_integrations=None,
+        agents=agents if agents is not None else AgentSubagentsConfig(),
+        retries=3,
+        enable_thinking=True,
+    )
 
 
 @pytest.mark.anyio
@@ -788,3 +824,195 @@ async def test_workspace_chat_preset_config_superuser_keeps_all_actions() -> Non
         )
         async with service._build_agent_config(agent_session) as resolved:
             assert resolved.actions == actions
+
+
+@pytest.mark.anyio
+async def test_run_turn_dispatch_stages_one_full_tree_provenance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invariant: dispatch-resolved turns stage one provenance row and args snapshot."""
+    service, session, role = _build_service()
+    workspace_id = role.workspace_id
+    assert workspace_id is not None
+    session_id = uuid.uuid4()
+    preset_id = uuid.uuid4()
+    agent_session = AgentSession(
+        workspace_id=workspace_id,
+        title="Dispatch chat",
+        entity_type=AgentSessionEntity.AGENT_PRESET.value,
+        entity_id=preset_id,
+        agent_preset_id=preset_id,
+    )
+    agent_session.id = session_id
+    config = AgentConfig(
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        resolved_refs=ResolvedRefs(
+            refs=[
+                ResolvedRef(
+                    resource_kind="preset",
+                    resource_id=preset_id,
+                    resolved_version_id=uuid.uuid4(),
+                    status="ok",
+                )
+            ]
+        ),
+    )
+    resolved_agents = ResolvedAgentsRuntimeConfig(
+        enabled=True,
+        resolved_refs=ResolvedRefs(
+            refs=[
+                ResolvedRef(
+                    resource_kind="preset",
+                    resource_id=preset_id,
+                    resolved_version_id=uuid.uuid4(),
+                    status="ok",
+                ),
+                ResolvedRef(
+                    resource_kind="skill",
+                    resource_id=uuid.uuid4(),
+                    resolved_version_id=uuid.uuid4(),
+                    manifest_sha256="0" * 64,
+                    status="ok",
+                ),
+            ]
+        ),
+    )
+
+    @contextlib.asynccontextmanager
+    async def _fake_build_agent_config(_agent_session: AgentSession):
+        yield config
+
+    client = SimpleNamespace(start_workflow=AsyncMock())
+    service.validate_turn_request = AsyncMock(return_value=agent_session)  # type: ignore[method-assign]
+    service.auto_title_session_on_first_prompt = AsyncMock()  # type: ignore[method-assign]
+    service._build_agent_config = _fake_build_agent_config  # type: ignore[method-assign]
+    service._resolve_dispatch_agents_config = AsyncMock(return_value=resolved_agents)  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        "tracecat.agent.session.service.get_temporal_client",
+        AsyncMock(return_value=client),
+    )
+
+    response = await service.run_turn(
+        session_id,
+        BasicChatRequest(message="hello"),
+        active_stream_id=uuid.uuid4(),
+    )
+
+    provenance_rows = [
+        call.args[0]
+        for call in session.add.call_args_list
+        if isinstance(call.args[0], AgentTurnProvenance)
+    ]
+    assert response is not None
+    assert len(provenance_rows) == 1
+    assert resolved_agents.resolved_refs is not None
+    assert provenance_rows[0].resolved_refs == resolved_agents.resolved_refs.model_dump(
+        mode="json"
+    )
+    assert agent_session.agents_binding is None
+    workflow_args = client.start_workflow.await_args.args[1]
+    assert workflow_args.resolved_agent_config is not None
+    assert workflow_args.agent_args.resolved_agents_config == resolved_agents
+
+
+@pytest.mark.anyio
+async def test_new_dispatch_turn_follows_child_head_after_session_history(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """A new run resolves current heads even when the chat has SDK history."""
+    workspace_id = svc_role.workspace_id
+    assert workspace_id is not None
+    preset_service = AgentPresetService(session=session, role=svc_role)
+    child = await preset_service.create_preset(
+        _agent_preset_create(
+            name="Resume child",
+            slug="resume-child",
+            instructions="Stored child instructions",
+        )
+    )
+    parent = await preset_service.create_preset(
+        _agent_preset_create(
+            name="Resume parent",
+            slug="resume-parent",
+            instructions="Parent instructions",
+            agents=AgentSubagentsConfig.model_validate(
+                {
+                    "enabled": True,
+                    "subagents": [{"preset": child.slug}],
+                }
+            ),
+        )
+    )
+    stored_binding = ResolvedAgentsConfig.model_validate(parent.agents)
+    assert len(stored_binding.subagents) == 1
+    stored_child_version_id = stored_binding.subagents[0].preset_version_id
+
+    agent_session = AgentSession(
+        id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        title="Resumed dispatch chat",
+        entity_type=AgentSessionEntity.AGENT_PRESET.value,
+        entity_id=parent.id,
+        agent_preset_id=parent.id,
+        sdk_session_id="sdk-session-resume",
+        agents_binding=stored_binding.model_dump(mode="json"),
+    )
+    session.add(agent_session)
+    session.add(
+        AgentSessionHistory(
+            workspace_id=workspace_id,
+            session_id=agent_session.id,
+            kind=MessageKind.CHAT_MESSAGE.value,
+            content={"type": "user", "message": {"content": "previous turn"}},
+        )
+    )
+    await session.commit()
+
+    await preset_service.update_preset(
+        child,
+        AgentPresetUpdate(instructions="Advanced child instructions"),
+    )
+    child_v2 = await preset_service.get_current_version_for_preset(child)
+    assert child_v2.id != stored_child_version_id
+    fresh_config = await preset_service.resolve_agent_preset_config(
+        preset_id=parent.id,
+    )
+    fresh_ref = fresh_config.agents.subagents[0]
+    assert isinstance(fresh_ref, ResolvedAttachedSubagentRef)
+    assert fresh_ref.preset_version_id == child_v2.id
+
+    service = AgentSessionService(session=session, role=svc_role)
+    fake_client = SimpleNamespace(start_workflow=AsyncMock(return_value=None))
+    with (
+        patch(
+            "tracecat.agent.service.AgentManagementService.get_workspace_runtime_provider_credentials",
+            AsyncMock(return_value={"OPENAI_API_KEY": "test-key"}),
+        ),
+        patch(
+            "tracecat.agent.service.AgentManagementService.get_runtime_provider_credentials",
+            AsyncMock(return_value=None),
+        ),
+        patch(
+            "tracecat.agent.session.service.get_temporal_client",
+            AsyncMock(return_value=fake_client),
+        ),
+    ):
+        response = await service.run_turn(
+            agent_session.id,
+            BasicChatRequest(message="continue"),
+            active_stream_id=uuid.uuid4(),
+        )
+
+    assert response is not None
+    workflow_args = fake_client.start_workflow.await_args.args[1]
+    resolved_agents = workflow_args.agent_args.resolved_agents_config
+    assert resolved_agents is not None
+    assert resolved_agents.subagents[0].binding.preset_version_id == child_v2.id
+    assert resolved_agents.to_agents_binding() != stored_binding
+    await session.refresh(agent_session)
+    assert (
+        ResolvedAgentsConfig.model_validate(agent_session.agents_binding)
+        == stored_binding
+    )

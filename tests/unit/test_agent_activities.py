@@ -777,8 +777,8 @@ class TestCreateSessionActivity:
                 None,
                 None,
                 True,
-                True,
-                id="never-run-overwrites-with-disabled-binding",
+                False,
+                id="dispatch-resolved-turn-does-not-reconcile-shared-binding",
             ),
             pytest.param(
                 ResolvedAgentsConfig.model_validate({"enabled": True, "subagents": []}),
@@ -843,7 +843,7 @@ class TestCreateSessionActivity:
             with pytest.raises(ApplicationError) as exc_info:
                 await create_session_activity(input)
             assert exc_info.value.message == (
-                "Agent session was created with a different agents binding"
+                "Agent session turn was dispatched with a different agents binding"
             )
             assert exc_info.value.non_retryable is True
 

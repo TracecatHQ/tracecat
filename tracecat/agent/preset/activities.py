@@ -83,20 +83,26 @@ async def _write_agent_turn_provenance(
     session_id: uuid.UUID | None,
     wf_exec_id: str | None,
     resolved_refs: ResolvedRefs | None,
+    skip_if_exists: bool,
 ) -> None:
     """Persist an append-only per-turn resolution snapshot when identifiers exist.
 
-    A turn may accumulate more than one snapshot: root-preset resolution
-    always records the root refs, and the later subagent-resolution activity
-    appends a merged snapshot when it runs. The row with the highest
-    ``surrogate_id`` for a ``wf_exec_id`` is the final snapshot; earlier rows
-    preserve provenance for turns that fail between the two activities.
+    A turn may accumulate more than one snapshot; the row with the highest
+    ``surrogate_id`` for a ``wf_exec_id`` is the final snapshot. Two write
+    policies keep that contract under mixed-version overlap:
 
-    Not idempotent by design: the calling activities are scheduled with
-    ``activity:fail_fast`` (``maximum_attempts=1``), so no Temporal retry can
-    re-execute a committed insert, and replay reads activity results from
-    history instead of re-running them. Revisit if a caller ever gains a
-    retry policy.
+    - ``skip_if_exists=True`` (root and resolution-failure writes): these are
+      the weakest snapshots and must never land after — and thereby become
+      "latest" over — a dispatch-time or merged snapshot, e.g. an old
+      worker's root write racing the new dispatch staging.
+    - ``skip_if_exists=False`` (merged subagent write): appends so the merged
+      snapshot supersedes the root row on the legacy fallback path (DSL
+      preset agents, pre-dispatch-resolution histories); skipped only when
+      the latest row already carries identical refs (dispatch staging wrote
+      the same snapshot).
+
+    Calling activities still use ``activity:fail_fast`` and replay reads
+    their recorded result instead of re-running the insert.
     """
 
     if session_id is None or wf_exec_id is None or resolved_refs is None:
@@ -105,12 +111,31 @@ async def _write_agent_turn_provenance(
     if workspace_id is None:
         return
 
+    dumped_refs = resolved_refs.model_dump(mode="json")
+    latest_refs = (
+        await service.session.execute(
+            select(AgentTurnProvenance.resolved_refs)
+            .where(
+                AgentTurnProvenance.workspace_id == workspace_id,
+                AgentTurnProvenance.session_id == session_id,
+                AgentTurnProvenance.wf_exec_id == wf_exec_id,
+            )
+            .order_by(AgentTurnProvenance.surrogate_id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if latest_refs is not None:
+        if skip_if_exists:
+            return
+        if latest_refs == dumped_refs:
+            return
+
     service.session.add(
         AgentTurnProvenance(
             workspace_id=workspace_id,
             session_id=session_id,
             wf_exec_id=wf_exec_id,
-            resolved_refs=resolved_refs.model_dump(mode="json"),
+            resolved_refs=dumped_refs,
         )
     )
     await service.session.commit()
@@ -136,6 +161,7 @@ async def resolve_agent_preset_config_activity(
                 session_id=args.session_id,
                 wf_exec_id=args.wf_exec_id,
                 resolved_refs=failure_refs,
+                skip_if_exists=True,
             )
 
         async def write_root_refs(resolved: AgentConfig) -> None:
@@ -150,6 +176,7 @@ async def resolve_agent_preset_config_activity(
                 session_id=args.session_id,
                 wf_exec_id=args.wf_exec_id,
                 resolved_refs=resolved.resolved_refs,
+                skip_if_exists=True,
             )
 
         config: AgentConfig | None = None
@@ -171,6 +198,7 @@ async def resolve_agent_preset_config_activity(
 async def resolve_agent_preset_version_ref_activity(
     args: ResolveAgentPresetVersionRefActivityInput,
 ) -> AgentPresetVersionRef:
+    # Legacy fallback; remove after workflow drain.
     async with AgentPresetService.with_session(role=args.role) as service:
         try:
             version = await service.resolve_agent_preset_version(
@@ -189,6 +217,7 @@ async def resolve_agent_preset_version_ref_activity(
                     session_id=args.session_id,
                     wf_exec_id=args.wf_exec_id,
                     resolved_refs=failure_refs,
+                    skip_if_exists=True,
                 )
             except Exception:
                 # A provenance write failure must never mask the domain error.
@@ -223,6 +252,10 @@ async def resolve_agents_config_activity(
             session_id=args.session_id,
             wf_exec_id=args.wf_exec_id,
             resolved_refs=runtime_config.resolved_refs,
+            # Legacy fallback turns (DSL preset agents, histories predating
+            # dispatch-time resolution) write the root row first; the merged
+            # snapshot must append over it, not be dropped.
+            skip_if_exists=False,
         )
         return runtime_config
 

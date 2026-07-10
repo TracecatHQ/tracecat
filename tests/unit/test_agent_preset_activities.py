@@ -7,6 +7,7 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs
 
 from tracecat.agent.preset.activities import (
     ResolveAgentPresetVersionRefActivityInput,
@@ -26,6 +27,8 @@ from tracecat.agent.preset.resolver import (
     ResolvedSubagentConfig,
 )
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.schemas import RunAgentArgs
+from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
     ResolvedAttachedSubagentRef,
@@ -174,6 +177,37 @@ def test_resolve_agents_config_input_defaults_preserve_resolved_versions() -> No
     payload.pop("preserve_resolved_versions")
     parsed = ResolveAgentsConfigActivityInput.model_validate(payload)
     assert parsed.preserve_resolved_versions is False
+
+
+def test_agent_workflow_args_default_dispatch_resolution_fields() -> None:
+    """Invariant: pre-2.3a workflow payloads deserialize and use legacy routing."""
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    args = AgentWorkflowArgs(
+        role=role,
+        agent_args=RunAgentArgs(
+            user_prompt="hello",
+            session_id=uuid.uuid4(),
+            config=AgentConfig(
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+            ),
+        ),
+        entity_type=AgentSessionEntity.WORKFLOW,
+        entity_id=uuid.uuid4(),
+    )
+    payload = args.model_dump(mode="json")
+    payload.pop("resolved_agent_config")
+    payload["agent_args"].pop("resolved_agents_config")
+
+    parsed = AgentWorkflowArgs.model_validate(payload)
+
+    assert parsed.resolved_agent_config is None
+    assert parsed.agent_args.resolved_agents_config is None
 
 
 def test_resolve_agents_config_result_derives_session_binding() -> None:
@@ -520,6 +554,124 @@ def test_resolution_outputs_parse_pre_2_2_payloads_without_resolved_refs() -> No
 
 
 @pytest.mark.anyio
+async def test_merged_provenance_appends_over_existing_root_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invariant: legacy fallback turns supersede the root row.
+
+    DSL preset agents and histories predating dispatch-time resolution run
+    the root activity (which writes root refs) and then the subagent
+    activity with the same ``wf_exec_id``. The merged snapshot must append
+    so the highest ``surrogate_id`` row is the merged one; a blanket
+    skip-if-exists would freeze the turn at root-only provenance.
+    """
+
+    workspace_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    root_refs = ResolvedRefs(
+        refs=[
+            ResolvedRef(
+                resource_kind="preset",
+                resource_id=uuid.uuid4(),
+                resolved_version_id=uuid.uuid4(),
+                status="ok",
+            )
+        ]
+    )
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+    )
+    # The root activity already wrote a row with a different snapshot.
+    stale_row = SimpleNamespace(scalar_one_or_none=MagicMock(return_value={"refs": []}))
+    db_session = SimpleNamespace(
+        execute=AsyncMock(return_value=stale_row),
+        add=MagicMock(),
+        commit=AsyncMock(),
+    )
+    service = SimpleNamespace(role=role, session=db_session)
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentPresetService.with_session",
+        lambda **_: _AsyncContext(service),
+    )
+
+    result = await resolve_agents_config_activity(
+        ResolveAgentsConfigActivityInput(
+            role=role,
+            agents=AgentSubagentsConfig(),
+            session_id=session_id,
+            wf_exec_id="turn-1",
+            parent_resolved_refs=root_refs,
+        )
+    )
+
+    assert result.resolved_refs == root_refs
+    provenance = db_session.add.call_args.args[0]
+    assert provenance.resolved_refs == root_refs.model_dump(mode="json")
+    db_session.commit.assert_awaited_once_with()
+
+
+@pytest.mark.anyio
+async def test_merged_provenance_skips_identical_latest_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invariant: dispatch-staged turns do not duplicate the same snapshot.
+
+    When dispatch-time staging already persisted the identical merged refs,
+    the activity's merged write is a no-op instead of appending a duplicate
+    row.
+    """
+
+    workspace_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    root_refs = ResolvedRefs(
+        refs=[
+            ResolvedRef(
+                resource_kind="preset",
+                resource_id=uuid.uuid4(),
+                resolved_version_id=uuid.uuid4(),
+                status="ok",
+            )
+        ]
+    )
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+    )
+    identical_row = SimpleNamespace(
+        scalar_one_or_none=MagicMock(return_value=root_refs.model_dump(mode="json"))
+    )
+    db_session = SimpleNamespace(
+        execute=AsyncMock(return_value=identical_row),
+        add=MagicMock(),
+        commit=AsyncMock(),
+    )
+    service = SimpleNamespace(role=role, session=db_session)
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentPresetService.with_session",
+        lambda **_: _AsyncContext(service),
+    )
+
+    result = await resolve_agents_config_activity(
+        ResolveAgentsConfigActivityInput(
+            role=role,
+            agents=AgentSubagentsConfig(),
+            session_id=session_id,
+            wf_exec_id="turn-1",
+            parent_resolved_refs=root_refs,
+        )
+    )
+
+    assert result.resolved_refs == root_refs
+    db_session.add.assert_not_called()
+    db_session.commit.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_disabled_agents_activity_persists_parent_provenance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -541,7 +693,12 @@ async def test_disabled_agents_activity_persists_parent_provenance(
         workspace_id=workspace_id,
         organization_id=uuid.uuid4(),
     )
-    db_session = SimpleNamespace(add=MagicMock(), commit=AsyncMock())
+    existing_result = SimpleNamespace(scalar_one_or_none=MagicMock(return_value=None))
+    db_session = SimpleNamespace(
+        execute=AsyncMock(return_value=existing_result),
+        add=MagicMock(),
+        commit=AsyncMock(),
+    )
     service = SimpleNamespace(role=role, session=db_session)
 
     monkeypatch.setattr(
@@ -566,6 +723,7 @@ async def test_disabled_agents_activity_persists_parent_provenance(
     assert provenance.session_id == session_id
     assert provenance.wf_exec_id == "turn-1"
     assert provenance.resolved_refs == root_refs.model_dump(mode="json")
+    db_session.execute.assert_awaited_once()
     db_session.commit.assert_awaited_once_with()
 
 
