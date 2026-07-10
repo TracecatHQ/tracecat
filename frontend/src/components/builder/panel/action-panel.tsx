@@ -814,7 +814,7 @@ function ActionPanelContent({
     <div
       ref={panelRef}
       onBlur={onPanelBlur}
-      className="flex h-full flex-col overflow-hidden pb-16"
+      className="flex h-full flex-col overflow-hidden pb-4"
     >
       <Tabs
         defaultValue="inputs"
@@ -977,10 +977,10 @@ function ActionPanelContent({
               <Separator />
             </div>
             <div className="flex-1 overflow-auto">
-              <div className="w-full min-w-80 overflow-x-auto pb-32">
-                <TabsContent value="inputs" className="pb-8">
+              <div className="w-full min-w-80 overflow-x-auto">
+                <TabsContent value="inputs">
                   <SectionErrorBoundary>
-                    <div className="mt-4 flex flex-col space-y-4 px-4 pb-10">
+                    <div className="mt-4 flex flex-col space-y-4 px-4">
                       {finalValErrors.length > 0 && (
                         <ValidationErrorView
                           validationErrors={finalValErrors}
@@ -1225,9 +1225,9 @@ function ActionPanelContent({
                     </div>
                   </SectionErrorBoundary>
                 </TabsContent>
-                <TabsContent value="schema" className="pb-8">
+                <TabsContent value="schema">
                   <SectionErrorBoundary>
-                    <div className="mt-4 space-y-6 px-4 pb-10">
+                    <div className="mt-4 space-y-6 px-4">
                       {/* Action secrets */}
                       <div className="space-y-4">
                         <h4 className="text-xs font-bold">Secrets</h4>
@@ -1401,9 +1401,9 @@ function ActionPanelContent({
                     </div>
                   </SectionErrorBoundary>
                 </TabsContent>
-                <TabsContent value="control-flow" className="pb-8">
+                <TabsContent value="control-flow">
                   <SectionErrorBoundary>
-                    <div className="mt-6 space-y-8 px-4">
+                    <div className="mt-4 space-y-8 px-4">
                       {/* Run if */}
                       <ControlFlowField
                         label="Run if"
@@ -1673,12 +1673,11 @@ function ActionPanelContent({
                 </TabsContent>
                 {/* Template */}
                 {registryAction?.implementation && (
-                  <TabsContent value="template-inputs" className="pb-8">
+                  <TabsContent value="template-inputs">
                     <SectionErrorBoundary>
                       <Accordion
                         type="multiple"
                         defaultValue={["action-template"]}
-                        className="pb-10"
                       >
                         <AccordionItem value="action-template">
                           <AccordionTrigger className="px-4 text-xs font-bold">
