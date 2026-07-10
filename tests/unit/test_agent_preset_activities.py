@@ -53,7 +53,7 @@ def workflow_bucket() -> Iterator[None]:
 
 
 @pytest.mark.anyio
-async def test_resolve_agent_preset_version_ref_activity_returns_ids(
+async def test_resolve_agent_preset_version_ref_activity_ignores_legacy_version(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     version = SimpleNamespace(id=uuid.uuid4(), preset_id=uuid.uuid4())
@@ -73,19 +73,33 @@ async def test_resolve_agent_preset_version_ref_activity_returns_ids(
     )
 
     result = await resolve_agent_preset_version_ref_activity(
-        ResolveAgentPresetVersionRefActivityInput(
-            role=role,
-            preset_slug="triage-agent",
-            preset_version=3,
+        ResolveAgentPresetVersionRefActivityInput.model_validate(
+            {
+                "role": role,
+                "preset_slug": "triage-agent",
+                "preset_version": 3,
+            }
         )
     )
 
-    service.resolve_agent_preset_version.assert_awaited_once_with(
-        slug="triage-agent",
-        preset_version=3,
-    )
+    service.resolve_agent_preset_version.assert_awaited_once_with(slug="triage-agent")
     assert result.preset_id == version.preset_id
     assert result.preset_version_id == version.id
+
+
+def test_resolve_agents_config_input_defaults_preserve_resolved_versions() -> None:
+    """Workflow histories recorded before the flag existed must deserialize,
+    defaulting to fresh current-head resolution."""
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    payload = ResolveAgentsConfigActivityInput(role=role).model_dump(mode="json")
+    payload.pop("preserve_resolved_versions")
+    parsed = ResolveAgentsConfigActivityInput.model_validate(payload)
+    assert parsed.preserve_resolved_versions is False
 
 
 def test_resolve_agents_config_result_derives_session_binding() -> None:
@@ -122,7 +136,7 @@ def test_resolve_agents_config_result_derives_session_binding() -> None:
 
 
 @pytest.mark.anyio
-async def test_resolve_preset_subagent_configs_resolves_version_id_ref() -> None:
+async def test_resolve_preset_subagent_configs_uses_preset_id_ref() -> None:
     role = Role(
         type="service",
         service_id="tracecat-api",
@@ -140,6 +154,9 @@ async def test_resolve_preset_subagent_configs_resolves_version_id_ref() -> None
         tool_approvals={},
     )
     service.resolve_agent_preset_version = AsyncMock(return_value=version)
+    service.resolve_agent_preset_version_for_subagent_ref = AsyncMock(
+        return_value=version
+    )
     service._lock_active_subagent_presets = AsyncMock()  # type: ignore[method-assign]
     # The edge-authoritative ban check hits the DB; stub it for the double.
     service.get_version_subagent_binding = AsyncMock(  # type: ignore[method-assign]
@@ -165,15 +182,16 @@ async def test_resolve_preset_subagent_configs_resolves_version_id_ref() -> None
         parent_slug="parent",
     )
 
-    service.resolve_agent_preset_version.assert_awaited_once_with(
-        preset_version_id=preset_version_id,
+    service.resolve_agent_preset_version_for_subagent_ref.assert_awaited_once_with(
+        preset_id=preset_id,
     )
+    service.resolve_agent_preset_version.assert_not_awaited()
     assert result["subagents"][0]["preset_version_id"] == str(preset_version_id)
     assert result["subagents"][0]["preset_version"] == 8
 
 
 @pytest.mark.anyio
-async def test_resolve_agents_config_resolves_pinned_ref_by_version_id(
+async def test_resolve_agents_config_resolves_persisted_ref_by_preset_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     preset_id = uuid.uuid4()
@@ -187,6 +205,7 @@ async def test_resolve_agents_config_resolves_pinned_ref_by_version_id(
     )
     service = SimpleNamespace(
         resolve_agent_preset_version=AsyncMock(return_value=version),
+        resolve_agent_preset_version_for_subagent_ref=AsyncMock(return_value=version),
         get_preset=AsyncMock(return_value=SimpleNamespace(description="Child preset")),
         resolve_agent_preset_config=AsyncMock(
             return_value=AgentConfig(
@@ -194,10 +213,6 @@ async def test_resolve_agents_config_resolves_pinned_ref_by_version_id(
                 model_provider="openai",
                 retries=3,
             )
-        ),
-        use_latest_resource_versions=AsyncMock(return_value=False),
-        get_version_subagent_binding=AsyncMock(
-            return_value=ResolvedAgentsConfig(enabled=False)
         ),
     )
     role = Role(
@@ -232,16 +247,16 @@ async def test_resolve_agents_config_resolves_pinned_ref_by_version_id(
         )
     )
 
-    service.resolve_agent_preset_version.assert_awaited_once_with(
-        preset_version_id=preset_version_id,
+    service.resolve_agent_preset_version_for_subagent_ref.assert_awaited_once_with(
+        preset_id=preset_id,
     )
-    service.use_latest_resource_versions.assert_awaited_once()
+    service.resolve_agent_preset_version.assert_not_awaited()
     assert result.subagents[0].binding.preset_version_id == preset_version_id
     assert result.subagents[0].binding.preset_version == 4
 
 
 @pytest.mark.anyio
-async def test_resolve_agents_config_explicitly_disables_latest_resolution(
+async def test_resolve_agents_config_ignores_legacy_follow_latest_flag(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     preset_id = uuid.uuid4()
@@ -255,6 +270,7 @@ async def test_resolve_agents_config_explicitly_disables_latest_resolution(
     )
     service = SimpleNamespace(
         resolve_agent_preset_version=AsyncMock(return_value=version),
+        resolve_agent_preset_version_for_subagent_ref=AsyncMock(return_value=version),
         get_preset=AsyncMock(return_value=SimpleNamespace(description="Child preset")),
         resolve_agent_preset_config=AsyncMock(
             return_value=AgentConfig(
@@ -262,10 +278,6 @@ async def test_resolve_agents_config_explicitly_disables_latest_resolution(
                 model_provider="openai",
                 retries=3,
             )
-        ),
-        use_latest_resource_versions=AsyncMock(return_value=True),
-        get_version_subagent_binding=AsyncMock(
-            return_value=ResolvedAgentsConfig(enabled=False)
         ),
     )
     role = Role(
@@ -299,10 +311,10 @@ async def test_resolve_agents_config_explicitly_disables_latest_resolution(
         )
     )
 
-    service.use_latest_resource_versions.assert_not_awaited()
-    service.resolve_agent_preset_version.assert_awaited_once_with(
-        preset_version_id=preset_version_id,
+    service.resolve_agent_preset_version_for_subagent_ref.assert_awaited_once_with(
+        preset_id=preset_id,
     )
+    service.resolve_agent_preset_version.assert_not_awaited()
     assert result.subagents[0].binding.preset_version_id == preset_version_id
 
 
@@ -319,10 +331,7 @@ async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
     )
     service = SimpleNamespace(
         resolve_agent_preset_version=AsyncMock(return_value=version),
-        use_latest_resource_versions=AsyncMock(return_value=False),
-        get_version_subagent_binding=AsyncMock(
-            return_value=ResolvedAgentsConfig(enabled=False)
-        ),
+        resolve_agent_preset_version_for_subagent_ref=AsyncMock(return_value=version),
     )
     role = Role(
         type="service",
@@ -369,9 +378,7 @@ async def test_resolve_agents_config_rejects_invalid_fallback_alias(
 
     monkeypatch.setattr(
         "tracecat.agent.preset.activities.AgentPresetService.with_session",
-        lambda **_: _AsyncContext(
-            SimpleNamespace(use_latest_resource_versions=AsyncMock(return_value=False))
-        ),
+        lambda **_: _AsyncContext(SimpleNamespace()),
     )
 
     with pytest.raises(

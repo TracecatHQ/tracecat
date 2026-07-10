@@ -80,7 +80,6 @@ class PresetAgentActionArgs(BaseModel):
     model_config = _BASE_CONFIG
 
     preset: str
-    preset_version: int | None = None
     user_prompt: str
     actions: list[str] | None = None
     instructions: str | None = None

@@ -48,10 +48,24 @@ class AttachedSubagentRef(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     preset: PresetRef
-    preset_version: int | None = Field(default=None, ge=1)
     name: AgentAlias | None = Field(default=None)
     description: str | None = Field(default=None, max_length=1000)
     max_turns: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def ignore_legacy_version_selector(cls, data: object) -> object:
+        """Ignore the retired authored selector without weakening extra checks."""
+
+        if (
+            isinstance(data, Mapping)
+            and "preset_version" in data
+            and "preset_version_id" not in data
+        ):
+            normalized = dict(data)
+            normalized.pop("preset_version", None)
+            return normalized
+        return data
 
     @property
     def alias(self) -> str:
@@ -59,15 +73,22 @@ class AttachedSubagentRef(BaseModel):
         return self.name or self.preset
 
 
-class ResolvedAttachedSubagentRef(AttachedSubagentRef):
-    """Persisted subagent ref with immutable preset/version identifiers."""
+class HeadAttachedSubagentRef(AttachedSubagentRef):
+    """Stable internal reference to a child preset ResourceHead."""
 
     preset_id: uuid.UUID
+
+
+class ResolvedAttachedSubagentRef(HeadAttachedSubagentRef):
+    """Persisted subagent ref with immutable preset/version identifiers."""
+
     preset_version_id: uuid.UUID
-    preset_version: int | None = Field(default=None, ge=1)
+    preset_version: int = Field(ge=1)
 
 
-type AnyAttachedSubagentRef = ResolvedAttachedSubagentRef | AttachedSubagentRef
+type AnyAttachedSubagentRef = (
+    ResolvedAttachedSubagentRef | HeadAttachedSubagentRef | AttachedSubagentRef
+)
 
 
 class AgentSubagentsConfig(BaseModel):

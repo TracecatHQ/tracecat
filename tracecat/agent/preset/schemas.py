@@ -182,9 +182,7 @@ def build_agent_preset_read_minimal(
 ) -> AgentPresetReadMinimal:
     """Build a minimal preset response without exposing approval rule details."""
     read = AgentPresetReadMinimal.model_validate(preset)
-    agents_config = cast(
-        AgentSubagentsConfig | Mapping[str, object] | None, preset.agents
-    )
+    agents_config = AgentSubagentsConfig(enabled=preset.agents_enabled)
     tool_approvals = cast(Mapping[str, bool] | None, preset.tool_approvals)
     return read.model_copy(
         update={
