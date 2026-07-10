@@ -27,5 +27,5 @@ definition:
         params:
           view_id: ${{ inputs.view_id }}
           view: ${{ inputs.view }}
-          hash: ${{ inputs.hash || FN.to_isoformat(FN.utcnow()) }}
+          hash: ${{ inputs.hash }}
   returns: ${{ steps.update_view.result }}
