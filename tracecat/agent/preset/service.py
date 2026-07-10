@@ -51,8 +51,10 @@ from tracecat.db.models import (
     AgentCatalog,
     AgentPreset,
     AgentPresetSkill,
+    AgentPresetSubagent,
     AgentPresetVersion,
     AgentPresetVersionSkill,
+    AgentPresetVersionSubagent,
     Skill,
     SkillVersion,
 )
@@ -194,6 +196,176 @@ class AgentPresetService(BaseWorkspaceService):
             owner_id=version_id,
         )
 
+    async def get_version_subagent_binding(
+        self, version: AgentPresetVersion
+    ) -> ResolvedAgentsConfig:
+        """Resolve a preset version's snapshotted ResourceHead edges."""
+
+        edges_exist = await self._version_subagent_edges_exist(version.id)
+        legacy_binding: ResolvedAgentsConfig | None = None
+        if not edges_exist:
+            legacy_binding = ResolvedAgentsConfig.model_validate(version.agents)
+            if self._legacy_version_binding_needs_reconciliation(
+                version,
+                legacy_binding,
+            ):
+                version = await self._reconcile_legacy_version_subagent_binding(
+                    version.id
+                )
+
+        stmt = (
+            select(
+                AgentPreset.id,
+                AgentPreset.slug,
+                AgentPresetVersion.id,
+                AgentPresetVersion.version,
+                AgentPresetVersionSubagent.alias,
+                AgentPresetVersionSubagent.description,
+                AgentPresetVersionSubagent.max_turns,
+                AgentPresetVersionSubagent.position,
+            )
+            .select_from(AgentPresetVersionSubagent)
+            .join(
+                AgentPreset,
+                sa.and_(
+                    AgentPreset.workspace_id == AgentPresetVersionSubagent.workspace_id,
+                    AgentPreset.id == AgentPresetVersionSubagent.child_preset_id,
+                ),
+            )
+            .outerjoin(
+                AgentPresetVersion,
+                sa.and_(
+                    AgentPresetVersion.workspace_id == AgentPreset.workspace_id,
+                    AgentPresetVersion.id == AgentPreset.current_version_id,
+                ),
+            )
+            .where(
+                AgentPresetVersionSubagent.workspace_id == self.workspace_id,
+                AgentPresetVersionSubagent.parent_preset_version_id == version.id,
+            )
+            .order_by(AgentPresetVersionSubagent.position)
+        )
+        rows = (await self.session.execute(with_deleted(stmt))).tuples().all()
+        use_latest_resource_versions = await self.use_latest_resource_versions()
+        legacy_refs_by_edge_key = (
+            {}
+            if use_latest_resource_versions
+            else {
+                (ref.preset_id, ref.alias, position): ref
+                for position, ref in enumerate(
+                    (
+                        legacy_binding
+                        or ResolvedAgentsConfig.model_validate(version.agents)
+                    ).subagents
+                )
+            }
+        )
+        resolved_subagents: list[ResolvedAttachedSubagentRef] = []
+        for (
+            child_preset_id,
+            child_slug,
+            current_version_id,
+            current_version,
+            alias,
+            description,
+            max_turns,
+            position,
+        ) in rows:
+            legacy_ref = legacy_refs_by_edge_key.get((child_preset_id, alias, position))
+            if legacy_ref is not None:
+                child_version_id = legacy_ref.preset_version_id
+                child_version = legacy_ref.preset_version
+            else:
+                if current_version_id is None or current_version is None:
+                    raise TracecatNotFoundError(
+                        f"Current version for subagent preset '{child_preset_id}' "
+                        "not found"
+                    )
+                child_version_id = current_version_id
+                child_version = current_version
+            resolved_subagents.append(
+                ResolvedAttachedSubagentRef(
+                    preset=child_slug,
+                    preset_id=child_preset_id,
+                    preset_version_id=child_version_id,
+                    preset_version=child_version,
+                    name=alias,
+                    description=description,
+                    max_turns=max_turns,
+                )
+            )
+        return ResolvedAgentsConfig(
+            enabled=version.agents_enabled,
+            subagents=resolved_subagents,
+        )
+
+    async def _version_subagent_edges_exist(self, version_id: uuid.UUID) -> bool:
+        """Return whether a version has an authoritative normalized edge set."""
+
+        stmt = (
+            select(AgentPresetVersionSubagent.surrogate_id)
+            .where(
+                AgentPresetVersionSubagent.workspace_id == self.workspace_id,
+                AgentPresetVersionSubagent.parent_preset_version_id == version_id,
+            )
+            .limit(1)
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none() is not None
+
+    @staticmethod
+    def _legacy_version_binding_needs_reconciliation(
+        version: AgentPresetVersion,
+        legacy_binding: ResolvedAgentsConfig,
+    ) -> bool:
+        """Detect legacy-only rows without penalizing authoritative empty sets."""
+
+        return legacy_binding.enabled != version.agents_enabled or bool(
+            legacy_binding.subagents
+        )
+
+    async def _reconcile_legacy_version_subagent_binding(
+        self, version_id: uuid.UUID
+    ) -> AgentPresetVersion:
+        """Backfill a version written by an old pod during the expand window."""
+
+        stmt = (
+            select(AgentPresetVersion)
+            .where(
+                AgentPresetVersion.workspace_id == self.workspace_id,
+                AgentPresetVersion.id == version_id,
+            )
+            .with_for_update()
+        )
+        version = (await self.session.execute(stmt)).scalar_one()
+        # A concurrent session may have reconciled while this one waited for
+        # the version lock. Once any normalized edge exists, legacy JSON must
+        # never overwrite that authoritative snapshot.
+        if await self._version_subagent_edges_exist(version.id):
+            return version
+
+        legacy_binding = ResolvedAgentsConfig.model_validate(version.agents)
+        if not self._legacy_version_binding_needs_reconciliation(
+            version,
+            legacy_binding,
+        ):
+            return version
+        version.agents_enabled = legacy_binding.enabled
+        self.session.add(version)
+        for position, subagent in enumerate(legacy_binding.subagents):
+            self.session.add(
+                AgentPresetVersionSubagent(
+                    workspace_id=self.workspace_id,
+                    parent_preset_version_id=version.id,
+                    child_preset_id=subagent.preset_id,
+                    alias=subagent.alias,
+                    description=subagent.description,
+                    max_turns=subagent.max_turns,
+                    position=position,
+                )
+            )
+        await self.session.flush()
+        return version
+
     async def build_preset_read(self, preset: AgentPreset) -> AgentPresetRead:
         """Build the response model for a preset."""
 
@@ -310,6 +482,7 @@ class AgentPresetService(BaseWorkspaceService):
             tool_approvals=params.tool_approvals,
             mcp_integrations=params.mcp_integrations,
             agents=AgentSubagentsConfig().model_dump(mode="json"),
+            agents_enabled=False,
             enable_thinking=params.enable_thinking,
             enable_internet_access=params.enable_internet_access,
             retries=params.retries,
@@ -430,6 +603,7 @@ class AgentPresetService(BaseWorkspaceService):
             if preset.agents != agents:
                 preset.agents = agents
                 execution_changed = True
+            await self._replace_head_subagent_bindings(preset, agents)
 
         if requested_skills is not None:
             await self.skills.validate_binding_inputs(
@@ -503,10 +677,20 @@ class AgentPresetService(BaseWorkspaceService):
             )
 
     async def _count_head_subagent_references(self, preset: AgentPreset) -> int:
-        subagent_ref_exists = self._subagent_reference_exists(
+        legacy_subagent_ref_exists = self._legacy_subagent_reference_exists(
             AgentPreset.agents,
             preset_id=preset.id,
             slug=preset.slug,
+        )
+        normalized_subagent_ref_exists = (
+            select(literal(True))
+            .select_from(AgentPresetSubagent)
+            .where(
+                AgentPresetSubagent.workspace_id == self.workspace_id,
+                AgentPresetSubagent.parent_preset_id == AgentPreset.id,
+                AgentPresetSubagent.child_preset_id == preset.id,
+            )
+            .exists()
         )
         stmt = (
             select(func.count())
@@ -515,13 +699,16 @@ class AgentPresetService(BaseWorkspaceService):
                 AgentPreset.workspace_id == self.workspace_id,
                 AgentPreset.id != preset.id,
                 AgentPreset.deleted_at.is_(None),
-                subagent_ref_exists,
+                sa.or_(
+                    normalized_subagent_ref_exists,
+                    legacy_subagent_ref_exists,
+                ),
             )
         )
         return (await self.session.execute(stmt)).scalar_one()
 
     @staticmethod
-    def _subagent_reference_exists(
+    def _legacy_subagent_reference_exists(
         agents: sa.SQLColumnExpression[dict[str, Any]],
         *,
         preset_id: uuid.UUID,
@@ -715,6 +902,66 @@ class AgentPresetService(BaseWorkspaceService):
                 "Cannot save preset because it references soft-deleted or missing "
                 f"subagent presets: {missing_refs}"
             )
+
+    async def _replace_head_subagent_bindings(
+        self,
+        preset: AgentPreset,
+        agents: ResolvedAgentsConfig | dict[str, Any],
+    ) -> None:
+        """Dual-write normalized ResourceHead edges for a preset head."""
+
+        binding = ResolvedAgentsConfig.model_validate(agents)
+        preset.agents_enabled = binding.enabled
+        await self.session.execute(
+            sa.delete(AgentPresetSubagent).where(
+                AgentPresetSubagent.workspace_id == self.workspace_id,
+                AgentPresetSubagent.parent_preset_id == preset.id,
+            )
+        )
+        for position, subagent in enumerate(binding.subagents):
+            self.session.add(
+                AgentPresetSubagent(
+                    workspace_id=self.workspace_id,
+                    parent_preset_id=preset.id,
+                    child_preset_id=subagent.preset_id,
+                    alias=subagent.alias,
+                    description=subagent.description,
+                    max_turns=subagent.max_turns,
+                    position=position,
+                )
+            )
+        await self.session.flush()
+
+    async def _snapshot_version_subagent_bindings(
+        self,
+        *,
+        preset_id: uuid.UUID,
+        preset_version_id: uuid.UUID,
+    ) -> None:
+        """Snapshot ResourceHead subagent edges onto an immutable preset version."""
+
+        stmt = (
+            select(AgentPresetSubagent)
+            .where(
+                AgentPresetSubagent.workspace_id == self.workspace_id,
+                AgentPresetSubagent.parent_preset_id == preset_id,
+            )
+            .order_by(AgentPresetSubagent.position)
+        )
+        bindings = (await self.session.execute(stmt)).scalars().all()
+        for binding in bindings:
+            self.session.add(
+                AgentPresetVersionSubagent(
+                    workspace_id=self.workspace_id,
+                    parent_preset_version_id=preset_version_id,
+                    child_preset_id=binding.child_preset_id,
+                    alias=binding.alias,
+                    description=binding.description,
+                    max_turns=binding.max_turns,
+                    position=binding.position,
+                )
+            )
+        await self.session.flush()
 
     async def resolve_mcp_integrations(
         self, mcp_integrations: list[str] | None
@@ -1720,6 +1967,7 @@ class AgentPresetService(BaseWorkspaceService):
             version,
             agents=restored_agents,
         )
+        await self._replace_head_subagent_bindings(preset, restored_agents)
         await self._restore_head_skill_bindings_from_version(
             preset_id=preset.id,
             version_id=version.id,
@@ -1906,6 +2154,10 @@ class AgentPresetService(BaseWorkspaceService):
         """Create and flush a new immutable version from the preset head."""
         if not preset_locked:
             await self._lock_preset_row(preset.id)
+        # JSON remains the mixed-version compatibility contract during the
+        # expand window. Reconcile normalized edges before every snapshot so a
+        # write from a rolled-back pod cannot leave the two stores divergent.
+        await self._replace_head_subagent_bindings(preset, preset.agents)
         binding_specs = await self._resolve_head_skill_binding_specs(
             preset.id,
             for_update=True,
@@ -1942,6 +2194,7 @@ class AgentPresetService(BaseWorkspaceService):
             tool_approvals=preset.tool_approvals,
             mcp_integrations=preset.mcp_integrations,
             agents=preset.agents,
+            agents_enabled=preset.agents_enabled,
             retries=preset.retries,
             enable_thinking=preset.enable_thinking,
             enable_internet_access=preset.enable_internet_access,
@@ -1952,6 +2205,10 @@ class AgentPresetService(BaseWorkspaceService):
             preset.id,
             version.id,
             binding_specs=binding_specs,
+        )
+        await self._snapshot_version_subagent_bindings(
+            preset_id=preset.id,
+            preset_version_id=version.id,
         )
         return version
 
