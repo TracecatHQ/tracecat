@@ -23,7 +23,6 @@ class _AgentsAsync:
         user_prompt: str,
         config: AgentConfig | None = ...,
         preset_slug: str | None = ...,
-        preset_version: int | None = ...,
         max_requests: int = ...,
         max_tool_calls: int | None = ...,
     ) -> registry_types.AgentOutputRead: ...
@@ -163,7 +162,6 @@ class _Agents:
         user_prompt: str,
         config: AgentConfig | None = ...,
         preset_slug: str | None = ...,
-        preset_version: int | None = ...,
         max_requests: int = ...,
         max_tool_calls: int | None = ...,
     ) -> registry_types.AgentOutputRead: ...

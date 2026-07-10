@@ -177,7 +177,7 @@ async def list_presets(
     results: list[AgentPresetReadMinimal] = []
     for preset in presets:
         read = AgentPresetReadMinimal.model_validate(preset)
-        agents = AgentSubagentsConfig.model_validate(preset.agents or {})
+        agents = AgentSubagentsConfig(enabled=preset.agents_enabled)
         tool_approvals = cast(Mapping[str, bool] | None, preset.tool_approvals)
         capabilities = []
         if has_manual_tool_approvals(tool_approvals):

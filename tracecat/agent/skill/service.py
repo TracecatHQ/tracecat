@@ -50,7 +50,11 @@ from tracecat.agent.skill.schemas import (
     SkillVersionReadMinimal,
     SkillVersionSnapshotRead,
 )
-from tracecat.agent.skill.types import ResolvedSkillRef
+from tracecat.agent.skill.types import (
+    ResolvedSkillRef,
+    ResolvedSkillRefsResult,
+    SkippedSkillRef,
+)
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
     AgentPreset,
@@ -2327,7 +2331,7 @@ class SkillService(BaseWorkspaceService):
     async def restore_version(
         self, *, skill_id: uuid.UUID, version_id: uuid.UUID
     ) -> SkillReadMinimal:
-        """Restore a historical version as the current selected skill version."""
+        """Roll historical content forward as a new immutable skill version."""
 
         skill = await self._get_skill_for_update(skill_id)
         if skill is None:
@@ -2337,13 +2341,28 @@ class SkillService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Skill version '{version_id}' not found")
         if version.name is None:
             self._raise_missing_version_name(skill_version_id=version.id)
-        skill.current_version_id = version.id
-        skill.name = version.name
-        skill.description = version.description
-        self.session.add(skill)
-        await self.session.commit()
-        await self.session.refresh(skill)
-        return self._build_skill_read_minimal(skill)
+        rows = await self._list_version_rows(version.id)
+        await self._create_version_from_blob_refs(
+            skill=skill,
+            file_refs=[
+                (
+                    version_file.path,
+                    SkillFileBlobRef(
+                        blob=blob_row,
+                        content_type=version_file.content_type,
+                    ),
+                )
+                for version_file, blob_row in rows
+            ],
+            validation=ManifestValidationResult(
+                name=version.name,
+                description=version.description,
+            ),
+        )
+        restored_skill = await self.get_skill(skill_id)
+        if restored_skill is None:  # pragma: no cover - locked row cannot disappear
+            raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
+        return self._build_skill_read_minimal(restored_skill)
 
     @require_scope("agent:delete")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
@@ -2422,96 +2441,24 @@ class SkillService(BaseWorkspaceService):
     async def get_resolved_skill_refs_for_preset_version(
         self,
         preset_version_id: uuid.UUID,
-        *,
-        use_latest_versions: bool = False,
-    ) -> list[ResolvedSkillRef]:
-        """Return skill refs for an immutable preset version."""
+    ) -> ResolvedSkillRefsResult:
+        """Resolve a preset version's Skill edges through current heads."""
 
-        if use_latest_versions:
-            return await self._get_latest_skill_refs_for_preset_version(
-                preset_version_id
-            )
+        return await self._get_current_skill_refs_for_preset_version(preset_version_id)
 
-        stmt = (
-            select(
-                AgentPresetVersionSkill.skill_id,
-                SkillVersion.name,
-                AgentPresetVersionSkill.skill_version_id,
-                SkillVersion.manifest_sha256,
-                Skill.deleted_at,
-                Skill.archived_at,
-            )
-            .join(
-                SkillVersion,
-                AgentPresetVersionSkill.skill_version_id == SkillVersion.id,
-            )
-            .join(
-                Skill,
-                sa.and_(
-                    AgentPresetVersionSkill.workspace_id == Skill.workspace_id,
-                    AgentPresetVersionSkill.skill_id == Skill.id,
-                ),
-            )
-            .where(
-                AgentPresetVersionSkill.workspace_id == self.workspace_id,
-                AgentPresetVersionSkill.preset_version_id == preset_version_id,
-            )
-            .order_by(SkillVersion.name.asc(), AgentPresetVersionSkill.skill_id.asc())
-        )
-        rows = (await self.session.execute(with_deleted(stmt))).tuples().all()
-        resolved: list[ResolvedSkillRef] = []
-        archived_skills: list[str] = []
-        for (
-            skill_id,
-            skill_name,
-            skill_version_id,
-            manifest_sha256,
-            deleted_at,
-            archived_at,
-        ) in rows:
-            if skill_name is None:
-                continue
-            if deleted_at is not None or archived_at is not None:
-                archived_skills.append(f"{skill_name} ({skill_id})")
-                continue
-            resolved.append(
-                ResolvedSkillRef(
-                    skill_id=skill_id,
-                    skill_name=skill_name,
-                    skill_version_id=skill_version_id,
-                    manifest_sha256=manifest_sha256,
-                )
-            )
-        self._raise_if_archived_skills(archived_skills, preset_version_id)
-        return resolved
-
-    @staticmethod
-    def _raise_if_archived_skills(
-        archived_skills: list[str], preset_version_id: uuid.UUID
-    ) -> None:
-        """Reject resolution when any referenced skill is archived."""
-        if archived_skills:
-            raise TracecatValidationError(
-                "Some skills are archived and cannot be resolved",
-                detail={
-                    "code": "skill_archived",
-                    "skills": sorted(archived_skills),
-                    "preset_version_id": str(preset_version_id),
-                },
-            )
-
-    async def _get_latest_skill_refs_for_preset_version(
+    async def _get_current_skill_refs_for_preset_version(
         self, preset_version_id: uuid.UUID
-    ) -> list[ResolvedSkillRef]:
-        """Return current skill versions for a preset version's skill IDs."""
+    ) -> ResolvedSkillRefsResult:
+        """Return current Skill versions for a preset version's ResourceHeads."""
 
         stmt = (
             select(
                 AgentPresetVersionSkill.skill_id,
                 Skill.name,
-                Skill.current_version_id,
+                Skill.slug,
                 Skill.deleted_at,
                 Skill.archived_at,
+                Skill.current_version_id,
                 SkillVersion.name,
                 SkillVersion.manifest_sha256,
             )
@@ -2542,45 +2489,60 @@ class SkillService(BaseWorkspaceService):
         )
         rows = (await self.session.execute(with_deleted(stmt))).tuples().all()
         resolved: list[ResolvedSkillRef] = []
-        archived_skills: list[str] = []
-        missing_current: list[str] = []
+        skipped: list[SkippedSkillRef] = []
         for (
             skill_id,
-            skill_name,
-            current_version_id,
+            current_skill_name,
+            skill_slug,
             deleted_at,
             archived_at,
-            current_version_name,
+            skill_version_id,
+            skill_name,
             manifest_sha256,
         ) in rows:
             if deleted_at is not None or archived_at is not None:
-                archived_skills.append(f"{skill_name} ({skill_id})")
+                skipped_ref = SkippedSkillRef(
+                    skill_id=skill_id,
+                    skill_name=current_skill_name,
+                    skill_slug=skill_slug,
+                    reason="deleted",
+                )
+                skipped.append(skipped_ref)
+                self._log_skipped_skill_ref(skipped_ref, preset_version_id)
                 continue
-            if current_version_id is None:
-                missing_current.append(f"{skill_name} ({skill_id})")
+            if skill_version_id is None or skill_name is None:
+                skipped_ref = SkippedSkillRef(
+                    skill_id=skill_id,
+                    skill_name=current_skill_name,
+                    skill_slug=skill_slug,
+                    reason="unpublished",
+                )
+                skipped.append(skipped_ref)
+                self._log_skipped_skill_ref(skipped_ref, preset_version_id)
                 continue
-            if current_version_name is None:
-                self._raise_missing_version_name(skill_version_id=current_version_id)
             resolved.append(
                 ResolvedSkillRef(
                     skill_id=skill_id,
-                    skill_name=current_version_name,
-                    skill_version_id=current_version_id,
+                    skill_name=skill_name,
+                    skill_version_id=skill_version_id,
                     manifest_sha256=manifest_sha256,
                 )
             )
+        return ResolvedSkillRefsResult(refs=resolved, skipped=skipped)
 
-        self._raise_if_archived_skills(archived_skills, preset_version_id)
-        if missing_current:
-            raise TracecatValidationError(
-                "Some skills have no current published version",
-                detail={
-                    "code": "skill_not_published",
-                    "skills": sorted(missing_current),
-                    "preset_version_id": str(preset_version_id),
-                },
-            )
-        return resolved
+    def _log_skipped_skill_ref(
+        self, skipped_ref: SkippedSkillRef, preset_version_id: uuid.UUID
+    ) -> None:
+        """Record a non-fatal skill resolution skip."""
+
+        self.logger.warning(
+            "Skipping preset skill ref during current-head resolution",
+            skill_id=str(skipped_ref.skill_id),
+            skill_slug=skipped_ref.skill_slug,
+            skill_name=skipped_ref.skill_name,
+            reason=skipped_ref.reason,
+            preset_version_id=str(preset_version_id),
+        )
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_resolved_skill_ref(

@@ -55,7 +55,6 @@ import type {
   AgentPresetReadMinimal,
   AgentPresetSubagentEligibility,
   AgentPresetUpdate,
-  AgentPresetVersionReadMinimal,
   AttachedSubagentRef,
   MCPIntegrationRead,
   SkillReadMinimal,
@@ -134,7 +133,6 @@ import {
   useAgentPresets,
   useAgentPresetVersion,
   useAgentPresetVersions,
-  useAgentPresetVersionsByPresetIds,
   useCreateAgentPreset,
   useUpdateAgentPreset,
 } from "@/hooks/use-agent-presets"
@@ -235,8 +233,6 @@ const agentPresetSchema = z
           presetId: z.string().default(""),
           name: z.string().default(""),
           description: z.string().max(1000).default(""),
-          presetVersion: z.string().default(""),
-          presetVersionId: z.string().default(""),
           maxTurns: z.string().default(""),
         })
       )
@@ -342,16 +338,6 @@ const agentPresetSchema = z
           aliases.add(effectiveAlias)
         }
         if (
-          subagent.presetVersion.trim() &&
-          !POSITIVE_INTEGER_REGEX.test(subagent.presetVersion.trim())
-        ) {
-          ctx.addIssue({
-            path: ["subagents", index, "presetVersion"],
-            code: z.ZodIssueCode.custom,
-            message: "Use a positive version number",
-          })
-        }
-        if (
           subagent.maxTurns.trim() &&
           !POSITIVE_INTEGER_REGEX.test(subagent.maxTurns.trim())
         ) {
@@ -369,9 +355,8 @@ type AgentPresetFormValues = z.infer<typeof agentPresetSchema>
 type SubagentFormValue = AgentPresetFormValues["subagents"][number]
 type SkillBindingFormValue = AgentPresetFormValues["skills"][number]
 type ToolApprovalFormValue = AgentPresetFormValues["toolApprovals"][number]
-type PreservedAttachedSubagentRef = AttachedSubagentRef & {
+type AuthoredAttachedSubagentRef = AttachedSubagentRef & {
   preset_id?: string
-  preset_version_id?: string
 }
 
 const LIVE_INTERNET_ACCESS_WARNING_MESSAGE =
@@ -1484,10 +1469,6 @@ function AgentPresetForm({
     mode: "onBlur",
     defaultValues: preset ? presetToFormValues(preset) : DEFAULT_FORM_VALUES,
   })
-  const watchedAgentsEnabled =
-    useWatch({ control: form.control, name: "agentsEnabled" }) ?? false
-  const watchedSubagents =
-    useWatch({ control: form.control, name: "subagents" }) ?? []
   const watchedMcpIntegrations =
     useWatch({ control: form.control, name: "mcpIntegrations" }) ?? []
   const hasStdioMcp = useMemo(
@@ -1503,26 +1484,6 @@ function AgentPresetForm({
     () => new Map(agentPresets.map((preset) => [preset.id, preset])),
     [agentPresets]
   )
-  const selectedPinnedSubagentPresetIds = useMemo(
-    () =>
-      getPinnedSubagentPresetIds({
-        subagents: watchedSubagents,
-        presetsBySlug: agentPresetsBySlug,
-      }),
-    [agentPresetsBySlug, watchedSubagents]
-  )
-  const {
-    versionsByPresetId: subagentVersionsByPresetId,
-    versionsByPresetIdIsLoading: subagentVersionsByPresetIdIsLoading,
-  } = useAgentPresetVersionsByPresetIds(
-    workspaceId,
-    selectedPinnedSubagentPresetIds,
-    {
-      enabled:
-        watchedAgentsEnabled && selectedPinnedSubagentPresetIds.length > 0,
-    }
-  )
-
   useEffect(() => {
     setActiveTab(initialTab)
   }, [initialTab])
@@ -1647,7 +1608,6 @@ function AgentPresetForm({
           subagents: values.subagents,
           presetsById: agentPresetsById,
           presetsBySlug: agentPresetsBySlug,
-          versionsByPresetId: subagentVersionsByPresetId,
         })
         if (eligibilityIssue) {
           form.setError(
@@ -1664,10 +1624,7 @@ function AgentPresetForm({
 
       const payload = formValuesToPayload(
         values,
-        {
-          presetsBySlug: agentPresetsBySlug,
-          versionsByPresetId: subagentVersionsByPresetId,
-        },
+        { presetsBySlug: agentPresetsBySlug },
         {
           forceInternetAccess:
             hasStdioMcp ||
@@ -1697,21 +1654,17 @@ function AgentPresetForm({
   )
 
   const canSubmit =
-    !subagentVersionsByPresetIdIsLoading &&
-    (form.formState.isDirty ||
-      (mode === "create" &&
-        Boolean(form.watch("name")) &&
-        Boolean(form.watch("model_provider")) &&
-        Boolean(form.watch("model_name"))))
+    form.formState.isDirty ||
+    (mode === "create" &&
+      Boolean(form.watch("name")) &&
+      Boolean(form.watch("model_provider")) &&
+      Boolean(form.watch("model_name")))
 
   const getDraftPayload = useCallback((): AgentPresetCreate | null => {
     try {
       return formValuesToPayload(
         form.getValues(),
-        {
-          presetsBySlug: agentPresetsBySlug,
-          versionsByPresetId: subagentVersionsByPresetId,
-        },
+        { presetsBySlug: agentPresetsBySlug },
         { forceInternetAccess: hasStdioMcp }
       )
     } catch {
@@ -1719,7 +1672,7 @@ function AgentPresetForm({
       // schema, which legitimately throws while the user is mid-edit.
       return null
     }
-  }, [agentPresetsBySlug, form, hasStdioMcp, subagentVersionsByPresetId])
+  }, [agentPresetsBySlug, form, hasStdioMcp])
 
   // Wording only: the backend cuts a version only when a publishing field
   // changes, so a metadata-only edit reads as "Save changes". RHF marks array
@@ -1733,12 +1686,9 @@ function AgentPresetForm({
   // Everything registered below must have a stable identity, because the
   // registration effect writes to provider state and this component consumes
   // that provider: an unstable dependency re-fires the effect on every render
-  // and loops forever. Two callbacks here are unstable by nature —
-  // `form.handleSubmit(...)` returns a new function each render, and
-  // `getDraftPayload` closes over `subagentVersionsByPresetId`, a fresh Map on
-  // every render because `useQueries` returns a new `results` array. Route
-  // both through refs so the registered object only changes when the values
-  // the header actually renders change.
+  // and loops forever. `form.handleSubmit(...)` returns a new function each
+  // render, so route the callbacks through refs so the registered object only
+  // changes when the values the header actually renders change.
   const handleSubmitRef = useRef(handleSubmit)
   const getDraftPayloadRef = useRef(getDraftPayload)
   useEffect(() => {
@@ -1805,8 +1755,6 @@ function AgentPresetForm({
       presetId: "",
       name: "",
       description: "",
-      presetVersion: "",
-      presetVersionId: "",
       maxTurns: "",
     })
   }, [appendSubagent])
@@ -1840,8 +1788,6 @@ function AgentPresetForm({
       preset={preset}
       workspaceId={workspaceId}
       agentPresets={agentPresets}
-      subagentVersionsByPresetId={subagentVersionsByPresetId}
-      subagentVersionsByPresetIdIsLoading={subagentVersionsByPresetIdIsLoading}
       builderPrompt={builderPrompt}
       form={form}
       isSaving={isSaving}
@@ -2042,8 +1988,6 @@ function AgentPresetRightPanel({
   preset,
   workspaceId,
   agentPresets,
-  subagentVersionsByPresetId,
-  subagentVersionsByPresetIdIsLoading,
   builderPrompt,
   form,
   isSaving,
@@ -2070,8 +2014,6 @@ function AgentPresetRightPanel({
   preset: AgentPresetRead | null
   workspaceId: string
   agentPresets: AgentPresetReadMinimal[]
-  subagentVersionsByPresetId: Map<string, AgentPresetVersionReadMinimal[]>
-  subagentVersionsByPresetIdIsLoading: boolean
   builderPrompt?: string
   form: UseFormReturn<AgentPresetFormValues>
   isSaving: boolean
@@ -2199,8 +2141,6 @@ function AgentPresetRightPanel({
               isSaving={isSaving}
               parentPreset={preset}
               agentPresets={agentPresets}
-              versionsByPresetId={subagentVersionsByPresetId}
-              versionsByPresetIdIsLoading={subagentVersionsByPresetIdIsLoading}
               subagentFields={subagentFields}
               onAddSubagent={onAddSubagent}
               onRemoveSubagent={onRemoveSubagent}
@@ -2772,8 +2712,6 @@ function AgentPresetSubagentsPanel({
   isSaving,
   parentPreset,
   agentPresets,
-  versionsByPresetId,
-  versionsByPresetIdIsLoading,
   subagentFields,
   onAddSubagent,
   onRemoveSubagent,
@@ -2782,8 +2720,6 @@ function AgentPresetSubagentsPanel({
   isSaving: boolean
   parentPreset: AgentPresetRead | null
   agentPresets: AgentPresetReadMinimal[]
-  versionsByPresetId: Map<string, AgentPresetVersionReadMinimal[]>
-  versionsByPresetIdIsLoading: boolean
   subagentFields: Array<{ id: string }>
   onAddSubagent: () => void
   onRemoveSubagent: (index: number) => void
@@ -2814,7 +2750,6 @@ function AgentPresetSubagentsPanel({
       subagents: selectedSubagents,
       presetsById: presetOptionsById,
       presetsBySlug: presetOptionsBySlug,
-      versionsByPresetId,
     })
   const internetAccessWarningMessage = getInternetAccessWarningMessage({
     agentsEnabled,
@@ -2901,8 +2836,6 @@ function AgentPresetSubagentsPanel({
                   presetId: "",
                   name: "",
                   description: "",
-                  presetVersion: "",
-                  presetVersionId: "",
                   maxTurns: "",
                 }
                 const selectedPresetIsMissing =
@@ -2915,17 +2848,9 @@ function AgentPresetSubagentsPanel({
                 })
                 const selectedEligibilityIssue = selectedPresetOption
                   ? getSubagentEligibilityIssue({
-                      subagent: selectedSubagent,
                       preset: selectedPresetOption,
-                      versionsByPresetId,
                     })
                   : null
-                const isCheckingSelectedVersion = Boolean(
-                  selectedPresetOption &&
-                    selectedSubagent.presetVersion.trim() &&
-                    versionsByPresetIdIsLoading &&
-                    !versionsByPresetId.has(selectedPresetOption.id)
-                )
 
                 return (
                   <div
@@ -2944,17 +2869,11 @@ function AgentPresetSubagentsPanel({
                                 value={field.value}
                                 onValueChange={(value) => {
                                   field.onChange(value)
+                                  const selected =
+                                    presetOptionsBySlug.get(value)
                                   form.setValue(
                                     `subagents.${index}.presetId`,
-                                    ""
-                                  )
-                                  form.setValue(
-                                    `subagents.${index}.presetVersion`,
-                                    ""
-                                  )
-                                  form.setValue(
-                                    `subagents.${index}.presetVersionId`,
-                                    ""
+                                    selected?.id ?? ""
                                   )
                                 }}
                                 disabled={isSaving || !agentsEnabled}
@@ -3027,10 +2946,6 @@ function AgentPresetSubagentsPanel({
                                                     currentVersionEligibilityMessage
                                                   }
                                                 </p>
-                                                <p className="text-muted-foreground">
-                                                  Pin an eligible version to use
-                                                  this preset as a subagent.
-                                                </p>
                                               </div>
                                             </div>
                                           </TooltipContent>
@@ -3050,7 +2965,7 @@ function AgentPresetSubagentsPanel({
                                 </SelectContent>
                               </Select>
                               <FormDescription>
-                                The preset slug is stored in the agent binding.
+                                The preset head is stored in the agent binding.
                               </FormDescription>
                               <FormMessage />
                             </FormItem>
@@ -3079,65 +2994,12 @@ function AgentPresetSubagentsPanel({
                               </FormItem>
                             )}
                           />
-                          <FormField
-                            control={form.control}
-                            name={`subagents.${index}.presetVersion`}
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Version</FormLabel>
-                                <FormControl>
-                                  <Input
-                                    type="number"
-                                    min={1}
-                                    placeholder="Current"
-                                    value={field.value ?? ""}
-                                    onChange={(event) => {
-                                      field.onChange(event)
-                                      const presetId =
-                                        normalizeOptional(
-                                          selectedSubagent.presetId
-                                        ) ?? selectedPresetOption?.id
-                                      const presetVersionId =
-                                        getSelectedSubagentVersionId({
-                                          presetId,
-                                          presetVersion:
-                                            event.currentTarget.value,
-                                          versionsByPresetId,
-                                        })
-                                      form.setValue(
-                                        `subagents.${index}.presetVersionId`,
-                                        presetVersionId ?? ""
-                                      )
-                                      if (presetId && presetVersionId) {
-                                        form.setValue(
-                                          `subagents.${index}.presetId`,
-                                          presetId
-                                        )
-                                      }
-                                    }}
-                                    disabled={isSaving || !agentsEnabled}
-                                  />
-                                </FormControl>
-                                <FormDescription>
-                                  Optional. Blank uses the current version.
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
                         </div>
-
-                        {isCheckingSelectedVersion ? (
-                          <div className="flex items-center gap-2 rounded-md border px-3 py-2 text-xs text-muted-foreground">
-                            <Loader2 className="size-3.5 animate-spin" />
-                            Checking selected version...
-                          </div>
-                        ) : null}
 
                         {selectedEligibilityIssue ? (
                           <Alert variant="destructive" className="text-xs">
                             <AlertCircle className="size-4" />
-                            <AlertTitle>Cannot attach this version</AlertTitle>
+                            <AlertTitle>Cannot attach this preset</AlertTitle>
                             <AlertDescription>
                               {selectedEligibilityIssue.message}
                             </AlertDescription>
@@ -3826,13 +3688,6 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
         presetId: "preset_id" in subagent ? subagent.preset_id : "",
         name: subagent.name ?? "",
         description: subagent.description ?? "",
-        presetVersion:
-          subagent.preset_version === null ||
-          subagent.preset_version === undefined
-            ? ""
-            : String(subagent.preset_version),
-        presetVersionId:
-          "preset_version_id" in subagent ? subagent.preset_version_id : "",
         maxTurns:
           subagent.max_turns === null || subagent.max_turns === undefined
             ? ""
@@ -3930,38 +3785,29 @@ function formValuesToPayload(
 
 type SubagentResolutionContext = {
   presetsBySlug: Map<string, AgentPresetReadMinimal>
-  versionsByPresetId: Map<string, AgentPresetVersionReadMinimal[]>
 }
 
 function formValuesToAgentsPayload(
   values: AgentPresetFormValues,
-  { presetsBySlug, versionsByPresetId }: SubagentResolutionContext
+  { presetsBySlug }: SubagentResolutionContext
 ): AgentPresetCreate["agents"] {
   if (!values.agentsEnabled) {
     return { enabled: false }
   }
 
   const subagents = values.subagents
-    .map((subagent): PreservedAttachedSubagentRef | null => {
+    .map((subagent): AuthoredAttachedSubagentRef | null => {
       const preset = subagent.preset.trim()
       if (!preset) {
         return null
       }
 
-      const payload: PreservedAttachedSubagentRef = { preset }
+      const payload: AuthoredAttachedSubagentRef = { preset }
       const name = normalizeOptional(subagent.name)
       const description = normalizeOptional(subagent.description)
-      const presetVersion = parseOptionalPositiveInteger(subagent.presetVersion)
       const maxTurns = parseOptionalPositiveInteger(subagent.maxTurns)
       const presetId = normalizeOptional(subagent.presetId)
       const resolvedPresetId = presetId ?? presetsBySlug.get(preset)?.id ?? null
-      const presetVersionId =
-        normalizeOptional(subagent.presetVersionId) ??
-        getSelectedSubagentVersionId({
-          presetId: resolvedPresetId,
-          presetVersion: subagent.presetVersion,
-          versionsByPresetId,
-        })
 
       if (name !== null) {
         payload.name = name
@@ -3969,21 +3815,17 @@ function formValuesToAgentsPayload(
       if (description !== null) {
         payload.description = description
       }
-      if (presetVersion !== null) {
-        payload.preset_version = presetVersion
-      }
       if (maxTurns !== null) {
         payload.max_turns = maxTurns
       }
-      if (resolvedPresetId !== null && presetVersionId !== null) {
+      if (resolvedPresetId !== null) {
         payload.preset_id = resolvedPresetId
-        payload.preset_version_id = presetVersionId
       }
 
       return payload
     })
     .filter(
-      (subagent): subagent is PreservedAttachedSubagentRef => subagent !== null
+      (subagent): subagent is AuthoredAttachedSubagentRef => subagent !== null
     )
 
   return {
@@ -4004,41 +3846,14 @@ function getSubagentFormAlias(subagent: SubagentFormValue): string {
   return subagent.name.trim() || subagent.preset.trim()
 }
 
-function getPinnedSubagentPresetIds({
-  subagents,
-  presetsBySlug,
-}: {
-  subagents: SubagentFormValue[]
-  presetsBySlug: Map<string, AgentPresetReadMinimal>
-}): string[] {
-  const presetIds = new Set<string>()
-  for (const subagent of subagents) {
-    if (!subagent.presetVersion.trim()) {
-      continue
-    }
-    const presetId = normalizeOptional(subagent.presetId)
-    if (presetId) {
-      presetIds.add(presetId)
-      continue
-    }
-    const preset = presetsBySlug.get(subagent.preset.trim())
-    if (preset) {
-      presetIds.add(preset.id)
-    }
-  }
-  return [...presetIds]
-}
-
 function getFirstSubagentEligibilityIssue({
   subagents,
   presetsById,
   presetsBySlug,
-  versionsByPresetId,
 }: {
   subagents: SubagentFormValue[]
   presetsById: Map<string, AgentPresetReadMinimal>
   presetsBySlug: Map<string, AgentPresetReadMinimal>
-  versionsByPresetId: Map<string, AgentPresetVersionReadMinimal[]>
 }): (SubagentEligibilityIssue & { index: number }) | null {
   for (const [index, subagent] of subagents.entries()) {
     const preset = getSubagentPreset({
@@ -4049,11 +3864,7 @@ function getFirstSubagentEligibilityIssue({
     if (preset === null) {
       continue
     }
-    const issue = getSubagentEligibilityIssue({
-      subagent,
-      preset,
-      versionsByPresetId,
-    })
+    const issue = getSubagentEligibilityIssue({ preset })
     if (issue) {
       return { ...issue, index }
     }
@@ -4077,70 +3888,20 @@ function getSubagentPreset({
   return presetsBySlug.get(subagent.preset.trim()) ?? null
 }
 
-function getSelectedSubagentVersionId({
-  presetId,
-  presetVersion,
-  versionsByPresetId,
-}: {
-  presetId?: string | null
-  presetVersion?: string | null
-  versionsByPresetId: Map<string, AgentPresetVersionReadMinimal[]>
-}): string | null {
-  if (!presetId) {
-    return null
-  }
-
-  const version = parseOptionalPositiveInteger(presetVersion)
-  if (version === null) {
-    return null
-  }
-
-  return (
-    versionsByPresetId.get(presetId)?.find((item) => item.version === version)
-      ?.id ?? null
-  )
-}
-
 type SubagentEligibilityIssue = {
-  field: "preset" | "presetVersion"
+  field: "preset"
   message: string
 }
 
 function getSubagentEligibilityIssue({
-  subagent,
   preset,
-  versionsByPresetId,
 }: {
-  subagent: SubagentFormValue
   preset: AgentPresetReadMinimal
-  versionsByPresetId: Map<string, AgentPresetVersionReadMinimal[]>
 }): SubagentEligibilityIssue | null {
-  const presetVersionText = subagent.presetVersion.trim()
-  if (!presetVersionText) {
-    const message = getSubagentEligibilityMessage(
-      preset.current_version_subagent_eligibility
-    )
-    return message ? { field: "preset", message } : null
-  }
-  if (!POSITIVE_INTEGER_REGEX.test(presetVersionText)) {
-    return null
-  }
-
-  const versions = versionsByPresetId.get(preset.id)
-  if (!versions) {
-    return null
-  }
-  const presetVersion = Number.parseInt(presetVersionText, 10)
-  const version = versions.find((item) => item.version === presetVersion)
-  if (!version) {
-    return {
-      field: "presetVersion",
-      message: `Version ${presetVersion} was not found for ${preset.name}.`,
-    }
-  }
-
-  const message = getSubagentEligibilityMessage(version.subagent_eligibility)
-  return message ? { field: "presetVersion", message } : null
+  const message = getSubagentEligibilityMessage(
+    preset.current_version_subagent_eligibility
+  )
+  return message ? { field: "preset", message } : null
 }
 
 function getSubagentEligibilityMessage(
@@ -4206,12 +3967,10 @@ function getSelectedInternetAccessSubagentAliases({
   subagents,
   presetsById,
   presetsBySlug,
-  versionsByPresetId,
 }: {
   subagents: SubagentFormValue[]
   presetsById: Map<string, AgentPresetReadMinimal>
   presetsBySlug: Map<string, AgentPresetReadMinimal>
-  versionsByPresetId: Map<string, AgentPresetVersionReadMinimal[]>
 }): string[] {
   const aliases: string[] = []
 
@@ -4224,40 +3983,13 @@ function getSelectedInternetAccessSubagentAliases({
     if (preset === null) {
       continue
     }
-    const selectedVersion = getSelectedSubagentVersion({
-      subagent,
-      preset,
-      versionsByPresetId,
-    })
-    const capabilities =
-      selectedVersion?.capabilities ?? preset.capabilities ?? []
+    const capabilities = preset.capabilities ?? []
     if (capabilities.includes("internet_access")) {
       aliases.push(getSubagentFormAlias(subagent))
     }
   }
 
   return aliases
-}
-
-function getSelectedSubagentVersion({
-  subagent,
-  preset,
-  versionsByPresetId,
-}: {
-  subagent: SubagentFormValue
-  preset: AgentPresetReadMinimal
-  versionsByPresetId: Map<string, AgentPresetVersionReadMinimal[]>
-}): AgentPresetVersionReadMinimal | null {
-  const presetVersionText = subagent.presetVersion.trim()
-  if (!POSITIVE_INTEGER_REGEX.test(presetVersionText)) {
-    return null
-  }
-  const presetVersion = Number.parseInt(presetVersionText, 10)
-  return (
-    versionsByPresetId
-      .get(preset.id)
-      ?.find((version) => version.version === presetVersion) ?? null
-  )
 }
 
 function getInternetAccessWarningMessage({

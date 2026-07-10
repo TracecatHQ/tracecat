@@ -4712,6 +4712,9 @@ export const $AnyAttachedSubagentRef = {
       $ref: "#/components/schemas/ResolvedAttachedSubagentRef",
     },
     {
+      $ref: "#/components/schemas/HeadAttachedSubagentRef",
+    },
+    {
       $ref: "#/components/schemas/AttachedSubagentRef",
     },
   ],
@@ -4742,10 +4745,6 @@ export const $AppSettingsRead = {
     app_action_form_mode_enabled: {
       type: "boolean",
       title: "App Action Form Mode Enabled",
-    },
-    app_versioned_resource_resolution_strategy: {
-      $ref: "#/components/schemas/VersionedResourceResolutionStrategy",
-      default: "latest",
     },
   },
   type: "object",
@@ -4801,12 +4800,6 @@ export const $AppSettingsUpdate = {
       description:
         "Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.",
       default: true,
-    },
-    app_versioned_resource_resolution_strategy: {
-      $ref: "#/components/schemas/VersionedResourceResolutionStrategy",
-      description:
-        "How versioned resource references are resolved when a feature supports both pinned and latest dependency resolution.",
-      default: "latest",
     },
   },
   type: "object",
@@ -5349,18 +5342,6 @@ export const $AttachedSubagentRef = {
       maxLength: 160,
       minLength: 1,
       title: "Preset",
-    },
-    preset_version: {
-      anyOf: [
-        {
-          type: "integer",
-          minimum: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Preset Version",
     },
     name: {
       anyOf: [
@@ -15448,6 +15429,65 @@ export const $HarnessType = {
   description: "Supported agent harnesses.",
 } as const
 
+export const $HeadAttachedSubagentRef = {
+  properties: {
+    preset: {
+      type: "string",
+      maxLength: 160,
+      minLength: 1,
+      title: "Preset",
+    },
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 80,
+          minLength: 1,
+          pattern: "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    max_turns: {
+      anyOf: [
+        {
+          type: "integer",
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Turns",
+    },
+    preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Preset Id",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["preset", "preset_id"],
+  title: "HeadAttachedSubagentRef",
+  description: "Stable internal reference to a child preset ResourceHead.",
+} as const
+
 export const $HealthResponse = {
   properties: {
     status: {
@@ -22211,18 +22251,6 @@ export const $ResolvedAttachedSubagentRef = {
       minLength: 1,
       title: "Preset",
     },
-    preset_version: {
-      anyOf: [
-        {
-          type: "integer",
-          minimum: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Preset Version",
-    },
     name: {
       anyOf: [
         {
@@ -22271,10 +22299,15 @@ export const $ResolvedAttachedSubagentRef = {
       format: "uuid",
       title: "Preset Version Id",
     },
+    preset_version: {
+      type: "integer",
+      minimum: 1,
+      title: "Preset Version",
+    },
   },
   additionalProperties: false,
   type: "object",
-  required: ["preset", "preset_id", "preset_version_id"],
+  required: ["preset", "preset_id", "preset_version_id", "preset_version"],
   title: "ResolvedAttachedSubagentRef",
   description:
     "Persisted subagent ref with immutable preset/version identifiers.",
@@ -29762,12 +29795,6 @@ export const $VersionDiff = {
   ],
   title: "VersionDiff",
   description: "Result of comparing two registry versions.",
-} as const
-
-export const $VersionedResourceResolutionStrategy = {
-  type: "string",
-  enum: ["pinned", "latest"],
-  title: "VersionedResourceResolutionStrategy",
 } as const
 
 export const $VertexAICatalogCreate = {
