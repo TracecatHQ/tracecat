@@ -479,12 +479,17 @@ def _build_unavailable_user_mcp_tool(
     )
 
 
+class _AllowedUserMCPToolDiscovery(NamedTuple):
+    definitions: dict[str, MCPToolDefinition]
+    failed_servers: dict[str, str]
+
+
 async def _discover_allowed_user_mcp_tools(
     claims: MCPTokenClaims,
-) -> tuple[dict[str, MCPToolDefinition], dict[str, str]]:
+) -> _AllowedUserMCPToolDiscovery:
     allowed_user_tools = _user_mcp_tool_names(claims)
     if not allowed_user_tools or not claims.user_mcp_servers:
-        return {}, {}
+        return _AllowedUserMCPToolDiscovery(definitions={}, failed_servers={})
 
     # Only contact servers that back at least one allowed tool. A configured
     # server whose tools were all disabled or filtered out at compile time
@@ -530,23 +535,20 @@ async def _discover_allowed_user_mcp_tools(
                 _user_mcp_definitions_for_server(discovery.definitions, server_name),
             )
 
-    return {
-        name: definition
-        for name, definition in discovered.items()
-        if name in allowed_user_tools
-    }, failed_servers
+    return _AllowedUserMCPToolDiscovery(
+        definitions={
+            name: definition
+            for name, definition in discovered.items()
+            if name in allowed_user_tools
+        },
+        failed_servers=failed_servers,
+    )
 
 
 class _TokenScopedToolBuild(NamedTuple):
     tools: list[Tool]
     failed_user_mcp_servers: dict[str, str]
     cacheable: bool = True
-
-
-async def build_token_scoped_tools(claims: MCPTokenClaims) -> list[Tool]:
-    """Build the MCP tool catalog visible to one verified token."""
-    build = await _build_token_scoped_tools(claims)
-    return build.tools
 
 
 async def _build_token_scoped_tools(claims: MCPTokenClaims) -> _TokenScopedToolBuild:

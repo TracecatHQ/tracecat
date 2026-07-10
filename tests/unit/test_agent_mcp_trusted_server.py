@@ -290,7 +290,7 @@ async def test_build_token_scoped_tools_does_not_advertise_internal_from_actions
         allowed_actions=["internal.builder.get_session"],
         allowed_internal_tools=[],
     )
-    tools = await trusted_server.build_token_scoped_tools(claims)
+    tools = (await trusted_server._build_token_scoped_tools(claims)).tools
 
     assert tools == []
 
@@ -363,7 +363,7 @@ async def test_build_token_scoped_tools_filters_root_catalog(
     )
 
     claims = _build_claims(allowed_actions=["core.cases.list_cases"])
-    tools = await trusted_server.build_token_scoped_tools(claims)
+    tools = (await trusted_server._build_token_scoped_tools(claims)).tools
 
     assert [tool.name for tool in tools] == ["core__cases__list_cases"]
     schema = tools[0].parameters
@@ -419,7 +419,7 @@ async def test_build_token_scoped_tools_uses_registry_lock_catalog(
         allowed_actions=["core.cases.list_cases"],
         registry_lock=lock,
     )
-    tools = await trusted_server.build_token_scoped_tools(claims)
+    tools = (await trusted_server._build_token_scoped_tools(claims)).tools
 
     assert [tool.name for tool in tools] == ["core__cases__list_cases"]
     schema = tools[0].parameters
@@ -489,7 +489,7 @@ async def test_build_token_scoped_tools_filters_subagent_catalog(
         ],
     )
 
-    tools = await trusted_server.build_token_scoped_tools(claims)
+    tools = (await trusted_server._build_token_scoped_tools(claims)).tools
 
     assert [tool.name for tool in tools] == [
         "core__cases__list_cases",
@@ -575,12 +575,12 @@ async def test_user_mcp_discovery_cache_is_scoped_by_claimed_server_name(
             user_mcp_servers=[UserMCPServerClaim(name=server_name, id=integration_id)],
         )
 
-    jira_tools = await trusted_server.build_token_scoped_tools(
-        claims_for_server("Jira")
-    )
-    linear_tools = await trusted_server.build_token_scoped_tools(
-        claims_for_server("Linear")
-    )
+    jira_tools = (
+        await trusted_server._build_token_scoped_tools(claims_for_server("Jira"))
+    ).tools
+    linear_tools = (
+        await trusted_server._build_token_scoped_tools(claims_for_server("Linear"))
+    ).tools
 
     assert [tool.name for tool in jira_tools] == ["mcp__Jira__getIssue"]
     assert [tool.name for tool in linear_tools] == ["mcp__Linear__getIssue"]
@@ -661,12 +661,16 @@ async def test_user_mcp_discovery_cache_legacy_key_includes_header_digest(
             ],
         )
 
-    first_tools = await trusted_server.build_token_scoped_tools(
-        claims_for_header("Bearer token-a")
-    )
-    second_tools = await trusted_server.build_token_scoped_tools(
-        claims_for_header("Bearer token-b")
-    )
+    first_tools = (
+        await trusted_server._build_token_scoped_tools(
+            claims_for_header("Bearer token-a")
+        )
+    ).tools
+    second_tools = (
+        await trusted_server._build_token_scoped_tools(
+            claims_for_header("Bearer token-b")
+        )
+    ).tools
 
     assert [tool.description for tool in first_tools] == ["Get issue for credential-a"]
     assert [tool.description for tool in second_tools] == ["Get issue for credential-b"]
