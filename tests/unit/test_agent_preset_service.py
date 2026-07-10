@@ -1,6 +1,7 @@
 """Tests for AgentPresetService."""
 
 import asyncio
+import copy
 import os
 import uuid
 from datetime import UTC, datetime
@@ -21,6 +22,10 @@ from tracecat.agent.channels.schemas import (
     SlackChannelTokenConfig,
 )
 from tracecat.agent.channels.service import PENDING_SLACK_BOT_TOKEN, AgentChannelService
+from tracecat.agent.preset.activities import (
+    ResolveAgentsConfigActivityInput,
+    resolve_agents_config_activity,
+)
 from tracecat.agent.preset.resolver import resolve_agents_config
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
@@ -54,6 +59,7 @@ from tracecat.db.models import (
     AgentPresetVersion,
     AgentPresetVersionSkill,
     AgentPresetVersionSubagent,
+    AgentTurnProvenance,
     Organization,
     RegistryAction,
     RegistryIndex,
@@ -108,6 +114,17 @@ async def agent_preset_service(
 ) -> AgentPresetService:
     """Create an agent preset service instance for testing."""
     return AgentPresetService(session=session, role=svc_role)
+
+
+class _AsyncContext:
+    def __init__(self, value: object) -> None:
+        self._value = value
+
+    async def __aenter__(self) -> object:
+        return self._value
+
+    async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
+        return None
 
 
 @pytest.fixture
@@ -1315,6 +1332,159 @@ class TestAgentPresetService:
         )
 
         assert config.resolved_skills == []
+
+    async def test_historical_preset_deleted_skill_records_successor(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Invariant: runs without a deleted skill and records the failure."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        deleted_skill = await skill_service.create_skill(
+            SkillCreate(name="provenance-deleted-skill")
+        )
+        await skill_service.publish_skill(deleted_skill.id)
+        preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Historical provenance preset",
+                instructions="Use the selected skill",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[AgentPresetSkillBindingBase(skill_id=deleted_skill.id)],
+            )
+        )
+        preset_version = await agent_preset_service.get_current_version_for_preset(
+            preset
+        )
+        await agent_preset_service.update_preset(
+            preset,
+            AgentPresetUpdate(skills=None),
+        )
+        await skill_service.archive_skill(deleted_skill.id)
+        successor = await skill_service.create_skill(
+            SkillCreate(name="provenance-deleted-skill")
+        )
+
+        config = await agent_preset_service.resolve_agent_preset_config(
+            preset_id=preset.id,
+            preset_version_id=preset_version.id,
+        )
+
+        assert config.resolved_skills == []
+        assert config.resolved_refs is not None
+        deleted_ref = next(
+            ref
+            for ref in config.resolved_refs.refs
+            if ref.resource_kind == "skill" and ref.status == "skipped"
+        )
+        assert deleted_ref.resource_id == deleted_skill.id
+        assert deleted_ref.code == "deleted"
+        assert deleted_ref.successor_id == successor.id
+
+    async def test_deleted_skill_slug_reclaimed_does_not_relink_binding(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Invariant: a reclaimed slug is not silently substituted."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        deleted_skill = await skill_service.create_skill(
+            SkillCreate(name="no-silent-substitution")
+        )
+        await skill_service.publish_skill(deleted_skill.id)
+        preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="No relink preset",
+                instructions="Use the selected skill",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[AgentPresetSkillBindingBase(skill_id=deleted_skill.id)],
+            )
+        )
+        historical_version = await agent_preset_service.get_current_version_for_preset(
+            preset
+        )
+        await agent_preset_service.update_preset(
+            preset,
+            AgentPresetUpdate(skills=None),
+        )
+        await skill_service.archive_skill(deleted_skill.id)
+        successor = await skill_service.create_skill(
+            SkillCreate(name="no-silent-substitution")
+        )
+
+        config = await agent_preset_service.resolve_agent_preset_config(
+            preset_id=preset.id,
+            preset_version_id=historical_version.id,
+        )
+
+        assert config.resolved_skills == []
+        assert config.resolved_refs is not None
+        assert all(
+            ref.resource_id != successor.id
+            for ref in config.resolved_refs.refs
+            if ref.resource_kind == "skill"
+        )
+        deleted_ref = next(
+            ref
+            for ref in config.resolved_refs.refs
+            if ref.resource_kind == "skill" and ref.status == "skipped"
+        )
+        assert deleted_ref.resource_id == deleted_skill.id
+        assert deleted_ref.successor_id == successor.id
+
+    async def test_deleted_skill_unclaimed_slug_records_no_successor(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Invariant: an unclaimed deleted slug records no successor."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        deleted_skill = await skill_service.create_skill(
+            SkillCreate(name="unclaimed-deleted-skill")
+        )
+        await skill_service.publish_skill(deleted_skill.id)
+        preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Unclaimed deleted skill preset",
+                instructions="Use the selected skill",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[AgentPresetSkillBindingBase(skill_id=deleted_skill.id)],
+            )
+        )
+        historical_version = await agent_preset_service.get_current_version_for_preset(
+            preset
+        )
+        await agent_preset_service.update_preset(
+            preset,
+            AgentPresetUpdate(skills=None),
+        )
+        await skill_service.archive_skill(deleted_skill.id)
+
+        config = await agent_preset_service.resolve_agent_preset_config(
+            preset_id=preset.id,
+            preset_version_id=historical_version.id,
+        )
+
+        assert config.resolved_refs is not None
+        deleted_ref = next(
+            ref
+            for ref in config.resolved_refs.refs
+            if ref.resource_kind == "skill" and ref.status == "skipped"
+        )
+        assert deleted_ref.resource_id == deleted_skill.id
+        assert deleted_ref.code == "deleted"
+        assert deleted_ref.successor_id is None
 
     async def test_list_versions_returns_metadata_without_skill_lookups(
         self,
@@ -2879,6 +3049,224 @@ class TestAgentPresetService:
                     }
                 )
             )
+
+    async def test_resolve_agents_config_skips_only_failed_flat_tree_node(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Invariant: per-node failures skip only the failed node."""
+
+        live_child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Live Child", "slug": "live-child"}
+            )
+        )
+        deleted_child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Deleted Child", "slug": "deleted-child"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Flat Tree Parent",
+                    "slug": "flat-tree-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [
+                                {"preset": live_child.slug},
+                                {"preset": deleted_child.slug},
+                            ],
+                        }
+                    ),
+                }
+            )
+        )
+        parent_v1 = await agent_preset_service.get_current_version_for_preset(parent)
+        await agent_preset_service.update_preset(
+            parent, AgentPresetUpdate(agents=AgentSubagentsConfig())
+        )
+        await agent_preset_service.delete_preset(deleted_child)
+
+        resolved = await resolve_agents_config(
+            agent_preset_service,
+            agents=AgentSubagentsConfig.model_validate(parent_v1.agents),
+            parent_preset_id=parent.id,
+            parent_slug=parent.slug,
+            include_runtime_config=True,
+        )
+
+        assert len(resolved.subagents) == 1
+        assert resolved.subagents[0].binding.preset_id == live_child.id
+        assert len(resolved.skipped) == 1
+        assert resolved.skipped[0].preset_id == deleted_child.id
+        assert resolved.resolved_refs is not None
+        skipped_refs = [
+            ref
+            for ref in resolved.resolved_refs.refs
+            if ref.resource_kind == "subagent" and ref.status == "skipped"
+        ]
+        ok_refs = [
+            ref
+            for ref in resolved.resolved_refs.refs
+            if ref.resource_kind == "subagent" and ref.status == "ok"
+        ]
+        assert [ref.resource_id for ref in ok_refs] == [live_child.id]
+        assert [ref.resource_id for ref in skipped_refs] == [deleted_child.id]
+
+    async def test_root_preset_deleted_and_not_found_fail_with_codes(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Invariant: root preset failures fail the turn, not skip it."""
+
+        deleted = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Deleted Root", "slug": "deleted-root"}
+            )
+        )
+        await agent_preset_service.delete_preset(deleted)
+
+        with pytest.raises(TracecatNotFoundError):
+            await agent_preset_service.resolve_agent_preset_config(preset_id=deleted.id)
+        deleted_refs = await agent_preset_service.build_root_preset_failure_refs(
+            preset_id=deleted.id
+        )
+
+        missing_id = uuid.uuid4()
+        with pytest.raises(TracecatNotFoundError):
+            await agent_preset_service.resolve_agent_preset_config(preset_id=missing_id)
+        missing_refs = await agent_preset_service.build_root_preset_failure_refs(
+            preset_id=missing_id
+        )
+
+        assert deleted_refs.refs[0].resource_id == deleted.id
+        assert deleted_refs.refs[0].status == "skipped"
+        assert deleted_refs.refs[0].code == "deleted"
+        assert missing_refs.refs[0].resource_id == missing_id
+        assert missing_refs.refs[0].status == "skipped"
+        assert missing_refs.refs[0].code == "not_found"
+
+    async def test_root_preset_missing_version_number_classified_not_found(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Invariant: failure codes describe the actual ref-resolution state.
+
+        A live preset that lacks the requested version number failed on the
+        version request — that is ``not_found``; ``unpublished`` covers only
+        publish state when no specific version was requested.
+        """
+
+        preset = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Live Root", "slug": "live-root"}
+            )
+        )
+
+        missing_version_refs = (
+            await agent_preset_service.build_root_preset_failure_refs(
+                slug=preset.slug,
+                preset_version=999,
+            )
+        )
+
+        assert missing_version_refs.refs[0].resource_id == preset.id
+        assert missing_version_refs.refs[0].status == "skipped"
+        assert missing_version_refs.refs[0].code == "not_found"
+
+    async def test_resolution_activity_writes_immutable_turn_provenance_snapshot(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Invariant: provenance is a value snapshot, not a mutable resource link."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        root_skill = await skill_service.create_skill(
+            SkillCreate(name="snapshot-root-skill")
+        )
+        root_skill_version = await skill_service.publish_skill(root_skill.id)
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Snapshot Child", "slug": "snapshot-child"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Snapshot Parent",
+                slug="snapshot-parent",
+                instructions="Use the selected skill and child.",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[AgentPresetSkillBindingBase(skill_id=root_skill.id)],
+                agents=AgentSubagentsConfig.model_validate(
+                    {
+                        "enabled": True,
+                        "subagents": [{"preset": child.slug}],
+                    }
+                ),
+            )
+        )
+        parent_config = await agent_preset_service.resolve_agent_preset_config(
+            preset_id=parent.id
+        )
+        session_id = uuid.uuid4()
+
+        monkeypatch.setattr(
+            "tracecat.agent.preset.activities.AgentPresetService.with_session",
+            lambda **_: _AsyncContext(agent_preset_service),
+        )
+
+        result = await resolve_agents_config_activity(
+            ResolveAgentsConfigActivityInput(
+                role=svc_role,
+                agents=parent_config.agents,
+                parent_preset_id=parent.id,
+                session_id=session_id,
+                wf_exec_id="turn-1",
+                parent_resolved_refs=parent_config.resolved_refs,
+            )
+        )
+
+        row = (
+            await session.execute(
+                select(AgentTurnProvenance).where(
+                    AgentTurnProvenance.session_id == session_id
+                )
+            )
+        ).scalar_one()
+        snapshot = copy.deepcopy(row.resolved_refs)
+        await agent_preset_service.update_preset(
+            parent,
+            AgentPresetUpdate(skills=None),
+        )
+        await skill_service.archive_skill(root_skill.id)
+        row_after = (
+            await session.execute(
+                select(AgentTurnProvenance).where(
+                    AgentTurnProvenance.session_id == session_id
+                )
+            )
+        ).scalar_one()
+
+        assert result.resolved_refs is not None
+        assert snapshot == result.resolved_refs.model_dump(mode="json")
+        assert any(
+            ref["resource_kind"] == "skill"
+            and ref["resource_id"] == str(root_skill.id)
+            and ref["resolved_version_id"] == str(root_skill_version.id)
+            for ref in snapshot["refs"]
+        )
+        assert row_after.resolved_refs == snapshot
 
     async def test_delete_preset_ignores_resolved_reference_with_reused_slug(
         self,

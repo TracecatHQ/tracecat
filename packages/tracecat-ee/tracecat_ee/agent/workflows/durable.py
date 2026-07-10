@@ -460,6 +460,11 @@ LOAD_TERMINAL_MESSAGE_HISTORY_PATCH = "durable-agent-load-terminal-message-histo
 PRESERVE_RESUMED_AGENT_BINDINGS_PATCH = (
     "durable-agent-preserve-resumed-agent-bindings-v1"
 )
+PERSIST_EMPTY_BINDING_PROVENANCE_PATCH = (
+    # Keep the recorded patch ID stable now that enabled-empty bindings share
+    # the same replay-safe deferred-write path as legacy disabled bindings.
+    "durable-agent-persist-disabled-binding-provenance-v1"
+)
 
 
 def _agents_config_from_binding(
@@ -483,6 +488,21 @@ def _preserved_agents_binding(
     if load_result.agents_binding is not None:
         return load_result.agents_binding
     return ResolvedAgentsConfig()
+
+
+def _needs_empty_binding_provenance_activity(
+    cfg: AgentConfig,
+    preserved_binding: ResolvedAgentsConfig,
+) -> bool:
+    """Whether an empty preserved binding still needs the deferred refs write."""
+
+    return (
+        not preserved_binding.subagents
+        and cfg.agents.enabled
+        and bool(cfg.agents.subagents)
+        and cfg.resolved_refs is not None
+        and bool(cfg.resolved_refs.refs)
+    )
 
 
 FINALIZE_TURN_PATCH = "durable-agent-finalize-turn-v1"
@@ -589,17 +609,36 @@ class DurableAgentWorkflow:
             has_base_url=bool(cfg.base_url),
         )
 
+    def _turn_wf_exec_id(self, args: AgentWorkflowArgs) -> str:
+        """Per-turn identifier for ``agent_turn_provenance`` rows.
+
+        Chat callers mint a fresh ``curr_run_id`` per turn. DSL/workflow
+        callers leave it unset and reuse ``agent/<session_id>`` as the
+        workflow ID across continuing turns, so falling back to the session
+        id would collapse every continuing turn into one ``wf_exec_id``.
+        Fall back to the Temporal run ID instead: unique per execution
+        (i.e. per turn) and replay-safe via ``workflow.info()``.
+        """
+        if args.agent_args.curr_run_id is not None:
+            return str(args.agent_args.curr_run_id)
+        return workflow.info().run_id
+
     async def _build_config(self, args: AgentWorkflowArgs) -> AgentConfig:
         if args.agent_args.preset_slug:
+            wf_exec_id = self._turn_wf_exec_id(args)
             activity_input = (
                 ResolveAgentPresetConfigActivityInput(
                     role=self.role,
                     preset_version_id=args.agent_preset_version_id,
+                    session_id=args.agent_args.session_id,
+                    wf_exec_id=wf_exec_id,
                 )
                 if args.agent_preset_version_id is not None
                 else ResolveAgentPresetConfigActivityInput(
                     role=self.role,
                     preset_slug=args.agent_args.preset_slug,
+                    session_id=args.agent_args.session_id,
+                    wf_exec_id=wf_exec_id,
                 )
             )
             preset_config_payload = await workflow.execute_activity(
@@ -646,12 +685,16 @@ class DurableAgentWorkflow:
         agents: AgentSubagentsConfig | None = None,
         follow_latest_versions: bool | None = None,
         preserve_resolved_versions: bool = False,
+        persist_provenance: bool = False,
     ) -> ResolvedAgentsRuntimeConfig:
         agents_config = agents if agents is not None else cfg.agents
-        if not agents_config.enabled:
-            return ResolvedAgentsRuntimeConfig()
-        if not agents_config.subagents:
-            return ResolvedAgentsRuntimeConfig(enabled=True)
+        if not agents_config.enabled and not persist_provenance:
+            return ResolvedAgentsRuntimeConfig(resolved_refs=cfg.resolved_refs)
+        if not agents_config.subagents and not persist_provenance:
+            return ResolvedAgentsRuntimeConfig(
+                enabled=True,
+                resolved_refs=cfg.resolved_refs,
+            )
         return await workflow.execute_activity(
             resolve_agents_config_activity,
             ResolveAgentsConfigActivityInput(
@@ -661,6 +704,9 @@ class DurableAgentWorkflow:
                 parent_slug=args.agent_args.preset_slug,
                 follow_latest_versions=follow_latest_versions,
                 preserve_resolved_versions=preserve_resolved_versions,
+                session_id=args.agent_args.session_id,
+                wf_exec_id=self._turn_wf_exec_id(args),
+                parent_resolved_refs=cfg.resolved_refs,
             ),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
@@ -1111,6 +1157,10 @@ class DurableAgentWorkflow:
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
             if preserved_binding := _preserved_agents_binding(load_result):
+                persist_empty_binding_provenance = (
+                    _needs_empty_binding_provenance_activity(cfg, preserved_binding)
+                    and workflow.patched(PERSIST_EMPTY_BINDING_PROVENANCE_PATCH)
+                )
                 # preserve_resolved_versions rebuilds the stored binding
                 # verbatim (exact version IDs, with_deleted). The session
                 # activity fails the run on any binding mismatch, so this
@@ -1123,6 +1173,7 @@ class DurableAgentWorkflow:
                     agents=_agents_config_from_binding(preserved_binding),
                     follow_latest_versions=False,
                     preserve_resolved_versions=True,
+                    persist_provenance=persist_empty_binding_provenance,
                 )
             else:
                 agents_result = await self._resolve_agents_config(args, cfg)

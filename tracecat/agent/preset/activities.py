@@ -8,6 +8,7 @@ from sqlalchemy import select
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from tracecat.agent.preset.resolved_refs import ResolvedRefs, merge_resolved_refs
 from tracecat.agent.preset.resolver import (
     ResolvedAgentsRuntimeConfig,
     resolve_agents_config,
@@ -15,10 +16,12 @@ from tracecat.agent.preset.resolver import (
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.subagents import AgentSubagentsConfig
+from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_config import agent_config_to_payload
 from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
-from tracecat.db.models import AgentCatalog
+from tracecat.db.models import AgentCatalog, AgentTurnProvenance
+from tracecat.exceptions import TracecatNotFoundError
 
 
 class ResolveAgentPresetConfigActivityInput(BaseModel):
@@ -27,6 +30,8 @@ class ResolveAgentPresetConfigActivityInput(BaseModel):
     preset_id: uuid.UUID | None = None
     preset_version_id: uuid.UUID | None = None
     preset_version: int | None = None
+    session_id: uuid.UUID | None = None
+    wf_exec_id: str | None = None
 
     @model_validator(mode="after")
     def ensure_identifier(self) -> ResolveAgentPresetConfigActivityInput:
@@ -64,6 +69,48 @@ class ResolveAgentsConfigActivityInput(BaseModel):
     # deserialize; only the durable resume path sets it. PR 2.3a (dispatch-time
     # resolution) may subsume or remove this flag.
     preserve_resolved_versions: bool = False
+    session_id: uuid.UUID | None = None
+    wf_exec_id: str | None = None
+    parent_resolved_refs: ResolvedRefs | None = None
+
+
+def _has_runtime_subagents(agents: AgentSubagentsConfig) -> bool:
+    """Return whether a later subagent activity will persist merged refs."""
+
+    return agents.enabled and bool(agents.subagents)
+
+
+async def _write_agent_turn_provenance(
+    service: AgentPresetService | AgentManagementService,
+    *,
+    session_id: uuid.UUID | None,
+    wf_exec_id: str | None,
+    resolved_refs: ResolvedRefs | None,
+) -> None:
+    """Persist one append-only per-turn resolution snapshot when identifiers exist.
+
+    Not idempotent by design: the calling activities are scheduled with
+    ``activity:fail_fast`` (``maximum_attempts=1``), so no Temporal retry can
+    re-execute a committed insert, and replay reads activity results from
+    history instead of re-running them. Revisit if a caller ever gains a
+    retry policy.
+    """
+
+    if session_id is None or wf_exec_id is None or resolved_refs is None:
+        return
+    workspace_id = service.role.workspace_id
+    if workspace_id is None:
+        return
+
+    service.session.add(
+        AgentTurnProvenance(
+            workspace_id=workspace_id,
+            session_id=session_id,
+            wf_exec_id=wf_exec_id,
+            resolved_refs=resolved_refs.model_dump(mode="json"),
+        )
+    )
+    await service.session.commit()
 
 
 @activity.defn
@@ -71,13 +118,43 @@ async def resolve_agent_preset_config_activity(
     args: ResolveAgentPresetConfigActivityInput,
 ) -> AgentConfigPayload:
     async with AgentManagementService.with_session(role=args.role) as service:
+
+        async def write_failure_refs(_err: TracecatNotFoundError) -> None:
+            if service.presets is None:
+                return
+            failure_refs = await service.presets.build_root_preset_failure_refs(
+                preset_id=args.preset_id,
+                slug=args.preset_slug,
+                preset_version_id=args.preset_version_id,
+                preset_version=args.preset_version,
+            )
+            await _write_agent_turn_provenance(
+                service,
+                session_id=args.session_id,
+                wf_exec_id=args.wf_exec_id,
+                resolved_refs=failure_refs,
+            )
+
+        config: AgentConfig | None = None
         async with service.with_preset_config(
             preset_id=args.preset_id,
             slug=args.preset_slug,
             preset_version_id=args.preset_version_id,
             preset_version=args.preset_version,
-        ) as config:
-            return agent_config_to_payload(config)
+            on_resolution_error=write_failure_refs,
+        ) as resolved_config:
+            config = resolved_config
+
+        assert config is not None
+        payload = agent_config_to_payload(config)
+        if not _has_runtime_subagents(config.agents):
+            await _write_agent_turn_provenance(
+                service,
+                session_id=args.session_id,
+                wf_exec_id=args.wf_exec_id,
+                resolved_refs=payload.resolved_refs,
+            )
+        return payload
 
 
 @activity.defn
@@ -107,7 +184,18 @@ async def resolve_agents_config_activity(
             include_runtime_config=True,
             preserve_resolved_versions=args.preserve_resolved_versions,
         )
-        return resolved.to_runtime_config()
+        runtime_config = resolved.to_runtime_config()
+        runtime_config.resolved_refs = merge_resolved_refs(
+            args.parent_resolved_refs,
+            runtime_config.resolved_refs,
+        )
+        await _write_agent_turn_provenance(
+            service,
+            session_id=args.session_id,
+            wf_exec_id=args.wf_exec_id,
+            resolved_refs=runtime_config.resolved_refs,
+        )
+        return runtime_config
 
 
 class CustomModelProviderConfigResult(BaseModel):

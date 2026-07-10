@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from tracecat.agent.preset.resolved_refs import ResolvedRef, ResolvedRefs
 from tracecat.agent.session.schemas import AgentSessionCreate, AgentSessionUpdate
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
@@ -241,14 +242,12 @@ async def test_resolve_session_mcp_servers_requires_agent_addons_entitlement() -
 
 
 @pytest.mark.anyio
-async def test_create_session_derives_agents_binding_from_pinned_preset_version() -> (
-    None
-):
+async def test_create_session_derives_binding_from_selected_preset_version() -> None:
     service, session, _role = _build_service()
     preset_id = uuid.uuid4()
-    pinned_version_id = uuid.uuid4()
+    selected_version_id = uuid.uuid4()
     agents_binding = {"enabled": True, "subagents": []}
-    validate_mock = AsyncMock(return_value=pinned_version_id)
+    validate_mock = AsyncMock(return_value=selected_version_id)
     agents_binding_mock = AsyncMock(return_value=agents_binding)
     service._validate_preset_version_for_assignment = validate_mock
     service._resolve_agents_binding_for_preset_version_id = agents_binding_mock
@@ -259,7 +258,7 @@ async def test_create_session_derives_agents_binding_from_pinned_preset_version(
             entity_type=AgentSessionEntity.CASE,
             entity_id=uuid.uuid4(),
             agent_preset_id=preset_id,
-            agent_preset_version_id=pinned_version_id,
+            agent_preset_version_id=selected_version_id,
         )
     )
 
@@ -267,26 +266,24 @@ async def test_create_session_derives_agents_binding_from_pinned_preset_version(
         entity_type=AgentSessionEntity.CASE,
         entity_id=created.entity_id,
         agent_preset_id=preset_id,
-        agent_preset_version_id=pinned_version_id,
+        agent_preset_version_id=selected_version_id,
     )
     assert created.agent_preset_id == preset_id
-    assert created.agent_preset_version_id == pinned_version_id
+    assert created.agent_preset_version_id == selected_version_id
     assert created.agents_binding == agents_binding
-    agents_binding_mock.assert_awaited_once_with(pinned_version_id)
+    agents_binding_mock.assert_awaited_once_with(selected_version_id)
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(created)
 
 
 @pytest.mark.anyio
-async def test_create_session_prefers_provided_agents_binding_for_pinned_preset() -> (
-    None
-):
+async def test_create_session_prefers_provided_binding_for_selected_version() -> None:
     service, session, _role = _build_service()
     preset_id = uuid.uuid4()
-    pinned_version_id = uuid.uuid4()
+    selected_version_id = uuid.uuid4()
     child_preset_id = uuid.uuid4()
     child_version_id = uuid.uuid4()
-    validate_mock = AsyncMock(return_value=pinned_version_id)
+    validate_mock = AsyncMock(return_value=selected_version_id)
     agents_binding_mock = AsyncMock(
         side_effect=AssertionError("should not derive binding when provided")
     )
@@ -312,7 +309,7 @@ async def test_create_session_prefers_provided_agents_binding_for_pinned_preset(
             entity_type=AgentSessionEntity.CASE,
             entity_id=uuid.uuid4(),
             agent_preset_id=preset_id,
-            agent_preset_version_id=pinned_version_id,
+            agent_preset_version_id=selected_version_id,
         ),
         agents_binding=agents_binding,
     )
@@ -321,10 +318,10 @@ async def test_create_session_prefers_provided_agents_binding_for_pinned_preset(
         entity_type=AgentSessionEntity.CASE,
         entity_id=created.entity_id,
         agent_preset_id=preset_id,
-        agent_preset_version_id=pinned_version_id,
+        agent_preset_version_id=selected_version_id,
     )
     assert created.agent_preset_id == preset_id
-    assert created.agent_preset_version_id == pinned_version_id
+    assert created.agent_preset_version_id == selected_version_id
     assert created.agents_binding == agents_binding.model_dump(mode="json")
     agents_binding_mock.assert_not_called()
     session.commit.assert_awaited_once()
@@ -442,20 +439,20 @@ async def test_validate_preset_assignment_preserves_null_without_resolving_curre
             Mock(return_value=preset_service),
         )
 
-        pinned_version_id = await service._validate_preset_version_for_assignment(
+        selected_version_id = await service._validate_preset_version_for_assignment(
             entity_type=AgentSessionEntity.AGENT_PRESET,
             entity_id=preset_id,
             agent_preset_id=None,
             agent_preset_version_id=None,
         )
 
-    assert pinned_version_id is None
+    assert selected_version_id is None
     preset_service.get_preset.assert_awaited_once_with(preset_id)
     preset_service.resolve_agent_preset_version.assert_not_awaited()
 
 
 @pytest.mark.anyio
-async def test_update_session_allows_version_only_repin_for_preset_sessions() -> None:
+async def test_update_session_allows_exact_version_change_for_preset_sessions() -> None:
     service, session, role = _build_service()
     preset_id = uuid.uuid4()
     new_version_id = uuid.uuid4()
@@ -493,7 +490,7 @@ async def test_update_session_allows_version_only_repin_for_preset_sessions() ->
 
 
 @pytest.mark.anyio
-async def test_update_session_clears_pinned_version_to_follow_current() -> None:
+async def test_update_session_clears_selected_version_to_follow_current() -> None:
     service, session, role = _build_service()
     preset_id = uuid.uuid4()
     agent_session = AgentSession(
@@ -685,6 +682,66 @@ async def test_workspace_chat_preset_config_scope_filters_actions() -> None:
             assert resolved.actions == ["core.workflow.get_workflow"]
             # Instructions still combine preset + entity context.
             assert resolved.instructions == "preset instructions\n\nentity instructions"
+
+
+@pytest.mark.anyio
+async def test_forked_preset_config_carries_resolved_refs() -> None:
+    """Invariant: preset-backed forked turns keep one-row-per-turn provenance.
+
+    The forked branch rebuilds a stripped config (no tools/skills/subagents)
+    from the parent's preset resolution. It must carry the resolution's
+    ``resolved_refs`` through — the value-only snapshot records what
+    resolution saw, and without it the provenance staging guard drops the
+    row for every forked turn.
+    """
+    service, _session, role = _build_service()
+    workspace_id = role.workspace_id
+    assert workspace_id is not None
+    parent_id = uuid.uuid4()
+    agent_session = AgentSession(
+        workspace_id=workspace_id,
+        entity_type=AgentSessionEntity.WORKFLOW.value,
+        entity_id=uuid.uuid4(),
+        parent_session_id=parent_id,
+    )
+    parent_session = SimpleNamespace(
+        agent_preset_id=uuid.uuid4(),
+        agent_preset_version_id=None,
+    )
+    service.get_session = AsyncMock(return_value=parent_session)  # type: ignore[method-assign]
+
+    refs = ResolvedRefs(
+        refs=[
+            ResolvedRef(
+                resource_kind="preset",
+                slug="parent-preset",
+                resource_id=uuid.uuid4(),
+                resolved_version_id=uuid.uuid4(),
+                status="ok",
+            )
+        ]
+    )
+    preset_config = AgentConfig(
+        model_name="test-model",
+        model_provider="test-provider",
+        instructions="preset instructions",
+        actions=["core.workflow.get_workflow"],
+        resolved_refs=refs,
+    )
+
+    @contextlib.asynccontextmanager
+    async def _fake_with_preset_config(**_kwargs: Any):
+        yield preset_config
+
+    with patch(
+        "tracecat.agent.session.service.AgentManagementService"
+    ) as agent_svc_cls:
+        agent_svc_cls.return_value = SimpleNamespace(
+            with_preset_config=_fake_with_preset_config
+        )
+        async with service._build_agent_config(agent_session) as resolved:
+            assert resolved.actions == []
+            assert resolved.resolved_refs == refs
 
 
 @pytest.mark.anyio

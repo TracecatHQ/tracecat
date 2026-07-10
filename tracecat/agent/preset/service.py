@@ -18,7 +18,13 @@ from sqlalchemy.orm import selectinload
 from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.channels.service import AgentChannelService
 from tracecat.agent.common.types import MCPHttpServerConfig, MCPServerConfig
+from tracecat.agent.preset.resolved_refs import (
+    ResolvedRef,
+    ResolvedRefs,
+    merge_resolved_refs,
+)
 from tracecat.agent.preset.resolver import (
+    ResolvedAgentsConfigResult,
     SkippedAgentPresetRef,
     resolve_agents_config,
 )
@@ -41,6 +47,7 @@ from tracecat.agent.preset.schemas import (
 )
 from tracecat.agent.preset.types import SkillBindingSpec
 from tracecat.agent.skill.service import SkillService
+from tracecat.agent.skill.types import ResolvedSkillRefsResult
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
     HeadAttachedSubagentRef,
@@ -443,13 +450,20 @@ class AgentPresetService(BaseWorkspaceService):
     ) -> ResolvedAgentsConfig:
         """Resolve a preset version's snapshotted ResourceHead edges."""
 
-        resolved = await resolve_agents_config(
+        resolved = await self._resolve_version_subagents(version)
+        return resolved.to_agents_binding()
+
+    async def _resolve_version_subagents(
+        self, version: AgentPresetVersion
+    ) -> ResolvedAgentsConfigResult:
+        """Resolve a preset version's snapshotted ResourceHead edges and refs."""
+
+        return await resolve_agents_config(
             self,
             agents=await self._get_version_agents_config(version),
             parent_preset_id=version.preset_id,
             include_runtime_config=False,
         )
-        return resolved.to_agents_binding()
 
     async def build_preset_read(self, preset: AgentPreset) -> AgentPresetRead:
         """Build the response model for a preset."""
@@ -998,6 +1012,134 @@ class AgentPresetService(BaseWorkspaceService):
             .limit(1)
         )
         return (await self.session.execute(with_deleted(stmt))).scalar_one_or_none()
+
+    async def get_successor_id_for_deleted_preset_ref(
+        self,
+        *,
+        preset_id: uuid.UUID | None = None,
+        slug: str | None = None,
+    ) -> uuid.UUID | None:
+        """Return the live owner of a deleted preset slug, without rebinding."""
+
+        if slug is None and preset_id is not None:
+            tombstone = await self._get_preset_for_head_resolution(preset_id=preset_id)
+            slug = tombstone.slug if tombstone is not None else None
+        if slug is None:
+            return None
+
+        predicates = [
+            AgentPreset.workspace_id == self.workspace_id,
+            AgentPreset.slug == slug,
+            AgentPreset.deleted_at.is_(None),
+        ]
+        if preset_id is not None:
+            predicates.append(AgentPreset.id != preset_id)
+        stmt = (
+            select(AgentPreset.id)
+            .where(*predicates)
+            .order_by(AgentPreset.created_at.desc())
+            .limit(1)
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def build_root_preset_failure_refs(
+        self,
+        *,
+        preset_id: uuid.UUID | None = None,
+        slug: str | None = None,
+        preset_version_id: uuid.UUID | None = None,
+        preset_version: int | None = None,
+    ) -> ResolvedRefs:
+        """Classify a failing root preset lookup without making it non-fatal."""
+
+        preset: AgentPreset | None = None
+        if preset_version_id is not None:
+            stmt = (
+                select(AgentPreset)
+                .join(
+                    AgentPresetVersion,
+                    sa.and_(
+                        AgentPresetVersion.workspace_id == AgentPreset.workspace_id,
+                        AgentPresetVersion.preset_id == AgentPreset.id,
+                    ),
+                )
+                .where(
+                    AgentPreset.workspace_id == self.workspace_id,
+                    AgentPresetVersion.id == preset_version_id,
+                )
+            )
+            preset = (
+                await self.session.execute(with_deleted(stmt))
+            ).scalar_one_or_none()
+        if preset is None and (preset_id is not None or slug is not None):
+            preset = await self._get_preset_for_head_resolution(
+                preset_id=preset_id,
+                slug=slug,
+            )
+
+        if preset is None:
+            return ResolvedRefs(
+                refs=[
+                    ResolvedRef(
+                        resource_kind="preset",
+                        slug=slug,
+                        resource_id=preset_id,
+                        status="skipped",
+                        code="not_found",
+                    )
+                ]
+            )
+
+        if preset.deleted_at is not None:
+            successor_id = await self.get_successor_id_for_deleted_preset_ref(
+                preset_id=preset.id,
+                slug=preset.slug,
+            )
+            return ResolvedRefs(
+                refs=[
+                    ResolvedRef(
+                        resource_kind="preset",
+                        slug=preset.slug,
+                        resource_id=preset.id,
+                        status="skipped",
+                        code="deleted",
+                        successor_id=successor_id,
+                    )
+                ]
+            )
+
+        if (
+            preset_version is not None
+            and await self.get_version_by_number(
+                preset_id=preset.id, version=preset_version
+            )
+            is None
+        ):
+            # The preset is live but the requested version number does not
+            # exist — the failure is the version request, not publish state.
+            return ResolvedRefs(
+                refs=[
+                    ResolvedRef(
+                        resource_kind="preset",
+                        slug=preset.slug,
+                        resource_id=preset.id,
+                        status="skipped",
+                        code="not_found",
+                    )
+                ]
+            )
+
+        return ResolvedRefs(
+            refs=[
+                ResolvedRef(
+                    resource_kind="preset",
+                    slug=preset.slug,
+                    resource_id=preset.id,
+                    status="skipped",
+                    code="unpublished",
+                )
+            ]
+        )
 
     def _log_skipped_agent_preset_ref(self, skipped_ref: SkippedAgentPresetRef) -> None:
         """Record a non-fatal child-head resolution skip."""
@@ -2302,6 +2444,80 @@ class AgentPresetService(BaseWorkspaceService):
             total_changes=total_changes,
         )
 
+    async def _get_live_skill_successor_id(
+        self,
+        *,
+        skill_id: uuid.UUID,
+        slug: str | None,
+    ) -> uuid.UUID | None:
+        """Return the live owner of a deleted skill slug, without rebinding."""
+
+        if slug is None:
+            return None
+        stmt = (
+            select(Skill.id)
+            .where(
+                Skill.workspace_id == self.workspace_id,
+                Skill.slug == slug,
+                Skill.id != skill_id,
+                Skill.deleted_at.is_(None),
+                Skill.archived_at.is_(None),
+            )
+            .order_by(Skill.created_at.desc())
+            .limit(1)
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def _build_skill_resolved_refs(
+        self,
+        resolved_skill_refs: ResolvedSkillRefsResult,
+    ) -> ResolvedRefs | None:
+        """Build value-only skill refs from the effective resolution result."""
+
+        skill_ids = {ref.skill_id for ref in resolved_skill_refs.refs}
+        skill_ids.update(ref.skill_id for ref in resolved_skill_refs.skipped)
+        if not skill_ids:
+            return None
+
+        stmt = select(Skill.id, Skill.slug).where(
+            Skill.workspace_id == self.workspace_id,
+            Skill.id.in_(skill_ids),
+        )
+        rows = (await self.session.execute(with_deleted(stmt))).tuples().all()
+        slug_by_id = dict(rows)
+        refs: list[ResolvedRef] = []
+        for skill_ref in resolved_skill_refs.refs:
+            refs.append(
+                ResolvedRef(
+                    resource_kind="skill",
+                    slug=slug_by_id.get(skill_ref.skill_id),
+                    resource_id=skill_ref.skill_id,
+                    resolved_version_id=skill_ref.skill_version_id,
+                    manifest_sha256=skill_ref.manifest_sha256,
+                    status="ok",
+                )
+            )
+        for skipped_ref in resolved_skill_refs.skipped:
+            successor_id = (
+                await self._get_live_skill_successor_id(
+                    skill_id=skipped_ref.skill_id,
+                    slug=skipped_ref.skill_slug,
+                )
+                if skipped_ref.reason == "deleted"
+                else None
+            )
+            refs.append(
+                ResolvedRef(
+                    resource_kind="skill",
+                    slug=skipped_ref.skill_slug,
+                    resource_id=skipped_ref.skill_id,
+                    status="skipped",
+                    code=skipped_ref.reason,
+                    successor_id=successor_id,
+                )
+            )
+        return ResolvedRefs(refs=refs)
+
     async def _version_to_agent_config(
         self, version: AgentPresetVersion
     ) -> AgentConfig:
@@ -2309,11 +2525,29 @@ class AgentPresetService(BaseWorkspaceService):
         # AgentConfig is safe to cross Temporal boundaries. Trusted callers
         # (build_tool_definitions, trusted MCP server) re-resolve secrets
         # per use via resolve_mcp_integration_secrets.
+        # Enrichment lookup, not a liveness check: callers decided liveness
+        # before handing us a version (the resumed-session restore path
+        # resolves soft-deleted child presets on purpose).
+        preset = await self.get_preset(version.preset_id, include_deleted=True)
+        if preset is None:
+            raise TracecatNotFoundError(f"Agent preset '{version.preset_id}' not found")
+        root_resolved_refs = ResolvedRefs(
+            refs=[
+                ResolvedRef(
+                    resource_kind="preset",
+                    slug=preset.slug,
+                    resource_id=preset.id,
+                    resolved_version_id=version.id,
+                    status="ok",
+                )
+            ]
+        )
         mcp_servers = await self.resolve_mcp_integration_refs(version.mcp_integrations)
         model_settings: dict[str, Any] = {}
         skill_resolution = await self.skills.get_resolved_skill_refs_for_preset_version(
             version.id
         )
+        skill_resolved_refs = await self._build_skill_resolved_refs(skill_resolution)
         resolved_skills = skill_resolution.refs
         duplicate_skill_names = sorted(
             name
@@ -2334,12 +2568,13 @@ class AgentPresetService(BaseWorkspaceService):
         # Only disable parallel tool calls if tools will be present
         if version.actions or mcp_servers:
             model_settings["parallel_tool_calls"] = False
-        # Normalized edges are authoritative for runtime membership; the raw
-        # JSON is only the mixed-version compatibility payload.
-        # get_version_subagent_binding resolves through the edges and already
-        # validates children (deleted or unpublished children are rejected
-        # before a binding escapes).
-        binding = await self.get_version_subagent_binding(version)
+        resolved_agents = await self._resolve_version_subagents(version)
+        resolved_refs = merge_resolved_refs(
+            root_resolved_refs,
+            skill_resolved_refs,
+            resolved_agents.resolved_refs,
+        )
+        binding = resolved_agents.to_agents_binding()
         agents = AgentSubagentsConfig(
             enabled=binding.enabled,
             subagents=list(binding.subagents),
@@ -2361,6 +2596,7 @@ class AgentPresetService(BaseWorkspaceService):
             enable_thinking=version.enable_thinking,
             enable_internet_access=version.enable_internet_access,
             resolved_skills=resolved_skills,
+            resolved_refs=resolved_refs,
         )
 
     async def _create_version_from_preset(

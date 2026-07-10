@@ -2900,7 +2900,7 @@ class AgentSession(WorkspaceModel):
         UUID,
         ForeignKey("agent_preset_version.id", ondelete="SET NULL"),
         nullable=True,
-        doc="Pinned agent preset version used for this session (if any)",
+        doc="Exact agent preset version selected for this session (if any)",
     )
     agents_binding: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB,
@@ -3031,6 +3031,57 @@ class AgentSessionHistory(WorkspaceModel):
     session: Mapped[AgentSession] = relationship(
         "AgentSession",
         back_populates="history",
+    )
+
+
+class AgentTurnProvenance(Base):
+    """Per-turn resource resolution snapshot for agent execution.
+
+    ``AgentSessionHistory`` stores per-message transcript rows. This table
+    stores one append-only per-turn resolution snapshot and deliberately keeps
+    resource references as JSONB values so provenance outlives deleted skills,
+    presets, sessions, and versions.
+    """
+
+    __tablename__ = "agent_turn_provenance"
+
+    surrogate_id: Mapped[int] = mapped_column(
+        Integer,
+        Identity(),
+        primary_key=True,
+        nullable=False,
+    )
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        nullable=False,
+        index=True,
+        doc="Plain agent session UUID; no FK so provenance survives session deletion.",
+    )
+    wf_exec_id: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        doc=(
+            "Per-turn workflow/run identifier. Deliberately string-typed so "
+            "non-chat contexts (e.g. DSL workflow executions with string exec "
+            "ids) can write this table; chat turns store the stringified "
+            "AgentSession.curr_run_id UUID."
+        ),
+    )
+    resolved_refs: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        doc="Serialized ResolvedRefs value snapshot for this turn.",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        nullable=False,
     )
 
 

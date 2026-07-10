@@ -384,10 +384,12 @@ async def test_build_config_prefers_resolved_preset_version_id() -> None:
         scopes=frozenset({"agent:execute", "secret:read"}),
     )
     resolved_version_id = uuid.uuid4()
+    run_id = uuid.uuid4()
     workflow_args = AgentWorkflowArgs(
         role=role,
         agent_args=RunAgentArgs(
             session_id=uuid.uuid4(),
+            curr_run_id=run_id,
             user_prompt="hello",
             preset_slug="triage-agent",
             config=cast(
@@ -425,6 +427,7 @@ async def test_build_config_prefers_resolved_preset_version_id() -> None:
     assert call_args[1].preset_version_id == resolved_version_id
     assert call_args[1].preset_slug is None
     assert call_args[1].preset_version is None
+    assert call_args[1].wf_exec_id == str(run_id)
     assert cfg.model_name == resolved_config.model_name
     assert cfg.model_provider == resolved_config.model_provider
     assert cfg.actions == ["core.http_request"]
