@@ -21,18 +21,21 @@ import pytest
 import yaml
 from pydantic import SecretStr, ValidationError
 from pydantic_core import PydanticSerializationError
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.support.fake_vcs import FakeVcsServer
+from tracecat.agent.session.service import AgentSessionService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import (
     AgentCatalog,
     AgentPreset,
     AgentPresetSkill,
+    AgentPresetSubagent,
     AgentPresetVersion,
     AgentPresetVersionSkill,
+    AgentPresetVersionSubagent,
     CaseDropdownDefinition,
     CaseDropdownOption,
     CaseDurationDefinition,
@@ -66,7 +69,6 @@ from tracecat.workspace_sync.adapters import (
     TABLE_RESOURCE_ADAPTER,
     WORKSPACE_RESOURCE_ADAPTERS,
 )
-from tracecat.workspace_sync.adapters.base import VersionedSlug
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.importer import WorkspaceResourceImportService
 from tracecat.workspace_sync.resources import workflow_references
@@ -288,13 +290,11 @@ def test_workflow_references_detects_preset_agent_preset_arg() -> None:
     references = workflow_references(DSLInput.model_validate(workflow["definition"]))
 
     assert references.preset_slugs == {"qa-triage-parent"}
-    assert references.versioned_preset_slugs == set()
 
     workflow["definition"]["actions"][0]["args"]["preset_version"] = 2
     references = workflow_references(DSLInput.model_validate(workflow["definition"]))
 
-    assert references.preset_slugs == set()
-    assert references.versioned_preset_slugs == {VersionedSlug("qa-triage-parent", 2)}
+    assert references.preset_slugs == {"qa-triage-parent"}
 
 
 def test_skill_fixture_records_file_sha256s() -> None:
@@ -1507,7 +1507,7 @@ async def test_agent_preset_only_export_lazily_includes_dependency_closure(
         pytest.param(WorkspaceSyncExportPreviewRequest(), id="full_export"),
     ],
 )
-async def test_export_merges_seen_subagent_versions(
+async def test_export_follows_subagent_current_head(
     preview_request: WorkspaceSyncExportPreviewRequest,
     session: AsyncSession,
     svc_role: Role,
@@ -1525,7 +1525,7 @@ async def test_export_merges_seen_subagent_versions(
 
     preview = await service.preview_export_workspace(preview_request)
 
-    assert f"{AGENT_PRESET_ROOT}/qa-evidence-child/versions/1.yml" in preview.files
+    assert f"{AGENT_PRESET_ROOT}/qa-evidence-child/versions/1.yml" not in preview.files
     assert f"{AGENT_PRESET_ROOT}/qa-evidence-child/versions/2.yml" in preview.files
 
 
@@ -1672,18 +1672,15 @@ async def test_round_trip_preserves_presets_pinning_different_skill_versions(
 
 
 @pytest.mark.anyio
-async def test_full_workspace_export_includes_workflow_pinned_version_closure(
+async def test_full_workspace_export_ignores_stale_workflow_version_selector(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
-    """A full export follows pinned versions transitively from workflow to skill.
+    """A full export follows current heads despite a stale workflow selector.
 
-    The seeded workflow calls ``ai.preset_agent`` pinned to ``agent-x`` v1, while
-    that preset's head is v2; v1 pins ``skill-a`` v1 and v2 pins ``skill-a`` v2.
-    A whole-workspace export must walk this closure and emit both preset version
-    snapshots and both skill version snapshots, so the workflow's pinned-but-
-    non-head dependency (and the skill version it transitively pins) is not
-    dropped in favor of only the current head.
+    The seeded workflow contains the retired ``preset_version`` argument for
+    ``agent-x`` v1 while the preset head is v2. Export treats the argument as
+    compatibility-only input and emits the coordinated current-head closure.
     """
     repo_url = "git+ssh://git@github.com/TracecatHQ/git-sync-workflow-pin-qa.git"
     git_url = GitUrl(
@@ -1730,8 +1727,8 @@ async def test_full_workspace_export_includes_workflow_pinned_version_closure(
         )
         assert source_pull.success is True
 
-        # Export the entire workspace (no resource filter) to capture the full
-        # transitive closure of the workflow's pinned references.
+        # Export the entire workspace (no resource filter) to capture the
+        # current-head dependency closure.
         export = await source_service.export_workspace(
             WorkspaceSyncExportRequest(
                 message="Export workflow pinned agent version",
@@ -1743,12 +1740,12 @@ async def test_full_workspace_export_includes_workflow_pinned_version_closure(
     assert export.commit.status is PushStatus.COMMITTED
     assert export.commit.sha is not None
     exported_files = fake_vcs.repo_files(git_url, ref=export.commit.sha)
-    # The workflow itself, plus both preset versions (v1 is pinned by the
-    # workflow, v2 is the head) and both skill versions they pin transitively.
+    # The stale workflow selector does not pull historical v1 resources into
+    # the desired-state export; the current v2 closure is sufficient.
     assert f"{WORKFLOW_ROOT}/workflow-pins-agent/definition.yml" in exported_files
-    assert f"{AGENT_PRESET_ROOT}/agent-x/versions/1.yml" in exported_files
+    assert f"{AGENT_PRESET_ROOT}/agent-x/versions/1.yml" not in exported_files
     assert f"{AGENT_PRESET_ROOT}/agent-x/versions/2.yml" in exported_files
-    assert f"{SKILL_ROOT}/skill-a/versions/1/version.yml" in exported_files
+    assert f"{SKILL_ROOT}/skill-a/versions/1/version.yml" not in exported_files
     assert f"{SKILL_ROOT}/skill-a/versions/2/version.yml" in exported_files
 
 
@@ -4285,9 +4282,24 @@ async def test_agent_preset_import_resolves_parent_before_child_order(
     assert child is not None
     assert child.current_version_id is not None
     assert parent.agents["enabled"] is True
-    assert parent.agents["subagents"][0]["preset_version_id"] == str(
-        child.current_version_id
+    imported_subagent = parent.agents["subagents"][0]
+    assert imported_subagent["preset_id"] == str(child.id)
+    assert "preset_version_id" not in imported_subagent
+    assert "preset_version" not in imported_subagent
+
+    head_child_id = await session.scalar(
+        select(AgentPresetSubagent.child_preset_id).where(
+            AgentPresetSubagent.parent_preset_id == parent.id
+        )
     )
+    version_child_id = await session.scalar(
+        select(AgentPresetVersionSubagent.child_preset_id).where(
+            AgentPresetVersionSubagent.parent_preset_version_id
+            == parent.current_version_id
+        )
+    )
+    assert head_child_id == child.id
+    assert version_child_id == child.id
 
 
 @pytest.mark.anyio
@@ -4368,29 +4380,108 @@ async def test_agent_preset_sync_preserves_subagent_options(
     assert child is not None
     assert child.current_version_id is not None
     imported_subagent = parent.agents["subagents"][0]
-    assert imported_subagent["preset_version_id"] == str(child.current_version_id)
-    assert imported_subagent["preset_version"] == 1
+    assert imported_subagent["preset_id"] == str(child.id)
+    assert "preset_version_id" not in imported_subagent
+    assert "preset_version" not in imported_subagent
     assert imported_subagent["name"] == "evidence-child"
     assert imported_subagent["description"] == "Collect evidence"
     assert imported_subagent["max_turns"] == 3
+
+    parent_version = await session.scalar(
+        select(AgentPresetVersion).where(
+            AgentPresetVersion.id == parent.current_version_id
+        )
+    )
+    assert parent_version is not None
+    assert "preset_version_id" not in parent_version.agents["subagents"][0]
+    resolved_binding = await AgentSessionService(
+        session=session,
+        role=svc_role,
+    )._resolve_agents_binding_for_preset_version_id(parent_version.id)
+    assert resolved_binding is not None
+    assert resolved_binding["subagents"][0]["preset_id"] == str(child.id)
+    assert resolved_binding["subagents"][0]["preset_version_id"] == str(
+        child.current_version_id
+    )
+
+    # Normalized ResourceHead edges, not the compatibility JSON snapshot, are
+    # authoritative for export after a child slug changes.
+    child.slug = "z-child-renamed"
+    parent_version.agents = {
+        **parent_version.agents,
+        "subagents": [
+            {
+                **parent_version.agents["subagents"][0],
+                "preset": "stale-child-slug",
+            }
+        ],
+    }
+    session.add_all([child, parent_version])
+    await session.flush()
 
     projection = await service.project_workspace(create_missing_mappings=False)
     parent_spec = yaml.safe_load(
         projection.files[f"{AGENT_PRESET_ROOT}/a-parent/preset.yml"]
     )
     assert "subagents" not in parent_spec
-    parent_version = yaml.safe_load(
+    parent_version_spec = yaml.safe_load(
         projection.files[f"{AGENT_PRESET_ROOT}/a-parent/versions/1.yml"]
     )
-    assert parent_version["subagents"] == [
+    assert parent_version_spec["subagents"] == [
         {
-            "slug": "z-child",
-            "version": 1,
+            "slug": "z-child-renamed",
             "name": "evidence-child",
             "description": "Collect evidence",
             "max_turns": 3,
         }
     ]
+
+    # An old pod can write only the compatibility JSON during the expand
+    # window. Until runtime reconciliation runs, export must preserve those
+    # dependencies instead of treating the missing normalized rows as empty.
+    await session.execute(
+        delete(AgentPresetVersionSubagent).where(
+            AgentPresetVersionSubagent.parent_preset_version_id == parent_version.id
+        )
+    )
+    parent_version.agents = {
+        **parent_version.agents,
+        "subagents": [
+            {
+                **parent_version.agents["subagents"][0],
+                "preset": child.slug,
+            }
+        ],
+    }
+    parent_version.agents_enabled = False
+    session.add(parent_version)
+    await session.flush()
+
+    legacy_projection = await service.project_workspace(create_missing_mappings=False)
+    legacy_parent_version_spec = yaml.safe_load(
+        legacy_projection.files[f"{AGENT_PRESET_ROOT}/a-parent/versions/1.yml"]
+    )
+    assert legacy_parent_version_spec["subagents"] == [
+        {
+            "slug": "z-child-renamed",
+            "name": "evidence-child",
+            "description": "Collect evidence",
+            "max_turns": 3,
+        }
+    ]
+
+    # Matching enabled state plus empty JSON is an authoritative empty
+    # snapshot, not an unreconciled legacy row.
+    parent_version.agents = {"enabled": True, "subagents": []}
+    parent_version.agents_enabled = True
+    session.add(parent_version)
+    await session.flush()
+
+    empty_projection = await service.project_workspace(create_missing_mappings=False)
+    empty_parent_version_spec = yaml.safe_load(
+        empty_projection.files[f"{AGENT_PRESET_ROOT}/a-parent/versions/1.yml"]
+    )
+    assert empty_parent_version_spec.get("subagents", []) == []
 
 
 @pytest.mark.anyio

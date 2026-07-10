@@ -13,13 +13,15 @@ from slugify import slugify
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from tracecat.agent.subagents import AgentSubagentsConfig
+from tracecat.agent.subagents import AgentSubagentsConfig, HeadAttachedSubagentRef
 from tracecat.db.models import (
     AgentFolder,
     AgentPreset,
     AgentPresetSkill,
+    AgentPresetSubagent,
     AgentPresetVersion,
     AgentPresetVersionSkill,
+    AgentPresetVersionSubagent,
     AgentTag,
     AgentTagLink,
     Skill,
@@ -300,8 +302,18 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             workspace_service,
             [version.id for version in version_rows],
         )
+        subagent_bindings_by_version_id = await self._subagent_bindings_for_versions(
+            workspace_service,
+            [version.id for version in version_rows],
+        )
         versions: dict[int, AgentPresetVersionResourceSpec] = {}
         for version in version_rows:
+            normalized_subagents = subagent_bindings_by_version_id.get(version.id)
+            subagents = normalized_subagents
+            if subagents is None:
+                subagents = (
+                    _legacy_subagent_refs_for_unreconciled_version(version) or []
+                )
             versions[version.version] = AgentPresetVersionResourceSpec(
                 version_number=version.version,
                 name=preset.name,
@@ -309,7 +321,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 tool_approvals=version.tool_approvals or {},
                 actions=sorted(version.actions or []),
                 skills=skill_bindings_by_version_id.get(version.id, []),
-                subagents=_subagent_refs(version.agents),
+                subagents=subagents,
                 catalog_id=version.catalog_id,
                 model_name=version.model_name,
                 model_provider=version.model_provider,
@@ -361,6 +373,55 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             )
         return bindings
 
+    async def _subagent_bindings_for_versions(
+        self,
+        workspace_service: SyncMappingService,
+        version_ids: list[uuid.UUID],
+    ) -> dict[uuid.UUID, list[AgentPresetSubagentRef]]:
+        """Return current child slugs from normalized version head edges."""
+        if not version_ids:
+            return {}
+        stmt = (
+            select(
+                AgentPresetVersionSubagent.parent_preset_version_id,
+                AgentPreset.slug,
+                AgentPresetVersionSubagent.alias,
+                AgentPresetVersionSubagent.description,
+                AgentPresetVersionSubagent.max_turns,
+            )
+            .select_from(AgentPresetVersionSubagent)
+            .join(
+                AgentPreset,
+                sa.and_(
+                    AgentPreset.id == AgentPresetVersionSubagent.child_preset_id,
+                    AgentPreset.workspace_id == AgentPresetVersionSubagent.workspace_id,
+                ),
+            )
+            .where(
+                AgentPresetVersionSubagent.workspace_id
+                == workspace_service.workspace_id,
+                AgentPresetVersionSubagent.parent_preset_version_id.in_(version_ids),
+            )
+            .order_by(
+                AgentPresetVersionSubagent.parent_preset_version_id.asc(),
+                AgentPresetVersionSubagent.position.asc(),
+            )
+        )
+        bindings: dict[uuid.UUID, list[AgentPresetSubagentRef]] = {}
+        for preset_version_id, slug, alias, description, max_turns in (
+            await workspace_service.session.execute(with_deleted(stmt))
+        ).tuples():
+            bindings.setdefault(preset_version_id, []).append(
+                AgentPresetSubagentRef(
+                    slug=slug,
+                    version=None,
+                    name=alias,
+                    description=description,
+                    max_turns=max_turns,
+                )
+            )
+        return bindings
+
     async def import_specs(
         self,
         workspace_service: SyncMappingService,
@@ -370,7 +431,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
         Imports presets in two passes: the first upserts each preset, folder,
         and tag set; the second resolves subagent references and skill bindings
-        in topological order and pins each preset's current version.
+        in topological order and advances each preset's current head.
         """
         presets = workspace_spec.agent_presets
         # Compute the parent-after-subagent order up front so pass 2 can resolve
@@ -450,6 +511,11 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 preset.agents = AgentSubagentsConfig().model_dump(mode="json")
             workspace_service.session.add(preset)
             await workspace_service.session.flush()
+            await self._replace_head_subagent_bindings(
+                workspace_service,
+                preset,
+                preset.agents,
+            )
             skill_targets = (
                 await self._skill_binding_targets_for_spec(
                     workspace_service,
@@ -474,6 +540,11 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                     workspace_service,
                     version,
                     version_skill_targets,
+                )
+                await self._replace_version_subagent_bindings(
+                    workspace_service,
+                    version,
+                    version.agents,
                 )
                 imported_versions[version_number] = version
 
@@ -511,7 +582,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             await self._replace_head_skill_bindings(
                 workspace_service, preset, skill_targets
             )
-            # Pin the preset to the resolved version as its current head.
+            # Advance the preset to the imported current version.
             preset.current_version_id = current_version.id
             workspace_service.session.add(preset)
             await workspace_service.session.flush()
@@ -744,9 +815,9 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
     ) -> dict[str, Any]:
         """Build the subagents config dict for ``spec``.
 
-        Resolves each subagent reference to its current preset version, skipping
-        any that are missing or unpublished. Returns the default disabled config
-        when the spec declares no subagents.
+        Resolves each subagent reference to its ResourceHead, skipping any that
+        are missing or unpublished. Version selectors in older manifests are
+        compatibility-only input and do not create version-to-version edges.
         """
         # No subagents declared: emit the default (disabled) config.
         if not spec.subagents:
@@ -754,22 +825,13 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
         subagents: list[dict[str, Any]] = []
         for subagent in spec.subagents:
-            # Skip refs whose child preset or version can't be resolved
-            # (missing or unpublished) so the config only contains live links.
-            target = await self._resolved_subagent_target(workspace_service, subagent)
-            if target is None:
+            child = await self._resolved_subagent_target(workspace_service, subagent)
+            if child is None:
                 continue
-            child, version = target
             subagents.append(
                 {
                     "preset": child.slug,
                     "preset_id": str(child.id),
-                    "preset_version_id": str(version.id),
-                    # Pin a concrete version only when the ref requested one;
-                    # otherwise leave it floating on the child's current version.
-                    "preset_version": version.version
-                    if subagent.version is not None
-                    else None,
                     "name": subagent.name,
                     "description": subagent.description,
                     "max_turns": subagent.max_turns,
@@ -782,8 +844,8 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         self,
         workspace_service: SyncMappingService,
         subagent: AgentPresetSubagentRef,
-    ) -> tuple[AgentPreset, AgentPresetVersion] | None:
-        """Resolve a subagent ref to its child preset and desired version."""
+    ) -> AgentPreset | None:
+        """Resolve a subagent ref to its live child ResourceHead."""
         # Look up the child preset by slug within the same workspace. Soft-deleted
         # presets keep their slug, so exclude them to avoid binding a deleted
         # child that runtime resolution would reject.
@@ -794,35 +856,16 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 AgentPreset.deleted_at.is_(None),
             )
         )
-        if child is None:
+        if child is None or child.current_version_id is None:
             return None
-
-        stmt = select(AgentPresetVersion).where(
-            AgentPresetVersion.workspace_id == workspace_service.workspace_id,
-            AgentPresetVersion.preset_id == child.id,
-        )
-        # Pin the explicitly requested version when given; otherwise track the
-        # child's current version. Bail if the child has no published version.
-        if subagent.version is not None:
-            stmt = stmt.where(AgentPresetVersion.version == subagent.version)
-        elif child.current_version_id is not None:
-            stmt = stmt.where(AgentPresetVersion.id == child.current_version_id)
-        else:
-            return None
-
-        # Treat an unresolvable version (e.g. requested number not found) as a
-        # skip rather than an error.
-        version = await workspace_service.session.scalar(stmt)
-        if version is None:
-            return None
-        return child, version
+        return child
 
     async def _current_version_for_preset(
         self,
         workspace_service: SyncMappingService,
         preset: AgentPreset,
     ) -> AgentPresetVersion | None:
-        """Return ``preset``'s current :class:`AgentPresetVersion`, if pinned."""
+        """Return ``preset``'s current :class:`AgentPresetVersion`, if published."""
         if preset.current_version_id is None:
             return None
         return await workspace_service.session.scalar(
@@ -898,6 +941,11 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         )
         workspace_service.session.add(version)
         await workspace_service.session.flush()
+        await self._replace_version_subagent_bindings(
+            workspace_service,
+            version,
+            preset.agents,
+        )
         return version
 
     async def _upsert_agent_preset_version(
@@ -1026,6 +1074,71 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             )
         await workspace_service.session.flush()
 
+    async def _replace_head_subagent_bindings(
+        self,
+        workspace_service: SyncMappingService,
+        preset: AgentPreset,
+        agents: dict[str, Any],
+    ) -> None:
+        """Replace normalized subagent ResourceHead edges for a preset head."""
+
+        config = AgentSubagentsConfig.model_validate(agents)
+        preset.agents_enabled = config.enabled
+        await workspace_service.session.execute(
+            sa.delete(AgentPresetSubagent).where(
+                AgentPresetSubagent.workspace_id == workspace_service.workspace_id,
+                AgentPresetSubagent.parent_preset_id == preset.id,
+            )
+        )
+        for position, subagent in enumerate(config.subagents):
+            if not isinstance(subagent, HeadAttachedSubagentRef):
+                continue
+            workspace_service.session.add(
+                AgentPresetSubagent(
+                    workspace_id=workspace_service.workspace_id,
+                    parent_preset_id=preset.id,
+                    child_preset_id=subagent.preset_id,
+                    alias=subagent.alias,
+                    description=subagent.description,
+                    max_turns=subagent.max_turns,
+                    position=position,
+                )
+            )
+        await workspace_service.session.flush()
+
+    async def _replace_version_subagent_bindings(
+        self,
+        workspace_service: SyncMappingService,
+        version: AgentPresetVersion,
+        agents: dict[str, Any],
+    ) -> None:
+        """Replace normalized subagent ResourceHead edges for a version ledger row."""
+
+        config = AgentSubagentsConfig.model_validate(agents)
+        version.agents_enabled = config.enabled
+        await workspace_service.session.execute(
+            sa.delete(AgentPresetVersionSubagent).where(
+                AgentPresetVersionSubagent.workspace_id
+                == workspace_service.workspace_id,
+                AgentPresetVersionSubagent.parent_preset_version_id == version.id,
+            )
+        )
+        for position, subagent in enumerate(config.subagents):
+            if not isinstance(subagent, HeadAttachedSubagentRef):
+                continue
+            workspace_service.session.add(
+                AgentPresetVersionSubagent(
+                    workspace_id=workspace_service.workspace_id,
+                    parent_preset_version_id=version.id,
+                    child_preset_id=subagent.preset_id,
+                    alias=subagent.alias,
+                    description=subagent.description,
+                    max_turns=subagent.max_turns,
+                    position=position,
+                )
+            )
+        await workspace_service.session.flush()
+
     async def _skill_binding_targets_for_spec(
         self,
         workspace_service: SyncMappingService,
@@ -1087,27 +1200,29 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         return skill, version
 
 
-def _subagent_refs(agents: dict[str, Any]) -> list[AgentPresetSubagentRef]:
-    """Extract slug-only subagent refs from a preset's ``agents`` config.
+def _legacy_subagent_refs_for_unreconciled_version(
+    version: AgentPresetVersion,
+) -> list[AgentPresetSubagentRef] | None:
+    """Return legacy refs only when a version still needs edge reconciliation.
 
-    Returns an empty list when the config is missing or fails to validate.
+    ``None`` preserves an authoritative empty normalized snapshot. Once any
+    normalized edge exists, callers never reach this compatibility fallback.
     """
-    # Treat a malformed/legacy config as having no subagents rather than failing
-    # the whole projection.
     try:
-        config = AgentSubagentsConfig.model_validate(agents or {"enabled": False})
-    except Exception:
-        return []
-    # Project to slug-keyed refs, sorted by slug for deterministic output.
+        config = AgentSubagentsConfig.model_validate(version.agents)
+    except ValidationError:
+        return None
+    if config.enabled == version.agents_enabled and not config.subagents:
+        return None
     return [
         AgentPresetSubagentRef(
             slug=subagent.preset,
-            version=subagent.preset_version,
+            version=None,
             name=subagent.name,
             description=subagent.description,
             max_turns=subagent.max_turns,
         )
-        for subagent in sorted(config.subagents, key=lambda item: item.preset)
+        for subagent in config.subagents
     ]
 
 
