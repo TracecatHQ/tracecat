@@ -4815,19 +4815,11 @@ async def update_webhook(
         update_params = WebhookUpdate(**update_kwargs)
 
         async with get_async_session_context_manager() as session:
-            webhook = await webhook_service.get_webhook(
-                session=session,
-                workspace_id=role.workspace_id,
-                workflow_id=workflow_id,
-            )
-            if webhook is None:
-                raise ToolError(f"Webhook not found for workflow {workflow_id}")
-
-            for key, value in update_params.model_dump(exclude_unset=True).items():
-                setattr(webhook, key, value)
-
-            session.add(webhook)
-            await session.commit()
+            service = webhook_service.WebhookConfigService(session, role=role)
+            try:
+                await service.update_webhook(workflow_id, update_params)
+            except TracecatNotFoundError as e:
+                raise ToolError(f"Webhook not found for workflow {workflow_id}") from e
         return MCPMessageResponse(
             message=f"Webhook for workflow {workflow_id} updated successfully"
         )

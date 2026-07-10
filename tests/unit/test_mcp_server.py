@@ -3496,6 +3496,17 @@ async def test_list_secrets_metadata_returns_keys_not_values(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
+def _webhook_user_role() -> Role:
+    return Role(
+        type="user",
+        user_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        service_id="tracecat-api",
+        scopes=frozenset({"*"}),
+    )
+
+
 @pytest.mark.anyio
 async def test_get_webhook(monkeypatch):
     async def _resolve(_workspace_id):
@@ -3568,7 +3579,7 @@ async def test_get_webhook_not_found(monkeypatch):
 @pytest.mark.anyio
 async def test_update_webhook(monkeypatch):
     async def _resolve(_workspace_id):
-        return uuid.uuid4(), SimpleNamespace(workspace_id=uuid.uuid4())
+        return uuid.uuid4(), _webhook_user_role()
 
     fake_webhook = SimpleNamespace(
         id=uuid.uuid4(),
@@ -3606,6 +3617,9 @@ async def test_update_webhook(monkeypatch):
         "get_async_session_context_manager",
         lambda: _AsyncContext(FakeSession()),
     )
+    monkeypatch.setattr(
+        "tracecat.audit.service.config.TRACECAT__AUDIT_DELIVERY_ENABLED", False
+    )
 
     result = await _tool(mcp_server.update_webhook)(
         workspace_id=str(uuid.uuid4()),
@@ -3620,7 +3634,7 @@ async def test_update_webhook(monkeypatch):
 @pytest.mark.anyio
 async def test_update_webhook_omits_unset_fields(monkeypatch):
     async def _resolve(_workspace_id):
-        return uuid.uuid4(), SimpleNamespace(workspace_id=uuid.uuid4())
+        return uuid.uuid4(), _webhook_user_role()
 
     setattr_calls: dict[str, object] = {}
 
@@ -3665,6 +3679,9 @@ async def test_update_webhook_omits_unset_fields(monkeypatch):
         mcp_server,
         "get_async_session_context_manager",
         lambda: _AsyncContext(FakeSession()),
+    )
+    monkeypatch.setattr(
+        "tracecat.audit.service.config.TRACECAT__AUDIT_DELIVERY_ENABLED", False
     )
 
     result = await _tool(mcp_server.update_webhook)(

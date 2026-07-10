@@ -649,19 +649,13 @@ async def update_webhook(
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
         )
-    webhook = await webhook_service.get_webhook(
-        session=session,
-        workspace_id=role.workspace_id,
-        workflow_id=workflow_id,
-    )
-    if webhook is None:
-        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail="Webhook not found")
-    for key, value in params.model_dump(exclude_unset=True).items():
-        # Safety: params have been validated by WebhookUpdate
-        setattr(webhook, key, value)
-    session.add(webhook)
-    await session.commit()
-    await session.refresh(webhook)
+    service = webhook_service.WebhookConfigService(session, role=role)
+    try:
+        await service.update_webhook(workflow_id, params)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND, detail="Webhook not found"
+        ) from e
 
 
 @router.get("/{workflow_id}/case-trigger", status_code=HTTP_200_OK)
