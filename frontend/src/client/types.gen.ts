@@ -1159,6 +1159,7 @@ export type AlertArtifact = {
 
 export type AnyAttachedSubagentRef =
   | ResolvedAttachedSubagentRef
+  | HeadAttachedSubagentRef
   | AttachedSubagentRef
 
 /**
@@ -1171,7 +1172,6 @@ export type AppSettingsRead = {
   app_workflow_export_enabled: boolean
   app_create_workspace_on_register: boolean
   app_action_form_mode_enabled: boolean
-  app_versioned_resource_resolution_strategy?: VersionedResourceResolutionStrategy
 }
 
 /**
@@ -1202,10 +1202,6 @@ export type AppSettingsUpdate = {
    * Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.
    */
   app_action_form_mode_enabled?: boolean
-  /**
-   * How versioned resource references are resolved when a feature supports both pinned and latest dependency resolution.
-   */
-  app_versioned_resource_resolution_strategy?: VersionedResourceResolutionStrategy
 }
 
 /**
@@ -1358,7 +1354,6 @@ export type AssistantMessage = {
  */
 export type AttachedSubagentRef = {
   preset: string
-  preset_version?: number | null
   name?: string | null
   description?: string | null
   max_turns?: number | null
@@ -4703,6 +4698,17 @@ export type HTTPValidationError = {
  */
 export type HarnessType = "pydantic-ai" | "claude_code"
 
+/**
+ * Stable internal reference to a child preset ResourceHead.
+ */
+export type HeadAttachedSubagentRef = {
+  preset: string
+  name?: string | null
+  description?: string | null
+  max_turns?: number | null
+  preset_id: string
+}
+
 export type HealthResponse = {
   status: string
 }
@@ -6808,12 +6814,12 @@ export type ResolvedAgentsConfig = {
  */
 export type ResolvedAttachedSubagentRef = {
   preset: string
-  preset_version?: number | null
   name?: string | null
   description?: string | null
   max_turns?: number | null
   preset_id: string
   preset_version_id: string
+  preset_version: number
 }
 
 export type ResourcePullCount = {
@@ -9007,8 +9013,6 @@ export type VersionDiff = {
   actions_modified?: Array<ActionChange>
   total_changes?: number
 }
-
-export type VersionedResourceResolutionStrategy = "pinned" | "latest"
 
 /**
  * Vertex AI catalog entry.

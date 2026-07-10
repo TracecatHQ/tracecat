@@ -155,7 +155,7 @@ Notes:
 - `update_agent_preset(workspace_id, preset_slug, name=None, slug=None, description=None, instructions=None, model_name=None, model_provider=None, base_url=None, output_type=None, actions=None, namespaces=None, tool_approvals=None, mcp_integration_ids=None, retries=None, enable_thinking=None, enable_internet_access=None, skills=None)`
 - `list_agent_presets(workspace_id, limit=20, cursor=None)`
 - `get_agent_preset(workspace_id, preset_slug)`
-- `run_agent_preset(workspace_id, preset_slug, prompt, preset_version=None, timeout_seconds=120)`
+- `run_agent_preset(workspace_id, preset_slug, prompt, timeout_seconds=120)`
 
 `list_integrations` and `get_agent_preset_authoring_context` keep object
 responses but cap embedded collections and expose `truncation.collections`.

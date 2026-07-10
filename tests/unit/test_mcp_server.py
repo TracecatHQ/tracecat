@@ -8356,10 +8356,8 @@ async def test_run_agent_preset_uses_session_stream_cursor(
             self,
             *,
             slug: str,
-            preset_version: int | None = None,
         ) -> SimpleNamespace:
             assert slug == "triage"
-            assert preset_version is None
             return version
 
     class _SessionService:

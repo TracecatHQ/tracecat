@@ -176,11 +176,11 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                 requested_agents_binding = (
                     input.agents_binding or disabled_agents_binding
                 )
+                has_resume_state = (
+                    agent_session.sdk_session_id is not None
+                    or agent_session.parent_session_id is not None
+                )
                 if agent_session.agents_binding is None:
-                    has_resume_state = (
-                        agent_session.sdk_session_id is not None
-                        or agent_session.parent_session_id is not None
-                    )
                     should_backfill_agents_binding = input.agents_binding is not None
                     stored_agents_binding = (
                         requested_agents_binding
@@ -191,7 +191,18 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                     stored_agents_binding = ResolvedAgentsConfig.model_validate(
                         agent_session.agents_binding
                     )
-                    should_backfill_agents_binding = False
+                    # A never-run session pre-created with an exact version
+                    # persists that version's saved binding, but its first
+                    # turn resolves fresh; adopt the freshly resolved binding
+                    # instead of failing the mismatch. Sessions with resume
+                    # state keep the hard failure below: their stored binding
+                    # is resumable runtime topology.
+                    should_backfill_agents_binding = (
+                        not has_resume_state
+                        and stored_agents_binding != requested_agents_binding
+                    )
+                    if should_backfill_agents_binding:
+                        stored_agents_binding = requested_agents_binding
 
                 if stored_agents_binding != requested_agents_binding:
                     # Non-retryable: retrying with the same mismatched input
