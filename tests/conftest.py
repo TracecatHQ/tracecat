@@ -697,22 +697,72 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                 "create_preset": {
                     "description": "Create an agent preset",
                     "default_title": "Create agent preset",
+                    "display_group": "Agent Presets",
                 },
                 "get_preset": {
                     "description": "Get an agent preset",
                     "default_title": "Get agent preset",
+                    "display_group": "Agent Presets",
                 },
                 "list_presets": {
                     "description": "List agent presets",
                     "default_title": "List agent presets",
+                    "display_group": "Agent Presets",
                 },
                 "update_preset": {
                     "description": "Update an agent preset",
                     "default_title": "Update agent preset",
+                    "display_group": "Agent Presets",
                 },
                 "delete_preset": {
                     "description": "Delete an agent preset",
                     "default_title": "Delete agent preset",
+                    "display_group": "Agent Presets",
+                },
+                "list_preset_skills": {
+                    "description": "List preset skills",
+                    "default_title": "List preset skills",
+                    "display_group": "Agent Presets",
+                },
+                "add_preset_skill": {
+                    "description": "Add preset skill",
+                    "default_title": "Add preset skill",
+                    "display_group": "Agent Presets",
+                },
+                "update_preset_skill": {
+                    "description": "Update preset skill",
+                    "default_title": "Update preset skill",
+                    "display_group": "Agent Presets",
+                },
+                "remove_preset_skill": {
+                    "description": "Remove preset skill",
+                    "default_title": "Remove preset skill",
+                    "display_group": "Agent Presets",
+                },
+                "list_preset_subagents": {
+                    "description": "List preset subagents",
+                    "default_title": "List preset subagents",
+                    "display_group": "Agent Subagents",
+                },
+                "get_preset_subagent": {
+                    "description": "Get preset subagent",
+                    "default_title": "Get preset subagent",
+                    "display_group": "Agent Subagents",
+                },
+                "add_preset_subagent": {
+                    "description": "Add preset subagent",
+                    "default_title": "Add preset subagent",
+                    "display_group": "Agent Subagents",
+                },
+                "update_preset_subagent": {
+                    "description": "Update preset subagent",
+                    "default_title": "Update preset subagent",
+                    "display_group": "Agent Subagents",
+                },
+                "remove_preset_subagent": {
+                    "description": "Remove preset subagent",
+                    "default_title": "Remove preset subagent",
+                    "display_group": "Agent Subagents",
                 },
             }
             for action_name, metadata in agent_preset_actions.items():
@@ -728,11 +778,29 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                     "action_type": "udf",
                     "description": metadata["description"],
                     "default_title": metadata["default_title"],
-                    "display_group": "Agent Presets",
+                    "display_group": metadata["display_group"],
                     "interface": {"expects": {}, "returns": None},
                     "implementation": preset_impl,
                     "options": {"required_entitlements": ["agent_addons"]},
                 }
+
+            update_skill_impl = {
+                "type": "udf",
+                "url": origin,
+                "module": "tracecat_registry.core.skills",
+                "name": "update_skill",
+            }
+            manifest_actions["ai.skill.update_skill"] = {
+                "namespace": "ai.skill",
+                "name": "update_skill",
+                "action_type": "udf",
+                "description": "Apply operations to a skill draft",
+                "default_title": "Update skill draft",
+                "display_group": "Agent Skills",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": update_skill_impl,
+                "options": {"required_entitlements": ["agent_addons"]},
+            }
 
             # core.table.lookup
             table_lookup_impl = {

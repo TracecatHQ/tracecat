@@ -11,6 +11,7 @@ from tracecat_registry.core.skills import (
     get_skill_version,
     list_skill_versions,
     restore_skill_version,
+    update_skill,
 )
 
 
@@ -71,6 +72,32 @@ async def test_get_skill_version_delegates_to_agents_sdk(
         skill_id="skill-id",
         skill_uuid=skill_uuid,
         version_id=version_id,
+    )
+
+
+@pytest.mark.anyio
+async def test_update_skill_delegates_to_agents_sdk(
+    skill_registry_context: MagicMock,
+) -> None:
+    skill_uuid = uuid.uuid4()
+    operations = [{"op": "delete_file", "path": "old.md"}]
+    skill_registry_context.agents.update_skill = AsyncMock(
+        return_value={"draft_revision": 2}
+    )
+
+    result = await update_skill(
+        skill_id="skill-id",
+        skill_uuid=skill_uuid,
+        base_revision=1,
+        operations=operations,
+    )
+
+    assert result == {"draft_revision": 2}
+    skill_registry_context.agents.update_skill.assert_awaited_once_with(
+        skill_id="skill-id",
+        skill_uuid=skill_uuid,
+        base_revision=1,
+        operations=operations,
     )
 
 

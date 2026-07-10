@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Annotated, Any, Literal
 
 from typing_extensions import Doc
@@ -18,6 +19,66 @@ OutputTypeLiteral = Literal[
     "list[int]",
     "list[str]",
 ]
+
+
+def _preset_skills(preset: dict[str, Any]) -> list[dict[str, Any]]:
+    return list(preset.get("skills") or [])
+
+
+def _skill_binding(skill_id: uuid.UUID, skill_version_id: uuid.UUID) -> dict[str, str]:
+    return {
+        "skill_id": str(skill_id),
+        "skill_version_id": str(skill_version_id),
+    }
+
+
+def _skill_index(skills: list[dict[str, Any]], skill_id: uuid.UUID) -> int | None:
+    target = str(skill_id)
+    for index, skill in enumerate(skills):
+        if str(skill.get("skill_id")) == target:
+            return index
+    return None
+
+
+def _agents_config(preset: dict[str, Any]) -> dict[str, Any]:
+    agents = dict(preset.get("agents") or {})
+    agents["subagents"] = list(agents.get("subagents") or [])
+    agents["enabled"] = bool(agents.get("enabled"))
+    return agents
+
+
+def _subagent_ref(
+    *,
+    preset: str,
+    preset_version: int | None = None,
+    name: str | None = None,
+    description: str | None = None,
+    max_turns: int | None = None,
+) -> dict[str, Any]:
+    ref: dict[str, Any] = {"preset": preset}
+    if preset_version is not None:
+        ref["preset_version"] = preset_version
+    if name is not None:
+        ref["name"] = name
+    if description is not None:
+        ref["description"] = description
+    if max_turns is not None:
+        ref["max_turns"] = max_turns
+    return ref
+
+
+def _subagent_alias(subagent: dict[str, Any]) -> str:
+    name = subagent.get("name")
+    if name:
+        return str(name)
+    return str(subagent.get("preset"))
+
+
+def _subagent_index(subagents: list[dict[str, Any]], alias: str) -> int | None:
+    for index, subagent in enumerate(subagents):
+        if _subagent_alias(subagent) == alias:
+            return index
+    return None
 
 
 @registry.register(
@@ -195,6 +256,302 @@ async def get_preset(
 )
 async def list_presets() -> list[dict[str, Any]]:
     return await ctx.agents.aio.list_presets()
+
+
+@registry.register(
+    default_title="List preset skills",
+    display_group="Agent Presets",
+    description="List the published skill versions attached to an agent preset.",
+    namespace="ai.agent",
+    required_entitlements=["agent_addons"],
+)
+async def list_preset_skills(
+    slug: Annotated[str, Doc("The slug identifier of the preset.")],
+) -> list[dict[str, Any]]:
+    preset = await ctx.agents.aio.get_preset(slug)
+    return _preset_skills(preset)
+
+
+@registry.register(
+    default_title="Add preset skill",
+    display_group="Agent Presets",
+    description="Attach a published skill version to an agent preset.",
+    namespace="ai.agent",
+    required_entitlements=["agent_addons"],
+)
+async def add_preset_skill(
+    slug: Annotated[str, Doc("The slug identifier of the preset to update.")],
+    skill_id: Annotated[uuid.UUID, Doc("Canonical skill UUID to attach.")],
+    skill_version_id: Annotated[
+        uuid.UUID, Doc("Published skill version UUID to attach.")
+    ],
+    replace_existing: Annotated[
+        bool,
+        Doc("Replace the existing binding for this skill if it is already attached."),
+    ] = False,
+) -> dict[str, Any]:
+    preset = await ctx.agents.aio.get_preset(slug)
+    skills = _preset_skills(preset)
+    binding = _skill_binding(skill_id, skill_version_id)
+    index = _skill_index(skills, skill_id)
+    if index is None:
+        skills.append(binding)
+    elif replace_existing:
+        skills[index] = binding
+    else:
+        raise ValueError(
+            f"Skill '{skill_id}' is already attached to preset '{slug}'. "
+            "Use replace_existing=true to change its version."
+        )
+    return await ctx.agents.aio.update_preset(slug, skills=skills)
+
+
+@registry.register(
+    default_title="Update preset skill",
+    display_group="Agent Presets",
+    description="Change the published skill version attached to an agent preset.",
+    namespace="ai.agent",
+    required_entitlements=["agent_addons"],
+)
+async def update_preset_skill(
+    slug: Annotated[str, Doc("The slug identifier of the preset to update.")],
+    skill_id: Annotated[uuid.UUID, Doc("Canonical skill UUID already attached.")],
+    skill_version_id: Annotated[
+        uuid.UUID, Doc("New published skill version UUID to attach.")
+    ],
+) -> dict[str, Any]:
+    preset = await ctx.agents.aio.get_preset(slug)
+    skills = _preset_skills(preset)
+    index = _skill_index(skills, skill_id)
+    if index is None:
+        raise ValueError(f"Skill '{skill_id}' is not attached to preset '{slug}'.")
+    skills[index] = _skill_binding(skill_id, skill_version_id)
+    return await ctx.agents.aio.update_preset(slug, skills=skills)
+
+
+@registry.register(
+    default_title="Remove preset skill",
+    display_group="Agent Presets",
+    description="Detach a skill from an agent preset.",
+    namespace="ai.agent",
+    required_entitlements=["agent_addons"],
+)
+async def remove_preset_skill(
+    slug: Annotated[str, Doc("The slug identifier of the preset to update.")],
+    skill_id: Annotated[uuid.UUID, Doc("Canonical skill UUID to detach.")],
+    allow_missing: Annotated[
+        bool,
+        Doc("Return the unchanged preset instead of failing when the skill is absent."),
+    ] = False,
+) -> dict[str, Any]:
+    preset = await ctx.agents.aio.get_preset(slug)
+    skills = _preset_skills(preset)
+    index = _skill_index(skills, skill_id)
+    if index is None:
+        if allow_missing:
+            return preset
+        raise ValueError(f"Skill '{skill_id}' is not attached to preset '{slug}'.")
+    del skills[index]
+    return await ctx.agents.aio.update_preset(slug, skills=skills)
+
+
+@registry.register(
+    default_title="List preset subagents",
+    display_group="Agent Subagents",
+    description="List preset-backed subagent bindings configured on an agent preset.",
+    namespace="ai.agent",
+    required_entitlements=["agent_addons"],
+)
+async def list_preset_subagents(
+    slug: Annotated[str, Doc("The slug identifier of the parent preset.")],
+) -> list[dict[str, Any]]:
+    preset = await ctx.agents.aio.get_preset(slug)
+    return _agents_config(preset)["subagents"]
+
+
+@registry.register(
+    default_title="Get preset subagent",
+    display_group="Agent Subagents",
+    description="Get one preset-backed subagent binding by alias.",
+    namespace="ai.agent",
+    required_entitlements=["agent_addons"],
+)
+async def get_preset_subagent(
+    slug: Annotated[str, Doc("The slug identifier of the parent preset.")],
+    alias: Annotated[
+        str,
+        Doc(
+            "Subagent alias. This is `name` when set, otherwise the child preset slug."
+        ),
+    ],
+) -> dict[str, Any]:
+    preset = await ctx.agents.aio.get_preset(slug)
+    subagents = _agents_config(preset)["subagents"]
+    index = _subagent_index(subagents, alias)
+    if index is None:
+        raise ValueError(f"Subagent '{alias}' is not attached to preset '{slug}'.")
+    return subagents[index]
+
+
+@registry.register(
+    default_title="Add preset subagent",
+    display_group="Agent Subagents",
+    description="Attach a child preset as a subagent, optionally pinned to a preset version.",
+    namespace="ai.agent",
+    required_entitlements=["agent_addons"],
+)
+async def add_preset_subagent(
+    slug: Annotated[str, Doc("The slug identifier of the parent preset to update.")],
+    subagent_preset: Annotated[str, Doc("Child preset slug to attach as a subagent.")],
+    preset_version: Annotated[
+        int | None,
+        Doc(
+            "Optional child preset version number to pin. Omit to use the current version."
+        ),
+    ] = None,
+    name: Annotated[
+        str | None,
+        Doc("Optional runtime alias. Defaults to the child preset slug."),
+    ] = None,
+    description: Annotated[
+        str | None,
+        Doc(
+            "Optional description shown to the root agent for when to use this subagent."
+        ),
+    ] = None,
+    max_turns: Annotated[
+        int | None,
+        Doc("Optional maximum turns for this subagent."),
+    ] = None,
+    replace_existing: Annotated[
+        bool,
+        Doc("Replace an existing subagent with the same alias."),
+    ] = False,
+) -> dict[str, Any]:
+    preset = await ctx.agents.aio.get_preset(slug)
+    agents = _agents_config(preset)
+    subagents = agents["subagents"]
+    ref = _subagent_ref(
+        preset=subagent_preset,
+        preset_version=preset_version,
+        name=name,
+        description=description,
+        max_turns=max_turns,
+    )
+    alias = _subagent_alias(ref)
+    index = _subagent_index(subagents, alias)
+    if index is None:
+        subagents.append(ref)
+    elif replace_existing:
+        subagents[index] = ref
+    else:
+        raise ValueError(
+            f"Subagent '{alias}' is already attached to preset '{slug}'. "
+            "Use replace_existing=true to change it."
+        )
+    agents["enabled"] = True
+    return await ctx.agents.aio.update_preset(slug, agents=agents)
+
+
+@registry.register(
+    default_title="Update preset subagent",
+    display_group="Agent Subagents",
+    description="Update a preset-backed subagent binding, including its pinned version.",
+    namespace="ai.agent",
+    required_entitlements=["agent_addons"],
+)
+async def update_preset_subagent(
+    slug: Annotated[str, Doc("The slug identifier of the parent preset to update.")],
+    alias: Annotated[
+        str,
+        Doc(
+            "Current subagent alias. This is `name` when set, otherwise the child preset slug."
+        ),
+    ],
+    subagent_preset: Annotated[
+        str | None,
+        Doc("Updated child preset slug. Omit to keep the existing child preset."),
+    ] = None,
+    preset_version: Annotated[
+        int | None,
+        Doc(
+            "Updated child preset version number. Omit to keep the existing version pin."
+        ),
+    ] = None,
+    name: Annotated[
+        str | None,
+        Doc("Updated runtime alias. Omit to keep the existing alias."),
+    ] = None,
+    description: Annotated[
+        str | None,
+        Doc("Updated subagent description. Omit to keep the existing description."),
+    ] = None,
+    max_turns: Annotated[
+        int | None,
+        Doc("Updated maximum turns. Omit to keep the existing value."),
+    ] = None,
+) -> dict[str, Any]:
+    preset = await ctx.agents.aio.get_preset(slug)
+    agents = _agents_config(preset)
+    subagents = agents["subagents"]
+    index = _subagent_index(subagents, alias)
+    if index is None:
+        raise ValueError(f"Subagent '{alias}' is not attached to preset '{slug}'.")
+    ref = dict(subagents[index])
+    if subagent_preset is not None:
+        ref["preset"] = subagent_preset
+    if preset_version is not None:
+        ref["preset_version"] = preset_version
+    if name is not None:
+        ref["name"] = name
+    if description is not None:
+        ref["description"] = description
+    if max_turns is not None:
+        ref["max_turns"] = max_turns
+    new_alias = _subagent_alias(ref)
+    existing_index = _subagent_index(subagents, new_alias)
+    if existing_index is not None and existing_index != index:
+        raise ValueError(
+            f"Cannot rename subagent '{alias}' to '{new_alias}' because that alias already exists."
+        )
+    subagents[index] = ref
+    agents["enabled"] = True
+    return await ctx.agents.aio.update_preset(slug, agents=agents)
+
+
+@registry.register(
+    default_title="Remove preset subagent",
+    display_group="Agent Subagents",
+    description="Detach a preset-backed subagent from an agent preset.",
+    namespace="ai.agent",
+    required_entitlements=["agent_addons"],
+)
+async def remove_preset_subagent(
+    slug: Annotated[str, Doc("The slug identifier of the parent preset to update.")],
+    alias: Annotated[
+        str,
+        Doc(
+            "Subagent alias. This is `name` when set, otherwise the child preset slug."
+        ),
+    ],
+    allow_missing: Annotated[
+        bool,
+        Doc(
+            "Return the unchanged preset instead of failing when the subagent is absent."
+        ),
+    ] = False,
+) -> dict[str, Any]:
+    preset = await ctx.agents.aio.get_preset(slug)
+    agents = _agents_config(preset)
+    subagents = agents["subagents"]
+    index = _subagent_index(subagents, alias)
+    if index is None:
+        if allow_missing:
+            return preset
+        raise ValueError(f"Subagent '{alias}' is not attached to preset '{slug}'.")
+    del subagents[index]
+    agents["enabled"] = bool(subagents)
+    return await ctx.agents.aio.update_preset(slug, agents=agents)
 
 
 @registry.register(

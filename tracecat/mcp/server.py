@@ -90,6 +90,7 @@ from tracecat.agent.skill.schemas import (
 from tracecat.agent.skill.service import SkillService
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamDelta, StreamEnd, StreamError
+from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.tools import create_tool_from_registry
 from tracecat.agent.types import OutputType
 from tracecat.auth.schemas import UserRead
@@ -7739,12 +7740,14 @@ async def create_agent_preset(
     enable_thinking: bool | None = None,
     enable_internet_access: bool | None = None,
     skills: list[AgentPresetSkillBindingBase] | None = None,
+    agents: AgentSubagentsConfig | None = None,
 ) -> AgentPresetRead:
     """Create an agent preset in the selected workspace.
 
     Use `skills` to attach published skill versions. Each binding requires
     `skill_id` and `skill_version_id` from `list_skills` and
-    `publish_skill`.
+    `publish_skill`. Use `agents` to enable preset-backed subagents and
+    attach child preset/version refs.
     """
 
     try:
@@ -7778,6 +7781,7 @@ async def create_agent_preset(
             "enable_thinking": enable_thinking,
             "enable_internet_access": enable_internet_access,
             "skills": skills,
+            "agents": agents,
         }
         create_data.update(
             {
@@ -7822,12 +7826,15 @@ async def update_agent_preset(
     enable_thinking: bool | None = None,
     enable_internet_access: bool | None = None,
     skills: list[AgentPresetSkillBindingBase] | None = None,
+    agents: AgentSubagentsConfig | None = None,
 ) -> AgentPresetRead:
     """Update an existing agent preset in the selected workspace.
 
     Use `skills` to replace attached published skill-version bindings. Each
     binding requires `skill_id` and `skill_version_id`. Omit `skills` to
-    leave bindings unchanged, or pass an empty list to detach all skills.
+    leave bindings unchanged, or pass an empty list to detach all skills. Use
+    `agents` to replace the preset-backed subagent config; omit it to leave
+    subagents unchanged.
     """
 
     try:
@@ -7848,6 +7855,7 @@ async def update_agent_preset(
             "enable_thinking": enable_thinking,
             "enable_internet_access": enable_internet_access,
             "skills": skills,
+            "agents": agents,
         }
         update_data.update(
             {

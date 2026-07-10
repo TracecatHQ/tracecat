@@ -9316,6 +9316,106 @@ async def test_create_agent_preset_passes_skill_bindings(
 
 
 @pytest.mark.anyio
+async def test_create_agent_preset_passes_subagent_bindings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    catalog_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    created: dict[str, Any] = {}
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _AgentManagementService:
+        async def get_default_model_selection(self) -> SimpleNamespace:
+            return SimpleNamespace(
+                catalog_id=catalog_id,
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+            )
+
+    class _AccessService:
+        async def is_catalog_enabled(
+            self, requested_catalog_id: uuid.UUID, *, workspace_id: uuid.UUID
+        ) -> bool:
+            assert requested_catalog_id == catalog_id
+            return True
+
+    class _PresetService(_PresetReadBuilder):
+        async def create_preset(self, params: Any) -> SimpleNamespace:
+            created["params"] = params
+            now = datetime.now(UTC)
+            return SimpleNamespace(
+                id=uuid.uuid4(),
+                workspace_id=workspace_id,
+                name=params.name,
+                slug="security-triage",
+                description=params.description,
+                instructions=params.instructions,
+                model_name=params.model_name,
+                model_provider=params.model_provider,
+                catalog_id=params.catalog_id,
+                base_url=params.base_url,
+                output_type=params.output_type,
+                actions=params.actions,
+                namespaces=params.namespaces,
+                tool_approvals=params.tool_approvals,
+                mcp_integrations=params.mcp_integrations,
+                agents=params.agents,
+                retries=params.retries,
+                enable_thinking=params.enable_thinking,
+                enable_internet_access=params.enable_internet_access,
+                current_version_id=None,
+                created_at=now,
+                updated_at=now,
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_AgentManagementService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentModelAccessService,
+        "with_session",
+        lambda role: _AsyncContext(_AccessService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+    await _tool(mcp_server.create_agent_preset)(
+        workspace_id=str(workspace_id),
+        name="Security triage",
+        agents={
+            "enabled": True,
+            "subagents": [
+                {
+                    "preset": "deep-investigator",
+                    "preset_version": 2,
+                    "name": "investigator",
+                    "description": "Investigate suspicious artifacts",
+                    "max_turns": 4,
+                }
+            ],
+        },
+    )
+
+    params = created["params"]
+    assert params.agents.enabled is True
+    assert len(params.agents.subagents) == 1
+    subagent = params.agents.subagents[0]
+    assert subagent.preset == "deep-investigator"
+    assert subagent.preset_version == 2
+    assert subagent.name == "investigator"
+    assert subagent.max_turns == 4
+
+
+@pytest.mark.anyio
 async def test_update_agent_preset_passes_skill_bindings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -9387,6 +9487,86 @@ async def test_update_agent_preset_passes_skill_bindings(
     assert len(params.skills) == 1
     assert params.skills[0].skill_id == skill_id
     assert params.skills[0].skill_version_id == skill_version_id
+
+
+@pytest.mark.anyio
+async def test_update_agent_preset_passes_subagent_bindings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    captured: dict[str, Any] = {}
+    now = datetime.now(UTC)
+    preset = SimpleNamespace(
+        id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        name="Security triage",
+        slug="security-triage",
+        description=None,
+        instructions="Original prompt",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        catalog_id=None,
+        base_url=None,
+        output_type=None,
+        actions=None,
+        namespaces=None,
+        tool_approvals=None,
+        mcp_integrations=None,
+        agents={},
+        retries=3,
+        enable_thinking=True,
+        enable_internet_access=False,
+        current_version_id=None,
+        created_at=now,
+        updated_at=now,
+    )
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _PresetService(_PresetReadBuilder):
+        async def get_preset_by_slug(self, preset_slug: str) -> SimpleNamespace:
+            assert preset_slug == "security-triage"
+            return preset
+
+        async def update_preset(
+            self, current_preset: Any, params: Any
+        ) -> SimpleNamespace:
+            assert current_preset is preset
+            captured["params"] = params
+            return SimpleNamespace(
+                **{**preset.__dict__, "agents": params.agents, "updated_at": now}
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+    await _tool(mcp_server.update_agent_preset)(
+        workspace_id=str(workspace_id),
+        preset_slug="security-triage",
+        agents={
+            "enabled": True,
+            "subagents": [
+                {
+                    "preset": "deep-investigator",
+                    "preset_version": 2,
+                    "name": "investigator",
+                }
+            ],
+        },
+    )
+
+    params = captured["params"]
+    assert params.agents.enabled is True
+    assert len(params.agents.subagents) == 1
+    assert params.agents.subagents[0].preset == "deep-investigator"
+    assert params.agents.subagents[0].preset_version == 2
+    assert params.agents.subagents[0].name == "investigator"
 
 
 @pytest.mark.anyio

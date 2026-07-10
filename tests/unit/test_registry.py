@@ -84,7 +84,7 @@ async def test_registry_actions_include_locked_shows_agent_preset_crud(
     test_role,
     monkeypatch,
 ) -> None:
-    """Ensure agent preset CRUD actions show as locked when agent add-ons are disabled."""
+    """Ensure agent addon UDFs show as locked when agent add-ons are disabled."""
     from tracecat.tiers import defaults as tier_defaults
 
     monkeypatch.setattr(
@@ -104,6 +104,32 @@ async def test_registry_actions_include_locked_shows_agent_preset_crud(
     assert actions["ai.agent.list_presets"].missing_entitlements == ("agent_addons",)
     assert actions["ai.agent.update_preset"].missing_entitlements == ("agent_addons",)
     assert actions["ai.agent.delete_preset"].missing_entitlements == ("agent_addons",)
+    for action in (
+        "ai.agent.list_preset_skills",
+        "ai.agent.add_preset_skill",
+        "ai.agent.update_preset_skill",
+        "ai.agent.remove_preset_skill",
+        "ai.agent.list_preset_subagents",
+        "ai.agent.get_preset_subagent",
+        "ai.agent.add_preset_subagent",
+        "ai.agent.update_preset_subagent",
+        "ai.agent.remove_preset_subagent",
+    ):
+        assert actions[action].missing_entitlements == ("agent_addons",)
+
+    async with RegistryActionsService.with_session(test_role) as service:
+        skill_entries = await service.list_actions_from_index(
+            namespace="ai.skill", include_locked=True
+        )
+
+    skill_actions = {
+        f"{entry.namespace}.{entry.name}": entry for entry, _ in skill_entries
+    }
+    assert skill_actions["ai.skill.update_skill"].missing_entitlements == (
+        "agent_addons",
+    )
+    assert "ai.skill.get_skill_draft" not in skill_actions
+    assert "ai.skill.get_skill_draft_file" not in skill_actions
 
 
 def test_ai_agent_registry_schema_hides_unsupported_agents_config() -> None:

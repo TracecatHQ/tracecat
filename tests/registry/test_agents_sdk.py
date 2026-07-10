@@ -160,6 +160,31 @@ async def test_get_skill_version_uses_version_endpoint(
 
 
 @pytest.mark.anyio
+async def test_update_skill_patches_draft_operations(
+    agents_client: AgentsClient,
+    mock_tracecat_client: MagicMock,
+) -> None:
+    mock_tracecat_client.patch.return_value = {"draft_revision": 2}
+    operations = [
+        {
+            "op": "upsert_text_file",
+            "path": "SKILL.md",
+            "content": "# Skill",
+        }
+    ]
+
+    result = await agents_client.update_skill(
+        skill_id="skill-id", base_revision=1, operations=operations
+    )
+
+    assert result == {"draft_revision": 2}
+    mock_tracecat_client.patch.assert_awaited_once_with(
+        "/agent/skills/skill-id/draft",
+        json={"base_revision": 1, "operations": operations},
+    )
+
+
+@pytest.mark.anyio
 async def test_restore_skill_version_uses_restore_endpoint(
     agents_client: AgentsClient,
     mock_tracecat_client: MagicMock,

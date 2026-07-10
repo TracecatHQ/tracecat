@@ -59,6 +59,37 @@ async def get_skill(
 
 
 @registry.register(
+    default_title="Update agent skill",
+    display_group="Agent Skills",
+    description="Apply optimistic-concurrency mutations to a workspace agent skill draft.",
+    namespace="ai.skill",
+    required_entitlements=["agent_addons"],
+)
+async def update_skill(
+    skill_id: Annotated[str, Doc("Skill slug in kebab-case.")],
+    base_revision: Annotated[
+        int,
+        Doc("Draft revision observed before applying these operations."),
+    ],
+    operations: Annotated[
+        list[dict[str, Any]],
+        Doc(
+            "Draft operations. Supported ops: upsert_text_file, attach_uploaded_blob, delete_file, move_file."
+        ),
+    ],
+    skill_uuid: Annotated[
+        uuid.UUID | None, Doc("Optional canonical skill UUID.")
+    ] = None,
+) -> dict[str, Any]:
+    return await ctx.agents.aio.update_skill(
+        skill_id=skill_id,
+        skill_uuid=skill_uuid,
+        base_revision=base_revision,
+        operations=operations,
+    )
+
+
+@registry.register(
     default_title="List agent skill versions",
     display_group="Agent Skills",
     description="List immutable published versions for a workspace agent skill.",

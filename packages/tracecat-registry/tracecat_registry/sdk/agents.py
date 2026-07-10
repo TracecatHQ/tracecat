@@ -68,6 +68,18 @@ class SkillPublishFile(TypedDict):
     content_type: NotRequired[str | None]
 
 
+class SkillDraftOperation(TypedDict):
+    """Draft mutation operation for updating workspace skill files."""
+
+    op: str
+    path: NotRequired[str]
+    content: NotRequired[str]
+    content_type: NotRequired[str]
+    upload_id: NotRequired[str]
+    from_path: NotRequired[str]
+    to_path: NotRequired[str]
+
+
 def _skill_identifier(skill_id: str, skill_uuid: str | uuid.UUID | None = None) -> str:
     """Return the skill route identifier, preferring stable UUID over authoring slug."""
 
@@ -509,6 +521,20 @@ class AgentsClient:
         identifier = _skill_identifier(skill_id, skill_uuid)
         return await self._client.get(f"/agent/skills/{identifier}")
 
+    async def update_skill(
+        self,
+        *,
+        skill_id: str,
+        base_revision: int,
+        operations: list[SkillDraftOperation] | list[dict[str, Any]],
+        skill_uuid: str | uuid.UUID | None = None,
+    ) -> dict[str, Any]:
+        identifier = _skill_identifier(skill_id, skill_uuid)
+        return await self._client.patch(
+            f"/agent/skills/{identifier}/draft",
+            json={"base_revision": base_revision, "operations": operations},
+        )
+
     async def list_skill_versions(
         self,
         *,
@@ -787,6 +813,7 @@ __all__ = [
     "CursorPage",
     "OutputType",
     "RankableItem",
+    "SkillDraftOperation",
     "rank_items",
     "rank_items_pairwise",
     "run_agent",

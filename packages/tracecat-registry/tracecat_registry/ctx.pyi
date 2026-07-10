@@ -8,7 +8,12 @@ from uuid import UUID
 
 from tracecat_registry import types
 from tracecat_registry import types as registry_types
-from tracecat_registry.sdk.agents import AgentConfig, CursorPage, RankableItem
+from tracecat_registry.sdk.agents import (
+    AgentConfig,
+    CursorPage,
+    RankableItem,
+    SkillDraftOperation,
+)
 from tracecat_registry.sdk.client import TracecatClient
 from tracecat_registry.sdk.types import CasePriority, CaseSeverity, CaseStatus, Unset
 from tracecat_registry.sdk.workflows import JsonPatchOperation
@@ -65,14 +70,23 @@ class _AgentsAsync:
         self,
         *,
         name: str,
-        model_name: str,
-        model_provider: str,
+        model_name: str | Unset = ...,
+        model_provider: str | Unset = ...,
+        catalog_id: str | Unset = ...,
         slug: str | Unset = ...,
         description: str | Unset = ...,
         instructions: str | Unset = ...,
         base_url: str | Unset = ...,
         output_type: str | dict[str, Any] | Unset = ...,
         actions: list[str] | Unset = ...,
+        namespaces: list[str] | Unset = ...,
+        tool_approvals: dict[str, bool] | Unset = ...,
+        mcp_integrations: list[str] | Unset = ...,
+        agents: dict[str, Any] | Unset = ...,
+        retries: int | Unset = ...,
+        enable_thinking: bool | Unset = ...,
+        enable_internet_access: bool | Unset = ...,
+        skills: list[dict[str, Any]] | Unset = ...,
     ) -> dict[str, Any]: ...
     async def get_preset(
         self,
@@ -88,9 +102,18 @@ class _AgentsAsync:
         instructions: str | Unset = ...,
         model_name: str | Unset = ...,
         model_provider: str | Unset = ...,
+        catalog_id: str | Unset = ...,
         base_url: str | Unset = ...,
         output_type: str | dict[str, Any] | Unset = ...,
         actions: list[str] | Unset = ...,
+        namespaces: list[str] | Unset = ...,
+        tool_approvals: dict[str, bool] | Unset = ...,
+        mcp_integrations: list[str] | Unset = ...,
+        agents: dict[str, Any] | Unset = ...,
+        retries: int | Unset = ...,
+        enable_thinking: bool | Unset = ...,
+        enable_internet_access: bool | Unset = ...,
+        skills: list[dict[str, Any]] | Unset = ...,
     ) -> dict[str, Any]: ...
     async def delete_preset(
         self,
@@ -113,6 +136,14 @@ class _AgentsAsync:
         self,
         skill_id: str,
         *,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    async def update_skill(
+        self,
+        *,
+        skill_id: str,
+        base_revision: int,
+        operations: list[SkillDraftOperation] | list[dict[str, Any]],
         skill_uuid: str | uuid.UUID | None = ...,
     ) -> dict[str, Any]: ...
     async def list_skill_versions(
@@ -205,14 +236,23 @@ class _Agents:
         self,
         *,
         name: str,
-        model_name: str,
-        model_provider: str,
+        model_name: str | Unset = ...,
+        model_provider: str | Unset = ...,
+        catalog_id: str | Unset = ...,
         slug: str | Unset = ...,
         description: str | Unset = ...,
         instructions: str | Unset = ...,
         base_url: str | Unset = ...,
         output_type: str | dict[str, Any] | Unset = ...,
         actions: list[str] | Unset = ...,
+        namespaces: list[str] | Unset = ...,
+        tool_approvals: dict[str, bool] | Unset = ...,
+        mcp_integrations: list[str] | Unset = ...,
+        agents: dict[str, Any] | Unset = ...,
+        retries: int | Unset = ...,
+        enable_thinking: bool | Unset = ...,
+        enable_internet_access: bool | Unset = ...,
+        skills: list[dict[str, Any]] | Unset = ...,
     ) -> dict[str, Any]: ...
     def get_preset(
         self,
@@ -228,9 +268,18 @@ class _Agents:
         instructions: str | Unset = ...,
         model_name: str | Unset = ...,
         model_provider: str | Unset = ...,
+        catalog_id: str | Unset = ...,
         base_url: str | Unset = ...,
         output_type: str | dict[str, Any] | Unset = ...,
         actions: list[str] | Unset = ...,
+        namespaces: list[str] | Unset = ...,
+        tool_approvals: dict[str, bool] | Unset = ...,
+        mcp_integrations: list[str] | Unset = ...,
+        agents: dict[str, Any] | Unset = ...,
+        retries: int | Unset = ...,
+        enable_thinking: bool | Unset = ...,
+        enable_internet_access: bool | Unset = ...,
+        skills: list[dict[str, Any]] | Unset = ...,
     ) -> dict[str, Any]: ...
     def delete_preset(
         self,
@@ -253,6 +302,14 @@ class _Agents:
         self,
         skill_id: str,
         *,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    def update_skill(
+        self,
+        *,
+        skill_id: str,
+        base_revision: int,
+        operations: list[SkillDraftOperation] | list[dict[str, Any]],
         skill_uuid: str | uuid.UUID | None = ...,
     ) -> dict[str, Any]: ...
     def list_skill_versions(
