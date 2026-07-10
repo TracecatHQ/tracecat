@@ -90,6 +90,22 @@ class BuildAgentToolDefsResult(BaseModel):
     scopes: dict[str, BuildToolDefsResult]
 
 
+def _mcp_discovery_error_message(
+    *,
+    scope: str,
+    error: BaseException,
+) -> str:
+    """Build a safe, user-facing MCP discovery error for one agent scope."""
+    message = f"Failed to discover configured MCP tools for agent scope '{scope}'"
+    server_name = getattr(error, "server_name", None)
+    if isinstance(server_name, str) and server_name:
+        message += f" from MCP server '{server_name}'"
+    status_code = getattr(error, "status_code", None)
+    if isinstance(status_code, int):
+        message += f" (HTTP {status_code})"
+    return message
+
+
 class ToolApprovalPayload(BaseModel):
     tool_call_id: str
     tool_name: str
@@ -407,14 +423,19 @@ class AgentActivities:
                     server_count=len(hydrated_servers),
                 )
             except Exception as e:
+                server_name = getattr(e, "server_name", None)
+                status_code = getattr(e, "status_code", None)
                 logger.error(
                     "Failed to discover user MCP tools",
+                    scope=args.scope,
+                    mcp_server=server_name,
+                    http_status_code=status_code,
                     error_type=type(e).__name__,
                     server_count=len(hydrated_servers),
                 )
                 if args.fail_on_mcp_discovery_error:
                     raise ApplicationError(
-                        "Failed to discover configured MCP tools for agent scope",
+                        _mcp_discovery_error_message(scope=args.scope, error=e),
                         str(e),
                         type="AgentToolDefinitionError",
                         non_retryable=True,

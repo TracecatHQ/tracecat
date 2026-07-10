@@ -772,10 +772,11 @@ class DurableAgentWorkflow:
                     non_retryable=True,
                 )
             await self._apply_custom_model_provider_config(child_cfg)
+            # MCP discovery failures must not abort the run: subagent scopes
+            # degrade like the root scope and continue without those tools.
             scope_spec = AgentScopeSpec(
                 name=resolved_subagent.alias,
                 config=child_cfg,
-                fail_on_mcp_discovery_error=True,
             )
             subagent_specs.append(
                 SubagentScopeSpec(
