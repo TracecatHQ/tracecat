@@ -15,6 +15,10 @@ definition:
       description: >
         Updated view payload for the modal.
         See: https://docs.slack.dev/reference/views/modal-views/
+    hash:
+      type: str | None
+      description: A string that represents view state to protect against possible race conditions.
+      default: null
   steps:
     - ref: update_view
       action: tools.slack_sdk.call_method
@@ -23,5 +27,5 @@ definition:
         params:
           view_id: ${{ inputs.view_id }}
           view: ${{ inputs.view }}
-          hash: ${{ FN.to_isoformat(FN.utcnow()) }}
+          hash: ${{ inputs.hash || FN.to_isoformat(FN.utcnow()) }}
   returns: ${{ steps.update_view.result }}
