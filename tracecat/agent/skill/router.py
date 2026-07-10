@@ -13,7 +13,6 @@ from tracecat.agent.skill.schemas import (
     SkillDraftFileRead,
     SkillDraftPatch,
     SkillDraftRead,
-    SkillPinVersion,
     SkillRead,
     SkillReadMinimal,
     SkillUpload,
@@ -341,51 +340,6 @@ async def restore_skill_version(
     service = SkillService(session, role=role)
     try:
         return await service.restore_version(skill_id=skill_id, version_id=version_id)
-    except TracecatNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
-
-
-@router.put("/{skill_id}/pin", response_model=SkillReadMinimal)
-@require_scope("agent:update")
-async def pin_skill_version(
-    *,
-    skill_id: uuid.UUID,
-    params: SkillPinVersion,
-    role: WorkspaceActorRouteRole,
-    session: AsyncDBSession,
-) -> SkillReadMinimal:
-    """Pin a skill to an immutable version."""
-
-    service = SkillService(session, role=role)
-    try:
-        return await service.pin_version(
-            skill_id=skill_id, version_id=params.version_id
-        )
-    except TracecatValidationError as exc:
-        _raise_skill_validation_error(exc)
-    except TracecatNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
-
-
-@router.delete("/{skill_id}/pin", response_model=SkillReadMinimal)
-@require_scope("agent:update")
-async def unpin_skill_version(
-    *,
-    skill_id: uuid.UUID,
-    role: WorkspaceActorRouteRole,
-    session: AsyncDBSession,
-) -> SkillReadMinimal:
-    """Clear the pinned version for a skill."""
-
-    service = SkillService(session, role=role)
-    try:
-        return await service.unpin_version(skill_id)
     except TracecatNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

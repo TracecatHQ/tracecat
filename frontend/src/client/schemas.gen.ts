@@ -2316,20 +2316,6 @@ export const $AgentPresetMoveToFolder = {
   description: "Payload for moving an agent preset to a folder.",
 } as const
 
-export const $AgentPresetPinVersion = {
-  properties: {
-    version_id: {
-      type: "string",
-      format: "uuid",
-      title: "Version Id",
-    },
-  },
-  type: "object",
-  required: ["version_id"],
-  title: "AgentPresetPinVersion",
-  description: "Payload for pinning a preset to an immutable version.",
-} as const
-
 export const $AgentPresetRead = {
   properties: {
     instructions: {
@@ -2504,18 +2490,6 @@ export const $AgentPresetRead = {
       ],
       title: "Current Version Id",
     },
-    pinned_version_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Pinned Version Id",
-    },
     folder_id: {
       anyOf: [
         {
@@ -2630,18 +2604,6 @@ export const $AgentPresetReadMinimal = {
         },
       ],
       title: "Current Version Id",
-    },
-    pinned_version_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Pinned Version Id",
     },
     capabilities: {
       items: {
@@ -23504,20 +23466,6 @@ export const $SkillFileEntry = {
     "Manifest entry for a skill file (used in both drafts and versions).",
 } as const
 
-export const $SkillPinVersion = {
-  properties: {
-    version_id: {
-      type: "string",
-      format: "uuid",
-      title: "Version Id",
-    },
-  },
-  type: "object",
-  required: ["version_id"],
-  title: "SkillPinVersion",
-  description: "Payload for pinning a skill to an immutable version.",
-} as const
-
 export const $SkillRead = {
   properties: {
     id: {
@@ -23560,18 +23508,6 @@ export const $SkillRead = {
         },
       ],
       title: "Current Version Id",
-    },
-    pinned_version_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Pinned Version Id",
     },
     draft_revision: {
       type: "integer",
@@ -23683,18 +23619,6 @@ export const $SkillReadMinimal = {
         },
       ],
       title: "Current Version Id",
-    },
-    pinned_version_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Pinned Version Id",
     },
     created_at: {
       type: "string",

@@ -203,7 +203,6 @@ class AgentPresetService(BaseWorkspaceService):
             slug=preset.slug,
             description=preset.description,
             current_version_id=preset.current_version_id,
-            pinned_version_id=preset.pinned_version_id,
             folder_id=preset.folder_id,
             instructions=preset.instructions,
             model_name=preset.model_name,
@@ -1573,58 +1572,6 @@ class AgentPresetService(BaseWorkspaceService):
             version_id=version.id,
         )
         preset.current_version_id = version.id
-        self.session.add(preset)
-        await self.session.commit()
-        await self.session.refresh(preset)
-        return preset
-
-    @require_scope("agent:update")
-    @audit_log(resource_type="agent_preset", action="update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def pin_version(
-        self, *, preset_id: uuid.UUID, version_id: uuid.UUID
-    ) -> AgentPreset:
-        """Pin an active preset to one of its immutable versions."""
-
-        await self._lock_preset_row(preset_id)
-        preset = await self.get_preset(preset_id)
-        if preset is None:
-            raise TracecatNotFoundError(f"Agent preset '{preset_id}' not found")
-
-        version = await self.get_version(version_id)
-        if version is None:
-            raise TracecatNotFoundError(
-                f"Agent preset version '{version_id}' not found"
-            )
-        if version.preset_id != preset.id:
-            raise TracecatValidationError(
-                "Preset version does not belong to the selected preset",
-                detail={
-                    "code": "version_resource_mismatch",
-                    "resource_type": "agent_preset",
-                    "preset_id": str(preset.id),
-                    "version_id": str(version.id),
-                },
-            )
-
-        preset.pinned_version_id = version.id
-        self.session.add(preset)
-        await self.session.commit()
-        await self.session.refresh(preset)
-        return preset
-
-    @require_scope("agent:update")
-    @audit_log(resource_type="agent_preset", action="update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def unpin_version(self, preset_id: uuid.UUID) -> AgentPreset:
-        """Clear the pinned version pointer for an active preset."""
-
-        await self._lock_preset_row(preset_id)
-        preset = await self.get_preset(preset_id)
-        if preset is None:
-            raise TracecatNotFoundError(f"Agent preset '{preset_id}' not found")
-
-        preset.pinned_version_id = None
         self.session.add(preset)
         await self.session.commit()
         await self.session.refresh(preset)

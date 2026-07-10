@@ -168,7 +168,6 @@ class AgentPresetReadMinimal(Schema):
     folder_id: uuid.UUID | None = None
     tags: list[TagRead] = Field(default_factory=list)
     current_version_id: uuid.UUID | None = None
-    pinned_version_id: uuid.UUID | None = None
     capabilities: list[AgentPresetCapability] = Field(default_factory=list)
     current_version_subagent_eligibility: AgentPresetSubagentEligibility = Field(
         default_factory=AgentPresetSubagentEligibility
@@ -271,7 +270,6 @@ class AgentPresetRead(AgentPresetExecutionConfig):
     slug: str
     description: str | None = Field(default=None, max_length=1000)
     current_version_id: uuid.UUID | None = None
-    pinned_version_id: uuid.UUID | None = None
     folder_id: uuid.UUID | None = None
     skills: list[AgentPresetSkillBindingRead] = Field(default_factory=list)
     created_at: datetime
@@ -297,12 +295,6 @@ class AgentPresetRead(AgentPresetExecutionConfig):
             enable_thinking=self.enable_thinking,
             enable_internet_access=self.enable_internet_access,
         )
-
-
-class AgentPresetPinVersion(Schema):
-    """Payload for pinning a preset to an immutable version."""
-
-    version_id: uuid.UUID
 
 
 class AgentPresetWithConfig(AgentPresetRead):
