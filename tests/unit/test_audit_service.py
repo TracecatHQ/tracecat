@@ -617,6 +617,74 @@ async def test_audit_log_explicit_invitation_id_overrides_result_id(
 
 
 @pytest.mark.anyio
+async def test_audit_log_resolves_dotted_resource_id_found_and_missing(
+    role: Role,
+) -> None:
+    integration_id = uuid.uuid4()
+
+    class MockService:
+        @audit_log(
+            resource_type="integration",
+            action="disconnect",
+            resource_id_attr="integration.id",
+        )
+        async def disconnect_integration(self, *, integration: object) -> None:
+            pass
+
+    service = MockService()
+    token = ctx_role.set(role)
+    create_event_calls: list[dict[str, object]] = []
+
+    async def mock_create_event(*args, **kwargs):
+        create_event_calls.append(kwargs)
+
+    try:
+        with patch.object(AuditService, "create_event", side_effect=mock_create_event):
+            await service.disconnect_integration(
+                integration=SimpleNamespace(id=integration_id)
+            )
+            await service.disconnect_integration(integration=SimpleNamespace())
+    finally:
+        ctx_role.reset(token)
+
+    assert [call["resource_id"] for call in create_event_calls] == [
+        str(integration_id),
+        None,
+    ]
+
+
+@pytest.mark.anyio
+async def test_audit_log_success_fn_classifies_result(role: Role) -> None:
+    class MockService:
+        @audit_log(
+            resource_type="workflow",
+            action="delete",
+            success_fn=lambda result: result is True,
+        )
+        async def delete_workflow(self, workflow_id: uuid.UUID, *, deleted: bool):
+            return deleted
+
+    service = MockService()
+    token = ctx_role.set(role)
+    create_event_calls: list[dict[str, object]] = []
+
+    async def mock_create_event(*args, **kwargs):
+        create_event_calls.append(kwargs)
+
+    try:
+        with patch.object(AuditService, "create_event", side_effect=mock_create_event):
+            await service.delete_workflow(uuid.uuid4(), deleted=True)
+            await service.delete_workflow(uuid.uuid4(), deleted=False)
+    finally:
+        ctx_role.reset(token)
+
+    assert [call["status"] for call in create_event_calls] == [
+        AuditEventStatus.SUCCESS,
+        AuditEventStatus.FAILURE,
+    ]
+
+
+@pytest.mark.anyio
 async def test_audit_log_emit_attempt_emits_attempt_then_terminal(
     role: Role,
 ) -> None:

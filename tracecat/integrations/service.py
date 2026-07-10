@@ -1,5 +1,7 @@
 """Service for managing user integrations with external services."""
 
+from __future__ import annotations
+
 import asyncio
 import re
 import secrets
@@ -22,6 +24,7 @@ from sqlalchemy import and_, delete, or_, select, update
 
 from tracecat import config
 from tracecat.agent.common.types import MCPHttpServerConfig
+from tracecat.audit.logger import audit_log
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.authz.controls import has_scope, require_scope
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
@@ -114,6 +117,160 @@ class MCPIntegrationWithState:
 
     integration: MCPIntegration
     state: PlatformMCPCatalogState
+
+
+def _provider_key_audit_data(
+    self: IntegrationService,
+    provider_key: ProviderKey,
+    result: object | None = None,
+    **_: object,
+) -> dict[str, object]:
+    return {
+        "provider_id": provider_key.id,
+        "grant_type": provider_key.grant_type,
+    }
+
+
+def _custom_provider_delete_audit_data(
+    self: IntegrationService,
+    provider_key: ProviderKey,
+    result: object | None = None,
+    **_: object,
+) -> dict[str, object]:
+    return {
+        "provider_id": provider_key.id,
+        "grant_type": provider_key.grant_type,
+        "target": "custom_provider",
+    }
+
+
+def _provider_config_remove_audit_data(
+    self: IntegrationService,
+    provider_key: ProviderKey,
+    result: object | None = None,
+    **_: object,
+) -> dict[str, object]:
+    return {
+        "provider_id": provider_key.id,
+        "grant_type": provider_key.grant_type,
+        "target": "provider_config",
+    }
+
+
+def _custom_provider_create_audit_data(
+    self: IntegrationService,
+    params: CustomOAuthProviderCreate,
+    result: WorkspaceOAuthProvider | None = None,
+    **_: object,
+) -> dict[str, object]:
+    data: dict[str, object] = {
+        "name": params.name,
+        "grant_type": params.grant_type,
+    }
+    provider_id = result.provider_id if result is not None else params.provider_id
+    if provider_id is not None:
+        data["provider_id"] = provider_id
+    return data
+
+
+def _oauth_integration_audit_data(
+    self: IntegrationService,
+    integration: OAuthIntegration,
+    result: object | None = None,
+    **_: object,
+) -> dict[str, object]:
+    return {
+        "integration_id": str(integration.id),
+        "provider_id": integration.provider_id,
+        "grant_type": integration.grant_type,
+    }
+
+
+def _provider_config_audit_data(
+    self: IntegrationService,
+    provider_key: ProviderKey,
+    client_id: str | None = None,
+    client_secret: SecretStr | None = None,
+    authorization_endpoint: str | None = None,
+    token_endpoint: str | None = None,
+    requested_scopes: list[str] | None = None,
+    result: object | None = None,
+    **_: object,
+) -> dict[str, object]:
+    changed_fields = [
+        field
+        for field, value in (
+            ("client_id", client_id),
+            ("client_secret", client_secret),
+            ("authorization_endpoint", authorization_endpoint),
+            ("token_endpoint", token_endpoint),
+            ("requested_scopes", requested_scopes),
+        )
+        if value is not None
+    ]
+    return {
+        "provider_id": provider_key.id,
+        "grant_type": provider_key.grant_type,
+        "changed_fields": changed_fields,
+    }
+
+
+def _mcp_integration_create_audit_data(
+    self: IntegrationService,
+    params: MCPIntegrationCreate,
+    result: MCPIntegration | None = None,
+    **_: object,
+) -> dict[str, object]:
+    data: dict[str, object] = {"name": params.name}
+    if result is not None:
+        data["slug"] = result.slug
+        if result.catalog_slug is not None:
+            data["catalog_slug"] = result.catalog_slug
+    elif params.catalog_slug is not None:
+        data["catalog_slug"] = params.catalog_slug
+    return data
+
+
+def _mcp_integration_update_audit_data(
+    self: IntegrationService,
+    params: MCPIntegrationUpdate,
+    result: MCPIntegration | None = None,
+    **_: object,
+) -> dict[str, object]:
+    data: dict[str, object] = {
+        "changed_fields": sorted(params.model_fields_set),
+    }
+    if result is not None:
+        data.update({"name": result.name, "slug": result.slug})
+    return data
+
+
+def _mcp_tool_policies_audit_data(
+    self: IntegrationService,
+    tools: Sequence[MCPToolPolicyUpdate],
+    result: object | None = None,
+    **_: object,
+) -> dict[str, object]:
+    return {
+        "tool_names": [tool.name for tool in tools],
+    }
+
+
+def _platform_mcp_catalog_connect_audit_data(
+    self: IntegrationService,
+    catalog_slug: str,
+    result: PlatformMCPCatalogConnectResult | None = None,
+    **_: object,
+) -> dict[str, object]:
+    data: dict[str, object] = {"catalog_slug": catalog_slug}
+    if result is not None and result.mcp_integration is not None:
+        data.update(
+            {
+                "mcp_integration_id": str(result.mcp_integration.id),
+                "name": result.mcp_integration.name,
+            }
+        )
+    return data
 
 
 class InsecureOAuthEndpointError(ValueError):
@@ -387,6 +544,12 @@ class IntegrationService(BaseWorkspaceService):
         return self._build_custom_provider_class(custom_provider)
 
     @require_scope("integration:create")
+    @audit_log(
+        resource_type="integration",
+        action="create",
+        resource_id_attr="provider_id",
+        data_fn=_custom_provider_create_audit_data,
+    )
     async def create_custom_provider(
         self,
         *,
@@ -442,6 +605,13 @@ class IntegrationService(BaseWorkspaceService):
         return provider
 
     @require_scope("integration:delete")
+    @audit_log(
+        resource_type="integration",
+        action="delete",
+        resource_id_attr="provider_key",
+        data_fn=_custom_provider_delete_audit_data,
+        success_fn=lambda result: result is True,
+    )
     async def delete_custom_provider(self, *, provider_key: ProviderKey) -> bool:
         """Delete a custom OAuth provider definition."""
         custom_provider = await self.get_custom_provider(provider_key=provider_key)
@@ -1398,6 +1568,12 @@ class IntegrationService(BaseWorkspaceService):
         return authorization_endpoint, token_endpoint
 
     @require_scope("integration:create", "integration:update", require_all=False)
+    @audit_log(
+        resource_type="integration",
+        action="connect",
+        resource_id_attr="provider_key",
+        data_fn=_provider_key_audit_data,
+    )
     async def store_integration(
         self,
         *,
@@ -1531,6 +1707,12 @@ class IntegrationService(BaseWorkspaceService):
         return integration
 
     @require_scope("integration:update")
+    @audit_log(
+        resource_type="integration",
+        action="disconnect",
+        resource_id_attr="integration.id",
+        data_fn=_oauth_integration_audit_data,
+    )
     async def disconnect_integration(self, *, integration: OAuthIntegration) -> None:
         """Disconnect a user's integration for a specific provider."""
         try:
@@ -1556,6 +1738,12 @@ class IntegrationService(BaseWorkspaceService):
         integration.requested_scopes = None
 
     @require_scope("integration:delete")
+    @audit_log(
+        resource_type="integration",
+        action="delete",
+        resource_id_attr="integration.id",
+        data_fn=_oauth_integration_audit_data,
+    )
     async def remove_integration(self, *, integration: OAuthIntegration) -> None:
         """Remove a user's integration for a specific provider."""
         # Capture provider info before deleting
@@ -1874,6 +2062,12 @@ class IntegrationService(BaseWorkspaceService):
         return env
 
     @require_scope("integration:create", "integration:update", require_all=False)
+    @audit_log(
+        resource_type="integration",
+        action="update",
+        resource_id_attr="provider_key",
+        data_fn=_provider_config_audit_data,
+    )
     async def store_provider_config(
         self,
         *,
@@ -2044,6 +2238,13 @@ class IntegrationService(BaseWorkspaceService):
             return None
 
     @require_scope("integration:delete")
+    @audit_log(
+        resource_type="integration",
+        action="delete",
+        resource_id_attr="provider_key",
+        data_fn=_provider_config_remove_audit_data,
+        success_fn=lambda result: result is True,
+    )
     async def remove_provider_config(self, *, provider_key: ProviderKey) -> bool:
         """Remove provider configuration (client credentials) for a workspace."""
         integration = await self.get_integration(provider_key=provider_key)
@@ -2509,6 +2710,11 @@ class IntegrationService(BaseWorkspaceService):
             validate_url_credential_values(stdio_env, url_keys)
 
     @require_scope("integration:create")
+    @audit_log(
+        resource_type="mcp_integration",
+        action="create",
+        data_fn=_mcp_integration_create_audit_data,
+    )
     async def create_mcp_integration(
         self, *, params: MCPIntegrationCreate
     ) -> MCPIntegration:
@@ -2663,6 +2869,12 @@ class IntegrationService(BaseWorkspaceService):
         )
 
     @require_scope("integration:create")
+    @audit_log(
+        resource_type="mcp_integration",
+        action="connect",
+        resource_id_attr="catalog_slug",
+        data_fn=_platform_mcp_catalog_connect_audit_data,
+    )
     async def connect_platform_mcp_catalog(
         self, *, catalog_slug: str
     ) -> PlatformMCPCatalogConnectResult:
@@ -3498,6 +3710,13 @@ class IntegrationService(BaseWorkspaceService):
         )
 
     @require_scope("integration:update")
+    @audit_log(
+        resource_type="mcp_integration",
+        action="update",
+        resource_id_attr="mcp_integration_id",
+        data_fn=_mcp_integration_update_audit_data,
+        success_fn=lambda result: result is not None,
+    )
     async def update_mcp_integration(
         self,
         *,
@@ -3717,6 +3936,13 @@ class IntegrationService(BaseWorkspaceService):
         return mcp_integration
 
     @require_scope("integration:update")
+    @audit_log(
+        resource_type="mcp_integration",
+        action="update",
+        resource_id_attr="mcp_integration_id",
+        data_fn=_mcp_tool_policies_audit_data,
+        success_fn=lambda result: result is not None,
+    )
     async def update_mcp_tool_policies(
         self,
         *,
@@ -3790,6 +4016,12 @@ class IntegrationService(BaseWorkspaceService):
         return mcp_integration
 
     @require_scope("integration:delete")
+    @audit_log(
+        resource_type="mcp_integration",
+        action="delete",
+        resource_id_attr="mcp_integration_id",
+        success_fn=lambda result: result is True,
+    )
     async def delete_mcp_integration(self, *, mcp_integration_id: uuid.UUID) -> bool:
         """Delete an MCP integration."""
         mcp_integration = await self.get_mcp_integration(

@@ -39,6 +39,7 @@ def audit_log(
     action: AuditAction,
     resource_id_attr: str | None = None,
     data_fn: Callable[..., dict[str, Any] | None] | None = None,
+    success_fn: Callable[[Any], bool] | None = None,
     emit_attempt: bool = False,
 ) -> Callable[
     [Callable[Concatenate[Any, P], Awaitable[R]]],
@@ -49,6 +50,7 @@ def audit_log(
     If no user role or session is available, auditing is skipped without failing the call.
 
     ATTEMPT events are opt-in via emit_attempt for security-sensitive actions.
+    A success_fn can classify non-exception results as success or failure.
     The resource_id_attr is automatically derived from resource_type if not provided,
     using the _RESOURCE_ID_ATTR_MAP. Falls back to "id" if no mapping exists.
     """
@@ -112,8 +114,7 @@ def audit_log(
                 # Execute the actual function
                 result = await func(self, *args, **kwargs)
 
-                # Log success, or a semantic failure for result objects that
-                # complete without raising but report success=False.
+                # Log the terminal status, including semantic result failures.
                 try:
                     resource_id = _extract_resource_id(
                         args,
@@ -126,15 +127,23 @@ def audit_log(
                         data_fn, bound_arguments=bound_arguments, result=result
                     )
                     async with AuditService.with_session(role, session=session) as svc:
+                        if success_fn is not None:
+                            status = (
+                                AuditEventStatus.SUCCESS
+                                if success_fn(result)
+                                else AuditEventStatus.FAILURE
+                            )
+                        else:
+                            status = (
+                                AuditEventStatus.FAILURE
+                                if getattr(result, "success", None) is False
+                                else AuditEventStatus.SUCCESS
+                            )
                         await svc.create_event(
                             resource_type=resource_type,
                             action=action,
                             resource_id=resource_id,
-                            status=(
-                                AuditEventStatus.FAILURE
-                                if getattr(result, "success", None) is False
-                                else AuditEventStatus.SUCCESS
-                            ),
+                            status=status,
                             data=data,
                         )
                 except Exception as exc:
@@ -174,25 +183,34 @@ def _extract_resource_id(
     """Heuristic to find a resource id.
 
     Priority:
-    1) return value `attr` if present
-    2) first arg with `attr`
-    3) bound function argument named `attr`
-    4) kwargs value for `attr`
+    1) return value root attribute if present
+    2) first arg with the root attribute
+    3) bound function argument named for the root attribute
+    4) kwargs value for the root attribute
+
+    Dotted paths resolve remaining segments with attribute access.
     """
 
     raw: Any | None = None
+    attr_parts = attr.split(".")
+    lookup_attr = attr_parts[0]
 
-    if result is not None and hasattr(result, attr):
-        raw = getattr(result, attr)
+    if result is not None and hasattr(result, lookup_attr):
+        raw = getattr(result, lookup_attr)
     else:
         for arg in args:
-            if hasattr(arg, attr):
-                raw = getattr(arg, attr)
+            if hasattr(arg, lookup_attr):
+                raw = getattr(arg, lookup_attr)
                 break
         if raw is None and bound_arguments is not None:
-            raw = bound_arguments.get(attr)
-        if raw is None and attr in kwargs:
-            raw = kwargs.get(attr)
+            raw = bound_arguments.get(lookup_attr)
+        if raw is None and lookup_attr in kwargs:
+            raw = kwargs.get(lookup_attr)
+
+    for nested_attr in attr_parts[1:]:
+        if raw is None:
+            return None
+        raw = getattr(raw, nested_attr, None)
 
     if raw is None:
         return None
