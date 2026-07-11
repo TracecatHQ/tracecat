@@ -32,7 +32,7 @@ async def web_search(
     client = AsyncTavilyClient(api_key=secrets.get("TAVILY_API_KEY"))
     result = await client.search(
         query,
-        search_deep=search_deep,
+        search_depth=search_deep,
         topic=topic,
         time_range=time_range,
     )
