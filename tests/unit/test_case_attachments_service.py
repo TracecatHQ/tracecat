@@ -1,11 +1,14 @@
+import asyncio
 import base64
 import os
 import uuid
+from datetime import UTC, datetime
 from io import BytesIO
 from urllib.parse import parse_qs, urlparse
 
 import pytest
 from dotenv import dotenv_values
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
@@ -16,6 +19,8 @@ from tracecat.cases.attachments.service import CaseAttachmentService
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.schemas import CaseCreate
 from tracecat.cases.service import CaseEventsService, CasesService
+from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.models import Case, CaseAttachment, CaseEvent, File
 from tracecat.exceptions import TracecatAuthorizationError, TracecatException
 from tracecat.storage.blob import ensure_bucket_exists
 from tracecat.storage.exceptions import (
@@ -472,3 +477,77 @@ async def test_cross_case_dedup_shares_file(
 
     assert a1.id != a2.id
     assert a1.file_id == a2.file_id
+
+
+@pytest.mark.anyio
+async def test_concurrent_uploads_cannot_exceed_attachment_limit(
+    configure_minio_for_attachments,
+    svc_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Concurrent uploads to the same case must not exceed the case limits.
+
+    Regression test for the attachment quota race: the count/storage checks
+    read aggregate state, so two uploads racing on separate database
+    connections could both pass the check before either commits. Uses real
+    sessions (not the savepoint-bound test session) so each upload holds its
+    own connection and transaction, like concurrent API requests do.
+    """
+    monkeypatch.setattr(config, "TRACECAT__MAX_ATTACHMENTS_PER_CASE", 1)
+
+    now = datetime.now(UTC)
+    case = Case(
+        workspace_id=svc_role.workspace_id,
+        summary="Concurrent attachment uploads",
+        description="Case for testing concurrent upload quota checks",
+        priority=CasePriority.MEDIUM,
+        severity=CaseSeverity.LOW,
+        status=CaseStatus.NEW,
+        created_at=now,
+        updated_at=now,
+    )
+
+    async def upload(tag: str) -> CaseAttachment:
+        content = f"racing attachment content {tag}".encode()
+        params = CaseAttachmentCreate(
+            file_name=f"race-{tag}.txt",
+            content_type="text/plain",
+            size=len(content),
+            content=content,
+        )
+        async with get_async_session_context_manager() as upload_session:
+            svc = CaseAttachmentService(session=upload_session, role=svc_role)
+            return await svc.create_attachment(case, params)
+
+    try:
+        async with get_async_session_context_manager() as setup_session:
+            setup_session.add(case)
+            await setup_session.commit()
+            await setup_session.refresh(case)
+
+        results = await asyncio.gather(upload("a"), upload("b"), return_exceptions=True)
+
+        successes = [r for r in results if isinstance(r, CaseAttachment)]
+        rejected = [r for r in results if isinstance(r, MaxAttachmentsExceededError)]
+        assert len(successes) == 1, f"Expected exactly one upload to win: {results}"
+        assert len(rejected) == 1, f"Expected exactly one upload rejected: {results}"
+
+        async with get_async_session_context_manager() as verify_session:
+            svc = CaseAttachmentService(session=verify_session, role=svc_role)
+            attachments = await svc.list_attachments(case)
+            assert len(attachments) == 1
+    finally:
+        # This test writes through real connections, so its rows survive the
+        # savepoint rollback and must be removed before workspace teardown.
+        async with get_async_session_context_manager() as cleanup_session:
+            await cleanup_session.execute(
+                delete(CaseAttachment).where(CaseAttachment.case_id == case.id)
+            )
+            await cleanup_session.execute(
+                delete(CaseEvent).where(CaseEvent.case_id == case.id)
+            )
+            await cleanup_session.execute(delete(Case).where(Case.id == case.id))
+            await cleanup_session.execute(
+                delete(File).where(File.workspace_id == svc_role.workspace_id)
+            )
+            await cleanup_session.commit()
