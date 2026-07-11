@@ -1500,3 +1500,61 @@ class TestCasesService:
         # Verify the case was NOT created (entire transaction rolled back)
         cases = await _list_cases(cases_service)
         assert len(cases) == 0, "Case should not exist if fields creation failed"
+
+
+@pytest.mark.anyio
+async def test_search_cases_reverse_pagination_returns_adjacent_page(
+    cases_service: CasesService,
+) -> None:
+    """Paging backward must return the rows immediately before the cursor.
+
+    Regression test: without flipping the scan direction for reverse
+    pagination, LIMIT keeps the first rows of the whole backward prefix, so
+    "previous page" jumped to page 1 from any page 3 or deeper.
+    """
+    for i in range(9):
+        await cases_service.create_case(
+            CaseCreate(
+                summary=f"Reverse pagination case {i}",
+                description="Case for reverse pagination test",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+
+    async def page(cursor: str | None = None, reverse: bool = False):
+        return await cases_service.search_cases(
+            params=CursorPaginationParams(limit=3, cursor=cursor, reverse=reverse)
+        )
+
+    all_ids = [
+        c.id
+        for c in (
+            await cases_service.search_cases(params=CursorPaginationParams(limit=20))
+        ).items
+    ]
+    assert len(all_ids) == 9
+
+    page1 = await page()
+    assert [c.id for c in page1.items] == all_ids[0:3]
+    page2 = await page(cursor=page1.next_cursor)
+    assert [c.id for c in page2.items] == all_ids[3:6]
+    page3 = await page(cursor=page2.next_cursor)
+    assert [c.id for c in page3.items] == all_ids[6:9]
+    assert page3.prev_cursor is not None
+
+    # Going back from page 3 must return page 2, not page 1
+    back = await page(cursor=page3.prev_cursor, reverse=True)
+    assert [c.id for c in back.items] == all_ids[3:6]
+    assert back.has_more is True
+    assert back.has_previous is True
+
+    # The swapped cursors must keep pointing the right way
+    forward_again = await page(cursor=back.next_cursor)
+    assert [c.id for c in forward_again.items] == all_ids[6:9]
+
+    back_to_first = await page(cursor=back.prev_cursor, reverse=True)
+    assert [c.id for c in back_to_first.items] == all_ids[0:3]
+    assert back_to_first.has_more is True
+    assert back_to_first.has_previous is False

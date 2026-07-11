@@ -548,15 +548,21 @@ class CasesService(BaseWorkspaceService):
 
         # Apply sorting: (sort_col, id) for stable pagination
         # Use id as tie-breaker unless we're already sorting by id
+        # Reverse pagination scans in the opposite direction so LIMIT keeps the
+        # rows adjacent to the cursor; items are restored to display order below.
+        if params.reverse:
+            scan_direction = "desc" if sort_direction == "asc" else "asc"
+        else:
+            scan_direction = sort_direction
         if sort_column == "id":
             # No tie-breaker needed when sorting by id (already unique)
-            if sort_direction == "asc":
+            if scan_direction == "asc":
                 stmt = stmt.order_by(sort_attr.asc())
             else:
                 stmt = stmt.order_by(sort_attr.desc())
         else:
             # Add id as tie-breaker for non-unique columns
-            if sort_direction == "asc":
+            if scan_direction == "asc":
                 stmt = stmt.order_by(sort_attr.asc(), Case.id.asc())
             else:
                 stmt = stmt.order_by(sort_attr.desc(), Case.id.desc())
@@ -600,19 +606,18 @@ class CasesService(BaseWorkspaceService):
         if params.cursor and cases:
             first_case = cases[0]
             sort_value = get_cursor_sort_value(first_case)
-            # For reverse pagination, swap the cursor meaning
-            if params.reverse:
-                next_cursor = paginator.encode_cursor(
-                    first_case.id,
-                    sort_column=sort_column,
-                    sort_value=sort_value,
-                )
-            else:
-                prev_cursor = paginator.encode_cursor(
-                    first_case.id,
-                    sort_column=sort_column,
-                    sort_value=sort_value,
-                )
+            prev_cursor = paginator.encode_cursor(
+                first_case.id,
+                sort_column=sort_column,
+                sort_value=sort_value,
+            )
+
+        # If we were doing reverse pagination, restore display order and swap
+        # the cursors/flags to match the response direction
+        if params.reverse:
+            cases = list(reversed(cases))
+            next_cursor, prev_cursor = prev_cursor, next_cursor
+            has_more, has_previous = has_previous, has_more
 
         # Convert to CaseReadMinimal objects with tags and dropdown values
         case_items = []

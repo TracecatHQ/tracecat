@@ -312,3 +312,76 @@ async def test_list_rows_cursor_uses_created_at_and_id_order(
         include_row_data=False,
     )
     assert [item.id for item in legacy_page.items] == [older_small_id, oldest_small_id]
+
+
+@pytest.mark.anyio
+async def test_list_rows_reverse_pagination_cursors_point_forward_and_back(
+    session: AsyncSession,
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    """After paging backward, next/prev cursors must keep their meaning.
+
+    Regression test: cursors were computed from the already-reversed items and
+    then swapped again, so after one backward page "next" pointed at the
+    previous page and "prev" pointed at the next page.
+    """
+    case = await _create_case(cases_service)
+    table_id, _ = await _create_table_with_row(
+        tables_service,
+        name=f"case_rows_reverse_{uuid.uuid4().hex[:8]}",
+        value="seed",
+    )
+
+    base_time = datetime(2026, 1, 1, tzinfo=UTC)
+    links = [
+        CaseTableRow(
+            workspace_id=case_rows_service.workspace_id,
+            case_id=case.id,
+            table_id=table_id,
+            row_id=uuid.uuid4(),
+            created_at=base_time + timedelta(minutes=i),
+            updated_at=base_time + timedelta(minutes=i),
+        )
+        for i in range(6)
+    ]
+    session.add_all(links)
+    await session.commit()
+
+    # Display order is created_at desc: newest link first
+    display_ids = [
+        link.id for link in sorted(links, key=lambda x: x.created_at, reverse=True)
+    ]
+
+    async def page(cursor: str | None = None, reverse: bool = False):
+        return await case_rows_service.list_rows(
+            case_id=case.id,
+            limit=2,
+            cursor=cursor,
+            reverse=reverse,
+            include_row_data=False,
+        )
+
+    page1 = await page()
+    assert [item.id for item in page1.items] == display_ids[0:2]
+    page2 = await page(cursor=page1.next_cursor)
+    assert [item.id for item in page2.items] == display_ids[2:4]
+    page3 = await page(cursor=page2.next_cursor)
+    assert [item.id for item in page3.items] == display_ids[4:6]
+    assert page3.prev_cursor is not None
+
+    # Going back from page 3 must return page 2
+    back = await page(cursor=page3.prev_cursor, reverse=True)
+    assert [item.id for item in back.items] == display_ids[2:4]
+    assert back.has_more is True
+    assert back.has_previous is True
+
+    # next continues forward to page 3, prev continues backward to page 1
+    forward_again = await page(cursor=back.next_cursor)
+    assert [item.id for item in forward_again.items] == display_ids[4:6]
+
+    back_to_first = await page(cursor=back.prev_cursor, reverse=True)
+    assert [item.id for item in back_to_first.items] == display_ids[0:2]
+    assert back_to_first.has_more is True
+    assert back_to_first.has_previous is False

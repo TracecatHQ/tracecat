@@ -1506,15 +1506,21 @@ class BaseTablesService(BaseWorkspaceService):
 
         # Apply sorting: (sort_col, id) for stable pagination
         # Use id as tie-breaker unless we're already sorting by id
+        # Reverse pagination scans in the opposite direction so LIMIT keeps the
+        # rows adjacent to the cursor; items are restored to display order below.
+        if params.reverse:
+            scan_direction = "desc" if sort_direction == "asc" else "asc"
+        else:
+            scan_direction = sort_direction
         if sort_column == "id":
             # No tie-breaker needed when sorting by id (already unique)
-            if sort_direction == "asc":
+            if scan_direction == "asc":
                 stmt = stmt.order_by(sort_col.asc())
             else:
                 stmt = stmt.order_by(sort_col.desc())
         else:
             # Add id as tie-breaker for non-unique columns
-            if sort_direction == "asc":
+            if scan_direction == "asc":
                 stmt = stmt.order_by(sort_col.asc(), sa.column("id").asc())
             else:
                 stmt = stmt.order_by(sort_col.desc(), sa.column("id").desc())
