@@ -9230,7 +9230,6 @@ async def test_create_agent_preset_passes_skill_bindings(
     workspace_id = uuid.uuid4()
     catalog_id = uuid.uuid4()
     skill_id = uuid.uuid4()
-    skill_version_id = uuid.uuid4()
     role = SimpleNamespace(workspace_id=workspace_id)
     created: dict[str, Any] = {}
 
@@ -9304,7 +9303,6 @@ async def test_create_agent_preset_passes_skill_bindings(
         skills=[
             {
                 "skill_id": str(skill_id),
-                "skill_version_id": str(skill_version_id),
             }
         ],
     )
@@ -9312,7 +9310,7 @@ async def test_create_agent_preset_passes_skill_bindings(
     params = created["params"]
     assert len(params.skills) == 1
     assert params.skills[0].skill_id == skill_id
-    assert params.skills[0].skill_version_id == skill_version_id
+    assert params.skills[0].model_dump(mode="json") == {"skill_id": str(skill_id)}
 
 
 @pytest.mark.anyio
@@ -9321,7 +9319,6 @@ async def test_update_agent_preset_passes_skill_bindings(
 ) -> None:
     workspace_id = uuid.uuid4()
     skill_id = uuid.uuid4()
-    skill_version_id = uuid.uuid4()
     role = SimpleNamespace(workspace_id=workspace_id)
     captured: dict[str, Any] = {}
     now = datetime.now(UTC)
@@ -9378,7 +9375,6 @@ async def test_update_agent_preset_passes_skill_bindings(
         skills=[
             {
                 "skill_id": str(skill_id),
-                "skill_version_id": str(skill_version_id),
             }
         ],
     )
@@ -9386,7 +9382,7 @@ async def test_update_agent_preset_passes_skill_bindings(
     params = captured["params"]
     assert len(params.skills) == 1
     assert params.skills[0].skill_id == skill_id
-    assert params.skills[0].skill_version_id == skill_version_id
+    assert params.skills[0].model_dump(mode="json") == {"skill_id": str(skill_id)}
 
 
 @pytest.mark.anyio

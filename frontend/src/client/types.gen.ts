@@ -643,7 +643,6 @@ export type AgentPresetReadMinimal = {
  */
 export type AgentPresetSkillBindingBase = {
   skill_id: string
-  skill_version_id: string
 }
 
 /**

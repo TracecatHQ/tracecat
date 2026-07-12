@@ -1,4 +1,8 @@
-import type { AgentPresetCreate, AgentPresetRead } from "@/client"
+import type {
+  AgentPresetCreate,
+  AgentPresetRead,
+  AgentPresetUpdate,
+} from "@/client"
 import { slugify } from "@/lib/utils"
 
 export type AgentPresetFormMode = "create" | "edit"
@@ -73,6 +77,17 @@ export function buildDuplicateAgentPresetPayload(
     enable_thinking: preset.enable_thinking,
     enable_internet_access: preset.enable_internet_access,
   }
+}
+
+export function buildAgentPresetUpdatePayload(
+  payload: AgentPresetCreate,
+  { skillsChanged }: { skillsChanged: boolean }
+): AgentPresetUpdate {
+  const updatePayload: AgentPresetUpdate = { ...payload }
+  if (!skillsChanged) {
+    delete updatePayload.skills
+  }
+  return updatePayload
 }
 
 export function canSubmitAgentPresetForm({

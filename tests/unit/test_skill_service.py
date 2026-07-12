@@ -2368,7 +2368,7 @@ class TestSkillService:
         """Archiving is blocked while a preset head still binds the skill."""
 
         created = await skill_service.create_skill(SkillCreate(name="bound-skill"))
-        skill_version = await skill_service.publish_skill(created.id)
+        await skill_service.publish_skill(created.id)
 
         preset_service = AgentPresetService(session=session, role=svc_role)
         preset = await preset_service.create_preset(
@@ -2381,7 +2381,6 @@ class TestSkillService:
                 skills=[
                     AgentPresetSkillBindingBase(
                         skill_id=created.id,
-                        skill_version_id=skill_version.id,
                     )
                 ],
             )
@@ -2402,7 +2401,7 @@ class TestSkillService:
         """Archiving only cares about active preset-head skill bindings."""
 
         created = await skill_service.create_skill(SkillCreate(name="history-skill"))
-        skill_version = await skill_service.publish_skill(created.id)
+        await skill_service.publish_skill(created.id)
 
         preset_service = AgentPresetService(session=session, role=svc_role)
         preset = await preset_service.create_preset(
@@ -2415,7 +2414,6 @@ class TestSkillService:
                 skills=[
                     AgentPresetSkillBindingBase(
                         skill_id=created.id,
-                        skill_version_id=skill_version.id,
                     )
                 ],
             )
@@ -2440,7 +2438,7 @@ class TestSkillService:
         created = await skill_service.create_skill(
             SkillCreate(name="soft-deleted-preset")
         )
-        skill_version = await skill_service.publish_skill(created.id)
+        await skill_service.publish_skill(created.id)
 
         preset_service = AgentPresetService(session=session, role=svc_role)
         preset = await preset_service.create_preset(
@@ -2453,7 +2451,6 @@ class TestSkillService:
                 skills=[
                     AgentPresetSkillBindingBase(
                         skill_id=created.id,
-                        skill_version_id=skill_version.id,
                     )
                 ],
             )
@@ -2513,7 +2510,7 @@ class TestSkillService:
         created = await skill_service.create_skill(
             SkillCreate(name="legacy-resolution")
         )
-        skill_version = await skill_service.publish_skill(created.id)
+        await skill_service.publish_skill(created.id)
         preset_service = AgentPresetService(session=session, role=svc_role)
         preset = await preset_service.create_preset(
             AgentPresetCreate(
@@ -2525,7 +2522,6 @@ class TestSkillService:
                 skills=[
                     AgentPresetSkillBindingBase(
                         skill_id=created.id,
-                        skill_version_id=skill_version.id,
                     )
                 ],
             )
@@ -2539,7 +2535,6 @@ class TestSkillService:
                 [
                     AgentPresetSkillBindingBase(
                         skill_id=created.id,
-                        skill_version_id=skill_version.id,
                     )
                 ]
             )

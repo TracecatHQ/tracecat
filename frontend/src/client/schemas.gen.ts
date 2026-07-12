@@ -2649,14 +2649,9 @@ export const $AgentPresetSkillBindingBase = {
       format: "uuid",
       title: "Skill Id",
     },
-    skill_version_id: {
-      type: "string",
-      format: "uuid",
-      title: "Skill Version Id",
-    },
   },
   type: "object",
-  required: ["skill_id", "skill_version_id"],
+  required: ["skill_id"],
   title: "AgentPresetSkillBindingBase",
   description: "Shared fields for preset skill bindings.",
 } as const

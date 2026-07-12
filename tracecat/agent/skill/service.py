@@ -2417,12 +2417,6 @@ class SkillService(BaseWorkspaceService):
                     f"Skill '{skill.name}' has no published version",
                     detail={"code": "skill_not_published", "skill_id": str(skill.id)},
                 )
-            selected_version = await self.get_version(binding.skill_version_id)
-            if selected_version is None or selected_version.skill_id != skill.id:
-                raise TracecatValidationError(
-                    "Selected skill version does not belong to the selected skill",
-                    detail={"code": "invalid_skill_binding"},
-                )
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_resolved_skill_refs_for_preset_version(
