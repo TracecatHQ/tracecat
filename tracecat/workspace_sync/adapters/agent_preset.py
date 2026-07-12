@@ -346,7 +346,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         stmt = (
             select(
                 AgentPresetVersionSkill.preset_version_id,
-                Skill.name,
+                sa.func.coalesce(Skill.slug, Skill.name),
                 SkillVersion.version,
             )
             .select_from(AgentPresetVersionSkill)
@@ -361,7 +361,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             )
             .order_by(
                 AgentPresetVersionSkill.preset_version_id.asc(),
-                Skill.name.asc(),
+                sa.func.coalesce(Skill.slug, Skill.name).asc(),
             )
         )
         bindings: dict[uuid.UUID, list[AgentPresetSkillBinding]] = {}
@@ -1181,11 +1181,12 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         current version when ``binding.version`` is unset). Returns
         ``(None, None)`` when the skill or version cannot be found.
         """
-        # Resolve the skill by its slug (stored as `name`) in this workspace.
+        # Resolve the skill by its canonical slug, with a legacy-name fallback
+        # for expand-window rows that have not been backfilled yet.
         skill = await workspace_service.session.scalar(
             select(Skill).where(
                 Skill.workspace_id == workspace_service.workspace_id,
-                Skill.name == binding.slug,
+                sa.func.coalesce(Skill.slug, Skill.name) == binding.slug,
                 # Expand-window check: legacy writers set only archived_at; the
                 # contract release drops the archived_at leg.
                 Skill.deleted_at.is_(None),

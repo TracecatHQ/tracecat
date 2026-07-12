@@ -1799,6 +1799,7 @@ class TestSkillService:
 
         assert published.version == 1
         assert published.name == "reflected-skill"
+        assert published.slug == "reflected-skill"
         assert published.description == "Learned from signals"
         assert draft_after is not None
         assert draft_after.draft_revision == draft_before.draft_revision
@@ -1808,7 +1809,52 @@ class TestSkillService:
         assert version_file.text_content == "Escalate correlated endpoint alerts."
         assert skill_read is not None
         assert skill_read.current_version_id == published.id
-        assert skill_read.name == "reflected-skill"
+        assert skill_read.name == "reflect-skill"
+        assert skill_read.slug == "reflected-skill"
+
+    async def test_publish_rejects_live_package_slug_conflict_atomically(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """A package rename cannot claim another live Skill's runtime slug."""
+
+        owner = await skill_service.create_skill(SkillCreate(name="owned-slug"))
+        await skill_service.publish_skill(owner.id)
+        candidate = await skill_service.create_skill(
+            SkillCreate(name="candidate-display")
+        )
+        draft = await skill_service.get_draft(candidate.id)
+        assert draft is not None
+        await skill_service.patch_draft(
+            skill_id=candidate.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content="---\nname: owned-slug\n---\n\n# owned-slug\n",
+                    )
+                ],
+            ),
+        )
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.publish_skill(candidate.id)
+
+        assert exc_info.value.detail == {
+            "code": "skill_slug_conflict",
+            "slug": "owned-slug",
+        }
+        refreshed = await skill_service.get_skill_read(candidate.id)
+        assert refreshed is not None
+        assert refreshed.name == "candidate-display"
+        assert refreshed.slug == "candidate-display"
+        assert refreshed.current_version_id is None
+        versions = await skill_service.list_versions(
+            skill_id=candidate.id,
+            params=CursorPaginationParams(limit=10),
+        )
+        assert versions.items == []
 
     async def test_publish_skill_version_rejects_stale_base_version(
         self,
@@ -2026,7 +2072,8 @@ class TestSkillService:
 
         assert isinstance(restored, SkillReadMinimal)
         assert restored.current_version_id not in {version_one.id, version_two.id}
-        assert restored.name == version_one.name
+        assert restored.name == "snapshot-skill"
+        assert restored.slug == version_one.slug
         assert restored.description == version_one.description
         assert restored_version.version == 3
         assert restored_version.name == version_one.name
@@ -2040,14 +2087,13 @@ class TestSkillService:
         assert restored_file.text_content == "Version two"
         assert version_two.name == "version-two"
 
-    async def test_skill_rename_and_restore_leave_slug_stable(
+    async def test_skill_publish_and_restore_advance_slug_preserve_display_name(
         self,
         skill_service: SkillService,
     ) -> None:
-        """Changing a skill name through publish or restore does not move slug."""
+        """Package renames move the slug without changing display metadata."""
 
         created = await skill_service.create_skill(SkillCreate(name="stable-skill"))
-        original_slug = created.slug
         draft = await skill_service.get_draft(created.id)
         assert draft is not None
 
@@ -2074,8 +2120,8 @@ class TestSkillService:
 
         first_read = await skill_service.get_skill_read(created.id)
         assert first_read is not None
-        assert first_read.name == "first-renamed-skill"
-        assert first_read.slug == original_slug
+        assert first_read.name == "stable-skill"
+        assert first_read.slug == "first-renamed-skill"
 
         current_draft = await skill_service.get_draft(created.id)
         assert current_draft is not None
@@ -2106,16 +2152,16 @@ class TestSkillService:
         )
         restored_read = await skill_service.get_skill_read(created.id)
 
-        assert restored.name == "first-renamed-skill"
+        assert restored.name == "stable-skill"
         assert restored_read is not None
-        assert restored_read.name == "first-renamed-skill"
-        assert restored_read.slug == original_slug
+        assert restored_read.name == "stable-skill"
+        assert restored_read.slug == "first-renamed-skill"
 
     async def test_skill_read_metadata_tracks_current_version_not_draft(
         self,
         skill_service: SkillService,
     ) -> None:
-        """Top-level skill metadata should mirror the current version, not draft edits."""
+        """Display metadata stays stable while package metadata follows publish."""
 
         created = await skill_service.create_skill(SkillCreate(name="metadata-skill"))
         draft = await skill_service.get_draft(created.id)
@@ -2145,7 +2191,8 @@ class TestSkillService:
 
         assert skill_read is not None
         assert skill_read.current_version_id == published.id
-        assert skill_read.name == "published-title"
+        assert skill_read.name == "metadata-skill"
+        assert skill_read.slug == "published-title"
         assert skill_read.description == "Published description"
         assert skill_read.current_version is not None
         assert skill_read.current_version.id == published.id
@@ -2182,7 +2229,8 @@ class TestSkillService:
         assert updated_draft.description == "Draft-only description"
         assert skill_read_after_draft_edit is not None
         assert skill_read_after_draft_edit.current_version_id == published.id
-        assert skill_read_after_draft_edit.name == "published-title"
+        assert skill_read_after_draft_edit.name == "metadata-skill"
+        assert skill_read_after_draft_edit.slug == "published-title"
         assert skill_read_after_draft_edit.description == "Published description"
         assert skill_read_after_draft_edit.current_version is not None
         assert skill_read_after_draft_edit.current_version.id == published.id

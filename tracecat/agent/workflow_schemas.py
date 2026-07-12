@@ -70,7 +70,12 @@ type MCPServerConfigPayload = Annotated[
 
 
 class ResolvedSkillRefPayload(BaseModel):
-    """Workflow-safe resolved skill version reference."""
+    """Workflow-safe resolved skill version reference.
+
+    ``skill_name`` is the compatibility wire key during the expand window, but
+    its value is the exact version-local package slug. Renaming or adding a key
+    here is not rolling-deploy safe while old workers use ``extra='forbid'``.
+    """
 
     model_config = ConfigDict(extra="forbid")
 

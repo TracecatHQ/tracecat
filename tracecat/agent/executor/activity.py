@@ -839,7 +839,7 @@ class SandboxedAgentExecutor:
         """Stage resolved published skills into the per-run home directory.
 
         Runs after ``_stage_builtin_skills``: built-in platform skills take
-        precedence, so a resolved skill whose name collides with an
+        precedence, so a resolved skill whose slug collides with an
         already-staged built-in (possible for legacy skills created before the
         ``tracecat-`` prefix was reserved) is skipped with a warning instead of
         overlaying it.
@@ -849,25 +849,25 @@ class SandboxedAgentExecutor:
         resolved_skills = config.resolved_skills or []
         if not resolved_skills:
             return
-        duplicate_names = sorted(
-            name
-            for name, count in Counter(
-                resolved_skill.skill_name for resolved_skill in resolved_skills
+        duplicate_slugs = sorted(
+            slug
+            for slug, count in Counter(
+                resolved_skill.skill_slug for resolved_skill in resolved_skills
             ).items()
             if count > 1
         )
-        if duplicate_names:
+        if duplicate_slugs:
             raise ValueError(
-                f"Resolved preset contains duplicate skill names: {duplicate_names}"
+                f"Resolved preset contains duplicate skill slugs: {duplicate_slugs}"
             )
 
         async with SkillService.with_session(role=self.input.role) as service:
             for resolved_skill in resolved_skills:
-                if (skills_dir / resolved_skill.skill_name).exists():
+                if (skills_dir / resolved_skill.skill_slug).exists():
                     logger.warning(
                         "Resolved skill collides with a staged built-in skill; "
                         "skipping",
-                        skill=resolved_skill.skill_name,
+                        skill=resolved_skill.skill_slug,
                     )
                     continue
                 cached_dir = await self._ensure_cached_skill_dir(
@@ -878,7 +878,7 @@ class SandboxedAgentExecutor:
                 await asyncio.to_thread(
                     shutil.copytree,
                     cached_dir,
-                    skills_dir / resolved_skill.skill_name,
+                    skills_dir / resolved_skill.skill_slug,
                     dirs_exist_ok=True,
                 )
 

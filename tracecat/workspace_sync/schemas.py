@@ -428,7 +428,18 @@ class SkillVersionResourceSpec(BaseModel):
     version_number: int = Field(
         ge=1, description="Skill version number scoped to the parent skill."
     )
-    name: str = Field(min_length=1, description="Human-readable skill version name.")
+    slug: str | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "Version-local Agent Skills package identifier. Legacy manifests may "
+            "omit this and use name instead."
+        ),
+    )
+    name: str = Field(
+        min_length=1,
+        description="Deprecated compatibility copy of the package identifier.",
+    )
     description: str | None = Field(
         default=None, description="Optional skill version description."
     )

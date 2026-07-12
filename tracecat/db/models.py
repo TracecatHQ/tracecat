@@ -3945,17 +3945,19 @@ class Skill(SoftDeleteMixin, WorkspaceModel):
         String(64),
         nullable=False,
         index=True,
-        doc="Current active skill name and on-disk directory name",
+        doc=(
+            "User-facing skill display name. This column is temporarily named "
+            "'name'; package and runtime identity lives on slug."
+        ),
     )
     slug: Mapped[str | None] = mapped_column(
         String(64),
         nullable=True,
-        index=True,
         doc=(
-            "Stable skill identity initialized from name; renames do not "
-            "update it. Nullable through the expand window (legacy writers "
-            "insert without it); the contract release backfills and sets "
-            "NOT NULL."
+            "Current published package and runtime identity, derived from the "
+            "root SKILL.md frontmatter name. Nullable through the expand window "
+            "(legacy writers insert without it); legacy heads may differ from "
+            "their current version until they are republished."
         ),
     )
     current_version_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -4238,7 +4240,19 @@ class SkillVersion(WorkspaceModel):
     name: Mapped[str] = mapped_column(
         String(64),
         nullable=False,
-        doc="Published skill name parsed from root SKILL.md frontmatter",
+        doc=(
+            "Deprecated compatibility snapshot of the published package slug; "
+            "new writers dual-write name and slug."
+        ),
+    )
+    slug: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+        doc=(
+            "Immutable package/runtime slug parsed from root SKILL.md "
+            "frontmatter. Nullable only during the expand window."
+        ),
     )
     description: Mapped[str | None] = mapped_column(
         Text,

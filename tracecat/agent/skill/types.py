@@ -14,7 +14,7 @@ class ResolvedSkillRef:
     """Exact published skill version resolved for agent execution."""
 
     skill_id: uuid.UUID
-    skill_name: str
+    skill_slug: str
     skill_version_id: uuid.UUID
     manifest_sha256: str
 

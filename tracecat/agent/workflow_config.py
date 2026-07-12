@@ -92,7 +92,7 @@ def _resolved_skill_to_payload(skill: ResolvedSkillRef) -> ResolvedSkillRefPaylo
 
     return ResolvedSkillRefPayload(
         skill_id=skill.skill_id,
-        skill_name=skill.skill_name,
+        skill_name=skill.skill_slug,
         skill_version_id=skill.skill_version_id,
         manifest_sha256=skill.manifest_sha256,
     )
@@ -103,7 +103,7 @@ def _resolved_skill_from_payload(skill: ResolvedSkillRefPayload) -> ResolvedSkil
 
     return ResolvedSkillRef(
         skill_id=skill.skill_id,
-        skill_name=skill.skill_name,
+        skill_slug=skill.skill_name,
         skill_version_id=skill.skill_version_id,
         manifest_sha256=skill.manifest_sha256,
     )
