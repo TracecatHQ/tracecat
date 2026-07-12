@@ -1081,6 +1081,7 @@ class SkillService(BaseWorkspaceService):
                 file_ref.blob.size_bytes for _, file_ref in sorted_file_refs
             ),
             name=manifest_name,
+            slug=manifest_name,
             description=validation.description,
         )
         self.session.add(version)
@@ -1096,10 +1097,19 @@ class SkillService(BaseWorkspaceService):
                 )
             )
         skill.current_version_id = version.id
-        skill.name = manifest_name
+        skill.slug = manifest_name
         skill.description = validation.description
         self.session.add(skill)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            if not _is_skill_slug_unique_violation(exc):
+                raise
+            raise TracecatValidationError(
+                f"Skill slug '{manifest_name}' is already in use for this workspace",
+                detail={"code": "skill_slug_conflict", "slug": manifest_name},
+            ) from None
         return await self.get_version_read(skill_id=skill.id, version_id=version.id)
 
     async def _build_draft_read(self, skill: Skill) -> SkillDraftRead:
@@ -1149,6 +1159,7 @@ class SkillService(BaseWorkspaceService):
                 file_count=current_version.file_count,
                 total_size_bytes=current_version.total_size_bytes,
                 name=current_version.name,
+                slug=current_version.slug or current_version.name,
                 description=current_version.description,
                 created_at=current_version.created_at,
                 updated_at=current_version.updated_at,
@@ -1191,7 +1202,9 @@ class SkillService(BaseWorkspaceService):
             deleted_at=skill.deleted_at or skill.archived_at,
         )
 
-    async def _validate_skill_slug_available(self, slug: str) -> None:
+    async def _validate_skill_slug_available(
+        self, slug: str, *, excluding_skill_id: uuid.UUID | None = None
+    ) -> None:
         """Ensure a live skill slug is not already reserved in this workspace.
 
         Used by workspace-sync import, where the manifest names an exact slug
@@ -1199,7 +1212,7 @@ class SkillService(BaseWorkspaceService):
         creation uses ``_allocate_skill_slug`` instead.
         """
 
-        if await self._skill_slug_exists(slug):
+        if await self._skill_slug_exists(slug, excluding_skill_id=excluding_skill_id):
             raise TracecatValidationError(
                 f"Skill slug '{slug}' is already in use for this workspace",
                 detail={"code": "skill_slug_conflict", "slug": slug},
@@ -1228,7 +1241,9 @@ class SkillService(BaseWorkspaceService):
         suffix = f"-{counter}"
         return f"{slug[: SKILL_SLUG_MAX_LENGTH - len(suffix)]}{suffix}"
 
-    async def _skill_slug_exists(self, slug: str) -> bool:
+    async def _skill_slug_exists(
+        self, slug: str, *, excluding_skill_id: uuid.UUID | None = None
+    ) -> bool:
         """Check whether a live row already occupies ``slug`` in this workspace.
 
         Legacy rows inserted by old pods during the expand window have
@@ -1242,17 +1257,18 @@ class SkillService(BaseWorkspaceService):
         as taken that the index would accept.
         """
 
-        stmt = select(
-            sa.exists().where(
-                Skill.workspace_id == self.workspace_id,
-                sa.or_(
-                    Skill.slug == slug,
-                    sa.and_(Skill.slug.is_(None), Skill.name == slug),
-                ),
-                Skill.deleted_at.is_(None),
-                Skill.archived_at.is_(None),
-            )
-        )
+        predicates = [
+            Skill.workspace_id == self.workspace_id,
+            sa.or_(
+                Skill.slug == slug,
+                sa.and_(Skill.slug.is_(None), Skill.name == slug),
+            ),
+            Skill.deleted_at.is_(None),
+            Skill.archived_at.is_(None),
+        ]
+        if excluding_skill_id is not None:
+            predicates.append(Skill.id != excluding_skill_id)
+        stmt = select(sa.exists().where(*predicates))
         return bool((await self.session.execute(stmt)).scalar_one())
 
     async def _create_skill_with_slug_retry(
@@ -1585,7 +1601,6 @@ class SkillService(BaseWorkspaceService):
             path_to_blob=prepared_draft.path_to_blob,
         )
         if skill.current_version_id is None:
-            skill.name = params.name
             skill.description = prepared_draft.validation.description
             self.session.add(skill)
         await self.session.commit()
@@ -1996,7 +2011,6 @@ class SkillService(BaseWorkspaceService):
             and not validation.errors
             and validation.name is not None
         ):
-            skill.name = validation.name
             skill.description = validation.description
             self.session.add(skill)
         await self.session.commit()
@@ -2096,6 +2110,12 @@ class SkillService(BaseWorkspaceService):
                     ],
                 },
             )
+        if validation.name is None:  # pragma: no cover - included in validation errors
+            self._raise_missing_draft_name(operation="publish")
+        await self._validate_skill_slug_available(
+            validation.name,
+            excluding_skill_id=skill.id,
+        )
         return await self._create_version_from_blob_refs(
             skill=skill,
             file_refs=[
@@ -2146,6 +2166,12 @@ class SkillService(BaseWorkspaceService):
                     ],
                 },
             )
+        if validation.name is None:  # pragma: no cover - included in validation errors
+            self._raise_missing_draft_name(operation="publish")
+        await self._validate_skill_slug_available(
+            validation.name,
+            excluding_skill_id=skill.id,
+        )
         file_refs = [
             (
                 file.path,
@@ -2238,6 +2264,7 @@ class SkillService(BaseWorkspaceService):
                     file_count=version.file_count,
                     total_size_bytes=version.total_size_bytes,
                     name=version.name,
+                    slug=version.slug or version.name,
                     description=version.description,
                     created_at=version.created_at,
                     updated_at=version.updated_at,
@@ -2271,6 +2298,7 @@ class SkillService(BaseWorkspaceService):
             file_count=version.file_count,
             total_size_bytes=version.total_size_bytes,
             name=version.name,
+            slug=version.slug or version.name,
             description=version.description,
             created_at=version.created_at,
             updated_at=version.updated_at,
@@ -2320,6 +2348,7 @@ class SkillService(BaseWorkspaceService):
             file_count=version.file_count,
             total_size_bytes=version.total_size_bytes,
             name=version.name,
+            slug=version.slug or version.name,
             description=version.description,
             created_at=version.created_at,
             updated_at=version.updated_at,
@@ -2339,7 +2368,8 @@ class SkillService(BaseWorkspaceService):
         version = await self.get_version(version_id)
         if version is None or version.skill_id != skill.id:
             raise TracecatNotFoundError(f"Skill version '{version_id}' not found")
-        if version.name is None:
+        version_slug = version.slug or version.name
+        if version_slug is None:
             self._raise_missing_version_name(skill_version_id=version.id)
         rows = await self._list_version_rows(version.id)
         await self._create_version_from_blob_refs(
@@ -2355,7 +2385,7 @@ class SkillService(BaseWorkspaceService):
                 for version_file, blob_row in rows
             ],
             validation=ManifestValidationResult(
-                name=version.name,
+                name=version_slug,
                 description=version.description,
             ),
         )
@@ -2459,7 +2489,7 @@ class SkillService(BaseWorkspaceService):
                 Skill.deleted_at,
                 Skill.archived_at,
                 Skill.current_version_id,
-                SkillVersion.name,
+                func.coalesce(SkillVersion.slug, SkillVersion.name),
                 SkillVersion.manifest_sha256,
             )
             .join(
@@ -2482,7 +2512,7 @@ class SkillService(BaseWorkspaceService):
                 AgentPresetVersionSkill.preset_version_id == preset_version_id,
             )
             .order_by(
-                SkillVersion.name.asc().nulls_last(),
+                func.coalesce(SkillVersion.slug, SkillVersion.name).asc().nulls_last(),
                 Skill.name.asc(),
                 AgentPresetVersionSkill.skill_id.asc(),
             )
@@ -2497,7 +2527,7 @@ class SkillService(BaseWorkspaceService):
             deleted_at,
             archived_at,
             skill_version_id,
-            skill_name,
+            skill_slug,
             manifest_sha256,
         ) in rows:
             if deleted_at is not None or archived_at is not None:
@@ -2510,7 +2540,7 @@ class SkillService(BaseWorkspaceService):
                 skipped.append(skipped_ref)
                 self._log_skipped_skill_ref(skipped_ref, preset_version_id)
                 continue
-            if skill_version_id is None or skill_name is None:
+            if skill_version_id is None or skill_slug is None:
                 skipped_ref = SkippedSkillRef(
                     skill_id=skill_id,
                     skill_name=current_skill_name,
@@ -2523,7 +2553,7 @@ class SkillService(BaseWorkspaceService):
             resolved.append(
                 ResolvedSkillRef(
                     skill_id=skill_id,
-                    skill_name=skill_name,
+                    skill_slug=skill_slug,
                     skill_version_id=skill_version_id,
                     manifest_sha256=manifest_sha256,
                 )
@@ -2552,7 +2582,7 @@ class SkillService(BaseWorkspaceService):
 
         stmt = select(
             Skill.id,
-            SkillVersion.name,
+            func.coalesce(SkillVersion.slug, SkillVersion.name),
             SkillVersion.id,
             SkillVersion.manifest_sha256,
         ).where(
@@ -2567,12 +2597,12 @@ class SkillService(BaseWorkspaceService):
             raise TracecatNotFoundError(
                 f"Skill version '{skill_version_id}' not found for skill '{skill_id}'"
             )
-        resolved_skill_id, skill_name, resolved_version_id, manifest_sha256 = row
-        if skill_name is None:
+        resolved_skill_id, skill_slug, resolved_version_id, manifest_sha256 = row
+        if skill_slug is None:
             self._raise_missing_version_name(skill_version_id=resolved_version_id)
         return ResolvedSkillRef(
             skill_id=resolved_skill_id,
-            skill_name=skill_name,
+            skill_slug=skill_slug,
             skill_version_id=resolved_version_id,
             manifest_sha256=manifest_sha256,
         )

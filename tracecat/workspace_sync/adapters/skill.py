@@ -15,7 +15,7 @@ import sqlalchemy as sa
 import yaml
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import InstrumentedAttribute, selectinload
 
 from tracecat.agent.skill.service import SkillFileBlobRef, SkillService
 from tracecat.db.models import (
@@ -348,20 +348,23 @@ class SkillAdapter(DirectoryManifestAdapter):
                 ).values()
             )
         stmt = self._projection_stmt(workspace_service)
+        effective_slug = sa.func.coalesce(Skill.slug, Skill.name)
         if local_ids and slugs:
-            stmt = stmt.where(sa.or_(Skill.id.in_(local_ids), Skill.name.in_(slugs)))
+            stmt = stmt.where(
+                sa.or_(Skill.id.in_(local_ids), effective_slug.in_(slugs))
+            )
         elif local_ids:
             stmt = stmt.where(Skill.id.in_(local_ids))
         else:
-            stmt = stmt.where(Skill.name.in_(slugs))
+            stmt = stmt.where(effective_slug.in_(slugs))
         skills = list((await workspace_service.session.execute(stmt)).scalars().all())
         versions_by_slug: dict[str, set[int]] = defaultdict(set)
         for slug, version in refs.versioned_slugs:
             versions_by_slug[slug].add(version)
         versions_by_skill_id = {
-            skill.id: versions_by_slug[skill.name]
+            skill.id: versions_by_slug[skill.slug or skill.name]
             for skill in skills
-            if skill.name in versions_by_slug
+            if (skill.slug or skill.name) in versions_by_slug
         }
         return await self._projection_from_skills(
             workspace_service,
@@ -383,7 +386,10 @@ class SkillAdapter(DirectoryManifestAdapter):
                 Skill.archived_at.is_(None),
             )
             .options(selectinload(Skill.current_version))
-            .order_by(Skill.name.asc(), Skill.id.asc())
+            .order_by(
+                sa.func.coalesce(Skill.slug, Skill.name).asc(),
+                Skill.id.asc(),
+            )
         )
 
     async def _projection_from_skills(
@@ -397,7 +403,8 @@ class SkillAdapter(DirectoryManifestAdapter):
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
         for skill in skills:
-            source_id = assigner.assign(skill.id, skill.name)
+            skill_slug = skill.slug or skill.name
+            source_id = assigner.assign(skill.id, skill_slug)
             # Keep the top-level manifest as metadata only, then emit immutable
             # file snapshots below ``versions/`` for current and pinned versions.
             version = skill.current_version
@@ -412,8 +419,8 @@ class SkillAdapter(DirectoryManifestAdapter):
 
             specs[source_id] = SkillResourceSpec(
                 id=source_id,
-                slug=skill.name,
-                name=version.name if version is not None else skill.name,
+                slug=skill_slug,
+                name=skill.name,
                 current_version=version.version if version is not None else None,
                 description=skill.description,
                 versions=versions,
@@ -510,7 +517,9 @@ class SkillAdapter(DirectoryManifestAdapter):
                 file_contents[version_file.path] = content_text
             versions[version.version] = SkillVersionResourceSpec(
                 version_number=version.version,
-                name=version.name,
+                slug=version.slug or version.name,
+                # Keep writing the compatibility field until old readers drain.
+                name=version.slug or version.name,
                 description=version.description,
                 files=files,
                 file_contents=file_contents,
@@ -554,13 +563,13 @@ class SkillAdapter(DirectoryManifestAdapter):
         declared current version.
         """
         skills = workspace_spec.skills
-        # Skill identity lives on ``Skill.name`` but specs key off ``slug``; the
-        # shorter temp prefix keeps placeholders within the slug length budget.
+        # Skill identity lives on ``Skill.slug``; the shorter temp prefix keeps
+        # placeholders within the slug length budget.
         swap = await self.plan_name_swap(
             workspace_service,
             targets={source_id: spec.slug for source_id, spec in skills.items()},
             model=Skill,
-            name_column=Skill.name,
+            name_column=cast(InstrumentedAttribute[str], Skill.slug),
             noun="slug",
             kind_label="Skill",
             owner_label="skill",
@@ -589,7 +598,7 @@ class SkillAdapter(DirectoryManifestAdapter):
                 await skill_service._validate_skill_slug_available(spec.slug)
                 skill = Skill(
                     workspace_id=workspace_service.workspace_id,
-                    name=spec.slug,
+                    name=spec.name,
                     slug=spec.slug,
                     description=getattr(spec, "description", None),
                     draft_revision=0,
@@ -598,8 +607,7 @@ class SkillAdapter(DirectoryManifestAdapter):
                 # Flush to assign skill.id before referencing it below.
                 await workspace_service.session.flush()
             else:
-                # Keep existing name-based sync behavior; slug is stable identity.
-                skill.name = spec.slug
+                skill.name = spec.name
                 skill.description = getattr(spec, "description", None)
 
             version_specs = dict(spec.versions)
@@ -626,6 +634,13 @@ class SkillAdapter(DirectoryManifestAdapter):
 
             if spec.current_version is not None:
                 if current := imported_versions.get(spec.current_version):
+                    current_slug = current.slug or current.name
+                    if spec.slug != current_slug:
+                        raise TracecatValidationError(
+                            f"Skill {spec.slug!r} current version "
+                            f"{spec.current_version} declares slug {current_slug!r}."
+                        )
+                    skill.slug = current_slug
                     skill.current_version_id = current.id
                     await skill_service._replace_draft_with_blob_map(
                         skill=skill,
@@ -636,6 +651,7 @@ class SkillAdapter(DirectoryManifestAdapter):
                 # existing skill stops pointing at a version it no longer declares,
                 # and clear draft files copied from the previously pinned version.
                 skill.current_version_id = None
+                skill.slug = spec.slug
                 await skill_service._replace_draft_with_blob_map(
                     skill=skill,
                     path_to_blob={},
@@ -697,13 +713,16 @@ class SkillAdapter(DirectoryManifestAdapter):
             for path, file_ref in sorted(file_refs, key=lambda item: item[0])
         ]
         manifest_sha256 = skill_service._compute_sha256(orjson.dumps(manifest_payload))
+        version_slug = version.slug or version.name
         attrs = {
             "manifest_sha256": manifest_sha256,
             "file_count": len(file_refs),
             "total_size_bytes": sum(
                 file_ref.blob.size_bytes for _, file_ref in file_refs
             ),
-            "name": version.name,
+            "slug": version_slug,
+            # Dual-write the legacy field until the contract release.
+            "name": version_slug,
             "description": version.description,
         }
         if existing is None:
@@ -769,11 +788,12 @@ class SkillAdapter(DirectoryManifestAdapter):
             )
             return skill
 
-        # No mapping yet: fall back to matching an existing skill by slug.
+        # No mapping yet: fall back to the canonical slug, or the legacy name
+        # when reading an expand-window row that has not been backfilled yet.
         return await workspace_service.session.scalar(
             select(Skill).where(
                 Skill.workspace_id == workspace_service.workspace_id,
-                Skill.name == spec.slug,
+                sa.func.coalesce(Skill.slug, Skill.name) == spec.slug,
                 Skill.deleted_at.is_(None),
                 Skill.archived_at.is_(None),
             )
