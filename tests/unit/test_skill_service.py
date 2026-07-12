@@ -1799,7 +1799,6 @@ class TestSkillService:
 
         assert published.version == 1
         assert published.name == "reflected-skill"
-        assert published.slug == "reflected-skill"
         assert published.description == "Learned from signals"
         assert draft_after is not None
         assert draft_after.draft_revision == draft_before.draft_revision
@@ -1816,7 +1815,7 @@ class TestSkillService:
         self,
         skill_service: SkillService,
     ) -> None:
-        """A package rename cannot claim another live Skill's runtime slug."""
+        """A package rename cannot claim another live Skill's locator."""
 
         owner = await skill_service.create_skill(SkillCreate(name="owned-slug"))
         await skill_service.publish_skill(owner.id)
@@ -1850,11 +1849,6 @@ class TestSkillService:
         assert refreshed.name == "candidate-display"
         assert refreshed.slug == "candidate-display"
         assert refreshed.current_version_id is None
-        versions = await skill_service.list_versions(
-            skill_id=candidate.id,
-            params=CursorPaginationParams(limit=10),
-        )
-        assert versions.items == []
 
     async def test_publish_skill_version_rejects_stale_base_version(
         self,
@@ -2073,7 +2067,7 @@ class TestSkillService:
         assert isinstance(restored, SkillReadMinimal)
         assert restored.current_version_id not in {version_one.id, version_two.id}
         assert restored.name == "snapshot-skill"
-        assert restored.slug == version_one.slug
+        assert restored.slug == version_one.name
         assert restored.description == version_one.description
         assert restored_version.version == 3
         assert restored_version.name == version_one.name
@@ -2156,6 +2150,47 @@ class TestSkillService:
         assert restored_read is not None
         assert restored_read.name == "stable-skill"
         assert restored_read.slug == "first-renamed-skill"
+
+    async def test_restore_rejects_reclaimed_package_slug(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Roll-forward restore fails when another live Skill owns the old slug."""
+
+        original = await skill_service.create_skill(SkillCreate(name="restore-old"))
+        old_version = await skill_service.publish_skill(original.id)
+        draft = await skill_service.get_draft(original.id)
+        assert draft is not None
+        await skill_service.patch_draft(
+            skill_id=original.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content="---\nname: restore-new\n---\n\n# restore-new\n",
+                    )
+                ],
+            ),
+        )
+        new_version = await skill_service.publish_skill(original.id)
+        claimant = await skill_service.create_skill(SkillCreate(name="restore-old"))
+        await skill_service.publish_skill(claimant.id)
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.restore_version(
+                skill_id=original.id,
+                version_id=old_version.id,
+            )
+
+        assert exc_info.value.detail == {
+            "code": "skill_slug_conflict",
+            "slug": "restore-old",
+        }
+        current = await skill_service.get_skill_read(original.id)
+        assert current is not None
+        assert current.slug == "restore-new"
+        assert current.current_version_id == new_version.id
 
     async def test_skill_read_metadata_tracks_current_version_not_draft(
         self,

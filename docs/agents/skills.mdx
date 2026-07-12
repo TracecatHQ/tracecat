@@ -36,8 +36,9 @@ Use this skill when you need to enrich IP addresses, domains, URLs, or file
 hashes during alert triage.
 ```
 
-Tracecat uses the frontmatter `name` as the published skill name.
-Keep published skill names unique among skills attached to the same preset agent.
+Tracecat uses the frontmatter `name` as the package identifier and runtime directory name.
+Publishing a changed `name` updates the skill slug, so update any slug-based API, URL, or Workspace Sync references in the same deployment.
+The display name shown in Tracecat is separate from this package identifier.
 Write the body as instructions the agent can follow during a run.
 
 ![Skill editor](/img/agents/skill-editor.png)
@@ -62,21 +63,22 @@ Publishing requires:
 - A root `SKILL.md` file.
 - Valid YAML frontmatter in `SKILL.md`.
 - A frontmatter `name` that follows the skill name rules.
+- A frontmatter `name` that no other live skill currently uses as its slug.
 - No duplicate paths or path conflicts.
 
 ## Attach skills to a preset agent
 
 Open the preset agent, then use the `Skills` tab to attach published skills.
-Each attachment pins one published skill version.
+Each attachment references the skill head.
 
 ![Attach skills to a preset agent](/img/agents/agent-preset-skills.png)
 
 Only published skills can be attached.
-When you publish a new skill version, update the preset if you want future runs to use it.
+Future runs automatically use the skill's current published version.
 
 ## How agents load skills
 
-When a preset agent runs, Tracecat stages the pinned skill versions into the agent runtime.
+When a preset agent runs, Tracecat resolves each attached skill head and stages its current published version into the agent runtime.
 The agent can discover the skill by its `SKILL.md` metadata and use the bundled files during the run.
 
 Use skills for reusable agent behavior.

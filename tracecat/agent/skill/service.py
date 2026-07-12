@@ -1081,7 +1081,6 @@ class SkillService(BaseWorkspaceService):
                 file_ref.blob.size_bytes for _, file_ref in sorted_file_refs
             ),
             name=manifest_name,
-            slug=manifest_name,
             description=validation.description,
         )
         self.session.add(version)
@@ -1159,7 +1158,6 @@ class SkillService(BaseWorkspaceService):
                 file_count=current_version.file_count,
                 total_size_bytes=current_version.total_size_bytes,
                 name=current_version.name,
-                slug=current_version.slug or current_version.name,
                 description=current_version.description,
                 created_at=current_version.created_at,
                 updated_at=current_version.updated_at,
@@ -2264,7 +2262,6 @@ class SkillService(BaseWorkspaceService):
                     file_count=version.file_count,
                     total_size_bytes=version.total_size_bytes,
                     name=version.name,
-                    slug=version.slug or version.name,
                     description=version.description,
                     created_at=version.created_at,
                     updated_at=version.updated_at,
@@ -2298,7 +2295,6 @@ class SkillService(BaseWorkspaceService):
             file_count=version.file_count,
             total_size_bytes=version.total_size_bytes,
             name=version.name,
-            slug=version.slug or version.name,
             description=version.description,
             created_at=version.created_at,
             updated_at=version.updated_at,
@@ -2348,7 +2344,6 @@ class SkillService(BaseWorkspaceService):
             file_count=version.file_count,
             total_size_bytes=version.total_size_bytes,
             name=version.name,
-            slug=version.slug or version.name,
             description=version.description,
             created_at=version.created_at,
             updated_at=version.updated_at,
@@ -2368,8 +2363,7 @@ class SkillService(BaseWorkspaceService):
         version = await self.get_version(version_id)
         if version is None or version.skill_id != skill.id:
             raise TracecatNotFoundError(f"Skill version '{version_id}' not found")
-        version_slug = version.slug or version.name
-        if version_slug is None:
+        if version.name is None:
             self._raise_missing_version_name(skill_version_id=version.id)
         rows = await self._list_version_rows(version.id)
         await self._create_version_from_blob_refs(
@@ -2385,7 +2379,7 @@ class SkillService(BaseWorkspaceService):
                 for version_file, blob_row in rows
             ],
             validation=ManifestValidationResult(
-                name=version_slug,
+                name=version.name,
                 description=version.description,
             ),
         )
@@ -2489,7 +2483,7 @@ class SkillService(BaseWorkspaceService):
                 Skill.deleted_at,
                 Skill.archived_at,
                 Skill.current_version_id,
-                func.coalesce(SkillVersion.slug, SkillVersion.name),
+                SkillVersion.name,
                 SkillVersion.manifest_sha256,
             )
             .join(
@@ -2512,7 +2506,7 @@ class SkillService(BaseWorkspaceService):
                 AgentPresetVersionSkill.preset_version_id == preset_version_id,
             )
             .order_by(
-                func.coalesce(SkillVersion.slug, SkillVersion.name).asc().nulls_last(),
+                SkillVersion.name.asc().nulls_last(),
                 Skill.name.asc(),
                 AgentPresetVersionSkill.skill_id.asc(),
             )
@@ -2527,7 +2521,7 @@ class SkillService(BaseWorkspaceService):
             deleted_at,
             archived_at,
             skill_version_id,
-            skill_slug,
+            skill_name,
             manifest_sha256,
         ) in rows:
             if deleted_at is not None or archived_at is not None:
@@ -2540,7 +2534,7 @@ class SkillService(BaseWorkspaceService):
                 skipped.append(skipped_ref)
                 self._log_skipped_skill_ref(skipped_ref, preset_version_id)
                 continue
-            if skill_version_id is None or skill_slug is None:
+            if skill_version_id is None or skill_name is None:
                 skipped_ref = SkippedSkillRef(
                     skill_id=skill_id,
                     skill_name=current_skill_name,
@@ -2553,7 +2547,7 @@ class SkillService(BaseWorkspaceService):
             resolved.append(
                 ResolvedSkillRef(
                     skill_id=skill_id,
-                    skill_slug=skill_slug,
+                    skill_name=skill_name,
                     skill_version_id=skill_version_id,
                     manifest_sha256=manifest_sha256,
                 )
@@ -2582,7 +2576,7 @@ class SkillService(BaseWorkspaceService):
 
         stmt = select(
             Skill.id,
-            func.coalesce(SkillVersion.slug, SkillVersion.name),
+            SkillVersion.name,
             SkillVersion.id,
             SkillVersion.manifest_sha256,
         ).where(
@@ -2597,12 +2591,12 @@ class SkillService(BaseWorkspaceService):
             raise TracecatNotFoundError(
                 f"Skill version '{skill_version_id}' not found for skill '{skill_id}'"
             )
-        resolved_skill_id, skill_slug, resolved_version_id, manifest_sha256 = row
-        if skill_slug is None:
+        resolved_skill_id, skill_name, resolved_version_id, manifest_sha256 = row
+        if skill_name is None:
             self._raise_missing_version_name(skill_version_id=resolved_version_id)
         return ResolvedSkillRef(
             skill_id=resolved_skill_id,
-            skill_slug=skill_slug,
+            skill_name=skill_name,
             skill_version_id=resolved_version_id,
             manifest_sha256=manifest_sha256,
         )

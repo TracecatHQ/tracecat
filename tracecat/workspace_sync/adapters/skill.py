@@ -517,9 +517,7 @@ class SkillAdapter(DirectoryManifestAdapter):
                 file_contents[version_file.path] = content_text
             versions[version.version] = SkillVersionResourceSpec(
                 version_number=version.version,
-                slug=version.slug or version.name,
-                # Keep writing the compatibility field until old readers drain.
-                name=version.slug or version.name,
+                name=version.name,
                 description=version.description,
                 files=files,
                 file_contents=file_contents,
@@ -563,8 +561,8 @@ class SkillAdapter(DirectoryManifestAdapter):
         declared current version.
         """
         skills = workspace_spec.skills
-        # Skill identity lives on ``Skill.slug``; the shorter temp prefix keeps
-        # placeholders within the slug length budget.
+        # Skill package identity lives on ``Skill.slug``; the shorter temp
+        # prefix keeps placeholders within the slug length budget.
         swap = await self.plan_name_swap(
             workspace_service,
             targets={source_id: spec.slug for source_id, spec in skills.items()},
@@ -609,6 +607,7 @@ class SkillAdapter(DirectoryManifestAdapter):
             else:
                 skill.name = spec.name
                 skill.description = getattr(spec, "description", None)
+                skill.slug = spec.slug
 
             version_specs = dict(spec.versions)
             if (
@@ -634,13 +633,6 @@ class SkillAdapter(DirectoryManifestAdapter):
 
             if spec.current_version is not None:
                 if current := imported_versions.get(spec.current_version):
-                    current_slug = current.slug or current.name
-                    if spec.slug != current_slug:
-                        raise TracecatValidationError(
-                            f"Skill {spec.slug!r} current version "
-                            f"{spec.current_version} declares slug {current_slug!r}."
-                        )
-                    skill.slug = current_slug
                     skill.current_version_id = current.id
                     await skill_service._replace_draft_with_blob_map(
                         skill=skill,
@@ -713,16 +705,13 @@ class SkillAdapter(DirectoryManifestAdapter):
             for path, file_ref in sorted(file_refs, key=lambda item: item[0])
         ]
         manifest_sha256 = skill_service._compute_sha256(orjson.dumps(manifest_payload))
-        version_slug = version.slug or version.name
         attrs = {
             "manifest_sha256": manifest_sha256,
             "file_count": len(file_refs),
             "total_size_bytes": sum(
                 file_ref.blob.size_bytes for _, file_ref in file_refs
             ),
-            "slug": version_slug,
-            # Dual-write the legacy field until the contract release.
-            "name": version_slug,
+            "name": version.name,
             "description": version.description,
         }
         if existing is None:
