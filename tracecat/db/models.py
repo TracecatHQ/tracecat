@@ -3969,10 +3969,11 @@ class Skill(SoftDeleteMixin, WorkspaceModel):
     slug: Mapped[str | None] = mapped_column(
         String(64),
         nullable=True,
+        index=True,
         doc=(
-            "Current published package and runtime identity, derived from the "
-            "root SKILL.md frontmatter name. Nullable through the expand window "
-            "(legacy writers insert without it); legacy heads may differ from "
+            "Current published package locator, derived from the root SKILL.md "
+            "frontmatter name. Nullable through the expand window because "
+            "legacy writers insert without it; legacy heads may differ from "
             "their current version until they are republished."
         ),
     )
@@ -4257,17 +4258,8 @@ class SkillVersion(WorkspaceModel):
         String(64),
         nullable=False,
         doc=(
-            "Deprecated compatibility snapshot of the published package slug; "
-            "new writers dual-write name and slug."
-        ),
-    )
-    slug: Mapped[str | None] = mapped_column(
-        String(64),
-        nullable=True,
-        index=True,
-        doc=(
-            "Immutable package/runtime slug parsed from root SKILL.md "
-            "frontmatter. Nullable only during the expand window."
+            "Immutable Agent Skills package identifier parsed from root "
+            "SKILL.md frontmatter; also the staged directory name."
         ),
     )
     description: Mapped[str | None] = mapped_column(

@@ -9975,7 +9975,6 @@ async def test_publish_skill_uses_workspace_skill_service(
                 file_count=1,
                 total_size_bytes=42,
                 name="botsv3-ir",
-                slug="botsv3-ir",
                 description="BOTSv3 IR skill",
                 created_at=now,
                 updated_at=now,

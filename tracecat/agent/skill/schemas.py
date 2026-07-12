@@ -91,15 +91,12 @@ class SkillFileEntry(Schema):
 
 
 class SkillRead(Schema):
-    """Full response model for a workspace skill.
-
-    ``name`` is display metadata; ``slug`` is the current package identity.
-    """
+    """Full response model for a workspace skill."""
 
     id: uuid.UUID
     workspace_id: WorkspaceID
     name: str = Field(description="User-facing display name; not a runtime key.")
-    slug: str = Field(description="Current published package and runtime identity.")
+    slug: str = Field(description="Current published package locator.")
     description: str | None = Field(default=None)
     current_version_id: uuid.UUID | None = Field(default=None)
     draft_revision: int
@@ -117,15 +114,15 @@ class SkillRead(Schema):
 class SkillReadMinimal(Schema):
     """Minimal response model for listing workspace skills.
 
-    ``name`` is display metadata. ``slug`` is the late-binding package handle
-    every skill API accepts; list responses expose it directly because display
-    names are not unique.
+    ``slug`` is the late-binding handle every skill API accepts; list
+    responses must expose it so callers never have to guess it from ``name``
+    (names are not unique — slugs are, per live row).
     """
 
     id: uuid.UUID
     workspace_id: WorkspaceID
     name: str = Field(description="User-facing display name; not a runtime key.")
-    slug: str = Field(description="Current published package and runtime identity.")
+    slug: str = Field(description="Current published package locator.")
     description: str | None = Field(default=None)
     current_version_id: uuid.UUID | None = Field(default=None)
     created_at: datetime
@@ -280,8 +277,7 @@ class SkillVersionRead(Schema):
     manifest_sha256: str
     file_count: int
     total_size_bytes: int
-    name: str = Field(description="Deprecated compatibility copy of slug.")
-    slug: str = Field(description="Immutable version-local package identity.")
+    name: str
     description: str | None = Field(default=None)
     created_at: datetime
     updated_at: datetime
@@ -311,8 +307,7 @@ class SkillVersionSnapshotRead(Schema):
     manifest_sha256: str
     file_count: int
     total_size_bytes: int
-    name: str = Field(description="Deprecated compatibility copy of slug.")
-    slug: str = Field(description="Immutable version-local package identity.")
+    name: str
     description: str | None = Field(default=None)
     created_at: datetime
     updated_at: datetime
@@ -331,8 +326,7 @@ class SkillVersionReadMinimal(Schema):
     manifest_sha256: str
     file_count: int
     total_size_bytes: int
-    name: str = Field(description="Deprecated compatibility copy of slug.")
-    slug: str = Field(description="Immutable version-local package identity.")
+    name: str
     description: str | None = Field(default=None)
     created_at: datetime
     updated_at: datetime

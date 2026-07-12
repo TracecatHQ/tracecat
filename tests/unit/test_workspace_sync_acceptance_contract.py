@@ -721,7 +721,7 @@ async def test_import_selected_fixture_reconciles_supported_non_workflow_resourc
         )
     )
     assert skill_version is not None
-    assert skill_version.slug == "qa-enrichment-skill"
+    assert skill.name == "QA enrichment skill"
     assert skill_version.name == "qa-enrichment-skill"
     draft_paths = list(
         (
@@ -1618,7 +1618,7 @@ async def test_round_trip_preserves_presets_pinning_different_skill_versions(
         )
     )
     assert skill is not None
-    # Both versions land in the target with their original names intact.
+    # Both versions land in the target with their immutable package names intact.
     skill_versions = {
         version.version: version.name
         for version in (
@@ -1632,7 +1632,7 @@ async def test_round_trip_preserves_presets_pinning_different_skill_versions(
             )
         ).all()
     }
-    assert skill_versions == {1: "skill-a-v1", 2: "skill-a"}
+    assert skill_versions == {1: "skill-a", 2: "skill-a"}
     # Head bindings (``AgentPresetSkill``) wire each preset's live config to the
     # skill version it pinned: agent-x -> v1, agent-y -> v2.
     binding_rows = await session.execute(
@@ -2645,7 +2645,6 @@ async def test_project_workspace_preserves_skill_source_id_after_rename(
         select(SkillVersion).where(SkillVersion.id == skill.current_version_id)
     )
     assert current_version is not None
-    current_version.slug = "qa-enrichment-restored"
     current_version.name = "qa-enrichment-restored"
     session.add_all([skill, current_version])
     await session.flush()
@@ -2660,11 +2659,6 @@ async def test_project_workspace_preserves_skill_source_id_after_rename(
     assert skill_spec["id"] == "qa-enrichment-skill"
     assert skill_spec["slug"] == "qa-enrichment-restored"
     assert skill_spec["name"] == "QA enrichment skill"
-    version_spec = yaml.safe_load(
-        projection.files[f"{SKILL_ROOT}/qa-enrichment-skill/versions/1/version.yml"]
-    )
-    assert version_spec["slug"] == "qa-enrichment-restored"
-    assert version_spec["name"] == "qa-enrichment-restored"
 
 
 @pytest.mark.anyio
@@ -3421,50 +3415,7 @@ async def test_pull_skill_slug_rename_reuses_source_id_mapping(
         )
     )
     assert version is not None
-    assert version.slug == "qa-enrichment-restored"
     assert version.name == "qa-enrichment-restored"
-
-
-@pytest.mark.anyio
-async def test_import_legacy_skill_version_name_backfills_slug(
-    session: AsyncSession,
-    svc_role: Role,
-) -> None:
-    files = _skill_git_tree(
-        source_id="qa-enrichment-skill",
-        slug="qa-enrichment-skill",
-        name="QA enrichment skill",
-    )
-    version_path = f"{SKILL_ROOT}/qa-enrichment-skill/versions/1/version.yml"
-    legacy_version = yaml.safe_load(files[version_path])
-    del legacy_version["slug"]
-    files[version_path] = _yaml(legacy_version)
-
-    service = WorkspaceSyncService(session=session, role=svc_role)
-    snapshot, diagnostics = await service.parse_files(files)
-    assert diagnostics == []
-    await WorkspaceResourceImportService(
-        session=session,
-        role=svc_role,
-    ).import_non_workflow_resources(snapshot.spec)
-
-    skill = await session.scalar(
-        select(Skill).where(
-            Skill.workspace_id == svc_role.workspace_id,
-            Skill.slug == "qa-enrichment-skill",
-        )
-    )
-    assert skill is not None
-    version = await session.scalar(
-        select(SkillVersion).where(
-            SkillVersion.workspace_id == svc_role.workspace_id,
-            SkillVersion.skill_id == skill.id,
-            SkillVersion.version == 1,
-        )
-    )
-    assert version is not None
-    assert version.slug == "qa-enrichment-skill"
-    assert version.name == "qa-enrichment-skill"
 
 
 @pytest.mark.anyio
@@ -3482,7 +3433,7 @@ async def test_import_skill_version_rejects_missing_declared_file_content(
                 versions={
                     1: SkillVersionResourceSpec(
                         version_number=1,
-                        name="QA enrichment skill",
+                        name="qa-enrichment-skill",
                         files=[
                             SkillFileSpec(
                                 path="SKILL.md",
@@ -3504,6 +3455,49 @@ async def test_import_skill_version_rejects_missing_declared_file_content(
 
 
 @pytest.mark.anyio
+async def test_import_skill_preserves_legacy_head_package_name_mismatch(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Legacy stable slugs remain importable until a later publish advances them."""
+
+    spec = WorkspaceSpec(
+        skills={
+            "legacy-skill": SkillResourceSpec(
+                id="legacy-skill",
+                slug="legacy-stable-slug",
+                name="Legacy skill",
+                current_version=1,
+                versions={
+                    1: SkillVersionResourceSpec(
+                        version_number=1,
+                        name="renamed-package",
+                    )
+                },
+            )
+        }
+    )
+
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(spec)
+
+    skill = await session.scalar(
+        select(Skill).where(
+            Skill.workspace_id == svc_role.workspace_id,
+            Skill.slug == "legacy-stable-slug",
+        )
+    )
+    assert skill is not None
+    version = await session.scalar(
+        select(SkillVersion).where(SkillVersion.id == skill.current_version_id)
+    )
+    assert version is not None
+    assert version.name == "renamed-package"
+
+
+@pytest.mark.anyio
 async def test_project_workspace_preserves_binary_skill_version_file(
     session: AsyncSession,
     svc_role: Role,
@@ -3521,7 +3515,6 @@ async def test_project_workspace_preserves_binary_skill_version_file(
                 versions={
                     1: SkillVersionResourceSpec(
                         version_number=1,
-                        slug="binary-skill",
                         name="binary-skill",
                         files=[
                             SkillFileSpec(
@@ -5901,7 +5894,7 @@ async def _assert_workspace_has_no_expanded_resource_rows(
         await session.scalar(
             select(Skill).where(
                 Skill.workspace_id == workspace_id,
-                Skill.name == "qa-enrichment-skill",
+                Skill.slug == "qa-enrichment-skill",
             )
         )
     ) is None
@@ -6227,8 +6220,6 @@ def _skill_git_tree(
                 "version": 1,
                 "type": "skill_version",
                 "version_number": 1,
-                "slug": slug,
-                # Compatibility copy for expand-window readers.
                 "name": slug,
                 "description": "Deterministic enrichment helper",
                 "files": [
@@ -6253,13 +6244,12 @@ def _versioned_agent_skill_git_tree() -> dict[str, str]:
     skill_v1 = "# Skill A\n\nVersion 1 behavior.\n"
     skill_v2 = "# Skill A\n\nVersion 2 behavior.\n"
 
-    def skill_version(number: int, slug: str, content: str) -> dict[str, Any]:
+    def skill_version(number: int, name: str, content: str) -> dict[str, Any]:
         return {
             "version": 1,
             "type": "skill_version",
             "version_number": number,
-            "slug": slug,
-            "name": slug,
+            "name": name,
             "files": [
                 {
                     "path": "SKILL.md",
@@ -6311,7 +6301,7 @@ def _versioned_agent_skill_git_tree() -> dict[str, str]:
             }
         ),
         f"{SKILL_ROOT}/skill-a/versions/1/version.yml": _yaml(
-            skill_version(1, "skill-a-v1", skill_v1)
+            skill_version(1, "skill-a", skill_v1)
         ),
         f"{SKILL_ROOT}/skill-a/versions/1/files/SKILL.md": skill_v1,
         f"{SKILL_ROOT}/skill-a/versions/2/version.yml": _yaml(
@@ -6399,13 +6389,12 @@ def _workflow_pinned_agent_version_git_tree() -> dict[str, str]:
     skill_v1 = "# Skill A\n\nVersion 1 behavior.\n"
     skill_v2 = "# Skill A\n\nVersion 2 behavior.\n"
 
-    def skill_version(number: int, slug: str, content: str) -> dict[str, Any]:
+    def skill_version(number: int, name: str, content: str) -> dict[str, Any]:
         return {
             "version": 1,
             "type": "skill_version",
             "version_number": number,
-            "slug": slug,
-            "name": slug,
+            "name": name,
             "files": [
                 {
                     "path": "SKILL.md",
@@ -6478,7 +6467,7 @@ def _workflow_pinned_agent_version_git_tree() -> dict[str, str]:
                     }
                 ),
                 f"{SKILL_ROOT}/skill-a/versions/1/version.yml": _yaml(
-                    skill_version(1, "skill-a-v1", skill_v1)
+                    skill_version(1, "skill-a", skill_v1)
                 ),
                 f"{SKILL_ROOT}/skill-a/versions/1/files/SKILL.md": skill_v1,
                 f"{SKILL_ROOT}/skill-a/versions/2/version.yml": _yaml(
@@ -6730,7 +6719,6 @@ def _expanded_full_git_tree(*, include_schedules: bool) -> dict[str, str]:
                 "version": 1,
                 "type": "skill_version",
                 "version_number": 1,
-                "slug": "qa-enrichment-skill",
                 "name": "qa-enrichment-skill",
                 "description": "Deterministic enrichment helper",
                 "files": [
