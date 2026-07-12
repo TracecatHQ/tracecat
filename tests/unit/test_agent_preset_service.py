@@ -1289,6 +1289,13 @@ class TestAgentPresetService:
         resolved_skill = config.resolved_skills[0]
         assert resolved_skill.skill_version_id == skill_version_two.id
         assert resolved_skill.skill_name == "latest-skill-v2"
+        assert config.resolved_refs is not None
+        resolved_ref = next(
+            ref
+            for ref in config.resolved_refs.refs
+            if ref.resource_kind == "skill" and ref.status == "ok"
+        )
+        assert resolved_ref.slug == resolved_skill.skill_name
 
     async def test_resolve_config_skips_archived_skill_head(
         self,

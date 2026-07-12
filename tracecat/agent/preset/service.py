@@ -2474,23 +2474,14 @@ class AgentPresetService(BaseWorkspaceService):
     ) -> ResolvedRefs | None:
         """Build value-only skill refs from the effective resolution result."""
 
-        skill_ids = {ref.skill_id for ref in resolved_skill_refs.refs}
-        skill_ids.update(ref.skill_id for ref in resolved_skill_refs.skipped)
-        if not skill_ids:
+        if not resolved_skill_refs.refs and not resolved_skill_refs.skipped:
             return None
-
-        stmt = select(Skill.id, Skill.slug).where(
-            Skill.workspace_id == self.workspace_id,
-            Skill.id.in_(skill_ids),
-        )
-        rows = (await self.session.execute(with_deleted(stmt))).tuples().all()
-        slug_by_id = dict(rows)
         refs: list[ResolvedRef] = []
         for skill_ref in resolved_skill_refs.refs:
             refs.append(
                 ResolvedRef(
                     resource_kind="skill",
-                    slug=slug_by_id.get(skill_ref.skill_id),
+                    slug=skill_ref.skill_name,
                     resource_id=skill_ref.skill_id,
                     resolved_version_id=skill_ref.skill_version_id,
                     manifest_sha256=skill_ref.manifest_sha256,
