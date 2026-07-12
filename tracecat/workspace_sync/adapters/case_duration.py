@@ -59,25 +59,30 @@ class CaseDurationAdapter(FlatManifestAdapter):
         resources: list[ProjectedResource] = []
         for duration in durations:
             source_id = assigner.assign(duration.id, duration.name)
-            # Each duration carries both its start and end anchors as nested specs.
-            specs[source_id] = CaseDurationResourceSpec(
-                id=source_id,
-                name=duration.name,
-                description=duration.description,
-                start=CaseDurationAnchorSpec(
-                    event=duration.start_event_type,
-                    selection=duration.start_selection,
-                    timestamp_path=duration.start_timestamp_path,
-                    field_filters=duration.start_field_filters,
-                ),
-                end=CaseDurationAnchorSpec(
-                    event=duration.end_event_type,
-                    selection=duration.end_selection,
-                    timestamp_path=duration.end_timestamp_path,
-                    field_filters=duration.end_field_filters,
-                ),
-            )
-            resources.append(self.projected_resource(source_id, duration.id))
+            with self.projection_error_context(
+                source_id=source_id,
+                display_name=duration.name,
+                local_id=duration.id,
+            ):
+                # Each duration carries both its start and end anchors as nested specs.
+                specs[source_id] = CaseDurationResourceSpec(
+                    id=source_id,
+                    name=duration.name,
+                    description=duration.description,
+                    start=CaseDurationAnchorSpec(
+                        event=duration.start_event_type,
+                        selection=duration.start_selection,
+                        timestamp_path=duration.start_timestamp_path,
+                        field_filters=duration.start_field_filters,
+                    ),
+                    end=CaseDurationAnchorSpec(
+                        event=duration.end_event_type,
+                        selection=duration.end_selection,
+                        timestamp_path=duration.end_timestamp_path,
+                        field_filters=duration.end_field_filters,
+                    ),
+                )
+                resources.append(self.projected_resource(source_id, duration.id))
         return ResourceProjection(specs=specs, resources=resources)
 
     async def import_specs(

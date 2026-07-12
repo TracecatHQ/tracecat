@@ -72,17 +72,23 @@ class CaseFieldAdapter(FlatManifestAdapter):
                 continue
             local_id = _case_field_local_id(definition.id, ref)
             source_id = assigner.assign(local_id, ref)
-            specs[source_id] = CaseFieldResourceSpec(
-                id=source_id,
-                name=str(field_def.get("name") or ref),
-                field_type=field_def.get("type"),
-                kind=field_def.get("kind"),
-                options=field_def.get("options"),
-                required_on_closure=bool(field_def.get("required_on_closure")),
-            )
-            # Fields have no row of their own, so derive a stable local id from
-            # the schema row id plus field ref.
-            resources.append(self.projected_resource(source_id, local_id))
+            name = str(field_def.get("name") or ref)
+            with self.projection_error_context(
+                source_id=source_id,
+                display_name=name,
+                local_id=local_id,
+            ):
+                specs[source_id] = CaseFieldResourceSpec(
+                    id=source_id,
+                    name=name,
+                    field_type=field_def.get("type"),
+                    kind=field_def.get("kind"),
+                    options=field_def.get("options"),
+                    required_on_closure=bool(field_def.get("required_on_closure")),
+                )
+                # Fields have no row of their own, so derive a stable local id from
+                # the schema row id plus field ref.
+                resources.append(self.projected_resource(source_id, local_id))
         return ResourceProjection(specs=specs, resources=resources)
 
     async def import_specs(

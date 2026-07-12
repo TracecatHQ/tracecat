@@ -485,6 +485,59 @@ def test_table_names_ignores_free_form_string_tokens() -> None:
 
 
 @pytest.mark.anyio
+async def test_resource_projection_error_includes_failing_resource_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeSourceIdAssigner:
+        def assign_environment(
+            self, local_id: uuid.UUID, environment: str, name: str
+        ) -> str:
+            return "default/broken-variable"
+
+    variable_id = uuid.uuid4()
+    variable = cast(
+        Any,
+        SimpleNamespace(
+            id=variable_id,
+            environment="default",
+            name="",
+            values={},
+            description=None,
+            tags={},
+        ),
+    )
+    monkeypatch.setattr(
+        VARIABLE_RESOURCE_ADAPTER,
+        "source_id_assigner",
+        AsyncMock(return_value=FakeSourceIdAssigner()),
+    )
+
+    with pytest.raises(TracecatValidationError) as exc_info:
+        await VARIABLE_RESOURCE_ADAPTER._projection_from_variables(
+            cast(WorkspaceSyncService, object()),
+            [variable],
+        )
+
+    message = str(exc_info.value)
+    assert "Failed to project variable resource" in message
+    assert "source id 'default/broken-variable'" in message
+    assert "path 'variables/default/broken-variable.yml'" in message
+    assert f"local id {variable_id}" in message
+    assert isinstance(exc_info.value.detail, dict)
+    detail = exc_info.value.detail
+    expected_detail_subset = {
+        "code": "workspace_sync_projection_resource_failed",
+        "resource_type": "variable",
+        "source_id": "default/broken-variable",
+        "source_path": "variables/default/broken-variable.yml",
+        "local_id": str(variable_id),
+    }
+    for key, value in expected_detail_subset.items():
+        assert detail[key] == value
+    assert "VariableResourceSpec" in detail["error"]
+
+
+@pytest.mark.anyio
 async def test_preview_export_counts_resources_without_mutating_mappings(
     workspace_sync_service: WorkspaceSyncService,
     sample_dsl: DSLInput,

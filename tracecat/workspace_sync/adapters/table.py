@@ -129,28 +129,33 @@ class TableAdapter(DirectoryManifestAdapter):
         resources: list[ProjectedResource] = []
         for table in tables:
             source_id = assigner.assign(table.id, table.name)
-            # The index lookup yields the set of column names that are unique.
-            unique_columns = set(await table_service.get_index(table))
-            columns: list[TableColumnSpec] = []
-            # Serialize columns sorted by name for deterministic spec output.
-            for column in sorted(table.columns, key=lambda item: item.name):
-                columns.append(
-                    TableColumnSpec(
-                        name=column.name,
-                        type=column.type.lower(),
-                        nullable=None if column.nullable else False,
-                        default=column.default,
-                        options=column.options or None,
-                        # Mark unique only when the column is in the index set.
-                        unique=True if column.name in unique_columns else None,
+            with self.projection_error_context(
+                source_id=source_id,
+                display_name=table.name,
+                local_id=table.id,
+            ):
+                # The index lookup yields the set of column names that are unique.
+                unique_columns = set(await table_service.get_index(table))
+                columns: list[TableColumnSpec] = []
+                # Serialize columns sorted by name for deterministic spec output.
+                for column in sorted(table.columns, key=lambda item: item.name):
+                    columns.append(
+                        TableColumnSpec(
+                            name=column.name,
+                            type=column.type.lower(),
+                            nullable=None if column.nullable else False,
+                            default=column.default,
+                            options=column.options or None,
+                            # Mark unique only when the column is in the index set.
+                            unique=True if column.name in unique_columns else None,
+                        )
                     )
+                specs[source_id] = TableResourceSpec(
+                    id=source_id,
+                    name=table.name,
+                    columns=columns,
                 )
-            specs[source_id] = TableResourceSpec(
-                id=source_id,
-                name=table.name,
-                columns=columns,
-            )
-            resources.append(self.projected_resource(source_id, table.id))
+                resources.append(self.projected_resource(source_id, table.id))
         return ResourceProjection(specs=specs, resources=resources)
 
     async def import_specs(
