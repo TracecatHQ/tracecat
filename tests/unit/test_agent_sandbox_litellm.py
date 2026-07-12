@@ -1905,7 +1905,7 @@ async def _run_attached_skills_visible_case(
                 resolved_skills=[
                     ResolvedSkillRef(
                         skill_id=uuid.uuid4(),
-                        skill_name="skill-a",
+                        skill_slug="skill-a",
                         skill_version_id=uuid.uuid4(),
                         manifest_sha256="manifest-sha",
                     )

@@ -23509,10 +23509,12 @@ export const $SkillRead = {
     name: {
       type: "string",
       title: "Name",
+      description: "User-facing display name; not a runtime key.",
     },
     slug: {
       type: "string",
       title: "Slug",
+      description: "Current published package and runtime identity.",
     },
     description: {
       anyOf: [
@@ -23602,7 +23604,9 @@ export const $SkillRead = {
     "draft_file_count",
   ],
   title: "SkillRead",
-  description: "Full response model for a workspace skill.",
+  description: `Full response model for a workspace skill.
+
+\`\`name\`\` is display metadata; \`\`slug\`\` is the current package identity.`,
 } as const
 
 export const $SkillReadMinimal = {
@@ -23620,10 +23624,12 @@ export const $SkillReadMinimal = {
     name: {
       type: "string",
       title: "Name",
+      description: "User-facing display name; not a runtime key.",
     },
     slug: {
       type: "string",
       title: "Slug",
+      description: "Current published package and runtime identity.",
     },
     description: {
       anyOf: [
@@ -23676,9 +23682,9 @@ export const $SkillReadMinimal = {
   title: "SkillReadMinimal",
   description: `Minimal response model for listing workspace skills.
 
-\`\`slug\`\` is the late-binding handle every skill API accepts; list
-responses must expose it so callers never have to guess it from \`\`name\`\`
-(names are not unique — slugs are, per live row).`,
+\`\`name\`\` is display metadata. \`\`slug\`\` is the late-binding package handle
+every skill API accepts; list responses expose it directly because display
+names are not unique.`,
 } as const
 
 export const $SkillUpload = {
@@ -23871,6 +23877,12 @@ export const $SkillVersionRead = {
     name: {
       type: "string",
       title: "Name",
+      description: "Deprecated compatibility copy of slug.",
+    },
+    slug: {
+      type: "string",
+      title: "Slug",
+      description: "Immutable version-local package identity.",
     },
     description: {
       anyOf: [
@@ -23911,6 +23923,7 @@ export const $SkillVersionRead = {
     "file_count",
     "total_size_bytes",
     "name",
+    "slug",
     "created_at",
     "updated_at",
   ],
@@ -23954,6 +23967,12 @@ export const $SkillVersionReadMinimal = {
     name: {
       type: "string",
       title: "Name",
+      description: "Deprecated compatibility copy of slug.",
+    },
+    slug: {
+      type: "string",
+      title: "Slug",
+      description: "Immutable version-local package identity.",
     },
     description: {
       anyOf: [
@@ -23987,6 +24006,7 @@ export const $SkillVersionReadMinimal = {
     "file_count",
     "total_size_bytes",
     "name",
+    "slug",
     "created_at",
     "updated_at",
   ],

@@ -212,7 +212,7 @@ class TestStageResolvedSkillsCollision:
         )
 
         resolved = SimpleNamespace(
-            skill_name="tracecat-manage-workflows",
+            skill_slug="tracecat-manage-workflows",
             manifest_sha256="0" * 64,
             skill_version_id=uuid.uuid4(),
         )

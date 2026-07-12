@@ -1848,47 +1848,6 @@ class AgentPresetService(BaseWorkspaceService):
             for_update=for_update,
         )
 
-    async def _validate_unique_skill_binding_names(
-        self,
-        binding_specs: Sequence[SkillBindingSpec],
-        *,
-        preset_id: uuid.UUID,
-    ) -> None:
-        """Reject duplicate names in one exact resolved Skill binding set."""
-
-        if not binding_specs:
-            return
-        duplicate_name_stmt = (
-            select(
-                SkillVersion.name,
-                func.count(SkillVersion.id).label("binding_count"),
-            )
-            .where(
-                SkillVersion.workspace_id == self.workspace_id,
-                SkillVersion.id.in_(
-                    [binding.skill_version_id for binding in binding_specs]
-                ),
-            )
-            .group_by(SkillVersion.name)
-            .having(func.count(SkillVersion.id) > 1)
-        )
-        duplicate_names = sorted(
-            name
-            for name, _count in (await self.session.execute(duplicate_name_stmt))
-            .tuples()
-            .all()
-            if name is not None
-        )
-        if duplicate_names:
-            raise TracecatValidationError(
-                "Agent preset version cannot include duplicate skill names",
-                detail={
-                    "code": "duplicate_skill_names",
-                    "skill_names": duplicate_names,
-                    "preset_id": str(preset_id),
-                },
-            )
-
     async def _replace_head_skill_bindings(
         self,
         preset_id: uuid.UUID,
@@ -2218,19 +2177,19 @@ class AgentPresetService(BaseWorkspaceService):
             version.id
         )
         resolved_skills = skill_resolution.refs
-        duplicate_skill_names = sorted(
-            name
-            for name, count in Counter(
-                resolved_skill.skill_name for resolved_skill in resolved_skills
+        duplicate_skill_slugs = sorted(
+            slug
+            for slug, count in Counter(
+                resolved_skill.skill_slug for resolved_skill in resolved_skills
             ).items()
             if count > 1
         )
-        if duplicate_skill_names:
+        if duplicate_skill_slugs:
             raise TracecatValidationError(
-                "Resolved preset version contains duplicate skill names",
+                "Resolved preset version contains duplicate skill slugs",
                 detail={
-                    "code": "duplicate_skill_names",
-                    "skill_names": duplicate_skill_names,
+                    "code": "duplicate_skill_slugs",
+                    "skill_slugs": duplicate_skill_slugs,
                     "preset_version_id": str(version.id),
                 },
             )
@@ -2274,10 +2233,6 @@ class AgentPresetService(BaseWorkspaceService):
         binding_specs = await self._resolve_head_skill_binding_specs(
             preset.id,
             for_update=True,
-        )
-        await self._validate_unique_skill_binding_names(
-            binding_specs,
-            preset_id=preset.id,
         )
         stmt = (
             select(AgentPresetVersion.version)
