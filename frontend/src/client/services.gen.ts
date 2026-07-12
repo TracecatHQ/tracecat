@@ -494,6 +494,7 @@ import type {
   OrganizationGetInvitationTokenResponse,
   OrganizationGetOrganizationEntitlementsResponse,
   OrganizationGetOrganizationResponse,
+  OrganizationListCurrentUserOrganizationMembershipsResponse,
   OrganizationListInvitationsData,
   OrganizationListInvitationsResponse,
   OrganizationListMyPendingInvitationsResponse,
@@ -4102,6 +4103,24 @@ export const organizationGetOrganization =
     return __request(OpenAPI, {
       method: "GET",
       url: "/organization",
+    })
+  }
+
+/**
+ * List Current User Organization Memberships
+ * List active organizations the current user belongs to.
+ *
+ * This endpoint intentionally avoids organization-scoped authorization so the
+ * UI can present a safe organization switcher for multi-org users. The bypass
+ * session is limited to the authenticated user's own active memberships.
+ * @returns tracecat__organization__schemas__OrgRead Successful Response
+ * @throws ApiError
+ */
+export const organizationListCurrentUserOrganizationMemberships =
+  (): CancelablePromise<OrganizationListCurrentUserOrganizationMembershipsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/memberships",
     })
   }
 

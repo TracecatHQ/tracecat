@@ -96,6 +96,41 @@ async def get_organization(
     return OrgRead(id=org.id, name=org.name)
 
 
+@router.get("/memberships", response_model=list[OrgRead])
+async def list_current_user_organization_memberships(
+    *,
+    role: AuthenticatedUserOnly,
+    session: AsyncDBSessionBypass,
+) -> list[OrgRead]:
+    """List active organizations the current user belongs to.
+
+    This endpoint intentionally avoids organization-scoped authorization so the
+    UI can present a safe organization switcher for multi-org users. The bypass
+    session is limited to the authenticated user's own active memberships.
+    """
+    if role.user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not authenticated",
+        )
+
+    stmt = (
+        select(Organization.id, Organization.name)
+        .join(
+            OrganizationMembership,
+            OrganizationMembership.organization_id == Organization.id,
+        )
+        .where(
+            OrganizationMembership.user_id == role.user_id,
+            Organization.is_active.is_(True),
+        )
+        .order_by(Organization.name.asc(), Organization.id.asc())
+    )
+    result = await session.execute(stmt)
+
+    return [OrgRead(id=org_id, name=name) for org_id, name in result.all()]
+
+
 @router.get("/domains", response_model=list[OrgDomainRead])
 @require_scope("org:read")
 async def list_organization_domains(

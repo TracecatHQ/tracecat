@@ -10817,6 +10817,9 @@ export type UsersSearchUserResponse = UserRead
 export type OrganizationGetOrganizationResponse =
   tracecat__organization__schemas__OrgRead
 
+export type OrganizationListCurrentUserOrganizationMembershipsResponse =
+  Array<tracecat__organization__schemas__OrgRead>
+
 export type OrganizationDeleteOrganizationData = {
   /**
    * Must exactly match the organization name.
@@ -15317,6 +15320,16 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/memberships": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<tracecat__organization__schemas__OrgRead>
       }
     }
   }
