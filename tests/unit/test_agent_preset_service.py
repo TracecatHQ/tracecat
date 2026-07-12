@@ -1742,6 +1742,91 @@ class TestAgentPresetService:
         assert detail["skill_names"] == ["shared-name"]
         assert uuid.UUID(detail["preset_id"])
 
+    async def test_version_validation_and_snapshot_share_locked_skill_specs(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Validation and snapshotting consume one locked Skill resolution."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(name="atomic-snapshot-skill")
+        )
+        await skill_service.publish_skill(created_skill.id)
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Atomic snapshot preset",
+                instructions="Use the selected Skill",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[AgentPresetSkillBindingBase(skill_id=created_skill.id)],
+            )
+        )
+
+        original_resolve = agent_preset_service._resolve_head_skill_binding_specs
+        original_validate = agent_preset_service._validate_unique_skill_binding_names
+        original_snapshot = agent_preset_service._snapshot_version_skill_bindings
+        calls: list[tuple[str, object]] = []
+
+        async def instrumented_resolve(
+            preset_id: uuid.UUID, *, for_update: bool = False
+        ) -> list[SkillBindingSpec]:
+            specs = await original_resolve(preset_id, for_update=for_update)
+            calls.append(("resolve_locked" if for_update else "resolve", specs))
+            return specs
+
+        async def instrumented_validate(
+            binding_specs: list[SkillBindingSpec], *, preset_id: uuid.UUID
+        ) -> None:
+            calls.append(("validate", binding_specs))
+            await original_validate(binding_specs, preset_id=preset_id)
+
+        async def instrumented_snapshot(
+            preset_id: uuid.UUID,
+            preset_version_id: uuid.UUID,
+            *,
+            binding_specs: list[SkillBindingSpec] | None = None,
+        ) -> None:
+            calls.append(("snapshot", binding_specs))
+            await original_snapshot(
+                preset_id,
+                preset_version_id,
+                binding_specs=binding_specs,
+            )
+
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_resolve_head_skill_binding_specs",
+            instrumented_resolve,
+        )
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_validate_unique_skill_binding_names",
+            instrumented_validate,
+        )
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_snapshot_version_skill_bindings",
+            instrumented_snapshot,
+        )
+
+        await agent_preset_service.update_preset(
+            created_preset,
+            AgentPresetUpdate(instructions="Create an atomic snapshot"),
+        )
+
+        assert [name for name, _value in calls] == [
+            "resolve_locked",
+            "validate",
+            "snapshot",
+        ]
+        assert calls[0][1] is calls[1][1]
+        assert calls[1][1] is calls[2][1]
+
     async def test_resolve_agent_preset_config_rejects_duplicate_skill_names(
         self,
         configure_minio_for_skills,
