@@ -1620,6 +1620,68 @@ class TestAgentPresetService:
         assert head_bindings[0].skill_version_id == skill_version_two.id
         assert head_bindings[0].skill_name == "version-two"
 
+    async def test_non_skill_update_refreshes_head_and_version_skill_bindings(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """A new preset snapshot keeps its derived head binding in sync."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(name="head-binding-v1")
+        )
+        await skill_service.publish_skill(created_skill.id)
+
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Head binding refresh preset",
+                instructions="Use the current Skill",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[AgentPresetSkillBindingBase(skill_id=created_skill.id)],
+            )
+        )
+
+        draft = await skill_service.get_draft(created_skill.id)
+        assert draft is not None
+        await skill_service.patch_draft(
+            skill_id=created_skill.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content=(
+                            "---\nname: head-binding-v2\n---\n\n# Head binding v2\n"
+                        ),
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            ),
+        )
+        skill_version_two = await skill_service.publish_skill(created_skill.id)
+
+        await agent_preset_service.update_preset(
+            created_preset,
+            AgentPresetUpdate(instructions="Use the refreshed current Skill"),
+        )
+
+        current_version = await agent_preset_service.get_current_version_for_preset(
+            created_preset
+        )
+        head_bindings = await agent_preset_service._list_head_skill_bindings(
+            created_preset.id
+        )
+        version_read = await agent_preset_service.build_version_read(current_version)
+
+        assert head_bindings[0].skill_version_id == skill_version_two.id
+        assert head_bindings[0].skill_name == "head-binding-v2"
+        assert version_read.skills[0].skill_version_id == skill_version_two.id
+        assert version_read.skills[0].skill_name == "head-binding-v2"
+
     async def test_create_preset_rejects_duplicate_bound_skill_names(
         self,
         configure_minio_for_skills,

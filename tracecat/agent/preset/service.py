@@ -1492,6 +1492,15 @@ class AgentPresetService(BaseWorkspaceService):
             for_update=True,
         )
         for binding in specs:
+            await self.session.execute(
+                sa.update(AgentPresetSkill)
+                .where(
+                    AgentPresetSkill.workspace_id == self.workspace_id,
+                    AgentPresetSkill.preset_id == preset_id,
+                    AgentPresetSkill.skill_id == binding.skill_id,
+                )
+                .values(skill_version_id=binding.skill_version_id)
+            )
             self.session.add(
                 AgentPresetVersionSkill(
                     workspace_id=self.workspace_id,
