@@ -1271,7 +1271,7 @@ class TestAgentPresetService:
         assert len(config.resolved_skills) == 1
         resolved_skill = config.resolved_skills[0]
         assert resolved_skill.skill_version_id == skill_version_two.id
-        assert resolved_skill.skill_slug == "latest-skill-v2"
+        assert resolved_skill.skill_name == "latest-skill-v2"
 
     async def test_resolve_config_skips_archived_skill_head(
         self,
@@ -1611,21 +1611,68 @@ class TestAgentPresetService:
         assert version_read.skills[0].skill_version_id == skill_version_two.id
         assert version_read.skills[0].skill_name == "head-binding-v2"
 
-    async def test_create_preset_allows_duplicate_display_names_with_distinct_slugs(
+    async def test_create_preset_rejects_duplicate_bound_skill_names(
         self,
         configure_minio_for_skills,
         session: AsyncSession,
         svc_role: Role,
         agent_preset_service: AgentPresetService,
     ) -> None:
-        """Display names do not participate in runtime package identity."""
+        """Preset version creation rejects duplicate current Skill names."""
 
         skill_service = SkillService(session=session, role=svc_role)
         skill_a = await skill_service.create_skill(SkillCreate(name="shared-name"))
         await skill_service.publish_skill(skill_a.id)
 
-        skill_b = await skill_service.create_skill(SkillCreate(name="shared-name"))
+        skill_b = await skill_service.create_skill(SkillCreate(name="skill-b-current"))
+        skill_b_version = await skill_service.publish_skill(skill_b.id)
+        skill_b_version_row = await skill_service.get_version(skill_b_version.id)
+        assert skill_b_version_row is not None
+        # Legacy data can have a unique head slug but a duplicate package name.
+        skill_b_version_row.name = "shared-name"
+        session.add(skill_b_version_row)
+        await session.commit()
 
+        with pytest.raises(
+            TracecatValidationError,
+            match="cannot include duplicate skill names",
+        ) as exc_info:
+            await agent_preset_service.create_preset(
+                AgentPresetCreate(
+                    name="Duplicate skill name preset",
+                    instructions="Use both skills",
+                    model_name="gpt-4o-mini",
+                    model_provider="openai",
+                    skills=[
+                        AgentPresetSkillBindingBase(
+                            skill_id=skill_a.id,
+                        ),
+                        AgentPresetSkillBindingBase(
+                            skill_id=skill_b.id,
+                        ),
+                    ],
+                )
+            )
+
+        detail = exc_info.value.detail
+        assert detail is not None
+        assert detail["code"] == "duplicate_skill_names"
+        assert detail["skill_names"] == ["shared-name"]
+        assert uuid.UUID(detail["preset_id"])
+
+    async def test_create_preset_allows_duplicate_display_names(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Display names may match when immutable package names are distinct."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        skill_a = await skill_service.create_skill(SkillCreate(name="shared-display"))
+        await skill_service.publish_skill(skill_a.id)
+        skill_b = await skill_service.create_skill(SkillCreate(name="shared-display"))
         draft_b = await skill_service.get_draft(skill_b.id)
         assert draft_b is not None
         await skill_service.patch_draft(
@@ -1635,8 +1682,7 @@ class TestAgentPresetService:
                 operations=[
                     SkillDraftUpsertTextFileOp(
                         path="SKILL.md",
-                        content="---\nname: shared-name-b\n---\n\n# shared-name-b\n",
-                        content_type="text/markdown; charset=utf-8",
+                        content="---\nname: shared-package-b\n---\n\n# package b\n",
                     )
                 ],
             ),
@@ -1645,7 +1691,7 @@ class TestAgentPresetService:
 
         preset = await agent_preset_service.create_preset(
             AgentPresetCreate(
-                name="Duplicate display name preset",
+                name="Duplicate display preset",
                 instructions="Use both skills",
                 model_name="gpt-4o-mini",
                 model_provider="openai",
@@ -1655,18 +1701,11 @@ class TestAgentPresetService:
                 ],
             )
         )
-        config = await agent_preset_service.resolve_agent_preset_config(
-            preset_id=preset.id
-        )
 
-        assert skill_a.name == skill_b.name == "shared-name"
-        assert config.resolved_skills is not None
-        assert {ref.skill_slug for ref in config.resolved_skills} == {
-            "shared-name",
-            "shared-name-b",
-        }
+        assert skill_a.name == skill_b.name == "shared-display"
+        assert preset.current_version_id is not None
 
-    async def test_version_snapshot_uses_locked_skill_specs(
+    async def test_version_validation_and_snapshot_share_locked_skill_specs(
         self,
         configure_minio_for_skills,
         session: AsyncSession,
@@ -1674,7 +1713,7 @@ class TestAgentPresetService:
         agent_preset_service: AgentPresetService,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Snapshotting consumes the same locked Skill resolution."""
+        """Validation and snapshotting consume one locked Skill resolution."""
 
         skill_service = SkillService(session=session, role=svc_role)
         created_skill = await skill_service.create_skill(
@@ -1692,6 +1731,7 @@ class TestAgentPresetService:
         )
 
         original_resolve = agent_preset_service._resolve_head_skill_binding_specs
+        original_validate = agent_preset_service._validate_unique_skill_binding_names
         original_snapshot = agent_preset_service._snapshot_version_skill_bindings
         calls: list[tuple[str, object]] = []
 
@@ -1701,6 +1741,12 @@ class TestAgentPresetService:
             specs = await original_resolve(preset_id, for_update=for_update)
             calls.append(("resolve_locked" if for_update else "resolve", specs))
             return specs
+
+        async def instrumented_validate(
+            binding_specs: list[SkillBindingSpec], *, preset_id: uuid.UUID
+        ) -> None:
+            calls.append(("validate", binding_specs))
+            await original_validate(binding_specs, preset_id=preset_id)
 
         async def instrumented_snapshot(
             preset_id: uuid.UUID,
@@ -1722,6 +1768,11 @@ class TestAgentPresetService:
         )
         monkeypatch.setattr(
             agent_preset_service,
+            "_validate_unique_skill_binding_names",
+            instrumented_validate,
+        )
+        monkeypatch.setattr(
+            agent_preset_service,
             "_snapshot_version_skill_bindings",
             instrumented_snapshot,
         )
@@ -1733,11 +1784,13 @@ class TestAgentPresetService:
 
         assert [name for name, _value in calls] == [
             "resolve_locked",
+            "validate",
             "snapshot",
         ]
         assert calls[0][1] is calls[1][1]
+        assert calls[1][1] is calls[2][1]
 
-    async def test_resolve_agent_preset_config_rejects_duplicate_skill_slugs(
+    async def test_resolve_agent_preset_config_rejects_duplicate_skill_names(
         self,
         configure_minio_for_skills,
         session: AsyncSession,
@@ -1751,14 +1804,10 @@ class TestAgentPresetService:
         await skill_service.publish_skill(skill_a.id)
 
         skill_b = await skill_service.create_skill(SkillCreate(name="skill-b-current"))
-        await skill_service.publish_skill(skill_b.id)
-
         skill_b_shared = await skill_service.publish_skill(skill_b.id)
         skill_b_shared_row = await skill_service.get_version(skill_b_shared.id)
         assert skill_b_shared_row is not None
-        # Simulate a legacy/malformed snapshot. New publishes cannot create
-        # this state because live head slugs are unique.
-        skill_b_shared_row.slug = "shared-name"
+        skill_b_shared_row.name = "shared-name"
         session.add(skill_b_shared_row)
         await session.commit()
 
@@ -1791,15 +1840,15 @@ class TestAgentPresetService:
 
         with pytest.raises(
             TracecatValidationError,
-            match="Resolved preset version contains duplicate skill slugs",
+            match="Resolved preset version contains duplicate skill names",
         ) as exc_info:
             await agent_preset_service.resolve_agent_preset_config(
                 preset_version_id=preset_version.id
             )
 
         assert exc_info.value.detail == {
-            "code": "duplicate_skill_slugs",
-            "skill_slugs": ["shared-name"],
+            "code": "duplicate_skill_names",
+            "skill_names": ["shared-name"],
             "preset_version_id": str(preset_version.id),
         }
 

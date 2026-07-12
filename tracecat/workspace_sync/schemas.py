@@ -428,17 +428,9 @@ class SkillVersionResourceSpec(BaseModel):
     version_number: int = Field(
         ge=1, description="Skill version number scoped to the parent skill."
     )
-    slug: str | None = Field(
-        default=None,
-        min_length=1,
-        description=(
-            "Version-local Agent Skills package identifier. Legacy manifests may "
-            "omit this and use name instead."
-        ),
-    )
     name: str = Field(
         min_length=1,
-        description="Deprecated compatibility copy of the package identifier.",
+        description="Immutable Agent Skills package identifier for this version.",
     )
     description: str | None = Field(
         default=None, description="Optional skill version description."
@@ -468,9 +460,10 @@ class SkillResourceSpec(BaseModel):
         description="Stable source id; the skill's single-segment file path key.",
     )
     slug: str = Field(
-        min_length=1, description="Unique skill slug used for cross-references."
+        min_length=1,
+        description="Current package locator used for cross-references.",
     )
-    name: str = Field(min_length=1, description="Human-readable skill name.")
+    name: str = Field(min_length=1, description="User-facing display name.")
     description: str | None = Field(
         default=None, description="Optional skill description."
     )

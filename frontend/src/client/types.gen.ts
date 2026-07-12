@@ -7029,8 +7029,6 @@ export type SkillFileEntry = {
 
 /**
  * Full response model for a workspace skill.
- *
- * ``name`` is display metadata; ``slug`` is the current package identity.
  */
 export type SkillRead = {
   id: string
@@ -7040,7 +7038,7 @@ export type SkillRead = {
    */
   name: string
   /**
-   * Current published package and runtime identity.
+   * Current published package locator.
    */
   slug: string
   description?: string | null
@@ -7058,9 +7056,9 @@ export type SkillRead = {
 /**
  * Minimal response model for listing workspace skills.
  *
- * ``name`` is display metadata. ``slug`` is the late-binding package handle
- * every skill API accepts; list responses expose it directly because display
- * names are not unique.
+ * ``slug`` is the late-binding handle every skill API accepts; list
+ * responses must expose it so callers never have to guess it from ``name``
+ * (names are not unique — slugs are, per live row).
  */
 export type SkillReadMinimal = {
   id: string
@@ -7070,7 +7068,7 @@ export type SkillReadMinimal = {
    */
   name: string
   /**
-   * Current published package and runtime identity.
+   * Current published package locator.
    */
   slug: string
   description?: string | null
@@ -7141,14 +7139,7 @@ export type SkillVersionRead = {
   manifest_sha256: string
   file_count: number
   total_size_bytes: number
-  /**
-   * Deprecated compatibility copy of slug.
-   */
   name: string
-  /**
-   * Immutable version-local package identity.
-   */
-  slug: string
   description?: string | null
   created_at: string
   updated_at: string
@@ -7166,14 +7157,7 @@ export type SkillVersionReadMinimal = {
   manifest_sha256: string
   file_count: number
   total_size_bytes: number
-  /**
-   * Deprecated compatibility copy of slug.
-   */
   name: string
-  /**
-   * Immutable version-local package identity.
-   */
-  slug: string
   description?: string | null
   created_at: string
   updated_at: string
