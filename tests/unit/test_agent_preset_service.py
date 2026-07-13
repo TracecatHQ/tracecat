@@ -4161,6 +4161,115 @@ class TestAgentPresetService:
         assert ref.preset == "current-child-slug"
         assert ref.alias == "stable-alias"
 
+    async def test_head_read_uses_edges_for_slug_only_json_after_child_rename(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Migrated slug-only JSON cannot override rename-aware head edges."""
+
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Migrated Child", "slug": "migrated-child"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Migrated Parent", "slug": "migrated-parent"}
+            )
+        )
+        parent.agents = {
+            "enabled": True,
+            "subagents": [
+                {"preset": child.slug, "name": "childalias"},
+            ],
+        }
+        parent.subagents_enabled = True
+        session.add_all(
+            [
+                parent,
+                AgentPresetSubagent(
+                    workspace_id=agent_preset_service.workspace_id,
+                    parent_preset_id=parent.id,
+                    child_preset_id=child.id,
+                    alias="childalias",
+                ),
+            ]
+        )
+        await session.flush()
+
+        legacy_binding = agent_preset_service._parse_legacy_head_agents_config(
+            parent.agents
+        )
+        assert len(legacy_binding.subagents) == 1
+        assert not isinstance(legacy_binding.subagents[0], HeadAttachedSubagentRef)
+
+        await agent_preset_service.update_preset(
+            child,
+            AgentPresetUpdate(slug="renamed-migrated-child"),
+        )
+        await session.refresh(parent)
+
+        binding = (await agent_preset_service.build_preset_read(parent)).agents
+
+        assert len(binding.subagents) == 1
+        ref = binding.subagents[0]
+        assert isinstance(ref, HeadAttachedSubagentRef)
+        assert ref.preset_id == child.id
+        assert ref.preset == "renamed-migrated-child"
+        assert ref.alias == "childalias"
+
+    async def test_head_read_keeps_id_bearing_json_wins_for_divergent_alias(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Resolved JSON remains authoritative when its alias differs from edges."""
+
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Resolved Child", "slug": "resolved-child"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Resolved Parent",
+                    "slug": "resolved-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": child.slug, "name": "edge-alias"}],
+                        }
+                    ),
+                }
+            )
+        )
+        resolved_json = ResolvedAgentsConfig.model_validate(parent.agents).model_dump(
+            mode="json"
+        )
+        resolved_json["subagents"][0]["name"] = "json-alias"
+        parent.agents = resolved_json
+        session.add(parent)
+        await session.flush()
+
+        legacy_binding = agent_preset_service._parse_legacy_head_agents_config(
+            parent.agents
+        )
+        assert len(legacy_binding.subagents) == 1
+        assert isinstance(legacy_binding.subagents[0], HeadAttachedSubagentRef)
+
+        await session.refresh(parent)
+        binding = (await agent_preset_service.build_preset_read(parent)).agents
+
+        assert len(binding.subagents) == 1
+        ref = binding.subagents[0]
+        assert isinstance(ref, HeadAttachedSubagentRef)
+        assert ref.preset_id == child.id
+        assert ref.alias == "json-alias"
+
     async def test_mutation_replaces_edges_after_divergent_head_read(
         self,
         session: AsyncSession,

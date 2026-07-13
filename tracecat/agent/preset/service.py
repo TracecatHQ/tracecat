@@ -245,12 +245,22 @@ class AgentPresetService(BaseWorkspaceService):
                 for child_id, child_slug, alias, description, max_turns in rows
             ],
         )
-        if edges_exist and not self._head_bindings_semantically_equal(
-            legacy_binding,
-            edge_binding,
+        legacy_refs_carry_ids = all(
+            isinstance(ref, HeadAttachedSubagentRef) for ref in legacy_binding.subagents
+        )
+        if (
+            edges_exist
+            and legacy_refs_carry_ids
+            and not self._head_bindings_semantically_equal(
+                legacy_binding,
+                edge_binding,
+            )
         ):
-            # New pods dual-write matching JSON and edges. If they differ, an
+            # New pods dual-write matching JSON and edges, and every live writer
+            # persists id-bearing refs. If id-bearing JSON differs from edges, an
             # old pod wrote JSON after the last new-pod mutation, so JSON is newer.
+            # Migrated slug-only JSON has no live writer; for those rows the
+            # backfilled edges are authoritative and slug drift must not win.
             # Keep this read lock-free and let the next mutation repair the edges.
             return legacy_binding
         return edge_binding
