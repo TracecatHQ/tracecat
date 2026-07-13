@@ -247,10 +247,10 @@ def test_subagent_edge_migration_backfills_head_and_version_refs(
                 conn.execute(
                     text(
                         """
-                        SELECT child_preset_id, alias, description, max_turns, position
+                        SELECT child_preset_id, alias, description, max_turns
                         FROM agent_preset_subagent
                         WHERE parent_preset_id = :parent_id
-                        ORDER BY position
+                        ORDER BY alias
                         """
                     ),
                     {"parent_id": parent_id},
@@ -262,10 +262,10 @@ def test_subagent_edge_migration_backfills_head_and_version_refs(
                 conn.execute(
                     text(
                         """
-                        SELECT child_preset_id, alias, description, max_turns, position
+                        SELECT child_preset_id, alias, description, max_turns
                         FROM agent_preset_version_subagent
                         WHERE parent_preset_version_id = :parent_version_id
-                        ORDER BY position
+                        ORDER BY alias
                         """
                     ),
                     {"parent_version_id": parent_version_id},
@@ -277,13 +277,12 @@ def test_subagent_edge_migration_backfills_head_and_version_refs(
         assert head_enabled is True
         assert version_enabled is True
         assert [row["child_preset_id"] for row in head_rows] == [
-            child_by_id,
             child_by_slug,
+            child_by_id,
         ]
-        assert [row["alias"] for row in head_rows] == ["triage", "slug-child"]
-        assert head_rows[0]["description"] == "Triage alerts"
-        assert head_rows[0]["max_turns"] == 4
-        assert [row["position"] for row in head_rows] == [0, 1]
+        assert [row["alias"] for row in head_rows] == ["slug-child", "triage"]
+        assert head_rows[1]["description"] == "Triage alerts"
+        assert head_rows[1]["max_turns"] == 4
         assert version_rows == head_rows
     finally:
         engine.dispose()
@@ -441,7 +440,7 @@ def test_subagent_edge_migration_ignores_soft_deleted_presets(
                     SELECT child_preset_id
                     FROM agent_preset_subagent
                     WHERE parent_preset_id = :parent_id
-                    ORDER BY position
+                    ORDER BY alias
                     """
                     ),
                     {"parent_id": parent_id},
@@ -456,7 +455,7 @@ def test_subagent_edge_migration_ignores_soft_deleted_presets(
                     SELECT child_preset_id
                     FROM agent_preset_version_subagent
                     WHERE parent_preset_version_id = :parent_version_id
-                    ORDER BY position
+                    ORDER BY alias
                     """
                     ),
                     {"parent_version_id": parent_version_id},
@@ -484,7 +483,7 @@ def test_subagent_edge_migration_ignores_soft_deleted_presets(
             ).scalar_one()
 
         assert head_children == [active_child]
-        assert version_children == [active_child, deleted_only_child]
+        assert version_children == [deleted_only_child, active_child]
         assert deleted_parent_edges == 0
         assert deleted_version_edges == 0
     finally:
@@ -1064,7 +1063,6 @@ def test_subagent_edge_tables_reject_new_cross_workspace_refs(
                             parent_preset_id,
                             child_preset_id,
                             alias,
-                            position,
                             workspace_id
                         )
                         VALUES (
@@ -1072,7 +1070,6 @@ def test_subagent_edge_tables_reject_new_cross_workspace_refs(
                             :parent_id,
                             :child_id,
                             'foreign-child',
-                            0,
                             :workspace_id
                         )
                         """
@@ -1095,7 +1092,6 @@ def test_subagent_edge_tables_reject_new_cross_workspace_refs(
                             parent_preset_version_id,
                             child_preset_id,
                             alias,
-                            position,
                             workspace_id
                         )
                         VALUES (
@@ -1103,7 +1099,6 @@ def test_subagent_edge_tables_reject_new_cross_workspace_refs(
                             :parent_version_id,
                             :child_id,
                             'foreign-child',
-                            0,
                             :workspace_id
                         )
                         """

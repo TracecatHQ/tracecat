@@ -3305,7 +3305,7 @@ class TestAgentPresetService:
                 await session.execute(
                     select(AgentPresetSubagent)
                     .where(AgentPresetSubagent.parent_preset_id == parent.id)
-                    .order_by(AgentPresetSubagent.position)
+                    .order_by(AgentPresetSubagent.alias)
                 )
             )
             .scalars()
@@ -3319,7 +3319,7 @@ class TestAgentPresetService:
                         AgentPresetVersionSubagent.parent_preset_version_id
                         == version.id
                     )
-                    .order_by(AgentPresetVersionSubagent.position)
+                    .order_by(AgentPresetVersionSubagent.alias)
                 )
             )
             .scalars()
@@ -3329,19 +3329,19 @@ class TestAgentPresetService:
         assert parent.subagents_enabled is True
         assert version.subagents_enabled is True
         assert [binding.child_preset_id for binding in head_bindings] == [
-            child_one.id,
             child_two.id,
+            child_one.id,
         ]
-        assert [binding.alias for binding in head_bindings] == ["triage", "child-two"]
-        assert head_bindings[0].description == "Triage incoming alerts"
-        assert head_bindings[0].max_turns == 4
+        assert [binding.alias for binding in head_bindings] == ["child-two", "triage"]
+        assert head_bindings[1].description == "Triage incoming alerts"
+        assert head_bindings[1].max_turns == 4
         assert [binding.child_preset_id for binding in version_bindings] == [
-            child_one.id,
             child_two.id,
+            child_one.id,
         ]
         assert [binding.alias for binding in version_bindings] == [
-            "triage",
             "child-two",
+            "triage",
         ]
 
         await agent_preset_service.update_preset(
@@ -3630,7 +3630,7 @@ class TestAgentPresetService:
         assert binding.subagents[0].preset_version_id == child_version_one.id
         assert binding.subagents[0].preset_version == child_version_one.version
 
-    async def test_session_binding_preserves_per_edge_pins_for_repeated_child(
+    async def test_session_binding_matches_repeated_child_pins_by_alias(
         self,
         session: AsyncSession,
         svc_role: Role,
@@ -3638,7 +3638,7 @@ class TestAgentPresetService:
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Repeated child heads retain pins by normalized alias and position."""
+        """Repeated child heads retain pins by their unique aliases."""
 
         await SettingsService(session=session, role=svc_admin_role).update_app_settings(
             AppSettingsUpdate(
@@ -3678,12 +3678,12 @@ class TestAgentPresetService:
                                 {
                                     "preset": child.slug,
                                     "preset_version": child_version_one.version,
-                                    "name": "first",
+                                    "name": "z-first-version",
                                 },
                                 {
                                     "preset": child.slug,
                                     "preset_version": child_version_two.version,
-                                    "name": "second",
+                                    "name": "a-second-version",
                                 },
                             ],
                         }
@@ -3701,11 +3701,14 @@ class TestAgentPresetService:
         )._resolve_agents_binding_for_preset_version_id(parent_version.id)
         binding = ResolvedAgentsConfig.model_validate(binding_data)
 
-        assert [ref.alias for ref in binding.subagents] == ["first", "second"]
+        assert [ref.alias for ref in binding.subagents] == [
+            "a-second-version",
+            "z-first-version",
+        ]
         assert [ref.preset_id for ref in binding.subagents] == [child.id, child.id]
         assert [ref.preset_version_id for ref in binding.subagents] == [
-            child_version_one.id,
             child_version_two.id,
+            child_version_one.id,
         ]
 
     async def test_empty_version_binding_skips_legacy_reconciliation(
@@ -3941,7 +3944,6 @@ class TestAgentPresetService:
                 parent_preset_version_id=parent_version.id,
                 child_preset_id=child.id,
                 alias="winner",
-                position=0,
             )
         )
         # Self-check: the identity-mapped instance really is stale; without
