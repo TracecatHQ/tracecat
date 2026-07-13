@@ -1,7 +1,8 @@
 """Session and organization resolution for the internal OIDC issuer.
 
-Reuses the existing Tracecat session cookie and org resolution patterns
-without duplicating the underlying auth logic.
+Organization resolution mirrors the HTTP API path: the active-org cookie is a
+re-validated hint, with a stable oldest-active-org fallback. This scopes MCP
+tokens to one organization while allowing multi-org users to authorize.
 """
 
 from __future__ import annotations
@@ -9,11 +10,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum, auto
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import Request
 
+from tracecat.auth.org_context import parse_active_org_cookie, resolve_active_org_id
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
-from tracecat.db.models import OrganizationMembership, User
+from tracecat.db.models import User
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 
@@ -50,11 +51,16 @@ class OrgResolutionError(ValueError):
 
 async def resolve_authorize_session(
     user: User | None,
+    request: Request,
 ) -> SessionResult | SessionNeedsAction:
-    """Resolve a Tracecat user and their single organization from the session.
+    """Resolve a Tracecat user and one active organization from the session.
+
+    The active-org cookie is re-validated against live memberships. If it is
+    absent or invalid, the user's oldest active organization is selected.
 
     Args:
         user: The ``optional_current_active_user`` dependency result.
+        request: The request carrying the optional active-org cookie.
 
     Returns:
         ``SessionResult`` on success, or ``SessionNeedsAction`` indicating
@@ -64,45 +70,18 @@ async def resolve_authorize_session(
         return SessionNeedsAction(action=NeedsAction.LOGIN)
 
     async with get_async_session_bypass_rls_context_manager() as session:
-        return await _resolve_regular_user_org(session, user)
-
-
-async def _resolve_regular_user_org(
-    session: AsyncSession,
-    user: User,
-) -> SessionResult:
-    """Resolve org for a regular user from their memberships.
-
-    Exactly one org must exist. Zero or multiple orgs is an error (fail closed).
-
-    Raises:
-        OrgResolutionError: If the user does not have exactly one organization
-            membership.
-    """
-    result = await session.execute(
-        select(OrganizationMembership.organization_id).where(
-            OrganizationMembership.user_id == user.id
+        org_id = await resolve_active_org_id(
+            session,
+            user.id,
+            preferred_org_id=parse_active_org_cookie(request),
         )
-    )
-    org_ids = {row[0] for row in result.all()}
-
-    if len(org_ids) == 1:
-        org_id = next(iter(org_ids))
-        return SessionResult(user=user, organization_id=org_id)
-
-    if len(org_ids) == 0:
+    if org_id is None:
         logger.warning(
-            "MCP OIDC: user has no org memberships",
+            "MCP OIDC: user has no active org memberships",
             user_id=str(user.id),
         )
-    else:
-        logger.warning(
-            "MCP OIDC: user has multiple org memberships (unsupported in v1)",
-            user_id=str(user.id),
-            org_count=len(org_ids),
+        raise OrgResolutionError(
+            f"User {user.email} cannot use MCP: no active organization membership",
+            membership_count=0,
         )
-    raise OrgResolutionError(
-        f"User {user.email} cannot use MCP: "
-        f"expected exactly 1 organization membership, found {len(org_ids)}",
-        membership_count=len(org_ids),
-    )
+    return SessionResult(user=user, organization_id=org_id)

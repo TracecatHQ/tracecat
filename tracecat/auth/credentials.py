@@ -37,6 +37,13 @@ from tracecat.auth.api_keys import (
     verify_api_key,
 )
 from tracecat.auth.executor_tokens import verify_executor_token
+from tracecat.auth.org_context import (
+    ACTIVE_ORG_COOKIE as ACTIVE_ORG_COOKIE,
+)
+from tracecat.auth.org_context import (
+    parse_active_org_cookie,
+    resolve_active_org_id,
+)
 from tracecat.auth.secrets import get_service_key
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.auth.users import (
@@ -52,8 +59,6 @@ from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
     GroupMember,
     GroupRoleAssignment,
-    Organization,
-    OrganizationMembership,
     RoleScope,
     Scope,
     ServiceAccount,
@@ -603,9 +608,6 @@ async def _get_membership_with_cache(
     return membership_with_org
 
 
-ACTIVE_ORG_COOKIE = "tracecat:active-org-id"
-
-
 async def _resolve_org_for_regular_user(
     request: Request,
     session: AsyncSession,
@@ -613,60 +615,22 @@ async def _resolve_org_for_regular_user(
 ) -> uuid.UUID:
     """Resolve organization context for a regular user from their memberships.
 
-    Honors the ``tracecat:active-org-id`` cookie when the user is a confirmed
-    member of the cookie's organization. The cookie is an untrusted hint —
-    membership is re-validated here on every request, so a tampered or stale
-    value cannot grant access to an org the user does not belong to.
+    Honors the ``tracecat:active-org-id`` cookie as an untrusted hint that is
+    re-validated against active memberships on every request. Without a valid
+    hint, falls back to the user's oldest active organization.
 
     Raises:
-        HTTPException(400): If user has no org memberships.
+        HTTPException(400): If user has no active org memberships.
     """
-    if cookie_value := request.cookies.get(ACTIVE_ORG_COOKIE):
-        try:
-            cookie_org_id = uuid.UUID(cookie_value)
-        except ValueError:
-            cookie_org_id = None
-        if cookie_org_id is not None:
-            membership_stmt = (
-                select(OrganizationMembership.organization_id)
-                .join(
-                    Organization,
-                    Organization.id == OrganizationMembership.organization_id,
-                )
-                .where(
-                    OrganizationMembership.user_id == user.id,
-                    OrganizationMembership.organization_id == cookie_org_id,
-                    Organization.is_active.is_(True),
-                )
-            )
-            membership_row = (
-                await session.execute(membership_stmt)
-            ).scalar_one_or_none()
-            if membership_row is not None:
-                return cookie_org_id
-
-    org_mem_stmt = (
-        select(OrganizationMembership.organization_id)
-        .join(Organization, Organization.id == OrganizationMembership.organization_id)
-        .where(
-            OrganizationMembership.user_id == user.id,
-            Organization.is_active.is_(True),
-        )
-        .order_by(Organization.created_at.asc(), Organization.id.asc())
+    org_id = await resolve_active_org_id(
+        session, user.id, preferred_org_id=parse_active_org_cookie(request)
     )
-    org_membership_result = await session.execute(org_mem_stmt)
-    org_ids = org_membership_result.scalars().all()
-
-    if len(org_ids) == 0:
+    if org_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User has no organization memberships",
         )
-    # If no explicit active-org cookie/workspace context is available, choose a
-    # stable active membership instead of blocking login for multi-org users.
-    # Callers that need a specific org can still pass workspace_id or set the
-    # active-org cookie; both are re-validated above/before this fallback.
-    return org_ids[0]
+    return org_id
 
 
 def _invalidate_user_scope_cache(

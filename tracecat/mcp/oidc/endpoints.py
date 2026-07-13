@@ -311,7 +311,7 @@ async def _handle_authorize(
 
     # --- Session resolution ---
     try:
-        session_result = await resolve_authorize_session(user)
+        session_result = await resolve_authorize_session(user, request)
     except OrgResolutionError as exc:
         # The OAuth client callback has already been validated at this point.
         logger.warning(
@@ -319,12 +319,7 @@ async def _handle_authorize(
             error=str(exc),
             client_ip=_get_client_ip(request),
         )
-        if exc.membership_count == 0:
-            description = "User has no organization membership"
-        else:
-            description = (
-                "User belongs to multiple organizations; MCP requires exactly one"
-            )
+        description = "User has no organization membership"
         return _oauth_error_redirect_response(
             redirect_uri,
             "access_denied",

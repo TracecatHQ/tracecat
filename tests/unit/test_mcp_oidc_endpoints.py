@@ -35,7 +35,6 @@ from tracecat.mcp.oidc.session import (
     OrgResolutionError,
     SessionNeedsAction,
     SessionResult,
-    resolve_authorize_session,
 )
 
 # ---------------------------------------------------------------------------
@@ -515,7 +514,7 @@ async def test_authorize_access_denied_when_no_org_membership(
         AsyncMock(
             side_effect=OrgResolutionError(
                 "User user@example.com cannot use MCP: "
-                "expected exactly 1 organization membership, found 0",
+                "no active organization membership",
                 membership_count=0,
             )
         ),
@@ -534,39 +533,6 @@ async def test_authorize_access_denied_when_no_org_membership(
     assert query["error"] == ["access_denied"]
     assert query["state"] == ["denied-state"]
     assert query["error_description"] == ["User has no organization membership"]
-
-
-@pytest.mark.anyio
-async def test_authorize_access_denied_when_multiple_org_memberships(
-    client: TestClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        "tracecat.mcp.oidc.endpoints.resolve_authorize_session",
-        AsyncMock(
-            side_effect=OrgResolutionError(
-                "User user@example.com cannot use MCP: "
-                "expected exactly 1 organization membership, found 2",
-                membership_count=2,
-            )
-        ),
-    )
-
-    response = client.get(
-        "/authorize",
-        params=_authorize_params(state="denied-state"),
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 302
-    location = response.headers["location"]
-    assert location.startswith(_ALLOWED_REDIRECT)
-    query = _location_query_params(location)
-    assert query["error"] == ["access_denied"]
-    assert query["state"] == ["denied-state"]
-    assert query["error_description"] == [
-        "User belongs to multiple organizations; MCP requires exactly one"
-    ]
 
 
 # ---------------------------------------------------------------------------
@@ -1497,8 +1463,8 @@ async def test_authorize_resume_redirects_access_denied_to_client_callback(
         AsyncMock(
             side_effect=OrgResolutionError(
                 "User user@example.com cannot use MCP: "
-                "expected exactly 1 organization membership, found 2",
-                membership_count=2,
+                "no active organization membership",
+                membership_count=0,
             )
         ),
     )
@@ -1515,9 +1481,7 @@ async def test_authorize_resume_redirects_access_denied_to_client_callback(
     query = _location_query_params(location)
     assert query["error"] == ["access_denied"]
     assert query["state"] == ["resume-denied-state"]
-    assert query["error_description"] == [
-        "User belongs to multiple organizations; MCP requires exactly one"
-    ]
+    assert query["error_description"] == ["User has no organization membership"]
 
 
 # ---------------------------------------------------------------------------
@@ -1552,59 +1516,3 @@ def test_get_internal_discovery_url_falls_back_when_empty(
     monkeypatch.setattr(oidc_config, "TRACECAT__PUBLIC_API_URL", _TEST_API_URL)
     url = oidc_config.get_internal_discovery_url()
     assert url == f"{_TEST_API_URL}/oauth/mcp/.well-known/openid-configuration"
-
-
-# ---------------------------------------------------------------------------
-# Session resolution — typed OrgResolutionError with membership_count
-# ---------------------------------------------------------------------------
-
-
-class _FakeOrgResult:
-    """Result stub returning fixed org-membership rows."""
-
-    def __init__(self, org_ids: list[uuid.UUID]) -> None:
-        self._org_ids = org_ids
-
-    def all(self) -> list[tuple[uuid.UUID]]:
-        return [(oid,) for oid in self._org_ids]
-
-
-class _FakeOrgSession:
-    """Session stub returning a fixed set of org memberships."""
-
-    def __init__(self, org_ids: list[uuid.UUID]) -> None:
-        self._org_ids = org_ids
-
-    async def execute(self, *_args, **_kwargs) -> _FakeOrgResult:
-        return _FakeOrgResult(self._org_ids)
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("org_ids", "expected_count"),
-    [
-        ([], 0),
-        ([uuid.uuid4(), uuid.uuid4()], 2),
-    ],
-)
-async def test_resolve_authorize_session_raises_typed_error_with_membership_count(
-    mock_user: SimpleNamespace,
-    monkeypatch: pytest.MonkeyPatch,
-    org_ids: list[uuid.UUID],
-    expected_count: int,
-) -> None:
-    """Zero or multiple memberships raise OrgResolutionError carrying the count."""
-
-    @contextlib.asynccontextmanager
-    async def _fake_session_cm():
-        yield _FakeOrgSession(org_ids)
-
-    monkeypatch.setattr(
-        "tracecat.mcp.oidc.session.get_async_session_bypass_rls_context_manager",
-        _fake_session_cm,
-    )
-
-    with pytest.raises(OrgResolutionError) as exc_info:
-        await resolve_authorize_session(cast(User, mock_user))
-
-    assert exc_info.value.membership_count == expected_count
