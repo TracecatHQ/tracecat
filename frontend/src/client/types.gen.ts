@@ -6292,7 +6292,7 @@ export type ResolvedAttachedSubagentRef = {
   max_turns?: number | null
   preset_id: string
   preset_version_id: string
-  preset_version: number
+  preset_version?: number | null
 }
 
 export type ResourcePullCount = {

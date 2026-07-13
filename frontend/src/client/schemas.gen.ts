@@ -20757,14 +20757,21 @@ export const $ResolvedAttachedSubagentRef = {
       title: "Preset Version Id",
     },
     preset_version: {
-      type: "integer",
-      minimum: 1,
+      anyOf: [
+        {
+          type: "integer",
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Preset Version",
     },
   },
   additionalProperties: false,
   type: "object",
-  required: ["preset", "preset_id", "preset_version_id", "preset_version"],
+  required: ["preset", "preset_id", "preset_version_id"],
   title: "ResolvedAttachedSubagentRef",
   description:
     "Persisted subagent ref with immutable preset/version identifiers.",

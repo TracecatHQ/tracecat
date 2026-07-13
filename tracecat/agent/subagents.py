@@ -83,7 +83,7 @@ class ResolvedAttachedSubagentRef(HeadAttachedSubagentRef):
     """Persisted subagent ref with immutable preset/version identifiers."""
 
     preset_version_id: uuid.UUID
-    preset_version: int = Field(ge=1)
+    preset_version: int | None = Field(default=None, ge=1)
 
 
 type AnyAttachedSubagentRef = (

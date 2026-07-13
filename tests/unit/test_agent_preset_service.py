@@ -3510,6 +3510,83 @@ class TestAgentPresetService:
         assert binding.subagents[0].preset_id == edge_child.id
         assert binding.subagents[0].preset_version_id == edge_child_version.id
 
+    async def test_legacy_head_agents_config_accepts_null_preset_version(
+        self,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Persisted resolved head refs may omit the display version number."""
+
+        agents = {
+            "enabled": True,
+            "subagents": [
+                {
+                    "preset": "child-slug",
+                    "preset_id": str(uuid.uuid4()),
+                    "preset_version_id": str(uuid.uuid4()),
+                    "preset_version": None,
+                    "name": "child",
+                    "description": None,
+                    "max_turns": None,
+                }
+            ],
+        }
+
+        resolved_binding = ResolvedAgentsConfig.model_validate(agents)
+        resolved_ref = resolved_binding.subagents[0]
+        binding = agent_preset_service._parse_legacy_head_agents_config(agents)
+
+        assert isinstance(resolved_ref, ResolvedAttachedSubagentRef)
+        assert resolved_ref.preset_version is None
+        assert len(binding.subagents) == 1
+        assert isinstance(binding.subagents[0], HeadAttachedSubagentRef)
+
+    async def test_version_read_accepts_null_preset_version_without_edges(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Legacy version JSON accepts a resolved ref with no display version."""
+
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Null Version Child", "slug": "child-slug"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Null Version Parent", "slug": "null-version-parent"}
+            )
+        )
+        parent_version = await agent_preset_service.get_current_version_for_preset(
+            parent
+        )
+        assert child.current_version_id is not None
+        parent_version.agents = {
+            "enabled": True,
+            "subagents": [
+                {
+                    "preset": child.slug,
+                    "preset_id": str(child.id),
+                    "preset_version_id": str(child.current_version_id),
+                    "preset_version": None,
+                    "name": "child",
+                    "description": None,
+                    "max_turns": None,
+                }
+            ],
+        }
+        parent_version.subagents_enabled = False
+        session.add(parent_version)
+        await session.flush()
+        await session.refresh(parent_version)
+
+        binding = (await agent_preset_service.build_version_read(parent_version)).agents
+
+        assert len(binding.subagents) == 1
+        assert isinstance(binding.subagents[0], HeadAttachedSubagentRef)
+        assert binding.subagents[0].preset_id == child.id
+
     async def test_version_read_projects_version_written_by_old_pod(
         self,
         session: AsyncSession,

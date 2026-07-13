@@ -4493,6 +4493,75 @@ async def test_agent_preset_sync_preserves_subagent_options(
 
 
 @pytest.mark.anyio
+async def test_agent_preset_projection_accepts_null_subagent_preset_version(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Projection accepts persisted resolved refs without a display version."""
+
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(
+        _expanded_selected_git_tree(),
+        commit_sha="n" * 40,
+    )
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+    parent = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "qa-triage-parent",
+        )
+    )
+    child = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "qa-evidence-child",
+        )
+    )
+    assert parent is not None
+    assert child is not None
+    assert parent.current_version_id is not None
+    assert child.current_version_id is not None
+    parent_version = await session.scalar(
+        select(AgentPresetVersion).where(
+            AgentPresetVersion.id == parent.current_version_id
+        )
+    )
+    assert parent_version is not None
+    null_version_ref = {
+        "preset": child.slug,
+        "preset_id": str(child.id),
+        "preset_version_id": str(child.current_version_id),
+        "preset_version": None,
+        "name": "child",
+        "description": None,
+        "max_turns": None,
+    }
+    parent.agents = {"enabled": True, "subagents": [null_version_ref]}
+    parent_version.agents = {"enabled": True, "subagents": [null_version_ref]}
+    parent_version.subagents_enabled = False
+    await session.execute(
+        delete(AgentPresetVersionSubagent).where(
+            AgentPresetVersionSubagent.parent_preset_version_id == parent_version.id
+        )
+    )
+    session.add_all([parent, parent_version])
+    await session.flush()
+
+    projection = await service.project_workspace(create_missing_mappings=False)
+
+    projected_version = yaml.safe_load(
+        projection.files[f"{AGENT_PRESET_ROOT}/qa-triage-parent/versions/1.yml"]
+    )
+    assert projected_version["subagents"] == [
+        {"slug": "qa-evidence-child", "name": "child"}
+    ]
+
+
+@pytest.mark.anyio
 async def test_agent_preset_projection_keeps_edges_to_soft_deleted_children(
     session: AsyncSession,
     svc_role: Role,
