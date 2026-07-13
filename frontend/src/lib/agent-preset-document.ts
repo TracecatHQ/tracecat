@@ -206,7 +206,9 @@ function normalizeSubagents(
     .map((subagent) => ({
       name: subagent.name ?? null,
       preset: subagent.preset,
-      presetVersion: subagent.preset_version ?? null,
+      // Head refs carry no version pin - they always track the latest.
+      presetVersion:
+        "preset_version" in subagent ? (subagent.preset_version ?? null) : null,
       maxTurns: subagent.max_turns ?? null,
       description: subagent.description ?? null,
     }))

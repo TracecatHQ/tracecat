@@ -41,6 +41,7 @@ from tracecat.settings.schemas import (
     SettingCreate,
     SettingUpdate,
 )
+
 AUDIT_SETTINGS_KEYS = frozenset(AuditSettingsUpdate.keys())
 
 
