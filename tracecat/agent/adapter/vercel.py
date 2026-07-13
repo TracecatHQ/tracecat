@@ -65,6 +65,10 @@ from tracecat.agent.common.stream_types import (
     UnifiedStreamEvent,
     parse_vercel_frame_cursor,
 )
+from tracecat.agent.common.tool_inputs import (
+    AGENT_TOOL_NAMES,
+    sanitize_agent_tool_input,
+)
 from tracecat.agent.mcp.metadata import strip_proxy_tool_metadata
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.stream.events import (
@@ -963,10 +967,11 @@ class VercelStreamContext:
                 if event.part_id is not None:
                     state = self.part_states.get(event.part_id)
                     if state and state.tool_call and event.text:
-                        yield ToolInputDeltaEventPayload(
-                            toolCallId=state.tool_call.tool_call_id,
-                            inputTextDelta=event.text,
-                        )
+                        if state.tool_call.tool_name not in AGENT_TOOL_NAMES:
+                            yield ToolInputDeltaEventPayload(
+                                toolCallId=state.tool_call.tool_call_id,
+                                inputTextDelta=event.text,
+                            )
 
             case StreamEventType.TOOL_CALL_STOP:
                 if event.part_id is not None:
@@ -975,11 +980,15 @@ class VercelStreamContext:
                         tool_call_id = state.tool_call.tool_call_id
                         if not self.tool_input_emitted.get(tool_call_id, False):
                             # Emit final tool input
+                            tool_name = event.tool_name or state.tool_call.tool_name
+                            tool_input = sanitize_agent_tool_input(
+                                tool_name,
+                                event.tool_input or state.tool_call.args_as_dict(),
+                            )
                             yield ToolInputAvailableEventPayload(
                                 toolCallId=tool_call_id,
-                                toolName=event.tool_name or state.tool_call.tool_name,
-                                input=event.tool_input
-                                or state.tool_call.args_as_dict(),
+                                toolName=tool_name,
+                                input=tool_input,
                             )
                             self.tool_input_emitted[tool_call_id] = True
                     for message in self._finalize_part(event.part_id):
@@ -1732,6 +1741,7 @@ def convert_chat_messages_to_ui(
                         tool_input = tool_input.get("args", tool_input)
                     # Normalize MCP registry prefix
                     tool_name = normalize_mcp_tool_name(tool_name)
+                    tool_input = sanitize_agent_tool_input(tool_name, tool_input)
                     tool_part = MutableToolPart(
                         type=f"tool-{tool_name}",
                         tool_call_id=part.id,
