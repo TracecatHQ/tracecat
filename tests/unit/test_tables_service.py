@@ -18,7 +18,11 @@ from tracecat.db.models import Table, TableColumn, Workspace
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginationParams
-from tracecat.tables.common import handle_default_value, parse_postgres_default
+from tracecat.tables.common import (
+    ColumnHasDuplicateValuesError,
+    handle_default_value,
+    parse_postgres_default,
+)
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import (
     TableColumnCreate,
@@ -1063,13 +1067,12 @@ class TestTableColumns:
             table, TableRowInsert(data={"name": "DuplicateUser", "age": 30})
         )
 
-        # Attempt to create a unique index on 'name' should fail
-        with pytest.raises(DBAPIError) as exc_info:
+        # Attempt to create a unique index on 'name' should fail up front with a
+        # typed error (surfaced as a 409) rather than a raw database error (500).
+        with pytest.raises(ColumnHasDuplicateValuesError) as exc_info:
             await tables_service.create_unique_index(table, "name")
 
-        # Verify the error indicates a duplicate key value issue
-        error_msg = str(exc_info.value)
-        assert "duplicate" in error_msg.lower() or "already exists" in error_msg.lower()
+        assert "duplicate values" in str(exc_info.value).lower()
 
     async def test_create_multiple_unique_index_fails(
         self, tables_service: TablesService, table: Table

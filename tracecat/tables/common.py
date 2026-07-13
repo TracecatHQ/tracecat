@@ -91,6 +91,11 @@ class InvalidDefaultValueError(ValueError):
     """Raised when a user-provided table default cannot be coerced safely."""
 
 
+class ColumnHasDuplicateValuesError(Exception):
+    """Raised when a unique index cannot be created because the column already
+    contains duplicate values."""
+
+
 def coerce_integer_value(value: Any) -> int:
     """Coerce a user value to a safe PostgreSQL BIGINT."""
     try:
