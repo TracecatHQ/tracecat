@@ -123,7 +123,9 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
       secure:
         typeof window !== "undefined" && window.location.protocol === "https:",
     })
-    router.push("/workspaces")
+    // Hard navigation: switching orgs invalidates all org-scoped client state
+    // (React Query caches, providers), so re-bootstrap instead of router.push.
+    window.location.assign("/workspaces")
   }
 
   return (

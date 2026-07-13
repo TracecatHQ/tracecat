@@ -83,6 +83,20 @@ async def test_list_current_user_organization_memberships(
         {"id": str(second_org_id), "name": "Beta"},
     ]
 
+    # Tenant-isolation guard: the query must filter memberships by the
+    # authenticated user's id and only return active organizations. Compile
+    # the actual statement passed to execute so a regression that drops or
+    # broadens the user_id predicate fails here.
+    execute_await_args = mock_session.execute.await_args
+    assert execute_await_args is not None
+    stmt = execute_await_args.args[0]
+    compiled = stmt.compile()
+    sql = str(compiled)
+
+    assert "organization_membership.user_id = " in sql
+    assert "organization.is_active" in sql
+    assert test_admin_role.user_id in compiled.params.values()
+
 
 @pytest.mark.anyio
 async def test_list_org_members_omits_superuser_flag(
