@@ -3551,17 +3551,6 @@ class TestAgentPresetService:
         await session.flush()
         await session.refresh(parent_version)
 
-        async def unexpected_reconciliation(
-            _version_id: uuid.UUID,
-        ) -> AgentPresetVersion:
-            raise AssertionError("version reads must not take the repair lock path")
-
-        monkeypatch.setattr(
-            agent_preset_service,
-            "_reconcile_legacy_version_subagent_binding",
-            unexpected_reconciliation,
-        )
-
         binding = (await agent_preset_service.build_version_read(parent_version)).agents
         version_edges = (
             (
@@ -3634,17 +3623,6 @@ class TestAgentPresetService:
         )
         parent_version = await agent_preset_service.get_current_version_for_preset(
             parent
-        )
-
-        async def unexpected_reconciliation(
-            _version_id: uuid.UUID,
-        ) -> AgentPresetVersion:
-            raise AssertionError("authoritative empty snapshot must not reconcile")
-
-        monkeypatch.setattr(
-            agent_preset_service,
-            "_reconcile_legacy_version_subagent_binding",
-            unexpected_reconciliation,
         )
 
         binding = await agent_preset_service.get_version_subagent_binding(
@@ -3848,15 +3826,6 @@ class TestAgentPresetService:
                 .execution_options(populate_existing=True)
             )
         ).scalar_one()
-
-        async def unexpected_reconciliation(_preset_id: uuid.UUID) -> AgentPreset:
-            raise AssertionError("head reads must not take the repair lock path")
-
-        monkeypatch.setattr(
-            agent_preset_service,
-            "_reconcile_legacy_head_subagent_binding",
-            unexpected_reconciliation,
-        )
 
         binding = (await agent_preset_service.build_preset_read(fresh_parent)).agents
 
@@ -4217,63 +4186,6 @@ class TestAgentPresetService:
         assert [ref.preset_id for ref in repaired_json.subagents] == [
             requested_child.id
         ]
-
-    async def test_reconcile_returns_fresh_row_after_concurrent_winner(
-        self,
-        session: AsyncSession,
-        agent_preset_service: AgentPresetService,
-        agent_preset_create_params: AgentPresetCreate,
-    ) -> None:
-        """The locked re-select must not return a stale identity-mapped row.
-
-        If a concurrent session reconciles while this one waits on the row
-        lock, the loser must observe the winner's ``subagents_enabled``; a stale
-        ``enabled=False`` alongside the winner's edges would fail the
-        ``ResolvedAgentsConfig`` enabled/subagents validator downstream.
-        """
-
-        child = await agent_preset_service.create_preset(
-            agent_preset_create_params.model_copy(
-                update={"name": "Fresh Child", "slug": "fresh-child"}
-            )
-        )
-        parent = await agent_preset_service.create_preset(
-            agent_preset_create_params.model_copy(
-                update={"name": "Fresh Parent", "slug": "fresh-parent"}
-            )
-        )
-        parent_version = await agent_preset_service.get_current_version_for_preset(
-            parent
-        )
-        # Loaded into the identity map with subagents_enabled=False.
-        assert parent_version.subagents_enabled is False
-
-        # Simulate the concurrent winner without touching the ORM identity
-        # map: synchronize_session=False keeps the loaded parent_version
-        # stale, exactly like a write from another session.
-        await session.execute(
-            sa.update(AgentPresetVersion)
-            .where(AgentPresetVersion.id == parent_version.id)
-            .values(subagents_enabled=True)
-            .execution_options(synchronize_session=False)
-        )
-        await session.execute(
-            sa.insert(AgentPresetVersionSubagent).values(
-                id=uuid.uuid4(),
-                workspace_id=agent_preset_service.workspace_id,
-                parent_preset_version_id=parent_version.id,
-                child_preset_id=child.id,
-                alias="winner",
-            )
-        )
-        # Self-check: the identity-mapped instance really is stale; without
-        # populate_existing the locked re-select would return this object.
-        assert parent_version.subagents_enabled is False
-        version = await agent_preset_service._reconcile_legacy_version_subagent_binding(
-            parent_version.id
-        )
-
-        assert version.subagents_enabled is True
 
     async def test_create_parent_rechecks_subagent_before_saving_head(
         self,

@@ -404,37 +404,6 @@ class AgentPresetService(BaseWorkspaceService):
                 return False
         return not remaining_edges
 
-    async def _reconcile_legacy_head_subagent_binding(
-        self, preset_id: uuid.UUID
-    ) -> AgentPreset:
-        """Backfill a preset head written by an old pod during the expand window."""
-
-        stmt = (
-            select(AgentPreset)
-            .where(
-                AgentPreset.workspace_id == self.workspace_id,
-                AgentPreset.id == preset_id,
-            )
-            .with_for_update()
-            # Refresh the identity-mapped instance: a concurrent session may
-            # have reconciled (and committed) while this one waited for the
-            # row lock, and the caller must see the winner's subagents_enabled,
-            # not the pre-lock snapshot.
-            .execution_options(populate_existing=True)
-        )
-        preset = (await self.session.execute(stmt)).scalar_one()
-        # A concurrent session may have reconciled while this one waited for
-        # the preset lock. Once any normalized edge exists, legacy JSON must
-        # never overwrite that authoritative snapshot.
-        if await self._head_subagent_edges_exist(preset.id):
-            return preset
-
-        legacy_binding = ResolvedAgentsConfig.model_validate(preset.agents)
-        if not self._legacy_head_binding_needs_reconciliation(preset, legacy_binding):
-            return preset
-        await self._replace_head_subagent_bindings(preset, legacy_binding)
-        return preset
-
     async def _version_subagent_edges_exist(self, version_id: uuid.UUID) -> bool:
         """Return whether a version has an authoritative normalized edge set."""
 
@@ -458,53 +427,6 @@ class AgentPresetService(BaseWorkspaceService):
         return legacy_binding.enabled != version.subagents_enabled or bool(
             legacy_binding.subagents
         )
-
-    async def _reconcile_legacy_version_subagent_binding(
-        self, version_id: uuid.UUID
-    ) -> AgentPresetVersion:
-        """Backfill a version written by an old pod during the expand window."""
-
-        stmt = (
-            select(AgentPresetVersion)
-            .where(
-                AgentPresetVersion.workspace_id == self.workspace_id,
-                AgentPresetVersion.id == version_id,
-            )
-            .with_for_update()
-            # Refresh the identity-mapped instance: a concurrent session may
-            # have reconciled (and committed) while this one waited for the
-            # row lock, and the caller must see the winner's subagents_enabled,
-            # not the pre-lock snapshot.
-            .execution_options(populate_existing=True)
-        )
-        version = (await self.session.execute(stmt)).scalar_one()
-        # A concurrent session may have reconciled while this one waited for
-        # the version lock. Once any normalized edge exists, legacy JSON must
-        # never overwrite that authoritative snapshot.
-        if await self._version_subagent_edges_exist(version.id):
-            return version
-
-        legacy_binding = ResolvedAgentsConfig.model_validate(version.agents)
-        if not self._legacy_version_binding_needs_reconciliation(
-            version,
-            legacy_binding,
-        ):
-            return version
-        version.subagents_enabled = legacy_binding.enabled
-        self.session.add(version)
-        for subagent in legacy_binding.subagents:
-            self.session.add(
-                AgentPresetVersionSubagent(
-                    workspace_id=self.workspace_id,
-                    parent_preset_version_id=version.id,
-                    child_preset_id=subagent.preset_id,
-                    alias=subagent.alias,
-                    description=subagent.description,
-                    max_turns=subagent.max_turns,
-                )
-            )
-        await self.session.flush()
-        return version
 
     async def get_version_subagent_binding(
         self, version: AgentPresetVersion
