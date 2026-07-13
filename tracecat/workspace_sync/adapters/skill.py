@@ -359,11 +359,10 @@ class SkillAdapter(DirectoryManifestAdapter):
         else:
             stmt = stmt.where(effective_slug.in_(slugs))
         skills = list((await workspace_service.session.execute(stmt)).scalars().all())
-        if slugs:
-            skills = self._dedupe_skills_by_effective_slug(
-                skills,
-                requested_slugs=slugs,
-            )
+        skills = self._dedupe_skills_by_effective_slug(
+            skills,
+            requested_slugs=slugs or None,
+        )
         versions_by_slug: dict[str, set[int]] = defaultdict(set)
         for slug, version in refs.versioned_slugs:
             versions_by_slug[slug].add(version)
