@@ -56,6 +56,7 @@ with workflow.unsafe.imports_passed_through():
         resolve_agents_config_activity,
         resolve_custom_model_provider_config_activity,
     )
+    from tracecat.agent.preset.resolved_refs import without_subagent_refs
     from tracecat.agent.preset.resolver import (
         ResolvedAgentsRuntimeConfig,
         ResolvedSubagentConfig,
@@ -695,6 +696,15 @@ class DurableAgentWorkflow:
                 enabled=True,
                 resolved_refs=cfg.resolved_refs,
             )
+        parent_resolved_refs = cfg.resolved_refs
+        if agents is not None:
+            # A preserved session binding overrides the preset's current
+            # topology, and the runtime pass rebuilds that stored binding
+            # verbatim. The root snapshot's subagent entries describe the
+            # preset's *current* children; merging them would record
+            # children that never ran this turn (an empty preserved binding
+            # would even persist the fresh snapshot wholesale).
+            parent_resolved_refs = without_subagent_refs(parent_resolved_refs)
         return await workflow.execute_activity(
             resolve_agents_config_activity,
             ResolveAgentsConfigActivityInput(
@@ -706,7 +716,7 @@ class DurableAgentWorkflow:
                 preserve_resolved_versions=preserve_resolved_versions,
                 session_id=args.agent_args.session_id,
                 wf_exec_id=self._turn_wf_exec_id(args),
-                parent_resolved_refs=cfg.resolved_refs,
+                parent_resolved_refs=parent_resolved_refs,
             ),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RETRY_POLICIES["activity:fail_fast"],

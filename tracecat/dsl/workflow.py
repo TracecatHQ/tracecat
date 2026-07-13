@@ -1098,11 +1098,26 @@ class DSLWorkflow:
                         start_to_close_timeout=timedelta(seconds=60),
                         retry_policy=RETRY_POLICIES["activity:fail_fast"],
                     )
+                    # Mint the session id before the preflight so a failed
+                    # slug resolution can still record turn provenance
+                    # against the session/execution. Same single RNG draw as
+                    # before, so in-flight histories replay identically.
+                    session_id = preset_action_args.session_id or workflow.uuid4()
                     preset_ref = await workflow.execute_activity(
                         resolve_agent_preset_version_ref_activity,
                         ResolveAgentPresetVersionRefActivityInput(
                             role=self.role,
                             preset_slug=preset_action_args.preset,
+                            session_id=session_id,
+                            # Per-action turn id built from replay-stable parts
+                            # (no extra RNG draws, which would shift later
+                            # session mints on replay): the bare parent
+                            # workflow id would collapse every failed
+                            # preflight in one run into a single provenance
+                            # stream under the highest-surrogate_id contract.
+                            wf_exec_id=(
+                                f"{workflow.info().workflow_id}:{task.ref}:{session_id}"
+                            ),
                         ),
                         start_to_close_timeout=timedelta(seconds=30),
                         retry_policy=RETRY_POLICIES["activity:fail_fast"],
@@ -1124,7 +1139,6 @@ class DSLWorkflow:
                     child_search_attributes = _build_agent_child_search_attributes(
                         wf_info, task.ref
                     )
-                    session_id = preset_action_args.session_id or workflow.uuid4()
                     arg = AgentWorkflowArgs(
                         role=self.role,
                         agent_args=RunAgentArgs(

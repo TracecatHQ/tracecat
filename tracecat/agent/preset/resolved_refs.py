@@ -58,6 +58,22 @@ class ResolvedRefs(BaseModel):
     refs: list[ResolvedRef] = Field(default_factory=list)
 
 
+def without_subagent_refs(refs: ResolvedRefs | None) -> ResolvedRefs | None:
+    """Drop ``subagent``-kind entries from a snapshot.
+
+    Used when a preserved session binding overrides the preset's current
+    topology: the runtime pass rebuilds the stored binding verbatim, so the
+    root snapshot's subagent entries (the preset's *current* children) must
+    not be merged into the turn's provenance as if they ran.
+    """
+
+    if refs is None:
+        return None
+    return ResolvedRefs(
+        refs=[ref for ref in refs.refs if ref.resource_kind != "subagent"]
+    )
+
+
 def merge_resolved_refs(*parts: ResolvedRefs | None) -> ResolvedRefs | None:
     """Merge snapshots for one turn with kind-scoped deduplication.
 

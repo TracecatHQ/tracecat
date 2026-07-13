@@ -3038,9 +3038,12 @@ class AgentTurnProvenance(Base):
     """Per-turn resource resolution snapshot for agent execution.
 
     ``AgentSessionHistory`` stores per-message transcript rows. This table
-    stores one append-only per-turn resolution snapshot and deliberately keeps
+    stores append-only per-turn resolution snapshots and deliberately keeps
     resource references as JSONB values so provenance outlives deleted skills,
-    presets, sessions, and versions.
+    presets, sessions, and versions. A turn may append more than one row:
+    root resolution always records root refs, and subagent resolution appends
+    a merged snapshot; the highest ``surrogate_id`` per ``wf_exec_id`` is the
+    final snapshot for that turn.
     """
 
     __tablename__ = "agent_turn_provenance"

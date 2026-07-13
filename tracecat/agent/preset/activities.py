@@ -22,6 +22,7 @@ from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentCatalog, AgentTurnProvenance
 from tracecat.exceptions import TracecatNotFoundError
+from tracecat.logger import logger
 
 
 class ResolveAgentPresetConfigActivityInput(BaseModel):
@@ -51,6 +52,8 @@ class ResolveAgentPresetVersionRefActivityInput(BaseModel):
 
     role: Role
     preset_slug: str
+    session_id: uuid.UUID | None = None
+    wf_exec_id: str | None = None
 
 
 class AgentPresetVersionRef(BaseModel):
@@ -74,12 +77,6 @@ class ResolveAgentsConfigActivityInput(BaseModel):
     parent_resolved_refs: ResolvedRefs | None = None
 
 
-def _has_runtime_subagents(agents: AgentSubagentsConfig) -> bool:
-    """Return whether a later subagent activity will persist merged refs."""
-
-    return agents.enabled and bool(agents.subagents)
-
-
 async def _write_agent_turn_provenance(
     service: AgentPresetService | AgentManagementService,
     *,
@@ -87,7 +84,13 @@ async def _write_agent_turn_provenance(
     wf_exec_id: str | None,
     resolved_refs: ResolvedRefs | None,
 ) -> None:
-    """Persist one append-only per-turn resolution snapshot when identifiers exist.
+    """Persist an append-only per-turn resolution snapshot when identifiers exist.
+
+    A turn may accumulate more than one snapshot: root-preset resolution
+    always records the root refs, and the later subagent-resolution activity
+    appends a merged snapshot when it runs. The row with the highest
+    ``surrogate_id`` for a ``wf_exec_id`` is the final snapshot; earlier rows
+    preserve provenance for turns that fail between the two activities.
 
     Not idempotent by design: the calling activities are scheduled with
     ``activity:fail_fast`` (``maximum_attempts=1``), so no Temporal retry can
@@ -135,6 +138,20 @@ async def resolve_agent_preset_config_activity(
                 resolved_refs=failure_refs,
             )
 
+        async def write_root_refs(resolved: AgentConfig) -> None:
+            # Always record root refs at resolution-success time, before
+            # credential loading and even when a later subagent activity
+            # appends a merged snapshot: anything that fails afterwards
+            # (provider credentials, custom-provider config, session load,
+            # subagent resolution) would otherwise leave the turn with no
+            # provenance row.
+            await _write_agent_turn_provenance(
+                service,
+                session_id=args.session_id,
+                wf_exec_id=args.wf_exec_id,
+                resolved_refs=resolved.resolved_refs,
+            )
+
         config: AgentConfig | None = None
         async with service.with_preset_config(
             preset_id=args.preset_id,
@@ -142,19 +159,12 @@ async def resolve_agent_preset_config_activity(
             preset_version_id=args.preset_version_id,
             preset_version=args.preset_version,
             on_resolution_error=write_failure_refs,
+            on_resolved=write_root_refs,
         ) as resolved_config:
             config = resolved_config
 
         assert config is not None
-        payload = agent_config_to_payload(config)
-        if not _has_runtime_subagents(config.agents):
-            await _write_agent_turn_provenance(
-                service,
-                session_id=args.session_id,
-                wf_exec_id=args.wf_exec_id,
-                resolved_refs=payload.resolved_refs,
-            )
-        return payload
+        return agent_config_to_payload(config)
 
 
 @activity.defn
@@ -162,9 +172,28 @@ async def resolve_agent_preset_version_ref_activity(
     args: ResolveAgentPresetVersionRefActivityInput,
 ) -> AgentPresetVersionRef:
     async with AgentPresetService.with_session(role=args.role) as service:
-        version = await service.resolve_agent_preset_version(
-            slug=args.preset_slug,
-        )
+        try:
+            version = await service.resolve_agent_preset_version(
+                slug=args.preset_slug,
+            )
+        except TracecatNotFoundError:
+            # DSL preflight failures happen before the agent child workflow
+            # exists; record the classified failure refs so the turn still
+            # leaves provenance, then let the domain error propagate.
+            try:
+                failure_refs = await service.build_root_preset_failure_refs(
+                    slug=args.preset_slug,
+                )
+                await _write_agent_turn_provenance(
+                    service,
+                    session_id=args.session_id,
+                    wf_exec_id=args.wf_exec_id,
+                    resolved_refs=failure_refs,
+                )
+            except Exception:
+                # A provenance write failure must never mask the domain error.
+                logger.exception("Failed to record preset preflight failure refs")
+            raise
         return AgentPresetVersionRef(
             preset_id=version.preset_id,
             preset_version_id=version.id,
