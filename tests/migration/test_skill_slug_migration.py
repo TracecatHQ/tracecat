@@ -548,7 +548,6 @@ def test_skill_slug_migration_treats_legacy_archived_rows_as_dead(
         engine.dispose()
 
 
-@pytest.mark.skip(reason="contract revision is delivered after cutover")
 def test_skill_contract_closes_late_expand_writes(
     migration_db_url: str,
 ) -> None:
@@ -661,6 +660,15 @@ def test_skill_contract_closes_late_expand_writes(
                     """
                 )
             ).scalar_one()
+            slug_constraint_count = conn.execute(
+                text(
+                    """
+                    SELECT count(*)
+                    FROM pg_constraint
+                    WHERE conname = 'ck_skill_slug_not_null'
+                    """
+                )
+            ).scalar_one()
             index_definition = conn.execute(
                 text(
                     """
@@ -670,13 +678,13 @@ def test_skill_contract_closes_late_expand_writes(
                     """
                 )
             ).scalar_one()
-
         assert rows[canonical_id] == ("collision", None)
         assert rows[occupied_suffix_id] == ("collision-2", None)
         assert rows[late_slugless_id] == ("collision-3", None)
         assert rows[legacy_archived_id] == ("collision", archived_at)
         assert slug_nullable == "NO"
         assert archived_column_count == 0
+        assert slug_constraint_count == 0
         assert "deleted_at IS NULL" in index_definition
         assert "archived_at" not in index_definition
     finally:
@@ -797,6 +805,15 @@ def test_skill_cutover_closes_late_expand_writes(
                     """
                 )
             ).scalar_one()
+            slug_constraint = conn.execute(
+                text(
+                    """
+                    SELECT convalidated
+                    FROM pg_constraint
+                    WHERE conname = 'ck_skill_slug_not_null'
+                    """
+                )
+            ).scalar_one()
 
         assert rows[canonical_id] == ("customer-authored-name", None, None)
         assert rows[occupied_suffix_id] == (
@@ -815,6 +832,7 @@ def test_skill_cutover_closes_late_expand_writes(
             archived_at,
         )
         assert slug_nullable == "YES"
+        assert slug_constraint is True
         assert "archived_at IS NULL" in index_definition
         assert f"skill_id={late_slugless_id} suffix_counter=3" in output
         assert "customer-authored-name" not in output

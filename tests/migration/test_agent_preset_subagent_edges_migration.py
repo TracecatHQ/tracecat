@@ -860,7 +860,6 @@ def test_cutover_rejects_invalid_late_legacy_row_atomically(
         engine.dispose()
 
 
-@pytest.mark.skip(reason="contract revision is delivered after cutover")
 def test_contract_drops_legacy_representations_and_preserves_version_edges(
     migration_db_url: str,
 ) -> None:
@@ -979,21 +978,21 @@ def test_contract_drops_legacy_representations_and_preserves_version_edges(
                 _column(conn, "agent_preset_version_skill", "skill_version_id") is None
             )
             assert _column(conn, "agent_preset_version", "subagents_enabled") == {
-                "is_nullable": "YES",
-                "column_default": None,
+                "is_nullable": "NO",
+                "column_default": "false",
             }
             assert (
                 conn.execute(
                     text(
                         """
-                        SELECT convalidated
+                        SELECT count(*)
                         FROM pg_constraint
                         WHERE conname =
                             'ck_agent_preset_version_subagents_enabled_not_null'
                         """
                     )
                 ).scalar_one()
-                is True
+                == 0
             )
             assert (
                 conn.execute(
