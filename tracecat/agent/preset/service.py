@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
 import sqlalchemy as sa
+from pydantic import ValidationError
 from slugify import slugify
 from sqlalchemy import column, func, literal, select
 from sqlalchemy.dialects.postgresql import JSONB
@@ -195,29 +196,18 @@ class AgentPresetService(BaseWorkspaceService):
     ) -> AgentSubagentsConfig:
         """Load authored subagent ResourceHead edges for a preset head."""
 
+        legacy_binding = self._parse_legacy_head_agents_config(preset.agents)
+        edges_exist = await self._head_subagent_edges_exist(preset.id)
         # JSON remains the mixed-version compatibility contract during the
         # expand window. Reads project legacy-only bindings without locks or
         # writes; committing update, snapshot, restore, and sync flows durably
         # replace normalized edges, and the migration backfilled rows that
         # predate the rollout.
-        if not await self._head_subagent_edges_exist(preset.id):
-            legacy_binding = ResolvedAgentsConfig.model_validate(preset.agents)
+        if not edges_exist:
             if self._legacy_head_binding_needs_reconciliation(preset, legacy_binding):
                 # Until the next mutation reconciles the row, deliberately
                 # serve each stored legacy child slug instead of its current slug.
-                return AgentSubagentsConfig(
-                    enabled=legacy_binding.enabled,
-                    subagents=[
-                        HeadAttachedSubagentRef(
-                            preset=subagent.preset,
-                            preset_id=subagent.preset_id,
-                            name=subagent.name,
-                            description=subagent.description,
-                            max_turns=subagent.max_turns,
-                        )
-                        for subagent in legacy_binding.subagents
-                    ],
-                )
+                return legacy_binding
 
         stmt = (
             select(
@@ -242,7 +232,7 @@ class AgentPresetService(BaseWorkspaceService):
             .order_by(AgentPresetSubagent.alias)
         )
         rows = (await self.session.execute(with_deleted(stmt))).tuples().all()
-        return AgentSubagentsConfig(
+        edge_binding = AgentSubagentsConfig(
             enabled=preset.subagents_enabled,
             subagents=[
                 HeadAttachedSubagentRef(
@@ -255,6 +245,15 @@ class AgentPresetService(BaseWorkspaceService):
                 for child_id, child_slug, alias, description, max_turns in rows
             ],
         )
+        if edges_exist and not self._head_bindings_semantically_equal(
+            legacy_binding,
+            edge_binding,
+        ):
+            # New pods dual-write matching JSON and edges. If they differ, an
+            # old pod wrote JSON after the last new-pod mutation, so JSON is newer.
+            # Keep this read lock-free and let the next mutation repair the edges.
+            return legacy_binding
+        return edge_binding
 
     async def _get_version_agents_config(
         self, version: AgentPresetVersion
@@ -339,13 +338,71 @@ class AgentPresetService(BaseWorkspaceService):
     @staticmethod
     def _legacy_head_binding_needs_reconciliation(
         preset: AgentPreset,
-        legacy_binding: ResolvedAgentsConfig,
+        legacy_binding: AgentSubagentsConfig | ResolvedAgentsConfig,
     ) -> bool:
         """Detect legacy-only head writes without penalizing empty sets."""
 
         return legacy_binding.enabled != preset.subagents_enabled or bool(
             legacy_binding.subagents
         )
+
+    @staticmethod
+    def _parse_legacy_head_agents_config(
+        agents: ResolvedAgentsConfig | AgentSubagentsConfig | dict[str, Any],
+    ) -> AgentSubagentsConfig:
+        """Parse legacy head JSON, preferring its fully resolved shape."""
+
+        try:
+            binding = ResolvedAgentsConfig.model_validate(agents)
+        except ValidationError:
+            return AgentSubagentsConfig.model_validate(agents)
+        return AgentSubagentsConfig(
+            enabled=binding.enabled,
+            subagents=[
+                HeadAttachedSubagentRef(
+                    preset=subagent.preset,
+                    preset_id=subagent.preset_id,
+                    name=subagent.name,
+                    description=subagent.description,
+                    max_turns=subagent.max_turns,
+                )
+                for subagent in binding.subagents
+            ],
+        )
+
+    @staticmethod
+    def _head_bindings_semantically_equal(
+        legacy_binding: AgentSubagentsConfig,
+        edge_binding: AgentSubagentsConfig,
+    ) -> bool:
+        """Compare head bindings as multisets, preferring stable child IDs."""
+
+        if legacy_binding.enabled != edge_binding.enabled:
+            return False
+
+        remaining_edges = list(edge_binding.subagents)
+        for legacy_ref in legacy_binding.subagents:
+            for index, edge_ref in enumerate(remaining_edges):
+                same_child = (
+                    legacy_ref.preset_id == edge_ref.preset_id
+                    if isinstance(legacy_ref, HeadAttachedSubagentRef)
+                    and isinstance(edge_ref, HeadAttachedSubagentRef)
+                    else legacy_ref.preset == edge_ref.preset
+                )
+                if same_child and (
+                    legacy_ref.alias,
+                    legacy_ref.description,
+                    legacy_ref.max_turns,
+                ) == (
+                    edge_ref.alias,
+                    edge_ref.description,
+                    edge_ref.max_turns,
+                ):
+                    remaining_edges.pop(index)
+                    break
+            else:
+                return False
+        return not remaining_edges
 
     async def _reconcile_legacy_head_subagent_binding(
         self, preset_id: uuid.UUID

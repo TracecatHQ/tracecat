@@ -3891,6 +3891,333 @@ class TestAgentPresetService:
         )
         assert [ref.child_preset_id for ref in version_refs] == [child.id]
 
+    async def test_head_read_serves_newer_legacy_json_addition_without_writes(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """A legacy-only addition wins over stale normalized head edges."""
+
+        edge_child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Existing Child", "slug": "existing-child"}
+            )
+        )
+        added_child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Added Child", "slug": "added-child"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Addition Parent",
+                    "slug": "addition-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": edge_child.slug}],
+                        }
+                    ),
+                }
+            )
+        )
+        edge_child_version = await agent_preset_service.get_current_version_for_preset(
+            edge_child
+        )
+        added_child_version = await agent_preset_service.get_current_version_for_preset(
+            added_child
+        )
+        legacy_binding = ResolvedAgentsConfig.model_validate(
+            {
+                "enabled": True,
+                "subagents": [
+                    {
+                        "preset": edge_child.slug,
+                        "preset_id": edge_child.id,
+                        "preset_version": edge_child_version.version,
+                        "preset_version_id": edge_child_version.id,
+                    },
+                    {
+                        "preset": added_child.slug,
+                        "preset_id": added_child.id,
+                        "preset_version": added_child_version.version,
+                        "preset_version_id": added_child_version.id,
+                        "name": "new-helper",
+                        "description": "Added by an old pod",
+                        "max_turns": 7,
+                    },
+                ],
+            }
+        )
+        await session.execute(
+            sa.update(AgentPreset)
+            .where(AgentPreset.id == parent.id)
+            .values(agents=legacy_binding.model_dump(mode="json"))
+            .execution_options(synchronize_session=False)
+        )
+        await session.commit()
+        fresh_parent = (
+            await session.execute(
+                select(AgentPreset)
+                .where(AgentPreset.id == parent.id)
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one()
+
+        edge_rows_before = (
+            (
+                await session.execute(
+                    select(
+                        AgentPresetSubagent.child_preset_id,
+                        AgentPresetSubagent.alias,
+                        AgentPresetSubagent.description,
+                        AgentPresetSubagent.max_turns,
+                    ).where(AgentPresetSubagent.parent_preset_id == parent.id)
+                )
+            )
+            .tuples()
+            .all()
+        )
+        binding = (await agent_preset_service.build_preset_read(fresh_parent)).agents
+        edge_rows_after = (
+            (
+                await session.execute(
+                    select(
+                        AgentPresetSubagent.child_preset_id,
+                        AgentPresetSubagent.alias,
+                        AgentPresetSubagent.description,
+                        AgentPresetSubagent.max_turns,
+                    ).where(AgentPresetSubagent.parent_preset_id == parent.id)
+                )
+            )
+            .tuples()
+            .all()
+        )
+
+        head_refs = [
+            ref for ref in binding.subagents if isinstance(ref, HeadAttachedSubagentRef)
+        ]
+        assert [ref.preset_id for ref in head_refs] == [
+            edge_child.id,
+            added_child.id,
+        ]
+        added_ref = head_refs[1]
+        assert added_ref.alias == "new-helper"
+        assert added_ref.description == "Added by an old pod"
+        assert added_ref.max_turns == 7
+        assert edge_rows_after == edge_rows_before
+
+    async def test_head_read_serves_newer_legacy_json_clear(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """A legacy-only clear wins even while stale head edges remain."""
+
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Cleared Child", "slug": "cleared-child"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Cleared Parent",
+                    "slug": "cleared-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": child.slug}],
+                        }
+                    ),
+                }
+            )
+        )
+        await session.execute(
+            sa.update(AgentPreset)
+            .where(AgentPreset.id == parent.id)
+            .values(agents={"enabled": False, "subagents": []})
+            .execution_options(synchronize_session=False)
+        )
+        await session.commit()
+        fresh_parent = (
+            await session.execute(
+                select(AgentPreset)
+                .where(AgentPreset.id == parent.id)
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one()
+
+        binding = (await agent_preset_service.build_preset_read(fresh_parent)).agents
+        remaining_edges = (
+            (
+                await session.execute(
+                    select(AgentPresetSubagent).where(
+                        AgentPresetSubagent.parent_preset_id == parent.id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        assert binding.enabled is False
+        assert binding.subagents == []
+        assert [edge.child_preset_id for edge in remaining_edges] == [child.id]
+
+    async def test_head_read_uses_edges_when_legacy_json_is_consistent(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Matching JSON and edges preserve current child-slug semantics."""
+
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Renamed Child", "slug": "old-child-slug"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Consistent Parent",
+                    "slug": "consistent-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [
+                                {
+                                    "preset": child.slug,
+                                    "name": "stable-alias",
+                                    "description": "Same semantic edge",
+                                    "max_turns": 5,
+                                }
+                            ],
+                        }
+                    ),
+                }
+            )
+        )
+        await agent_preset_service.update_preset(
+            child,
+            AgentPresetUpdate(slug="current-child-slug"),
+        )
+
+        binding = (await agent_preset_service.build_preset_read(parent)).agents
+
+        assert len(binding.subagents) == 1
+        ref = binding.subagents[0]
+        assert isinstance(ref, HeadAttachedSubagentRef)
+        assert ref.preset_id == child.id
+        assert ref.preset == "current-child-slug"
+        assert ref.alias == "stable-alias"
+
+    async def test_mutation_replaces_edges_after_divergent_head_read(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """A later mutation writes its input rather than stale head edges."""
+
+        children = []
+        for name, slug in (
+            ("Stale Edge Child", "stale-edge-child"),
+            ("Legacy Child", "legacy-json-child"),
+            ("Requested Child", "requested-child"),
+        ):
+            children.append(
+                await agent_preset_service.create_preset(
+                    agent_preset_create_params.model_copy(
+                        update={"name": name, "slug": slug}
+                    )
+                )
+            )
+        edge_child, legacy_child, requested_child = children
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Repair Parent",
+                    "slug": "repair-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": edge_child.slug}],
+                        }
+                    ),
+                }
+            )
+        )
+        legacy_child_version = (
+            await agent_preset_service.get_current_version_for_preset(legacy_child)
+        )
+        legacy_binding = ResolvedAgentsConfig.model_validate(
+            {
+                "enabled": True,
+                "subagents": [
+                    {
+                        "preset": legacy_child.slug,
+                        "preset_id": legacy_child.id,
+                        "preset_version": legacy_child_version.version,
+                        "preset_version_id": legacy_child_version.id,
+                    }
+                ],
+            }
+        )
+        await session.execute(
+            sa.update(AgentPreset)
+            .where(AgentPreset.id == parent.id)
+            .values(agents=legacy_binding.model_dump(mode="json"))
+            .execution_options(synchronize_session=False)
+        )
+        await session.commit()
+        fresh_parent = (
+            await session.execute(
+                select(AgentPreset)
+                .where(AgentPreset.id == parent.id)
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one()
+        divergent = (await agent_preset_service.build_preset_read(fresh_parent)).agents
+        divergent_refs = [
+            ref
+            for ref in divergent.subagents
+            if isinstance(ref, HeadAttachedSubagentRef)
+        ]
+        assert [ref.preset_id for ref in divergent_refs] == [legacy_child.id]
+
+        await agent_preset_service.update_preset(
+            fresh_parent,
+            AgentPresetUpdate(
+                agents=AgentSubagentsConfig.model_validate(
+                    {
+                        "enabled": True,
+                        "subagents": [{"preset": requested_child.slug}],
+                    }
+                )
+            ),
+        )
+        repaired_edges = (
+            (
+                await session.execute(
+                    select(AgentPresetSubagent).where(
+                        AgentPresetSubagent.parent_preset_id == parent.id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        repaired_json = ResolvedAgentsConfig.model_validate(fresh_parent.agents)
+
+        assert [edge.child_preset_id for edge in repaired_edges] == [requested_child.id]
+        assert [ref.preset_id for ref in repaired_json.subagents] == [
+            requested_child.id
+        ]
+
     async def test_reconcile_returns_fresh_row_after_concurrent_winner(
         self,
         session: AsyncSession,
