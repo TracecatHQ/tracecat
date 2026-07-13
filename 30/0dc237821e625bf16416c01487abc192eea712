@@ -1,0 +1,23 @@
+packages/tracecat-registry/tracecat_registry/core/python.py
+  s_a63947ed9bf464::t_ca5bafcfbb1d9d 49,85-86
+docs/automations/core-actions/_manifest.yaml
+  s_a63947ed9bf464::t_ca5bafcfbb1d9d 81-116
+docs/automations/core-actions/transform-actions/python-script.mdx
+  s_a63947ed9bf464::t_ca5bafcfbb1d9d 50-85,97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.12",
+  "base_commit_sha": "300dc237821e625bf16416c01487abc192eea712",
+  "prompts": {},
+  "sessions": {
+    "s_a63947ed9bf464": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f5c0d-72e6-7730-9ba9-2d486035ed1b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
