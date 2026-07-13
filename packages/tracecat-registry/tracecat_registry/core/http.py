@@ -134,6 +134,13 @@ Payload = Annotated[
     JSONObjectOrArray | None,
     Doc("JSON serializable data in request body (POST, PUT, and PATCH)"),
 ]
+Content = Annotated[
+    str | None,
+    Doc(
+        "Raw string content to send as the request body (POST, PUT, and PATCH). "
+        "Cannot be combined with payload, form_data, or files."
+    ),
+]
 FormData = Annotated[
     dict[str, Any] | None,
     Doc("Form encoded data in request body (POST, PUT, and PATCH)"),
@@ -587,6 +594,7 @@ async def http_request(
     headers: Headers = None,
     params: Params = None,
     payload: Payload = None,
+    content: Content = None,
     form_data: FormData = None,
     files: Files = None,
     auth: Auth = None,
@@ -608,6 +616,13 @@ async def http_request(
     verify_ssl: VerifySSL = True,
 ) -> HTTPResponse:
     """Perform a HTTP request to a given URL."""
+
+    if content is not None and any(
+        body is not None for body in (payload, form_data, files)
+    ):
+        raise ValueError(
+            "Raw content cannot be combined with payload, form_data, or files."
+        )
 
     ignore_status_codes = ignore_status_codes or []
     basic_auth = httpx.BasicAuth(**auth) if auth else None
@@ -646,6 +661,7 @@ async def http_request(
                     url=url,
                     headers=headers,
                     params=params,
+                    content=content,
                     json=payload,
                     data=form_data,
                     files=httpx_files_param,
