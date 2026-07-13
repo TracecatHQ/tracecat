@@ -84,6 +84,7 @@ def _insert_preset(
     name: str,
     slug: str,
     agents: dict[str, object],
+    deleted: bool = False,
 ) -> None:
     conn.execute(
         text(
@@ -96,7 +97,8 @@ def _insert_preset(
                 model_name,
                 model_provider,
                 retries,
-                agents
+                agents,
+                deleted_at
             )
             VALUES (
                 :id,
@@ -106,7 +108,8 @@ def _insert_preset(
                 'test-model',
                 'test-provider',
                 3,
-                CAST(:agents AS jsonb)
+                CAST(:agents AS jsonb),
+                CASE WHEN :deleted THEN now() ELSE NULL END
             )
             """
         ),
@@ -116,6 +119,7 @@ def _insert_preset(
             "name": name,
             "slug": slug,
             "agents": orjson.dumps(agents).decode(),
+            "deleted": deleted,
         },
     )
 
@@ -279,6 +283,208 @@ def test_subagent_edge_migration_backfills_head_and_version_refs(
         assert head_rows[0]["max_turns"] == 4
         assert [row["position"] for row in head_rows] == [0, 1]
         assert version_rows == head_rows
+    finally:
+        engine.dispose()
+
+
+def test_subagent_edge_migration_ignores_soft_deleted_presets(
+    migration_db_url: str,
+) -> None:
+    """Soft-deleted rows must not block or hijack the slug backfill.
+
+    Invariants:
+    - A slug shared by an active preset and a tombstone resolves to the
+      active preset (head and version backfills) instead of aborting on an
+      ambiguous match.
+    - A version ref whose only slug match is a tombstone keeps its edge;
+      historical snapshots may point at later-deleted children.
+    - Soft-deleted parents (and versions owned by them) are skipped even if
+      their refs no longer resolve.
+    """
+
+    organization_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    active_child = uuid.uuid4()
+    tombstone_child = uuid.uuid4()
+    deleted_only_child = uuid.uuid4()
+    parent_id = uuid.uuid4()
+    parent_version_id = uuid.uuid4()
+    deleted_parent_id = uuid.uuid4()
+    deleted_parent_version_id = uuid.uuid4()
+
+    head_agents: dict[str, object] = {
+        "enabled": True,
+        "subagents": [{"preset": "shared-slug"}],
+    }
+    version_agents: dict[str, object] = {
+        "enabled": True,
+        "subagents": [{"preset": "shared-slug"}, {"preset": "gone-child"}],
+    }
+    dangling_agents: dict[str, object] = {
+        "enabled": True,
+        "subagents": [{"preset": "nonexistent-slug"}],
+    }
+
+    engine = create_engine(migration_db_url, poolclass=NullPool)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO organization (id, name, slug, is_active)
+                    VALUES (:id, 'Soft delete org', :slug, true)
+                    """
+                ),
+                {
+                    "id": organization_id,
+                    "slug": f"soft-delete-org-{organization_id.hex[:8]}",
+                },
+            )
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO workspace (id, organization_id, name)
+                    VALUES (:id, :organization_id, 'Soft delete workspace')
+                    """
+                ),
+                {"id": workspace_id, "organization_id": organization_id},
+            )
+            _insert_preset(
+                conn,
+                preset_id=active_child,
+                workspace_id=workspace_id,
+                name="Active child",
+                slug="shared-slug",
+                agents={"enabled": False},
+            )
+            _insert_preset(
+                conn,
+                preset_id=tombstone_child,
+                workspace_id=workspace_id,
+                name="Tombstone child",
+                slug="shared-slug",
+                agents={"enabled": False},
+                deleted=True,
+            )
+            _insert_preset(
+                conn,
+                preset_id=deleted_only_child,
+                workspace_id=workspace_id,
+                name="Deleted only child",
+                slug="gone-child",
+                agents={"enabled": False},
+                deleted=True,
+            )
+            _insert_preset(
+                conn,
+                preset_id=parent_id,
+                workspace_id=workspace_id,
+                name="Parent",
+                slug="soft-delete-parent",
+                agents=head_agents,
+            )
+            _insert_preset(
+                conn,
+                preset_id=deleted_parent_id,
+                workspace_id=workspace_id,
+                name="Deleted parent",
+                slug="deleted-parent",
+                agents=dangling_agents,
+                deleted=True,
+            )
+            for version_id, preset_id_, agents_ in (
+                (parent_version_id, parent_id, version_agents),
+                (deleted_parent_version_id, deleted_parent_id, dangling_agents),
+            ):
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO agent_preset_version (
+                            id,
+                            preset_id,
+                            version,
+                            model_name,
+                            model_provider,
+                            retries,
+                            workspace_id,
+                            agents
+                        )
+                        VALUES (
+                            :id,
+                            :preset_id,
+                            1,
+                            'test-model',
+                            'test-provider',
+                            3,
+                            :workspace_id,
+                            CAST(:agents AS jsonb)
+                        )
+                        """
+                    ),
+                    {
+                        "id": version_id,
+                        "preset_id": preset_id_,
+                        "workspace_id": workspace_id,
+                        "agents": orjson.dumps(agents_).decode(),
+                    },
+                )
+
+        _run_alembic(migration_db_url, "upgrade", MIGRATION_REVISION)
+
+        with engine.begin() as conn:
+            head_children = (
+                conn.execute(
+                    text(
+                        """
+                    SELECT child_preset_id
+                    FROM agent_preset_subagent
+                    WHERE parent_preset_id = :parent_id
+                    ORDER BY position
+                    """
+                    ),
+                    {"parent_id": parent_id},
+                )
+                .scalars()
+                .all()
+            )
+            version_children = (
+                conn.execute(
+                    text(
+                        """
+                    SELECT child_preset_id
+                    FROM agent_preset_version_subagent
+                    WHERE parent_preset_version_id = :parent_version_id
+                    ORDER BY position
+                    """
+                    ),
+                    {"parent_version_id": parent_version_id},
+                )
+                .scalars()
+                .all()
+            )
+            deleted_parent_edges = conn.execute(
+                text(
+                    """
+                    SELECT count(*) FROM agent_preset_subagent
+                    WHERE parent_preset_id = :parent_id
+                    """
+                ),
+                {"parent_id": deleted_parent_id},
+            ).scalar_one()
+            deleted_version_edges = conn.execute(
+                text(
+                    """
+                    SELECT count(*) FROM agent_preset_version_subagent
+                    WHERE parent_preset_version_id = :parent_version_id
+                    """
+                ),
+                {"parent_version_id": deleted_parent_version_id},
+            ).scalar_one()
+
+        assert head_children == [active_child]
+        assert version_children == [active_child, deleted_only_child]
+        assert deleted_parent_edges == 0
+        assert deleted_version_edges == 0
     finally:
         engine.dispose()
 

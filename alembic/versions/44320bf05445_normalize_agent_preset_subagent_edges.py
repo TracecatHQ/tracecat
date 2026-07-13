@@ -221,6 +221,9 @@ def _backfill_head_bindings() -> None:
                         ELSE '[]'::jsonb
                     END
                 ) WITH ORDINALITY AS ref(value, ordinality)
+                -- Soft-deleted parents are unreachable at runtime and have no
+                -- undelete path; their stale refs must not block the upgrade.
+                WHERE parent.deleted_at IS NULL
             )
             SELECT
                 refs.parent_id,
@@ -255,6 +258,7 @@ def _backfill_head_bindings() -> None:
                 FROM agent_preset AS candidate
                 WHERE candidate.workspace_id = refs.workspace_id
                     AND candidate.slug = refs.ref ->> 'preset'
+                    AND candidate.deleted_at IS NULL
             ) AS child_by_slug ON TRUE
             """
         )
@@ -322,6 +326,12 @@ def _backfill_version_bindings() -> None:
                     ref.value AS ref,
                     ref.ordinality - 1 AS position
                 FROM agent_preset_version AS parent
+                -- Versions owned by soft-deleted presets are unreachable at
+                -- runtime and have no undelete path; skip their edges.
+                JOIN agent_preset AS owner
+                    ON owner.workspace_id = parent.workspace_id
+                    AND owner.id = parent.preset_id
+                    AND owner.deleted_at IS NULL
                 CROSS JOIN LATERAL jsonb_array_elements(
                     CASE
                         WHEN jsonb_typeof(parent.agents -> 'subagents') = 'array'
@@ -335,7 +345,16 @@ def _backfill_version_bindings() -> None:
                 refs.workspace_id,
                 CASE
                     WHEN refs.ref ->> 'preset_id' IS NOT NULL THEN child_by_id.id
-                    WHEN child_by_slug.match_count = 1 THEN child_by_slug.child_id
+                    -- Prefer the active slug owner; a slug shared with
+                    -- tombstones legitimately resolves to the active preset.
+                    WHEN child_by_slug.active_match_count = 1
+                        THEN child_by_slug.child_id
+                    -- Historical version edges may point at a child that was
+                    -- later soft-deleted; keep them instead of blocking the
+                    -- upgrade. Runtime rejects such versions on restore.
+                    WHEN child_by_slug.active_match_count = 0
+                        AND child_by_slug.total_match_count = 1
+                        THEN child_by_slug.child_id
                     ELSE NULL
                 END AS child_id,
                 COALESCE(NULLIF(refs.ref ->> 'name', ''), refs.ref ->> 'preset')
@@ -358,8 +377,17 @@ def _backfill_version_bindings() -> None:
                 END
             LEFT JOIN LATERAL (
                 SELECT
-                    (array_agg(candidate.id ORDER BY candidate.id))[1] AS child_id,
-                    count(*) AS match_count
+                    (
+                        array_agg(
+                            candidate.id
+                            ORDER BY
+                                (candidate.deleted_at IS NULL) DESC,
+                                candidate.id
+                        )
+                    )[1] AS child_id,
+                    count(*) FILTER (WHERE candidate.deleted_at IS NULL)
+                        AS active_match_count,
+                    count(*) AS total_match_count
                 FROM agent_preset AS candidate
                 WHERE candidate.workspace_id = refs.workspace_id
                     AND candidate.slug = refs.ref ->> 'preset'
