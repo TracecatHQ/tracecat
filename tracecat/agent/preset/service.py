@@ -196,14 +196,28 @@ class AgentPresetService(BaseWorkspaceService):
         """Load authored subagent ResourceHead edges for a preset head."""
 
         # JSON remains the mixed-version compatibility contract during the
-        # expand window: an old pod writes only the legacy JSON, leaving
-        # subagents_enabled false and no normalized edges. Reconcile before
-        # reading so a later head edit cannot round-trip the empty state and
-        # silently destroy the legacy bindings.
+        # expand window. Reads project legacy-only bindings without locks or
+        # writes; committing update, snapshot, restore, and sync flows durably
+        # replace normalized edges, and the migration backfilled rows that
+        # predate the rollout.
         if not await self._head_subagent_edges_exist(preset.id):
             legacy_binding = ResolvedAgentsConfig.model_validate(preset.agents)
             if self._legacy_head_binding_needs_reconciliation(preset, legacy_binding):
-                preset = await self._reconcile_legacy_head_subagent_binding(preset.id)
+                # Until the next mutation reconciles the row, deliberately
+                # serve each stored legacy child slug instead of its current slug.
+                return AgentSubagentsConfig(
+                    enabled=legacy_binding.enabled,
+                    subagents=[
+                        HeadAttachedSubagentRef(
+                            preset=subagent.preset,
+                            preset_id=subagent.preset_id,
+                            name=subagent.name,
+                            description=subagent.description,
+                            max_turns=subagent.max_turns,
+                        )
+                        for subagent in legacy_binding.subagents
+                    ],
+                )
 
         stmt = (
             select(
@@ -247,16 +261,29 @@ class AgentPresetService(BaseWorkspaceService):
     ) -> AgentSubagentsConfig:
         """Load snapshotted subagent ResourceHead edges for a preset version."""
 
-        edges_exist = await self._version_subagent_edges_exist(version.id)
-        legacy_binding: ResolvedAgentsConfig | None = None
-        if not edges_exist:
+        # As with head reads, keep this transaction-local and lock-free. The
+        # migration covered existing rows, and committing update, snapshot,
+        # restore, and sync flows durably replace normalized edges.
+        if not await self._version_subagent_edges_exist(version.id):
             legacy_binding = ResolvedAgentsConfig.model_validate(version.agents)
             if self._legacy_version_binding_needs_reconciliation(
                 version,
                 legacy_binding,
             ):
-                version = await self._reconcile_legacy_version_subagent_binding(
-                    version.id
+                # Until the next mutation reconciles the row, deliberately
+                # serve each stored legacy child slug instead of its current slug.
+                return AgentSubagentsConfig(
+                    enabled=legacy_binding.enabled,
+                    subagents=[
+                        HeadAttachedSubagentRef(
+                            preset=subagent.preset,
+                            preset_id=subagent.preset_id,
+                            name=subagent.name,
+                            description=subagent.description,
+                            max_turns=subagent.max_turns,
+                        )
+                        for subagent in legacy_binding.subagents
+                    ],
                 )
 
         stmt = (

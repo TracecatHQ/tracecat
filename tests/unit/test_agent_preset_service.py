@@ -3510,14 +3510,14 @@ class TestAgentPresetService:
         assert binding.subagents[0].preset_id == edge_child.id
         assert binding.subagents[0].preset_version_id == edge_child_version.id
 
-    async def test_session_binding_reconciles_version_written_by_old_pod(
+    async def test_version_read_projects_version_written_by_old_pod(
         self,
         session: AsyncSession,
-        svc_role: Role,
+        monkeypatch: pytest.MonkeyPatch,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Legacy-only version rows are repaired during a rolling deploy."""
+        """Legacy-only version reads project JSON without writing edge rows."""
 
         child = await agent_preset_service.create_preset(
             agent_preset_create_params.model_copy(
@@ -3549,14 +3549,21 @@ class TestAgentPresetService:
         parent_version.subagents_enabled = False
         session.add(parent_version)
         await session.flush()
+        await session.refresh(parent_version)
 
-        binding_data = await AgentSessionService(
-            session,
-            role=svc_role,
-        )._resolve_agents_binding_for_preset_version_id(parent_version.id)
-        binding = ResolvedAgentsConfig.model_validate(binding_data)
-        child_version = await agent_preset_service.get_current_version_for_preset(child)
-        reconciled_edges = (
+        async def unexpected_reconciliation(
+            _version_id: uuid.UUID,
+        ) -> AgentPresetVersion:
+            raise AssertionError("version reads must not take the repair lock path")
+
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_reconcile_legacy_version_subagent_binding",
+            unexpected_reconciliation,
+        )
+
+        binding = (await agent_preset_service.build_version_read(parent_version)).agents
+        version_edges = (
             (
                 await session.execute(
                     select(AgentPresetVersionSubagent).where(
@@ -3571,11 +3578,42 @@ class TestAgentPresetService:
 
         assert binding.enabled is True
         assert len(binding.subagents) == 1
-        assert binding.subagents[0].preset_id == child.id
-        assert binding.subagents[0].preset_version_id == child_version.id
-        assert parent_version.subagents_enabled is True
-        assert len(reconciled_edges) == 1
-        assert reconciled_edges[0].child_preset_id == child.id
+        fallback_ref = binding.subagents[0]
+        assert isinstance(fallback_ref, HeadAttachedSubagentRef)
+        assert fallback_ref.preset_id == child.id
+        assert parent_version.subagents_enabled is False
+        assert version_edges == []
+
+        await agent_preset_service.update_preset(
+            parent,
+            AgentPresetUpdate(agents=AgentSubagentsConfig()),
+        )
+        restored = await agent_preset_service.restore_version(parent, parent_version)
+        restored_head_edges = (
+            (
+                await session.execute(
+                    select(AgentPresetSubagent).where(
+                        AgentPresetSubagent.parent_preset_id == parent.id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        restored_version_edges = (
+            (
+                await session.execute(
+                    select(AgentPresetVersionSubagent).where(
+                        AgentPresetVersionSubagent.parent_preset_version_id
+                        == restored.current_version_id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert [edge.child_preset_id for edge in restored_head_edges] == [child.id]
+        assert [edge.child_preset_id for edge in restored_version_edges] == [child.id]
 
     async def test_empty_version_binding_skips_legacy_reconciliation(
         self,
@@ -3754,13 +3792,14 @@ class TestAgentPresetService:
         ]
         assert resolved_children == [edge_child.id]
 
-    async def test_head_read_reconciles_expand_window_legacy_json(
+    async def test_head_read_projects_expand_window_legacy_json(
         self,
         session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Head reads reconcile legacy-JSON-only writes from old pods.
+        """Head reads project legacy-JSON-only writes without writing edges.
 
         During the expand window an old pod updates only the legacy
         ``agents`` JSON (no normalized edges, ``subagents_enabled`` false). A
@@ -3809,15 +3848,48 @@ class TestAgentPresetService:
                 .execution_options(populate_existing=True)
             )
         ).scalar_one()
-        binding = await agent_preset_service._get_head_agents_config(fresh_parent)
+
+        async def unexpected_reconciliation(_preset_id: uuid.UUID) -> AgentPreset:
+            raise AssertionError("head reads must not take the repair lock path")
+
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_reconcile_legacy_head_subagent_binding",
+            unexpected_reconciliation,
+        )
+
+        binding = (await agent_preset_service.build_preset_read(fresh_parent)).agents
 
         assert binding.enabled is True
         head_refs = [
             ref for ref in binding.subagents if isinstance(ref, HeadAttachedSubagentRef)
         ]
         assert [ref.preset_id for ref in head_refs] == [child.id]
-        # The normalized store is repaired, not just projected.
+        assert not await agent_preset_service._head_subagent_edges_exist(parent.id)
+
+        # A subsequent committing mutation repairs the head and snapshots the
+        # legacy binding, so reading first cannot destroy it.
+        await agent_preset_service.update_preset(
+            fresh_parent,
+            AgentPresetUpdate(instructions="Snapshot the legacy binding"),
+        )
         assert await agent_preset_service._head_subagent_edges_exist(parent.id)
+        current_version = await agent_preset_service.get_current_version_for_preset(
+            fresh_parent
+        )
+        version_refs = (
+            (
+                await session.execute(
+                    select(AgentPresetVersionSubagent).where(
+                        AgentPresetVersionSubagent.parent_preset_version_id
+                        == current_version.id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert [ref.child_preset_id for ref in version_refs] == [child.id]
 
     async def test_reconcile_returns_fresh_row_after_concurrent_winner(
         self,
