@@ -1,5 +1,6 @@
 "use client"
 
+import Cookies from "js-cookie"
 import {
   BuildingIcon,
   ChevronsUpDown,
@@ -37,6 +38,10 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
+import {
+  useOrganization,
+  useOrganizationMemberships,
+} from "@/hooks/use-organization"
 import { useWorkspaceManager } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { getWorkspaceLandingPath } from "@/lib/workspace-navigation"
@@ -46,6 +51,8 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const { workspaces, createWorkspace } = useWorkspaceManager()
+  const { organization: activeOrganization } = useOrganization()
+  const { organizations } = useOrganizationMemberships()
   const canAdministerOrg = useScopeCheck("org:update")
   const canCreateWorkspace = useScopeCheck("workspace:create")
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -53,6 +60,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
   const [isCreating, setIsCreating] = useState(false)
 
   const activeWorkspace = workspaces?.find((ws) => ws.id === workspaceId)
+  const showOrganizationSelector = (organizations?.length ?? 0) > 1
 
   const buildWorkspaceHref = (
     targetWorkspaceId: string,
@@ -103,6 +111,21 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
       .map((word) => word[0])
       .join("")
       .toUpperCase()
+  }
+
+  const handleSelectOrganization = (organizationId: string) => {
+    if (organizationId === activeOrganization?.id) {
+      return
+    }
+
+    Cookies.set("tracecat:active-org-id", organizationId, {
+      sameSite: "lax",
+      secure:
+        typeof window !== "undefined" && window.location.protocol === "https:",
+    })
+    // Hard navigation: switching orgs invalidates all org-scoped client state
+    // (React Query caches, providers), so re-bootstrap instead of router.push.
+    window.location.assign("/workspaces")
   }
 
   return (
@@ -210,6 +233,34 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
                   </form>
                 </DialogContent>
               </Dialog>
+            )}
+
+            {showOrganizationSelector && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+                  Organizations
+                </DropdownMenuLabel>
+                {organizations?.map((organization) => (
+                  <DropdownMenuItem
+                    key={organization.id}
+                    className={cn(
+                      "flex items-center gap-2 py-1 px-2",
+                      organization.id === activeOrganization?.id &&
+                        "bg-foreground/5 dark:bg-foreground/10"
+                    )}
+                    onSelect={() => handleSelectOrganization(organization.id)}
+                  >
+                    <div className="flex size-6 items-center justify-center rounded-md bg-muted text-[10px]">
+                      {getWorkspaceInitials(organization.name)}
+                    </div>
+                    <span className="flex-1">{organization.name}</span>
+                    {organization.id === activeOrganization?.id && (
+                      <CircleCheck className="ml-auto size-4" />
+                    )}
+                  </DropdownMenuItem>
+                ))}
+              </>
             )}
 
             <DropdownMenuSeparator />

@@ -50,10 +50,8 @@ _SKILL_NAME_CONSTRAINTS = StringConstraints(
     pattern=r"^[a-z0-9-]+$",
 )
 
-# Identifier-shaped skill name. Used for lookups (e.g. name-based skill routes),
-# so it accepts reserved-prefix names — workspaces may hold legacy skills named
-# ``tracecat-*`` from before the prefix was reserved, and those must remain
-# readable by name.
+# Identifier-shaped skill name/slug. Slug lookups use this lenient shape so
+# legacy ``tracecat-*`` rows from before the prefix was reserved remain readable.
 SkillName = Annotated[
     str,
     _SKILL_NAME_CONSTRAINTS,
@@ -98,12 +96,13 @@ class SkillRead(Schema):
     id: uuid.UUID
     workspace_id: WorkspaceID
     name: str
+    slug: str
     description: str | None = Field(default=None)
     current_version_id: uuid.UUID | None = Field(default=None)
     draft_revision: int
     created_at: datetime
     updated_at: datetime
-    archived_at: datetime | None = Field(default=None)
+    deleted_at: datetime | None = Field(default=None)
     current_version: SkillVersionReadMinimal | None = Field(default=None)
     is_draft_publishable: bool
     draft_validation_errors: list[SkillValidationErrorDetail] = Field(
@@ -113,16 +112,22 @@ class SkillRead(Schema):
 
 
 class SkillReadMinimal(Schema):
-    """Minimal response model for listing workspace skills."""
+    """Minimal response model for listing workspace skills.
+
+    ``slug`` is the late-binding handle every skill API accepts; list
+    responses must expose it so callers never have to guess it from ``name``
+    (names are not unique — slugs are, per live row).
+    """
 
     id: uuid.UUID
     workspace_id: WorkspaceID
     name: str
+    slug: str
     description: str | None = Field(default=None)
     current_version_id: uuid.UUID | None = Field(default=None)
     created_at: datetime
     updated_at: datetime
-    archived_at: datetime | None = Field(default=None)
+    deleted_at: datetime | None = Field(default=None)
 
 
 class SkillCreate(Schema):

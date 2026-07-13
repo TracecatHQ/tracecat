@@ -122,6 +122,30 @@ async def test_get_skill_resolves_slug_identifier() -> None:
 
 
 @pytest.mark.anyio
+async def test_get_skill_unknown_identifier_returns_http_404() -> None:
+    """Unknown skill identifiers remain HTTP 404s."""
+
+    mock_service = AsyncMock()
+    mock_service.get_skill_by_identifier.return_value = None
+
+    with patch(
+        "tracecat.agent.skill.internal_router.SkillService",
+        return_value=mock_service,
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            raw_get_skill = cast(Any, get_skill).__wrapped__
+            await raw_get_skill(
+                skill_id="missing-skill",
+                role=_executor_role(),
+                session=AsyncMock(),
+            )
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "Skill 'missing-skill' not found"
+    mock_service.get_skill_by_identifier.assert_awaited_once_with("missing-skill")
+
+
+@pytest.mark.anyio
 async def test_get_skill_version_returns_snapshot_for_udfs() -> None:
     resolved_skill_id = uuid.uuid4()
     version_id = uuid.uuid4()

@@ -13,6 +13,7 @@ from tracecat.agent.preset.internal_router import (
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetRead,
+    AgentPresetSkillBindingRead,
     AgentPresetUpdate,
     AgentPresetVersionReadMinimal,
     build_agent_preset_read_minimal,
@@ -84,6 +85,55 @@ def test_agent_preset_create_rejects_catalog_without_legacy_model_fields() -> No
 def test_agent_preset_create_requires_model_fields_without_catalog_id() -> None:
     with pytest.raises(ValidationError):
         AgentPresetCreate.model_validate({"name": "Legacy preset"})
+
+
+def test_agent_preset_create_accepts_skill_binding_without_version() -> None:
+    skill_id = uuid.uuid4()
+
+    payload = AgentPresetCreate.model_validate(
+        {
+            "name": "Skill-only preset",
+            "model_name": "gpt-4o-mini",
+            "model_provider": "openai",
+            "skills": [{"skill_id": str(skill_id)}],
+        }
+    )
+
+    assert payload.skills is not None
+    assert payload.skills[0].skill_id == skill_id
+    assert payload.skills[0].model_dump(mode="json") == {"skill_id": str(skill_id)}
+
+
+def test_agent_preset_create_ignores_legacy_skill_version_id() -> None:
+    skill_id = uuid.uuid4()
+
+    payload = AgentPresetCreate.model_validate(
+        {
+            "name": "Legacy skill binding",
+            "model_name": "gpt-4o-mini",
+            "model_provider": "openai",
+            "skills": [
+                {
+                    "skill_id": str(skill_id),
+                    "skill_version_id": str(uuid.uuid4()),
+                }
+            ],
+        }
+    )
+
+    assert payload.skills is not None
+    assert payload.skills[0].model_dump(mode="json") == {"skill_id": str(skill_id)}
+
+
+def test_agent_preset_skill_binding_read_requires_stored_version() -> None:
+    with pytest.raises(ValidationError):
+        AgentPresetSkillBindingRead.model_validate(
+            {
+                "skill_id": str(uuid.uuid4()),
+                "skill_name": "triage-skill",
+                "skill_version": 1,
+            }
+        )
 
 
 @pytest.mark.parametrize(

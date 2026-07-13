@@ -226,7 +226,7 @@ async def test_update_preset_serializes_authoring_fields(
         instructions="Triage cases.",
         tool_approvals={"core.cases.update_case": True},
         agents={"enabled": True, "subagents": []},
-        skills=[{"slug": "triage", "settings": {}}],
+        skills=[{"skill_id": "11111111-1111-1111-1111-111111111111"}],
     )
 
     mock_tracecat_client.patch.assert_awaited_once_with(
@@ -235,6 +235,6 @@ async def test_update_preset_serializes_authoring_fields(
             "instructions": "Triage cases.",
             "tool_approvals": {"core.cases.update_case": True},
             "agents": {"enabled": True, "subagents": []},
-            "skills": [{"slug": "triage", "settings": {}}],
+            "skills": [{"skill_id": "11111111-1111-1111-1111-111111111111"}],
         },
     )

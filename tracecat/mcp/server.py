@@ -2074,12 +2074,43 @@ work such as list transforms, batching, joins, dedupe, sorting, grouping, \
 chunked table writes, batch table uploads, and bounded async HTTP loops. \
 Run-python scripts can import Tracecat modules when needed for platform-native \
 helpers.
+- For bulk table writes, prefer one native `core.table.insert_rows` action when \
+rows are already shaped (up to 1000 rows per batch). Do not scatter one insert \
+per row. If shaping, chunking, or mixed table/case side effects are needed, batch \
+inside `core.script.run_python` and import helpers such as \
+`from tracecat_registry.core.table import insert_rows`.
+- Scatter is useful, but >10 concurrent DB-backed table/case branches can exhaust \
+Postgres connection slots (for example: "remaining connection slots are reserved \
+for roles with the SUPERUSER attribute"). Scatter's optional `interval` can \
+stagger stream creation, but it is not a DB batch/throttle primitive; do not rely \
+on retries to fix connection-starvation fanout. Replace high-fanout `scatter -> \
+gather` DB writes with `core.table.insert_rows` or run-python batching.
 - Avoid action-level `for_each` by default. Use it only for known, bounded lists \
 when the user explicitly needs separate workflow action runs per item and accepts \
 the scheduler/concurrency tradeoff. Unbounded or large `for_each` loops can hurt \
 the scheduler.
 - Use `core.loop.start` / `core.loop.end` for while-style workflow loops where \
 the next iteration depends on prior action output.
+
+Run-python batching example for table helpers:
+```python
+from tracecat_registry.core.table import insert_rows
+
+async def main(items: list[dict]) -> dict:
+    inserted = 0
+    batch_size = 1000
+    for start in range(0, len(items), batch_size):
+        batch = items[start:start + batch_size]
+        rows = [{"external_id": item["id"], "payload": item} for item in batch]
+        inserted += await insert_rows(
+            table="alerts",
+            rows_data=rows,
+            upsert=False,
+        )
+    return {"input_count": len(items), "inserted": inserted}
+```
+Set the `core.script.run_python` action's `allow_network: true` when imported \
+helpers call Tracecat APIs.
 
 ## Key DSL fields (inside each action under `actions:`)
 - `ref` — unique slug identifier for the action
@@ -2418,13 +2449,19 @@ Transforms: `core.transform.apply`, `core.transform.deduplicate`,
 
 Loops: `core.loop.start`, `core.loop.end`
 
-Workflow: `core.workflow.execute`, `core.workflow.get_status`
+Workflow: `core.workflow.create_workflow`, `core.workflow.edit_workflow`,
+`core.workflow.execute`, `core.workflow.get_authoring_context`,
+`core.workflow.get_case_trigger`, `core.workflow.get_status`,
+`core.workflow.get_webhook`, `core.workflow.get_workflow`,
+`core.workflow.publish`, `core.workflow.run`,
+`core.workflow.update_case_trigger`, `core.workflow.update_webhook`
 
-Tables: `core.table.create_table`, `core.table.delete_row`,
-`core.table.download`, `core.table.get_table_metadata`,
-`core.table.insert_row`, `core.table.insert_rows`, `core.table.is_in`,
-`core.table.list_tables`, `core.table.lookup`, `core.table.lookup_many`,
-`core.table.search_rows`, `core.table.update_row`
+Tables: `core.table.create_column`, `core.table.create_table`,
+`core.table.delete_column`, `core.table.delete_row`, `core.table.download`,
+`core.table.get_table_metadata`, `core.table.insert_row`,
+`core.table.insert_rows`, `core.table.is_in`, `core.table.list_tables`,
+`core.table.lookup`, `core.table.lookup_many`, `core.table.search_rows`,
+`core.table.update_column`, `core.table.update_row`, `core.table.update_table`
 
 Cases: `core.cases.add_case_tag`, `core.cases.assign_user`,
 `core.cases.assign_user_by_email`, `core.cases.create_case`,
@@ -2433,8 +2470,8 @@ Cases: `core.cases.add_case_tag`, `core.cases.assign_user`,
 `core.cases.delete_task`, `core.cases.download_attachment`,
 `core.cases.get_attachment`, `core.cases.get_attachment_download_url`,
 `core.cases.get_case`, `core.cases.get_case_metrics`,
-`core.cases.get_comment_thread`, `core.cases.get_task`,
-`core.cases.insert_row`, `core.cases.link_row`,
+`core.cases.get_comment_thread`, `core.cases.get_linked_case_rows`,
+`core.cases.get_task`, `core.cases.insert_row`, `core.cases.link_row`,
 `core.cases.list_attachments`, `core.cases.list_case_events`,
 `core.cases.list_cases`, `core.cases.list_comment_threads`,
 `core.cases.list_comments`, `core.cases.list_tasks`,
@@ -2449,7 +2486,10 @@ Require/Python: `core.require`, `core.script.run_python`
 AI: `ai.action`, `ai.agent`, `ai.preset_agent`, `ai.rank_documents`,
 `ai.select_field`, `ai.select_fields`, `ai.agent.create_preset`,
 `ai.agent.delete_preset`, `ai.agent.get_preset`, `ai.agent.list_presets`,
-`ai.agent.update_preset`
+`ai.agent.update_preset`, `ai.skill.archive_skill`, `ai.skill.create_skill`,
+`ai.skill.get_skill`, `ai.skill.get_skill_version`,
+`ai.skill.list_skill_versions`, `ai.skill.list_skills`,
+`ai.skill.publish_skill_version`, `ai.skill.restore_skill_version`
 
 ## Third-Party Integration Action Syntax
 
@@ -2491,9 +2531,12 @@ actions:
 Default to scatter for workflow-level loops: scatter alerts into
 `core.cases.create_case`, run `ai.agent` or `ai.preset_agent` per item, branch
 enrichment, or call `core.workflow.execute`. Add gather only when a downstream
-step needs combined results. Use `core.script.run_python` for data-heavy
-in-process shaping, joins, dedupe, chunked table writes, batch table uploads, or
-bounded async HTTP loops.
+step needs combined results; omit gather otherwise. Avoid high-fanout scatter for
+DB-backed table/case writes; >10 concurrent branches can exhaust Postgres
+connection slots. Scatter can stagger work with `interval`, but it does not batch
+DB writes. Use one `core.table.insert_rows` action for row-shaped table batches,
+or `core.script.run_python` for shaping, joins, dedupe, chunked table writes,
+batch table uploads, or bounded async HTTP loops.
 ```yaml
 actions:
   - ref: scatter_alerts
@@ -7742,9 +7785,7 @@ async def create_agent_preset(
 ) -> AgentPresetRead:
     """Create an agent preset in the selected workspace.
 
-    Use `skills` to attach published skill versions. Each binding requires
-    `skill_id` and `skill_version_id` from `list_skills` and
-    `publish_skill`.
+    Use `skills` to attach published skills. Each binding contains `skill_id`.
     """
 
     try:
@@ -7825,9 +7866,9 @@ async def update_agent_preset(
 ) -> AgentPresetRead:
     """Update an existing agent preset in the selected workspace.
 
-    Use `skills` to replace attached published skill-version bindings. Each
-    binding requires `skill_id` and `skill_version_id`. Omit `skills` to
-    leave bindings unchanged, or pass an empty list to detach all skills.
+    Use `skills` to replace attached published skills. Each binding contains
+    `skill_id`. Omit `skills` to leave bindings unchanged, or pass an empty list
+    to detach all skills.
     """
 
     try:
