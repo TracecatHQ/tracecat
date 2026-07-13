@@ -1,0 +1,47 @@
+tests/unit/test_auth_middleware.py
+  s_2f68703679935c::t_1d80da503f1c33 866,871
+tracecat/mcp/oidc/session.py
+  s_b7a76235f6639e::t_b9b7905e90d1fb 3-5,13,15,17,54,56-59,63,73-76,78,80,83-85,87
+tracecat/auth/org_context.py
+  s_b7a76235f6639e::t_b9b7905e90d1fb 3-4,12,15-53,55-68
+  s_b7a76235f6639e::t_269b13d4ee667c 54
+  s_b7a76235f6639e::t_2893186618e0ec 69
+tests/unit/test_mcp_oidc_endpoints.py
+  s_b7a76235f6639e::t_2b63fde42f5094 517,1466-1467,1484
+tracecat/auth/credentials.py
+  s_b7a76235f6639e::t_439c55c01e0906 42-43
+  s_b7a76235f6639e::t_b9b7905e90d1fb 40-41,44-46,618-620,623,625-626,628,633
+tracecat/mcp/oidc/endpoints.py
+  s_b7a76235f6639e::t_b9b7905e90d1fb 314,322
+tests/unit/test_mcp_oidc_session.py
+  s_b7a76235f6639e::t_269b13d4ee667c 83
+  s_b7a76235f6639e::t_b2ff0e3f00029c 1-2,4-6,9-10,12-14,18-20,22-23,25-31,34-37,40-71,74-80,84-98,102-103,106-114,117-148,150-153,155-157,160,164-165,168-174,177-197,200-254
+  s_b7a76235f6639e::t_0ced3e92a2ac4d 81-82
+tests/unit/test_org_context.py
+  s_b7a76235f6639e::t_b2ff0e3f00029c 1-79,81-231
+  s_b7a76235f6639e::t_269b13d4ee667c 80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.12",
+  "base_commit_sha": "168c6ff4fff5f90d34dd6ae4f19ef7c2cca43d01",
+  "prompts": {},
+  "sessions": {
+    "s_2f68703679935c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c244fa6a-2eb7-4bb1-b67b-529657e2fb14",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_b7a76235f6639e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f5909-58f0-7031-9ceb-810d8a86f2f6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
