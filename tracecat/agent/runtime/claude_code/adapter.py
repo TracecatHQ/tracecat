@@ -20,6 +20,7 @@ from tracecat.agent.common.stream_types import (
     StreamEventType,
     UnifiedStreamEvent,
 )
+from tracecat.agent.common.tool_inputs import sanitize_agent_tool_input
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 
 
@@ -269,6 +270,7 @@ class ClaudeSDKAdapter(BaseHarnessAdapter):
             # Normalize tool name for display
             raw_tool_name = (state.tool_name if state else None) or "unknown"
             normalized_tool_name = normalize_mcp_tool_name(raw_tool_name)
+            args = sanitize_agent_tool_input(normalized_tool_name, args)
             return UnifiedStreamEvent(
                 type=StreamEventType.TOOL_CALL_STOP,
                 part_id=index,

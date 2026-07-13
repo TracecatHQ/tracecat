@@ -3,10 +3,12 @@ from typing import cast
 from uuid import uuid4
 
 import pytest
+from claude_agent_sdk.types import AssistantMessage, ToolUseBlock
 
 from tracecat.agent.adapter.vercel import (
     DataEventPayload,
     DataUIPart,
+    ToolUIPartInputAvailable,
     VercelStreamContext,
     convert_chat_messages_to_ui,
 )
@@ -84,6 +86,45 @@ def test_convert_chat_messages_to_ui_cancelled_marker_carries_tool_call_ids() ->
     assert part["data"] == {
         "reason": "user_cancel",
         "tool_call_ids": ["toolu_aborted"],
+    }
+
+
+def test_convert_claude_agent_tool_history_uses_effective_input() -> None:
+    """Reloaded UI history matches the input Tracecat actually executed."""
+    requested_input = {
+        "subagent_type": "case-agent",
+        "prompt": "List cases",
+        "model": "sonnet",
+        "isolation": "worktree",
+    }
+    tool_use = ToolUseBlock(
+        id="toolu_agent",
+        name="Agent",
+        input=requested_input,
+    )
+    messages = convert_chat_messages_to_ui(
+        [
+            ChatMessage(
+                id=str(uuid4()),
+                message=AssistantMessage(
+                    content=[tool_use],
+                    model="custom-model",
+                ),
+            )
+        ]
+    )
+
+    assert len(messages) == 1
+    part = cast(ToolUIPartInputAvailable, messages[0].parts[0])
+    assert part["input"] == {
+        "subagent_type": "case-agent",
+        "prompt": "List cases",
+    }
+    assert tool_use.input == {
+        "subagent_type": "case-agent",
+        "prompt": "List cases",
+        "model": "sonnet",
+        "isolation": "worktree",
     }
 
 
