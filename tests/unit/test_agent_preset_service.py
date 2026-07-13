@@ -3244,8 +3244,8 @@ class TestAgentPresetService:
             .all()
         )
 
-        assert parent.agents_enabled is True
-        assert version.agents_enabled is True
+        assert parent.subagents_enabled is True
+        assert version.subagents_enabled is True
         assert [binding.child_preset_id for binding in head_bindings] == [
             child_one.id,
             child_two.id,
@@ -3305,8 +3305,8 @@ class TestAgentPresetService:
             .all()
         )
 
-        assert parent.agents_enabled is False
-        assert disabled_version.agents_enabled is False
+        assert parent.subagents_enabled is False
+        assert disabled_version.subagents_enabled is False
         assert remaining_head_bindings == []
         assert disabled_version_bindings == []
         assert len(historical_version_bindings) == 2
@@ -3451,7 +3451,7 @@ class TestAgentPresetService:
                 AgentPresetVersionSubagent.parent_preset_version_id == parent_version.id
             )
         )
-        parent_version.agents_enabled = False
+        parent_version.subagents_enabled = False
         session.add(parent_version)
         await session.flush()
 
@@ -3478,7 +3478,7 @@ class TestAgentPresetService:
         assert len(binding.subagents) == 1
         assert binding.subagents[0].preset_id == child.id
         assert binding.subagents[0].preset_version_id == child_version.id
-        assert parent_version.agents_enabled is True
+        assert parent_version.subagents_enabled is True
         assert len(reconciled_edges) == 1
         assert reconciled_edges[0].child_preset_id == child.id
 
@@ -3822,7 +3822,7 @@ class TestAgentPresetService:
         """The locked re-select must not return a stale identity-mapped row.
 
         If a concurrent session reconciles while this one waits on the row
-        lock, the loser must observe the winner's ``agents_enabled``; a stale
+        lock, the loser must observe the winner's ``subagents_enabled``; a stale
         ``enabled=False`` alongside the winner's edges would fail the
         ``ResolvedAgentsConfig`` enabled/subagents validator downstream.
         """
@@ -3840,8 +3840,8 @@ class TestAgentPresetService:
         parent_version = await agent_preset_service.get_current_version_for_preset(
             parent
         )
-        # Loaded into the identity map with agents_enabled=False.
-        assert parent_version.agents_enabled is False
+        # Loaded into the identity map with subagents_enabled=False.
+        assert parent_version.subagents_enabled is False
 
         # Simulate the concurrent winner without touching the ORM identity
         # map: synchronize_session=False keeps the loaded parent_version
@@ -3849,7 +3849,7 @@ class TestAgentPresetService:
         await session.execute(
             sa.update(AgentPresetVersion)
             .where(AgentPresetVersion.id == parent_version.id)
-            .values(agents_enabled=True)
+            .values(subagents_enabled=True)
             .execution_options(synchronize_session=False)
         )
         await session.execute(
@@ -3864,12 +3864,12 @@ class TestAgentPresetService:
         )
         # Self-check: the identity-mapped instance really is stale; without
         # populate_existing the locked re-select would return this object.
-        assert parent_version.agents_enabled is False
+        assert parent_version.subagents_enabled is False
         version = await agent_preset_service._reconcile_legacy_version_subagent_binding(
             parent_version.id
         )
 
-        assert version.agents_enabled is True
+        assert version.subagents_enabled is True
 
     async def test_create_parent_rechecks_subagent_before_saving_head(
         self,

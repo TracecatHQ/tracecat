@@ -234,11 +234,13 @@ def test_subagent_edge_migration_backfills_head_and_version_refs(
 
         with engine.begin() as conn:
             head_enabled = conn.execute(
-                text("SELECT agents_enabled FROM agent_preset WHERE id = :id"),
+                text("SELECT subagents_enabled FROM agent_preset WHERE id = :id"),
                 {"id": parent_id},
             ).scalar_one()
             version_enabled = conn.execute(
-                text("SELECT agents_enabled FROM agent_preset_version WHERE id = :id"),
+                text(
+                    "SELECT subagents_enabled FROM agent_preset_version WHERE id = :id"
+                ),
                 {"id": parent_version_id},
             ).scalar_one()
             head_rows = (

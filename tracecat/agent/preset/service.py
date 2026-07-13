@@ -316,7 +316,7 @@ class AgentPresetService(BaseWorkspaceService):
                 )
             )
         return ResolvedAgentsConfig(
-            enabled=version.agents_enabled,
+            enabled=version.subagents_enabled,
             subagents=resolved_subagents,
         )
 
@@ -340,7 +340,7 @@ class AgentPresetService(BaseWorkspaceService):
     ) -> bool:
         """Detect legacy-only rows without penalizing authoritative empty sets."""
 
-        return legacy_binding.enabled != version.agents_enabled or bool(
+        return legacy_binding.enabled != version.subagents_enabled or bool(
             legacy_binding.subagents
         )
 
@@ -358,7 +358,7 @@ class AgentPresetService(BaseWorkspaceService):
             .with_for_update()
             # Refresh the identity-mapped instance: a concurrent session may
             # have reconciled (and committed) while this one waited for the
-            # row lock, and the caller must see the winner's agents_enabled,
+            # row lock, and the caller must see the winner's subagents_enabled,
             # not the pre-lock snapshot.
             .execution_options(populate_existing=True)
         )
@@ -375,7 +375,7 @@ class AgentPresetService(BaseWorkspaceService):
             legacy_binding,
         ):
             return version
-        version.agents_enabled = legacy_binding.enabled
+        version.subagents_enabled = legacy_binding.enabled
         self.session.add(version)
         for position, subagent in enumerate(legacy_binding.subagents):
             self.session.add(
@@ -508,7 +508,7 @@ class AgentPresetService(BaseWorkspaceService):
             tool_approvals=params.tool_approvals,
             mcp_integrations=params.mcp_integrations,
             agents=AgentSubagentsConfig().model_dump(mode="json"),
-            agents_enabled=False,
+            subagents_enabled=False,
             enable_thinking=params.enable_thinking,
             enable_internet_access=params.enable_internet_access,
             retries=params.retries,
@@ -937,7 +937,7 @@ class AgentPresetService(BaseWorkspaceService):
         """Dual-write normalized ResourceHead edges for a preset head."""
 
         binding = ResolvedAgentsConfig.model_validate(agents)
-        preset.agents_enabled = binding.enabled
+        preset.subagents_enabled = binding.enabled
         await self.session.execute(
             sa.delete(AgentPresetSubagent).where(
                 AgentPresetSubagent.workspace_id == self.workspace_id,
@@ -2232,7 +2232,7 @@ class AgentPresetService(BaseWorkspaceService):
             tool_approvals=preset.tool_approvals,
             mcp_integrations=preset.mcp_integrations,
             agents=preset.agents,
-            agents_enabled=preset.agents_enabled,
+            subagents_enabled=preset.subagents_enabled,
             retries=preset.retries,
             enable_thinking=preset.enable_thinking,
             enable_internet_access=preset.enable_internet_access,

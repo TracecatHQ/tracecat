@@ -3602,7 +3602,7 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
         nullable=False,
         doc="Legacy subagent configuration retained during normalized-edge rollout",
     )
-    agents_enabled: Mapped[bool] = mapped_column(
+    subagents_enabled: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
         server_default=text("false"),
@@ -3757,7 +3757,7 @@ class AgentPresetVersion(WorkspaceModel):
         nullable=False,
         doc="Legacy subagent snapshot retained during normalized-edge rollout",
     )
-    agents_enabled: Mapped[bool] = mapped_column(
+    subagents_enabled: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
         server_default=text("false"),
