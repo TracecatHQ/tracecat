@@ -5,6 +5,7 @@ command injection and other security vulnerabilities.
 """
 
 import re
+import uuid
 
 # Allowlist of commands that can be used for MCP servers
 ALLOWED_MCP_COMMANDS = frozenset({"npx", "uvx", "python", "python3", "node"})
@@ -51,6 +52,23 @@ class MCPConfigurationError(Exception):
     """Raised when an MCP integration cannot be resolved into a usable server config."""
 
     pass
+
+
+class MCPSecretResolutionError(Exception):
+    """Raised when configured MCP integration credentials cannot be resolved."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        mcp_integration_id: uuid.UUID,
+        server_name: str,
+        server_slug: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.mcp_integration_id = mcp_integration_id
+        self.server_name = server_name
+        self.server_slug = server_slug
 
 
 _URL_PATTERN = re.compile(r"\bhttps?://\S+", re.IGNORECASE)

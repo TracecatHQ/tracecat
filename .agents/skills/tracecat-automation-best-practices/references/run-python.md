@@ -10,7 +10,7 @@ rather than scattering it across many nodes.
 - Default to `core.transform.scatter` for workflow-level loops: scatter alerts into
   `core.cases.create_case`, run `ai.agent` or `ai.preset_agent` per item, branch enrichment,
   or call `core.workflow.execute`. Add `core.transform.gather` only when downstream steps need
-  combined results.
+  combined results; omit gather otherwise.
 - Use best judgment: choose `core.script.run_python` for data-heavy in-process loops such as
   transforms, batching, joins, dedupe, sorting, grouping, chunked table writes, batch table
   uploads, bounded async HTTP loops, and per-item error handling where separate workflow
@@ -22,6 +22,73 @@ rather than scattering it across many nodes.
   output.
 - Use bounded async concurrency inside `core.script.run_python` for bulk HTTP or table
   operations.
+- Avoid `scatter -> gather` for high-fanout table/case writes. Scatter is useful, but >10
+  concurrent DB-backed branches can exhaust Postgres connection slots. Scatter's optional
+  `interval` can stagger stream creation, but it is not a database batch/throttle primitive; do
+  not rely on retries to fix connection-starvation fanout. Prefer one native
+  `core.table.insert_rows` action when the input is already row-shaped (up to 1000 rows per
+  batch), or batch writes inside `core.script.run_python` when you need shaping, chunking, or
+  mixed side effects.
+
+## Bulk table writes
+
+If rows are already shaped, do not scatter an insert action per item. Insert them once:
+
+```yaml
+- ref: insert_domain_data
+  action: core.table.insert_rows
+  args:
+    table: qradar_domains
+    rows_data: ${{ ACTIONS.shape_domain_rows.result }}
+    upsert: false
+```
+
+Use `core.script.run_python` when the rows need transformation or bounded chunking:
+
+```python
+from tracecat_registry.core.table import insert_rows
+
+BATCH_SIZE = 1000
+
+async def main(domain_items: list[dict]) -> dict:
+    inserted = 0
+    errors = []
+
+    for start in range(0, len(domain_items), BATCH_SIZE):
+        batch = domain_items[start:start + BATCH_SIZE]
+        rows = [
+            {
+                "domain_id": item["id"],
+                "name": item.get("name"),
+                "payload": item,
+            }
+            for item in batch
+        ]
+        try:
+            inserted += await insert_rows(
+                table="qradar_domains",
+                rows_data=rows,
+                upsert=False,
+            )
+        except Exception as exc:
+            errors.append({"batch_start": start, "error": str(exc)})
+            if len(errors) >= 5:
+                break
+
+    return {"input_count": len(domain_items), "inserted": inserted, "errors": errors}
+```
+
+Set the run-python action's `allow_network: true` when imported helpers call Tracecat APIs:
+
+```yaml
+- ref: insert_domains_batched
+  action: core.script.run_python
+  args:
+    script: <script above>
+    inputs:
+      domain_items: ${{ ACTIONS.retrieve_domains.result }}
+    allow_network: true
+```
 
 ## Imports
 

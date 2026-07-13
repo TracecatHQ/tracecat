@@ -61,8 +61,10 @@ from tracecat.dsl.common import create_default_execution_context
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.executor.service import get_workspace_variables
 from tracecat.expressions.eval import collect_expressions, eval_templated_object
+from tracecat.integrations.enums import MCPAuthType
 from tracecat.integrations.mcp_validation import (
     MCPConfigurationError,
+    MCPSecretResolutionError,
     MCPValidationError,
     validate_mcp_command_config,
 )
@@ -320,7 +322,15 @@ class AgentPresetService(BaseWorkspaceService):
             parent_slug=slug,
         )
         if params.skills is not None:
-            await self._replace_head_skill_bindings(preset.id, params.skills)
+            binding_specs = await self._binding_specs_from_inputs(
+                params.skills,
+                for_update=True,
+            )
+            await self._replace_head_skill_bindings(
+                preset.id,
+                params.skills,
+                binding_specs=binding_specs,
+            )
         version = await self._create_version_from_preset(preset)
         preset.current_version_id = version.id
         self.session.add(preset)
@@ -427,9 +437,16 @@ class AgentPresetService(BaseWorkspaceService):
                 for_update=True,
             )
             current_specs = await self._get_head_skill_binding_specs(preset.id)
-            requested_specs = self._binding_specs_from_inputs(requested_skills)
+            requested_specs = await self._binding_specs_from_inputs(
+                requested_skills,
+                for_update=True,
+            )
             if current_specs != requested_specs:
-                await self._replace_head_skill_bindings(preset.id, requested_skills)
+                await self._replace_head_skill_bindings(
+                    preset.id,
+                    requested_skills,
+                    binding_specs=requested_specs,
+                )
                 execution_changed = True
         effective_catalog_id = None
         if "catalog_id" in set_fields:
@@ -992,10 +1009,15 @@ class AgentPresetService(BaseWorkspaceService):
 
         Returns the headers/env dict (depending on server type) freshly
         decrypted, with OAuth tokens refreshed if applicable. Returns
-        ``None`` if the integration cannot be authenticated or is not found.
+        ``None`` only when the integration is not found or has no secrets to
+        resolve.
 
         Call this at the trusted edge per use — never propagate the result
         across a Temporal boundary.
+
+        Raises:
+            MCPSecretResolutionError: If configured credentials/env exist but
+                cannot be resolved.
         """
         integrations_service = IntegrationService(self.session, role=self.role)
         available = await integrations_service.list_mcp_integrations()
@@ -1032,7 +1054,12 @@ class AgentPresetService(BaseWorkspaceService):
                         "mcp_integration_id": str(mcp_integration.id),
                     },
                 )
-                return None
+                raise MCPSecretResolutionError(
+                    "Stdio MCP integration env could not be resolved",
+                    mcp_integration_id=mcp_integration.id,
+                    server_name=mcp_integration.name,
+                    server_slug=mcp_integration.slug,
+                ) from e
 
         # HTTP server — resolve headers per auth type.
         try:
@@ -1049,6 +1076,13 @@ class AgentPresetService(BaseWorkspaceService):
                     "mcp_integration_id": str(mcp_integration.id),
                 },
             )
+            if mcp_integration.auth_type in {MCPAuthType.OAUTH2, MCPAuthType.CUSTOM}:
+                raise MCPSecretResolutionError(
+                    "HTTP MCP integration credentials could not be resolved",
+                    mcp_integration_id=mcp_integration.id,
+                    server_name=mcp_integration.name,
+                    server_slug=mcp_integration.slug,
+                ) from e
             return None
         return server_config.get("headers", {})
 
@@ -1337,15 +1371,17 @@ class AgentPresetService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalars().first()
 
-    @staticmethod
-    def _binding_specs_from_inputs(
+    async def _binding_specs_from_inputs(
+        self,
         bindings: Sequence[AgentPresetSkillBindingBase],
+        *,
+        for_update: bool = False,
     ) -> list[SkillBindingSpec]:
-        """Normalize mutable head skill bindings for equality checks."""
+        """Normalize authored Skill head bindings to current versions."""
 
-        return sorted(
-            SkillBindingSpec(binding.skill_id, binding.skill_version_id)
-            for binding in bindings
+        return await self._current_skill_binding_specs(
+            [binding.skill_id for binding in bindings],
+            for_update=for_update,
         )
 
     async def _get_head_skill_binding_specs(
@@ -1366,20 +1402,127 @@ class AgentPresetService(BaseWorkspaceService):
             for skill_id, skill_version_id in rows
         )
 
+    async def _current_skill_binding_specs(
+        self, skill_ids: Sequence[uuid.UUID], *, for_update: bool = False
+    ) -> list[SkillBindingSpec]:
+        """Return bindable Skill head IDs with their current versions."""
+
+        if not skill_ids:
+            return []
+        if len(set(skill_ids)) != len(skill_ids):
+            raise TracecatValidationError(
+                "Duplicate skills are not allowed on a preset",
+                detail={"code": "duplicate_skill_binding"},
+            )
+
+        normalized_ids = sorted(set(skill_ids), key=str)
+        stmt = select(Skill).where(
+            Skill.workspace_id == self.workspace_id,
+            Skill.id.in_(normalized_ids),
+            Skill.deleted_at.is_(None),
+            Skill.archived_at.is_(None),
+        )
+        if for_update:
+            stmt = stmt.order_by(Skill.id).with_for_update()
+        skills = {
+            skill.id: skill
+            for skill in (await self.session.execute(stmt)).scalars().all()
+        }
+        missing = [str(skill_id) for skill_id in skill_ids if skill_id not in skills]
+        if missing:
+            raise TracecatValidationError(
+                f"Some skills were not found in this workspace: {sorted(missing)}",
+                detail={"code": "skill_not_found", "missing_skill_ids": missing},
+            )
+
+        specs: list[SkillBindingSpec] = []
+        for skill_id in skill_ids:
+            skill = skills[skill_id]
+            if skill.current_version_id is None:
+                raise TracecatValidationError(
+                    f"Skill '{skill.name}' has no published version",
+                    detail={"code": "skill_not_published", "skill_id": str(skill.id)},
+                )
+            specs.append(SkillBindingSpec(skill_id, skill.current_version_id))
+        return sorted(specs)
+
+    async def _resolve_head_skill_binding_specs(
+        self, preset_id: uuid.UUID, *, for_update: bool = False
+    ) -> list[SkillBindingSpec]:
+        """Resolve a preset's Skill head edges to current immutable versions."""
+
+        stmt = select(AgentPresetSkill.skill_id).where(
+            AgentPresetSkill.workspace_id == self.workspace_id,
+            AgentPresetSkill.preset_id == preset_id,
+        )
+        skill_ids = (await self.session.execute(stmt)).scalars().all()
+        return await self._current_skill_binding_specs(
+            list(skill_ids),
+            for_update=for_update,
+        )
+
+    async def _validate_unique_skill_binding_names(
+        self,
+        binding_specs: Sequence[SkillBindingSpec],
+        *,
+        preset_id: uuid.UUID,
+    ) -> None:
+        """Reject duplicate names in one exact resolved Skill binding set."""
+
+        if not binding_specs:
+            return
+        duplicate_name_stmt = (
+            select(
+                SkillVersion.name,
+                func.count(SkillVersion.id).label("binding_count"),
+            )
+            .where(
+                SkillVersion.workspace_id == self.workspace_id,
+                SkillVersion.id.in_(
+                    [binding.skill_version_id for binding in binding_specs]
+                ),
+            )
+            .group_by(SkillVersion.name)
+            .having(func.count(SkillVersion.id) > 1)
+        )
+        duplicate_names = sorted(
+            name
+            for name, _count in (await self.session.execute(duplicate_name_stmt))
+            .tuples()
+            .all()
+            if name is not None
+        )
+        if duplicate_names:
+            raise TracecatValidationError(
+                "Agent preset version cannot include duplicate skill names",
+                detail={
+                    "code": "duplicate_skill_names",
+                    "skill_names": duplicate_names,
+                    "preset_id": str(preset_id),
+                },
+            )
+
     async def _replace_head_skill_bindings(
         self,
         preset_id: uuid.UUID,
         bindings: Sequence[AgentPresetSkillBindingBase],
+        *,
+        binding_specs: Sequence[SkillBindingSpec] | None = None,
     ) -> None:
         """Replace the mutable head skill bindings for a preset."""
 
+        specs = (
+            list(binding_specs)
+            if binding_specs is not None
+            else await self._binding_specs_from_inputs(bindings, for_update=True)
+        )
         await self.session.execute(
             sa.delete(AgentPresetSkill).where(
                 AgentPresetSkill.workspace_id == self.workspace_id,
                 AgentPresetSkill.preset_id == preset_id,
             )
         )
-        for binding in bindings:
+        for binding in specs:
             self.session.add(
                 AgentPresetSkill(
                     workspace_id=self.workspace_id,
@@ -1391,25 +1534,38 @@ class AgentPresetService(BaseWorkspaceService):
         await self.session.flush()
 
     async def _snapshot_version_skill_bindings(
-        self, preset_id: uuid.UUID, preset_version_id: uuid.UUID
+        self,
+        preset_id: uuid.UUID,
+        preset_version_id: uuid.UUID,
+        *,
+        binding_specs: Sequence[SkillBindingSpec] | None = None,
     ) -> None:
-        """Copy exact head skill versions into an immutable preset snapshot."""
+        """Write current Skill versions into an immutable preset snapshot."""
 
-        stmt = select(
-            AgentPresetSkill.skill_id,
-            AgentPresetSkill.skill_version_id,
-        ).where(
-            AgentPresetSkill.workspace_id == self.workspace_id,
-            AgentPresetSkill.preset_id == preset_id,
+        specs = (
+            list(binding_specs)
+            if binding_specs is not None
+            else await self._resolve_head_skill_binding_specs(
+                preset_id,
+                for_update=True,
+            )
         )
-        rows = (await self.session.execute(stmt)).tuples().all()
-        for skill_id, skill_version_id in rows:
+        for binding in specs:
+            await self.session.execute(
+                sa.update(AgentPresetSkill)
+                .where(
+                    AgentPresetSkill.workspace_id == self.workspace_id,
+                    AgentPresetSkill.preset_id == preset_id,
+                    AgentPresetSkill.skill_id == binding.skill_id,
+                )
+                .values(skill_version_id=binding.skill_version_id)
+            )
             self.session.add(
                 AgentPresetVersionSkill(
                     workspace_id=self.workspace_id,
                     preset_version_id=preset_version_id,
-                    skill_id=skill_id,
-                    skill_version_id=skill_version_id,
+                    skill_id=binding.skill_id,
+                    skill_version_id=binding.skill_version_id,
                 )
             )
         await self.session.flush()
@@ -1429,11 +1585,8 @@ class AgentPresetService(BaseWorkspaceService):
         rows = (await self.session.execute(stmt)).tuples().all()
         await self.skills.validate_binding_inputs(
             [
-                AgentPresetSkillBindingBase(
-                    skill_id=skill_id,
-                    skill_version_id=skill_version_id,
-                )
-                for skill_id, skill_version_id in rows
+                AgentPresetSkillBindingBase(skill_id=skill_id)
+                for skill_id, _skill_version_id in rows
             ],
             for_update=True,
         )
@@ -1753,66 +1906,14 @@ class AgentPresetService(BaseWorkspaceService):
         """Create and flush a new immutable version from the preset head."""
         if not preset_locked:
             await self._lock_preset_row(preset.id)
-        if await self.use_latest_resource_versions():
-            duplicate_name_stmt = (
-                select(
-                    SkillVersion.name,
-                    func.count(AgentPresetSkill.id).label("binding_count"),
-                )
-                .join(
-                    Skill,
-                    sa.and_(
-                        AgentPresetSkill.workspace_id == Skill.workspace_id,
-                        AgentPresetSkill.skill_id == Skill.id,
-                    ),
-                )
-                .join(
-                    SkillVersion,
-                    sa.and_(
-                        SkillVersion.workspace_id == Skill.workspace_id,
-                        SkillVersion.skill_id == Skill.id,
-                        SkillVersion.id == Skill.current_version_id,
-                    ),
-                )
-                .where(
-                    AgentPresetSkill.workspace_id == self.workspace_id,
-                    AgentPresetSkill.preset_id == preset.id,
-                )
-                .group_by(SkillVersion.name)
-                .having(func.count(AgentPresetSkill.id) > 1)
-            )
-        else:
-            duplicate_name_stmt = (
-                select(
-                    SkillVersion.name,
-                    func.count(AgentPresetSkill.id).label("binding_count"),
-                )
-                .join(
-                    SkillVersion, AgentPresetSkill.skill_version_id == SkillVersion.id
-                )
-                .where(
-                    AgentPresetSkill.workspace_id == self.workspace_id,
-                    AgentPresetSkill.preset_id == preset.id,
-                )
-                .group_by(SkillVersion.name)
-                .having(func.count(AgentPresetSkill.id) > 1)
-            )
-        duplicate_names = sorted(
-            name
-            for name, _count in (await self.session.execute(duplicate_name_stmt))
-            .tuples()
-            .all()
-            if name is not None
+        binding_specs = await self._resolve_head_skill_binding_specs(
+            preset.id,
+            for_update=True,
         )
-        if duplicate_names:
-            raise TracecatValidationError(
-                "Agent preset version cannot include duplicate skill names",
-                detail={
-                    "code": "duplicate_skill_names",
-                    "skill_names": duplicate_names,
-                    "preset_id": str(preset.id),
-                },
-            )
+        await self._validate_unique_skill_binding_names(
+            binding_specs,
+            preset_id=preset.id,
+        )
         stmt = (
             select(AgentPresetVersion.version)
             .where(
@@ -1847,7 +1948,11 @@ class AgentPresetService(BaseWorkspaceService):
         )
         self.session.add(version)
         await self.session.flush()
-        await self._snapshot_version_skill_bindings(preset.id, version.id)
+        await self._snapshot_version_skill_bindings(
+            preset.id,
+            version.id,
+            binding_specs=binding_specs,
+        )
         return version
 
     def _sync_preset_head_from_version(
