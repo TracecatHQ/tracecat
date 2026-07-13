@@ -383,6 +383,7 @@ async def test_build_config_prefers_resolved_preset_version_id() -> None:
         user_id=uuid.uuid4(),
         scopes=frozenset({"agent:execute", "secret:read"}),
     )
+    resolved_preset_id = uuid.uuid4()
     resolved_version_id = uuid.uuid4()
     run_id = uuid.uuid4()
     workflow_args = AgentWorkflowArgs(
@@ -404,6 +405,7 @@ async def test_build_config_prefers_resolved_preset_version_id() -> None:
         ),
         entity_type=AgentSessionEntity.WORKSPACE_CHAT,
         entity_id=uuid.uuid4(),
+        agent_preset_id=resolved_preset_id,
         agent_preset_version_id=resolved_version_id,
     )
     workflow_instance = DurableAgentWorkflow(workflow_args)
@@ -424,8 +426,9 @@ async def test_build_config_prefers_resolved_preset_version_id() -> None:
     assert execute_activity_mock.await_args is not None
     call_args = execute_activity_mock.await_args.args
     assert isinstance(call_args[1], ResolveAgentPresetConfigActivityInput)
+    assert call_args[1].preset_id == resolved_preset_id
     assert call_args[1].preset_version_id == resolved_version_id
-    assert call_args[1].preset_slug is None
+    assert call_args[1].preset_slug == "triage-agent"
     assert call_args[1].preset_version is None
     assert call_args[1].wf_exec_id == str(run_id)
     assert cfg.model_name == resolved_config.model_name

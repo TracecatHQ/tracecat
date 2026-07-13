@@ -3192,10 +3192,13 @@ class TestAgentPresetService:
 
     async def test_root_preset_missing_version_id_classified_not_found(
         self,
+        session: AsyncSession,
+        svc_role: Role,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """A stale pinned version ID is missing, not unpublished."""
+        """A stale pinned version records anchored not-found provenance."""
 
         preset = await agent_preset_service.create_preset(
             agent_preset_create_params.model_copy(
@@ -3203,17 +3206,41 @@ class TestAgentPresetService:
             )
         )
         assert preset.current_version_id is not None
+        stale_version_id = uuid.uuid4()
+        session_id = uuid.uuid4()
 
-        missing_version_refs = (
-            await agent_preset_service.build_root_preset_failure_refs(
-                slug=preset.slug,
-                preset_version_id=uuid.uuid4(),
-            )
+        management_service = AgentManagementService(session, role=svc_role)
+        management_service.presets = agent_preset_service
+        monkeypatch.setattr(
+            "tracecat.agent.preset.activities.AgentManagementService.with_session",
+            lambda **_: _AsyncContext(management_service),
         )
 
-        assert missing_version_refs.refs[0].resource_id == preset.id
-        assert missing_version_refs.refs[0].status == "skipped"
-        assert missing_version_refs.refs[0].code == "not_found"
+        with pytest.raises(TracecatNotFoundError):
+            await resolve_agent_preset_config_activity(
+                ResolveAgentPresetConfigActivityInput(
+                    role=svc_role,
+                    preset_id=preset.id,
+                    preset_slug=preset.slug,
+                    preset_version_id=stale_version_id,
+                    session_id=session_id,
+                    wf_exec_id="turn-stale-pinned-root",
+                )
+            )
+
+        row = (
+            await session.execute(
+                select(AgentTurnProvenance).where(
+                    AgentTurnProvenance.session_id == session_id
+                )
+            )
+        ).scalar_one()
+        [failure_ref] = row.resolved_refs["refs"]
+
+        assert failure_ref["resource_id"] == str(preset.id)
+        assert failure_ref["slug"] == preset.slug
+        assert failure_ref["status"] == "skipped"
+        assert failure_ref["code"] == "not_found"
 
     async def test_resolution_activity_writes_immutable_turn_provenance_snapshot(
         self,

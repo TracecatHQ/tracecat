@@ -630,6 +630,8 @@ class DurableAgentWorkflow:
             activity_input = (
                 ResolveAgentPresetConfigActivityInput(
                     role=self.role,
+                    preset_id=args.agent_preset_id,
+                    preset_slug=args.agent_args.preset_slug,
                     preset_version_id=args.agent_preset_version_id,
                     session_id=args.agent_args.session_id,
                     wf_exec_id=wf_exec_id,
