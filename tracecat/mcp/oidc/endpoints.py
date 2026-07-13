@@ -319,7 +319,7 @@ async def _handle_authorize(
             error=str(exc),
             client_ip=_get_client_ip(request),
         )
-        description = "User has no organization membership"
+        description = "User has no active organization membership"
         return _oauth_error_redirect_response(
             redirect_uri,
             "access_denied",

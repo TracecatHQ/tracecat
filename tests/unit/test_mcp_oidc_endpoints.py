@@ -532,7 +532,7 @@ async def test_authorize_access_denied_when_no_org_membership(
     query = _location_query_params(location)
     assert query["error"] == ["access_denied"]
     assert query["state"] == ["denied-state"]
-    assert query["error_description"] == ["User has no organization membership"]
+    assert query["error_description"] == ["User has no active organization membership"]
 
 
 # ---------------------------------------------------------------------------
@@ -1481,7 +1481,7 @@ async def test_authorize_resume_redirects_access_denied_to_client_callback(
     query = _location_query_params(location)
     assert query["error"] == ["access_denied"]
     assert query["state"] == ["resume-denied-state"]
-    assert query["error_description"] == ["User has no organization membership"]
+    assert query["error_description"] == ["User has no active organization membership"]
 
 
 # ---------------------------------------------------------------------------
