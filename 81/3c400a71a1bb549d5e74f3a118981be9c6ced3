@@ -1,0 +1,44 @@
+tests/unit/api/test_api_organization_members.py
+  s_131ee8fb4aa9d2::t_71aa6c640b18c3 16,63-84
+  s_131ee8fb4aa9d2::t_8ab40d2e2998ad 85-86
+frontend/src/hooks/use-organization.ts
+  s_131ee8fb4aa9d2::t_71aa6c640b18c3 6,8,38-63
+  s_131ee8fb4aa9d2::t_35974857e8df86 64-65
+tracecat/organization/router.py
+  s_131ee8fb4aa9d2::t_71aa6c640b18c3 99-128
+frontend/src/client/services.gen.ts
+  s_44cdc4d15b44ed::t_ac8d3b352227e0 497,4140-4146
+  s_131ee8fb4aa9d2::t_6aedc586f7dd8f 4134-4139
+  s_44cdc4d15b44ed::t_a12ca127bf94a8 4147
+frontend/src/client/types.gen.ts
+  s_131ee8fb4aa9d2::t_6aedc586f7dd8f 10831
+  s_44cdc4d15b44ed::t_ac8d3b352227e0 10829-10830,15326-15335
+frontend/src/components/sidebar/app-menu.tsx
+  s_131ee8fb4aa9d2::t_6aedc586f7dd8f 250
+  s_131ee8fb4aa9d2::t_71aa6c640b18c3 3,41-44,54-55,63,116-128,236-249,251-261
+  s_131ee8fb4aa9d2::t_d85e9073817d7e 262-263
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.12",
+  "base_commit_sha": "813c400a71a1bb549d5e74f3a118981be9c6ced3",
+  "prompts": {},
+  "sessions": {
+    "s_131ee8fb4aa9d2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f58e1-d308-75f2-bf88-03985dfe1faf",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_44cdc4d15b44ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "522f760d-98ea-47ff-8c89-11b418199d94",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
