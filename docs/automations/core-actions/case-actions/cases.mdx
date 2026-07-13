@@ -22,6 +22,14 @@ The summary of the case.
 
 </ParamField>
 
+<ParamField path="create_missing_tags" type="boolean">
+
+If true, create any tags that do not already exist.
+
+Default: `false`.
+
+</ParamField>
+
 <ParamField path="dropdown_values" type="array[CaseDropdownValueInput] | null">
 
 Dropdown selections to set on the case. Each item must include either definition_id or definition_ref, and either option_id or option_ref (or null to clear).
@@ -86,7 +94,7 @@ Default: `null`.
 
 ### Examples
 
-**Create and fetch a case**
+**Create a case**
 
 ```yaml
 - ref: create_case
@@ -98,12 +106,6 @@ Default: `null`.
     severity: high
     tags:
       - phishing
-- ref: get_case
-  action: core.cases.get_case
-  depends_on:
-    - create_case
-  args:
-    case_id: ${{ ACTIONS.create_case.result.id }}
 ```
 
 ## `core.cases.get_case`
@@ -120,24 +122,13 @@ The ID of the case to retrieve.
 
 ### Examples
 
-**Create and fetch a case**
+**Get a case**
 
 ```yaml
-- ref: create_case
-  action: core.cases.create_case
-  args:
-    summary: "Investigate alert ${{ TRIGGER.alert_id }}"
-    description: "Created from workflow trigger."
-    priority: high
-    severity: high
-    tags:
-      - phishing
 - ref: get_case
   action: core.cases.get_case
-  depends_on:
-    - create_case
   args:
-    case_id: ${{ ACTIONS.create_case.result.id }}
+    case_id: ${{ TRIGGER.case_id }}
 ```
 
 ## `core.cases.update_case`
@@ -155,6 +146,14 @@ The ID of the case to update.
 <ParamField path="append" type="boolean">
 
 If true, append the provided description to the existing description when it is not empty.
+
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="create_missing_tags" type="boolean">
+
+If true, create any tags that do not already exist.
 
 Default: `false`.
 
@@ -305,7 +304,7 @@ Default: `null`.
 
 ### Examples
 
-**List, search, and inspect case activity**
+**List cases**
 
 ```yaml
 - ref: list_cases
@@ -314,18 +313,6 @@ Default: `null`.
     limit: 25
     order_by: updated_at
     sort: desc
-- ref: search_cases
-  action: core.cases.search_cases
-  args:
-    search_term: phishing
-    status:
-      - new
-      - in_progress
-    limit: 25
-- ref: case_events
-  action: core.cases.list_case_events
-  args:
-    case_id: ${{ TRIGGER.case_id }}
 ```
 
 ## `core.cases.search_cases`
@@ -422,6 +409,14 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="short_id" type="string | null">
+
+Filter by case short_id.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="sort" type="string | null">
 
 The direction to order the cases by.
@@ -472,15 +467,9 @@ Default: `null`.
 
 ### Examples
 
-**List, search, and inspect case activity**
+**Search cases**
 
 ```yaml
-- ref: list_cases
-  action: core.cases.list_cases
-  args:
-    limit: 25
-    order_by: updated_at
-    sort: desc
 - ref: search_cases
   action: core.cases.search_cases
   args:
@@ -489,10 +478,6 @@ Default: `null`.
       - new
       - in_progress
     limit: 25
-- ref: case_events
-  action: core.cases.list_case_events
-  args:
-    case_id: ${{ TRIGGER.case_id }}
 ```
 
 ## `core.cases.list_case_events`
@@ -509,24 +494,10 @@ The ID of the case to get events for.
 
 ### Examples
 
-**List, search, and inspect case activity**
+**List case events**
 
 ```yaml
-- ref: list_cases
-  action: core.cases.list_cases
-  args:
-    limit: 25
-    order_by: updated_at
-    sort: desc
-- ref: search_cases
-  action: core.cases.search_cases
-  args:
-    search_term: phishing
-    status:
-      - new
-      - in_progress
-    limit: 25
-- ref: case_events
+- ref: list_case_events
   action: core.cases.list_case_events
   args:
     case_id: ${{ TRIGGER.case_id }}
@@ -552,19 +523,14 @@ The ID of the case to assign a user to.
 
 ### Examples
 
-**Assign a case**
+**Assign a user by ID**
 
 ```yaml
-- ref: assign_by_id
+- ref: assign_user
   action: core.cases.assign_user
   args:
     case_id: ${{ TRIGGER.case_id }}
     assignee_id: ${{ TRIGGER.assignee_id }}
-- ref: assign_by_email
-  action: core.cases.assign_user_by_email
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    assignee_email: analyst@example.com
 ```
 
 ## `core.cases.assign_user_by_email`
@@ -587,15 +553,10 @@ The ID of the case to assign a user to.
 
 ### Examples
 
-**Assign a case**
+**Assign a user by email**
 
 ```yaml
-- ref: assign_by_id
-  action: core.cases.assign_user
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    assignee_id: ${{ TRIGGER.assignee_id }}
-- ref: assign_by_email
+- ref: assign_user_by_email
   action: core.cases.assign_user_by_email
   args:
     case_id: ${{ TRIGGER.case_id }}
@@ -630,20 +591,15 @@ Default: `false`.
 
 ### Examples
 
-**Add and remove tags**
+**Add a case tag**
 
 ```yaml
-- ref: add_tag
+- ref: add_case_tag
   action: core.cases.add_case_tag
   args:
     case_id: ${{ TRIGGER.case_id }}
     tag: credential-theft
     create_if_missing: true
-- ref: remove_tag
-  action: core.cases.remove_case_tag
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    tag: needs-triage
 ```
 
 ## `core.cases.remove_case_tag`
@@ -666,16 +622,10 @@ The tag identifier (ID or ref) to remove from the case.
 
 ### Examples
 
-**Add and remove tags**
+**Remove a case tag**
 
 ```yaml
-- ref: add_tag
-  action: core.cases.add_case_tag
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    tag: credential-theft
-    create_if_missing: true
-- ref: remove_tag
+- ref: remove_case_tag
   action: core.cases.remove_case_tag
   args:
     case_id: ${{ TRIGGER.case_id }}
@@ -699,15 +649,8 @@ The ID of the case to delete.
 **Delete a case**
 
 ```yaml
-- ref: close_case
-  action: core.cases.update_case
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    status: closed
 - ref: delete_case
   action: core.cases.delete_case
-  depends_on:
-    - close_case
   args:
     case_id: ${{ TRIGGER.case_id }}
 ```
@@ -748,7 +691,7 @@ Default: `null`.
 
 ### Examples
 
-**Manage case comments**
+**Create a comment**
 
 ```yaml
 - ref: create_comment
@@ -756,35 +699,6 @@ Default: `null`.
   args:
     case_id: ${{ TRIGGER.case_id }}
     content: "Initial triage started."
-- ref: reply_to_comment
-  action: core.cases.reply_to_comment
-  depends_on:
-    - create_comment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    parent_comment_id: ${{ ACTIONS.create_comment.result.id }}
-    content: "Added IOC context."
-- ref: update_comment
-  action: core.cases.update_comment
-  depends_on:
-    - create_comment
-  args:
-    comment_id: ${{ ACTIONS.create_comment.result.id }}
-    content: "Initial triage started. Waiting on endpoint data."
-- ref: list_comments
-  action: core.cases.list_comments
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-- ref: list_comment_threads
-  action: core.cases.list_comment_threads
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-- ref: get_comment_thread
-  action: core.cases.get_comment_thread
-  depends_on:
-    - create_comment
-  args:
-    comment_id: ${{ ACTIONS.create_comment.result.id }}
 ```
 
 ## `core.cases.reply_to_comment`
@@ -813,43 +727,15 @@ The ID of the top-level comment to reply to.
 
 ### Examples
 
-**Manage case comments**
+**Reply to a comment**
 
 ```yaml
-- ref: create_comment
-  action: core.cases.create_comment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    content: "Initial triage started."
 - ref: reply_to_comment
   action: core.cases.reply_to_comment
-  depends_on:
-    - create_comment
   args:
     case_id: ${{ TRIGGER.case_id }}
-    parent_comment_id: ${{ ACTIONS.create_comment.result.id }}
+    parent_comment_id: ${{ TRIGGER.comment_id }}
     content: "Added IOC context."
-- ref: update_comment
-  action: core.cases.update_comment
-  depends_on:
-    - create_comment
-  args:
-    comment_id: ${{ ACTIONS.create_comment.result.id }}
-    content: "Initial triage started. Waiting on endpoint data."
-- ref: list_comments
-  action: core.cases.list_comments
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-- ref: list_comment_threads
-  action: core.cases.list_comment_threads
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-- ref: get_comment_thread
-  action: core.cases.get_comment_thread
-  depends_on:
-    - create_comment
-  args:
-    comment_id: ${{ ACTIONS.create_comment.result.id }}
 ```
 
 ## `core.cases.update_comment`
@@ -872,43 +758,14 @@ The updated comment content.
 
 ### Examples
 
-**Manage case comments**
+**Update a comment**
 
 ```yaml
-- ref: create_comment
-  action: core.cases.create_comment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    content: "Initial triage started."
-- ref: reply_to_comment
-  action: core.cases.reply_to_comment
-  depends_on:
-    - create_comment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    parent_comment_id: ${{ ACTIONS.create_comment.result.id }}
-    content: "Added IOC context."
 - ref: update_comment
   action: core.cases.update_comment
-  depends_on:
-    - create_comment
   args:
-    comment_id: ${{ ACTIONS.create_comment.result.id }}
+    comment_id: ${{ TRIGGER.comment_id }}
     content: "Initial triage started. Waiting on endpoint data."
-- ref: list_comments
-  action: core.cases.list_comments
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-- ref: list_comment_threads
-  action: core.cases.list_comment_threads
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-- ref: get_comment_thread
-  action: core.cases.get_comment_thread
-  depends_on:
-    - create_comment
-  args:
-    comment_id: ${{ ACTIONS.create_comment.result.id }}
 ```
 
 ## `core.cases.list_comments`
@@ -925,43 +782,13 @@ The ID of the case to get comments for.
 
 ### Examples
 
-**Manage case comments**
+**List comments**
 
 ```yaml
-- ref: create_comment
-  action: core.cases.create_comment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    content: "Initial triage started."
-- ref: reply_to_comment
-  action: core.cases.reply_to_comment
-  depends_on:
-    - create_comment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    parent_comment_id: ${{ ACTIONS.create_comment.result.id }}
-    content: "Added IOC context."
-- ref: update_comment
-  action: core.cases.update_comment
-  depends_on:
-    - create_comment
-  args:
-    comment_id: ${{ ACTIONS.create_comment.result.id }}
-    content: "Initial triage started. Waiting on endpoint data."
 - ref: list_comments
   action: core.cases.list_comments
   args:
     case_id: ${{ TRIGGER.case_id }}
-- ref: list_comment_threads
-  action: core.cases.list_comment_threads
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-- ref: get_comment_thread
-  action: core.cases.get_comment_thread
-  depends_on:
-    - create_comment
-  args:
-    comment_id: ${{ ACTIONS.create_comment.result.id }}
 ```
 
 ## `core.cases.list_comment_threads`
@@ -978,43 +805,13 @@ The ID of the case to get comment threads for.
 
 ### Examples
 
-**Manage case comments**
+**List comment threads**
 
 ```yaml
-- ref: create_comment
-  action: core.cases.create_comment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    content: "Initial triage started."
-- ref: reply_to_comment
-  action: core.cases.reply_to_comment
-  depends_on:
-    - create_comment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    parent_comment_id: ${{ ACTIONS.create_comment.result.id }}
-    content: "Added IOC context."
-- ref: update_comment
-  action: core.cases.update_comment
-  depends_on:
-    - create_comment
-  args:
-    comment_id: ${{ ACTIONS.create_comment.result.id }}
-    content: "Initial triage started. Waiting on endpoint data."
-- ref: list_comments
-  action: core.cases.list_comments
-  args:
-    case_id: ${{ TRIGGER.case_id }}
 - ref: list_comment_threads
   action: core.cases.list_comment_threads
   args:
     case_id: ${{ TRIGGER.case_id }}
-- ref: get_comment_thread
-  action: core.cases.get_comment_thread
-  depends_on:
-    - create_comment
-  args:
-    comment_id: ${{ ACTIONS.create_comment.result.id }}
 ```
 
 ## `core.cases.get_comment_thread`
@@ -1031,43 +828,13 @@ The ID of a comment within the thread.
 
 ### Examples
 
-**Manage case comments**
+**Get a comment thread**
 
 ```yaml
-- ref: create_comment
-  action: core.cases.create_comment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    content: "Initial triage started."
-- ref: reply_to_comment
-  action: core.cases.reply_to_comment
-  depends_on:
-    - create_comment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    parent_comment_id: ${{ ACTIONS.create_comment.result.id }}
-    content: "Added IOC context."
-- ref: update_comment
-  action: core.cases.update_comment
-  depends_on:
-    - create_comment
-  args:
-    comment_id: ${{ ACTIONS.create_comment.result.id }}
-    content: "Initial triage started. Waiting on endpoint data."
-- ref: list_comments
-  action: core.cases.list_comments
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-- ref: list_comment_threads
-  action: core.cases.list_comment_threads
-  args:
-    case_id: ${{ TRIGGER.case_id }}
 - ref: get_comment_thread
   action: core.cases.get_comment_thread
-  depends_on:
-    - create_comment
   args:
-    comment_id: ${{ ACTIONS.create_comment.result.id }}
+    comment_id: ${{ TRIGGER.comment_id }}
 ```
 
 ## `core.cases.upload_attachment`
@@ -1102,7 +869,7 @@ The original filename.
 
 ### Examples
 
-**Work with attachments**
+**Upload an attachment**
 
 ```yaml
 - ref: upload_attachment
@@ -1112,39 +879,6 @@ The original filename.
     file_name: note.txt
     content_base64: Zm9yZW5zaWMgbm90ZXM=
     content_type: text/plain
-- ref: upload_attachment_from_url
-  action: core.cases.upload_attachment_from_url
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    url: https://artifacts.example.com/evidence/${{ TRIGGER.alert_id }}
-    headers:
-      Authorization: Bearer ${{ SECRETS.artifacts.API_TOKEN }}
-    file_name: evidence.json
-- ref: list_attachments
-  action: core.cases.list_attachments
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-- ref: get_attachment
-  action: core.cases.get_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-- ref: get_download_url
-  action: core.cases.get_attachment_download_url
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-    expiry: 900
-- ref: download_attachment
-  action: core.cases.download_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-- ref: delete_attachment
-  action: core.cases.delete_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
 ```
 
 ## `core.cases.upload_attachment_from_url`
@@ -1183,16 +917,9 @@ Default: `null`.
 
 ### Examples
 
-**Work with attachments**
+**Upload an attachment from a URL**
 
 ```yaml
-- ref: upload_attachment
-  action: core.cases.upload_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    file_name: note.txt
-    content_base64: Zm9yZW5zaWMgbm90ZXM=
-    content_type: text/plain
 - ref: upload_attachment_from_url
   action: core.cases.upload_attachment_from_url
   args:
@@ -1201,31 +928,6 @@ Default: `null`.
     headers:
       Authorization: Bearer ${{ SECRETS.artifacts.API_TOKEN }}
     file_name: evidence.json
-- ref: list_attachments
-  action: core.cases.list_attachments
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-- ref: get_attachment
-  action: core.cases.get_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-- ref: get_download_url
-  action: core.cases.get_attachment_download_url
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-    expiry: 900
-- ref: download_attachment
-  action: core.cases.download_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-- ref: delete_attachment
-  action: core.cases.delete_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
 ```
 
 ## `core.cases.list_attachments`
@@ -1242,49 +944,13 @@ The ID of the case to list attachments for.
 
 ### Examples
 
-**Work with attachments**
+**List attachments**
 
 ```yaml
-- ref: upload_attachment
-  action: core.cases.upload_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    file_name: note.txt
-    content_base64: Zm9yZW5zaWMgbm90ZXM=
-    content_type: text/plain
-- ref: upload_attachment_from_url
-  action: core.cases.upload_attachment_from_url
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    url: https://artifacts.example.com/evidence/${{ TRIGGER.alert_id }}
-    headers:
-      Authorization: Bearer ${{ SECRETS.artifacts.API_TOKEN }}
-    file_name: evidence.json
 - ref: list_attachments
   action: core.cases.list_attachments
   args:
     case_id: ${{ TRIGGER.case_id }}
-- ref: get_attachment
-  action: core.cases.get_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-- ref: get_download_url
-  action: core.cases.get_attachment_download_url
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-    expiry: 900
-- ref: download_attachment
-  action: core.cases.download_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-- ref: delete_attachment
-  action: core.cases.delete_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
 ```
 
 ## `core.cases.get_attachment`
@@ -1307,46 +973,11 @@ The ID of the case containing the attachment.
 
 ### Examples
 
-**Work with attachments**
+**Get attachment metadata**
 
 ```yaml
-- ref: upload_attachment
-  action: core.cases.upload_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    file_name: note.txt
-    content_base64: Zm9yZW5zaWMgbm90ZXM=
-    content_type: text/plain
-- ref: upload_attachment_from_url
-  action: core.cases.upload_attachment_from_url
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    url: https://artifacts.example.com/evidence/${{ TRIGGER.alert_id }}
-    headers:
-      Authorization: Bearer ${{ SECRETS.artifacts.API_TOKEN }}
-    file_name: evidence.json
-- ref: list_attachments
-  action: core.cases.list_attachments
-  args:
-    case_id: ${{ TRIGGER.case_id }}
 - ref: get_attachment
   action: core.cases.get_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-- ref: get_download_url
-  action: core.cases.get_attachment_download_url
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-    expiry: 900
-- ref: download_attachment
-  action: core.cases.download_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-- ref: delete_attachment
-  action: core.cases.delete_attachment
   args:
     case_id: ${{ TRIGGER.case_id }}
     attachment_id: ${{ TRIGGER.attachment_id }}
@@ -1380,49 +1011,15 @@ Default: `null`.
 
 ### Examples
 
-**Work with attachments**
+**Get an attachment download URL**
 
 ```yaml
-- ref: upload_attachment
-  action: core.cases.upload_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    file_name: note.txt
-    content_base64: Zm9yZW5zaWMgbm90ZXM=
-    content_type: text/plain
-- ref: upload_attachment_from_url
-  action: core.cases.upload_attachment_from_url
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    url: https://artifacts.example.com/evidence/${{ TRIGGER.alert_id }}
-    headers:
-      Authorization: Bearer ${{ SECRETS.artifacts.API_TOKEN }}
-    file_name: evidence.json
-- ref: list_attachments
-  action: core.cases.list_attachments
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-- ref: get_attachment
-  action: core.cases.get_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-- ref: get_download_url
+- ref: get_attachment_download_url
   action: core.cases.get_attachment_download_url
   args:
     case_id: ${{ TRIGGER.case_id }}
     attachment_id: ${{ TRIGGER.attachment_id }}
     expiry: 900
-- ref: download_attachment
-  action: core.cases.download_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-- ref: delete_attachment
-  action: core.cases.delete_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
 ```
 
 ## `core.cases.download_attachment`
@@ -1445,46 +1042,11 @@ The ID of the case containing the attachment.
 
 ### Examples
 
-**Work with attachments**
+**Download an attachment**
 
 ```yaml
-- ref: upload_attachment
-  action: core.cases.upload_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    file_name: note.txt
-    content_base64: Zm9yZW5zaWMgbm90ZXM=
-    content_type: text/plain
-- ref: upload_attachment_from_url
-  action: core.cases.upload_attachment_from_url
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    url: https://artifacts.example.com/evidence/${{ TRIGGER.alert_id }}
-    headers:
-      Authorization: Bearer ${{ SECRETS.artifacts.API_TOKEN }}
-    file_name: evidence.json
-- ref: list_attachments
-  action: core.cases.list_attachments
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-- ref: get_attachment
-  action: core.cases.get_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-- ref: get_download_url
-  action: core.cases.get_attachment_download_url
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-    expiry: 900
 - ref: download_attachment
   action: core.cases.download_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-- ref: delete_attachment
-  action: core.cases.delete_attachment
   args:
     case_id: ${{ TRIGGER.case_id }}
     attachment_id: ${{ TRIGGER.attachment_id }}
@@ -1510,44 +1072,9 @@ The ID of the case containing the attachment.
 
 ### Examples
 
-**Work with attachments**
+**Delete an attachment**
 
 ```yaml
-- ref: upload_attachment
-  action: core.cases.upload_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    file_name: note.txt
-    content_base64: Zm9yZW5zaWMgbm90ZXM=
-    content_type: text/plain
-- ref: upload_attachment_from_url
-  action: core.cases.upload_attachment_from_url
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    url: https://artifacts.example.com/evidence/${{ TRIGGER.alert_id }}
-    headers:
-      Authorization: Bearer ${{ SECRETS.artifacts.API_TOKEN }}
-    file_name: evidence.json
-- ref: list_attachments
-  action: core.cases.list_attachments
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-- ref: get_attachment
-  action: core.cases.get_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-- ref: get_download_url
-  action: core.cases.get_attachment_download_url
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-    expiry: 900
-- ref: download_attachment
-  action: core.cases.download_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
 - ref: delete_attachment
   action: core.cases.delete_attachment
   args:
@@ -1625,7 +1152,7 @@ Default: `null`.
 
 ### Examples
 
-**Manage case tasks**
+**Create a task**
 
 ```yaml
 - ref: create_task
@@ -1636,29 +1163,6 @@ Default: `null`.
     description: Pull the original message from the mail gateway.
     priority: high
     status: todo
-- ref: get_task
-  action: core.cases.get_task
-  depends_on:
-    - create_task
-  args:
-    task_id: ${{ ACTIONS.create_task.result.id }}
-- ref: list_tasks
-  action: core.cases.list_tasks
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-- ref: update_task
-  action: core.cases.update_task
-  depends_on:
-    - create_task
-  args:
-    task_id: ${{ ACTIONS.create_task.result.id }}
-    status: in_progress
-- ref: delete_task
-  action: core.cases.delete_task
-  depends_on:
-    - create_task
-  args:
-    task_id: ${{ ACTIONS.create_task.result.id }}
 ```
 
 ## `core.cases.get_task`
@@ -1677,40 +1181,13 @@ The ID of the task to retrieve.
 
 ### Examples
 
-**Manage case tasks**
+**Get a task**
 
 ```yaml
-- ref: create_task
-  action: core.cases.create_task
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    title: Collect email headers
-    description: Pull the original message from the mail gateway.
-    priority: high
-    status: todo
 - ref: get_task
   action: core.cases.get_task
-  depends_on:
-    - create_task
   args:
-    task_id: ${{ ACTIONS.create_task.result.id }}
-- ref: list_tasks
-  action: core.cases.list_tasks
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-- ref: update_task
-  action: core.cases.update_task
-  depends_on:
-    - create_task
-  args:
-    task_id: ${{ ACTIONS.create_task.result.id }}
-    status: in_progress
-- ref: delete_task
-  action: core.cases.delete_task
-  depends_on:
-    - create_task
-  args:
-    task_id: ${{ ACTIONS.create_task.result.id }}
+    task_id: ${{ TRIGGER.task_id }}
 ```
 
 ## `core.cases.list_tasks`
@@ -1729,40 +1206,13 @@ The ID of the case to list tasks for.
 
 ### Examples
 
-**Manage case tasks**
+**List tasks**
 
 ```yaml
-- ref: create_task
-  action: core.cases.create_task
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    title: Collect email headers
-    description: Pull the original message from the mail gateway.
-    priority: high
-    status: todo
-- ref: get_task
-  action: core.cases.get_task
-  depends_on:
-    - create_task
-  args:
-    task_id: ${{ ACTIONS.create_task.result.id }}
 - ref: list_tasks
   action: core.cases.list_tasks
   args:
     case_id: ${{ TRIGGER.case_id }}
-- ref: update_task
-  action: core.cases.update_task
-  depends_on:
-    - create_task
-  args:
-    task_id: ${{ ACTIONS.create_task.result.id }}
-    status: in_progress
-- ref: delete_task
-  action: core.cases.delete_task
-  depends_on:
-    - create_task
-  args:
-    task_id: ${{ ACTIONS.create_task.result.id }}
 ```
 
 ## `core.cases.update_task`
@@ -1837,40 +1287,14 @@ Default: `null`.
 
 ### Examples
 
-**Manage case tasks**
+**Update a task**
 
 ```yaml
-- ref: create_task
-  action: core.cases.create_task
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    title: Collect email headers
-    description: Pull the original message from the mail gateway.
-    priority: high
-    status: todo
-- ref: get_task
-  action: core.cases.get_task
-  depends_on:
-    - create_task
-  args:
-    task_id: ${{ ACTIONS.create_task.result.id }}
-- ref: list_tasks
-  action: core.cases.list_tasks
-  args:
-    case_id: ${{ TRIGGER.case_id }}
 - ref: update_task
   action: core.cases.update_task
-  depends_on:
-    - create_task
   args:
-    task_id: ${{ ACTIONS.create_task.result.id }}
+    task_id: ${{ TRIGGER.task_id }}
     status: in_progress
-- ref: delete_task
-  action: core.cases.delete_task
-  depends_on:
-    - create_task
-  args:
-    task_id: ${{ ACTIONS.create_task.result.id }}
 ```
 
 ## `core.cases.delete_task`
@@ -1889,40 +1313,13 @@ The ID of the task to delete.
 
 ### Examples
 
-**Manage case tasks**
+**Delete a task**
 
 ```yaml
-- ref: create_task
-  action: core.cases.create_task
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    title: Collect email headers
-    description: Pull the original message from the mail gateway.
-    priority: high
-    status: todo
-- ref: get_task
-  action: core.cases.get_task
-  depends_on:
-    - create_task
-  args:
-    task_id: ${{ ACTIONS.create_task.result.id }}
-- ref: list_tasks
-  action: core.cases.list_tasks
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-- ref: update_task
-  action: core.cases.update_task
-  depends_on:
-    - create_task
-  args:
-    task_id: ${{ ACTIONS.create_task.result.id }}
-    status: in_progress
 - ref: delete_task
   action: core.cases.delete_task
-  depends_on:
-    - create_task
   args:
-    task_id: ${{ ACTIONS.create_task.result.id }}
+    task_id: ${{ TRIGGER.task_id }}
 ```
 
 ## `core.cases.link_row`
@@ -1953,7 +1350,7 @@ Table ID
 
 ### Examples
 
-**Link table rows to a case**
+**Link a table row**
 
 ```yaml
 - ref: link_row
@@ -1962,20 +1359,6 @@ Table ID
     case_id: ${{ TRIGGER.case_id }}
     table_id: indicators
     row_id: ${{ TRIGGER.row_id }}
-- ref: unlink_row
-  action: core.cases.unlink_row
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    table_id: indicators
-    row_id: ${{ TRIGGER.row_id }}
-- ref: insert_case_row
-  action: core.cases.insert_row
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    table_id: indicators
-    row:
-      value: ${{ TRIGGER.indicator }}
-      indicator_type: domain
 ```
 
 ## `core.cases.unlink_row`
@@ -2006,29 +1389,15 @@ Table ID
 
 ### Examples
 
-**Link table rows to a case**
+**Unlink a table row**
 
 ```yaml
-- ref: link_row
-  action: core.cases.link_row
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    table_id: indicators
-    row_id: ${{ TRIGGER.row_id }}
 - ref: unlink_row
   action: core.cases.unlink_row
   args:
     case_id: ${{ TRIGGER.case_id }}
     table_id: indicators
     row_id: ${{ TRIGGER.row_id }}
-- ref: insert_case_row
-  action: core.cases.insert_row
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    table_id: indicators
-    row:
-      value: ${{ TRIGGER.indicator }}
-      indicator_type: domain
 ```
 
 ## `core.cases.insert_row`
@@ -2038,8 +1407,9 @@ Insert a row into a table and link it to a case.
 <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
 
 <Info>
-  Linked rows use regular tables. Create the destination table with the same
-  `columns` schema documented in [Tables](/automations/tables).
+  Linked rows use regular tables. Create the destination table with
+  the same `columns` schema documented in
+  [Tables](/automations/tables).
 </Info>
 
 ### Inputs
@@ -2064,21 +1434,9 @@ Table ID
 
 ### Examples
 
-**Link table rows to a case**
+**Insert and link a table row**
 
 ```yaml
-- ref: link_row
-  action: core.cases.link_row
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    table_id: indicators
-    row_id: ${{ TRIGGER.row_id }}
-- ref: unlink_row
-  action: core.cases.unlink_row
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    table_id: indicators
-    row_id: ${{ TRIGGER.row_id }}
 - ref: insert_case_row
   action: core.cases.insert_row
   args:

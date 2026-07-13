@@ -270,101 +270,101 @@ pages:
     actions:
       - id: core.cases.create_case
         examples:
-          - cases-create-case
+          - cases-create
       - id: core.cases.get_case
         examples:
-          - cases-create-case
+          - cases-get
       - id: core.cases.update_case
         examples:
-          - cases-update-case
+          - cases-update
       - id: core.cases.list_cases
         examples:
-          - cases-list-search
+          - cases-list
       - id: core.cases.search_cases
         examples:
-          - cases-list-search
+          - cases-search
       - id: core.cases.list_case_events
         examples:
-          - cases-list-search
+          - cases-list-events
       - id: core.cases.assign_user
         examples:
-          - cases-assignment
+          - cases-assign-user
       - id: core.cases.assign_user_by_email
         examples:
-          - cases-assignment
+          - cases-assign-user-by-email
       - id: core.cases.add_case_tag
         examples:
-          - cases-tags
+          - cases-add-tag
       - id: core.cases.remove_case_tag
         examples:
-          - cases-tags
+          - cases-remove-tag
       - id: core.cases.delete_case
         examples:
-          - cases-delete-case
+          - cases-delete
       - id: core.cases.create_comment
         examples:
-          - cases-comments
+          - cases-create-comment
       - id: core.cases.reply_to_comment
         examples:
-          - cases-comments
+          - cases-reply-to-comment
       - id: core.cases.update_comment
         examples:
-          - cases-comments
+          - cases-update-comment
       - id: core.cases.list_comments
         examples:
-          - cases-comments
+          - cases-list-comments
       - id: core.cases.list_comment_threads
         examples:
-          - cases-comments
+          - cases-list-comment-threads
       - id: core.cases.get_comment_thread
         examples:
-          - cases-comments
+          - cases-get-comment-thread
       - id: core.cases.upload_attachment
         examples:
-          - cases-attachments
+          - cases-upload-attachment
       - id: core.cases.upload_attachment_from_url
         examples:
-          - cases-attachments
+          - cases-upload-attachment-from-url
       - id: core.cases.list_attachments
         examples:
-          - cases-attachments
+          - cases-list-attachments
       - id: core.cases.get_attachment
         examples:
-          - cases-attachments
+          - cases-get-attachment
       - id: core.cases.get_attachment_download_url
         examples:
-          - cases-attachments
+          - cases-get-attachment-download-url
       - id: core.cases.download_attachment
         examples:
-          - cases-attachments
+          - cases-download-attachment
       - id: core.cases.delete_attachment
         examples:
-          - cases-attachments
+          - cases-delete-attachment
       - id: core.cases.create_task
         examples:
-          - cases-tasks
+          - cases-create-task
       - id: core.cases.get_task
         examples:
-          - cases-tasks
+          - cases-get-task
       - id: core.cases.list_tasks
         examples:
-          - cases-tasks
+          - cases-list-tasks
       - id: core.cases.update_task
         examples:
-          - cases-tasks
+          - cases-update-task
       - id: core.cases.delete_task
         examples:
-          - cases-tasks
+          - cases-delete-task
       - id: core.cases.link_row
         info: |
           <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
         examples:
-          - cases-rows
+          - cases-link-row
       - id: core.cases.unlink_row
         info: |
           <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
         examples:
-          - cases-rows
+          - cases-unlink-row
       - id: core.cases.insert_row
         info: |
           <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
@@ -375,7 +375,7 @@ pages:
             [Tables](/automations/tables).
           </Info>
         examples:
-          - cases-rows
+          - cases-insert-row
       - id: core.cases.get_case_metrics
         examples:
           - cases-metrics
