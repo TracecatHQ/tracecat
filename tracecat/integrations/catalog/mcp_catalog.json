@@ -50,6 +50,13 @@
       "icon": "https://www.google.com/s2/favicons?domain=cloud.google.com&sz=128"
     },
     {
+      "slug": "google-security-command-center-mcp",
+      "name": "Google Security Command Center",
+      "description": "Triage vulnerability findings and fetch remediation guidance from Google Security Command Center",
+      "category": "Cloud",
+      "icon": "https://www.google.com/s2/favicons?domain=cloud.google.com&sz=128"
+    },
+    {
       "slug": "sumo-logic-mcp",
       "name": "Sumo Logic",
       "description": "Search logs and triage incidents on Sumo Logic Cloud SIEM and SOAR",

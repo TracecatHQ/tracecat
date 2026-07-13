@@ -1,0 +1,72 @@
+type: action
+definition:
+  title: List sources
+  description: >
+    List Security Command Center finding sources under an organization,
+    folder, or project scope. Returns a flat list of sources.
+  display_group: Google Security Command Center
+  doc_url: https://cloud.google.com/security-command-center/docs/reference/rest/v2/organizations.sources/list
+  namespace: tools.google_scc
+  name: list_sources
+  expects:
+    scope:
+      type: str
+      description: Parent scope. One of `organizations/{id}`, `folders/{id}`, or `projects/{id}`.
+    page_size:
+      type: int
+      description: Number of sources per page.
+      default: 100
+    max_pages:
+      type: int | None
+      description: Maximum number of pages to fetch. If null, fetches every page.
+      default: null
+  steps:
+    - ref: build_request
+      action: core.script.run_python
+      args:
+        inputs:
+          scope: ${{ inputs.scope }}
+          page_size: ${{ inputs.page_size }}
+        script: |
+          SCOPE_TYPES = ("organizations", "folders", "projects")
+
+          def main(scope, page_size):
+              scope_type, _, scope_id = scope.partition("/")
+              if scope_type not in SCOPE_TYPES or not scope_id:
+                  raise ValueError(
+                      "`scope` must be one of "
+                      "organizations/{id}, folders/{id}, or projects/{id}. "
+                      f"Got: {scope!r}"
+                  )
+              return {
+                  "resource": f"{scope_type}.sources",
+                  "params": {"parent": scope, "pageSize": page_size},
+              }
+    - ref: list_sources
+      action: tools.google_api.call_paginated_api
+      args:
+        service_name: securitycenter
+        version: v2
+        resource: ${{ steps.build_request.result.resource }}
+        method_name: list
+        params: ${{ steps.build_request.result.params }}
+        max_pages: ${{ inputs.max_pages }}
+        static_discovery: false
+    - ref: flatten
+      action: core.script.run_python
+      args:
+        inputs:
+          pages: ${{ steps.list_sources.result }}
+        script: |
+          def main(pages):
+              sources = []
+              for page in pages:
+                  sources.extend(page.get("sources", []))
+              last = pages[-1] if pages else {}
+              next_page_token = last.get("nextPageToken")
+              return {
+                  "sources": sources,
+                  "truncated": bool(next_page_token),
+                  "next_page_token": next_page_token,
+              }
+  returns: ${{ steps.flatten.result }}

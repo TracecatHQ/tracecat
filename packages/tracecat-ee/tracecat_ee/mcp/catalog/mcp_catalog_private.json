@@ -362,6 +362,63 @@
       }
     },
     {
+      "slug": "google-security-command-center-mcp",
+      "docs": "https://google.github.io/mcp-security/servers/scc_mcp.html",
+      "connection_spec": {
+        "server_type": "stdio",
+        "auth_type": "CUSTOM",
+        "stdio_command": "uvx",
+        "stdio_args": [
+          "--from",
+          "scc-mcp",
+          "scc_mcp"
+        ],
+        "stdio_env": [
+          "GOOGLE_APPLICATION_CREDENTIALS"
+        ],
+        "packages": [
+          {
+            "manager": "uvx",
+            "command": "uvx",
+            "args": [
+              "--from",
+              "scc-mcp",
+              "scc_mcp"
+            ],
+            "package": "scc-mcp"
+          },
+          {
+            "manager": "pip",
+            "command": "python",
+            "args": [
+              "-m",
+              "scc_mcp"
+            ],
+            "package": "scc-mcp"
+          }
+        ],
+        "credentials": [
+          {
+            "key": "GOOGLE_APPLICATION_CREDENTIALS",
+            "label": "Service Account Key File Path",
+            "description": "Path to a Google Cloud service account JSON key file. The server authenticates via Application Default Credentials (ADC); set this when ADC is not already configured in the environment (e.g. via `gcloud auth application-default login` or Workload Identity). The service account needs roles/securitycenter.adminViewer (or adminEditor) and roles/cloudasset.viewer, and the securitycenter.googleapis.com and cloudasset.googleapis.com APIs must be enabled.",
+            "required": false,
+            "secret": true,
+            "target": "stdio_env"
+          }
+        ],
+        "confidence": "high",
+        "docker_only": false,
+        "research_notes": "Official Google repo: github.com/google/mcp-security (the Security Command Center server lives under server/scc). Distributed on PyPI as `scc-mcp` with module `scc_mcp`. Canonical STDIO launch: `uvx --from scc-mcp scc_mcp`. Also installable via `pip install scc-mcp` (then run module `scc_mcp`).\n\nAuth classified as CUSTOM: scc_mcp.py reads no environment variables of its own. Both the Security Command Center and Cloud Asset Inventory clients are constructed without explicit credentials and rely on Application Default Credentials, so authentication is configured out-of-band (`gcloud auth application-default login`, Workload Identity, or a service account key referenced by the standard GOOGLE_APPLICATION_CREDENTIALS variable, which google-auth reads). Required IAM: roles/securitycenter.adminViewer or roles/securitycenter.adminEditor, plus roles/cloudasset.viewer. Required APIs: securitycenter.googleapis.com and cloudasset.googleapis.com.\n\nThe target project is passed per tool call as a `project_id` argument rather than an environment variable, so no project identifier is required in the connection spec.\n\nTools exposed: top_vulnerability_findings (active HIGH/CRITICAL vulnerability-class findings, sorted by Attack Exposure Score) and get_finding_remediation (remediation steps plus affected resource details from Cloud Asset Inventory). This server is read-only and vulnerability-focused; it does not list all finding classes and cannot mute or change finding state.",
+        "sources": [
+          "https://github.com/google/mcp-security",
+          "https://google.github.io/mcp-security/servers/scc_mcp.html",
+          "https://pypi.org/project/scc-mcp/",
+          "https://cloud.google.com/security-command-center/docs/reference/rest"
+        ]
+      }
+    },
+    {
       "slug": "sumo-logic-mcp",
       "docs": "https://www.sumologic.com/demo/mcp-server",
       "connection_spec": {
