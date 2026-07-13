@@ -802,3 +802,46 @@ async def test_audit_log_failure_logging_failure_still_raises_original_exception
 
     assert len(create_event_calls) == 1
     assert create_event_calls[0][1]["status"] == AuditEventStatus.ATTEMPT
+
+
+@pytest.mark.anyio
+async def test_audit_log_semantic_failure_via_ok_attribute_logs_failure_event(
+    role: Role,
+) -> None:
+    """A result that returns normally but reports ``ok=False`` (e.g. workflow
+    publish validation errors) should be logged as a FAILURE, not a SUCCESS."""
+
+    class PublishResult:
+        def __init__(self, workflow_id: uuid.UUID, ok: bool):
+            self.workflow_id = workflow_id
+            self._ok = ok
+
+        @property
+        def ok(self) -> bool:
+            return self._ok
+
+    class MockService:
+        def __init__(self):
+            self.session = AsyncMock()
+
+        @audit_log(resource_type="workflow", action="update")
+        async def publish_workflow(self, workflow_id: uuid.UUID):
+            return PublishResult(workflow_id, ok=False)
+
+    service = MockService()
+    token = ctx_role.set(role)
+
+    create_event_calls = []
+
+    async def mock_create_event(*args, **kwargs):
+        create_event_calls.append(kwargs)
+
+    try:
+        with patch.object(AuditService, "create_event", side_effect=mock_create_event):
+            result = await service.publish_workflow(workflow_id=uuid.uuid4())
+    finally:
+        ctx_role.reset(token)
+
+    assert result.ok is False
+    statuses = [call["status"] for call in create_event_calls]
+    assert statuses == [AuditEventStatus.ATTEMPT, AuditEventStatus.FAILURE]

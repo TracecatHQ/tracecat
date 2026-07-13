@@ -128,6 +128,7 @@ def audit_log(
                             status=(
                                 AuditEventStatus.FAILURE
                                 if getattr(result, "success", None) is False
+                                or getattr(result, "ok", None) is False
                                 else AuditEventStatus.SUCCESS
                             ),
                         )
