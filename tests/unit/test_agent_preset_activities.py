@@ -22,7 +22,6 @@ from tracecat.agent.preset.resolver import (
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
-    ResolvedAgentsConfig,
     ResolvedAttachedSubagentRef,
 )
 from tracecat.agent.types import AgentConfig
@@ -159,8 +158,8 @@ async def test_resolve_preset_subagent_configs_uses_preset_id_ref() -> None:
     )
     service._lock_active_subagent_presets = AsyncMock()  # type: ignore[method-assign]
     # The edge-authoritative ban check hits the DB; stub it for the double.
-    service.get_version_subagent_binding = AsyncMock(  # type: ignore[method-assign]
-        return_value=ResolvedAgentsConfig(enabled=False)
+    service._get_version_agents_config = AsyncMock(  # type: ignore[method-assign]
+        return_value=AgentSubagentsConfig(enabled=False)
     )
 
     result = await service._resolve_preset_subagent_configs(
@@ -206,6 +205,9 @@ async def test_resolve_agents_config_resolves_persisted_ref_by_preset_id(
     service = SimpleNamespace(
         resolve_agent_preset_version=AsyncMock(return_value=version),
         resolve_agent_preset_version_for_subagent_ref=AsyncMock(return_value=version),
+        _get_version_agents_config=AsyncMock(
+            return_value=AgentSubagentsConfig(enabled=False)
+        ),
         get_preset=AsyncMock(return_value=SimpleNamespace(description="Child preset")),
         resolve_agent_preset_config=AsyncMock(
             return_value=AgentConfig(
@@ -271,6 +273,9 @@ async def test_resolve_agents_config_ignores_legacy_follow_latest_flag(
     service = SimpleNamespace(
         resolve_agent_preset_version=AsyncMock(return_value=version),
         resolve_agent_preset_version_for_subagent_ref=AsyncMock(return_value=version),
+        _get_version_agents_config=AsyncMock(
+            return_value=AgentSubagentsConfig(enabled=False)
+        ),
         get_preset=AsyncMock(return_value=SimpleNamespace(description="Child preset")),
         resolve_agent_preset_config=AsyncMock(
             return_value=AgentConfig(
@@ -332,6 +337,9 @@ async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
     service = SimpleNamespace(
         resolve_agent_preset_version=AsyncMock(return_value=version),
         resolve_agent_preset_version_for_subagent_ref=AsyncMock(return_value=version),
+        _get_version_agents_config=AsyncMock(
+            return_value=AgentSubagentsConfig(enabled=False)
+        ),
     )
     role = Role(
         type="service",
