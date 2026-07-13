@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import uuid
-from collections.abc import AsyncIterator, Iterator, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Literal, NamedTuple, TypeGuard
@@ -41,7 +41,10 @@ from tracecat.db.models import (
     OrganizationSecret,
     Secret,
 )
-from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+)
 from tracecat.integrations.aws_assume_role import build_workspace_external_id
 from tracecat.logger import logger
 from tracecat.secrets import secrets_manager
@@ -1081,6 +1084,9 @@ class AgentManagementService(BaseOrgService):
         slug: str | None = None,
         preset_version_id: uuid.UUID | None = None,
         preset_version: int | None = None,
+        on_resolution_error: Callable[[TracecatNotFoundError], Awaitable[None]]
+        | None = None,
+        on_resolved: Callable[[AgentConfig], Awaitable[None]] | None = None,
     ) -> AsyncIterator[AgentConfig]:
         """Yield an agent preset configuration with provider credentials loaded.
 
@@ -1094,18 +1100,41 @@ class AgentManagementService(BaseOrgService):
             slug: Agent preset slug to load (alternative to preset_id)
             preset_version_id: Exact version ID from a run or restore snapshot
             preset_version: Exact version number for legacy replay
+            on_resolution_error: Awaited when resolution itself fails.
+            on_resolved: Awaited immediately after resolution succeeds and
+                before credential loading, so callers can persist resolution
+                outcomes that must survive credential failures.
         """
         if self.presets is None:
             raise TracecatAuthorizationError(
                 "Agent presets require a workspace role",
             )
 
-        preset_config = await self.presets.resolve_agent_preset_config(
-            preset_id=preset_id,
-            slug=slug,
-            preset_version_id=preset_version_id,
-            preset_version=preset_version,
-        )
+        try:
+            preset_config = await self.presets.resolve_agent_preset_config(
+                preset_id=preset_id,
+                slug=slug,
+                preset_version_id=preset_version_id,
+                preset_version=preset_version,
+            )
+        except TracecatNotFoundError as err:
+            # Only ref-state failures feed the provenance classifier: every
+            # genuine not_found / deleted / unpublished outcome arrives as
+            # NotFound (unpublished roots raise NotFound from
+            # get_effective_version_for_preset). Post-resolution validation
+            # errors (e.g. duplicate skill names) are not resolution outcomes
+            # and must not be classified into failure refs.
+            if on_resolution_error is not None:
+                try:
+                    await on_resolution_error(err)
+                except Exception:
+                    # A provenance write failure must never mask the domain
+                    # error; record it and let the original propagate.
+                    logger.exception("Failed to record preset resolution failure refs")
+            raise
+
+        if on_resolved is not None:
+            await on_resolved(preset_config)
 
         credentials: dict[str, str] | None = None
         workspace_credentials_checked = False

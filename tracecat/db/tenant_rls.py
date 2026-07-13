@@ -87,6 +87,7 @@ POST_RLS_WORKSPACE_SCOPED_TABLES = (
     "agent_preset_subagent",
     "agent_preset_version_subagent",
     "workspace_sync_resource_mapping",
+    "agent_turn_provenance",
 )
 
 POST_RLS_ORG_SCOPED_TABLES = (
