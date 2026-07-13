@@ -6,7 +6,6 @@ import {
   ExternalLink,
   Globe2,
   Loader2,
-  MoreHorizontal,
   PlayCircle,
   Plus,
   Server,
@@ -74,12 +73,6 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import {
   Form,
   FormControl,
   FormDescription,
@@ -98,6 +91,11 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { getMcpOAuthConnectErrorDetail } from "@/lib/errors"
 import {
@@ -280,13 +278,24 @@ type MCPToolPolicyPatch = {
   requires_approval?: boolean
 }
 
+const STDIO_APPROVAL_UNSUPPORTED_HINT =
+  "Approvals are not supported for local (stdio) MCP servers."
+
 function MCPToolPolicyList({
   tools,
   canUpdate,
+  approvalsSupported,
   onPolicyChange,
 }: {
   tools: MCPToolSummary[]
   canUpdate: boolean
+  /**
+   * Whether per-tool approval can be enabled for this integration. Stdio
+   * (local) MCP servers cannot support approvals because the subprocess lives
+   * inside the per-turn sandbox and is gone by the time the approval
+   * continuation runs, so the approval toggle is rendered disabled.
+   */
+  approvalsSupported: boolean
   onPolicyChange: (tool: MCPToolSummary, patch: MCPToolPolicyPatch) => void
 }) {
   return (
@@ -341,14 +350,33 @@ function MCPToolPolicyList({
               </label>
               <label className="flex items-center justify-between gap-2 text-xs text-muted-foreground sm:justify-start">
                 Approval
-                <Switch
-                  checked={requiresApproval}
-                  disabled={disabled || !enabled}
-                  onCheckedChange={(checked) =>
-                    onPolicyChange(tool, { requires_approval: checked })
-                  }
-                  aria-label={`Require approval for ${tool.name}`}
-                />
+                {approvalsSupported ? (
+                  <Switch
+                    checked={requiresApproval}
+                    disabled={disabled || !enabled}
+                    onCheckedChange={(checked) =>
+                      onPolicyChange(tool, { requires_approval: checked })
+                    }
+                    aria-label={`Require approval for ${tool.name}`}
+                  />
+                ) : (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      {/* Wrap in a span so the tooltip still fires while the
+                          disabled Switch swallows pointer events. */}
+                      <span className="inline-flex">
+                        <Switch
+                          checked={false}
+                          disabled
+                          aria-label={`Require approval for ${tool.name}`}
+                        />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {STDIO_APPROVAL_UNSUPPORTED_HINT}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
               </label>
             </div>
           </li>
@@ -450,14 +478,39 @@ export function MCPIntegrationDialog({
   const oauthSetup = form.watch("oauth_setup")
   const connectionOptionId = form.watch("connection_option_id")
 
+  const dirtyFields = form.formState.dirtyFields
+  const stdioConnectionFieldsAreDirty = Boolean(
+    dirtyFields.server_type ||
+      dirtyFields.connection_option_id ||
+      dirtyFields.stdio_command ||
+      dirtyFields.stdio_args ||
+      dirtyFields.stdio_env ||
+      dirtyFields.timeout
+  )
+  const stdioTestRequiresSave =
+    serverType === "stdio" &&
+    (!isEditMode || !mcpIntegrationId || stdioConnectionFieldsAreDirty)
+  const stdioTestHint = stdioTestRequiresSave
+    ? isEditMode
+      ? "Save before testing stdio changes."
+      : "Save before testing stdio servers."
+    : null
+
   /**
-   * Test the form's current (possibly unsaved) values against the server.
-   * Ephemeral — nothing is persisted; saving runs its own verification.
+   * Test the connection. Stdio tests always use the saved integration-scoped
+   * endpoint; HTTP can still test dirty form values through the config endpoint.
    */
   async function handleTestConnection() {
     const values = form.getValues()
+    if (values.server_type === "stdio") {
+      if (mcpIntegrationId && !stdioConnectionFieldsAreDirty) {
+        await testMcpIntegrationConnection(mcpIntegrationId)
+      }
+      return
+    }
+
     const serverUri = values.server_uri?.trim()
-    if (values.server_type !== "http" || !serverUri) {
+    if (!serverUri) {
       void form.trigger("server_uri")
       return
     }
@@ -468,9 +521,10 @@ export function MCPIntegrationDialog({
     // stored config no longer reflects what would be saved, so test the form
     // values through the ephemeral config-test endpoint instead; it back-fills
     // secrets the form leaves blank from the saved integration.
-    const dirtyFields = form.formState.dirtyFields
     const connectionFieldsAreDirty = Boolean(
-      dirtyFields.server_uri ||
+      dirtyFields.server_type ||
+        dirtyFields.connection_option_id ||
+        dirtyFields.server_uri ||
         dirtyFields.auth_type ||
         dirtyFields.oauth_setup ||
         dirtyFields.oauth_integration_id ||
@@ -491,6 +545,7 @@ export function MCPIntegrationDialog({
     }
     await testMcpConnectionConfig({
       mcp_integration_id: mcpIntegrationId ?? null,
+      server_type: "http",
       server_uri: serverUri,
       auth_type: values.auth_type,
       oauth_integration_id:
@@ -905,43 +960,36 @@ export function MCPIntegrationDialog({
     createMcpIntegrationIsPending ||
     updateMcpIntegrationIsPending
 
-  // Connection actions menu mirroring the OAuth integration details dialog.
-  // Tests the form's current values; with unsaved connection edits the probe
-  // is ephemeral, otherwise it persists the discovered tools.
-  const connectionActions =
-    isEditMode && mcpIntegrationId && canUpdate ? (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-8 shrink-0 text-muted-foreground"
-            disabled={testConnectionIsPending}
-            aria-label="Connection actions"
-          >
-            {testConnectionIsPending ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <MoreHorizontal className="size-4" />
-            )}
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-44">
-          <DropdownMenuItem
-            disabled={serverType === "stdio" || testConnectionIsPending}
-            title={
-              serverType === "stdio"
-                ? "Stdio servers can't be tested"
-                : undefined
-            }
-            onClick={() => void handleTestConnection()}
-          >
-            <PlayCircle className="mr-2 size-4 text-muted-foreground" />
-            Test
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+  // Saved configs persist discovered tools. HTTP can test dirty form values;
+  // stdio must be saved before testing because verification runs by row ID.
+  const connectionActions = canUpdate ? (
+    <div className="flex flex-col items-end gap-1">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-8 shrink-0"
+        disabled={testConnectionIsPending || stdioTestRequiresSave}
+        title={stdioTestHint ?? undefined}
+        onClick={() => void handleTestConnection()}
+      >
+        {testConnectionIsPending ? (
+          <Loader2 className="mr-2 size-4 animate-spin" />
+        ) : (
+          <PlayCircle className="mr-2 size-4" />
+        )}
+        Test
+      </Button>
+      {stdioTestHint ? (
+        <p className="text-right text-xs text-muted-foreground">
+          {stdioTestHint}
+        </p>
+      ) : null}
+    </div>
+  ) : null
+  const createConnectionActions =
+    !catalogEntry && !isEditMode && connectionActions ? (
+      <div className="flex justify-end">{connectionActions}</div>
     ) : null
   const availableToolCount =
     mcpIntegration?.tools?.filter((tool) => tool.status !== "missing").length ??
@@ -1030,6 +1078,8 @@ export function MCPIntegrationDialog({
                   onSubmit={form.handleSubmit(onSubmit)}
                   noValidate
                 >
+                  {createConnectionActions}
+
                   {catalogEntry && catalogOptions.length > 1 ? (
                     <FormField
                       control={form.control}
@@ -1071,7 +1121,14 @@ export function MCPIntegrationDialog({
                                             currentValues.catalog_slug ||
                                             values.catalog_slug,
                                         }
-                                        form.reset(nextValues)
+                                        // Keep the saved integration as the
+                                        // baseline so switching options marks
+                                        // connection fields dirty and Test
+                                        // probes the form values, not the
+                                        // saved config.
+                                        form.reset(nextValues, {
+                                          keepDefaultValues: true,
+                                        })
                                         replaceStdioArgs(nextValues.stdio_args)
                                       } else {
                                         form.reset(values)
@@ -1443,9 +1500,7 @@ export function MCPIntegrationDialog({
                     </>
                   )}
 
-                  {isEditMode &&
-                  serverType === "http" &&
-                  !mcpIntegration?.tools?.length ? (
+                  {isEditMode && mcpIntegration?.tools == null ? (
                     <p className="text-xs text-muted-foreground">
                       Connection not verified — test the connection to discover
                       tools.
@@ -1453,9 +1508,7 @@ export function MCPIntegrationDialog({
                   ) : null}
 
                   <Accordion type="multiple">
-                    {isEditMode &&
-                    serverType === "http" &&
-                    mcpIntegration?.tools?.length ? (
+                    {isEditMode && mcpIntegration?.tools != null ? (
                       <AccordionItem value="tools" className="border-t">
                         <AccordionTrigger className="py-3 hover:no-underline">
                           <span className="flex items-center gap-2">
@@ -1475,6 +1528,9 @@ export function MCPIntegrationDialog({
                           <MCPToolPolicyList
                             tools={mcpIntegration.tools}
                             canUpdate={canUpdate}
+                            approvalsSupported={
+                              mcpIntegration.server_type !== "stdio"
+                            }
                             onPolicyChange={(tool, patch) =>
                               void handleToolPolicyChange(tool, patch)
                             }
@@ -1486,9 +1542,7 @@ export function MCPIntegrationDialog({
                       value="advanced"
                       className={cn(
                         "border-b-0",
-                        isEditMode &&
-                          serverType === "http" &&
-                          mcpIntegration?.tools?.length
+                        isEditMode && mcpIntegration?.tools != null
                           ? undefined
                           : "border-t"
                       )}

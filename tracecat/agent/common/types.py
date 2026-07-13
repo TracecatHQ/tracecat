@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict, TypeGuar
 from pydantic import BaseModel, ConfigDict, Field
 
 from tracecat.agent.subagents import AgentSubagentsConfig
+from tracecat.integrations.schemas import MCPToolStatus
 
 if TYPE_CHECKING:
     from tracecat.agent.types import AgentConfig
@@ -59,6 +60,16 @@ class MCPHttpServerConfig(TypedDict):
     callers can re-resolve secrets per use without re-listing integrations."""
 
 
+class MCPServerToolSummary(TypedDict):
+    """Non-secret summary of a verified user MCP tool."""
+
+    name: str
+    description: NotRequired[str | None]
+    enabled: NotRequired[bool]
+    requires_approval: NotRequired[bool]
+    status: NotRequired[MCPToolStatus]
+
+
 class MCPStdioServerConfig(TypedDict):
     """Configuration for a stdio MCP server."""
 
@@ -74,6 +85,11 @@ class MCPStdioServerConfig(TypedDict):
     """Optional: UUID of the source ``mcp_integrations`` row this config was
     resolved from. See :class:`MCPHttpServerConfig.id`."""
 
+    tools: NotRequired[list[MCPServerToolSummary]]
+    """Optional, non-secret tool summaries from the latest successful
+    verification. Used by runtimes that cannot rediscover stdio tools cheaply
+    before the server process is available."""
+
 
 MCPServerConfig = MCPHttpServerConfig | MCPStdioServerConfig
 
@@ -81,6 +97,26 @@ MCPServerConfig = MCPHttpServerConfig | MCPStdioServerConfig
 def is_stdio_mcp_server(config: MCPServerConfig) -> TypeGuard[MCPStdioServerConfig]:
     """Narrow a generic ``MCPServerConfig`` to its stdio variant."""
     return config.get("type") == "stdio"
+
+
+def has_stdio_mcp_server(mcp_servers: list[MCPServerConfig] | None) -> bool:
+    """Return whether a config contains a stdio MCP server."""
+    return any(is_stdio_mcp_server(server) for server in mcp_servers or ())
+
+
+def requires_sandbox_internet_access(
+    *,
+    config: SandboxAgentConfig,
+    subagents: list[SandboxSubagentConfig],
+) -> bool:
+    """Return the effective sandbox network requirement for a runtime turn."""
+    if config.enable_internet_access or has_stdio_mcp_server(config.mcp_servers):
+        return True
+    return any(
+        subagent.config.enable_internet_access
+        or has_stdio_mcp_server(subagent.config.mcp_servers)
+        for subagent in subagents
+    )
 
 
 def is_http_mcp_server(config: MCPServerConfig) -> TypeGuard[MCPHttpServerConfig]:

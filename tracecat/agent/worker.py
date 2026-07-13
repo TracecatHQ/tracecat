@@ -27,6 +27,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat_ee.agent.workflows.registry_tool import ExecuteRegistryToolWorkflow
 
     from tracecat import config
+    from tracecat.agent.mcp.activities import persist_stdio_mcp_connection_activity
     from tracecat.agent.preset.activities import (
         resolve_agent_preset_config_activity,
         resolve_agent_preset_version_ref_activity,
@@ -34,6 +35,9 @@ with workflow.unsafe.imports_passed_through():
         resolve_custom_model_provider_config_activity,
     )
     from tracecat.agent.session.activities import get_session_activities
+    from tracecat.agent.workflows.mcp_probe import (
+        StdioMCPProbeWorkflow,
+    )
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.interceptor import SentryInterceptor
     from tracecat.dsl.plugins import TracecatPydanticAIPlugin
@@ -81,6 +85,7 @@ def get_activities() -> list[Callable[..., object]]:
     activities.append(resolve_agent_preset_version_ref_activity)
     activities.append(resolve_agents_config_activity)
     activities.append(resolve_custom_model_provider_config_activity)
+    activities.append(persist_stdio_mcp_connection_activity)
     activities.extend(get_session_activities())
     return activities
 
@@ -126,7 +131,11 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
 
     try:
         with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
-            workflows: list[type] = [DurableAgentWorkflow, ExecuteRegistryToolWorkflow]
+            workflows: list[type] = [
+                DurableAgentWorkflow,
+                ExecuteRegistryToolWorkflow,
+                StdioMCPProbeWorkflow,
+            ]
 
             async with Worker(
                 client,

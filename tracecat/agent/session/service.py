@@ -225,7 +225,7 @@ class AgentSessionService(BaseWorkspaceService):
         if not mcp_integrations:
             return
         preset_service = AgentPresetService(self.session, self.role)
-        await preset_service.validate_mcp_integrations(mcp_integrations)
+        await preset_service.load_selected_mcp_integrations(mcp_integrations)
 
     def _build_direct_agent_search_attributes(
         self, session_id: uuid.UUID

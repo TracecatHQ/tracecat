@@ -604,6 +604,10 @@ PlatformMCPCatalogState = Literal[
     "connected",
     "error",
 ]
+MCPCatalogConnectStatus = Literal["configured", "connected", "oauth_redirect"]
+MCPVerificationStatus = Literal[
+    "idle", "verifying", "succeeded", "failed", "superseded"
+]
 MCPToolStatus = Literal["available", "missing"]
 
 
@@ -877,15 +881,29 @@ class MCPIntegrationRead(BaseModel):
     updated_at: datetime
 
 
-class MCPIntegrationTestConnectionRequest(BaseModel):
-    """Request to test connectivity against an unsaved HTTP MCP configuration.
+class MCPVerificationStatusRead(BaseModel):
+    """Response model for saved MCP verification status."""
 
-    Carries the (possibly edited, not yet persisted) form values. When
+    status: MCPVerificationStatus
+    error: str | None = None
+
+
+class _MCPIntegrationTestConnectionRequestBase(BaseModel):
+    """Common fields for testing an MCP configuration.
+
+    HTTP tests carry the possibly edited, not yet persisted form values. When
     ``mcp_integration_id`` is set, stored secrets from that row are used as a
     fallback for fields the caller leaves blank (e.g. unchanged credentials).
     """
 
     mcp_integration_id: UUID4 | None = None
+    timeout: int | None = Field(default=None, ge=1, le=300)
+
+
+class MCPHttpIntegrationTestConnectionRequest(_MCPIntegrationTestConnectionRequestBase):
+    """Request to test connectivity against an unsaved HTTP MCP configuration."""
+
+    server_type: Literal["http"] = Field(default="http")
     server_uri: str = Field(..., min_length=1, max_length=2048)
     auth_type: MCPAuthType = MCPAuthType.NONE
     oauth_integration_id: UUID4 | None = None
@@ -893,7 +911,6 @@ class MCPIntegrationTestConnectionRequest(BaseModel):
         default=None,
         description="JSON object of custom headers; falls back to stored headers when omitted",
     )
-    timeout: int | None = Field(default=None, ge=1, le=300)
 
     @field_validator("server_uri", mode="before")
     @classmethod
@@ -920,6 +937,36 @@ class MCPIntegrationTestConnectionRequest(BaseModel):
         return value
 
 
+class MCPStdioIntegrationTestConnectionRequest(BaseModel):
+    """Request to test connectivity against a saved stdio MCP integration."""
+
+    model_config = {"extra": "forbid"}
+
+    mcp_integration_id: UUID4
+    server_type: Literal["stdio"] = Field(default="stdio")
+
+
+def _discriminate_mcp_test_connection_server_type(value: Any) -> str:
+    """Infer MCP test server type, defaulting legacy payloads to HTTP."""
+    if isinstance(value, MCPHttpIntegrationTestConnectionRequest):
+        return "http"
+    if isinstance(value, MCPStdioIntegrationTestConnectionRequest):
+        return "stdio"
+    if isinstance(value, dict):
+        if "server_type" in value:
+            server_type = value.get("server_type")
+            if isinstance(server_type, str):
+                return server_type
+    return "http"
+
+
+type MCPIntegrationTestConnectionRequest = Annotated[
+    Annotated[MCPHttpIntegrationTestConnectionRequest, Tag("http")]
+    | Annotated[MCPStdioIntegrationTestConnectionRequest, Tag("stdio")],
+    Discriminator(_discriminate_mcp_test_connection_server_type),
+]
+
+
 class MCPIntegrationTestConnectionResponse(BaseModel):
     """Response for testing connectivity to an MCP server."""
 
@@ -933,7 +980,7 @@ class MCPIntegrationTestConnectionResponse(BaseModel):
 class MCPCatalogConnectResponse(BaseModel):
     """Response for connecting a platform MCP catalog entry."""
 
-    status: Literal["connected", "oauth_redirect"]
+    status: MCPCatalogConnectStatus
     mcp_integration: MCPIntegrationRead | None = None
     auth_url: str | None = None
     provider_id: str | None = None

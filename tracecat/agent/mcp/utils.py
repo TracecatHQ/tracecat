@@ -8,6 +8,7 @@ The tool definition fetchers require DB access and use lazy imports.
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 from tracecat.agent.common.types import MCPToolDefinition
@@ -18,6 +19,10 @@ if TYPE_CHECKING:
 
 REGISTRY_MCP_SERVER_NAME = "tracecat-registry"
 LEGACY_REGISTRY_MCP_SERVER_NAME = "tracecat_registry"
+
+# Anthropic tool names must match this pattern; stdio MCP servers can report
+# names (e.g. "issue.get") that would put invalid entries in allowed_tools.
+STDIO_MCP_TOOL_NAME_RE = re.compile(r"\A[a-zA-Z0-9_-]{1,64}\Z")
 
 
 def action_name_to_mcp_tool_name(action_name: str) -> str:

@@ -4710,13 +4710,13 @@ export type MCPAuthType = "OAUTH2" | "CUSTOM" | "NONE"
  * Response for connecting a platform MCP catalog entry.
  */
 export type MCPCatalogConnectResponse = {
-  status: "connected" | "oauth_redirect"
+  status: "configured" | "connected" | "oauth_redirect"
   mcp_integration?: MCPIntegrationRead | null
   auth_url?: string | null
   provider_id?: string | null
 }
 
-export type status3 = "connected" | "oauth_redirect"
+export type status3 = "configured" | "connected" | "oauth_redirect"
 
 /**
  * Typed configure-dialog field declared by a catalog spec.
@@ -4866,6 +4866,22 @@ export type MCPHttpIntegrationCreate = {
 }
 
 /**
+ * Request to test connectivity against an unsaved HTTP MCP configuration.
+ */
+export type MCPHttpIntegrationTestConnectionRequest = {
+  mcp_integration_id?: string | null
+  timeout?: number | null
+  server_type?: "http"
+  server_uri: string
+  auth_type?: MCPAuthType
+  oauth_integration_id?: string | null
+  /**
+   * JSON object of custom headers; falls back to stored headers when omitted
+   */
+  custom_credentials?: string | null
+}
+
+/**
  * Configuration for a user-defined MCP server over HTTP/SSE.
  *
  * Users can connect custom MCP servers to their agents - whether running as
@@ -4928,24 +4944,9 @@ export type MCPIntegrationRead = {
 
 export type state = "not_configured" | "configured" | "connected" | "error"
 
-/**
- * Request to test connectivity against an unsaved HTTP MCP configuration.
- *
- * Carries the (possibly edited, not yet persisted) form values. When
- * ``mcp_integration_id`` is set, stored secrets from that row are used as a
- * fallback for fields the caller leaves blank (e.g. unchanged credentials).
- */
-export type MCPIntegrationTestConnectionRequest = {
-  mcp_integration_id?: string | null
-  server_uri: string
-  auth_type?: MCPAuthType
-  oauth_integration_id?: string | null
-  /**
-   * JSON object of custom headers; falls back to stored headers when omitted
-   */
-  custom_credentials?: string | null
-  timeout?: number | null
-}
+export type MCPIntegrationTestConnectionRequest =
+  | MCPHttpIntegrationTestConnectionRequest
+  | MCPStdioIntegrationTestConnectionRequest
 
 /**
  * Response for testing connectivity to an MCP server.
@@ -5031,6 +5032,19 @@ export type MCPPersonalAccessTokenRead = {
   updated_at: string
 }
 
+/**
+ * Non-secret summary of a verified user MCP tool.
+ */
+export type MCPServerToolSummary = {
+  name: string
+  description?: string | null
+  enabled?: boolean
+  requires_approval?: boolean
+  status?: "available" | "missing"
+}
+
+export type status4 = "available" | "missing"
+
 export type MCPServerType = "http" | "stdio"
 
 /**
@@ -5090,6 +5104,14 @@ export type MCPStdioIntegrationCreate = {
 }
 
 /**
+ * Request to test connectivity against a saved stdio MCP integration.
+ */
+export type MCPStdioIntegrationTestConnectionRequest = {
+  mcp_integration_id: string
+  server_type?: "stdio"
+}
+
+/**
  * Stdio MCP server with no authentication.
  */
 export type MCPStdioNoneConnectionSpec = {
@@ -5121,6 +5143,7 @@ export type MCPStdioServerConfig = {
   }
   timeout?: number
   id?: string
+  tools?: Array<MCPServerToolSummary>
 }
 
 /**
@@ -5150,7 +5173,20 @@ export type MCPToolSummary = {
   status?: "available" | "missing"
 }
 
-export type status4 = "available" | "missing"
+/**
+ * Response model for saved MCP verification status.
+ */
+export type MCPVerificationStatusRead = {
+  status: "idle" | "verifying" | "succeeded" | "failed" | "superseded"
+  error?: string | null
+}
+
+export type status5 =
+  | "idle"
+  | "verifying"
+  | "succeeded"
+  | "failed"
+  | "superseded"
 
 /**
  * The type/kind of message stored in the chat.
@@ -5608,7 +5644,7 @@ export type PlatformMCPCatalogRead = {
   last_refreshed_at: string | null
 }
 
-export type status5 = "available" | "coming_soon" | "deprecated" | "hidden"
+export type status6 = "available" | "coming_soon" | "deprecated" | "hidden"
 
 /**
  * Platform registry settings response.
@@ -5874,7 +5910,7 @@ export type RateLimitInfo = {
   }
 }
 
-export type status6 = "allowed" | "allowed_warning" | "rejected"
+export type status7 = "allowed" | "allowed_warning" | "rejected"
 
 /**
  * A reasoning part of a message.
@@ -6498,7 +6534,7 @@ export type RunArtifact = {
   startedAt: string
 }
 
-export type status7 = "running" | "success" | "failed" | "cancelled"
+export type status8 = "running" | "success" | "failed" | "cancelled"
 
 /**
  * This is the runtime context model for a workflow run. Passed into activities.
@@ -8749,7 +8785,7 @@ export type WorkflowCommitResponse = {
   } | null
 }
 
-export type status8 = "success" | "failure"
+export type status9 = "success" | "failure"
 
 /**
  * API response model for persisted workflow definitions.
@@ -8812,7 +8848,7 @@ export type WorkflowDslPublishResult = {
   message: string
 }
 
-export type status9 = "committed" | "no_op"
+export type status10 = "committed" | "no_op"
 
 export type WorkflowEntrypointValidationRequest = {
   expects?: {
@@ -9130,7 +9166,7 @@ export type WorkflowExecutionRead = {
   interactions?: Array<InteractionRead>
 }
 
-export type status10 =
+export type status11 =
   | "RUNNING"
   | "COMPLETED"
   | "FAILED"
@@ -13288,6 +13324,14 @@ export type McpIntegrationsDeleteMcpIntegrationData = {
 }
 
 export type McpIntegrationsDeleteMcpIntegrationResponse = void
+
+export type McpIntegrationsGetMcpIntegrationVerificationStatusData = {
+  mcpIntegrationId: string
+  workspaceId: string
+}
+
+export type McpIntegrationsGetMcpIntegrationVerificationStatusResponse =
+  MCPVerificationStatusRead
 
 export type McpIntegrationsUpdateMcpIntegrationToolPoliciesData = {
   mcpIntegrationId: string
@@ -19542,6 +19586,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}/verification-status": {
+    get: {
+      req: McpIntegrationsGetMcpIntegrationVerificationStatusData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MCPVerificationStatusRead
         /**
          * Validation Error
          */

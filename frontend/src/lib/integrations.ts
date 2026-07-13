@@ -1,7 +1,18 @@
 import type {
+  MCPIntegrationRead,
   McpIntegrationsListMcpIntegrationsData,
   OAuthGrantType,
+  PlatformMCPCatalogRead,
 } from "@/client"
+
+export const MCP_STDIO_VERIFICATION_POLL_INTERVAL_MS = 3000
+
+type PendingStdioMcpVerificationFields = {
+  id: string | null | undefined
+  serverType: string | null | undefined
+  state: string | null | undefined
+  tools: unknown
+}
 
 /**
  * Whether a provider ID belongs to a platform-shipped MCP auth provider.
@@ -16,6 +27,55 @@ import type {
  */
 export function isMcpProvider(providerId: string): boolean {
   return providerId.endsWith("_mcp") && !providerId.startsWith("custom_")
+}
+
+/**
+ * IDs for stdio integrations waiting on background verification.
+ */
+export function getPendingStdioMcpVerificationIds(
+  integrations: MCPIntegrationRead[] | undefined
+): string[] {
+  return (
+    integrations?.flatMap((integration) => {
+      const fields = {
+        id: integration.id,
+        serverType: integration.server_type,
+        state: integration.state,
+        tools: integration.tools,
+      }
+      return isPendingStdioMcpVerification(fields) ? [fields.id] : []
+    }) ?? []
+  )
+}
+
+/**
+ * MCP integration IDs for catalog rows waiting on stdio verification.
+ */
+export function getPendingStdioMcpCatalogVerificationIds(
+  items: PlatformMCPCatalogRead[] | undefined
+): string[] {
+  return (
+    items?.flatMap((item) => {
+      const fields = {
+        id: item.mcp_integration_id,
+        serverType: item.mcp_server_type,
+        state: item.state,
+        tools: item.tools,
+      }
+      return isPendingStdioMcpVerification(fields) ? [fields.id] : []
+    }) ?? []
+  )
+}
+
+function isPendingStdioMcpVerification(
+  fields: PendingStdioMcpVerificationFields
+): fields is PendingStdioMcpVerificationFields & { id: string } {
+  return (
+    typeof fields.id === "string" &&
+    fields.serverType === "stdio" &&
+    fields.state === "configured" &&
+    fields.tools == null
+  )
 }
 
 /**

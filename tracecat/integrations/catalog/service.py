@@ -245,6 +245,8 @@ class PlatformMCPCatalogService(BaseService):
             encrypted_access_token is not None and is_set(encrypted_access_token)
         ):
             return "configured"
+        if mcp_integration.tools is None:
+            return "configured"
         return "connected"
 
     @staticmethod

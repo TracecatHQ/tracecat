@@ -5,6 +5,7 @@ import logging
 
 import pytest
 
+from tracecat.sandbox import unsafe_pid_executor
 from tracecat.sandbox.unsafe_pid_executor import UnsafePidExecutor
 
 
@@ -21,8 +22,7 @@ class TestUnsafePidExecutor:
             return True
 
         monkeypatch.setattr(
-            executor,
-            "_is_pid_namespace_available",
+            "tracecat.sandbox.unsafe_pid_executor.pid_namespace_available",
             pid_namespace_available,
         )
         cmd = await executor._build_execution_cmd(
@@ -40,13 +40,22 @@ class TestUnsafePidExecutor:
         async def pid_namespace_unavailable() -> bool:
             return False
 
+        loguru_warnings = []
+
+        class FakeLogger:
+            def warning(self, message: str, **kwargs: object) -> None:
+                loguru_warnings.append((message, kwargs))
+
         monkeypatch.setattr(
-            executor,
-            "_is_pid_namespace_available",
+            "tracecat.sandbox.unsafe_pid_executor.pid_namespace_available",
             pid_namespace_unavailable,
         )
+        monkeypatch.setattr(
+            "tracecat.sandbox.unsafe_pid_executor.pid_namespace_probe_error",
+            lambda: "fargate restriction",
+        )
+        monkeypatch.setattr("tracecat.sandbox.unsafe_pid_executor.logger", FakeLogger())
         caplog.set_level(logging.WARNING, logger="tracecat.sandbox.unsafe_pid_executor")
-        executor._pid_namespace_probe_error = "fargate restriction"
 
         await executor._build_execution_cmd(
             "python3", executor.cache_dir / "wrapper.py"
@@ -61,10 +70,16 @@ class TestUnsafePidExecutor:
             if "PID namespace isolation unavailable" in record.message
         ]
         assert len(warnings) == 1
+        assert loguru_warnings == [
+            (
+                "PID namespace isolation unavailable; running script without PID isolation",
+                {"reason": "fargate restriction"},
+            )
+        ]
 
     @pytest.mark.anyio
     async def test_pid_probe_timeout_handles_process_lookup_error(
-        self, executor: UnsafePidExecutor, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         class FakeProbe:
             returncode = None
@@ -78,19 +93,24 @@ class TestUnsafePidExecutor:
         async def fake_create_subprocess_exec(*args, **kwargs):
             return FakeProbe()
 
-        async def fake_wait_for(*args, **kwargs):
+        async def fake_wait_for(awaitable, *args, **kwargs):
+            del args, kwargs
+            awaitable.close()
             raise TimeoutError
 
-        monkeypatch.setattr(
-            "tracecat.sandbox.unsafe_pid_executor.shutil.which", lambda *_: "unshare"
-        )
+        monkeypatch.setattr("tracecat.sandbox.utils._PID_NAMESPACE_AVAILABLE", None)
+        monkeypatch.setattr("tracecat.sandbox.utils._PID_NAMESPACE_PROBE_ERROR", None)
+        monkeypatch.setattr("tracecat.sandbox.utils.shutil.which", lambda *_: "unshare")
         monkeypatch.setattr(
             asyncio, "create_subprocess_exec", fake_create_subprocess_exec
         )
         monkeypatch.setattr(asyncio, "wait_for", fake_wait_for)
 
-        available = await executor._is_pid_namespace_available()
+        available = await unsafe_pid_executor.pid_namespace_available()
         assert not available
+        assert (
+            unsafe_pid_executor.pid_namespace_probe_error() == "unshare probe timed out"
+        )
 
     @pytest.mark.anyio
     async def test_execute_basic_script(self, executor: UnsafePidExecutor) -> None:

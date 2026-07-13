@@ -11,10 +11,8 @@ import json
 import logging
 import os
 import shutil
-import subprocess
 import tempfile
 import time
-from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +29,7 @@ from tracecat.sandbox.exceptions import (
     SandboxTimeoutError,
 )
 from tracecat.sandbox.types import SandboxResult
+from tracecat.sandbox.utils import pid_namespace_available, pid_namespace_probe_error
 
 module_logger = logging.getLogger(__name__)
 
@@ -247,8 +246,6 @@ class UnsafePidExecutor:
         self.cache_dir = Path(cache_dir)
         self.package_cache = self.cache_dir / "unsafe-pid-packages"
         self.uv_cache = self.cache_dir / "uv-cache"
-        self._pid_namespace_available: bool | None = None
-        self._pid_namespace_probe_error: str | None = None
         self._pid_isolation_warning_emitted = False
         self._network_isolation_warning_emitted = False
 
@@ -304,54 +301,16 @@ class UnsafePidExecutor:
         merged["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
         return merged
 
-    async def _is_pid_namespace_available(self) -> bool:
-        if self._pid_namespace_available is not None:
-            return self._pid_namespace_available
-
-        if shutil.which("unshare") is None:
-            self._pid_namespace_probe_error = "unshare binary not found"
-            self._pid_namespace_available = False
-            return False
-
-        probe: asyncio.subprocess.Process | None = None
-        try:
-            probe = await asyncio.create_subprocess_exec(
-                "unshare",
-                "--pid",
-                "--fork",
-                "--kill-child",
-                "true",
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            await asyncio.wait_for(probe.wait(), timeout=2)
-            self._pid_namespace_available = probe.returncode == 0
-            if not self._pid_namespace_available:
-                self._pid_namespace_probe_error = (
-                    f"unshare probe exited with status {probe.returncode}"
-                )
-        except TimeoutError:
-            if probe is not None:
-                with suppress(ProcessLookupError):
-                    probe.kill()
-                await probe.wait()
-            self._pid_namespace_probe_error = "unshare probe timed out"
-            self._pid_namespace_available = False
-        except Exception as e:
-            self._pid_namespace_probe_error = f"unshare probe failed: {e}"
-            self._pid_namespace_available = False
-        return self._pid_namespace_available
-
     async def _build_execution_cmd(
         self, python_path: str, wrapper_path: Path
     ) -> list[str]:
         base_cmd = [python_path, str(wrapper_path)]
-        if await self._is_pid_namespace_available():
+        if await pid_namespace_available():
             return ["unshare", "--pid", "--fork", "--kill-child", *base_cmd]
 
         if not self._pid_isolation_warning_emitted:
             message = "PID namespace isolation unavailable; running script without PID isolation"
-            logger.warning(message, reason=self._pid_namespace_probe_error)
+            logger.warning(message, reason=pid_namespace_probe_error())
             module_logger.warning(message)
             self._pid_isolation_warning_emitted = True
         return base_cmd
