@@ -62,7 +62,6 @@ import type {
   AgentPresetVersionReadMinimal,
   AttachedSubagentRef,
   SkillReadMinimal,
-  SkillVersionRead,
 } from "@/client"
 import { AgentPresetDeleteDialog } from "@/components/agents/agent-preset-delete-dialog"
 import { AgentPresetVersionSelect } from "@/components/agents/agent-preset-version-select"
@@ -157,9 +156,10 @@ import {
 } from "@/hooks/use-chat"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
-import { useSkills, useSkillVersions } from "@/hooks/use-skills"
+import { useSkills } from "@/hooks/use-skills"
 import {
   type AgentPresetFormMode,
+  buildAgentPresetUpdatePayload,
   buildDuplicateAgentPresetPayload,
   buildSkillCommandItemValue,
 } from "@/lib/agent-presets"
@@ -249,7 +249,6 @@ const agentPresetSchema = z
       .array(
         z.object({
           skillId: z.string().trim().min(1, "Select a skill"),
-          skillVersionId: z.string().trim().min(1, "Select a version"),
         })
       )
       .default([]),
@@ -1591,7 +1590,10 @@ function AgentPresetForm({
         versionsByPresetId: subagentVersionsByPresetId,
       })
       if (mode === "edit" && preset) {
-        const updated = await onUpdate(preset.id, payload)
+        const updatePayload = buildAgentPresetUpdatePayload(payload, {
+          skillsChanged: Boolean(form.formState.dirtyFields.skills),
+        })
+        const updated = await onUpdate(preset.id, updatePayload)
         form.reset(presetToFormValues(updated))
       } else {
         const created = await onCreate(payload)
@@ -3132,7 +3134,6 @@ function AgentPresetSkillsPanel({
   function handleAddSkill(skillId: string) {
     onAddSkillBinding({
       skillId,
-      skillVersionId: "",
     })
     setIsPickerOpen(false)
   }
@@ -3145,7 +3146,7 @@ function AgentPresetSkillsPanel({
             <div className="space-y-1">
               <p className="text-sm font-medium">Attached skills</p>
               <p className="text-xs text-muted-foreground">
-                Pin published skill versions to this preset.
+                Attach published skills to this preset.
               </p>
             </div>
             <Button
@@ -3247,76 +3248,16 @@ function AgentPresetSkillBindingRow({
   onRemove: (index: number) => void
 }) {
   const skillFieldName = `skills.${index}.skillId` as const
-  const versionFieldName = `skills.${index}.skillVersionId` as const
   const selectedSkillId = form.watch(skillFieldName)
-  const selectedVersionId = form.watch(versionFieldName)
   const selectedSkill = availableSkills.find(
     (skill) => skill.id === selectedSkillId
   )
-  const { versions, versionsLoading, versionsError } = useSkillVersions(
-    workspaceId,
-    selectedSkillId || null
-  )
-  const versionOptions = useMemo(
-    () => [...(versions ?? [])].sort((a, b) => b.version - a.version),
-    [versions]
-  )
-
-  useEffect(() => {
-    if (!selectedSkillId) {
-      if (selectedVersionId) {
-        form.setValue(versionFieldName, "", { shouldDirty: true })
-      }
-      return
-    }
-
-    if (versionsLoading || versionOptions.length === 0) {
-      return
-    }
-
-    const hasSelectedVersion = versionOptions.some(
-      (version) => version.id === selectedVersionId
-    )
-    if (hasSelectedVersion) {
-      return
-    }
-
-    const preferredVersionId =
-      selectedSkill?.current_version_id ?? versionOptions[0]?.id ?? ""
-    if (!preferredVersionId) {
-      return
-    }
-
-    form.setValue(versionFieldName, preferredVersionId, { shouldDirty: true })
-  }, [
-    form,
-    selectedSkill?.current_version_id,
-    selectedSkillId,
-    selectedVersionId,
-    versionFieldName,
-    versionOptions,
-    versionsLoading,
-  ])
-
-  const selectedVersion = versionOptions.find((v) => v.id === selectedVersionId)
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false)
   const skillHref = selectedSkillId
     ? `/workspaces/${workspaceId}/skills/${selectedSkillId}`
     : null
-  const displaySkillName = selectedVersion?.name?.trim() || selectedSkill?.name
-  const displaySkillDescription =
-    selectedVersion?.description?.trim() ||
-    selectedSkill?.description?.trim() ||
-    null
-  let versionPlaceholder = "Version"
-  if (versionsLoading) {
-    versionPlaceholder = "..."
-  } else if (versionOptions.length === 0) {
-    versionPlaceholder = "No versions"
-  }
-  const selectedVersionLabel = selectedVersion
-    ? `v${selectedVersion.version}`
-    : versionPlaceholder
+  const displaySkillName = selectedSkill?.name
+  const displaySkillDescription = selectedSkill?.description?.trim() || null
 
   function handleOpenSkill() {
     if (!skillHref) {
@@ -3367,53 +3308,7 @@ function AgentPresetSkillBindingRow({
             </button>
           </div>
         ) : null}
-        {selectedSkillId && versionsError ? (
-          <p className="text-xs text-destructive">
-            {getApiErrorDetail(versionsError) ?? "Failed to load versions."}
-          </p>
-        ) : null}
-        {selectedSkillId && !versionsLoading && versionOptions.length === 0 ? (
-          <p className="text-xs text-muted-foreground">
-            No published versions yet.
-          </p>
-        ) : null}
       </div>
-      <FormField
-        control={form.control}
-        name={versionFieldName}
-        render={({ field }) => (
-          <FormItem className="shrink-0">
-            <Select
-              value={field.value || ""}
-              onValueChange={field.onChange}
-              disabled={
-                isSaving ||
-                !selectedSkillId ||
-                versionsLoading ||
-                versionOptions.length === 0
-              }
-            >
-              <FormControl>
-                <SelectTrigger className="h-7 w-auto gap-1.5 border-none bg-muted/50 px-2 text-xs shadow-none">
-                  <span aria-hidden>{selectedVersionLabel}</span>
-                  <SelectValue
-                    className="sr-only"
-                    placeholder={versionPlaceholder}
-                  />
-                </SelectTrigger>
-              </FormControl>
-              <SelectContent>
-                {versionOptions.map((version) => (
-                  <SelectItem key={version.id} value={version.id}>
-                    {formatSkillVersionLabel(version)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <FormMessage />
-          </FormItem>
-        )}
-      />
       <Button
         type="button"
         variant="ghost"
@@ -3852,7 +3747,6 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
       preset.skills?.map(
         (binding): SkillBindingFormValue => ({
           skillId: binding.skill_id,
-          skillVersionId: binding.skill_version_id,
         })
       ) ?? [],
     retries: preset.retries ?? DEFAULT_RETRIES,
@@ -3894,7 +3788,6 @@ function formValuesToPayload(
     agents: formValuesToAgentsPayload(values, subagentContext),
     skills: values.skills.map((binding) => ({
       skill_id: binding.skillId,
-      skill_version_id: binding.skillVersionId,
     })),
     tool_approvals: toToolApprovalMap(values.toolApprovals),
     retries: values.retries,
@@ -3965,11 +3858,6 @@ function formValuesToAgentsPayload(
     enabled: true,
     subagents,
   }
-}
-
-function formatSkillVersionLabel(version: SkillVersionRead): string {
-  const name = version.name.trim()
-  return name ? `v${version.version} · ${name}` : `v${version.version}`
 }
 
 function normalizeOptional(value: string | null | undefined) {

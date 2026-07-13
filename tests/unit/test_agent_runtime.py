@@ -274,6 +274,21 @@ class TestClaudeAgentRuntimeRun:
         assert "not a Tracecat action or MCP tool" in prompt
         assert prompt.endswith("Preset instructions.")
 
+    def test_system_prompt_prefers_attached_subagent_aliases(
+        self, mock_socket_writer: MagicMock
+    ) -> None:
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        runtime._agents_enabled = True
+
+        prompt = runtime._build_system_prompt(None)
+
+        assert prompt.endswith(
+            "prefer the most specific attached alias; use `general-purpose` only "
+            "when none matches."
+        )
+
     @pytest.mark.anyio
     async def test_sends_done_on_completion(
         self,
@@ -2211,6 +2226,51 @@ class TestClaudeAgentRuntimePreToolUseHook:
         hook_output = get_hook_output(result)
         assert hook_output.get("permissionDecision") == "deny"
         assert "not available" in (hook_output.get("permissionDecisionReason") or "")
+
+    @pytest.mark.parametrize("tool_name", ["Agent", "Task"])
+    @pytest.mark.anyio
+    async def test_agent_tool_strips_model_and_isolation_overrides(
+        self,
+        mock_socket_writer: MagicMock,
+        tool_name: str,
+    ) -> None:
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        runtime._agents_enabled = True
+        runtime._explicit_subagent_aliases = {"analyst"}
+        tool_input = {
+            "subagent_type": "analyst",
+            "prompt": "Investigate the issue.",
+            "description": "Investigate issue",
+            "model": "sonnet",
+            "isolation": "worktree",
+            "run_in_background": False,
+        }
+
+        result = await runtime._pre_tool_use_hook(
+            input_data=make_hook_input(
+                tool_name=tool_name,
+                tool_input=tool_input,
+                tool_use_id="call-agent",
+            ),
+            tool_use_id="call-agent",
+            context=make_hook_context(),
+        )
+
+        hook_output = get_hook_output(result)
+        assert hook_output == {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+            "updatedInput": {
+                "subagent_type": "analyst",
+                "prompt": "Investigate the issue.",
+                "description": "Investigate issue",
+                "run_in_background": False,
+            },
+        }
+        assert tool_input["model"] == "sonnet"
+        assert tool_input["isolation"] == "worktree"
 
     @pytest.mark.anyio
     async def test_explicit_subagents_do_not_use_root_approval_policy(

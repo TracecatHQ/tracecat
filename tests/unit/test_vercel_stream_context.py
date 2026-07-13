@@ -295,6 +295,49 @@ async def test_tool_call_input_delta():
 
 
 @pytest.mark.anyio
+async def test_agent_tool_buffers_and_sanitizes_input() -> None:
+    """Agent input is only published after runtime controls are removed."""
+    ctx = VercelStreamContext(message_id="msg_test")
+
+    events = [
+        UnifiedStreamEvent(
+            type=StreamEventType.TOOL_CALL_START,
+            part_id=0,
+            tool_call_id="call_agent",
+            tool_name="Agent",
+            tool_input={},
+        ),
+        UnifiedStreamEvent(
+            type=StreamEventType.TOOL_CALL_DELTA,
+            part_id=0,
+            text='{"model":"sonnet","isolation":"worktree"}',
+        ),
+        UnifiedStreamEvent(
+            type=StreamEventType.TOOL_CALL_STOP,
+            part_id=0,
+            tool_call_id="call_agent",
+            tool_name="Agent",
+            tool_input={
+                "subagent_type": "case-agent",
+                "prompt": "List cases",
+                "model": "sonnet",
+                "isolation": "worktree",
+            },
+        ),
+    ]
+
+    frames = await collect_frames(ctx, events)
+
+    assert len(frames) == 2
+    assert isinstance(frames[0], ToolInputStartEventPayload)
+    assert isinstance(frames[1], ToolInputAvailableEventPayload)
+    assert frames[1].input == {
+        "subagent_type": "case-agent",
+        "prompt": "List cases",
+    }
+
+
+@pytest.mark.anyio
 async def test_tool_call_with_empty_args():
     """Test tool call with empty/null args."""
     ctx = VercelStreamContext(message_id="msg_test")

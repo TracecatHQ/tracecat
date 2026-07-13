@@ -281,7 +281,7 @@ export function TablesDashboard() {
                           <div
                             role="link"
                             tabIndex={0}
-                            className="flex min-w-0 flex-1 items-center gap-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                            className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                             onClick={openTable}
                             onKeyDown={(event) => {
                               if (event.key === "Enter" || event.key === " ") {

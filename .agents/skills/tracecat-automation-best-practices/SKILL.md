@@ -96,6 +96,10 @@ bounded work itself, keep it in the preset instructions.
 - Use `ai.agent` / `ai.preset_agent` for the agentic work; `core.http_request` for
   deterministic API calls; `core.script.run_python` for deterministic data work — details and
   loop/concurrency rules in [run-python](references/run-python.md).
+- For bulk table writes, prefer one native `core.table.insert_rows` action when rows are already
+  shaped (up to 1000 rows per batch). If shaping, chunking, or mixed table/case writes are needed,
+  use `core.script.run_python` with imported helpers and bounded batches instead of scattering many
+  DB-backed actions.
 - Do not give `core.http_request` to an agent unless the user explicitly accepts the broad
   network capability. Put deterministic HTTP in the workflow graph or a tightly scoped subflow.
 - Split into subflows only when there is a real orchestration boundary, reusable child
@@ -128,9 +132,11 @@ args:
   schemas with `get_action_context`.
 - Using `for_each` for ordinary loop management, or using scatter/gather for data-heavy
   batching, filtering, joins, or table writes. Default to scatter for workflow-level loops;
-  add gather only when downstream steps need combined results. Use `core.script.run_python`
-  for data-heavy processing (see
-  [run-python](references/run-python.md)).
+  add gather only when downstream steps need combined results, and omit it otherwise. Be especially
+  careful with >10 scattered DB-backed table/case actions, which can exhaust Postgres connection
+  slots. Scatter's optional interval can stagger work, but it does not batch DB writes; use one
+  `core.table.insert_rows` action or `core.script.run_python` batching for data-heavy processing
+  (see [run-python](references/run-python.md)).
 - Using `insert_rows(..., upsert=True)` without a unique index on the key column (see
   [tables](references/tables.md)).
 - Granting `core.http_request` to an agent without explicit user approval of broad network

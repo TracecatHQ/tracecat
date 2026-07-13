@@ -123,7 +123,7 @@ async def create_preset(
     ] = None,
     skills: Annotated[
         list[dict[str, Any]] | None,
-        Doc("Optional skill bindings for the preset."),
+        Doc("Optional skill bindings for the preset containing `skill_id`."),
     ] = None,
 ) -> dict[str, Any]:
     # Build kwargs, only including non-None values
@@ -302,7 +302,7 @@ async def update_preset(
     ] = None,
     skills: Annotated[
         list[dict[str, Any]] | None,
-        Doc("The updated skill bindings for the preset."),
+        Doc("The updated skill bindings for the preset containing `skill_id`."),
     ] = None,
 ) -> dict[str, Any]:
     # Build kwargs, only including non-None values
