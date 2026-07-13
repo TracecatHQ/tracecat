@@ -11,10 +11,15 @@ definition:
       type: str
       description: >
         Full finding resource name, e.g.
-        `organizations/{organization}/sources/{source}/findings/{finding}`.
+        `organizations/{org}/sources/{src}/locations/{loc}/findings/{id}`. The
+        scope prefix decides which IAM permissions are checked, so pass
+        `canonicalName` from `list_findings` if you hold project-level access;
+        `name` is always organization-scoped.
     state:
       type: str
-      description: New finding state, e.g. `ACTIVE` or `INACTIVE`.
+      description: >
+        New finding state: `ACTIVE` or `INACTIVE`. To silence an accepted risk
+        rather than mark it fixed, use `mute_finding`.
   steps:
     - ref: build_resource
       action: core.script.run_python

@@ -3,12 +3,8 @@ definition:
   title: List findings
   description: >
     List Security Command Center findings under an organization, folder, or
-    project scope. Returns `findings` (a flat list of `listFindingsResults`
-    entries, each containing the `finding` and its `resource` context) plus
-    `total_size` and a `truncated` flag. Findings are fetched page by page and
-    held in memory, so `max_pages` is bounded by default; raise it (or set it to
-    null to fetch every page) only when the scope and `filter` are narrow enough
-    that the full result set is safe to materialize.
+    project scope. Returns `findings`, `total_size`, and a `truncated` flag.
+    Pages are held in memory, so `max_pages` is bounded by default.
   display_group: Google Security Command Center
   doc_url: https://cloud.google.com/security-command-center/docs/reference/rest/v2/organizations.sources.findings/list
   namespace: tools.google_scc
@@ -36,10 +32,8 @@ definition:
     max_pages:
       type: int | None
       description: >
-        Maximum number of pages to fetch. Bounded by default because every page
-        is held in memory and returned as a single action result. Set to null to
-        fetch every page. When the cap truncates the result, `truncated` is true
-        and `next_page_token` is returned.
+        Maximum pages to fetch. Null fetches every page. If the cap truncates the
+        result, `truncated` is true and `next_page_token` is returned.
       default: 10
   steps:
     - ref: build_request
