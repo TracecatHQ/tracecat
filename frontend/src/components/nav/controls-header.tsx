@@ -28,13 +28,7 @@ import {
 import dynamic from "next/dynamic"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import {
-  Fragment,
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useState,
-} from "react"
+import { type ReactNode, useCallback, useEffect, useState } from "react"
 import {
   type CaseStatus,
   casesAddTag,
@@ -80,6 +74,7 @@ import {
   MembersViewMode,
   MembersViewToggle,
 } from "@/components/members/members-view-toggle"
+import { FolderPathBreadcrumb } from "@/components/nav/folder-path-breadcrumb"
 import { CreateGroupButton } from "@/components/rbac/create-group-button"
 import { CreateRoleButton } from "@/components/rbac/create-role-button"
 import { RegistryActionsControls } from "@/components/registry/workspace-actions-controls"
@@ -155,7 +150,11 @@ import {
   NewVariableDialogTrigger,
 } from "@/components/workspaces/add-workspace-variable"
 import { CreateCredentialDialog } from "@/components/workspaces/create-credential-dialog"
-import { useAgentPreset, useAgentTagCatalog } from "@/hooks/use-agent-presets"
+import {
+  useAgentFolders,
+  useAgentPreset,
+  useAgentTagCatalog,
+} from "@/hooks/use-agent-presets"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useSkill } from "@/hooks/use-skills"
 import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
@@ -237,59 +236,12 @@ function WorkflowsBreadcrumb({
   workspaceId: string
   path: string | null
 }) {
-  const normalizePath = (folderPath: string | null) => {
-    if (!folderPath || folderPath === "/") return "/"
-    const pathWithLeadingSlash = folderPath.startsWith("/")
-      ? folderPath
-      : `/${folderPath}`
-    return pathWithLeadingSlash.endsWith("/") && pathWithLeadingSlash !== "/"
-      ? pathWithLeadingSlash.slice(0, -1)
-      : pathWithLeadingSlash
-  }
-
-  const normalizedPath = normalizePath(path)
-  const segments = normalizedPath.split("/").filter(Boolean)
-  const baseHref = `/workspaces/${workspaceId}/workflows`
-  const getFolderHref = (folderPath: string) => {
-    if (folderPath === "/") return `${baseHref}?view=folders&path=%2F`
-    return `${baseHref}?view=folders&path=${encodeURIComponent(folderPath)}`
-  }
-
   return (
-    <Breadcrumb>
-      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-transparent pr-1">
-        <BreadcrumbItem>
-          <BreadcrumbLink asChild className="font-semibold hover:no-underline">
-            <Link href={baseHref}>Workflows</Link>
-          </BreadcrumbLink>
-        </BreadcrumbItem>
-        {segments.map((segment, index) => {
-          const folderPath = `/${segments.slice(0, index + 1).join("/")}`
-          const isLast = index === segments.length - 1
-          return (
-            <Fragment key={folderPath}>
-              <BreadcrumbSeparator className="shrink-0">
-                <span className="text-muted-foreground">/</span>
-              </BreadcrumbSeparator>
-              <BreadcrumbItem>
-                {isLast ? (
-                  <BreadcrumbPage className="font-semibold">
-                    {segment}
-                  </BreadcrumbPage>
-                ) : (
-                  <BreadcrumbLink
-                    asChild
-                    className="font-semibold hover:no-underline"
-                  >
-                    <Link href={getFolderHref(folderPath)}>{segment}</Link>
-                  </BreadcrumbLink>
-                )}
-              </BreadcrumbItem>
-            </Fragment>
-          )
-        })}
-      </BreadcrumbList>
-    </Breadcrumb>
+    <FolderPathBreadcrumb
+      rootLabel="Workflows"
+      rootHref={`/workspaces/${workspaceId}/workflows`}
+      folderPath={path}
+    />
   )
 }
 
@@ -488,51 +440,12 @@ function AgentFoldersBreadcrumb({
   workspaceId: string
   path: string | null
 }) {
-  const normalizedPath = normalizeAgentActionPath(path)
-  const segments = normalizedPath.split("/").filter(Boolean)
-  const baseHref = `/workspaces/${workspaceId}/agents`
-  const getFolderHref = (folderPath: string) => {
-    if (folderPath === "/") {
-      return `${baseHref}?view=folders&path=%2F`
-    }
-    return `${baseHref}?view=folders&path=${encodeURIComponent(folderPath)}`
-  }
-
   return (
-    <Breadcrumb>
-      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-transparent pr-1">
-        <BreadcrumbItem>
-          <BreadcrumbLink asChild className="font-semibold hover:no-underline">
-            <Link href={baseHref}>Agents</Link>
-          </BreadcrumbLink>
-        </BreadcrumbItem>
-        {segments.map((segment, index) => {
-          const folderPath = `/${segments.slice(0, index + 1).join("/")}`
-          const isLast = index === segments.length - 1
-          return (
-            <Fragment key={folderPath}>
-              <BreadcrumbSeparator className="shrink-0">
-                <span className="text-muted-foreground">/</span>
-              </BreadcrumbSeparator>
-              <BreadcrumbItem>
-                {isLast ? (
-                  <BreadcrumbPage className="font-semibold">
-                    {segment}
-                  </BreadcrumbPage>
-                ) : (
-                  <BreadcrumbLink
-                    asChild
-                    className="font-semibold hover:no-underline"
-                  >
-                    <Link href={getFolderHref(folderPath)}>{segment}</Link>
-                  </BreadcrumbLink>
-                )}
-              </BreadcrumbItem>
-            </Fragment>
-          )
-        })}
-      </BreadcrumbList>
-    </Breadcrumb>
+    <FolderPathBreadcrumb
+      rootLabel="Agents"
+      rootHref={`/workspaces/${workspaceId}/agents`}
+      folderPath={path}
+    />
   )
 }
 
@@ -1972,27 +1885,23 @@ function AgentPresetBreadcrumb({
   presetId: string
   workspaceId: string
 }) {
+  const { workspace } = useWorkspaceDetails()
   const { preset } = useAgentPreset(workspaceId, presetId)
+  const { folders } = useAgentFolders(workspaceId, {
+    enabled: Boolean(preset?.folder_id),
+  })
+  const folderPath = preset?.folder_id
+    ? folders?.find((folder) => folder.id === preset.folder_id)?.path
+    : null
 
   return (
-    <Breadcrumb>
-      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-transparent pr-1">
-        <BreadcrumbItem>
-          <BreadcrumbLink asChild className="font-semibold hover:no-underline">
-            <Link href={`/workspaces/${workspaceId}/agents`}>Agents</Link>
-          </BreadcrumbLink>
-        </BreadcrumbItem>
-        <BreadcrumbSeparator className="shrink-0">
-          <span className="text-muted-foreground">/</span>
-        </BreadcrumbSeparator>
-        <BreadcrumbItem>
-          <BreadcrumbEntityPage
-            label={preset?.name}
-            skeletonClassName="h-4 w-32"
-          />
-        </BreadcrumbItem>
-      </BreadcrumbList>
-    </Breadcrumb>
+    <FolderPathBreadcrumb
+      rootLabel={workspace?.name ?? <Skeleton className="h-4 w-20" />}
+      rootHref={`/workspaces/${workspaceId}/agents`}
+      folderPath={folderPath}
+      currentPage={preset?.name}
+      currentPageFallback={<Skeleton className="h-4 w-32" />}
+    />
   )
 }
 

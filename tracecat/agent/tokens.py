@@ -164,13 +164,14 @@ def mint_mcp_token(
         user_mcp_servers: User-defined MCP server configs for proxying
         allowed_internal_tools: Set of allowed internal tool names
         internal_tool_context: Context for internal tools (preset_id, entity_type)
-        ttl_seconds: Token TTL in seconds (defaults to executor token TTL)
+        ttl_seconds: Token TTL in seconds (defaults to the agent sandbox timeout
+            plus a small buffer so the token outlives one full turn)
 
     Returns:
         Signed JWT string
     """
     now = datetime.now(UTC)
-    ttl = ttl_seconds or config.TRACECAT__EXECUTOR_TOKEN_TTL_SECONDS
+    ttl = ttl_seconds or config.TRACECAT__AGENT_SANDBOX_TIMEOUT + 60
 
     payload: dict[str, Any] = {
         "iss": MCP_TOKEN_ISSUER,
@@ -355,7 +356,8 @@ def mint_llm_token(
         model_settings: Model-specific settings (temperature, max_tokens,
             reasoning_effort, etc.) passed through to LLM provider
         use_workspace_credentials: Legacy credential scope for no-catalog tokens
-        ttl_seconds: Token TTL in seconds (defaults to executor token TTL)
+        ttl_seconds: Token TTL in seconds (defaults to the agent sandbox timeout
+            plus a small buffer so the token outlives one full turn)
 
     Returns:
         Signed JWT string

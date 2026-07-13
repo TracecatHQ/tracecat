@@ -116,6 +116,25 @@ class TimestampMixin:
     )
 
 
+class SoftDeleteMixin:
+    """Columns-only soft-delete contract.
+
+    NULL means the row is live; set means the row is a soft-deleted tombstone.
+    UUID lookups of tombstoned rows remain valid. Global ORM SELECT filtering
+    lives in ``tracecat.db.soft_delete``.
+    """
+
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        default=None,
+        doc=(
+            "Soft-delete timestamp; NULL means live, set means a tombstone "
+            "that remains addressable by UUID."
+        ),
+    )
+
+
 class InvitationMixin:
     """Mixin for invitation columns shared between workspace and organization invitations."""
 
@@ -3480,12 +3499,18 @@ class AgentTagLink(Base):
     )
 
 
-class AgentPreset(WorkspaceModel):
+class AgentPreset(SoftDeleteMixin, WorkspaceModel):
     """Database model for storing reusable agent preset configurations."""
 
     __tablename__ = "agent_preset"
     __table_args__ = (
-        UniqueConstraint("workspace_id", "slug", name="uq_agent_preset_workspace_slug"),
+        Index(
+            "uq_agent_preset_workspace_slug_active",
+            "workspace_id",
+            "slug",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
         Index("ix_agent_preset_workspace_folder", "workspace_id", "folder_id"),
     )
 
@@ -3737,10 +3762,22 @@ class AgentPresetVersion(WorkspaceModel):
     )
 
 
-class Skill(WorkspaceModel):
+class Skill(SoftDeleteMixin, WorkspaceModel):
     """Workspace-scoped logical skill with mutable draft and immutable versions."""
 
     __tablename__ = "skill"
+    __table_args__ = (
+        Index(
+            "uq_skill_workspace_slug_active",
+            "workspace_id",
+            "slug",
+            unique=True,
+            # Matches the expand window's effective-dead semantics (legacy
+            # pods archive by setting only archived_at); the contract release
+            # re-backfills deleted_at and narrows this to deleted_at only.
+            postgresql_where=text("deleted_at IS NULL AND archived_at IS NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -3755,6 +3792,17 @@ class Skill(WorkspaceModel):
         nullable=False,
         index=True,
         doc="Current active skill name and on-disk directory name",
+    )
+    slug: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+        doc=(
+            "Stable skill identity initialized from name; renames do not "
+            "update it. Nullable through the expand window (legacy writers "
+            "insert without it); the contract release backfills and sets "
+            "NOT NULL."
+        ),
     )
     current_version_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
@@ -3777,9 +3825,11 @@ class Skill(WorkspaceModel):
     archived_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True),
         nullable=True,
-        doc="Timestamp for archived skills",
+        doc=(
+            "Legacy archive timestamp for skills; dual-written with deleted_at "
+            "until the contract release drops this column."
+        ),
     )
-
     workspace: Mapped[Workspace] = relationship(back_populates="skills")
     current_version: Mapped[SkillVersion | None] = relationship(
         "SkillVersion",

@@ -9230,7 +9230,6 @@ async def test_create_agent_preset_passes_skill_bindings(
     workspace_id = uuid.uuid4()
     catalog_id = uuid.uuid4()
     skill_id = uuid.uuid4()
-    skill_version_id = uuid.uuid4()
     role = SimpleNamespace(workspace_id=workspace_id)
     created: dict[str, Any] = {}
 
@@ -9304,7 +9303,6 @@ async def test_create_agent_preset_passes_skill_bindings(
         skills=[
             {
                 "skill_id": str(skill_id),
-                "skill_version_id": str(skill_version_id),
             }
         ],
     )
@@ -9312,7 +9310,7 @@ async def test_create_agent_preset_passes_skill_bindings(
     params = created["params"]
     assert len(params.skills) == 1
     assert params.skills[0].skill_id == skill_id
-    assert params.skills[0].skill_version_id == skill_version_id
+    assert params.skills[0].model_dump(mode="json") == {"skill_id": str(skill_id)}
 
 
 @pytest.mark.anyio
@@ -9321,7 +9319,6 @@ async def test_update_agent_preset_passes_skill_bindings(
 ) -> None:
     workspace_id = uuid.uuid4()
     skill_id = uuid.uuid4()
-    skill_version_id = uuid.uuid4()
     role = SimpleNamespace(workspace_id=workspace_id)
     captured: dict[str, Any] = {}
     now = datetime.now(UTC)
@@ -9378,7 +9375,6 @@ async def test_update_agent_preset_passes_skill_bindings(
         skills=[
             {
                 "skill_id": str(skill_id),
-                "skill_version_id": str(skill_version_id),
             }
         ],
     )
@@ -9386,7 +9382,7 @@ async def test_update_agent_preset_passes_skill_bindings(
     params = captured["params"]
     assert len(params.skills) == 1
     assert params.skills[0].skill_id == skill_id
-    assert params.skills[0].skill_version_id == skill_version_id
+    assert params.skills[0].model_dump(mode="json") == {"skill_id": str(skill_id)}
 
 
 @pytest.mark.anyio
@@ -9477,11 +9473,12 @@ async def test_list_skills_uses_workspace_skill_service(
                         id=skill_id,
                         workspace_id=workspace_id,
                         name="botsv3-ir",
+                        slug="botsv3-ir",
                         description="BOTSv3 IR skill",
                         current_version_id=uuid.uuid4(),
                         created_at=now,
                         updated_at=now,
-                        archived_at=None,
+                        deleted_at=None,
                     )
                 ],
                 next_cursor=None,
@@ -9506,6 +9503,7 @@ async def test_list_skills_uses_workspace_skill_service(
     assert captured["params"].limit == 10
     assert payload["items"][0]["id"] == str(skill_id)
     assert payload["items"][0]["name"] == "botsv3-ir"
+    assert payload["items"][0]["slug"] == "botsv3-ir"
 
 
 @pytest.mark.anyio
@@ -9527,12 +9525,13 @@ async def test_upload_skill_uses_workspace_skill_service(
                 id=uuid.uuid4(),
                 workspace_id=workspace_id,
                 name=params.name,
+                slug=params.name,
                 description=None,
                 current_version_id=None,
                 draft_revision=1,
                 created_at=now,
                 updated_at=now,
-                archived_at=None,
+                deleted_at=None,
                 current_version=None,
                 is_draft_publishable=True,
                 draft_validation_errors=[],
@@ -9600,12 +9599,13 @@ async def test_upload_skill_preserves_uploaded_skill_markdown_body(
                 id=uuid.uuid4(),
                 workspace_id=workspace_id,
                 name=params.name,
+                slug=params.name,
                 description="Updated description",
                 current_version_id=None,
                 draft_revision=1,
                 created_at=now,
                 updated_at=now,
-                archived_at=None,
+                deleted_at=None,
                 current_version=None,
                 is_draft_publishable=True,
                 draft_validation_errors=[],
@@ -9675,12 +9675,13 @@ async def test_upload_skill_tolerates_malformed_uploaded_frontmatter(
                 id=uuid.uuid4(),
                 workspace_id=workspace_id,
                 name=params.name,
+                slug=params.name,
                 description="Recovered description",
                 current_version_id=None,
                 draft_revision=1,
                 created_at=now,
                 updated_at=now,
-                archived_at=None,
+                deleted_at=None,
                 current_version=None,
                 is_draft_publishable=True,
                 draft_validation_errors=[],
@@ -9749,12 +9750,13 @@ async def test_upload_skill_merges_metadata_for_large_skill_markdown(
                 id=uuid.uuid4(),
                 workspace_id=workspace_id,
                 name=params.name,
+                slug=params.name,
                 description="Updated description",
                 current_version_id=None,
                 draft_revision=1,
                 created_at=now,
                 updated_at=now,
-                archived_at=None,
+                deleted_at=None,
                 current_version=None,
                 is_draft_publishable=True,
                 draft_validation_errors=[],
@@ -9902,12 +9904,13 @@ async def test_update_skill_replaces_existing_draft(
                 id=skill_id,
                 workspace_id=workspace_id,
                 name=params.name,
+                slug=params.name,
                 description="Updated description",
                 current_version_id=None,
                 draft_revision=2,
                 created_at=now,
                 updated_at=now,
-                archived_at=None,
+                deleted_at=None,
                 current_version=None,
                 is_draft_publishable=True,
                 draft_validation_errors=[],

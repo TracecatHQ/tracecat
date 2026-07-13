@@ -612,6 +612,7 @@ export type AgentPresetRead = {
   slug: string
   description?: string | null
   current_version_id?: string | null
+  folder_id?: string | null
   skills?: Array<AgentPresetSkillBindingRead>
   created_at: string
   updated_at: string
@@ -642,7 +643,6 @@ export type AgentPresetReadMinimal = {
  */
 export type AgentPresetSkillBindingBase = {
   skill_id: string
-  skill_version_id: string
 }
 
 /**
@@ -7028,12 +7028,13 @@ export type SkillRead = {
   id: string
   workspace_id: string
   name: string
+  slug: string
   description?: string | null
   current_version_id?: string | null
   draft_revision: number
   created_at: string
   updated_at: string
-  archived_at?: string | null
+  deleted_at?: string | null
   current_version?: SkillVersionReadMinimal | null
   is_draft_publishable: boolean
   draft_validation_errors?: Array<SkillValidationErrorDetail>
@@ -7042,16 +7043,21 @@ export type SkillRead = {
 
 /**
  * Minimal response model for listing workspace skills.
+ *
+ * ``slug`` is the late-binding handle every skill API accepts; list
+ * responses must expose it so callers never have to guess it from ``name``
+ * (names are not unique — slugs are, per live row).
  */
 export type SkillReadMinimal = {
   id: string
   workspace_id: string
   name: string
+  slug: string
   description?: string | null
   current_version_id?: string | null
   created_at: string
   updated_at: string
-  archived_at?: string | null
+  deleted_at?: string | null
 }
 
 /**
@@ -9330,6 +9336,7 @@ export type WorkflowRead = {
   alias?: string | null
   git_sync_branch?: string | null
   error_handler?: string | null
+  folder_id?: string | null
   trigger_position_x?: number
   trigger_position_y?: number
   graph_version?: number
@@ -10818,6 +10825,9 @@ export type OrganizationDeleteOrganizationData = {
 }
 
 export type OrganizationDeleteOrganizationResponse = void
+
+export type OrganizationListCurrentUserOrganizationMembershipsResponse =
+  Array<tracecat__organization__schemas__OrgRead>
 
 export type OrganizationListOrganizationDomainsResponse =
   Array<tracecat__organization__schemas__OrgDomainRead>
@@ -15310,6 +15320,16 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/memberships": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<tracecat__organization__schemas__OrgRead>
       }
     }
   }

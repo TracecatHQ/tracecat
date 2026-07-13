@@ -45,12 +45,12 @@ async def create_skill(
 @registry.register(
     default_title="Get agent skill",
     display_group="Agent Skills",
-    description="Get one workspace agent skill by skill ID, with an optional UUID override.",
+    description="Get one workspace agent skill by slug, with an optional UUID override.",
     namespace="ai.skill",
     required_entitlements=["agent_addons"],
 )
 async def get_skill(
-    skill_id: Annotated[str, Doc("Skill ID/name in kebab-case.")],
+    skill_id: Annotated[str, Doc("Skill slug in kebab-case.")],
     skill_uuid: Annotated[
         uuid.UUID | None, Doc("Optional canonical skill UUID.")
     ] = None,
@@ -66,7 +66,7 @@ async def get_skill(
     required_entitlements=["agent_addons"],
 )
 async def list_skill_versions(
-    skill_id: Annotated[str, Doc("Skill ID/name in kebab-case.")],
+    skill_id: Annotated[str, Doc("Skill slug in kebab-case.")],
     skill_uuid: Annotated[
         uuid.UUID | None, Doc("Optional canonical skill UUID.")
     ] = None,
@@ -93,7 +93,7 @@ async def list_skill_versions(
     required_entitlements=["agent_addons"],
 )
 async def get_skill_version(
-    skill_id: Annotated[str, Doc("Skill ID/name in kebab-case.")],
+    skill_id: Annotated[str, Doc("Skill slug in kebab-case.")],
     version_id: Annotated[uuid.UUID, Doc("Skill version UUID.")],
     skill_uuid: Annotated[
         uuid.UUID | None, Doc("Optional canonical skill UUID.")
@@ -114,7 +114,7 @@ async def get_skill_version(
     required_entitlements=["agent_addons"],
 )
 async def publish_skill_version(
-    skill_id: Annotated[str, Doc("Skill ID/name in kebab-case.")],
+    skill_id: Annotated[str, Doc("Skill slug in kebab-case.")],
     files: Annotated[
         list[dict[str, Any]],
         Doc(
@@ -147,7 +147,7 @@ async def publish_skill_version(
     required_entitlements=["agent_addons"],
 )
 async def restore_skill_version(
-    skill_id: Annotated[str, Doc("Skill ID/name in kebab-case.")],
+    skill_id: Annotated[str, Doc("Skill slug in kebab-case.")],
     version_id: Annotated[uuid.UUID, Doc("Skill version UUID.")],
     skill_uuid: Annotated[
         uuid.UUID | None, Doc("Optional canonical skill UUID.")
@@ -168,7 +168,7 @@ async def restore_skill_version(
     required_entitlements=["agent_addons"],
 )
 async def archive_skill(
-    skill_id: Annotated[str, Doc("Skill ID/name in kebab-case.")],
+    skill_id: Annotated[str, Doc("Skill slug in kebab-case.")],
     skill_uuid: Annotated[
         uuid.UUID | None, Doc("Optional canonical skill UUID.")
     ] = None,

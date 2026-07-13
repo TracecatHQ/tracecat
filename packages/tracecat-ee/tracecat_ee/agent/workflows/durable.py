@@ -481,6 +481,7 @@ def _preserved_agents_binding(
 
 
 FINALIZE_TURN_PATCH = "durable-agent-finalize-turn-v1"
+REMINT_SCOPE_TOKENS_PATCH = "durable-agent-remint-scope-tokens-v1"
 
 
 @workflow.defn
@@ -679,6 +680,36 @@ class DurableAgentWorkflow:
             internal_tool_context=internal_tool_context,
             registry_lock=build_result.registry_lock,
         )
+
+    def _remint_scope_tokens(
+        self,
+        compiled_run: CompiledAgentRun,
+        *,
+        internal_tool_context: InternalToolContext | None,
+    ) -> CompiledAgentRun:
+        root = compiled_run.root.model_copy(
+            update={
+                "mcp_auth_token": self._mint_scope_mcp_token(
+                    build_result=compiled_run.root.build_result,
+                    internal_tool_context=internal_tool_context,
+                )
+            }
+        )
+        subagents = [
+            subagent.model_copy(
+                update={
+                    "scope": subagent.scope.model_copy(
+                        update={
+                            "mcp_auth_token": self._mint_scope_mcp_token(
+                                build_result=subagent.scope.build_result,
+                            )
+                        }
+                    )
+                }
+            )
+            for subagent in compiled_run.subagents
+        ]
+        return compiled_run.model_copy(update={"root": root, "subagents": subagents})
 
     async def _compile_agent_run(
         self,
@@ -1329,6 +1360,44 @@ class DurableAgentWorkflow:
                     )
                     return await self._cancelled_turn_output(
                         result, info, emit_cancelled=True
+                    )
+
+                # Approval waits are unbounded. Tokens are turn-scoped, so resumed
+                # user-MCP tool execution and the continuation need fresh tokens.
+                if workflow.patched(REMINT_SCOPE_TOKENS_PATCH):
+                    compiled_run = self._remint_scope_tokens(
+                        compiled_run,
+                        internal_tool_context=internal_tool_context,
+                    )
+                    llm_gateway_auth_token = mint_llm_token(
+                        workspace_id=self.workspace_id,
+                        organization_id=self.organization_id,
+                        session_id=self.session_id,
+                        model=cfg.model_name,
+                        provider=cfg.model_provider,
+                        catalog_id=cfg.catalog_id,
+                        base_url=cfg.base_url,
+                        model_settings=cfg.model_settings,
+                        routes=compiled_run.llm_routes,
+                    )
+
+                # Approval waits are unbounded. Tokens are turn-scoped, so resumed
+                # user-MCP tool execution and the continuation need fresh tokens.
+                if workflow.patched(REMINT_SCOPE_TOKENS_PATCH):
+                    compiled_run = self._remint_scope_tokens(
+                        compiled_run,
+                        internal_tool_context=internal_tool_context,
+                    )
+                    llm_gateway_auth_token = mint_llm_token(
+                        workspace_id=self.workspace_id,
+                        organization_id=self.organization_id,
+                        session_id=self.session_id,
+                        model=cfg.model_name,
+                        provider=cfg.model_provider,
+                        catalog_id=cfg.catalog_id,
+                        base_url=cfg.base_url,
+                        model_settings=cfg.model_settings,
+                        routes=compiled_run.llm_routes,
                     )
 
                 # Execute approved tools and reconcile the SDK transcript.

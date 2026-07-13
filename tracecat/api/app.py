@@ -116,6 +116,7 @@ from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
 )
 from tracecat.db.rls import set_rls_context_from_role
+from tracecat.db.soft_delete import assert_soft_delete_listener_registered
 from tracecat.deduplicate.internal_router import (
     router as internal_deduplicate_router,
 )
@@ -201,6 +202,7 @@ async def lifespan(app: FastAPI):
     # (not in create_app) because the app module is imported at collection time
     # by tests and OpenAPI generation, before secrets are available.
     get_user_auth_secret()
+    assert_soft_delete_listener_registered()
 
     # Temporal
     # Run in background to avoid blocking startup

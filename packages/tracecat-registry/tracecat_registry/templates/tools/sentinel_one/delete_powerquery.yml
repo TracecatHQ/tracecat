@@ -1,0 +1,32 @@
+type: action
+definition:
+  title: Delete PowerQuery
+  description: Delete or cancel a SentinelOne SDL PowerQuery after polling.
+  display_group: SentinelOne
+  doc_url: https://github.com/Sentinel-One/purple-mcp
+  namespace: tools.sentinel_one
+  name: delete_powerquery
+  secrets:
+    - name: sentinel_one
+      keys: ["SENTINEL_ONE_API_TOKEN"]
+  expects:
+    query_id:
+      type: str
+      description: SDL query ID returned by submit_powerquery.
+    forward_tag:
+      type: str
+      description: X-Dataset-Query-Forward-Tag returned by submit_powerquery response headers.
+    base_url:
+      type: str | None
+      description: SentinelOne tenant URL. /sdl is appended automatically.
+      default: null
+  steps:
+    - ref: delete_query
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sentinel_one.base_url }}/sdl/v2/api/queries/${{ inputs.query_id }}
+        method: DELETE
+        headers:
+          Authorization: Bearer ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}
+          X-Dataset-Query-Forward-Tag: ${{ inputs.forward_tag }}
+  returns: ${{ steps.delete_query.result.data }}

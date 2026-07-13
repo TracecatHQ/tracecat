@@ -1049,7 +1049,7 @@ export function MCPIntegrationDialog({
                                     className={cn(
                                       "flex min-h-20 items-start gap-3 rounded-md border bg-background p-3 text-left transition-colors hover:border-foreground/30",
                                       selected &&
-                                        "border-blue-500 bg-blue-50/60 ring-1 ring-blue-500"
+                                        "border-blue-500 bg-blue-50/60 ring-1 ring-blue-500 dark:border-blue-400 dark:bg-blue-950/30 dark:ring-blue-400/70"
                                     )}
                                     onClick={() => {
                                       if (selected) {
@@ -1100,7 +1100,7 @@ export function MCPIntegrationDialog({
                                           </Badge>
                                         ) : null}
                                         {selected ? (
-                                          <Check className="ml-auto size-4 text-blue-600" />
+                                          <Check className="ml-auto size-4 text-blue-600 dark:text-blue-300" />
                                         ) : null}
                                       </span>
                                       {option.description ? (

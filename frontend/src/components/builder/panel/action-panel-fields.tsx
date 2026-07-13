@@ -75,6 +75,7 @@ import {
   useWorkspaceAgentModels,
 } from "@/lib/hooks"
 import { getType } from "@/lib/jsonschema"
+import { registryActionToSuggestion } from "@/lib/registry"
 import {
   type ExpressionComponent,
   getTracecatComponents,
@@ -810,11 +811,8 @@ function MultipleActionTypeField({
     return (
       registryActions
         ?.map((action) => ({
-          id: action.action,
+          ...registryActionToSuggestion(action),
           label: action.default_title || action.action,
-          value: action.action,
-          description: action.description,
-          group: action.namespace,
           icon: getIcon(action.action, {
             className: "size-6 p-[3px] border-[0.5px]",
           }),

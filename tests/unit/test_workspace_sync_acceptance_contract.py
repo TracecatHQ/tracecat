@@ -13,6 +13,7 @@ import re
 import uuid
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -61,6 +62,7 @@ from tracecat.tables.schemas import TableUpdate
 from tracecat.tables.service import BaseTablesService
 from tracecat.workflow.store.schemas import RemoteWorkflowDefinition
 from tracecat.workspace_sync.adapters import (
+    AGENT_PRESET_RESOURCE_ADAPTER,
     TABLE_RESOURCE_ADAPTER,
     WORKSPACE_RESOURCE_ADAPTERS,
 )
@@ -80,6 +82,7 @@ from tracecat.workspace_sync.schemas import (
     TABLE_ROOT,
     VARIABLE_ROOT,
     WORKFLOW_ROOT,
+    AgentPresetSubagentRef,
     ResourceRef,
     SkillFileSpec,
     SkillResourceSpec,
@@ -829,6 +832,244 @@ async def test_project_workspace_exports_supported_non_workflow_resources(
     assert parent_version["instructions"] == (
         "Use the enrichment skill and escalate high severity."
     )
+
+
+@pytest.mark.anyio
+async def test_agent_preset_projection_excludes_soft_deleted_presets(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Workspace export excludes soft-deleted presets and their versions."""
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(
+        _expanded_full_git_tree(include_schedules=False),
+        commit_sha="d" * 40,
+    )
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+    parent_preset = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "qa-triage-parent",
+        )
+    )
+    assert parent_preset is not None
+    parent_preset.deleted_at = datetime.now(UTC)
+    session.add(parent_preset)
+    await session.flush()
+
+    projection = await service.project_workspace()
+
+    assert f"{AGENT_PRESET_ROOT}/qa-triage-parent/preset.yml" not in projection.files
+    assert not any(
+        path.startswith(f"{AGENT_PRESET_ROOT}/qa-triage-parent/versions/")
+        for path in projection.files
+    )
+
+
+@pytest.mark.anyio
+async def test_skill_projection_excludes_soft_deleted_preset_version_pins(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Skill version snapshots pinned only by soft-deleted presets are not exported."""
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(
+        _versioned_agent_skill_git_tree(),
+        commit_sha="d" * 40,
+    )
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+    # agent-x is the only preset pinning skill-a v1 (head is v2, agent-y pins v2).
+    pinning_preset = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "agent-x",
+        )
+    )
+    assert pinning_preset is not None
+    pinning_preset.deleted_at = datetime.now(UTC)
+    session.add(pinning_preset)
+    await session.flush()
+
+    projection = await service.project_workspace()
+
+    assert f"{SKILL_ROOT}/skill-a/versions/1/version.yml" not in projection.files
+    assert f"{SKILL_ROOT}/skill-a/versions/2/version.yml" in projection.files
+
+
+@pytest.mark.anyio
+async def test_agent_preset_import_ignores_soft_deleted_source_id_mapping(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Workspace import does not adopt a mapped soft-deleted preset row."""
+    workspace_id = svc_role.workspace_id
+    assert workspace_id is not None
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(
+        _expanded_selected_git_tree(),
+        commit_sha="d" * 40,
+    )
+    assert diagnostics == []
+    soft_deleted_preset = AgentPreset(
+        workspace_id=workspace_id,
+        slug="qa-triage-parent",
+        name="Soft-deleted QA triage",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        deleted_at=datetime.now(UTC),
+    )
+    session.add(soft_deleted_preset)
+    await session.flush()
+    session.add(
+        WorkspaceSyncResourceMapping(
+            workspace_id=workspace_id,
+            provider=VcsProvider.GITHUB.value,
+            resource_type=SyncResourceType.AGENT_PRESET.value,
+            source_id="qa-triage-parent",
+            source_path=f"{AGENT_PRESET_ROOT}/qa-triage-parent/preset.yml",
+            local_id=soft_deleted_preset.id,
+        )
+    )
+    await session.flush()
+
+    imported_resources = await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+
+    imported_parent = next(
+        resource
+        for resource in imported_resources
+        if resource.resource_type is SyncResourceType.AGENT_PRESET
+        and resource.source_id == "qa-triage-parent"
+    )
+    assert imported_parent.local_id != soft_deleted_preset.id
+    active_parent = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == workspace_id,
+            AgentPreset.slug == "qa-triage-parent",
+            AgentPreset.deleted_at.is_(None),
+        )
+    )
+    assert active_parent is not None
+    assert imported_parent.local_id == active_parent.id
+    await session.refresh(soft_deleted_preset)
+    assert soft_deleted_preset.deleted_at is not None
+
+
+@pytest.mark.anyio
+async def test_agent_preset_import_resolves_subagent_to_active_preset(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Subagent slug resolution must skip a soft-deleted preset holding the slug."""
+    workspace_id = svc_role.workspace_id
+    assert workspace_id is not None
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(
+        _expanded_selected_git_tree(),
+        commit_sha="d" * 40,
+    )
+    assert diagnostics == []
+    # A soft-deleted preset keeps its slug and a resolvable current version, so an
+    # unfiltered slug lookup could bind it as the parent's subagent target.
+    soft_deleted_child = AgentPreset(
+        workspace_id=workspace_id,
+        slug="qa-evidence-child",
+        name="Soft-deleted QA evidence child",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        deleted_at=datetime.now(UTC),
+    )
+    session.add(soft_deleted_child)
+    await session.flush()
+    soft_deleted_version = AgentPresetVersion(
+        workspace_id=workspace_id,
+        preset_id=soft_deleted_child.id,
+        version=1,
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+    )
+    session.add(soft_deleted_version)
+    await session.flush()
+    soft_deleted_child.current_version_id = soft_deleted_version.id
+    session.add(soft_deleted_child)
+    await session.flush()
+
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+
+    active_child = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == workspace_id,
+            AgentPreset.slug == "qa-evidence-child",
+            AgentPreset.deleted_at.is_(None),
+        )
+    )
+    assert active_child is not None
+    assert active_child.id != soft_deleted_child.id
+    parent_preset = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == workspace_id,
+            AgentPreset.slug == "qa-triage-parent",
+            AgentPreset.deleted_at.is_(None),
+        )
+    )
+    assert parent_preset is not None
+    assert parent_preset.agents["enabled"] is True
+    assert [
+        subagent["preset_id"] for subagent in parent_preset.agents["subagents"]
+    ] == [str(active_child.id)]
+
+
+@pytest.mark.anyio
+async def test_agent_preset_subagent_target_skips_soft_deleted_preset(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """A subagent slug held only by a soft-deleted preset must not resolve."""
+    workspace_id = svc_role.workspace_id
+    assert workspace_id is not None
+    soft_deleted_child = AgentPreset(
+        workspace_id=workspace_id,
+        slug="qa-soft-deleted-only-child",
+        name="Soft-deleted QA child",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        deleted_at=datetime.now(UTC),
+    )
+    session.add(soft_deleted_child)
+    await session.flush()
+    soft_deleted_version = AgentPresetVersion(
+        workspace_id=workspace_id,
+        preset_id=soft_deleted_child.id,
+        version=1,
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+    )
+    session.add(soft_deleted_version)
+    await session.flush()
+    soft_deleted_child.current_version_id = soft_deleted_version.id
+    session.add(soft_deleted_child)
+    await session.flush()
+    importer = WorkspaceResourceImportService(session=session, role=svc_role)
+
+    target = await AGENT_PRESET_RESOURCE_ADAPTER._resolved_subagent_target(
+        importer,
+        AgentPresetSubagentRef(slug="qa-soft-deleted-only-child"),
+    )
+
+    assert target is None
 
 
 @pytest.mark.anyio

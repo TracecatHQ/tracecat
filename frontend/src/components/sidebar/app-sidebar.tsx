@@ -21,9 +21,9 @@ import {
   WorkflowIcon,
 } from "lucide-react"
 import Link from "next/link"
-import { useParams, usePathname } from "next/navigation"
+import { usePathname } from "next/navigation"
 import type * as React from "react"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useMemo, useState } from "react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   LockedFeatureChip,
@@ -52,7 +52,6 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
   SidebarRail,
-  useSidebar,
 } from "@/components/ui/sidebar"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { usePendingApprovalsCount } from "@/hooks/use-pending-approvals-count"
@@ -88,27 +87,8 @@ type NavItem = {
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
   const workspaceId = useWorkspaceId()
-  const params = useParams<{ caseId?: string }>()
-  const { setOpen: setSidebarOpen } = useSidebar()
-  const setSidebarOpenRef = useRef(setSidebarOpen)
   const basePath = `/workspaces/${workspaceId}`
-  const caseId = params?.caseId
-  const casesListPath = `${basePath}/cases`
-  const isCasesList = pathname === casesListPath
   const [lockedFeatureDialogOpen, setLockedFeatureDialogOpen] = useState(false)
-
-  useEffect(() => {
-    setSidebarOpenRef.current = setSidebarOpen
-  }, [setSidebarOpen])
-
-  useEffect(() => {
-    const updateSidebarOpen = setSidebarOpenRef.current
-    if (caseId) {
-      updateSidebarOpen(false)
-    } else if (isCasesList) {
-      updateSidebarOpen(true)
-    }
-  }, [caseId, isCasesList])
 
   // Scope checks for sidebar items
   const canViewWorkflows = useScopeCheck("workflow:read")

@@ -40,6 +40,14 @@ class SessionNeedsAction:
     action: NeedsAction
 
 
+class OrgResolutionError(ValueError):
+    """Raised when a user cannot be resolved to exactly one organization."""
+
+    def __init__(self, message: str, *, membership_count: int) -> None:
+        super().__init__(message)
+        self.membership_count = membership_count
+
+
 async def resolve_authorize_session(
     user: User | None,
 ) -> SessionResult | SessionNeedsAction:
@@ -68,7 +76,8 @@ async def _resolve_regular_user_org(
     Exactly one org must exist. Zero or multiple orgs is an error (fail closed).
 
     Raises:
-        ValueError: If the user does not have exactly one organization membership.
+        OrgResolutionError: If the user does not have exactly one organization
+            membership.
     """
     result = await session.execute(
         select(OrganizationMembership.organization_id).where(
@@ -92,7 +101,8 @@ async def _resolve_regular_user_org(
             user_id=str(user.id),
             org_count=len(org_ids),
         )
-    raise ValueError(
+    raise OrgResolutionError(
         f"User {user.email} cannot use MCP: "
-        f"expected exactly 1 organization membership, found {len(org_ids)}"
+        f"expected exactly 1 organization membership, found {len(org_ids)}",
+        membership_count=len(org_ids),
     )

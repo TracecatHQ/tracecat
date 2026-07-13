@@ -38,6 +38,7 @@ def _raise_skill_validation_error(exc: TracecatValidationError) -> Never:
     if isinstance(exc.detail, dict) and exc.detail.get("code") in {
         "draft_revision_conflict",
         "skill_in_use",
+        "skill_slug_conflict",
     }:
         status_code = status.HTTP_409_CONFLICT
     raise HTTPException(

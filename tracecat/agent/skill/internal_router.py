@@ -41,6 +41,7 @@ def _raise_skill_validation_error(exc: TracecatValidationError) -> Never:
         "draft_revision_conflict",
         "skill_version_conflict",
         "skill_in_use",
+        "skill_slug_conflict",
     }:
         status_code = status.HTTP_409_CONFLICT
     raise HTTPException(

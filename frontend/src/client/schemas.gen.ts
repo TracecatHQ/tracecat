@@ -2490,6 +2490,18 @@ export const $AgentPresetRead = {
       ],
       title: "Current Version Id",
     },
+    folder_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Id",
+    },
     skills: {
       items: {
         $ref: "#/components/schemas/AgentPresetSkillBindingRead",
@@ -2637,14 +2649,9 @@ export const $AgentPresetSkillBindingBase = {
       format: "uuid",
       title: "Skill Id",
     },
-    skill_version_id: {
-      type: "string",
-      format: "uuid",
-      title: "Skill Version Id",
-    },
   },
   type: "object",
-  required: ["skill_id", "skill_version_id"],
+  required: ["skill_id"],
   title: "AgentPresetSkillBindingBase",
   description: "Shared fields for preset skill bindings.",
 } as const
@@ -12642,7 +12649,7 @@ export const $EventGroup_TypeVar_ = {
         {
           type: "string",
           pattern:
-            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+            "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
         },
         {
           type: "string",
@@ -15013,7 +15020,7 @@ export const $InteractionContext = {
     execution_id: {
       type: "string",
       pattern:
-        "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+        "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
       title: "Execution Id",
     },
     action_ref: {
@@ -15037,7 +15044,7 @@ export const $InteractionInput = {
     execution_id: {
       type: "string",
       pattern:
-        "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+        "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
       title: "Execution Id",
     },
     action_ref: {
@@ -15119,7 +15126,7 @@ export const $InteractionRead = {
     wf_exec_id: {
       type: "string",
       pattern:
-        "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+        "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
       title: "Wf Exec Id",
     },
     actor: {
@@ -21424,7 +21431,7 @@ export const $RunContext = {
     wf_exec_id: {
       type: "string",
       pattern:
-        "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+        "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
       title: "Wf Exec Id",
     },
     wf_run_id: {
@@ -23470,6 +23477,10 @@ export const $SkillRead = {
       type: "string",
       title: "Name",
     },
+    slug: {
+      type: "string",
+      title: "Slug",
+    },
     description: {
       anyOf: [
         {
@@ -23507,7 +23518,7 @@ export const $SkillRead = {
       format: "date-time",
       title: "Updated At",
     },
-    archived_at: {
+    deleted_at: {
       anyOf: [
         {
           type: "string",
@@ -23517,7 +23528,7 @@ export const $SkillRead = {
           type: "null",
         },
       ],
-      title: "Archived At",
+      title: "Deleted At",
     },
     current_version: {
       anyOf: [
@@ -23550,6 +23561,7 @@ export const $SkillRead = {
     "id",
     "workspace_id",
     "name",
+    "slug",
     "draft_revision",
     "created_at",
     "updated_at",
@@ -23575,6 +23587,10 @@ export const $SkillReadMinimal = {
     name: {
       type: "string",
       title: "Name",
+    },
+    slug: {
+      type: "string",
+      title: "Slug",
     },
     description: {
       anyOf: [
@@ -23609,7 +23625,7 @@ export const $SkillReadMinimal = {
       format: "date-time",
       title: "Updated At",
     },
-    archived_at: {
+    deleted_at: {
       anyOf: [
         {
           type: "string",
@@ -23619,13 +23635,17 @@ export const $SkillReadMinimal = {
           type: "null",
         },
       ],
-      title: "Archived At",
+      title: "Deleted At",
     },
   },
   type: "object",
-  required: ["id", "workspace_id", "name", "created_at", "updated_at"],
+  required: ["id", "workspace_id", "name", "slug", "created_at", "updated_at"],
   title: "SkillReadMinimal",
-  description: "Minimal response model for listing workspace skills.",
+  description: `Minimal response model for listing workspace skills.
+
+\`\`slug\`\` is the late-binding handle every skill API accepts; list
+responses must expose it so callers never have to guess it from \`\`name\`\`
+(names are not unique — slugs are, per live row).`,
 } as const
 
 export const $SkillUpload = {
@@ -29789,7 +29809,7 @@ export const $WorkflowExecutionBulkResetItemResult = {
     execution_id: {
       type: "string",
       pattern:
-        "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+        "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
       title: "Execution Id",
     },
     ok: {
@@ -29831,7 +29851,7 @@ export const $WorkflowExecutionBulkResetRequest = {
       items: {
         type: "string",
         pattern:
-          "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+          "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
       },
       type: "array",
       maxItems: 100,
@@ -30109,7 +30129,7 @@ export const $WorkflowExecutionCreateResponse = {
     wf_exec_id: {
       type: "string",
       pattern:
-        "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+        "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
       title: "Wf Exec Id",
     },
     payload: {
@@ -30185,7 +30205,7 @@ export const $WorkflowExecutionEvent = {
         {
           type: "string",
           pattern:
-            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+            "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
         },
         {
           type: "null",
@@ -30294,7 +30314,7 @@ export const $WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_ = {
         {
           type: "string",
           pattern:
-            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+            "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
         },
         {
           type: "null",
@@ -30590,7 +30610,7 @@ export const $WorkflowExecutionRead = {
         {
           type: "string",
           pattern:
-            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+            "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
         },
         {
           type: "null",
@@ -30713,7 +30733,7 @@ export const $WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_ = {
         {
           type: "string",
           pattern:
-            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+            "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
         },
         {
           type: "null",
@@ -30836,7 +30856,7 @@ export const $WorkflowExecutionReadMinimal = {
         {
           type: "string",
           pattern:
-            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+            "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
         },
         {
           type: "null",
@@ -30961,7 +30981,7 @@ export const $WorkflowExecutionResetResponse = {
     execution_id: {
       type: "string",
       pattern:
-        "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+        "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
       title: "Execution Id",
     },
     new_run_id: {
@@ -31261,6 +31281,18 @@ export const $WorkflowRead = {
       ],
       title: "Error Handler",
     },
+    folder_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Id",
+    },
     trigger_position_x: {
       type: "number",
       title: "Trigger Position X",
@@ -31503,7 +31535,7 @@ export const $WorkflowRunReadMinimal = {
         {
           type: "string",
           pattern:
-            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+            "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
         },
         {
           type: "null",

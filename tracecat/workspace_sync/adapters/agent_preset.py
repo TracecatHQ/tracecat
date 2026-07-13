@@ -25,6 +25,7 @@ from tracecat.db.models import (
     Skill,
     SkillVersion,
 )
+from tracecat.db.soft_delete import with_deleted
 from tracecat.exceptions import TracecatValidationError
 from tracecat.sync import PullDiagnostic, serializable_validation_errors
 from tracecat.workspace_sync.adapters.base import (
@@ -228,7 +229,10 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         """Build the base eager-loaded preset projection query."""
         return (
             select(AgentPreset)
-            .where(AgentPreset.workspace_id == workspace_service.workspace_id)
+            .where(
+                AgentPreset.workspace_id == workspace_service.workspace_id,
+                AgentPreset.deleted_at.is_(None),
+            )
             .options(
                 selectinload(AgentPreset.folder),
                 selectinload(AgentPreset.tags),
@@ -350,39 +354,12 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         )
         bindings: dict[uuid.UUID, list[AgentPresetSkillBinding]] = {}
         for preset_version_id, slug, version_number in (
-            await workspace_service.session.execute(stmt)
+            await workspace_service.session.execute(with_deleted(stmt))
         ).tuples():
             bindings.setdefault(preset_version_id, []).append(
                 AgentPresetSkillBinding(slug=slug, version=version_number)
             )
         return bindings
-
-    async def _skill_bindings_for_version(
-        self,
-        workspace_service: SyncMappingService,
-        version: AgentPresetVersion,
-    ) -> list[AgentPresetSkillBinding]:
-        """Return slug/version skill bindings for an immutable preset version."""
-        stmt = (
-            select(Skill.name, SkillVersion.version)
-            .select_from(AgentPresetVersionSkill)
-            .join(Skill, AgentPresetVersionSkill.skill_id == Skill.id)
-            .join(
-                SkillVersion,
-                AgentPresetVersionSkill.skill_version_id == SkillVersion.id,
-            )
-            .where(
-                AgentPresetVersionSkill.workspace_id == workspace_service.workspace_id,
-                AgentPresetVersionSkill.preset_version_id == version.id,
-            )
-            .order_by(Skill.name.asc())
-        )
-        return [
-            AgentPresetSkillBinding(slug=slug, version=version_number)
-            for slug, version_number in (
-                await workspace_service.session.execute(stmt)
-            ).tuples()
-        ]
 
     async def import_specs(
         self,
@@ -409,6 +386,8 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             owner_label="preset",
             error_cls=TracecatValidationError,
             options=(selectinload(AgentPreset.tags),),
+            row_predicates=(AgentPreset.deleted_at.is_(None),),
+            availability_predicates=(AgentPreset.deleted_at.is_(None),),
         )
         imported: list[ImportedResource] = []
         preset_by_source_id: dict[str, AgentPreset] = {}
@@ -510,7 +489,6 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 imported.append(self.imported_resource(source_id, preset.id))
                 continue
 
-            current_version = None
             current_version = imported_versions.get(spec.current_version)
             if current_version is None:
                 current_version = await self._current_version_for_preset(
@@ -651,6 +629,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             .where(
                 AgentPreset.workspace_id == workspace_service.workspace_id,
                 AgentPreset.slug == spec.slug,
+                AgentPreset.deleted_at.is_(None),
             )
             .options(selectinload(AgentPreset.tags))
         )
@@ -667,6 +646,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             source_id=source_id,
             model=AgentPreset,
             options=(selectinload(AgentPreset.tags),),
+            row_predicates=(AgentPreset.deleted_at.is_(None),),
         )
 
     async def _ensure_agent_folder(
@@ -804,11 +784,14 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         subagent: AgentPresetSubagentRef,
     ) -> tuple[AgentPreset, AgentPresetVersion] | None:
         """Resolve a subagent ref to its child preset and desired version."""
-        # Look up the child preset by slug within the same workspace.
+        # Look up the child preset by slug within the same workspace. Soft-deleted
+        # presets keep their slug, so exclude them to avoid binding a deleted
+        # child that runtime resolution would reject.
         child = await workspace_service.session.scalar(
             select(AgentPreset).where(
                 AgentPreset.workspace_id == workspace_service.workspace_id,
                 AgentPreset.slug == subagent.slug,
+                AgentPreset.deleted_at.is_(None),
             )
         )
         if child is None:
@@ -944,13 +927,11 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 version=version.version_number,
                 **attrs,
             )
-            workspace_service.session.add(existing)
-            await workspace_service.session.flush()
         else:
             for key, value in attrs.items():
                 setattr(existing, key, value)
-            workspace_service.session.add(existing)
-            await workspace_service.session.flush()
+        workspace_service.session.add(existing)
+        await workspace_service.session.flush()
         return existing
 
     def _version_attrs_from_preset(self, preset: AgentPreset) -> dict[str, Any]:
@@ -1083,6 +1064,10 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             select(Skill).where(
                 Skill.workspace_id == workspace_service.workspace_id,
                 Skill.name == binding.slug,
+                # Expand-window check: legacy writers set only archived_at; the
+                # contract release drops the archived_at leg.
+                Skill.deleted_at.is_(None),
+                Skill.archived_at.is_(None),
             )
         )
         if skill is None:
