@@ -17,21 +17,17 @@ from tracecat.settings.router import (
     check_saml_domain_prerequisites,
 )
 from tracecat.settings.schemas import (
-    AppSettingsRead,
-    AppSettingsUpdate,
     AuditSettingsUpdate,
     GitSettingsUpdate,
     SAMLSettingsUpdate,
     SettingCreate,
     SettingUpdate,
     ValueType,
-    VersionedResourceResolutionStrategy,
 )
 from tracecat.settings.service import (
     SettingsService,
     get_setting,
     get_setting_override,
-    get_versioned_resource_resolution_strategy,
 )
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -508,50 +504,6 @@ async def test_get_setting_shorthand(
         assert nonexistent_no_default is None
     finally:
         ctx_role.reset(token)  # type: ignore
-
-
-def test_app_settings_read_defaults_versioned_resource_strategy() -> None:
-    settings = AppSettingsRead(
-        app_registry_validation_enabled=False,
-        app_executions_query_limit=100,
-        app_interactions_enabled=False,
-        app_workflow_export_enabled=True,
-        app_create_workspace_on_register=False,
-        app_action_form_mode_enabled=True,
-    )
-
-    assert (
-        settings.app_versioned_resource_resolution_strategy
-        is VersionedResourceResolutionStrategy.LATEST
-    )
-
-
-@pytest.mark.anyio
-async def test_get_versioned_resource_resolution_strategy(
-    settings_service_with_defaults: SettingsService,
-    svc_admin_role: Role,
-) -> None:
-    service = settings_service_with_defaults
-
-    strategy = await get_versioned_resource_resolution_strategy(
-        role=svc_admin_role,
-        session=service.session,
-    )
-    assert strategy is VersionedResourceResolutionStrategy.LATEST
-
-    await service.update_app_settings(
-        AppSettingsUpdate(
-            app_versioned_resource_resolution_strategy=(
-                VersionedResourceResolutionStrategy.PINNED
-            )
-        )
-    )
-
-    strategy = await get_versioned_resource_resolution_strategy(
-        role=svc_admin_role,
-        session=service.session,
-    )
-    assert strategy is VersionedResourceResolutionStrategy.PINNED
 
 
 @pytest.mark.anyio

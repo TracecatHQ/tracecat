@@ -26,7 +26,8 @@ from tracecat.authz.controls import require_scope
 from tracecat.contexts import ctx_role, ctx_session_id
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
-from tracecat.tiers.entitlements import Entitlement, check_entitlement
+from tracecat.tiers.entitlements import check_entitlement
+from tracecat.tiers.enums import Entitlement
 
 router = APIRouter(
     prefix="/internal/agent",
@@ -53,7 +54,6 @@ async def _resolve_run_config(
             raise ValueError("Preset-based runs require workspace context.")
         config = await agent_svc.presets.resolve_agent_preset_config(
             slug=params.preset_slug,
-            preset_version=params.preset_version,
         )
         _reject_unsupported_agents_config(config)
         return config

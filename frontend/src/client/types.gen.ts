@@ -571,8 +571,8 @@ export type AgentPresetDirectoryItem = {
   name: string
   slug: string
   description: string | null
-  model_provider: string
-  model_name: string
+  model_provider: string | null
+  model_name: string | null
   folder_id: string | null
   tags: Array<TagRead>
   created_at: string
@@ -611,7 +611,7 @@ export type AgentPresetRead = {
   name: string
   slug: string
   description?: string | null
-  current_version_id?: string | null
+  current_version_id: string
   folder_id?: string | null
   skills?: Array<AgentPresetSkillBindingRead>
   created_at: string
@@ -627,8 +627,8 @@ export type AgentPresetReadMinimal = {
   name: string
   slug: string
   description: string | null
-  model_provider: string
-  model_name: string
+  model_provider: string | null
+  model_name: string | null
   folder_id?: string | null
   tags?: Array<TagRead>
   current_version_id?: string | null
@@ -646,25 +646,22 @@ export type AgentPresetSkillBindingBase = {
 }
 
 /**
- * Diff entry for skill binding changes between preset versions.
+ * Attachment change between two preset versions.
  */
 export type AgentPresetSkillBindingChange = {
   skill_id: string
   skill_name: string
-  old_skill_version_id?: string | null
-  old_skill_version?: number | null
-  new_skill_version_id?: string | null
-  new_skill_version?: number | null
+  change_type: "attached" | "detached"
 }
 
+export type change_type2 = "attached" | "detached"
+
 /**
- * Resolved preset skill binding with metadata.
+ * Preset-to-Skill ResourceHead edge with display metadata.
  */
 export type AgentPresetSkillBindingRead = {
   skill_id: string
-  skill_version_id: string
   skill_name: string
-  skill_version: number
 }
 
 /**
@@ -1059,6 +1056,7 @@ export type AlertArtifact = {
 
 export type AnyAttachedSubagentRef =
   | ResolvedAttachedSubagentRef
+  | HeadAttachedSubagentRef
   | AttachedSubagentRef
 
 /**
@@ -1071,7 +1069,6 @@ export type AppSettingsRead = {
   app_workflow_export_enabled: boolean
   app_create_workspace_on_register: boolean
   app_action_form_mode_enabled: boolean
-  app_versioned_resource_resolution_strategy?: VersionedResourceResolutionStrategy
 }
 
 /**
@@ -1102,10 +1099,6 @@ export type AppSettingsUpdate = {
    * Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.
    */
   app_action_form_mode_enabled?: boolean
-  /**
-   * How versioned resource references are resolved when a feature supports both pinned and latest dependency resolution.
-   */
-  app_versioned_resource_resolution_strategy?: VersionedResourceResolutionStrategy
 }
 
 /**
@@ -1261,7 +1254,6 @@ export type AssistantMessage = {
  */
 export type AttachedSubagentRef = {
   preset: string
-  preset_version?: number | null
   name?: string | null
   description?: string | null
   max_turns?: number | null
@@ -4322,6 +4314,17 @@ export type HTTPValidationError = {
  */
 export type HarnessType = "pydantic-ai" | "claude_code"
 
+/**
+ * Stable internal reference to a child preset ResourceHead.
+ */
+export type HeadAttachedSubagentRef = {
+  preset: string
+  name?: string | null
+  description?: string | null
+  max_turns?: number | null
+  preset_id: string
+}
+
 export type HealthResponse = {
   status: string
 }
@@ -5863,7 +5866,7 @@ export type PullResourceDiff = {
   truncated?: boolean
 }
 
-export type change_type2 = "added" | "modified" | "deleted"
+export type change_type3 = "added" | "modified" | "deleted"
 
 export type PullResult = {
   success: boolean
@@ -6317,12 +6320,12 @@ export type ResolvedAgentsConfig = {
  */
 export type ResolvedAttachedSubagentRef = {
   preset: string
-  preset_version?: number | null
   name?: string | null
   description?: string | null
   max_turns?: number | null
   preset_id: string
   preset_version_id: string
+  preset_version?: number | null
 }
 
 export type ResourcePullCount = {
@@ -7063,7 +7066,13 @@ export type SkillFileEntry = {
 export type SkillRead = {
   id: string
   workspace_id: string
+  /**
+   * User-facing display name; not a runtime key.
+   */
   name: string
+  /**
+   * Current published package locator.
+   */
   slug: string
   description?: string | null
   current_version_id?: string | null
@@ -7087,7 +7096,13 @@ export type SkillRead = {
 export type SkillReadMinimal = {
   id: string
   workspace_id: string
+  /**
+   * User-facing display name; not a runtime key.
+   */
   name: string
+  /**
+   * Current published package locator.
+   */
   slug: string
   description?: string | null
   current_version_id?: string | null
@@ -8486,8 +8501,6 @@ export type VersionDiff = {
   actions_modified?: Array<ActionChange>
   total_changes?: number
 }
-
-export type VersionedResourceResolutionStrategy = "pinned" | "latest"
 
 /**
  * Vertex AI catalog entry.

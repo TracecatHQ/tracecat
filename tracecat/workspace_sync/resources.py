@@ -20,7 +20,6 @@ from tracecat.workspace_sync.adapters import (
     WORKFLOW_RESOURCE_ADAPTER,
     workspace_spec_from_maps,
 )
-from tracecat.workspace_sync.adapters.base import VersionedSlug
 from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.schemas import (
     WorkspaceManifest,
@@ -137,8 +136,7 @@ def validate_workspace_dependencies(spec: WorkspaceSpec) -> list[PullDiagnostic]
         preset.slug: preset for preset in spec.agent_presets.values()
     }
     preset_slugs = set(preset_specs_by_slug)
-    skill_specs_by_slug = {skill.slug: skill for skill in spec.skills.values()}
-    skill_slugs = set(skill_specs_by_slug)
+    skill_slugs = {skill.slug for skill in spec.skills.values()}
 
     for alias, source_ids in sorted(workflow_source_ids_by_alias.items()):
         if len(source_ids) <= 1:
@@ -182,41 +180,6 @@ def validate_workspace_dependencies(spec: WorkspaceSpec) -> list[PullDiagnostic]
                         },
                     )
                 )
-        for preset_slug, preset_version in sorted(references.versioned_preset_slugs):
-            if preset_slug not in preset_slugs:
-                diagnostics.append(
-                    PullDiagnostic(
-                        workflow_path=WORKFLOW_RESOURCE_ADAPTER.source_path(source_id),
-                        workflow_title=workflow.definition.title,
-                        error_type="dependency",
-                        message=f"Workflow references missing agent preset slug {preset_slug!r}",
-                        details={
-                            "workflow_source_id": source_id,
-                            "preset_slug": preset_slug,
-                        },
-                    )
-                )
-                continue
-            if preset_version not in _preset_available_versions(
-                preset_specs_by_slug[preset_slug]
-            ):
-                diagnostics.append(
-                    PullDiagnostic(
-                        workflow_path=WORKFLOW_RESOURCE_ADAPTER.source_path(source_id),
-                        workflow_title=workflow.definition.title,
-                        error_type="dependency",
-                        message=(
-                            "Workflow references missing agent preset version "
-                            f"{preset_slug!r}@{preset_version}"
-                        ),
-                        details={
-                            "workflow_source_id": source_id,
-                            "preset_slug": preset_slug,
-                            "preset_version": preset_version,
-                        },
-                    )
-                )
-
     preset_graph: dict[str, list[str]] = {}
     for source_id, preset in sorted(spec.agent_presets.items()):
         subagent_refs = []
@@ -239,28 +202,6 @@ def validate_workspace_dependencies(spec: WorkspaceSpec) -> list[PullDiagnostic]
                     )
                 )
                 continue
-            available_versions = _skill_available_versions(
-                skill_specs_by_slug[skill.slug]
-            )
-            if skill.version is not None and skill.version not in available_versions:
-                diagnostics.append(
-                    PullDiagnostic(
-                        workflow_path=AGENT_PRESET_RESOURCE_ADAPTER.source_path(
-                            source_id
-                        ),
-                        workflow_title=preset.name,
-                        error_type="dependency",
-                        message=(
-                            "Agent preset references missing skill version "
-                            f"{skill.slug!r}@{skill.version}"
-                        ),
-                        details={
-                            "preset_slug": preset.slug,
-                            "skill_slug": skill.slug,
-                            "skill_version": skill.version,
-                        },
-                    )
-                )
         for subagent in subagent_refs:
             if subagent.slug not in preset_slugs:
                 diagnostics.append(
@@ -278,27 +219,6 @@ def validate_workspace_dependencies(spec: WorkspaceSpec) -> list[PullDiagnostic]
                     )
                 )
                 continue
-            if subagent.version is not None and subagent.version not in (
-                _preset_available_versions(preset_specs_by_slug[subagent.slug])
-            ):
-                diagnostics.append(
-                    PullDiagnostic(
-                        workflow_path=AGENT_PRESET_RESOURCE_ADAPTER.source_path(
-                            source_id
-                        ),
-                        workflow_title=preset.name,
-                        error_type="dependency",
-                        message=(
-                            "Agent preset references missing subagent version "
-                            f"{subagent.slug!r}@{subagent.version}"
-                        ),
-                        details={
-                            "preset_slug": preset.slug,
-                            "subagent_slug": subagent.slug,
-                            "subagent_version": subagent.version,
-                        },
-                    )
-                )
 
     if cycle := _find_cycle(preset_graph):
         diagnostics.append(
@@ -363,7 +283,6 @@ class WorkflowReferences(NamedTuple):
     execute_aliases: set[str]
     execute_ids: set[WorkflowUUID]
     preset_slugs: set[str]
-    versioned_preset_slugs: set[VersionedSlug]
 
 
 def workflow_references(definition: DSLInput) -> WorkflowReferences:
@@ -371,7 +290,6 @@ def workflow_references(definition: DSLInput) -> WorkflowReferences:
     execute_aliases: set[str] = set()
     execute_ids: set[WorkflowUUID] = set()
     preset_slugs: set[str] = set()
-    versioned_preset_slugs: set[VersionedSlug] = set()
     for action in definition.actions:
         match action:
             case ActionStatement(
@@ -394,26 +312,12 @@ def workflow_references(definition: DSLInput) -> WorkflowReferences:
                 if not isinstance(preset_slug, str):
                     preset_slug = args.get("preset_slug")
                 if isinstance(preset_slug, str):
-                    if isinstance(version := args.get("preset_version"), int):
-                        versioned_preset_slugs.add(VersionedSlug(preset_slug, version))
-                    else:
-                        preset_slugs.add(preset_slug)
+                    preset_slugs.add(preset_slug)
     return WorkflowReferences(
         execute_aliases,
         execute_ids,
         preset_slugs,
-        versioned_preset_slugs,
     )
-
-
-def _skill_available_versions(skill: Any) -> set[int]:
-    """Return skill versions represented by the parsed spec."""
-    return set(skill.versions)
-
-
-def _preset_available_versions(preset: Any) -> set[int]:
-    """Return agent preset versions represented by the parsed spec."""
-    return set(preset.versions)
 
 
 def _parse_yaml_resource[ModelT: BaseModel](

@@ -8140,7 +8140,7 @@ async def test_list_agent_presets_returns_lightweight_metadata(
             model_provider="openai",
             actions=["tools.alpha"],
             namespaces=["tools"],
-            current_version_id=None,
+            current_version_id=uuid.uuid4(),
             created_at=now,
             updated_at=now,
         )
@@ -8193,7 +8193,7 @@ async def test_get_agent_preset_returns_full_configuration(
         retries=3,
         enable_thinking=True,
         enable_internet_access=False,
-        current_version_id=None,
+        current_version_id=uuid.uuid4(),
         created_at=now,
         updated_at=now,
     )
@@ -8255,10 +8255,8 @@ async def test_run_agent_preset_uses_session_stream_cursor(
             self,
             *,
             slug: str,
-            preset_version: int | None = None,
         ) -> SimpleNamespace:
             assert slug == "triage"
-            assert preset_version is None
             return version
 
     class _SessionService:
@@ -8645,7 +8643,7 @@ async def test_create_agent_preset_uses_default_model_and_passes_optional_fields
                 retries=params.retries,
                 enable_thinking=params.enable_thinking,
                 enable_internet_access=params.enable_internet_access,
-                current_version_id=None,
+                current_version_id=uuid.uuid4(),
                 created_at=now,
                 updated_at=now,
             )
@@ -8745,7 +8743,7 @@ async def test_create_agent_preset_uses_default_model_selection_catalog_id(
                 retries=params.retries,
                 enable_thinking=params.enable_thinking,
                 enable_internet_access=params.enable_internet_access,
-                current_version_id=None,
+                current_version_id=uuid.uuid4(),
                 created_at=now,
                 updated_at=now,
             )
@@ -8806,7 +8804,7 @@ async def test_update_agent_preset_updates_existing_preset(
         retries=3,
         enable_thinking=True,
         enable_internet_access=False,
-        current_version_id=None,
+        current_version_id=uuid.uuid4(),
         created_at=now,
         updated_at=now,
     )
@@ -8896,7 +8894,7 @@ async def test_update_agent_preset_resolves_explicit_model(
         retries=3,
         enable_thinking=True,
         enable_internet_access=False,
-        current_version_id=None,
+        current_version_id=uuid.uuid4(),
         created_at=now,
         updated_at=now,
     )
@@ -9065,7 +9063,7 @@ async def test_create_agent_preset_omitted_retry_fields_use_schema_defaults(
                 retries=params.retries,
                 enable_thinking=params.enable_thinking,
                 enable_internet_access=params.enable_internet_access,
-                current_version_id=None,
+                current_version_id=uuid.uuid4(),
                 created_at=now,
                 updated_at=now,
             )
@@ -9191,7 +9189,7 @@ async def test_create_agent_preset_resolves_catalog_id_for_custom_provider(
                 retries=params.retries,
                 enable_thinking=params.enable_thinking,
                 enable_internet_access=params.enable_internet_access,
-                current_version_id=None,
+                current_version_id=uuid.uuid4(),
                 created_at=now,
                 updated_at=now,
             )
@@ -9275,7 +9273,7 @@ async def test_create_agent_preset_passes_skill_bindings(
                 retries=params.retries,
                 enable_thinking=params.enable_thinking,
                 enable_internet_access=params.enable_internet_access,
-                current_version_id=None,
+                current_version_id=uuid.uuid4(),
                 created_at=now,
                 updated_at=now,
             )
@@ -9342,7 +9340,7 @@ async def test_update_agent_preset_passes_skill_bindings(
         retries=3,
         enable_thinking=True,
         enable_internet_access=False,
-        current_version_id=None,
+        current_version_id=uuid.uuid4(),
         created_at=now,
         updated_at=now,
     )
@@ -9413,7 +9411,7 @@ async def test_update_agent_preset_can_clear_skill_bindings(
         retries=3,
         enable_thinking=True,
         enable_internet_access=False,
-        current_version_id=None,
+        current_version_id=uuid.uuid4(),
         created_at=now,
         updated_at=now,
     )
@@ -9527,7 +9525,7 @@ async def test_upload_skill_uses_workspace_skill_service(
                 name=params.name,
                 slug=params.name,
                 description=None,
-                current_version_id=None,
+                current_version_id=uuid.uuid4(),
                 draft_revision=1,
                 created_at=now,
                 updated_at=now,
@@ -9601,7 +9599,7 @@ async def test_upload_skill_preserves_uploaded_skill_markdown_body(
                 name=params.name,
                 slug=params.name,
                 description="Updated description",
-                current_version_id=None,
+                current_version_id=uuid.uuid4(),
                 draft_revision=1,
                 created_at=now,
                 updated_at=now,
@@ -9677,7 +9675,7 @@ async def test_upload_skill_tolerates_malformed_uploaded_frontmatter(
                 name=params.name,
                 slug=params.name,
                 description="Recovered description",
-                current_version_id=None,
+                current_version_id=uuid.uuid4(),
                 draft_revision=1,
                 created_at=now,
                 updated_at=now,
@@ -9752,7 +9750,7 @@ async def test_upload_skill_merges_metadata_for_large_skill_markdown(
                 name=params.name,
                 slug=params.name,
                 description="Updated description",
-                current_version_id=None,
+                current_version_id=uuid.uuid4(),
                 draft_revision=1,
                 created_at=now,
                 updated_at=now,
@@ -9906,7 +9904,7 @@ async def test_update_skill_replaces_existing_draft(
                 name=params.name,
                 slug=params.name,
                 description="Updated description",
-                current_version_id=None,
+                current_version_id=uuid.uuid4(),
                 draft_revision=2,
                 created_at=now,
                 updated_at=now,

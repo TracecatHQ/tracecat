@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from tracecat.db.models import AgentPreset
+from tracecat.agent.preset.schemas import AgentPresetRead
 
 
 @dataclass(slots=True)
 class AgentPresetBuilderPrompt:
     """Builds instructions for the agent preset builder assistant."""
 
-    preset: AgentPreset
+    preset: AgentPresetRead
 
     @property
     def instructions(self) -> str:

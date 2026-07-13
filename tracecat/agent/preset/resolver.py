@@ -8,9 +8,16 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from pydantic import BaseModel, Field
 
+from tracecat.agent.preset.resolved_refs import (
+    ResolvedRef,
+    ResolvedRefs,
+    SkippedAgentPresetRef,
+    merge_resolved_refs,
+)
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
     AttachedSubagentRef,
+    HeadAttachedSubagentRef,
     ResolvedAgentsConfig,
     ResolvedAttachedSubagentRef,
     has_manual_tool_approvals,
@@ -33,9 +40,27 @@ class AgentPresetResolutionService(Protocol):
         slug: str | None = None,
         preset_version_id: uuid.UUID | None = None,
         preset_version: int | None = None,
+        include_deleted_preset: bool = False,
     ) -> Awaitable[AgentPresetVersion]: ...
 
-    def get_preset(self, preset_id: uuid.UUID) -> Awaitable[AgentPreset | None]: ...
+    def get_preset(
+        self, preset_id: uuid.UUID, *, include_deleted: bool = False
+    ) -> Awaitable[AgentPreset | None]: ...
+
+    def resolve_agent_preset_version_for_subagent_ref(
+        self,
+        *,
+        preset_id: uuid.UUID | None = None,
+        slug: str | None = None,
+    ) -> Awaitable[AgentPresetVersion | SkippedAgentPresetRef]: ...
+
+    def resolve_agent_preset_version_snapshot(
+        self,
+        *,
+        preset_version_id: uuid.UUID,
+        preset_id: uuid.UUID | None = None,
+        preset_slug: str | None = None,
+    ) -> Awaitable[AgentPresetVersion | SkippedAgentPresetRef]: ...
 
     def resolve_agent_preset_config(
         self,
@@ -44,7 +69,19 @@ class AgentPresetResolutionService(Protocol):
         slug: str | None = None,
         preset_version_id: uuid.UUID | None = None,
         preset_version: int | None = None,
+        include_deleted_preset: bool = False,
     ) -> Awaitable[AgentConfig]: ...
+
+    def _get_version_agents_config(
+        self, version: AgentPresetVersion
+    ) -> Awaitable[AgentSubagentsConfig]: ...
+
+    def get_successor_id_for_deleted_preset_ref(
+        self,
+        *,
+        preset_id: uuid.UUID | None = None,
+        slug: str | None = None,
+    ) -> Awaitable[uuid.UUID | None]: ...
 
 
 class ResolvedSubagentConfig(BaseModel):
@@ -88,6 +125,8 @@ class ResolvedAgentsConfigResult(BaseModel):
 
     enabled: bool = False
     subagents: list[ResolvedSubagentResolution] = Field(default_factory=list)
+    skipped: list[SkippedAgentPresetRef] = Field(default_factory=list)
+    resolved_refs: ResolvedRefs | None = None
 
     def to_agents_binding(self) -> ResolvedAgentsConfig:
         return ResolvedAgentsConfig(
@@ -101,6 +140,7 @@ class ResolvedAgentsConfigResult(BaseModel):
             subagents=[
                 subagent.require_runtime_config() for subagent in self.subagents
             ],
+            resolved_refs=self.resolved_refs,
         )
 
 
@@ -109,6 +149,7 @@ class ResolvedAgentsRuntimeConfig(BaseModel):
 
     enabled: bool = False
     subagents: list[ResolvedSubagentConfig] = Field(default_factory=list)
+    resolved_refs: ResolvedRefs | None = None
 
     def to_agents_binding(self) -> ResolvedAgentsConfig:
         return ResolvedAgentsConfig(
@@ -124,9 +165,20 @@ async def resolve_agents_config(
     parent_preset_id: uuid.UUID | None = None,
     parent_slug: str | None = None,
     include_runtime_config: bool = False,
-    follow_latest_versions: bool = False,
+    preserve_resolved_versions: bool = False,
 ) -> ResolvedAgentsConfigResult:
-    """Resolve and validate preset-backed subagent refs."""
+    """Resolve and validate preset-backed subagent refs.
+
+    ``preserve_resolved_versions`` restores a run snapshot to its exact stored
+    ``preset_version_id``. Fresh resolution always follows ResourceHead edges
+    to each child preset's current version.
+    """
+
+    # NOTE(ENG-1526): preserve_resolved_versions exists so resumed sessions can
+    # rebuild their preserved binding verbatim (the session activity fails the
+    # run on any binding mismatch). PR 2.3a moves resolution to dispatch time
+    # with per-turn session bindings, which may subsume or remove this flag —
+    # revisit when dispatch-time manifests fully own resume reconstruction.
 
     config = AgentSubagentsConfig.model_validate({} if agents is None else agents)
     if not config.enabled:
@@ -134,6 +186,8 @@ async def resolve_agents_config(
 
     aliases: set[str] = set()
     resolved_subagents: list[ResolvedSubagentResolution] = []
+    skipped: list[SkippedAgentPresetRef] = []
+    resolved_ref_entries: list[ResolvedRef] = []
     for ref in config.subagents:
         alias = ref.alias
         try:
@@ -156,41 +210,73 @@ async def resolve_agents_config(
             case ResolvedAttachedSubagentRef(
                 preset_id=preset_id, preset_version_id=preset_version_id
             ):
-                # Persisted ref has stable UUIDs to resolve against.
-                if follow_latest_versions:
-                    # Pinned identity, but the caller wants the newest version.
-                    version = await service.resolve_agent_preset_version(
+                if preserve_resolved_versions:
+                    # Resumed-session restore: resolve the exact stored version
+                    # verbatim. A child preset that advanced or was soft-deleted
+                    # mid-session must not change an in-flight session's topology.
+                    version_or_skip = (
+                        await service.resolve_agent_preset_version_snapshot(
+                            preset_version_id=preset_version_id,
+                            preset_id=preset_id,
+                            preset_slug=ref.preset,
+                        )
+                    )
+                else:
+                    version_or_skip = (
+                        await service.resolve_agent_preset_version_for_subagent_ref(
+                            preset_id=preset_id,
+                        )
+                    )
+            case HeadAttachedSubagentRef(preset_id=preset_id):
+                # Authored and persisted edges follow the stable child head.
+                version_or_skip = (
+                    await service.resolve_agent_preset_version_for_subagent_ref(
                         preset_id=preset_id,
                     )
-                else:
-                    # Resolve the exact persisted version.
-                    version = await service.resolve_agent_preset_version(
-                        preset_version_id=preset_version_id,
-                    )
-            case AttachedSubagentRef(preset=preset_slug, preset_version=preset_version):
-                # Unresolved ref has no persisted UUID; resolve by slug.
-                preset_version_id = None
-                if follow_latest_versions:
-                    version = await service.resolve_agent_preset_version(
-                        slug=preset_slug
-                    )
-                else:
-                    version = await service.resolve_agent_preset_version(
+                )
+            case AttachedSubagentRef(preset=preset_slug):
+                # Boundary refs without UUIDs resolve by the current live slug.
+                version_or_skip = (
+                    await service.resolve_agent_preset_version_for_subagent_ref(
                         slug=preset_slug,
-                        preset_version=preset_version,
                     )
+                )
+        if isinstance(version_or_skip, SkippedAgentPresetRef):
+            skipped.append(version_or_skip)
+            successor_id = (
+                await service.get_successor_id_for_deleted_preset_ref(
+                    preset_id=version_or_skip.preset_id,
+                    slug=version_or_skip.preset_slug,
+                )
+                if version_or_skip.reason == "deleted"
+                else None
+            )
+            resolved_ref_entries.append(
+                ResolvedRef(
+                    resource_kind="subagent",
+                    slug=version_or_skip.preset_slug,
+                    resource_id=version_or_skip.preset_id,
+                    status="skipped",
+                    code=version_or_skip.reason,
+                    successor_id=successor_id,
+                )
+            )
+            continue
+        version = version_or_skip
         references_parent_id = (
             parent_preset_id is not None and version.preset_id == parent_preset_id
         )
         references_parent_slug = (
-            preset_version_id is None
+            not isinstance(ref, HeadAttachedSubagentRef)
             and parent_slug is not None
             and ref.preset == parent_slug
         )
         if references_parent_id or references_parent_slug:
             raise TracecatValidationError("Agent presets cannot reference themselves")
 
-        child_agents = AgentSubagentsConfig.model_validate(version.agents)
+        # Check the same version-owned edges the runtime executes from. The
+        # shallow read avoids recursing through the child's subagent refs.
+        child_agents = await service._get_version_agents_config(version)
         if child_agents.enabled:
             raise TracecatValidationError(
                 f"Subagent preset '{ref.preset}' cannot define its own agents in v1"
@@ -200,6 +286,21 @@ async def resolve_agents_config(
                 f"Subagent preset '{ref.preset}' uses manual approvals, "
                 "which are not supported for subagents yet."
             )
+
+        # On the resumed-session restore path a soft-deleted child preset
+        # must still enrich the runtime config (with_deleted read).
+        preset = await service.get_preset(
+            version.preset_id, include_deleted=preserve_resolved_versions
+        )
+        resolved_ref_entries.append(
+            ResolvedRef(
+                resource_kind="subagent",
+                slug=preset.slug if preset is not None else ref.preset,
+                resource_id=version.preset_id,
+                resolved_version_id=version.id,
+                status="ok",
+            )
+        )
 
         binding = ResolvedAttachedSubagentRef(
             preset=ref.preset,
@@ -211,9 +312,9 @@ async def resolve_agents_config(
             preset_version_id=version.id,
         )
         if include_runtime_config:
-            preset = await service.get_preset(version.preset_id)
             child_config = await service.resolve_agent_preset_config(
                 preset_version_id=version.id,
+                include_deleted_preset=preserve_resolved_versions,
             )
             description = (
                 ref.description
@@ -228,10 +329,21 @@ async def resolve_agents_config(
                     config=agent_config_to_payload(child_config),
                 )
             )
+            if child_config.resolved_refs is not None:
+                resolved_ref_entries.extend(
+                    child_ref
+                    for child_ref in child_config.resolved_refs.refs
+                    if child_ref.resource_kind != "preset"
+                )
         else:
             resolved_subagents.append(ResolvedSubagentResolution(binding=binding))
 
-    return ResolvedAgentsConfigResult(enabled=True, subagents=resolved_subagents)
+    return ResolvedAgentsConfigResult(
+        enabled=True,
+        subagents=resolved_subagents,
+        skipped=skipped,
+        resolved_refs=merge_resolved_refs(ResolvedRefs(refs=resolved_ref_entries)),
+    )
 
 
 def build_subagent_prompt(instructions: str | None) -> str:

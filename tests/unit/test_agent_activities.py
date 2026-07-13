@@ -25,6 +25,10 @@ from tracecat_ee.agent.activities import (
     BuildAgentToolDefsArgs,
     BuildToolDefsArgs,
 )
+from tracecat_ee.agent.workflows.durable import (
+    _needs_empty_binding_provenance_activity,
+    _preserved_agents_binding,
+)
 
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import HarnessType
@@ -38,6 +42,7 @@ from tracecat.agent.executor.activity import (
     run_agent_activity,
 )
 from tracecat.agent.executor.loopback import LoopbackResult
+from tracecat.agent.preset.resolved_refs import ResolvedRef, ResolvedRefs
 from tracecat.agent.schemas import ToolFilters
 from tracecat.agent.session.activities import (
     CreateSessionInput,
@@ -53,7 +58,7 @@ from tracecat.agent.session.activities import (
 )
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.skill.types import ResolvedSkillRef
-from tracecat.agent.subagents import ResolvedAgentsConfig
+from tracecat.agent.subagents import AgentSubagentsConfig, ResolvedAgentsConfig
 from tracecat.agent.tools import BuildToolsResult
 from tracecat.agent.types import AgentConfig, Tool
 from tracecat.auth.types import Role
@@ -762,18 +767,27 @@ class TestCreateSessionActivity:
                 {"enabled": False},
                 None,
                 None,
-                False,
-                False,
-                id="different-explicit-binding",
+                True,
+                True,
+                id="never-run-overwrites-stale-binding",
             ),
             pytest.param(
                 None,
                 {"enabled": True, "subagents": []},
                 None,
                 None,
+                True,
+                False,
+                id="dispatch-resolved-turn-does-not-reconcile-shared-binding",
+            ),
+            pytest.param(
+                ResolvedAgentsConfig.model_validate({"enabled": True, "subagents": []}),
+                {"enabled": False},
+                "sdk-session-1",
+                None,
                 False,
                 False,
-                id="missing-incoming-binding",
+                id="resume-state-mismatch-still-fails",
             ),
         ],
     )
@@ -791,7 +805,12 @@ class TestCreateSessionActivity:
         expected_success: bool,
         expected_backfill: bool,
     ):
-        """Existing sessions reject binding changes once SDK/fork resume state exists."""
+        """Existing sessions reject binding changes once SDK/fork resume state exists.
+
+        A never-run session (no SDK session, no fork parent) adopts the
+        freshly resolved binding instead: an explicit version selection persists
+        the version's saved binding, but the first turn resolves fresh.
+        """
         input = CreateSessionInput(
             role=mock_role,
             session_id=mock_session_id,
@@ -824,15 +843,14 @@ class TestCreateSessionActivity:
             with pytest.raises(ApplicationError) as exc_info:
                 await create_session_activity(input)
             assert exc_info.value.message == (
-                "Agent session was created with a different agents binding"
+                "Agent session turn was dispatched with a different agents binding"
             )
             assert exc_info.value.non_retryable is True
 
         if expected_backfill:
-            assert incoming_agents_binding is not None
-            assert (
-                mock_agent_session.agents_binding
-                == incoming_agents_binding.model_dump(mode="json")
+            requested_binding = incoming_agents_binding or ResolvedAgentsConfig()
+            assert mock_agent_session.agents_binding == requested_binding.model_dump(
+                mode="json"
             )
             mock_service.session.add.assert_called_once_with(mock_agent_session)
             mock_service.session.commit.assert_awaited_once()
@@ -992,6 +1010,133 @@ class TestCreateSessionActivity:
 
         assert result.success is True
         mock_service.auto_title_session_on_first_prompt.assert_not_awaited()
+
+
+class TestPreservedAgentsBinding:
+    """First-turn vs resumed gating of verbatim binding restore.
+
+    Verbatim restore (exact version IDs, including soft-deleted children)
+    protects the topology of sessions with actual resume state. A pre-created
+    session that never ran may already persist a selected version's saved
+    binding; its first turn must resolve the current head so a deleted child is
+    skipped-and-recorded, never restored.
+    """
+
+    def test_never_run_session_with_persisted_binding_resolves_fresh(self) -> None:
+        binding = ResolvedAgentsConfig.model_validate(
+            {"enabled": True, "subagents": []}
+        )
+        result = LoadSessionResult(
+            found=True, agents_binding=binding, has_resume_state=False
+        )
+        assert _preserved_agents_binding(result) is None
+
+    def test_resumed_session_restores_stored_binding_verbatim(self) -> None:
+        binding = ResolvedAgentsConfig.model_validate(
+            {"enabled": True, "subagents": []}
+        )
+        result = LoadSessionResult(
+            found=True,
+            sdk_session_id="sdk-session-1",
+            agents_binding=binding,
+            has_resume_state=True,
+        )
+        assert _preserved_agents_binding(result) == binding
+
+    def test_resumed_session_without_binding_preserves_disabled(self) -> None:
+        result = LoadSessionResult(
+            found=True, sdk_session_id="sdk-session-1", has_resume_state=True
+        )
+        assert _preserved_agents_binding(result) == ResolvedAgentsConfig()
+
+    def test_empty_preserved_bindings_need_deferred_provenance_activity(
+        self,
+    ) -> None:
+        cfg = AgentConfig(
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            agents=AgentSubagentsConfig.model_validate(
+                {
+                    "enabled": True,
+                    "subagents": [{"preset": "analyst"}],
+                }
+            ),
+            resolved_refs=ResolvedRefs(
+                refs=[
+                    ResolvedRef(
+                        resource_kind="preset",
+                        resource_id=uuid.uuid4(),
+                        resolved_version_id=uuid.uuid4(),
+                        status="ok",
+                    )
+                ]
+            ),
+        )
+
+        assert _needs_empty_binding_provenance_activity(cfg, ResolvedAgentsConfig())
+        assert _needs_empty_binding_provenance_activity(
+            cfg, ResolvedAgentsConfig(enabled=True)
+        )
+
+    def test_nonempty_preserved_binding_does_not_force_provenance_activity(
+        self,
+    ) -> None:
+        cfg = AgentConfig(
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            agents=AgentSubagentsConfig.model_validate(
+                {
+                    "enabled": True,
+                    "subagents": [{"preset": "analyst"}],
+                }
+            ),
+            resolved_refs=ResolvedRefs(
+                refs=[
+                    ResolvedRef(
+                        resource_kind="preset",
+                        resource_id=uuid.uuid4(),
+                        resolved_version_id=uuid.uuid4(),
+                        status="ok",
+                    )
+                ]
+            ),
+        )
+        binding = ResolvedAgentsConfig.model_validate(
+            {
+                "enabled": True,
+                "subagents": [
+                    {
+                        "preset": "analyst",
+                        "preset_version": 1,
+                        "preset_id": uuid.uuid4(),
+                        "preset_version_id": uuid.uuid4(),
+                    }
+                ],
+            }
+        )
+
+        assert not _needs_empty_binding_provenance_activity(cfg, binding)
+
+    def test_root_only_config_does_not_duplicate_provenance_activity(self) -> None:
+        cfg = AgentConfig(
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            resolved_refs=ResolvedRefs(
+                refs=[
+                    ResolvedRef(
+                        resource_kind="preset",
+                        resource_id=uuid.uuid4(),
+                        resolved_version_id=uuid.uuid4(),
+                        status="ok",
+                    )
+                ]
+            ),
+        )
+
+        assert not _needs_empty_binding_provenance_activity(cfg, ResolvedAgentsConfig())
+
+    def test_missing_session_resolves_fresh(self) -> None:
+        assert _preserved_agents_binding(LoadSessionResult(found=False)) is None
 
 
 class TestLoadSessionActivity:

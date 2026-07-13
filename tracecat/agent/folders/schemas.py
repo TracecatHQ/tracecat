@@ -49,8 +49,8 @@ class AgentPresetDirectoryItem(BaseModel):
     name: str
     slug: str
     description: str | None
-    model_provider: str
-    model_name: str
+    model_provider: str | None
+    model_name: str | None
     folder_id: uuid.UUID | None
     tags: list[TagRead]
     created_at: datetime

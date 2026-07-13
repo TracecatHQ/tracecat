@@ -14,17 +14,18 @@ import uuid
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
 import yaml
 from pydantic import SecretStr, ValidationError
 from pydantic_core import PydanticSerializationError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.support.fake_vcs import FakeVcsServer
+from tracecat.agent.session.service import AgentSessionService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import (
@@ -33,6 +34,7 @@ from tracecat.db.models import (
     AgentPresetSkill,
     AgentPresetVersion,
     AgentPresetVersionSkill,
+    AgentPresetVersionSubagent,
     CaseDropdownDefinition,
     CaseDropdownOption,
     CaseDurationDefinition,
@@ -66,7 +68,6 @@ from tracecat.workspace_sync.adapters import (
     TABLE_RESOURCE_ADAPTER,
     WORKSPACE_RESOURCE_ADAPTERS,
 )
-from tracecat.workspace_sync.adapters.base import VersionedSlug
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.importer import WorkspaceResourceImportService
 from tracecat.workspace_sync.resources import workflow_references
@@ -288,13 +289,11 @@ def test_workflow_references_detects_preset_agent_preset_arg() -> None:
     references = workflow_references(DSLInput.model_validate(workflow["definition"]))
 
     assert references.preset_slugs == {"qa-triage-parent"}
-    assert references.versioned_preset_slugs == set()
 
     workflow["definition"]["actions"][0]["args"]["preset_version"] = 2
     references = workflow_references(DSLInput.model_validate(workflow["definition"]))
 
-    assert references.preset_slugs == set()
-    assert references.versioned_preset_slugs == {VersionedSlug("qa-triage-parent", 2)}
+    assert references.preset_slugs == {"qa-triage-parent"}
 
 
 def test_skill_fixture_records_file_sha256s() -> None:
@@ -500,6 +499,73 @@ async def test_duplicate_skill_slug_is_validation_diagnostic(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("resource_path", "invalid_slug"),
+    [
+        (f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml", "QA-Enrichment-Skill"),
+        (
+            f"{AGENT_PRESET_ROOT}/qa-triage-parent/versions/1.yml",
+            "qa enrichment skill",
+        ),
+    ],
+)
+async def test_pull_rejects_invalid_skill_slugs_before_writes(
+    workspace_sync_service: WorkspaceSyncService,
+    resource_path: str,
+    invalid_slug: str,
+) -> None:
+    files = _expanded_selected_git_tree()
+    resource = yaml.safe_load(files[resource_path])
+    if resource["type"] == "skill":
+        resource["slug"] = invalid_slug
+    else:
+        resource["skills"][0]["slug"] = invalid_slug
+    files[resource_path] = _yaml(resource)
+
+    snapshot, diagnostics = await workspace_sync_service.parse_files(files)
+
+    assert any(
+        diagnostic.workflow_path == resource_path
+        and diagnostic.error_type == "validation"
+        and any(
+            error.get("loc", [])[-1:] == ["slug"]
+            for error in diagnostic.details.get("validation_errors", [])
+        )
+        for diagnostic in diagnostics
+    )
+    if resource["type"] == "skill":
+        assert "qa-enrichment-skill" not in snapshot.spec.skills
+    else:
+        assert snapshot.spec.agent_presets["qa-triage-parent"].versions == {}
+
+    transport = AsyncMock()
+    transport.read_files.return_value = VcsTreeSnapshot(
+        commit_sha="i" * 40,
+        tree_sha="tree-sha",
+        files=files,
+    )
+    workspace_sync_service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
+    )
+
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        result = await workspace_sync_service.pull(
+            options=PullOptions(commit_sha="i" * 40)
+        )
+
+    assert result.success is False
+    assert any(
+        diagnostic.workflow_path == resource_path
+        and diagnostic.error_type == "validation"
+        for diagnostic in result.diagnostics
+    )
+    cast(AsyncMock, workspace_sync_service.session).add.assert_not_called()
+
+
+@pytest.mark.anyio
 async def test_duplicate_variable_environment_name_is_validation_diagnostic(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:
@@ -557,7 +623,7 @@ async def test_missing_skill_binding_is_dependency_diagnostic(
 
 
 @pytest.mark.anyio
-async def test_missing_pinned_skill_version_is_dependency_diagnostic(
+async def test_skill_head_requires_its_current_version(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:
     files = _expanded_selected_git_tree()
@@ -568,7 +634,6 @@ async def test_missing_pinned_skill_version_is_dependency_diagnostic(
     assert any(
         diagnostic.error_type == "dependency"
         and "qa-enrichment-skill" in diagnostic.message
-        and "@1" in diagnostic.message
         for diagnostic in diagnostics
     )
 
@@ -670,15 +735,35 @@ async def test_import_selected_fixture_reconciles_supported_non_workflow_resourc
         )
     )
     assert parent_preset is not None
-    assert parent_preset.agents["enabled"] is True
-    assert parent_preset.agents["subagents"][0]["preset"] == "qa-evidence-child"
-    assert parent_preset.base_url == "https://models.example.test/v1"
-    assert parent_preset.output_type == {"type": "json_schema", "name": "qa_triage"}
-    assert parent_preset.namespaces == ["tools.qa_enrichment"]
-    assert parent_preset.mcp_integrations == ["qa-mcp"]
-    assert parent_preset.retries == 4
-    assert parent_preset.enable_thinking is False
-    assert parent_preset.enable_internet_access is True
+    parent_version = await session.scalar(
+        select(AgentPresetVersion).where(
+            AgentPresetVersion.id == parent_preset.current_version_id
+        )
+    )
+    assert parent_version is not None
+    assert parent_version.subagents_enabled is True
+    assert parent_version.base_url == "https://models.example.test/v1"
+    assert parent_version.output_type == {
+        "type": "json_schema",
+        "name": "qa_triage",
+    }
+    assert parent_version.namespaces == ["tools.qa_enrichment"]
+    # MCP integrations are workspace-local and intentionally ignored on import.
+    assert parent_version.mcp_integrations is None
+    assert parent_version.retries == 4
+    assert parent_version.enable_thinking is False
+    assert parent_version.enable_internet_access is True
+    parent_subagent = await session.scalar(
+        select(AgentPresetVersionSubagent).where(
+            AgentPresetVersionSubagent.parent_preset_version_id == parent_version.id
+        )
+    )
+    assert parent_subagent is not None
+    child_preset = await session.scalar(
+        select(AgentPreset).where(AgentPreset.id == parent_subagent.child_preset_id)
+    )
+    assert child_preset is not None
+    assert child_preset.slug == "qa-evidence-child"
     first_parent_version_id = parent_preset.current_version_id
 
     second_imported_resources = await WorkspaceResourceImportService(
@@ -709,7 +794,7 @@ async def test_import_selected_fixture_reconciles_supported_non_workflow_resourc
     skill = await session.scalar(
         select(Skill).where(
             Skill.workspace_id == workspace_id,
-            Skill.name == "qa-enrichment-skill",
+            Skill.slug == "qa-enrichment-skill",
         )
     )
     assert skill is not None
@@ -721,7 +806,8 @@ async def test_import_selected_fixture_reconciles_supported_non_workflow_resourc
         )
     )
     assert skill_version is not None
-    assert skill_version.name == "QA enrichment skill"
+    assert skill.name == "QA enrichment skill"
+    assert skill_version.name == "qa-enrichment-skill"
     draft_paths = list(
         (
             await session.scalars(
@@ -871,11 +957,11 @@ async def test_agent_preset_projection_excludes_soft_deleted_presets(
 
 
 @pytest.mark.anyio
-async def test_skill_projection_excludes_soft_deleted_preset_version_pins(
+async def test_skill_projection_ignores_historical_preset_skill_versions(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
-    """Skill version snapshots pinned only by soft-deleted presets are not exported."""
+    """Preset edges do not retain non-current skill version snapshots."""
     service = WorkspaceSyncService(session=session, role=svc_role)
     snapshot, diagnostics = await service.parse_files(
         _versioned_agent_skill_git_tree(),
@@ -886,22 +972,72 @@ async def test_skill_projection_excludes_soft_deleted_preset_version_pins(
         session=session,
         role=svc_role,
     ).import_non_workflow_resources(snapshot.spec)
-    # agent-x is the only preset pinning skill-a v1 (head is v2, agent-y pins v2).
-    pinning_preset = await session.scalar(
-        select(AgentPreset).where(
-            AgentPreset.workspace_id == svc_role.workspace_id,
-            AgentPreset.slug == "agent-x",
-        )
-    )
-    assert pinning_preset is not None
-    pinning_preset.deleted_at = datetime.now(UTC)
-    session.add(pinning_preset)
-    await session.flush()
-
     projection = await service.project_workspace()
 
     assert f"{SKILL_ROOT}/skill-a/versions/1/version.yml" not in projection.files
     assert f"{SKILL_ROOT}/skill-a/versions/2/version.yml" in projection.files
+
+
+async def _add_preset_version_skill_binding(
+    session: AsyncSession,
+    *,
+    workspace_id: uuid.UUID,
+    skill_name: str,
+    skill_slug: str,
+) -> uuid.UUID:
+    """Create one immutable preset-version binding and return its version id."""
+    skill = Skill(workspace_id=workspace_id, name=skill_name, slug=skill_slug)
+    preset = AgentPreset(
+        workspace_id=workspace_id,
+        name="QA preset",
+        slug=f"qa-preset-{uuid.uuid4()}",
+    )
+    session.add_all([skill, preset])
+    await session.flush()
+
+    preset_version = AgentPresetVersion(
+        workspace_id=workspace_id,
+        preset_id=preset.id,
+        version=1,
+        model_name="gpt-5.5",
+        model_provider="openai",
+    )
+    session.add(preset_version)
+    await session.flush()
+    session.add(
+        AgentPresetVersionSkill(
+            workspace_id=workspace_id,
+            preset_version_id=preset_version.id,
+            skill_id=skill.id,
+        )
+    )
+    await session.flush()
+    return preset_version.id
+
+
+@pytest.mark.anyio
+async def test_agent_preset_projection_exports_canonical_skill_binding(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Preset export keeps canonical slug-owning skill bindings unchanged."""
+    workspace_id = svc_role.workspace_id
+    assert workspace_id is not None
+    preset_version_id = await _add_preset_version_skill_binding(
+        session,
+        workspace_id=workspace_id,
+        skill_name="Display name",
+        skill_slug="foo",
+    )
+
+    bindings = await AGENT_PRESET_RESOURCE_ADAPTER._skill_bindings_for_versions(
+        WorkspaceSyncService(session=session, role=svc_role),
+        [preset_version_id],
+    )
+
+    assert [binding.model_dump() for binding in bindings[preset_version_id]] == [
+        {"slug": "foo"}
+    ]
 
 
 @pytest.mark.anyio
@@ -922,8 +1058,6 @@ async def test_agent_preset_import_ignores_soft_deleted_source_id_mapping(
         workspace_id=workspace_id,
         slug="qa-triage-parent",
         name="Soft-deleted QA triage",
-        model_name="gpt-4o-mini",
-        model_provider="openai",
         deleted_at=datetime.now(UTC),
     )
     session.add(soft_deleted_preset)
@@ -985,8 +1119,6 @@ async def test_agent_preset_import_resolves_subagent_to_active_preset(
         workspace_id=workspace_id,
         slug="qa-evidence-child",
         name="Soft-deleted QA evidence child",
-        model_name="gpt-4o-mini",
-        model_provider="openai",
         deleted_at=datetime.now(UTC),
     )
     session.add(soft_deleted_child)
@@ -1026,10 +1158,21 @@ async def test_agent_preset_import_resolves_subagent_to_active_preset(
         )
     )
     assert parent_preset is not None
-    assert parent_preset.agents["enabled"] is True
-    assert [
-        subagent["preset_id"] for subagent in parent_preset.agents["subagents"]
-    ] == [str(active_child.id)]
+    parent_version = await session.scalar(
+        select(AgentPresetVersion).where(
+            AgentPresetVersion.id == parent_preset.current_version_id
+        )
+    )
+    assert parent_version is not None
+    assert parent_version.subagents_enabled is True
+    child_ids = list(
+        await session.scalars(
+            select(AgentPresetVersionSubagent.child_preset_id).where(
+                AgentPresetVersionSubagent.parent_preset_version_id == parent_version.id
+            )
+        )
+    )
+    assert child_ids == [active_child.id]
 
 
 @pytest.mark.anyio
@@ -1044,8 +1187,6 @@ async def test_agent_preset_subagent_target_skips_soft_deleted_preset(
         workspace_id=workspace_id,
         slug="qa-soft-deleted-only-child",
         name="Soft-deleted QA child",
-        model_name="gpt-4o-mini",
-        model_provider="openai",
         deleted_at=datetime.now(UTC),
     )
     session.add(soft_deleted_child)
@@ -1434,10 +1575,20 @@ async def test_agent_preset_only_export_lazily_includes_dependency_closure(
         role=svc_role,
         transport_factory=fake_vcs.transport_factory,
     )
+    files = _expanded_full_git_tree(include_schedules=False)
+    version_path = f"{AGENT_PRESET_ROOT}/qa-triage-parent/versions/1.yml"
+    version_spec = yaml.safe_load(files[version_path])
+    version_spec["instructions"] = (
+        "Use ${{ VARS.qa_config }} and "
+        "${{ SECRETS.qa_threatintel.BASE_URL }}. "
+        "Mention qa_indicators as prose only."
+    )
+    files[version_path] = _yaml(version_spec)
     await _import_expanded_non_workflow_resources(
         session,
         role=svc_role,
         service=service,
+        files=files,
     )
     parent_preset = await session.scalar(
         select(AgentPreset).where(
@@ -1447,21 +1598,6 @@ async def test_agent_preset_only_export_lazily_includes_dependency_closure(
     )
     assert parent_preset is not None
     assert parent_preset.current_version_id is not None
-    parent_version = await session.scalar(
-        select(AgentPresetVersion).where(
-            AgentPresetVersion.workspace_id == svc_role.workspace_id,
-            AgentPresetVersion.id == parent_preset.current_version_id,
-        )
-    )
-    assert parent_version is not None
-    parent_version.instructions = (
-        "Use ${{ VARS.qa_config }} and "
-        "${{ SECRETS.qa_threatintel.BASE_URL }}. "
-        "Mention qa_indicators as prose only."
-    )
-    session.add(parent_version)
-    await session.flush()
-
     export = await service.export_workspace(
         WorkspaceSyncExportRequest(
             message="Export preset closure",
@@ -1507,7 +1643,7 @@ async def test_agent_preset_only_export_lazily_includes_dependency_closure(
         pytest.param(WorkspaceSyncExportPreviewRequest(), id="full_export"),
     ],
 )
-async def test_export_merges_seen_subagent_versions(
+async def test_export_follows_subagent_current_head(
     preview_request: WorkspaceSyncExportPreviewRequest,
     session: AsyncSession,
     svc_role: Role,
@@ -1525,23 +1661,16 @@ async def test_export_merges_seen_subagent_versions(
 
     preview = await service.preview_export_workspace(preview_request)
 
-    assert f"{AGENT_PRESET_ROOT}/qa-evidence-child/versions/1.yml" in preview.files
+    assert f"{AGENT_PRESET_ROOT}/qa-evidence-child/versions/1.yml" not in preview.files
     assert f"{AGENT_PRESET_ROOT}/qa-evidence-child/versions/2.yml" in preview.files
 
 
 @pytest.mark.anyio
-async def test_round_trip_preserves_presets_pinning_different_skill_versions(
+async def test_round_trip_preserves_preset_version_skill_edges(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
-    """Round-tripping presets that pin distinct skill versions keeps the pins.
-
-    The Git tree carries one skill (``skill-a``) with two published versions and
-    two presets that bind different versions of it: ``agent-x`` pins ``skill-a``
-    v1 while ``agent-y`` pins v2. Importing, exporting, then pulling into a fresh
-    workspace must reproduce both skill versions and both per-preset pins exactly
-    rather than collapsing them onto a single (e.g. latest) version.
-    """
+    """Round-tripping presets preserves Skill ResourceHead relationships."""
     repo_url = "git+ssh://git@github.com/TracecatHQ/git-sync-versioned-agent-qa.git"
     git_url = GitUrl(
         host="github.com",
@@ -1586,8 +1715,8 @@ async def test_round_trip_preserves_presets_pinning_different_skill_versions(
         role=svc_role,
     ).import_non_workflow_resources(source_snapshot.spec)
 
-    # Export the source workspace back to Git: this is the leg that must emit the
-    # pinned version snapshots, not just the current head of each skill.
+    # Export the source workspace back to Git. Only the current skill snapshot
+    # travels because both presets refer to the same Skill ResourceHead.
     export = await source_service.export_workspace(
         WorkspaceSyncExportRequest(
             message="Export versioned agent skill bindings",
@@ -1598,10 +1727,8 @@ async def test_round_trip_preserves_presets_pinning_different_skill_versions(
 
     assert export.commit.status is PushStatus.COMMITTED
     assert export.commit.sha is not None
-    # Both pinned skill version snapshots must travel with the export so the pin
-    # targets still exist when the commit is pulled elsewhere.
     exported_files = fake_vcs.repo_files(git_url, ref=export.commit.sha)
-    assert f"{SKILL_ROOT}/skill-a/versions/1/version.yml" in exported_files
+    assert f"{SKILL_ROOT}/skill-a/versions/1/version.yml" not in exported_files
     assert f"{SKILL_ROOT}/skill-a/versions/2/version.yml" in exported_files
 
     # Pull the exported commit into the independent target workspace.
@@ -1613,11 +1740,11 @@ async def test_round_trip_preserves_presets_pinning_different_skill_versions(
     skill = await session.scalar(
         select(Skill).where(
             Skill.workspace_id == target_workspace_id,
-            Skill.name == "skill-a",
+            Skill.slug == "skill-a",
         )
     )
     assert skill is not None
-    # Both versions land in the target with their original names intact.
+    # Only the coordinated current head lands in the target.
     skill_versions = {
         version.version: version.name
         for version in (
@@ -1631,59 +1758,50 @@ async def test_round_trip_preserves_presets_pinning_different_skill_versions(
             )
         ).all()
     }
-    assert skill_versions == {1: "Skill A v1", 2: "Skill A v2"}
-    # Head bindings (``AgentPresetSkill``) wire each preset's live config to the
-    # skill version it pinned: agent-x -> v1, agent-y -> v2.
-    binding_rows = await session.execute(
-        select(AgentPreset.slug, SkillVersion.version)
-        .select_from(AgentPreset)
-        .join(
-            AgentPresetSkill,
-            AgentPresetSkill.preset_id == AgentPreset.id,
-        )
-        .join(
-            SkillVersion,
-            AgentPresetSkill.skill_version_id == SkillVersion.id,
-        )
-        .where(AgentPreset.workspace_id == target_workspace_id)
-        .order_by(AgentPreset.slug.asc())
-    )
-    bindings = dict(binding_rows.tuples().all())
-    assert bindings == {"agent-x": 1, "agent-y": 2}
-    # The immutable version snapshot of each preset (``AgentPresetVersionSkill``
-    # under the preset's current version) must record the same pins, proving the
-    # versioned binding table round-trips too, not only the mutable head.
+    assert skill_versions == {2: "skill-a"}
+    # Each imported current version points to the same Skill ResourceHead.
     version_binding_rows = await session.execute(
-        select(AgentPreset.slug, SkillVersion.version)
+        select(
+            AgentPreset.slug,
+            AgentPresetVersionSkill.skill_id,
+            AgentPresetVersionSkill.skill_version_id,
+        )
         .select_from(AgentPreset)
         .join(
             AgentPresetVersionSkill,
             AgentPresetVersionSkill.preset_version_id == AgentPreset.current_version_id,
         )
-        .join(
-            SkillVersion,
-            AgentPresetVersionSkill.skill_version_id == SkillVersion.id,
-        )
         .where(AgentPreset.workspace_id == target_workspace_id)
         .order_by(AgentPreset.slug.asc())
     )
-    version_bindings = dict(version_binding_rows.tuples().all())
-    assert version_bindings == {"agent-x": 1, "agent-y": 2}
+    version_bindings = version_binding_rows.tuples().all()
+    assert version_bindings == [
+        ("agent-x", skill.id, skill.current_version_id),
+        ("agent-y", skill.id, skill.current_version_id),
+    ]
+    head_binding_rows = await session.execute(
+        select(
+            AgentPreset.slug,
+            AgentPresetSkill.skill_id,
+            AgentPresetSkill.skill_version_id,
+        )
+        .join(AgentPresetSkill, AgentPresetSkill.preset_id == AgentPreset.id)
+        .where(AgentPreset.workspace_id == target_workspace_id)
+        .order_by(AgentPreset.slug.asc())
+    )
+    assert head_binding_rows.tuples().all() == version_bindings
 
 
 @pytest.mark.anyio
-async def test_full_workspace_export_includes_workflow_pinned_version_closure(
+async def test_full_workspace_export_ignores_stale_workflow_version_selector(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
-    """A full export follows pinned versions transitively from workflow to skill.
+    """A full export follows current heads despite a stale workflow selector.
 
-    The seeded workflow calls ``ai.preset_agent`` pinned to ``agent-x`` v1, while
-    that preset's head is v2; v1 pins ``skill-a`` v1 and v2 pins ``skill-a`` v2.
-    A whole-workspace export must walk this closure and emit both preset version
-    snapshots and both skill version snapshots, so the workflow's pinned-but-
-    non-head dependency (and the skill version it transitively pins) is not
-    dropped in favor of only the current head.
+    The seeded workflow contains the retired ``preset_version`` argument for
+    ``agent-x`` v1 while the preset head is v2. Export treats the argument as
+    compatibility-only input and emits the coordinated current-head closure.
     """
     repo_url = "git+ssh://git@github.com/TracecatHQ/git-sync-workflow-pin-qa.git"
     git_url = GitUrl(
@@ -1730,8 +1848,8 @@ async def test_full_workspace_export_includes_workflow_pinned_version_closure(
         )
         assert source_pull.success is True
 
-        # Export the entire workspace (no resource filter) to capture the full
-        # transitive closure of the workflow's pinned references.
+        # Export the entire workspace (no resource filter) to capture the
+        # current-head dependency closure.
         export = await source_service.export_workspace(
             WorkspaceSyncExportRequest(
                 message="Export workflow pinned agent version",
@@ -1743,12 +1861,12 @@ async def test_full_workspace_export_includes_workflow_pinned_version_closure(
     assert export.commit.status is PushStatus.COMMITTED
     assert export.commit.sha is not None
     exported_files = fake_vcs.repo_files(git_url, ref=export.commit.sha)
-    # The workflow itself, plus both preset versions (v1 is pinned by the
-    # workflow, v2 is the head) and both skill versions they pin transitively.
+    # The stale workflow selector does not pull historical v1 resources into
+    # the desired-state export; the current v2 closure is sufficient.
     assert f"{WORKFLOW_ROOT}/workflow-pins-agent/definition.yml" in exported_files
-    assert f"{AGENT_PRESET_ROOT}/agent-x/versions/1.yml" in exported_files
+    assert f"{AGENT_PRESET_ROOT}/agent-x/versions/1.yml" not in exported_files
     assert f"{AGENT_PRESET_ROOT}/agent-x/versions/2.yml" in exported_files
-    assert f"{SKILL_ROOT}/skill-a/versions/1/version.yml" in exported_files
+    assert f"{SKILL_ROOT}/skill-a/versions/1/version.yml" not in exported_files
     assert f"{SKILL_ROOT}/skill-a/versions/2/version.yml" in exported_files
 
 
@@ -2255,7 +2373,6 @@ async def test_legacy_upgrade_reuses_target_local_resources_without_mappings(
         # Make the target rows visibly local/stale so the pull has to update
         # them, not merely discover identical rows.
         preexisting_preset.name = "Local pre-upgrade triage parent"
-        preexisting_preset.instructions = "Local-only instructions before Git sync"
         preexisting_tag.name = "Local pre-upgrade alert"
         preexisting_variable.description = "Local pre-upgrade variable"
         session.add_all([preexisting_preset, preexisting_tag, preexisting_variable])
@@ -2348,9 +2465,6 @@ async def test_legacy_upgrade_reuses_target_local_resources_without_mappings(
     # stale local edits made above instead of being skipped.
     assert preset_after.id == preexisting_preset_id
     assert preset_after.name == "QA triage parent"
-    assert preset_after.instructions == (
-        "Use the enrichment skill and escalate high severity."
-    )
     assert tag_after.id == preexisting_tag_id
     assert tag_after.name == "qa-alert"
     assert variable_after.id == preexisting_variable_id
@@ -2617,7 +2731,7 @@ async def test_project_workspace_preserves_table_source_id_after_rename(
 
 
 @pytest.mark.anyio
-async def test_project_workspace_preserves_skill_source_id_after_rename(
+async def test_project_workspace_preserves_source_id_after_package_slug_change(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
@@ -2637,13 +2751,18 @@ async def test_project_workspace_preserves_skill_source_id_after_rename(
     skill = await session.scalar(
         select(Skill).where(
             Skill.workspace_id == svc_role.workspace_id,
-            Skill.name == "qa-enrichment-skill",
+            Skill.slug == "qa-enrichment-skill",
         )
     )
     assert skill is not None
 
-    skill.name = "qa-enrichment-restored"
-    session.add(skill)
+    skill.slug = "qa-enrichment-restored"
+    current_version = await session.scalar(
+        select(SkillVersion).where(SkillVersion.id == skill.current_version_id)
+    )
+    assert current_version is not None
+    current_version.name = "qa-enrichment-restored"
+    session.add_all([skill, current_version])
     await session.flush()
 
     projection = await service.project_workspace(create_missing_mappings=False)
@@ -2655,6 +2774,7 @@ async def test_project_workspace_preserves_skill_source_id_after_rename(
     skill_spec = yaml.safe_load(projection.files[old_path])
     assert skill_spec["id"] == "qa-enrichment-skill"
     assert skill_spec["slug"] == "qa-enrichment-restored"
+    assert skill_spec["name"] == "QA enrichment skill"
     assert skill_spec["name"] == "QA enrichment skill"
 
 
@@ -3242,7 +3362,7 @@ async def test_pull_unversioned_skill_clears_current_version(
         skill = await session.scalar(
             select(Skill).where(
                 Skill.workspace_id == svc_role.workspace_id,
-                Skill.name == "qa-enrichment-skill",
+                Skill.slug == "qa-enrichment-skill",
             )
         )
         assert skill is not None
@@ -3255,7 +3375,7 @@ async def test_pull_unversioned_skill_clears_current_version(
     skill = await session.scalar(
         select(Skill).where(
             Skill.workspace_id == svc_role.workspace_id,
-            Skill.name == "qa-enrichment-skill",
+            Skill.slug == "qa-enrichment-skill",
         )
     )
     assert skill is not None
@@ -3368,6 +3488,7 @@ async def test_pull_skill_slug_rename_reuses_source_id_mapping(
                 source_id="qa-enrichment-skill",
                 slug="qa-enrichment-restored",
                 name="QA enrichment restored",
+                version_name="qa-enrichment-skill",
             ),
         ),
     ]
@@ -3384,7 +3505,7 @@ async def test_pull_skill_slug_rename_reuses_source_id_mapping(
         first_skill = await session.scalar(
             select(Skill).where(
                 Skill.workspace_id == svc_role.workspace_id,
-                Skill.name == "qa-enrichment-skill",
+                Skill.slug == "qa-enrichment-skill",
             )
         )
         assert first_skill is not None
@@ -3402,7 +3523,8 @@ async def test_pull_skill_slug_rename_reuses_source_id_mapping(
     )
     assert len(skills) == 1
     assert skills[0].id == first_skill_id
-    assert skills[0].name == "qa-enrichment-restored"
+    assert skills[0].slug == "qa-enrichment-restored"
+    assert skills[0].name == "QA enrichment restored"
     version = await session.scalar(
         select(SkillVersion).where(
             SkillVersion.workspace_id == svc_role.workspace_id,
@@ -3411,7 +3533,7 @@ async def test_pull_skill_slug_rename_reuses_source_id_mapping(
         )
     )
     assert version is not None
-    assert version.name == "QA enrichment restored"
+    assert version.name == "qa-enrichment-skill"
 
 
 @pytest.mark.anyio
@@ -3429,7 +3551,7 @@ async def test_import_skill_version_rejects_missing_declared_file_content(
                 versions={
                     1: SkillVersionResourceSpec(
                         version_number=1,
-                        name="QA enrichment skill",
+                        name="qa-enrichment-skill",
                         files=[
                             SkillFileSpec(
                                 path="SKILL.md",
@@ -3451,6 +3573,49 @@ async def test_import_skill_version_rejects_missing_declared_file_content(
 
 
 @pytest.mark.anyio
+async def test_import_skill_preserves_legacy_head_package_name_mismatch(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Legacy stable slugs remain importable until a later publish advances them."""
+
+    spec = WorkspaceSpec(
+        skills={
+            "legacy-skill": SkillResourceSpec(
+                id="legacy-skill",
+                slug="legacy-stable-slug",
+                name="Legacy skill",
+                current_version=1,
+                versions={
+                    1: SkillVersionResourceSpec(
+                        version_number=1,
+                        name="renamed-package",
+                    )
+                },
+            )
+        }
+    )
+
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(spec)
+
+    skill = await session.scalar(
+        select(Skill).where(
+            Skill.workspace_id == svc_role.workspace_id,
+            Skill.slug == "legacy-stable-slug",
+        )
+    )
+    assert skill is not None
+    version = await session.scalar(
+        select(SkillVersion).where(SkillVersion.id == skill.current_version_id)
+    )
+    assert version is not None
+    assert version.name == "renamed-package"
+
+
+@pytest.mark.anyio
 async def test_project_workspace_preserves_binary_skill_version_file(
     session: AsyncSession,
     svc_role: Role,
@@ -3468,7 +3633,7 @@ async def test_project_workspace_preserves_binary_skill_version_file(
                 versions={
                     1: SkillVersionResourceSpec(
                         version_number=1,
-                        name="Binary skill",
+                        name="binary-skill",
                         files=[
                             SkillFileSpec(
                                 path="assets/logo.png",
@@ -3540,11 +3705,13 @@ async def test_pull_skill_slug_swap_reuses_source_id_mappings(
                     source_id="skill-a",
                     slug="beta-skill",
                     name="Beta skill",
+                    version_name="alpha-skill",
                 ),
                 _skill_git_tree(
                     source_id="skill-b",
                     slug="alpha-skill",
                     name="Alpha skill",
+                    version_name="beta-skill",
                 ),
             ),
         ),
@@ -3561,13 +3728,13 @@ async def test_pull_skill_slug_swap_reuses_source_id_mappings(
         alpha_id = await session.scalar(
             select(Skill.id).where(
                 Skill.workspace_id == svc_role.workspace_id,
-                Skill.name == "alpha-skill",
+                Skill.slug == "alpha-skill",
             )
         )
         beta_id = await session.scalar(
             select(Skill.id).where(
                 Skill.workspace_id == svc_role.workspace_id,
-                Skill.name == "beta-skill",
+                Skill.slug == "beta-skill",
             )
         )
         second_result = await service.pull(options=PullOptions(commit_sha="t" * 40))
@@ -3577,7 +3744,7 @@ async def test_pull_skill_slug_swap_reuses_source_id_mappings(
     assert alpha_id is not None
     assert beta_id is not None
     skills = {
-        skill.name: skill.id
+        skill.slug: skill.id
         for skill in (
             await session.scalars(
                 select(Skill).where(Skill.workspace_id == svc_role.workspace_id)
@@ -4283,11 +4450,15 @@ async def test_agent_preset_import_resolves_parent_before_child_order(
     )
     assert parent is not None
     assert child is not None
+    assert parent.current_version_id is not None
     assert child.current_version_id is not None
-    assert parent.agents["enabled"] is True
-    assert parent.agents["subagents"][0]["preset_version_id"] == str(
-        child.current_version_id
+    version_child_id = await session.scalar(
+        select(AgentPresetVersionSubagent.child_preset_id).where(
+            AgentPresetVersionSubagent.parent_preset_version_id
+            == parent.current_version_id
+        )
     )
+    assert version_child_id == child.id
 
 
 @pytest.mark.anyio
@@ -4366,30 +4537,186 @@ async def test_agent_preset_sync_preserves_subagent_options(
     )
     assert parent is not None
     assert child is not None
+    assert parent.current_version_id is not None
     assert child.current_version_id is not None
-    imported_subagent = parent.agents["subagents"][0]
-    assert imported_subagent["preset_version_id"] == str(child.current_version_id)
-    assert imported_subagent["preset_version"] == 1
-    assert imported_subagent["name"] == "evidence-child"
-    assert imported_subagent["description"] == "Collect evidence"
-    assert imported_subagent["max_turns"] == 3
+    parent_version = await session.scalar(
+        select(AgentPresetVersion).where(
+            AgentPresetVersion.id == parent.current_version_id
+        )
+    )
+    assert parent_version is not None
+    assert parent_version.subagents_enabled is True
+    assert parent.agents["enabled"] is True
+    assert parent.agents["subagents"][0]["preset_id"] == str(child.id)
+    assert parent.agents["subagents"][0]["preset_version_id"] == str(
+        child.current_version_id
+    )
+    assert parent_version.agents == parent.agents
+    assert parent.model_name == parent_version.model_name
+    assert parent.model_provider == parent_version.model_provider
+    version_subagent = await session.scalar(
+        select(AgentPresetVersionSubagent).where(
+            AgentPresetVersionSubagent.parent_preset_version_id == parent_version.id
+        )
+    )
+    assert version_subagent is not None
+    assert version_subagent.child_preset_id == child.id
+    assert version_subagent.alias == "evidence-child"
+    assert version_subagent.description == "Collect evidence"
+    assert version_subagent.max_turns == 3
+    resolved_binding = await AgentSessionService(
+        session=session,
+        role=svc_role,
+    )._resolve_agents_binding_for_preset_version_id(parent_version.id)
+    assert resolved_binding is not None
+    assert resolved_binding["subagents"][0]["preset_id"] == str(child.id)
+    assert resolved_binding["subagents"][0]["preset_version_id"] == str(
+        child.current_version_id
+    )
+
+    # Version-owned ResourceHead edges follow the child after a slug change.
+    child.slug = "z-child-renamed"
+    session.add(child)
+    await session.flush()
 
     projection = await service.project_workspace(create_missing_mappings=False)
     parent_spec = yaml.safe_load(
         projection.files[f"{AGENT_PRESET_ROOT}/a-parent/preset.yml"]
     )
     assert "subagents" not in parent_spec
-    parent_version = yaml.safe_load(
+    parent_version_spec = yaml.safe_load(
         projection.files[f"{AGENT_PRESET_ROOT}/a-parent/versions/1.yml"]
     )
-    assert parent_version["subagents"] == [
+    assert parent_version_spec["subagents"] == [
         {
-            "slug": "z-child",
-            "version": 1,
+            "slug": "z-child-renamed",
             "name": "evidence-child",
             "description": "Collect evidence",
             "max_turns": 3,
         }
+    ]
+
+
+@pytest.mark.anyio
+async def test_agent_preset_projection_keeps_edges_to_soft_deleted_children(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Projection keeps version edges whose child preset was soft-deleted.
+
+    Spec: the runtime binding reads tombstone-child edges through
+    with_deleted, so the exported version snapshot must keep them too — the
+    global soft-delete filter must not silently drop the deleted child's
+    edge from the manifest.
+    """
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{AGENT_PRESET_ROOT}/edge-parent/preset.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset",
+                "id": "edge-parent",
+                "slug": "edge-parent",
+                "name": "Edge parent",
+                "current_version": 1,
+            }
+        ),
+        f"{AGENT_PRESET_ROOT}/edge-parent/versions/1.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset_version",
+                "version_number": 1,
+                "name": "Edge parent",
+                "subagents": [
+                    {
+                        "slug": "a-kept-child",
+                        "name": "kept-alias",
+                        "description": "Keep this child",
+                        "max_turns": 2,
+                    },
+                    {
+                        "slug": "b-doomed-child",
+                        "name": "doomed-alias",
+                        "description": "Soft-delete this child",
+                        "max_turns": 3,
+                    },
+                ],
+            }
+        ),
+        f"{AGENT_PRESET_ROOT}/a-kept-child/preset.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset",
+                "id": "a-kept-child",
+                "slug": "a-kept-child",
+                "name": "Kept child",
+                "current_version": 1,
+            }
+        ),
+        f"{AGENT_PRESET_ROOT}/a-kept-child/versions/1.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset_version",
+                "version_number": 1,
+                "name": "Kept child",
+            }
+        ),
+        f"{AGENT_PRESET_ROOT}/b-doomed-child/preset.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset",
+                "id": "b-doomed-child",
+                "slug": "b-doomed-child",
+                "name": "Doomed child",
+                "current_version": 1,
+            }
+        ),
+        f"{AGENT_PRESET_ROOT}/b-doomed-child/versions/1.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset_version",
+                "version_number": 1,
+                "name": "Doomed child",
+            }
+        ),
+    }
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="p" * 40)
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+
+    doomed = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "b-doomed-child",
+        )
+    )
+    assert doomed is not None
+    doomed.deleted_at = datetime.now(UTC)
+    await session.flush()
+
+    projection = await service.project_workspace(create_missing_mappings=False)
+    projected_version = yaml.safe_load(
+        projection.files[f"{AGENT_PRESET_ROOT}/edge-parent/versions/1.yml"]
+    )
+    # Bindings project in alias order; the soft-deleted child must survive
+    # with its current slug rather than being silently filtered out.
+    assert projected_version["subagents"] == [
+        {
+            "slug": "b-doomed-child",
+            "name": "doomed-alias",
+            "description": "Soft-delete this child",
+            "max_turns": 3,
+        },
+        {
+            "slug": "a-kept-child",
+            "name": "kept-alias",
+            "description": "Keep this child",
+            "max_turns": 2,
+        },
     ]
 
 
@@ -4463,6 +4790,77 @@ async def test_agent_preset_import_creates_new_version_without_mutating_history(
 
 
 @pytest.mark.anyio
+async def test_agent_preset_import_rejects_immutable_version_rewrite(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    original_files = _agent_preset_git_tree(
+        source_id="qa-immutable",
+        slug="qa-immutable",
+        name="QA immutable",
+        instructions="Original instructions",
+    )
+    snapshot, diagnostics = await service.parse_files(
+        original_files,
+        commit_sha="q" * 40,
+    )
+    assert diagnostics == []
+    importer = WorkspaceResourceImportService(session=session, role=svc_role)
+    await importer.import_non_workflow_resources(snapshot.spec)
+
+    preset = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "qa-immutable",
+        )
+    )
+    assert preset is not None
+    version = await session.scalar(
+        select(AgentPresetVersion).where(
+            AgentPresetVersion.preset_id == preset.id,
+            AgentPresetVersion.version == 1,
+        )
+    )
+    assert version is not None
+    original_version_id = version.id
+
+    conflicting_files = _agent_preset_git_tree(
+        source_id="qa-immutable",
+        slug="qa-immutable",
+        name="QA immutable",
+        instructions="Rewritten instructions",
+    )
+    conflicting_snapshot, diagnostics = await service.parse_files(
+        conflicting_files,
+        commit_sha="r" * 40,
+    )
+    assert diagnostics == []
+    with pytest.raises(TracecatValidationError) as exc_info:
+        await importer.import_non_workflow_resources(conflicting_snapshot.spec)
+
+    assert exc_info.value.detail == {
+        "code": "immutable_preset_version_conflict",
+        "preset_slug": "qa-immutable",
+        "version": 1,
+    }
+    await session.refresh(version)
+    assert version.id == original_version_id
+    assert version.instructions == "Original instructions"
+    assert (
+        await session.scalar(
+            select(func.count())
+            .select_from(AgentPresetVersion)
+            .where(
+                AgentPresetVersion.preset_id == preset.id,
+                AgentPresetVersion.version == 1,
+            )
+        )
+        == 1
+    )
+
+
+@pytest.mark.anyio
 async def test_agent_preset_sync_preserves_catalog_id(
     session: AsyncSession,
     svc_role: Role,
@@ -4500,7 +4898,6 @@ async def test_agent_preset_sync_preserves_catalog_id(
         )
     )
     assert preset is not None
-    assert preset.catalog_id == catalog.id
     version = await session.scalar(
         select(AgentPresetVersion).where(
             AgentPresetVersion.workspace_id == svc_role.workspace_id,
@@ -5553,10 +5950,13 @@ async def _import_expanded_non_workflow_resources(
     *,
     role: Role,
     service: WorkspaceSyncService,
+    files: dict[str, str] | None = None,
 ) -> None:
     """Write the expanded non-workflow fixture into one workspace's DB."""
     snapshot, diagnostics = await service.parse_files(
-        _expanded_full_git_tree(include_schedules=False),
+        files
+        if files is not None
+        else _expanded_full_git_tree(include_schedules=False),
         commit_sha="e" * 40,
     )
     assert diagnostics == []
@@ -5678,7 +6078,7 @@ async def _assert_workspace_has_expanded_resource_rows(
     assert await session.scalar(
         select(Skill).where(
             Skill.workspace_id == workspace_id,
-            Skill.name == "qa-enrichment-skill",
+            Skill.slug == "qa-enrichment-skill",
         )
     )
     # Table: schema-bearing resource.
@@ -5753,7 +6153,7 @@ async def _assert_workspace_has_no_expanded_resource_rows(
         await session.scalar(
             select(Skill).where(
                 Skill.workspace_id == workspace_id,
-                Skill.name == "qa-enrichment-skill",
+                Skill.slug == "qa-enrichment-skill",
             )
         )
     ) is None
@@ -6059,6 +6459,7 @@ def _skill_git_tree(
     source_id: str,
     slug: str,
     name: str,
+    version_name: str | None = None,
 ) -> dict[str, str]:
     content = "# QA Enrichment Skill\n"
     return {
@@ -6079,7 +6480,7 @@ def _skill_git_tree(
                 "version": 1,
                 "type": "skill_version",
                 "version_number": 1,
-                "name": name,
+                "name": version_name or slug,
                 "description": "Deterministic enrichment helper",
                 "files": [
                     {
@@ -6094,12 +6495,7 @@ def _skill_git_tree(
 
 
 def _versioned_agent_skill_git_tree() -> dict[str, str]:
-    """Build a Git tree where two presets pin different versions of one skill.
-
-    Layout: ``skill-a`` publishes versions 1 and 2 (head at v2), ``agent-x`` pins
-    ``skill-a`` v1, and ``agent-y`` pins ``skill-a`` v2. Used to assert the import
-    -> export -> pull round trip preserves the divergent pins.
-    """
+    """Build a Git tree where two presets attach one versioned Skill head."""
     skill_v1 = "# Skill A\n\nVersion 1 behavior.\n"
     skill_v2 = "# Skill A\n\nVersion 2 behavior.\n"
 
@@ -6120,7 +6516,6 @@ def _versioned_agent_skill_git_tree() -> dict[str, str]:
     def preset(
         source_id: str,
         name: str,
-        skill_version: int,
     ) -> dict[str, str]:
         head = {
             "version": 1,
@@ -6135,8 +6530,8 @@ def _versioned_agent_skill_git_tree() -> dict[str, str]:
             "type": "agent_preset_version",
             "version_number": 1,
             "name": name,
-            "instructions": f"Use skill-a version {skill_version}.",
-            "skills": [{"slug": "skill-a", "version": skill_version}],
+            "instructions": "Use skill-a.",
+            "skills": [{"slug": "skill-a"}],
             "subagents": [],
             "model_name": "gpt-5.5",
             "model_provider": "openai",
@@ -6154,21 +6549,21 @@ def _versioned_agent_skill_git_tree() -> dict[str, str]:
                 "type": "skill",
                 "id": "skill-a",
                 "slug": "skill-a",
-                "name": "Skill A v2",
+                "name": "Skill A",
                 "description": "Versioned skill fixture",
                 "current_version": 2,
             }
         ),
         f"{SKILL_ROOT}/skill-a/versions/1/version.yml": _yaml(
-            skill_version(1, "Skill A v1", skill_v1)
+            skill_version(1, "skill-a", skill_v1)
         ),
         f"{SKILL_ROOT}/skill-a/versions/1/files/SKILL.md": skill_v1,
         f"{SKILL_ROOT}/skill-a/versions/2/version.yml": _yaml(
-            skill_version(2, "Skill A v2", skill_v2)
+            skill_version(2, "skill-a", skill_v2)
         ),
         f"{SKILL_ROOT}/skill-a/versions/2/files/SKILL.md": skill_v2,
-        **preset("agent-x", "Agent X", 1),
-        **preset("agent-y", "Agent Y", 2),
+        **preset("agent-x", "Agent X"),
+        **preset("agent-y", "Agent Y"),
     }
     return dict(sorted(files.items()))
 
@@ -6241,9 +6636,8 @@ def _workflow_pinned_agent_version_git_tree() -> dict[str, str]:
     """Build a Git tree whose workflow pins a non-head agent preset version.
 
     Layout: a workflow calls ``ai.preset_agent`` pinned to ``agent-x`` v1, while
-    ``agent-x`` head is v2; v1 pins ``skill-a`` v1 and v2 pins ``skill-a`` v2.
-    Used to assert a full export walks the workflow -> preset version -> skill
-    version closure instead of exporting only the current heads.
+    ``agent-x`` head is v2. Both preset versions attach the same ``skill-a``
+    ResourceHead, whose coordinated workspace head is v2.
     """
     skill_v1 = "# Skill A\n\nVersion 1 behavior.\n"
     skill_v2 = "# Skill A\n\nVersion 2 behavior.\n"
@@ -6262,14 +6656,14 @@ def _workflow_pinned_agent_version_git_tree() -> dict[str, str]:
             ],
         }
 
-    def agent_version(number: int, skill_version: int) -> dict[str, Any]:
+    def agent_version(number: int) -> dict[str, Any]:
         return {
             "version": 1,
             "type": "agent_preset_version",
             "version_number": number,
             "name": "Agent X",
-            "instructions": f"Use skill-a version {skill_version}.",
-            "skills": [{"slug": "skill-a", "version": skill_version}],
+            "instructions": "Use skill-a.",
+            "skills": [{"slug": "skill-a"}],
             "subagents": [],
             "model_name": "gpt-5.5",
             "model_provider": "openai",
@@ -6308,29 +6702,25 @@ def _workflow_pinned_agent_version_git_tree() -> dict[str, str]:
                         "current_version": 2,
                     }
                 ),
-                f"{AGENT_PRESET_ROOT}/agent-x/versions/1.yml": _yaml(
-                    agent_version(1, 1)
-                ),
-                f"{AGENT_PRESET_ROOT}/agent-x/versions/2.yml": _yaml(
-                    agent_version(2, 2)
-                ),
+                f"{AGENT_PRESET_ROOT}/agent-x/versions/1.yml": _yaml(agent_version(1)),
+                f"{AGENT_PRESET_ROOT}/agent-x/versions/2.yml": _yaml(agent_version(2)),
                 f"{SKILL_ROOT}/skill-a/skill.yml": _yaml(
                     {
                         "version": 1,
                         "type": "skill",
                         "id": "skill-a",
                         "slug": "skill-a",
-                        "name": "Skill A v2",
+                        "name": "Skill A",
                         "description": "Versioned skill fixture",
                         "current_version": 2,
                     }
                 ),
                 f"{SKILL_ROOT}/skill-a/versions/1/version.yml": _yaml(
-                    skill_version(1, "Skill A v1", skill_v1)
+                    skill_version(1, "skill-a", skill_v1)
                 ),
                 f"{SKILL_ROOT}/skill-a/versions/1/files/SKILL.md": skill_v1,
                 f"{SKILL_ROOT}/skill-a/versions/2/version.yml": _yaml(
-                    skill_version(2, "Skill A v2", skill_v2)
+                    skill_version(2, "skill-a", skill_v2)
                 ),
                 f"{SKILL_ROOT}/skill-a/versions/2/files/SKILL.md": skill_v2,
             }.items()
@@ -6536,7 +6926,7 @@ def _expanded_full_git_tree(*, include_schedules: bool) -> dict[str, str]:
                 "instructions": "Use the enrichment skill and escalate high severity.",
                 "tool_approvals": {"tools.qa_enrichment.lookup": "always"},
                 "actions": ["tools.qa_enrichment.lookup"],
-                "skills": [{"slug": "qa-enrichment-skill", "version": 1}],
+                "skills": [{"slug": "qa-enrichment-skill"}],
                 "subagents": [{"slug": "qa-evidence-child"}],
                 "model_name": "gpt-5.5",
                 "model_provider": "openai",
@@ -6578,7 +6968,7 @@ def _expanded_full_git_tree(*, include_schedules: bool) -> dict[str, str]:
                 "version": 1,
                 "type": "skill_version",
                 "version_number": 1,
-                "name": "QA enrichment skill",
+                "name": "qa-enrichment-skill",
                 "description": "Deterministic enrichment helper",
                 "files": [
                     {

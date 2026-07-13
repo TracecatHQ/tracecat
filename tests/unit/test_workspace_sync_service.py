@@ -864,9 +864,13 @@ def test_sync_operation_scope_accepts_legacy_or_workspace_sync_grant() -> None:
 
 
 @pytest.mark.anyio
-async def test_preview_export_rejects_missing_pinned_skill_version(
+async def test_preview_export_accepts_skill_head_binding(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:
+    binding = AgentPresetSkillBinding.model_validate(
+        {"slug": "qa-enrichment-skill", "version": 1}
+    )
+    assert binding.model_dump() == {"slug": "qa-enrichment-skill"}
     workspace_sync_service.project_workspace = AsyncMock(
         return_value=WorkspaceProjection(
             manifest=WorkspaceManifest(),
@@ -881,12 +885,7 @@ async def test_preview_export_rejects_missing_pinned_skill_version(
                             1: AgentPresetVersionResourceSpec(
                                 version_number=1,
                                 name="QA triage",
-                                skills=[
-                                    AgentPresetSkillBinding(
-                                        slug="qa-enrichment-skill",
-                                        version=1,
-                                    )
-                                ],
+                                skills=[binding],
                             )
                         },
                     )
@@ -904,10 +903,9 @@ async def test_preview_export_rejects_missing_pinned_skill_version(
         )
     )
 
-    with pytest.raises(TracecatValidationError, match="missing skill version"):
-        await workspace_sync_service.preview_export_workspace(
-            WorkspaceSyncExportPreviewRequest()
-        )
+    await workspace_sync_service.preview_export_workspace(
+        WorkspaceSyncExportPreviewRequest()
+    )
 
 
 @pytest.mark.anyio
