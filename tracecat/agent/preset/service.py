@@ -973,7 +973,15 @@ class AgentPresetService(BaseWorkspaceService):
     ) -> None:
         """Dual-write normalized ResourceHead edges for a preset head."""
 
-        binding = ResolvedAgentsConfig.model_validate(agents)
+        try:
+            binding = ResolvedAgentsConfig.model_validate(agents)
+        except ValidationError:
+            # Migrated slug-only legacy JSON predates resolved refs and no
+            # expand-window writer emits it; the migration-backfilled head edges
+            # are already authoritative. Keep them and only sync the flag.
+            legacy = AgentSubagentsConfig.model_validate(agents)
+            preset.subagents_enabled = legacy.enabled
+            return
         preset.subagents_enabled = binding.enabled
         await self.session.execute(
             sa.delete(AgentPresetSubagent).where(

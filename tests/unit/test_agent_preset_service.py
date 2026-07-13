@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 import sqlalchemy as sa
 from dotenv import dotenv_values
+from pydantic import ValidationError
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -3392,6 +3393,87 @@ class TestAgentPresetService:
         assert remaining_head_bindings == []
         assert disabled_version_bindings == []
         assert len(historical_version_bindings) == 2
+
+    async def test_update_preset_versions_migrated_legacy_subagent_json(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Version cuts preserve migration-backed edges for legacy head JSON."""
+
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Legacy Child", "slug": "legacy-child"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Legacy Parent", "slug": "legacy-parent"}
+            )
+        )
+        version_one = await agent_preset_service.get_current_version_for_preset(parent)
+
+        parent.agents = {
+            "enabled": True,
+            "subagents": [{"preset": child.slug, "name": "child"}],
+        }
+        parent.subagents_enabled = True
+        session.add_all(
+            [
+                parent,
+                AgentPresetSubagent(
+                    workspace_id=agent_preset_service.workspace_id,
+                    parent_preset_id=parent.id,
+                    child_preset_id=child.id,
+                    alias="child",
+                ),
+            ]
+        )
+        await session.flush()
+
+        with pytest.raises(ValidationError):
+            ResolvedAgentsConfig.model_validate(parent.agents)
+
+        updated_parent = await agent_preset_service.update_preset(
+            parent,
+            AgentPresetUpdate(instructions="updated"),
+        )
+        version_two = await agent_preset_service.get_current_version_for_preset(
+            updated_parent
+        )
+        head_bindings = (
+            (
+                await session.execute(
+                    select(AgentPresetSubagent).where(
+                        AgentPresetSubagent.parent_preset_id == parent.id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        version_bindings = (
+            (
+                await session.execute(
+                    select(AgentPresetVersionSubagent).where(
+                        AgentPresetVersionSubagent.parent_preset_version_id
+                        == version_two.id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        assert version_two.id != version_one.id
+        assert version_two.version == 2
+        assert len(head_bindings) == 1
+        assert head_bindings[0].child_preset_id == child.id
+        assert len(version_bindings) == 1
+        assert version_bindings[0].child_preset_id == child.id
+        assert updated_parent.subagents_enabled is True
+        assert version_two.subagents_enabled is True
 
     async def test_normalized_subagent_edge_blocks_delete_when_legacy_json_drifts(
         self,
