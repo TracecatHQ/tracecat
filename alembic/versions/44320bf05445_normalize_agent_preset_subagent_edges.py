@@ -4,6 +4,25 @@ Revision ID: 44320bf05445
 Revises: c6a8d4f3b2e1
 Create Date: 2026-07-10 11:22:07.877453
 
+Phase map for ``upgrade()``:
+
+1. Schema expand: add ``subagents_enabled`` to preset heads and versions and
+   create the normalized edge tables (``agent_preset_subagent``,
+   ``agent_preset_version_subagent``) via ``_create_binding_tables``.
+2. Enabled backfill: copy the legacy JSON ``enabled`` bit into
+   ``subagents_enabled``; non-boolean JSON coerces to false (fail closed).
+3. Edge backfills (``_backfill_head_bindings``,
+   ``_backfill_version_bindings``): each projects the legacy JSON refs into
+   a temp table, validates the whole projection, then inserts. The temp
+   tables use ``ON COMMIT DROP`` because Alembic runs the revision in a
+   single transaction: the guards can inspect the complete projection and
+   abort before any edge row is inserted, so a failed upgrade leaves no
+   partial edge set behind.
+4. Enable workspace RLS on both new tables.
+
+``downgrade()`` drops everything this revision added. The legacy JSON
+columns stay authoritative for old code throughout the expand window, so
+downgrading loses no data.
 """
 
 from collections.abc import Sequence
@@ -24,6 +43,14 @@ depends_on: str | Sequence[str] | None = None
 
 
 def _create_binding_tables() -> None:
+    """Create the normalized edge tables and their integrity rails.
+
+    Composite ``(workspace_id, id)`` foreign keys pin both ends of every
+    edge to one workspace; alias and position are unique per parent so the
+    projection is deterministic; child deletion is RESTRICT so an edge can
+    never dangle.
+    """
+
     op.create_unique_constraint(
         "uq_agent_preset_workspace_id_id",
         "agent_preset",
@@ -202,6 +229,14 @@ def _create_binding_tables() -> None:
 
 
 def _backfill_head_bindings() -> None:
+    """Project legacy head JSON refs into ``agent_preset_subagent``.
+
+    Guard invariants: every ref must resolve inside its own workspace
+    (id-shaped refs by UUID, slug refs against ACTIVE presets only — an
+    active head referencing a deleted child violates runtime rules and must
+    fail loudly), and aliases must be unique per head.
+    """
+
     op.execute(
         sa.text(
             """
@@ -314,6 +349,16 @@ def _backfill_head_bindings() -> None:
 
 
 def _backfill_version_bindings() -> None:
+    """Project legacy version-snapshot JSON refs into
+    ``agent_preset_version_subagent``.
+
+    Guard invariants differ from the head backfill on one point: slug refs
+    prefer the active owner but a SOLE tombstone match keeps its edge —
+    historical snapshots may legitimately reference later-deleted children
+    (runtime rejects those only on restore). Only unresolved or genuinely
+    ambiguous (multi-tombstone) refs abort the upgrade.
+    """
+
     op.execute(
         sa.text(
             """
@@ -378,6 +423,8 @@ def _backfill_version_bindings() -> None:
             LEFT JOIN LATERAL (
                 SELECT
                     (
+                        -- Active owner outranks tombstones; the id tiebreak
+                        -- keeps the pick deterministic across runs.
                         array_agg(
                             candidate.id
                             ORDER BY
@@ -469,6 +516,8 @@ def upgrade() -> None:
     op.execute(
         sa.text(
             """
+            -- Non-boolean legacy 'enabled' values coerce to false so the
+            -- normalized flag fails closed.
             UPDATE agent_preset
             SET subagents_enabled = CASE
                 WHEN agents ->> 'enabled' IN ('true', 'false')
