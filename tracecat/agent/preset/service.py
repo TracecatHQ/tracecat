@@ -243,7 +243,6 @@ class AgentPresetService(BaseWorkspaceService):
                 AgentPresetVersionSubagent.alias,
                 AgentPresetVersionSubagent.description,
                 AgentPresetVersionSubagent.max_turns,
-                AgentPresetVersionSubagent.position,
             )
             .select_from(AgentPresetVersionSubagent)
             .join(
@@ -264,7 +263,7 @@ class AgentPresetService(BaseWorkspaceService):
                 AgentPresetVersionSubagent.workspace_id == self.workspace_id,
                 AgentPresetVersionSubagent.parent_preset_version_id == version.id,
             )
-            .order_by(AgentPresetVersionSubagent.position)
+            .order_by(AgentPresetVersionSubagent.alias)
         )
         rows = (await self.session.execute(with_deleted(stmt))).tuples().all()
         use_latest_resource_versions = await self.use_latest_resource_versions()
@@ -284,10 +283,7 @@ class AgentPresetService(BaseWorkspaceService):
         legacy_refs_by_edge_key = (
             {}
             if pin_source is None
-            else {
-                (ref.preset_id, ref.alias, position): ref
-                for position, ref in enumerate(pin_source.subagents)
-            }
+            else {(ref.preset_id, ref.alias): ref for ref in pin_source.subagents}
         )
         resolved_subagents: list[ResolvedAttachedSubagentRef] = []
         for (
@@ -298,9 +294,8 @@ class AgentPresetService(BaseWorkspaceService):
             alias,
             description,
             max_turns,
-            position,
         ) in rows:
-            legacy_ref = legacy_refs_by_edge_key.get((child_preset_id, alias, position))
+            legacy_ref = legacy_refs_by_edge_key.get((child_preset_id, alias))
             if legacy_ref is not None:
                 child_version_id = legacy_ref.preset_version_id
                 child_version = legacy_ref.preset_version
@@ -385,7 +380,7 @@ class AgentPresetService(BaseWorkspaceService):
             return version
         version.subagents_enabled = legacy_binding.enabled
         self.session.add(version)
-        for position, subagent in enumerate(legacy_binding.subagents):
+        for subagent in legacy_binding.subagents:
             self.session.add(
                 AgentPresetVersionSubagent(
                     workspace_id=self.workspace_id,
@@ -394,7 +389,6 @@ class AgentPresetService(BaseWorkspaceService):
                     alias=subagent.alias,
                     description=subagent.description,
                     max_turns=subagent.max_turns,
-                    position=position,
                 )
             )
         await self.session.flush()
@@ -1043,7 +1037,7 @@ class AgentPresetService(BaseWorkspaceService):
                 AgentPresetSubagent.parent_preset_id == preset.id,
             )
         )
-        for position, subagent in enumerate(binding.subagents):
+        for subagent in binding.subagents:
             self.session.add(
                 AgentPresetSubagent(
                     workspace_id=self.workspace_id,
@@ -1052,7 +1046,6 @@ class AgentPresetService(BaseWorkspaceService):
                     alias=subagent.alias,
                     description=subagent.description,
                     max_turns=subagent.max_turns,
-                    position=position,
                 )
             )
         await self.session.flush()
@@ -1071,7 +1064,7 @@ class AgentPresetService(BaseWorkspaceService):
                 AgentPresetSubagent.workspace_id == self.workspace_id,
                 AgentPresetSubagent.parent_preset_id == preset_id,
             )
-            .order_by(AgentPresetSubagent.position)
+            .order_by(AgentPresetSubagent.alias)
         )
         bindings = (await self.session.execute(stmt)).scalars().all()
         for binding in bindings:
@@ -1083,7 +1076,6 @@ class AgentPresetService(BaseWorkspaceService):
                     alias=binding.alias,
                     description=binding.description,
                     max_turns=binding.max_turns,
-                    position=binding.position,
                 )
             )
         await self.session.flush()

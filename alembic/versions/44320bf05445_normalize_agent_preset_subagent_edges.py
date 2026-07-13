@@ -46,9 +46,8 @@ def _create_binding_tables() -> None:
     """Create the normalized edge tables and their integrity rails.
 
     Composite ``(workspace_id, id)`` foreign keys pin both ends of every
-    edge to one workspace; alias and position are unique per parent so the
-    projection is deterministic; child deletion is RESTRICT so an edge can
-    never dangle.
+    edge to one workspace; aliases uniquely identify children within a parent;
+    child deletion is RESTRICT so an edge can never dangle.
     """
 
     op.create_unique_constraint(
@@ -69,7 +68,6 @@ def _create_binding_tables() -> None:
         sa.Column("alias", sa.String(length=80), nullable=False),
         sa.Column("description", sa.String(length=1000), nullable=True),
         sa.Column("max_turns", sa.Integer(), nullable=True),
-        sa.Column("position", sa.Integer(), nullable=False),
         sa.Column("workspace_id", sa.UUID(), nullable=False),
         sa.Column("surrogate_id", sa.Integer(), sa.Identity(), nullable=False),
         sa.Column(
@@ -87,10 +85,6 @@ def _create_binding_tables() -> None:
         sa.CheckConstraint(
             "max_turns IS NULL OR max_turns >= 1",
             name=op.f("ck_agent_preset_subagent_max_turns_positive"),
-        ),
-        sa.CheckConstraint(
-            "position >= 0",
-            name=op.f("ck_agent_preset_subagent_position_nonnegative"),
         ),
         sa.ForeignKeyConstraint(
             ["workspace_id", "child_preset_id"],
@@ -116,12 +110,6 @@ def _create_binding_tables() -> None:
             "parent_preset_id",
             "alias",
             name="uq_agent_preset_subagent_workspace_parent_alias",
-        ),
-        sa.UniqueConstraint(
-            "workspace_id",
-            "parent_preset_id",
-            "position",
-            name="uq_agent_preset_subagent_workspace_parent_position",
         ),
     )
     op.create_index(
@@ -151,7 +139,6 @@ def _create_binding_tables() -> None:
         sa.Column("alias", sa.String(length=80), nullable=False),
         sa.Column("description", sa.String(length=1000), nullable=True),
         sa.Column("max_turns", sa.Integer(), nullable=True),
-        sa.Column("position", sa.Integer(), nullable=False),
         sa.Column("workspace_id", sa.UUID(), nullable=False),
         sa.Column("surrogate_id", sa.Integer(), sa.Identity(), nullable=False),
         sa.Column(
@@ -169,10 +156,6 @@ def _create_binding_tables() -> None:
         sa.CheckConstraint(
             "max_turns IS NULL OR max_turns >= 1",
             name=op.f("ck_agent_preset_version_subagent_max_turns_positive"),
-        ),
-        sa.CheckConstraint(
-            "position >= 0",
-            name=op.f("ck_agent_preset_version_subagent_position_nonnegative"),
         ),
         sa.ForeignKeyConstraint(
             ["workspace_id", "child_preset_id"],
@@ -200,12 +183,6 @@ def _create_binding_tables() -> None:
             "parent_preset_version_id",
             "alias",
             name="uq_agent_preset_version_subagent_workspace_parent_alias",
-        ),
-        sa.UniqueConstraint(
-            "workspace_id",
-            "parent_preset_version_id",
-            "position",
-            name="uq_agent_preset_version_subagent_workspace_parent_position",
         ),
     )
     op.create_index(
@@ -246,8 +223,7 @@ def _backfill_head_bindings() -> None:
                 SELECT
                     parent.id AS parent_id,
                     parent.workspace_id,
-                    ref.value AS ref,
-                    ref.ordinality - 1 AS position
+                    ref.value AS ref
                 FROM agent_preset AS parent
                 CROSS JOIN LATERAL jsonb_array_elements(
                     CASE
@@ -255,7 +231,7 @@ def _backfill_head_bindings() -> None:
                         THEN parent.agents -> 'subagents'
                         ELSE '[]'::jsonb
                     END
-                ) WITH ORDINALITY AS ref(value, ordinality)
+                ) AS ref(value)
                 -- Soft-deleted parents are unreachable at runtime and have no
                 -- undelete path; their stale refs must not block the upgrade.
                 WHERE parent.deleted_at IS NULL
@@ -275,8 +251,7 @@ def _backfill_head_bindings() -> None:
                     WHEN jsonb_typeof(refs.ref -> 'max_turns') = 'number'
                     THEN (refs.ref ->> 'max_turns')::integer
                     ELSE NULL
-                END AS max_turns,
-                refs.position::integer AS position
+                END AS max_turns
             FROM refs
             LEFT JOIN agent_preset AS child_by_id
                 ON child_by_id.workspace_id = refs.workspace_id
@@ -329,7 +304,6 @@ def _backfill_head_bindings() -> None:
                 alias,
                 description,
                 max_turns,
-                position,
                 workspace_id
             )
             SELECT
@@ -339,10 +313,9 @@ def _backfill_head_bindings() -> None:
                 alias,
                 description,
                 max_turns,
-                position,
                 workspace_id
             FROM _agent_preset_subagent_backfill
-            ORDER BY parent_id, position;
+            ORDER BY parent_id, alias;
             """
         )
     )
@@ -368,8 +341,7 @@ def _backfill_version_bindings() -> None:
                 SELECT
                     parent.id AS parent_version_id,
                     parent.workspace_id,
-                    ref.value AS ref,
-                    ref.ordinality - 1 AS position
+                    ref.value AS ref
                 FROM agent_preset_version AS parent
                 -- Versions owned by soft-deleted presets are unreachable at
                 -- runtime and have no undelete path; skip their edges.
@@ -383,7 +355,7 @@ def _backfill_version_bindings() -> None:
                         THEN parent.agents -> 'subagents'
                         ELSE '[]'::jsonb
                     END
-                ) WITH ORDINALITY AS ref(value, ordinality)
+                ) AS ref(value)
             )
             SELECT
                 refs.parent_version_id,
@@ -409,8 +381,7 @@ def _backfill_version_bindings() -> None:
                     WHEN jsonb_typeof(refs.ref -> 'max_turns') = 'number'
                     THEN (refs.ref ->> 'max_turns')::integer
                     ELSE NULL
-                END AS max_turns,
-                refs.position::integer AS position
+                END AS max_turns
             FROM refs
             LEFT JOIN agent_preset AS child_by_id
                 ON child_by_id.workspace_id = refs.workspace_id
@@ -473,7 +444,6 @@ def _backfill_version_bindings() -> None:
                 alias,
                 description,
                 max_turns,
-                position,
                 workspace_id
             )
             SELECT
@@ -483,10 +453,9 @@ def _backfill_version_bindings() -> None:
                 alias,
                 description,
                 max_turns,
-                position,
                 workspace_id
             FROM _agent_preset_version_subagent_backfill
-            ORDER BY parent_version_id, position;
+            ORDER BY parent_version_id, alias;
             """
         )
     )

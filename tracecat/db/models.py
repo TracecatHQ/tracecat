@@ -4050,13 +4050,6 @@ class AgentPresetSubagent(WorkspaceModel):
             "alias",
             name="uq_agent_preset_subagent_workspace_parent_alias",
         ),
-        UniqueConstraint(
-            "workspace_id",
-            "parent_preset_id",
-            "position",
-            name="uq_agent_preset_subagent_workspace_parent_position",
-        ),
-        CheckConstraint("position >= 0", name="position_nonnegative"),
         CheckConstraint(
             "max_turns IS NULL OR max_turns >= 1",
             name="max_turns_positive",
@@ -4083,7 +4076,6 @@ class AgentPresetSubagent(WorkspaceModel):
     alias: Mapped[str] = mapped_column(String(80), nullable=False)
     description: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     max_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    position: Mapped[int] = mapped_column(Integer, nullable=False)
 
     parent_preset: Mapped[AgentPreset] = relationship(
         back_populates="subagent_bindings",
@@ -4117,13 +4109,6 @@ class AgentPresetVersionSubagent(WorkspaceModel):
             "alias",
             name="uq_agent_preset_version_subagent_workspace_parent_alias",
         ),
-        UniqueConstraint(
-            "workspace_id",
-            "parent_preset_version_id",
-            "position",
-            name="uq_agent_preset_version_subagent_workspace_parent_position",
-        ),
-        CheckConstraint("position >= 0", name="position_nonnegative"),
         CheckConstraint(
             "max_turns IS NULL OR max_turns >= 1",
             name="max_turns_positive",
@@ -4150,7 +4135,6 @@ class AgentPresetVersionSubagent(WorkspaceModel):
     alias: Mapped[str] = mapped_column(String(80), nullable=False)
     description: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     max_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    position: Mapped[int] = mapped_column(Integer, nullable=False)
 
     parent_preset_version: Mapped[AgentPresetVersion] = relationship(
         back_populates="subagent_bindings"
