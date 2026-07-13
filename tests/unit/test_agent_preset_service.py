@@ -3771,7 +3771,9 @@ class TestAgentPresetService:
                 update={"name": "Pin Child", "slug": "pin-child"}
             )
         )
-        child_version = await agent_preset_service.get_current_version_for_preset(child)
+        child_version_one = await agent_preset_service.get_current_version_for_preset(
+            child
+        )
         parent = await agent_preset_service.create_preset(
             agent_preset_create_params.model_copy(
                 update={
@@ -3788,6 +3790,13 @@ class TestAgentPresetService:
         )
         parent_version = await agent_preset_service.get_current_version_for_preset(
             parent
+        )
+        await agent_preset_service.update_preset(
+            child,
+            AgentPresetUpdate(instructions="Child v2"),
+        )
+        child_version_two = await agent_preset_service.get_current_version_for_preset(
+            child
         )
         # Simulate the post-migration state: normalized edges exist, but the
         # raw JSON still holds the legacy slug-only shape.
@@ -3815,9 +3824,163 @@ class TestAgentPresetService:
         )
 
         assert binding.enabled is True
+        assert child_version_two.id != child_version_one.id
         assert [ref.preset_id for ref in binding.subagents] == [child.id]
         assert [ref.preset_version_id for ref in binding.subagents] == [
-            child_version.id
+            child_version_two.id
+        ]
+
+    async def test_pinned_binding_honors_migrated_slug_only_numeric_pin(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Migrated numeric pins resolve against normalized child identities."""
+
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Numeric Pin Child", "slug": "numeric-pin-child"}
+            )
+        )
+        child_version_one = await agent_preset_service.get_current_version_for_preset(
+            child
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Numeric Pin Parent",
+                    "slug": "numeric-pin-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": child.slug}],
+                        }
+                    ),
+                }
+            )
+        )
+        parent_version = await agent_preset_service.get_current_version_for_preset(
+            parent
+        )
+        await agent_preset_service.update_preset(
+            child,
+            AgentPresetUpdate(instructions="Child v2"),
+        )
+        child_version_two = await agent_preset_service.get_current_version_for_preset(
+            child
+        )
+        await session.execute(
+            sa.update(AgentPresetVersion)
+            .where(AgentPresetVersion.id == parent_version.id)
+            .values(
+                agents={
+                    "enabled": True,
+                    "subagents": [
+                        {
+                            "preset": child.slug,
+                            "preset_version": child_version_one.version,
+                        }
+                    ],
+                }
+            )
+        )
+        await session.commit()
+        monkeypatch.setattr(
+            agent_preset_service,
+            "use_latest_resource_versions",
+            AsyncMock(return_value=False),
+        )
+
+        refreshed_version = await agent_preset_service.get_version(parent_version.id)
+        assert refreshed_version is not None
+        binding = await agent_preset_service.get_version_subagent_binding(
+            refreshed_version
+        )
+
+        assert child_version_two.id != child_version_one.id
+        assert [ref.preset_id for ref in binding.subagents] == [child.id]
+        assert [ref.preset_version_id for ref in binding.subagents] == [
+            child_version_one.id
+        ]
+        assert [ref.preset_version for ref in binding.subagents] == [
+            child_version_one.version
+        ]
+
+    async def test_pinned_binding_falls_back_for_malformed_agents_json(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Malformed compatibility JSON still uses the child's current version."""
+
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Malformed Child", "slug": "malformed-child"}
+            )
+        )
+        child_version_one = await agent_preset_service.get_current_version_for_preset(
+            child
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Malformed Parent",
+                    "slug": "malformed-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": child.slug}],
+                        }
+                    ),
+                }
+            )
+        )
+        parent_version = await agent_preset_service.get_current_version_for_preset(
+            parent
+        )
+        await agent_preset_service.update_preset(
+            child,
+            AgentPresetUpdate(instructions="Child v2"),
+        )
+        child_version_two = await agent_preset_service.get_current_version_for_preset(
+            child
+        )
+        await session.execute(
+            sa.update(AgentPresetVersion)
+            .where(AgentPresetVersion.id == parent_version.id)
+            .values(
+                agents={
+                    "enabled": True,
+                    "subagents": [
+                        {
+                            "preset": child.slug,
+                            "unexpected": True,
+                        }
+                    ],
+                }
+            )
+        )
+        await session.commit()
+        monkeypatch.setattr(
+            agent_preset_service,
+            "use_latest_resource_versions",
+            AsyncMock(return_value=False),
+        )
+
+        refreshed_version = await agent_preset_service.get_version(parent_version.id)
+        assert refreshed_version is not None
+        binding = await agent_preset_service.get_version_subagent_binding(
+            refreshed_version
+        )
+
+        assert child_version_two.id != child_version_one.id
+        assert [ref.preset_id for ref in binding.subagents] == [child.id]
+        assert [ref.preset_version_id for ref in binding.subagents] == [
+            child_version_two.id
         ]
 
     async def test_workflow_config_resolves_membership_from_version_edges(

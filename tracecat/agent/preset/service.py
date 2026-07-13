@@ -260,6 +260,7 @@ class AgentPresetService(BaseWorkspaceService):
         rows = (await self.session.execute(with_deleted(stmt))).tuples().all()
         use_latest_resource_versions = await self.use_latest_resource_versions()
         pin_source: ResolvedAgentsConfig | None = None
+        numeric_pins_by_alias: dict[str, int] = {}
         if not use_latest_resource_versions:
             if legacy_binding is not None:
                 pin_source = legacy_binding
@@ -267,16 +268,50 @@ class AgentPresetService(BaseWorkspaceService):
                 try:
                     pin_source = ResolvedAgentsConfig.model_validate(version.agents)
                 except ValidationError:
-                    # Migrated slug-only legacy JSON carries no
-                    # preset_id/preset_version_id pins to honor; the
-                    # normalized edges plus each child's current version are
-                    # authoritative for such versions.
-                    pin_source = None
+                    # Migrated slug-only legacy JSON can carry numeric version
+                    # pins even though it lacks immutable preset/version IDs.
+                    try:
+                        legacy_config = AgentSubagentsConfig.model_validate(
+                            version.agents
+                        )
+                    except ValidationError:
+                        pin_source = None
+                    else:
+                        numeric_pins_by_alias = {
+                            ref.alias: ref.preset_version
+                            for ref in legacy_config.subagents
+                            if ref.preset_version is not None
+                        }
         legacy_refs_by_edge_key = (
             {}
             if pin_source is None
             else {(ref.preset_id, ref.alias): ref for ref in pin_source.subagents}
         )
+        pinned_version_pairs = {
+            (child_preset_id, numeric_pins_by_alias[alias])
+            for child_preset_id, _, _, _, alias, _, _ in rows
+            if alias in numeric_pins_by_alias
+        }
+        pinned_versions_by_pair: dict[tuple[uuid.UUID, int], tuple[uuid.UUID, int]] = {}
+        if pinned_version_pairs:
+            pinned_versions_stmt = select(
+                AgentPresetVersion.preset_id,
+                AgentPresetVersion.version,
+                AgentPresetVersion.id,
+            ).where(
+                AgentPresetVersion.workspace_id == self.workspace_id,
+                sa.tuple_(
+                    AgentPresetVersion.preset_id,
+                    AgentPresetVersion.version,
+                ).in_(pinned_version_pairs),
+            )
+            pinned_versions = (
+                (await self.session.execute(pinned_versions_stmt)).tuples().all()
+            )
+            pinned_versions_by_pair = {
+                (preset_id, preset_version): (preset_version_id, preset_version)
+                for preset_id, preset_version, preset_version_id in pinned_versions
+            }
         resolved_subagents: list[ResolvedAttachedSubagentRef] = []
         for (
             child_preset_id,
@@ -288,9 +323,17 @@ class AgentPresetService(BaseWorkspaceService):
             max_turns,
         ) in rows:
             legacy_ref = legacy_refs_by_edge_key.get((child_preset_id, alias))
+            numeric_pin = numeric_pins_by_alias.get(alias)
+            pinned_version = (
+                None
+                if numeric_pin is None
+                else pinned_versions_by_pair.get((child_preset_id, numeric_pin))
+            )
             if legacy_ref is not None:
                 child_version_id = legacy_ref.preset_version_id
                 child_version = legacy_ref.preset_version
+            elif pinned_version is not None:
+                child_version_id, child_version = pinned_version
             else:
                 if current_version_id is None or current_version is None:
                     raise TracecatNotFoundError(
