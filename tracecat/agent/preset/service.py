@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
 import sqlalchemy as sa
+from pydantic import ValidationError
 from slugify import slugify
 from sqlalchemy import column, func, literal, select
 from sqlalchemy.dialects.postgresql import JSONB
@@ -247,17 +248,25 @@ class AgentPresetService(BaseWorkspaceService):
         )
         rows = (await self.session.execute(with_deleted(stmt))).tuples().all()
         use_latest_resource_versions = await self.use_latest_resource_versions()
+        pin_source: ResolvedAgentsConfig | None = None
+        if not use_latest_resource_versions:
+            if legacy_binding is not None:
+                pin_source = legacy_binding
+            else:
+                try:
+                    pin_source = ResolvedAgentsConfig.model_validate(version.agents)
+                except ValidationError:
+                    # Migrated slug-only legacy JSON carries no
+                    # preset_id/preset_version_id pins to honor; the
+                    # normalized edges plus each child's current version are
+                    # authoritative for such versions.
+                    pin_source = None
         legacy_refs_by_edge_key = (
             {}
-            if use_latest_resource_versions
+            if pin_source is None
             else {
                 (ref.preset_id, ref.alias, position): ref
-                for position, ref in enumerate(
-                    (
-                        legacy_binding
-                        or ResolvedAgentsConfig.model_validate(version.agents)
-                    ).subagents
-                )
+                for position, ref in enumerate(pin_source.subagents)
             }
         )
         resolved_subagents: list[ResolvedAttachedSubagentRef] = []
@@ -335,6 +344,11 @@ class AgentPresetService(BaseWorkspaceService):
                 AgentPresetVersion.id == version_id,
             )
             .with_for_update()
+            # Refresh the identity-mapped instance: a concurrent session may
+            # have reconciled (and committed) while this one waited for the
+            # row lock, and the caller must see the winner's agents_enabled,
+            # not the pre-lock snapshot.
+            .execution_options(populate_existing=True)
         )
         version = (await self.session.execute(stmt)).scalar_one()
         # A concurrent session may have reconciled while this one waited for

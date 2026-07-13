@@ -5,8 +5,10 @@ import os
 import uuid
 from datetime import UTC, datetime
 from typing import Any, cast
+from unittest.mock import AsyncMock
 
 import pytest
+import sqlalchemy as sa
 from dotenv import dotenv_values
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -3662,6 +3664,130 @@ class TestAgentPresetService:
 
         assert binding.enabled is True
         assert binding.subagents == []
+
+    async def test_pinned_binding_falls_back_for_migrated_slug_only_versions(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Pinned mode must not crash on migrated slug-only legacy JSON.
+
+        The normalize migration backfills version edges from slug-only refs
+        that carry no preset_id/preset_version_id, so the raw ``agents`` JSON
+        cannot validate as ``ResolvedAgentsConfig``. Pinned resolution falls
+        back to the normalized edges plus each child's current version
+        instead of raising.
+        """
+
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Pin Child", "slug": "pin-child"}
+            )
+        )
+        child_version = await agent_preset_service.get_current_version_for_preset(child)
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Pin Parent",
+                    "slug": "pin-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": child.slug}],
+                        }
+                    ),
+                }
+            )
+        )
+        parent_version = await agent_preset_service.get_current_version_for_preset(
+            parent
+        )
+        # Simulate the post-migration state: normalized edges exist, but the
+        # raw JSON still holds the legacy slug-only shape.
+        await session.execute(
+            sa.update(AgentPresetVersion)
+            .where(AgentPresetVersion.id == parent_version.id)
+            .values(
+                agents={
+                    "enabled": True,
+                    "subagents": [{"preset": child.slug}],
+                }
+            )
+        )
+        await session.commit()
+        monkeypatch.setattr(
+            agent_preset_service,
+            "use_latest_resource_versions",
+            AsyncMock(return_value=False),
+        )
+
+        refreshed_version = await agent_preset_service.get_version(parent_version.id)
+        assert refreshed_version is not None
+        binding = await agent_preset_service.get_version_subagent_binding(
+            refreshed_version
+        )
+
+        assert binding.enabled is True
+        assert [ref.preset_id for ref in binding.subagents] == [child.id]
+        assert [ref.preset_version_id for ref in binding.subagents] == [
+            child_version.id
+        ]
+
+    async def test_reconcile_returns_fresh_row_after_concurrent_winner(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """The locked re-select must not return a stale identity-mapped row.
+
+        If a concurrent session reconciles while this one waits on the row
+        lock, the loser must observe the winner's ``agents_enabled``; a stale
+        ``enabled=False`` alongside the winner's edges would fail the
+        ``ResolvedAgentsConfig`` enabled/subagents validator downstream.
+        """
+
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Fresh Child", "slug": "fresh-child"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Fresh Parent", "slug": "fresh-parent"}
+            )
+        )
+        parent_version = await agent_preset_service.get_current_version_for_preset(
+            parent
+        )
+        # Loaded into the identity map with agents_enabled=False.
+        assert parent_version.agents_enabled is False
+
+        # Simulate the concurrent winner with core statements that bypass the
+        # ORM identity map: enable the flag and write a normalized edge.
+        await session.execute(
+            sa.update(AgentPresetVersion)
+            .where(AgentPresetVersion.id == parent_version.id)
+            .values(agents_enabled=True)
+        )
+        await session.execute(
+            sa.insert(AgentPresetVersionSubagent).values(
+                id=uuid.uuid4(),
+                workspace_id=agent_preset_service.workspace_id,
+                parent_preset_version_id=parent_version.id,
+                child_preset_id=child.id,
+                alias="winner",
+                position=0,
+            )
+        )
+
+        version = await agent_preset_service._reconcile_legacy_version_subagent_binding(
+            parent_version.id
+        )
+
+        assert version.agents_enabled is True
 
     async def test_create_parent_rechecks_subagent_before_saving_head(
         self,
