@@ -424,8 +424,12 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             )
         )
         bindings: dict[uuid.UUID, list[AgentPresetSubagentRef]] = {}
+        # Historical version edges may point at a soft-deleted child preset;
+        # the runtime binding (get_version_subagent_binding) keeps them, so
+        # the projection must too — opt out of the global soft-delete filter,
+        # mirroring _skill_bindings_for_versions.
         for preset_version_id, slug, alias, description, max_turns in (
-            await workspace_service.session.execute(stmt)
+            await workspace_service.session.execute(with_deleted(stmt))
         ).tuples():
             bindings.setdefault(preset_version_id, []).append(
                 AgentPresetSubagentRef(

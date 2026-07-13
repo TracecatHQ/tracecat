@@ -4514,6 +4514,79 @@ async def test_agent_preset_projection_falls_back_to_legacy_version_json(
 
 
 @pytest.mark.anyio
+async def test_agent_preset_projection_keeps_edges_to_soft_deleted_children(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Projection keeps version edges whose child preset was soft-deleted.
+
+    Spec: the runtime binding (get_version_subagent_binding) reads
+    tombstone-child edges through with_deleted, so the exported version
+    snapshot must keep them too — the global soft-delete filter must not
+    silently drop the deleted child's edge from the manifest.
+    """
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(
+        _subagent_edge_git_tree(
+            subagents=[
+                {
+                    "slug": "a-kept-child",
+                    "version": 1,
+                    "name": "kept-alias",
+                    "description": "Keep this child",
+                    "max_turns": 2,
+                },
+                {
+                    "slug": "b-doomed-child",
+                    "version": 1,
+                    "name": "doomed-alias",
+                    "description": "Soft-delete this child",
+                    "max_turns": 3,
+                },
+            ],
+            child_slugs=["a-kept-child", "b-doomed-child"],
+        ),
+        commit_sha="p" * 40,
+    )
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+
+    doomed = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "b-doomed-child",
+        )
+    )
+    assert doomed is not None
+    doomed.deleted_at = datetime.now(UTC)
+    await session.flush()
+
+    projection = await service.project_workspace(create_missing_mappings=False)
+    projected_version = yaml.safe_load(
+        projection.files[f"{AGENT_PRESET_ROOT}/edge-parent/versions/1.yml"]
+    )
+    assert projected_version["subagents"] == [
+        {
+            "slug": "a-kept-child",
+            "version": 1,
+            "name": "kept-alias",
+            "description": "Keep this child",
+            "max_turns": 2,
+        },
+        {
+            "slug": "b-doomed-child",
+            "version": 1,
+            "name": "doomed-alias",
+            "description": "Soft-delete this child",
+            "max_turns": 3,
+        },
+    ]
+
+
+@pytest.mark.anyio
 async def test_agent_preset_sync_replaces_existing_normalized_subagent_edges(
     session: AsyncSession,
     svc_role: Role,
