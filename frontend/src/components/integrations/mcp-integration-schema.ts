@@ -135,28 +135,19 @@ export function urlTypedStdioEnvKeys(
  * parse — shape errors are reported by {@link isValidStringMap} instead.
  */
 export function invalidUrlEnvKeys(
-  value: string,
+  rows: MCPStdioEnvRow[],
   urlKeys: Set<string>
 ): string[] {
   if (urlKeys.size === 0) {
     return []
   }
-  let parsed: Record<string, unknown>
-  try {
-    parsed = JSON.parse(value) as Record<string, unknown>
-  } catch {
-    return []
-  }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    return []
-  }
   const invalid: string[] = []
   for (const key of urlKeys) {
-    const entryValue = parsed[key]
-    if (typeof entryValue !== "string") {
+    const row = rows.find((candidate) => candidate.key.trim() === key)
+    if (!row || (row.value_hidden && row.value.trim() === "")) {
       continue
     }
-    const trimmed = entryValue.trim()
+    const trimmed = row.value.trim()
     if (trimmed === "" || isExpression(trimmed)) {
       continue
     }
@@ -165,6 +156,156 @@ export function invalidUrlEnvKeys(
     }
   }
   return invalid
+}
+
+const ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+export type MCPStdioEnvRow = {
+  key: string
+  value: string
+  value_hidden?: boolean
+  /**
+   * The key this row was seeded with from the server, tracked so a hidden row
+   * whose key is later renamed can be detected. A hidden row is only preserved
+   * server-side under its `original_key`; renaming it (without entering a
+   * replacement value) would otherwise send a preserve key the backend cannot
+   * resolve, silently dropping the stored secret.
+   */
+  original_key?: string
+}
+
+/**
+ * Whether a hidden row still points at the server key it was seeded with. Only
+ * such rows can be safely preserved (their value lives in the stored env under
+ * `original_key`). A renamed hidden row must be treated like a new entry.
+ */
+function isPreservableHiddenRow(row: MCPStdioEnvRow): boolean {
+  return (
+    row.value_hidden === true &&
+    row.value.trim() === "" &&
+    row.original_key !== undefined &&
+    row.key.trim() === row.original_key
+  )
+}
+
+/**
+ * Join stored args into the single editable arguments line. The command is
+ * selected separately from {@link ALLOWED_COMMANDS}, so it is not included.
+ */
+export function buildStdioArgsLine(args: string[] | null | undefined): string {
+  return (args ?? [])
+    .map((arg) => arg.trim())
+    .filter(Boolean)
+    .join(" ")
+}
+
+/**
+ * Split the editable arguments line into individual args on whitespace. Shell
+ * quoting is not honored; the command itself is gated via a separate Select.
+ */
+export function parseStdioArgsLine(value: string | null | undefined): string[] {
+  return (value ?? "").trim().split(/\s+/).filter(Boolean)
+}
+
+/**
+ * Decide which stdio fields an edit-mode update should include.
+ *
+ * `stdio_env` and `stdio_args` round-trip lossily through the form:
+ * - hidden env values are not re-sent unless the user edits them, and
+ * - args are re-serialized by {@link buildStdioArgsLine}/{@link parseStdioArgsLine},
+ *   which lose embedded whitespace and shell quoting.
+ *
+ * So both must only be sent when the value was actually edited. A plain
+ * react-hook-form `reset(nextValues)` (used when switching catalog connection
+ * options in edit mode) clears `dirtyFields`, so `templateApplied` is ORed in
+ * to force the freshly-applied option's env and args to be sent. The backend
+ * preserves omitted (`None`) stdio fields, so leaving them out is a no-op.
+ */
+export function shouldSendStdioFields({
+  envDirty,
+  argsDirty,
+  templateApplied,
+}: {
+  envDirty: boolean
+  argsDirty: boolean
+  templateApplied: boolean
+}): { sendEnv: boolean; sendArgs: boolean } {
+  return {
+    sendEnv: envDirty || templateApplied,
+    sendArgs: argsDirty || templateApplied,
+  }
+}
+
+export function stdioEnvRowsToRecord(
+  rows: MCPStdioEnvRow[]
+): Record<string, string> | undefined {
+  const entries = rows
+    .filter((row) => {
+      // Preservable hidden rows carry no value to send; every other row
+      // (including a renamed hidden row, which is no longer preservable) is
+      // serialized so its value is written and validation can catch an
+      // empty one.
+      if (isPreservableHiddenRow(row)) {
+        return false
+      }
+      return row.key.trim() !== "" || row.value.trim() !== ""
+    })
+    .map((row) => [row.key.trim(), row.value] as const)
+  if (entries.length === 0) {
+    return undefined
+  }
+  return Object.fromEntries(entries)
+}
+
+export function stdioEnvRowsToPreserveKeys(rows: MCPStdioEnvRow[]): string[] {
+  return rows
+    .filter(isPreservableHiddenRow)
+    .map((row) => row.key.trim())
+    .filter(Boolean)
+}
+
+export function stdioEnvReadToRows(
+  env: Record<string, string> | null | undefined,
+  keys: string[] | null | undefined = null
+): MCPStdioEnvRow[] {
+  const rowsByKey = new Map<string, MCPStdioEnvRow>()
+  for (const key of keys ?? []) {
+    rowsByKey.set(key, {
+      key,
+      value: "",
+      value_hidden: true,
+      original_key: key,
+    })
+  }
+  for (const [key, value] of Object.entries(env ?? {})) {
+    rowsByKey.set(key, { key, value })
+  }
+  return Array.from(rowsByKey.values())
+}
+
+function stdioEnvRowsAreValid(rows: MCPStdioEnvRow[]): boolean {
+  const keys = new Set<string>()
+  for (const row of rows) {
+    const key = row.key.trim()
+    const value = row.value.trim()
+    if (key === "" && value === "") {
+      continue
+    }
+    if (key === "") {
+      return false
+    }
+    // An empty value is only acceptable when the stored value is being
+    // preserved verbatim (a hidden row still pointing at its server key). A
+    // visible row, or a hidden row that was renamed, must carry a value.
+    if (value === "" && !isPreservableHiddenRow(row)) {
+      return false
+    }
+    if (!ENV_KEY_PATTERN.test(key) || keys.has(key)) {
+      return false
+    }
+    keys.add(key)
+  }
+  return true
 }
 
 /**
@@ -239,12 +380,15 @@ const mcpIntegrationFormObjectSchema = z.object({
   custom_credentials: z.string().trim().optional().or(z.literal("")),
   // Stdio-type fields
   stdio_command: z.string().trim().optional().or(z.literal("")),
-  stdio_args: z.array(
+  stdio_args_line: z.string().trim().optional().or(z.literal("")),
+  stdio_env: z.array(
     z.object({
+      key: z.string(),
       value: z.string(),
+      value_hidden: z.boolean().optional(),
+      original_key: z.string().optional(),
     })
   ),
-  stdio_env: z.string().trim().optional().or(z.literal("")),
   // General fields
   timeout: z.coerce.number().int().min(1).max(300).optional(),
   catalog_slug: z.string().optional().or(z.literal("")),
@@ -367,10 +511,11 @@ export function buildMcpIntegrationFormSchema(
       .refine(
         (data) => {
           if (data.server_type === "stdio") {
-            if (!data.stdio_command || data.stdio_command.trim() === "") {
+            const command = data.stdio_command?.trim() ?? ""
+            if (!command) {
               return false
             }
-            return isAllowedCommand(data.stdio_command.trim())
+            return isAllowedCommand(command)
           }
           return true
         },
@@ -381,18 +526,14 @@ export function buildMcpIntegrationFormSchema(
       )
       .refine(
         (data) => {
-          if (
-            data.server_type === "stdio" &&
-            data.stdio_env &&
-            data.stdio_env.trim() !== ""
-          ) {
-            return isValidStringMap(data.stdio_env)
+          if (data.server_type === "stdio") {
+            return stdioEnvRowsAreValid(data.stdio_env)
           }
           return true
         },
         {
           message:
-            "Environment variables must be a valid JSON object with string values",
+            "Environment variables need unique names and non-empty values",
           path: ["stdio_env"],
         }
       )
@@ -401,11 +542,10 @@ export function buildMcpIntegrationFormSchema(
       .refine(
         (data) =>
           data.server_type !== "stdio" ||
-          !data.stdio_env ||
           invalidUrlEnvKeys(data.stdio_env, urlEnvKeys).length === 0,
         (data) => ({
           message: `Must start with http:// or https://: ${invalidUrlEnvKeys(
-            data.stdio_env ?? "",
+            data.stdio_env,
             urlEnvKeys
           ).join(", ")}`,
           path: ["stdio_env"],
@@ -429,8 +569,8 @@ export const MCP_INTEGRATION_FORM_DEFAULTS: MCPIntegrationFormValues = {
   oauth_client_credentials: "",
   custom_credentials: "",
   stdio_command: "",
-  stdio_args: [],
-  stdio_env: "",
+  stdio_args_line: "",
+  stdio_env: [],
   timeout: 30,
   catalog_slug: "",
   connection_option_id: "",
@@ -470,7 +610,9 @@ function hasConfigTarget(
   )
 }
 
-function stdioEnvTemplate(spec: MCPConnectionSpec | null | undefined): string {
+function stdioEnvTemplate(
+  spec: MCPConnectionSpec | null | undefined
+): MCPStdioEnvRow[] {
   const obj: Record<string, string> = {}
   for (const cred of spec?.credentials ?? []) {
     if (cred.target === "stdio_env" && cred.required) {
@@ -487,7 +629,7 @@ function stdioEnvTemplate(spec: MCPConnectionSpec | null | undefined): string {
       obj[key] ??= ""
     }
   }
-  return Object.keys(obj).length > 0 ? JSON.stringify(obj, null, 2) : ""
+  return stdioEnvReadToRows(obj)
 }
 
 /**
@@ -546,7 +688,7 @@ export function catalogEntryToFormValues(
   const oauthClientCredentialsJson = credentialsTemplate(spec, ["oauth_client"])
   const requiresExistingOAuth =
     authType === "OAUTH2" && hasConfigTarget(spec, "oauth_client")
-  const stdioEnvJson = stdioEnvTemplate(spec)
+  const stdioEnvRows = stdioEnvTemplate(spec)
   const stdio = serverType === "stdio" ? pickStdioCommand(spec) : null
   const serverUri =
     spec?.server_type === "http" && "server_uri" in spec ? spec.server_uri : ""
@@ -564,8 +706,8 @@ export function catalogEntryToFormValues(
     // HTTP CUSTOM/OAUTH2 headers OR stdio env get the credential-key template.
     custom_credentials: serverType === "http" ? httpCredentialsJson : "",
     stdio_command: stdio?.command ?? "",
-    stdio_args: (stdio?.args ?? []).map((value) => ({ value })),
-    stdio_env: serverType === "stdio" ? stdioEnvJson : "",
+    stdio_args_line: buildStdioArgsLine(stdio?.args ?? []),
+    stdio_env: serverType === "stdio" ? stdioEnvRows : [],
     catalog_slug: entry.slug,
     connection_option_id: option?.id ?? "",
   }

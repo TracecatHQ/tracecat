@@ -33,6 +33,7 @@ from tracecat.db.models import (
     OAuthStateDB,
     WorkspaceOAuthProvider,
 )
+from tracecat.expressions.patterns import STANDALONE_SAFE_REFERENCE
 from tracecat.identifiers import UserID
 from tracecat.integrations.catalog.loader import (
     get_platform_mcp_catalog_entries,
@@ -49,6 +50,7 @@ from tracecat.integrations.mcp_validation import (
     MCPValidationError,
     sanitize_urls_in_text,
     validate_mcp_command_config,
+    validate_mcp_env_key,
 )
 from tracecat.integrations.providers import get_provider_class
 from tracecat.integrations.providers.base import (
@@ -1850,11 +1852,23 @@ class IntegrationService(BaseWorkspaceService):
             "utf-8"
         )
 
-    @require_scope("integration:read")
+    @require_scope(
+        "integration:read",
+        "integration:create",
+        "integration:update",
+        require_all=False,
+    )
     def decrypt_stdio_env(
         self, mcp_integration: MCPIntegration
     ) -> dict[str, str] | None:
-        """Decrypt and return stdio_env for an MCP integration."""
+        """Decrypt and return stdio_env for an MCP integration.
+
+        Read/create/update all satisfy this accessor: any actor allowed to
+        create or update an MCP integration already supplies or mutates its
+        env, and response shaping on those routes needs to echo the readable
+        values back. Which endpoints exist is still governed by route-level
+        scoping.
+        """
         if not mcp_integration.encrypted_stdio_env:
             return None
         if not is_set(mcp_integration.encrypted_stdio_env):
@@ -1872,6 +1886,89 @@ class IntegrationService(BaseWorkspaceService):
                 return None
             env[key] = value
         return env
+
+    @staticmethod
+    def _non_secret_stdio_env_keys(catalog_slug: str | None) -> set[str]:
+        """Return catalog-declared stdio env keys that are safe to display."""
+        if not catalog_slug:
+            return set()
+        catalog_entry = get_platform_mcp_catalog_entry_by_slug(
+            catalog_slug, include_private=True
+        )
+        if catalog_entry is None:
+            return set()
+
+        specs: list[MCPConnectionSpec] = []
+        if catalog_entry.connection_spec is not None:
+            specs.append(catalog_entry.connection_spec)
+        specs.extend(
+            option.connection_spec for option in catalog_entry.connection_options or []
+        )
+        return {
+            cred.key
+            for spec in specs
+            for cred in spec.credentials
+            if cred.target == "stdio_env" and not cred.secret
+        }
+
+    @require_scope(
+        "integration:read",
+        "integration:create",
+        "integration:update",
+        require_all=False,
+    )
+    def readable_stdio_env(
+        self, mcp_integration: MCPIntegration
+    ) -> dict[str, str] | None:
+        """Return stdio env values that can be shown in edit forms.
+
+        Raw env values may be credentials. Only standalone ``SECRETS.*`` or
+        ``VARS.*`` references (safe indirections that never embed a literal)
+        or catalog-declared non-secret fields are returned. Any other
+        templated value — function calls, literals, arithmetic, or partial
+        templates — is treated like a raw secret and omitted.
+        """
+        env = self.decrypt_stdio_env(mcp_integration)
+        if not env:
+            return None
+
+        non_secret_keys = self._non_secret_stdio_env_keys(mcp_integration.catalog_slug)
+        readable: dict[str, str] = {}
+        for key, value in env.items():
+            if key in non_secret_keys or STANDALONE_SAFE_REFERENCE.match(value.strip()):
+                readable[key] = value
+        return readable or None
+
+    @require_scope(
+        "integration:read",
+        "integration:create",
+        "integration:update",
+        require_all=False,
+    )
+    def stdio_env_keys(self, mcp_integration: MCPIntegration) -> list[str] | None:
+        """Return configured stdio env keys without exposing raw values."""
+        env = self.decrypt_stdio_env(mcp_integration)
+        if not env:
+            return None
+        return list(env.keys())
+
+    def _merged_stdio_env_for_update(
+        self, *, mcp_integration: MCPIntegration, params: MCPIntegrationUpdate
+    ) -> dict[str, str] | None:
+        """Merge visible env updates with hidden keys the client preserves."""
+        if params.stdio_env is None and params.stdio_env_preserve_keys is None:
+            return None
+
+        current_env = self.decrypt_stdio_env(mcp_integration) or {}
+        merged: dict[str, str] = {}
+        for key in params.stdio_env_preserve_keys or []:
+            validate_mcp_env_key(key)
+            if key in current_env:
+                merged[key] = current_env[key]
+
+        if params.stdio_env:
+            merged.update(params.stdio_env)
+        return merged
 
     @require_scope("integration:create", "integration:update", require_all=False)
     async def store_provider_config(
@@ -3529,6 +3626,16 @@ class IntegrationService(BaseWorkspaceService):
         oauth_integration_id_was_provided = (
             "oauth_integration_id" in params.model_fields_set
         )
+        stdio_env_was_provided = (
+            params.stdio_env is not None or params.stdio_env_preserve_keys is not None
+        )
+        target_stdio_env = (
+            self._merged_stdio_env_for_update(
+                mcp_integration=mcp_integration, params=params
+            )
+            if stdio_env_was_provided
+            else None
+        )
 
         if target_server_type == "http":
             target_server_uri = params.server_uri or mcp_integration.server_uri
@@ -3590,7 +3697,7 @@ class IntegrationService(BaseWorkspaceService):
             server_type_changed
             or params.stdio_command is not None
             or params.stdio_args is not None
-            or params.stdio_env is not None
+            or stdio_env_was_provided
         ):
             self._validate_stdio_server_config(
                 command=(
@@ -3603,12 +3710,12 @@ class IntegrationService(BaseWorkspaceService):
                     if params.stdio_args is not None
                     else mcp_integration.stdio_args
                 ),
-                env=params.stdio_env,
+                env=target_stdio_env,
             )
-            if params.stdio_env is not None:
+            if stdio_env_was_provided and target_stdio_env is not None:
                 self._validate_stdio_env_against_catalog(
                     catalog_slug=mcp_integration.catalog_slug,
-                    stdio_env=params.stdio_env,
+                    stdio_env=target_stdio_env,
                 )
 
         # Update fields
@@ -3651,10 +3758,10 @@ class IntegrationService(BaseWorkspaceService):
             )
         if target_server_type == "stdio" and params.stdio_args is not None:
             mcp_integration.stdio_args = params.stdio_args
-        if target_server_type == "stdio" and params.stdio_env is not None:
-            if params.stdio_env:
+        if target_server_type == "stdio" and stdio_env_was_provided:
+            if target_stdio_env:
                 mcp_integration.encrypted_stdio_env = self._encrypt_token(
-                    orjson.dumps(params.stdio_env).decode()
+                    orjson.dumps(target_stdio_env).decode()
                 )
             else:
                 # Empty dict means clear the env vars

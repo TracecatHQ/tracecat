@@ -543,6 +543,13 @@ class MCPIntegrationUpdate(BaseModel):
         default=None,
         description="Environment variables for stdio-type servers",
     )
+    stdio_env_preserve_keys: list[str] | None = Field(
+        default=None,
+        description=(
+            "Existing stdio env keys to preserve when stdio_env only contains "
+            "visible or replaced values."
+        ),
+    )
     # General fields
     timeout: int | None = Field(
         default=None,
@@ -866,9 +873,12 @@ class MCPIntegrationRead(BaseModel):
     # Stdio-type server fields
     stdio_command: str | None
     stdio_args: list[str] | None
-    # NOTE: stdio_env is write-only to avoid exposing secrets in API responses
+    stdio_env_keys: list[str] | None = None
+    """Configured stdio environment variable keys, without exposing raw values."""
+    stdio_env: dict[str, str] | None = None
+    """Safe-to-display stdio environment variable values, if available."""
     has_stdio_env: bool = False
-    """Whether stdio_env is configured (actual values are not exposed)."""
+    """Whether stdio_env is configured, including values hidden from the response."""
     # General fields
     timeout: int | None
     tools: list[MCPToolSummary] | None = None

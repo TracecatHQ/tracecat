@@ -89,6 +89,8 @@ def _mcp_integration_read(
     mcp_integration: MCPIntegration,
     *,
     state: PlatformMCPCatalogState,
+    stdio_env_keys: list[str] | None = None,
+    stdio_env: dict[str, str] | None = None,
 ) -> MCPIntegrationRead:
     return MCPIntegrationRead(
         id=mcp_integration.id,
@@ -105,6 +107,8 @@ def _mcp_integration_read(
         server_type=cast(MCPServerType, mcp_integration.server_type),
         stdio_command=mcp_integration.stdio_command,
         stdio_args=mcp_integration.stdio_args,
+        stdio_env_keys=stdio_env_keys,
+        stdio_env=stdio_env,
         has_stdio_env=bool(mcp_integration.encrypted_stdio_env),
         timeout=mcp_integration.timeout,
         tools=MCPToolSummary.validate_stored(
@@ -167,6 +171,8 @@ async def _mcp_catalog_connect_response(
         mcp_read = _mcp_integration_read(
             mcp_integration,
             state=await svc.mcp_integration_state(mcp_integration=mcp_integration),
+            stdio_env_keys=svc.stdio_env_keys(mcp_integration),
+            stdio_env=svc.readable_stdio_env(mcp_integration),
         )
     return MCPCatalogConnectResponse(
         status="oauth_redirect" if oauth_connect else "connected",
@@ -979,6 +985,8 @@ async def create_mcp_integration(
     return _mcp_integration_read(
         mcp_integration,
         state=await svc.mcp_integration_state(mcp_integration=mcp_integration),
+        stdio_env_keys=svc.stdio_env_keys(mcp_integration),
+        stdio_env=svc.readable_stdio_env(mcp_integration),
     )
 
 
@@ -1011,6 +1019,8 @@ async def list_mcp_integrations(
         _mcp_integration_read(
             item.integration,
             state=item.state,
+            stdio_env_keys=svc.stdio_env_keys(item.integration),
+            stdio_env=svc.readable_stdio_env(item.integration),
         )
         for item in integrations
     ]
@@ -1118,6 +1128,8 @@ async def connect_mcp_integration(
         mcp_integration=_mcp_integration_read(
             mcp_integration,
             state=await svc.mcp_integration_state(mcp_integration=mcp_integration),
+            stdio_env_keys=svc.stdio_env_keys(mcp_integration),
+            stdio_env=svc.readable_stdio_env(mcp_integration),
         ),
     )
 
@@ -1147,6 +1159,8 @@ async def get_mcp_integration(
     return _mcp_integration_read(
         integration,
         state=await svc.mcp_integration_state(mcp_integration=integration),
+        stdio_env_keys=svc.stdio_env_keys(integration),
+        stdio_env=svc.readable_stdio_env(integration),
     )
 
 
@@ -1194,6 +1208,8 @@ async def update_mcp_integration(
     return _mcp_integration_read(
         integration,
         state=await svc.mcp_integration_state(mcp_integration=integration),
+        stdio_env_keys=svc.stdio_env_keys(integration),
+        stdio_env=svc.readable_stdio_env(integration),
     )
 
 

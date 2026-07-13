@@ -4919,6 +4919,10 @@ export type MCPIntegrationRead = {
   state: "not_configured" | "configured" | "connected" | "error"
   stdio_command: string | null
   stdio_args: Array<string> | null
+  stdio_env_keys?: Array<string> | null
+  stdio_env?: {
+    [key: string]: string
+  } | null
   has_stdio_env?: boolean
   timeout: number | null
   tools?: Array<MCPToolSummary> | null
@@ -4989,6 +4993,10 @@ export type MCPIntegrationUpdate = {
   stdio_env?: {
     [key: string]: string
   } | null
+  /**
+   * Existing stdio env keys to preserve when stdio_env only contains visible or replaced values.
+   */
+  stdio_env_preserve_keys?: Array<string> | null
   /**
    * Timeout in seconds
    */

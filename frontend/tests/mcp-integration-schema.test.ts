@@ -1,10 +1,17 @@
 import type { MCPConnectionSpec } from "@/client"
+import type { MCPStdioEnvRow } from "@/components/integrations/mcp-integration-schema"
 import {
   buildMcpIntegrationFormSchema,
+  buildStdioArgsLine,
   catalogEntryToFormValues,
   invalidUrlEnvKeys,
   MCP_INTEGRATION_FORM_DEFAULTS,
   missingRequiredOAuthClientCredentials,
+  parseStdioArgsLine,
+  shouldSendStdioFields,
+  stdioEnvReadToRows,
+  stdioEnvRowsToPreserveKeys,
+  stdioEnvRowsToRecord,
   urlTypedStdioEnvKeys,
 } from "@/components/integrations/mcp-integration-schema"
 
@@ -167,37 +174,276 @@ describe("invalidUrlEnvKeys", () => {
   const urlKeys = new Set(["VAULT_ADDR"])
 
   it("flags a scheme-less value", () => {
-    const value = JSON.stringify({ VAULT_ADDR: "acme.example.net" })
+    const value = [{ key: "VAULT_ADDR", value: "acme.example.net" }]
     expect(invalidUrlEnvKeys(value, urlKeys)).toEqual(["VAULT_ADDR"])
   })
 
   it("accepts an http(s):// value", () => {
-    const value = JSON.stringify({ VAULT_ADDR: "https://vault.example.net" })
+    const value = [{ key: "VAULT_ADDR", value: "https://vault.example.net" }]
     expect(invalidUrlEnvKeys(value, urlKeys)).toEqual([])
   })
 
   it("skips empty and templated values", () => {
     expect(
-      invalidUrlEnvKeys(JSON.stringify({ VAULT_ADDR: "" }), urlKeys)
+      invalidUrlEnvKeys([{ key: "VAULT_ADDR", value: "" }], urlKeys)
     ).toEqual([])
     expect(
       invalidUrlEnvKeys(
-        JSON.stringify({ VAULT_ADDR: "${{ SECRETS.vault.ADDR }}" }),
+        [{ key: "VAULT_ADDR", value: "${{ SECRETS.vault.ADDR }}" }],
+        urlKeys
+      )
+    ).toEqual([])
+  })
+
+  it("skips hidden values", () => {
+    expect(
+      invalidUrlEnvKeys(
+        [{ key: "VAULT_ADDR", value: "", value_hidden: true }],
         urlKeys
       )
     ).toEqual([])
   })
 
   it("ignores keys outside urlKeys", () => {
-    const value = JSON.stringify({ VAULT_TOKEN: "not-a-url" })
+    const value = [{ key: "VAULT_TOKEN", value: "not-a-url" }]
     expect(invalidUrlEnvKeys(value, urlKeys)).toEqual([])
   })
 
-  it("returns [] when there are no url keys or the JSON is unparseable", () => {
-    expect(invalidUrlEnvKeys("not json", urlKeys)).toEqual([])
+  it("returns [] when there are no url keys", () => {
     expect(
-      invalidUrlEnvKeys(JSON.stringify({ VAULT_ADDR: "x" }), new Set())
+      invalidUrlEnvKeys([{ key: "VAULT_ADDR", value: "x" }], new Set())
     ).toEqual([])
+  })
+})
+
+describe("stdio args line helpers", () => {
+  it("joins args into the editable line", () => {
+    expect(buildStdioArgsLine(["--yes", "@example/server"])).toBe(
+      "--yes @example/server"
+    )
+  })
+
+  it("splits args on simple whitespace without shell quoting", () => {
+    expect(parseStdioArgsLine('-m "quoted server"')).toEqual([
+      "-m",
+      '"quoted',
+      'server"',
+    ])
+  })
+
+  it("round-trips args without embedded whitespace losslessly", () => {
+    const args = ["--yes", "@example/server", "--port=8080"]
+    expect(parseStdioArgsLine(buildStdioArgsLine(args))).toEqual(args)
+  })
+
+  it("documents that args with embedded whitespace round-trip lossily", () => {
+    // An arg created via the API can hold embedded whitespace, e.g. a header
+    // value. Joining on spaces then re-splitting on whitespace shreds it into
+    // multiple tokens — the reason edit mode must not re-send unedited args.
+    const args = ["--header=Authorization: Bearer x"]
+    const line = buildStdioArgsLine(args)
+    expect(line).toBe("--header=Authorization: Bearer x")
+    expect(parseStdioArgsLine(line)).toEqual([
+      "--header=Authorization:",
+      "Bearer",
+      "x",
+    ])
+  })
+})
+
+describe("shouldSendStdioFields", () => {
+  it("sends neither field when nothing changed", () => {
+    expect(
+      shouldSendStdioFields({
+        envDirty: false,
+        argsDirty: false,
+        templateApplied: false,
+      })
+    ).toEqual({ sendEnv: false, sendArgs: false })
+  })
+
+  it("sends only the edited field", () => {
+    expect(
+      shouldSendStdioFields({
+        envDirty: true,
+        argsDirty: false,
+        templateApplied: false,
+      })
+    ).toEqual({ sendEnv: true, sendArgs: false })
+    expect(
+      shouldSendStdioFields({
+        envDirty: false,
+        argsDirty: true,
+        templateApplied: false,
+      })
+    ).toEqual({ sendEnv: false, sendArgs: true })
+  })
+
+  it("forces both fields when a connection option template was applied", () => {
+    // Switching options in edit mode resets the form and clears dirtyFields,
+    // so the applied-template flag must send the new option's env and args.
+    expect(
+      shouldSendStdioFields({
+        envDirty: false,
+        argsDirty: false,
+        templateApplied: true,
+      })
+    ).toEqual({ sendEnv: true, sendArgs: true })
+  })
+})
+
+describe("stdio env row helpers", () => {
+  it("shows keys for hidden values and safe template values", () => {
+    expect(
+      stdioEnvReadToRows({ API_TOKEN: "${{ SECRETS.api.TOKEN }}" }, [
+        "API_TOKEN",
+        "RAW_TOKEN",
+      ])
+    ).toEqual([
+      { key: "API_TOKEN", value: "${{ SECRETS.api.TOKEN }}" },
+      {
+        key: "RAW_TOKEN",
+        value: "",
+        value_hidden: true,
+        original_key: "RAW_TOKEN",
+      },
+    ])
+  })
+
+  it("preserves hidden values without serializing them as updates", () => {
+    const rows = [
+      { key: "API_TOKEN", value: "${{ SECRETS.api.TOKEN }}" },
+      {
+        key: "RAW_TOKEN",
+        value: "",
+        value_hidden: true,
+        original_key: "RAW_TOKEN",
+      },
+    ]
+    expect(stdioEnvRowsToRecord(rows)).toEqual({
+      API_TOKEN: "${{ SECRETS.api.TOKEN }}",
+    })
+    expect(stdioEnvRowsToPreserveKeys(rows)).toEqual(["RAW_TOKEN"])
+  })
+
+  it("seeds hidden rows from server keys with an original_key", () => {
+    expect(stdioEnvReadToRows(null, ["RAW_TOKEN"])).toEqual([
+      {
+        key: "RAW_TOKEN",
+        value: "",
+        value_hidden: true,
+        original_key: "RAW_TOKEN",
+      },
+    ])
+  })
+
+  it("still preserves an unchanged hidden row", () => {
+    const rows = stdioEnvReadToRows(null, ["API_TOKEN"])
+    expect(stdioEnvRowsToPreserveKeys(rows)).toEqual(["API_TOKEN"])
+    expect(stdioEnvRowsToRecord(rows)).toBeUndefined()
+  })
+
+  it("does not preserve a renamed hidden row under its new key", () => {
+    // The row was seeded from server key API_TOKEN then renamed to NEW_TOKEN
+    // without entering a value. It must not emit NEW_TOKEN as a preserve key
+    // (the backend cannot resolve it, silently dropping the secret).
+    const rows: MCPStdioEnvRow[] = [
+      {
+        key: "NEW_TOKEN",
+        value: "",
+        value_hidden: true,
+        original_key: "API_TOKEN",
+      },
+    ]
+    expect(stdioEnvRowsToPreserveKeys(rows)).toEqual([])
+  })
+
+  it("does not preserve a hidden row renamed to another stored hidden key", () => {
+    // Renaming API_TOKEN -> RAW_TOKEN must not preserve the wrong value under
+    // RAW_TOKEN. Only the genuinely-unchanged RAW_TOKEN row is preserved.
+    const rows: MCPStdioEnvRow[] = [
+      {
+        key: "RAW_TOKEN",
+        value: "",
+        value_hidden: true,
+        original_key: "API_TOKEN",
+      },
+      {
+        key: "RAW_TOKEN",
+        value: "",
+        value_hidden: true,
+        original_key: "RAW_TOKEN",
+      },
+    ]
+    expect(stdioEnvRowsToPreserveKeys(rows)).toEqual(["RAW_TOKEN"])
+  })
+})
+
+describe("stdioEnvRowsAreValid via schema", () => {
+  const baseStdio = {
+    ...MCP_INTEGRATION_FORM_DEFAULTS,
+    name: "Vault",
+    server_type: "stdio" as const,
+    stdio_command: "npx",
+    stdio_args_line: "mcp-vault",
+  }
+
+  it("accepts an unchanged hidden row with an empty value", () => {
+    const result = buildMcpIntegrationFormSchema().safeParse({
+      ...baseStdio,
+      stdio_env: [
+        {
+          key: "API_TOKEN",
+          value: "",
+          value_hidden: true,
+          original_key: "API_TOKEN",
+        },
+      ],
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it("rejects a renamed hidden row left without a replacement value", () => {
+    const result = buildMcpIntegrationFormSchema().safeParse({
+      ...baseStdio,
+      stdio_env: [
+        {
+          key: "NEW_TOKEN",
+          value: "",
+          value_hidden: true,
+          original_key: "API_TOKEN",
+        },
+      ],
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const issue = result.error.issues.find((i) => i.path[0] === "stdio_env")
+      expect(issue).toBeDefined()
+    }
+  })
+
+  it("accepts a renamed hidden row once a replacement value is entered", () => {
+    // In the dialog, entering a key or value clears value_hidden; model that
+    // here as a plain visible row carrying the new value.
+    const result = buildMcpIntegrationFormSchema().safeParse({
+      ...baseStdio,
+      stdio_env: [
+        {
+          key: "NEW_TOKEN",
+          value: "${{ SECRETS.new.TOKEN }}",
+          original_key: "API_TOKEN",
+        },
+      ],
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it("rejects a visible row with an empty value", () => {
+    const result = buildMcpIntegrationFormSchema().safeParse({
+      ...baseStdio,
+      stdio_env: [{ key: "PLAIN", value: "" }],
+    })
+    expect(result.success).toBe(false)
   })
 })
 
@@ -207,13 +453,14 @@ describe("buildMcpIntegrationFormSchema url validation", () => {
     name: "Vault",
     server_type: "stdio" as const,
     stdio_command: "npx",
+    stdio_args_line: "mcp-vault",
   }
   const urlEnvKeys = new Set(["VAULT_ADDR"])
 
   it("rejects a scheme-less url-typed stdio env var", () => {
     const result = buildMcpIntegrationFormSchema(urlEnvKeys).safeParse({
       ...baseStdio,
-      stdio_env: JSON.stringify({ VAULT_ADDR: "acme.example.net" }),
+      stdio_env: [{ key: "VAULT_ADDR", value: "acme.example.net" }],
     })
     expect(result.success).toBe(false)
     if (!result.success) {
@@ -225,7 +472,7 @@ describe("buildMcpIntegrationFormSchema url validation", () => {
   it("accepts a well-formed url-typed stdio env var", () => {
     const result = buildMcpIntegrationFormSchema(urlEnvKeys).safeParse({
       ...baseStdio,
-      stdio_env: JSON.stringify({ VAULT_ADDR: "https://vault.example.net" }),
+      stdio_env: [{ key: "VAULT_ADDR", value: "https://vault.example.net" }],
     })
     expect(result.success).toBe(true)
   })
@@ -233,7 +480,22 @@ describe("buildMcpIntegrationFormSchema url validation", () => {
   it("does not validate url shape when the spec declares no url keys", () => {
     const result = buildMcpIntegrationFormSchema(new Set()).safeParse({
       ...baseStdio,
-      stdio_env: JSON.stringify({ VAULT_ADDR: "acme.example.net" }),
+      stdio_env: [{ key: "VAULT_ADDR", value: "acme.example.net" }],
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it("accepts hidden stdio env values on edit", () => {
+    const result = buildMcpIntegrationFormSchema(urlEnvKeys).safeParse({
+      ...baseStdio,
+      stdio_env: [
+        {
+          key: "VAULT_ADDR",
+          value: "",
+          value_hidden: true,
+          original_key: "VAULT_ADDR",
+        },
+      ],
     })
     expect(result.success).toBe(true)
   })
@@ -276,5 +538,49 @@ describe("catalogEntryToFormValues", () => {
       "Wiz-Client-Id": "",
       "X-Wiz-MCP-Mode": "gateway",
     })
+  })
+
+  it("prefills stdio command and environment rows", () => {
+    const values = catalogEntryToFormValues({
+      slug: "vault-mcp",
+      name: "Vault",
+      description: "Query Vault",
+      connection_spec: {
+        kind: "stdio_custom",
+        server_type: "stdio",
+        auth_type: "CUSTOM",
+        stdio_command: "npx",
+        stdio_args: ["mcp-vault"],
+        stdio_env: [],
+        packages: [],
+        config_fields: [],
+        credentials: [
+          {
+            key: "VAULT_ADDR",
+            label: "Vault URL",
+            description: "Vault base URL",
+            required: true,
+            secret: false,
+            target: "stdio_env",
+            placeholder: "https://vault.example.net",
+          },
+          {
+            key: "VAULT_TOKEN",
+            label: "Vault token",
+            description: "Vault auth token",
+            required: true,
+            secret: true,
+            target: "stdio_env",
+          },
+        ],
+      },
+    } as unknown as Parameters<typeof catalogEntryToFormValues>[0])
+
+    expect(values.stdio_command).toBe("npx")
+    expect(values.stdio_args_line).toBe("mcp-vault")
+    expect(values.stdio_env).toEqual([
+      { key: "VAULT_ADDR", value: "https://vault.example.net" },
+      { key: "VAULT_TOKEN", value: "" },
+    ])
   })
 })

@@ -26,8 +26,10 @@ import { ExpressionErrorBoundary } from "@/components/error-boundaries"
 import { Input } from "@/components/ui/input"
 import { createTemplateRegex } from "@/lib/expressions"
 import { cn } from "@/lib/utils"
-import { useWorkflow } from "@/providers/workflow"
+import { useOptionalWorkflow } from "@/providers/workflow"
 import { useWorkspaceId } from "@/providers/workspace-id"
+
+const EMPTY_ACTIONS = {} as Record<string, ActionRead>
 
 // Single-line expression linter
 function expressionLinter(view: EditorView): Diagnostic[] {
@@ -74,6 +76,7 @@ export interface ExpressionInputProps {
   className?: string
   disabled?: boolean
   defaultHeight?: "input" | "text-area"
+  completionScope?: "workflow" | "workspace"
 }
 
 // Simple fallback input component for when ExpressionInput fails
@@ -112,13 +115,20 @@ function ExpressionInputCore({
   className,
   disabled = false,
   defaultHeight = "input",
+  completionScope,
 }: ExpressionInputProps) {
   const { resolvedTheme } = useTheme()
   const codeMirrorTheme = resolvedTheme === "dark" ? "dark" : "light"
   const workspaceId = useWorkspaceId()
-  const { workflow } = useWorkflow()
+  const workflowContext = useOptionalWorkflow()
   const methods = useFormContext()
-  const actions = workflow?.actions || ({} as Record<string, ActionRead>)
+  const effectiveCompletionScope =
+    completionScope ?? (workflowContext ? "workflow" : "workspace")
+  const includeWorkflowCompletions = effectiveCompletionScope === "workflow"
+  const actions =
+    includeWorkflowCompletions && workflowContext?.workflow?.actions
+      ? workflowContext.workflow.actions
+      : EMPTY_ACTIONS
   const forEach = useMemo(() => methods.watch("for_each"), [methods])
 
   // Safe value conversion with error handling
@@ -252,7 +262,12 @@ function ExpressionInputCore({
       linter(expressionLinter),
       bracketMatching(),
       closeBrackets(),
-      createAutocomplete({ workspaceId, actions, forEach }),
+      createAutocomplete({
+        workspaceId,
+        actions,
+        forEach: includeWorkflowCompletions ? forEach : null,
+        includeWorkflowCompletions,
+      }),
       placeholder(placeholderText),
       templatePlugin,
       templatePillTheme,
@@ -260,7 +275,14 @@ function ExpressionInputCore({
     ]
 
     return baseExtensions.concat([createCoreKeymap()])
-  }, [workspaceId, actions, placeholderText, forEach, defaultHeight])
+  }, [
+    workspaceId,
+    actions,
+    placeholderText,
+    forEach,
+    defaultHeight,
+    includeWorkflowCompletions,
+  ])
 
   const handleChange = useCallback(
     (val: string) => {

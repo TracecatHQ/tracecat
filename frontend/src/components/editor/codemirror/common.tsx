@@ -1186,6 +1186,8 @@ export const TEMPLATE_SUGGESTIONS = [
   },
 ]
 
+const WORKSPACE_TEMPLATE_SUGGESTION_LABELS = new Set(["FN", "SECRETS", "VARS"])
+
 // Custom keymap for @ key to trigger completions
 export function createAtKeyCompletion() {
   return keymap.of([
@@ -1229,9 +1231,11 @@ export function createExitEditModeKeyHandler() {
 }
 
 // Completion functions
-export function createMentionCompletion(): (
-  context: CompletionContext
-) => CompletionResult | null {
+export function createMentionCompletion({
+  includeWorkflowCompletions = true,
+}: {
+  includeWorkflowCompletions?: boolean
+} = {}): (context: CompletionContext) => CompletionResult | null {
   return (context: CompletionContext): CompletionResult | null => {
     const word = context.matchBefore(/@\w*/)
     if (!word) return null
@@ -1241,10 +1245,15 @@ export function createMentionCompletion(): (
     const cursorPos = context.pos
     const templateRange = findTemplateAt(context.state, cursorPos)
     const isInsideTemplate = templateRange !== null
+    const suggestions = includeWorkflowCompletions
+      ? TEMPLATE_SUGGESTIONS
+      : TEMPLATE_SUGGESTIONS.filter((suggestion) =>
+          WORKSPACE_TEMPLATE_SUGGESTION_LABELS.has(suggestion.label)
+        )
 
     return {
       from: word.from,
-      options: TEMPLATE_SUGGESTIONS.map((suggestion) => ({
+      options: suggestions.map((suggestion) => ({
         label: `@${suggestion.label}`,
         detail: suggestion.detail,
         info: suggestion.info,
@@ -2051,21 +2060,29 @@ export function createAutocomplete({
   workspaceId,
   actions,
   forEach,
+  includeWorkflowCompletions = true,
 }: {
   workspaceId: string
   actions: Record<string, ActionRead>
   forEach: string | string[] | null | undefined
+  includeWorkflowCompletions?: boolean
 }) {
-  return autocompletion({
-    override: [
-      createMentionCompletion(),
-      createFunctionCompletion(workspaceId),
+  const overrides = [
+    createMentionCompletion({ includeWorkflowCompletions }),
+    createFunctionCompletion(workspaceId),
+    createSecretsCompletion(workspaceId),
+    createVarsCompletion(workspaceId),
+  ]
+  if (includeWorkflowCompletions) {
+    overrides.push(
       createActionCompletion(Object.values(actions).map((a) => a)),
       createVarCompletion(forEach),
-      createSecretsCompletion(workspaceId),
-      createVarsCompletion(workspaceId),
-      createEnvCompletion(),
-    ],
+      createEnvCompletion()
+    )
+  }
+
+  return autocompletion({
+    override: overrides,
   })
 }
 
