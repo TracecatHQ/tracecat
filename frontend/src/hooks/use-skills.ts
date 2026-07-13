@@ -514,6 +514,9 @@ export function useRestoreSkillVersion(workspaceId: string) {
       queryClient.invalidateQueries({
         queryKey: ["skill-draft-file", workspaceId, variables.skillId],
       })
+      queryClient.invalidateQueries({
+        queryKey: ["skill-versions", workspaceId, variables.skillId],
+      })
       toast({
         title: "Active version updated",
         description: "The selected published version is now active.",
