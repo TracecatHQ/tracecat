@@ -315,6 +315,7 @@ class SkillAdapter(DirectoryManifestAdapter):
         """Project skills and the version snapshots needed to preserve pins."""
         stmt = self._projection_stmt(workspace_service)
         skills = list((await workspace_service.session.execute(stmt)).scalars().all())
+        skills = self._dedupe_skills_by_effective_slug(skills)
         versions_by_skill_id = await self._exported_bound_versions_by_skill(
             workspace_service
         )
@@ -358,34 +359,11 @@ class SkillAdapter(DirectoryManifestAdapter):
         else:
             stmt = stmt.where(effective_slug.in_(slugs))
         skills = list((await workspace_service.session.execute(stmt)).scalars().all())
-        # Expand-window dedupe: coalesce(slug, name) can match both the
-        # canonical slug owner and a legacy slugless row projecting the same
-        # name; exporting both would emit two specs claiming one slug (a
-        # poisoned artifact import then rejects). Prefer the exact owner and
-        # fail loud when only legacy rows contend, matching
-        # get_skill_by_identifier semantics.
         if slugs:
-            contenders_by_slug: dict[str, list[Skill]] = defaultdict(list)
-            for skill in skills:
-                contenders_by_slug[skill.slug or skill.name].append(skill)
-            deduped: list[Skill] = []
-            for skill in skills:
-                effective = skill.slug or skill.name
-                contenders = contenders_by_slug[effective]
-                if len(contenders) == 1 or effective not in slugs:
-                    deduped.append(skill)
-                    continue
-                exact_owners = [
-                    contender for contender in contenders if contender.slug == effective
-                ]
-                if len(exact_owners) != 1:
-                    raise TracecatValidationError(
-                        f"Skill slug '{effective}' is ambiguous during sync export",
-                        detail={"code": "ambiguous_skill_slug", "slug": effective},
-                    )
-                if skill.id == exact_owners[0].id:
-                    deduped.append(skill)
-            skills = deduped
+            skills = self._dedupe_skills_by_effective_slug(
+                skills,
+                requested_slugs=slugs,
+            )
         versions_by_slug: dict[str, set[int]] = defaultdict(set)
         for slug, version in refs.versioned_slugs:
             versions_by_slug[slug].add(version)
@@ -399,6 +377,45 @@ class SkillAdapter(DirectoryManifestAdapter):
             skills,
             versions_by_skill_id=versions_by_skill_id,
         )
+
+    def _dedupe_skills_by_effective_slug(
+        self,
+        skills: list[Skill],
+        *,
+        requested_slugs: set[str] | None = None,
+    ) -> list[Skill]:
+        """Deduplicate expand-window skill rows by their projected slug."""
+        # Expand-window dedupe: coalesce(slug, name) can match both the
+        # canonical slug owner and a legacy slugless row projecting the same
+        # name; exporting both would emit two specs claiming one slug (a
+        # poisoned artifact import then rejects). Prefer the exact owner and
+        # fail loud when only legacy rows contend, matching
+        # get_skill_by_identifier semantics.
+        contenders_by_slug: dict[str, list[Skill]] = defaultdict(list)
+        for skill in skills:
+            contenders_by_slug[skill.slug or skill.name].append(skill)
+
+        deduped: list[Skill] = []
+        for skill in skills:
+            effective = skill.slug or skill.name
+            contenders = contenders_by_slug[effective]
+            is_contended = len(contenders) > 1 and (
+                requested_slugs is None or effective in requested_slugs
+            )
+            if not is_contended:
+                deduped.append(skill)
+                continue
+            exact_owners = [
+                contender for contender in contenders if contender.slug == effective
+            ]
+            if len(exact_owners) != 1:
+                raise TracecatValidationError(
+                    f"Skill slug '{effective}' is ambiguous during sync export",
+                    detail={"code": "ambiguous_skill_slug", "slug": effective},
+                )
+            if skill.slug == effective:
+                deduped.append(skill)
+        return deduped
 
     def _projection_stmt(
         self, workspace_service: SyncMappingService

@@ -67,6 +67,7 @@ from tracecat.tables.service import BaseTablesService
 from tracecat.workflow.store.schemas import RemoteWorkflowDefinition
 from tracecat.workspace_sync.adapters import (
     AGENT_PRESET_RESOURCE_ADAPTER,
+    SKILL_RESOURCE_ADAPTER,
     TABLE_RESOURCE_ADAPTER,
     WORKSPACE_RESOURCE_ADAPTERS,
 )
@@ -904,6 +905,71 @@ async def test_skill_projection_excludes_soft_deleted_preset_version_pins(
 
     assert f"{SKILL_ROOT}/skill-a/versions/1/version.yml" not in projection.files
     assert f"{SKILL_ROOT}/skill-a/versions/2/version.yml" in projection.files
+
+
+@pytest.mark.anyio
+async def test_skill_projection_prefers_exact_slug_owner_over_legacy_row(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Full skill export deduplicates an expand-window effective slug."""
+    workspace_id = svc_role.workspace_id
+    assert workspace_id is not None
+    exact_owner = Skill(
+        workspace_id=workspace_id,
+        slug="foo",
+        name="Exact owner",
+        description="Canonical description",
+    )
+    legacy = Skill(
+        workspace_id=workspace_id,
+        slug=None,
+        name="foo",
+        description="Legacy description",
+    )
+    session.add_all([exact_owner, legacy])
+    await session.flush()
+
+    projection = await SKILL_RESOURCE_ADAPTER.project(
+        WorkspaceSyncService(session=session, role=svc_role)
+    )
+
+    matching_specs = [
+        spec
+        for spec in projection.specs.values()
+        if isinstance(spec, SkillResourceSpec) and spec.slug == "foo"
+    ]
+    assert len(matching_specs) == 1
+    assert matching_specs[0].name == "Exact owner"
+    assert matching_specs[0].description == "Canonical description"
+    assert [resource.local_id for resource in projection.resources] == [exact_owner.id]
+
+
+@pytest.mark.anyio
+async def test_skill_projection_rejects_ambiguous_legacy_slugs(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Full skill export fails when legacy contenders have no exact owner."""
+    workspace_id = svc_role.workspace_id
+    assert workspace_id is not None
+    session.add_all(
+        [
+            Skill(workspace_id=workspace_id, slug=None, name="foo"),
+            Skill(workspace_id=workspace_id, slug=None, name="foo"),
+        ]
+    )
+    await session.flush()
+
+    with pytest.raises(TracecatValidationError) as exc_info:
+        await SKILL_RESOURCE_ADAPTER.project(
+            WorkspaceSyncService(session=session, role=svc_role)
+        )
+
+    assert exc_info.value.detail == {
+        "code": "ambiguous_skill_slug",
+        "slug": "foo",
+    }
 
 
 @pytest.mark.anyio
