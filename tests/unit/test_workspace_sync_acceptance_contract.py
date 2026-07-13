@@ -972,6 +972,134 @@ async def test_skill_projection_rejects_ambiguous_legacy_slugs(
     }
 
 
+async def _add_preset_version_skill_binding(
+    session: AsyncSession,
+    *,
+    workspace_id: uuid.UUID,
+    skill_name: str,
+    skill_slug: str | None,
+) -> uuid.UUID:
+    """Create one immutable preset-version binding and return its version id."""
+    skill = Skill(workspace_id=workspace_id, name=skill_name, slug=skill_slug)
+    preset = AgentPreset(
+        workspace_id=workspace_id,
+        name="QA preset",
+        slug=f"qa-preset-{uuid.uuid4()}",
+        model_name="gpt-5.5",
+        model_provider="openai",
+    )
+    session.add_all([skill, preset])
+    await session.flush()
+
+    skill_version = SkillVersion(
+        workspace_id=workspace_id,
+        skill_id=skill.id,
+        version=1,
+        manifest_sha256="a" * 64,
+        file_count=0,
+        total_size_bytes=0,
+        name=skill_slug or skill_name,
+    )
+    preset_version = AgentPresetVersion(
+        workspace_id=workspace_id,
+        preset_id=preset.id,
+        version=1,
+        model_name="gpt-5.5",
+        model_provider="openai",
+    )
+    session.add_all([skill_version, preset_version])
+    await session.flush()
+    session.add(
+        AgentPresetVersionSkill(
+            workspace_id=workspace_id,
+            preset_version_id=preset_version.id,
+            skill_id=skill.id,
+            skill_version_id=skill_version.id,
+        )
+    )
+    await session.flush()
+    return preset_version.id
+
+
+@pytest.mark.anyio
+async def test_agent_preset_projection_rejects_shadowed_legacy_skill_binding(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Preset export rejects a legacy binding shadowed by a live slug owner."""
+    workspace_id = svc_role.workspace_id
+    assert workspace_id is not None
+    preset_version_id = await _add_preset_version_skill_binding(
+        session,
+        workspace_id=workspace_id,
+        skill_name="foo",
+        skill_slug=None,
+    )
+    session.add(Skill(workspace_id=workspace_id, name="Canonical", slug="foo"))
+    await session.flush()
+
+    with pytest.raises(TracecatValidationError) as exc_info:
+        await AGENT_PRESET_RESOURCE_ADAPTER._skill_bindings_for_versions(
+            WorkspaceSyncService(session=session, role=svc_role),
+            [preset_version_id],
+        )
+
+    assert exc_info.value.detail == {
+        "code": "shadowed_skill_binding",
+        "slug": "foo",
+    }
+
+
+@pytest.mark.anyio
+async def test_agent_preset_projection_exports_unshadowed_legacy_skill_binding(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Preset export keeps using name as an unshadowed legacy skill slug."""
+    workspace_id = svc_role.workspace_id
+    assert workspace_id is not None
+    preset_version_id = await _add_preset_version_skill_binding(
+        session,
+        workspace_id=workspace_id,
+        skill_name="foo",
+        skill_slug=None,
+    )
+
+    bindings = await AGENT_PRESET_RESOURCE_ADAPTER._skill_bindings_for_versions(
+        WorkspaceSyncService(session=session, role=svc_role),
+        [preset_version_id],
+    )
+
+    assert [binding.model_dump() for binding in bindings[preset_version_id]] == [
+        {"slug": "foo", "version": 1}
+    ]
+
+
+@pytest.mark.anyio
+async def test_agent_preset_projection_exports_canonical_skill_binding(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Preset export keeps canonical slug-owning skill bindings unchanged."""
+    workspace_id = svc_role.workspace_id
+    assert workspace_id is not None
+    preset_version_id = await _add_preset_version_skill_binding(
+        session,
+        workspace_id=workspace_id,
+        skill_name="Display name",
+        skill_slug="foo",
+    )
+
+    bindings = await AGENT_PRESET_RESOURCE_ADAPTER._skill_bindings_for_versions(
+        WorkspaceSyncService(session=session, role=svc_role),
+        [preset_version_id],
+    )
+
+    assert [binding.model_dump() for binding in bindings[preset_version_id]] == [
+        {"slug": "foo", "version": 1}
+    ]
+
+
 @pytest.mark.anyio
 async def test_agent_preset_import_ignores_soft_deleted_source_id_mapping(
     session: AsyncSession,
