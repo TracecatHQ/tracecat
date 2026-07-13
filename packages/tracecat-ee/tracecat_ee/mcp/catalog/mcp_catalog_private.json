@@ -278,7 +278,7 @@
     },
     {
       "slug": "google-cloud-secops-mcp",
-      "docs": "https://google.github.io/mcp-security/servers/scc_mcp.html",
+      "docs": "https://google.github.io/mcp-security/servers/secops_mcp.html",
       "connection_spec": {
         "server_type": "stdio",
         "auth_type": "CUSTOM",
