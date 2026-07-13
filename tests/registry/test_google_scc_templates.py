@@ -23,9 +23,7 @@ TEMPLATES_DIR = Path(
 # SCC v2 always returns location-qualified finding names. These mirror the shape
 # of a real `list_findings` response, which is what gets fed to the write-back
 # actions.
-ORG_FINDING = (
-    "organizations/123456789/sources/5678/locations/global/findings/abc123"
-)
+ORG_FINDING = "organizations/123456789/sources/5678/locations/global/findings/abc123"
 PROJECT_FINDING = (
     "projects/example-project/sources/5678/locations/global/findings/abc123"
 )
@@ -216,22 +214,16 @@ class TestFindingResourceDerivation:
         # non-location resource rejects it via its `name` pattern, so it must
         # resolve to the `.locations.` variant.
         build_resource = get_script(load_template(filename), "build_resource")
-        assert (
-            build_resource(ORG_FINDING)
-            == "organizations.sources.locations.findings"
-        )
+        assert build_resource(ORG_FINDING) == "organizations.sources.locations.findings"
 
     def test_location_qualified_project_finding(self, filename: str) -> None:
         build_resource = get_script(load_template(filename), "build_resource")
-        assert (
-            build_resource(PROJECT_FINDING) == "projects.sources.locations.findings"
-        )
+        assert build_resource(PROJECT_FINDING) == "projects.sources.locations.findings"
 
     def test_non_location_finding_uses_plain_resource(self, filename: str) -> None:
         build_resource = get_script(load_template(filename), "build_resource")
         assert (
-            build_resource(ORG_FINDING_NO_LOCATION)
-            == "organizations.sources.findings"
+            build_resource(ORG_FINDING_NO_LOCATION) == "organizations.sources.findings"
         )
 
     @pytest.mark.parametrize(
