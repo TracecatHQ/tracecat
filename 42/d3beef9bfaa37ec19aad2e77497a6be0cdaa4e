@@ -1,0 +1,22 @@
+frontend/src/components/sidebar/app-menu.tsx
+  s_8c58f4ab64bac3::t_5b81cea91186da 126-128
+tests/unit/api/test_api_organization_members.py
+  s_8c58f4ab64bac3::t_d56b9b6898473a 90-92
+  s_8c58f4ab64bac3::t_4b9a194ffd1407 86-89,93-99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.12",
+  "base_commit_sha": "42d3beef9bfaa37ec19aad2e77497a6be0cdaa4e",
+  "prompts": {},
+  "sessions": {
+    "s_8c58f4ab64bac3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f022f945-5b65-49ae-bec0-9c2d139de629",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
