@@ -56,7 +56,6 @@ from tracecat.db.models import (
     AgentChannelToken,
     AgentModelAccess,
     AgentPreset,
-    AgentPresetSkill,
     AgentPresetVersion,
     AgentPresetVersionSkill,
     AgentPresetVersionSubagent,
@@ -1307,13 +1306,13 @@ class TestAgentPresetService:
         svc_role: Role,
         agent_preset_service: AgentPresetService,
     ) -> None:
-        """Expand authoring stores new head edges and rollback projections."""
+        """Skill-only authoring stores only the Skill ResourceHead edge."""
 
         skill_service = SkillService(session=session, role=svc_role)
         created_skill = await skill_service.create_skill(
             SkillCreate(name="skill-only-current")
         )
-        published_skill = await skill_service.publish_skill(created_skill.id)
+        await skill_service.publish_skill(created_skill.id)
 
         created_preset = await agent_preset_service.create_preset(
             AgentPresetCreate(
@@ -1334,73 +1333,6 @@ class TestAgentPresetService:
 
         assert version_bindings[0].skill_id == created_skill.id
         assert version_read.skills[0].skill_id == created_skill.id
-        version_edge = await session.scalar(
-            select(AgentPresetVersionSkill).where(
-                AgentPresetVersionSkill.preset_version_id == current_version.id,
-                AgentPresetVersionSkill.skill_id == created_skill.id,
-            )
-        )
-        head_edge = await session.scalar(
-            select(AgentPresetSkill).where(
-                AgentPresetSkill.preset_id == created_preset.id,
-                AgentPresetSkill.skill_id == created_skill.id,
-            )
-        )
-        assert version_edge is not None
-        assert head_edge is not None
-        assert version_edge.skill_version_id == published_skill.id
-        assert head_edge.skill_version_id == published_skill.id
-        assert created_preset.instructions == "Use the selected skill"
-        assert created_preset.model_name == "gpt-4o-mini"
-        assert created_preset.model_provider == "openai"
-
-    async def test_version_agents_epoch_reads_legacy_and_authoritative_empty_edges(
-        self,
-        session: AsyncSession,
-        agent_preset_service: AgentPresetService,
-        agent_preset_create_params: AgentPresetCreate,
-    ) -> None:
-        """NULL reads old JSON; a non-NULL empty edge set never falls back."""
-
-        child = await agent_preset_service.create_preset(
-            agent_preset_create_params.model_copy(
-                update={"name": "Epoch child", "slug": "epoch-child"}
-            )
-        )
-        parent = await agent_preset_service.create_preset(
-            agent_preset_create_params.model_copy(
-                update={
-                    "name": "Epoch parent",
-                    "slug": "epoch-parent",
-                    "agents": AgentSubagentsConfig.model_validate(
-                        {
-                            "enabled": True,
-                            "subagents": [{"preset": child.slug}],
-                        }
-                    ),
-                }
-            )
-        )
-        version = await agent_preset_service.get_current_version_for_preset(parent)
-        await session.execute(
-            sa.delete(AgentPresetVersionSubagent).where(
-                AgentPresetVersionSubagent.parent_preset_version_id == version.id
-            )
-        )
-        version.subagents_enabled = None
-        session.add(version)
-        await session.commit()
-
-        legacy = await agent_preset_service._get_version_agents_config(version)
-        assert legacy.enabled is True
-        assert len(legacy.subagents) == 1
-        assert legacy.subagents[0].preset == child.slug
-
-        version.subagents_enabled = False
-        session.add(version)
-        await session.commit()
-        authoritative = await agent_preset_service._get_version_agents_config(version)
-        assert authoritative == AgentSubagentsConfig()
 
     async def test_update_preset_skill_binding_stores_version_edge(
         self,
@@ -3081,46 +3013,6 @@ class TestAgentPresetService:
             "head_reference_count": 1,
         }
         assert await agent_preset_service.get_preset(child.id) is not None
-
-    async def test_delete_preset_blocks_on_late_legacy_current_version(
-        self,
-        session: AsyncSession,
-        agent_preset_service: AgentPresetService,
-        agent_preset_create_params: AgentPresetCreate,
-    ) -> None:
-        """A JSON-only version written by an old pod still protects its child."""
-
-        child = await agent_preset_service.create_preset(
-            agent_preset_create_params.model_copy(
-                update={"name": "Legacy child", "slug": "legacy-child"}
-            )
-        )
-        parent = await agent_preset_service.create_preset(
-            agent_preset_create_params.model_copy(
-                update={
-                    "name": "Legacy parent",
-                    "slug": "legacy-parent",
-                    "agents": AgentSubagentsConfig.model_validate(
-                        {
-                            "enabled": True,
-                            "subagents": [{"preset": child.slug}],
-                        }
-                    ),
-                }
-            )
-        )
-        version = await agent_preset_service.get_current_version_for_preset(parent)
-        await session.execute(
-            sa.delete(AgentPresetVersionSubagent).where(
-                AgentPresetVersionSubagent.parent_preset_version_id == version.id
-            )
-        )
-        version.subagents_enabled = None
-        session.add(version)
-        await session.commit()
-
-        with pytest.raises(TracecatValidationError, match="still referenced"):
-            await agent_preset_service.delete_preset(child)
 
     async def test_delete_preset_soft_deletes_when_only_referenced_as_subagent_in_history(
         self,

@@ -640,7 +640,6 @@ def test_expand_downgrade_roundtrip(migration_db_url: str) -> None:
         engine.dispose()
 
 
-@pytest.mark.skip(reason="cutover revision is delivered in the next release")
 def test_cutover_reconciles_only_null_epoch_rows(migration_db_url: str) -> None:
     engine = create_engine(migration_db_url, poolclass=NullPool)
     try:
@@ -735,18 +734,58 @@ def test_cutover_reconciles_only_null_epoch_rows(migration_db_url: str) -> None:
                 .all()
             )
             marker_column = _column(conn, "agent_preset_version", "subagents_enabled")
+            marker_constraint = conn.execute(
+                text(
+                    """
+                    SELECT convalidated
+                    FROM pg_constraint
+                    WHERE conname =
+                        'ck_agent_preset_version_subagents_enabled_not_null'
+                    """
+                )
+            ).scalar_one()
+            legacy_columns = set(
+                conn.execute(
+                    text(
+                        """
+                        SELECT table_name, column_name
+                        FROM information_schema.columns
+                        WHERE table_schema = 'public'
+                          AND (
+                            (table_name = 'agent_preset'
+                             AND column_name = 'instructions')
+                            OR (table_name = 'agent_preset_version'
+                                AND column_name = 'agents')
+                            OR (table_name = 'agent_preset_version_skill'
+                                AND column_name = 'skill_version_id')
+                          )
+                        """
+                    )
+                )
+                .tuples()
+                .all()
+            )
+            legacy_binding_table = conn.execute(
+                text("SELECT to_regclass('agent_preset_skill')")
+            ).scalar_one()
         assert late_edges == [(child_a, "late")]
         assert explicit_edges == [(child_b, "authoritative")]
         assert markers == {late_version_id: True, explicit_version_id: True}
         assert marker_column == {
-            "is_nullable": "NO",
-            "column_default": "false",
+            "is_nullable": "YES",
+            "column_default": None,
         }
+        assert marker_constraint is True
+        assert legacy_columns == {
+            ("agent_preset", "instructions"),
+            ("agent_preset_version", "agents"),
+            ("agent_preset_version_skill", "skill_version_id"),
+        }
+        assert legacy_binding_table == "agent_preset_skill"
     finally:
         engine.dispose()
 
 
-@pytest.mark.skip(reason="cutover revision is delivered in the next release")
 def test_cutover_rejects_invalid_late_legacy_row_atomically(
     migration_db_url: str,
 ) -> None:
@@ -940,9 +979,22 @@ def test_contract_drops_legacy_representations_and_preserves_version_edges(
                 _column(conn, "agent_preset_version_skill", "skill_version_id") is None
             )
             assert _column(conn, "agent_preset_version", "subagents_enabled") == {
-                "is_nullable": "NO",
-                "column_default": "false",
+                "is_nullable": "YES",
+                "column_default": None,
             }
+            assert (
+                conn.execute(
+                    text(
+                        """
+                        SELECT convalidated
+                        FROM pg_constraint
+                        WHERE conname =
+                            'ck_agent_preset_version_subagents_enabled_not_null'
+                        """
+                    )
+                ).scalar_one()
+                is True
+            )
             assert (
                 conn.execute(
                     text(

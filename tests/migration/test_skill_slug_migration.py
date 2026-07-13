@@ -17,11 +17,8 @@ from sqlalchemy.pool import NullPool
 from tests.database import TEST_DB_CONFIG
 
 MIGRATION_REVISION = "c6a8d4f3b2e1"
+CUTOVER_REVISION = "d2e4f6a8b0c1"
 CONTRACT_REVISION = "c7d9e1f3a5b2"
-
-pytestmark = pytest.mark.skip(
-    reason="skill contract revision is delivered after application cutover"
-)
 PREVIOUS_REVISION = "8b4f6c2d1a9e"
 
 
@@ -551,6 +548,7 @@ def test_skill_slug_migration_treats_legacy_archived_rows_as_dead(
         engine.dispose()
 
 
+@pytest.mark.skip(reason="contract revision is delivered after cutover")
 def test_skill_contract_closes_late_expand_writes(
     migration_db_url: str,
 ) -> None:
@@ -681,5 +679,144 @@ def test_skill_contract_closes_late_expand_writes(
         assert archived_column_count == 0
         assert "deleted_at IS NULL" in index_definition
         assert "archived_at" not in index_definition
+    finally:
+        engine.dispose()
+
+
+def test_skill_cutover_closes_late_expand_writes(
+    migration_db_url: str,
+) -> None:
+    """Cutover heals late legacy rows before removing compatibility reads."""
+    organization_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    canonical_id = uuid.uuid4()
+    occupied_suffix_id = uuid.uuid4()
+    late_slugless_id = uuid.uuid4()
+    legacy_archived_id = uuid.uuid4()
+    archived_at = datetime(2026, 1, 5, tzinfo=UTC)
+
+    engine = create_engine(migration_db_url, poolclass=NullPool)
+    try:
+        _run_alembic(migration_db_url, "upgrade", MIGRATION_REVISION)
+        with engine.begin() as conn:
+            _insert_organization_and_workspace(
+                conn,
+                organization_id=organization_id,
+                workspace_id=workspace_id,
+                label="cutover",
+            )
+            for skill_id, name, slug, row_archived_at, created_at in (
+                (
+                    canonical_id,
+                    "customer-authored-name",
+                    "customer-authored-name",
+                    None,
+                    datetime(2026, 1, 1, tzinfo=UTC),
+                ),
+                (
+                    occupied_suffix_id,
+                    "occupied",
+                    "customer-authored-name-2",
+                    None,
+                    datetime(2026, 1, 2, tzinfo=UTC),
+                ),
+                (
+                    late_slugless_id,
+                    "customer-authored-name",
+                    None,
+                    None,
+                    datetime(2026, 1, 3, tzinfo=UTC),
+                ),
+                (
+                    legacy_archived_id,
+                    "customer-authored-name",
+                    None,
+                    archived_at,
+                    datetime(2026, 1, 4, tzinfo=UTC),
+                ),
+            ):
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO skill (
+                            id, workspace_id, name, slug, draft_revision,
+                            archived_at, deleted_at, created_at, updated_at
+                        )
+                        VALUES (
+                            :id, :workspace_id, :name, :slug, 0,
+                            :archived_at, NULL, :created_at, :created_at
+                        )
+                        """
+                    ),
+                    {
+                        "id": skill_id,
+                        "workspace_id": workspace_id,
+                        "name": name,
+                        "slug": slug,
+                        "archived_at": row_archived_at,
+                        "created_at": created_at,
+                    },
+                )
+
+        result = _run_alembic(migration_db_url, "upgrade", CUTOVER_REVISION)
+        output = f"{result.stdout}\n{result.stderr}"
+
+        with engine.begin() as conn:
+            rows = {
+                row["id"]: (row["slug"], row["archived_at"], row["deleted_at"])
+                for row in (
+                    conn.execute(
+                        text(
+                            """
+                            SELECT id, slug, archived_at, deleted_at
+                            FROM skill
+                            WHERE workspace_id = :workspace_id
+                            """
+                        ),
+                        {"workspace_id": workspace_id},
+                    )
+                    .mappings()
+                    .all()
+                )
+            }
+            slug_nullable = conn.execute(
+                text(
+                    """
+                    SELECT is_nullable FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = 'skill' AND column_name = 'slug'
+                    """
+                )
+            ).scalar_one()
+            index_definition = conn.execute(
+                text(
+                    """
+                    SELECT pg_get_indexdef(indexrelid)
+                    FROM pg_index
+                    WHERE indexrelid = 'uq_skill_workspace_slug_active'::regclass
+                    """
+                )
+            ).scalar_one()
+
+        assert rows[canonical_id] == ("customer-authored-name", None, None)
+        assert rows[occupied_suffix_id] == (
+            "customer-authored-name-2",
+            None,
+            None,
+        )
+        assert rows[late_slugless_id] == (
+            "customer-authored-name-3",
+            None,
+            None,
+        )
+        assert rows[legacy_archived_id] == (
+            "customer-authored-name",
+            archived_at,
+            archived_at,
+        )
+        assert slug_nullable == "YES"
+        assert "archived_at IS NULL" in index_definition
+        assert f"skill_id={late_slugless_id} suffix_counter=3" in output
+        assert "customer-authored-name" not in output
     finally:
         engine.dispose()

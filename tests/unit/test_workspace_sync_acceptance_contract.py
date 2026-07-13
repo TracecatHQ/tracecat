@@ -31,7 +31,6 @@ from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import (
     AgentCatalog,
     AgentPreset,
-    AgentPresetSkill,
     AgentPresetVersion,
     AgentPresetVersionSkill,
     AgentPresetVersionSubagent,
@@ -1761,11 +1760,7 @@ async def test_round_trip_preserves_preset_version_skill_edges(
     assert skill_versions == {2: "skill-a"}
     # Each imported current version points to the same Skill ResourceHead.
     version_binding_rows = await session.execute(
-        select(
-            AgentPreset.slug,
-            AgentPresetVersionSkill.skill_id,
-            AgentPresetVersionSkill.skill_version_id,
-        )
+        select(AgentPreset.slug, AgentPresetVersionSkill.skill_id)
         .select_from(AgentPreset)
         .join(
             AgentPresetVersionSkill,
@@ -1774,22 +1769,8 @@ async def test_round_trip_preserves_preset_version_skill_edges(
         .where(AgentPreset.workspace_id == target_workspace_id)
         .order_by(AgentPreset.slug.asc())
     )
-    version_bindings = version_binding_rows.tuples().all()
-    assert version_bindings == [
-        ("agent-x", skill.id, skill.current_version_id),
-        ("agent-y", skill.id, skill.current_version_id),
-    ]
-    head_binding_rows = await session.execute(
-        select(
-            AgentPreset.slug,
-            AgentPresetSkill.skill_id,
-            AgentPresetSkill.skill_version_id,
-        )
-        .join(AgentPresetSkill, AgentPresetSkill.preset_id == AgentPreset.id)
-        .where(AgentPreset.workspace_id == target_workspace_id)
-        .order_by(AgentPreset.slug.asc())
-    )
-    assert head_binding_rows.tuples().all() == version_bindings
+    version_bindings = dict(version_binding_rows.tuples().all())
+    assert version_bindings == {"agent-x": skill.id, "agent-y": skill.id}
 
 
 @pytest.mark.anyio
@@ -4546,14 +4527,6 @@ async def test_agent_preset_sync_preserves_subagent_options(
     )
     assert parent_version is not None
     assert parent_version.subagents_enabled is True
-    assert parent.agents["enabled"] is True
-    assert parent.agents["subagents"][0]["preset_id"] == str(child.id)
-    assert parent.agents["subagents"][0]["preset_version_id"] == str(
-        child.current_version_id
-    )
-    assert parent_version.agents == parent.agents
-    assert parent.model_name == parent_version.model_name
-    assert parent.model_provider == parent_version.model_provider
     version_subagent = await session.scalar(
         select(AgentPresetVersionSubagent).where(
             AgentPresetVersionSubagent.parent_preset_version_id == parent_version.id

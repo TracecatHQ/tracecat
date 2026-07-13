@@ -384,8 +384,7 @@ class SkillAdapter(DirectoryManifestAdapter):
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
         for skill in skills:
-            effective_slug = skill.slug or skill.name
-            source_id = assigner.assign(skill.id, effective_slug)
+            source_id = assigner.assign(skill.id, skill.slug)
             # Keep the top-level manifest as metadata only, then emit the current
             # immutable file snapshot below ``versions/``.
             version = skill.current_version
@@ -400,7 +399,7 @@ class SkillAdapter(DirectoryManifestAdapter):
 
             specs[source_id] = SkillResourceSpec(
                 id=source_id,
-                slug=effective_slug,
+                slug=skill.slug,
                 name=skill.name,
                 current_version=version.version if version is not None else None,
                 description=skill.description,

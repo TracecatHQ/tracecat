@@ -1172,7 +1172,7 @@ class SkillService(BaseWorkspaceService):
             id=skill.id,
             workspace_id=skill.workspace_id,
             name=skill.name,
-            slug=skill.slug or skill.name,
+            slug=skill.slug,
             description=skill.description,
             current_version_id=skill.current_version_id,
             draft_revision=skill.draft_revision,
@@ -1193,7 +1193,7 @@ class SkillService(BaseWorkspaceService):
             id=skill.id,
             workspace_id=skill.workspace_id,
             name=skill.name,
-            slug=skill.slug or skill.name,
+            slug=skill.slug,
             description=skill.description,
             current_version_id=skill.current_version_id,
             created_at=skill.created_at,
@@ -2400,9 +2400,7 @@ class SkillService(BaseWorkspaceService):
                 "Cannot delete a skill that is still referenced by a preset",
                 detail={"code": "skill_in_use"},
             )
-        deleted_at = datetime.now(UTC)
-        skill.archived_at = deleted_at
-        skill.deleted_at = deleted_at
+        skill.deleted_at = datetime.now(UTC)
         self.session.add(skill)
         await self.session.commit()
 

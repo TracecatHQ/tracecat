@@ -65,7 +65,6 @@ from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
     AgentCatalog,
     AgentPreset,
-    AgentPresetSkill,
     AgentPresetVersion,
     AgentPresetVersionSkill,
     AgentPresetVersionSubagent,
@@ -170,12 +169,6 @@ class AgentPresetService(BaseWorkspaceService):
         self, version: AgentPresetVersion
     ) -> AgentSubagentsConfig:
         """Load snapshotted subagent ResourceHead edges for a preset version."""
-
-        # NULL is the old-writer epoch. During the rolling expand deployment,
-        # an older task can still create a JSON-only version after the schema
-        # migration has completed.
-        if version.subagents_enabled is None:
-            return AgentSubagentsConfig.model_validate(version.agents)
 
         stmt = (
             select(
@@ -536,16 +529,9 @@ class AgentPresetService(BaseWorkspaceService):
     async def _count_head_subagent_references(self, preset: AgentPreset) -> int:
         """Count live heads whose current version references ``preset``."""
 
-        edge_stmt = (
+        stmt = (
             select(func.count())
             .select_from(AgentPreset)
-            .join(
-                AgentPresetVersion,
-                sa.and_(
-                    AgentPresetVersion.workspace_id == AgentPreset.workspace_id,
-                    AgentPresetVersion.id == AgentPreset.current_version_id,
-                ),
-            )
             .join(
                 AgentPresetVersionSubagent,
                 sa.and_(
@@ -558,41 +544,10 @@ class AgentPresetService(BaseWorkspaceService):
                 AgentPreset.workspace_id == self.workspace_id,
                 AgentPreset.id != preset.id,
                 AgentPreset.deleted_at.is_(None),
-                AgentPresetVersion.subagents_enabled.is_not(None),
                 AgentPresetVersionSubagent.child_preset_id == preset.id,
             )
         )
-        edge_count = (await self.session.execute(edge_stmt)).scalar_one()
-
-        legacy_stmt = (
-            select(AgentPresetVersion.agents)
-            .join(
-                AgentPreset,
-                sa.and_(
-                    AgentPreset.workspace_id == AgentPresetVersion.workspace_id,
-                    AgentPreset.current_version_id == AgentPresetVersion.id,
-                ),
-            )
-            .where(
-                AgentPreset.workspace_id == self.workspace_id,
-                AgentPreset.id != preset.id,
-                AgentPreset.deleted_at.is_(None),
-                AgentPresetVersion.subagents_enabled.is_(None),
-            )
-        )
-        legacy_count = 0
-        for agents_json in (await self.session.scalars(legacy_stmt)).all():
-            agents = AgentSubagentsConfig.model_validate(agents_json)
-            if any(
-                getattr(ref, "preset_id", None) == preset.id
-                or (
-                    getattr(ref, "preset_id", None) is None
-                    and ref.preset == preset.slug
-                )
-                for ref in agents.subagents
-            ):
-                legacy_count += 1
-        return edge_count + legacy_count
+        return (await self.session.execute(stmt)).scalar_one()
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def resolve_agent_preset_config(
@@ -1595,7 +1550,6 @@ class AgentPresetService(BaseWorkspaceService):
             AgentPresetVersion.workspace_id,
             AgentPresetVersion.version,
             AgentPresetVersion.subagents_enabled,
-            AgentPresetVersion.agents,
             AgentPresetVersion.tool_approvals,
             AgentPresetVersion.enable_internet_access,
             AgentPresetVersion.created_at,
@@ -1653,28 +1607,12 @@ class AgentPresetService(BaseWorkspaceService):
                 workspace_id=workspace_id,
                 version=version_number,
                 capabilities=_agent_preset_capabilities(
-                    agents_config=AgentSubagentsConfig(
-                        enabled=(
-                            subagents_enabled
-                            if subagents_enabled is not None
-                            else AgentSubagentsConfig.model_validate(
-                                agents_json
-                            ).enabled
-                        )
-                    ),
+                    agents_config=AgentSubagentsConfig(enabled=subagents_enabled),
                     tool_approvals=tool_approvals,
                     enable_internet_access=enable_internet_access,
                 ),
                 subagent_eligibility=build_subagent_eligibility(
-                    agents_config=AgentSubagentsConfig(
-                        enabled=(
-                            subagents_enabled
-                            if subagents_enabled is not None
-                            else AgentSubagentsConfig.model_validate(
-                                agents_json
-                            ).enabled
-                        )
-                    ),
+                    agents_config=AgentSubagentsConfig(enabled=subagents_enabled),
                     tool_approvals=tool_approvals,
                 ),
                 created_at=created_at,
@@ -1686,7 +1624,6 @@ class AgentPresetService(BaseWorkspaceService):
                 workspace_id,
                 version_number,
                 subagents_enabled,
-                agents_json,
                 tool_approvals,
                 enable_internet_access,
                 created_at,
@@ -2278,7 +2215,7 @@ class AgentPresetService(BaseWorkspaceService):
         agents: AgentSubagentsConfig | ResolvedAgentsConfig,
         preset_locked: bool = False,
     ) -> AgentPresetVersion:
-        """Create one immutable version and both rollout representations."""
+        """Create one immutable version and its ResourceHead edges."""
 
         if not preset_locked:
             preset = await self._lock_preset_row(preset.id)
@@ -2295,12 +2232,6 @@ class AgentPresetService(BaseWorkspaceService):
         current_version = result.scalar_one_or_none()
         next_version = (current_version or 0) + 1
 
-        legacy_agents = await self._legacy_agents_projection(
-            preset=preset,
-            agents=agents,
-        )
-        skill_version_ids = await self._current_skill_version_ids(skill_ids)
-
         version = AgentPresetVersion(
             workspace_id=self.workspace_id,
             preset_id=preset.id,
@@ -2315,7 +2246,6 @@ class AgentPresetService(BaseWorkspaceService):
             namespaces=config.namespaces,
             tool_approvals=config.tool_approvals,
             mcp_integrations=config.mcp_integrations,
-            agents=legacy_agents.model_dump(mode="json"),
             subagents_enabled=agents.enabled,
             retries=config.retries,
             enable_thinking=config.enable_thinking,
@@ -2329,7 +2259,6 @@ class AgentPresetService(BaseWorkspaceService):
                     workspace_id=self.workspace_id,
                     preset_version_id=version.id,
                     skill_id=skill_id,
-                    skill_version_id=skill_version_ids[skill_id],
                 )
             )
         for subagent in agents.subagents:
@@ -2345,96 +2274,5 @@ class AgentPresetService(BaseWorkspaceService):
                     max_turns=subagent.max_turns,
                 )
             )
-        await self._sync_legacy_preset_head(
-            preset=preset,
-            config=config,
-            agents=legacy_agents,
-            skill_version_ids=skill_version_ids,
-        )
         await self.session.flush()
         return version
-
-    async def _legacy_agents_projection(
-        self,
-        *,
-        preset: AgentPreset,
-        agents: AgentSubagentsConfig | ResolvedAgentsConfig,
-    ) -> ResolvedAgentsConfig:
-        """Return the exact legacy JSON shape understood by the old app."""
-
-        if all(
-            isinstance(subagent, ResolvedAttachedSubagentRef)
-            for subagent in agents.subagents
-        ):
-            return ResolvedAgentsConfig.model_validate(agents.model_dump(mode="python"))
-        resolved = await resolve_agents_config(
-            self,
-            agents=agents.model_dump(mode="python"),
-            parent_preset_id=preset.id,
-            parent_slug=preset.slug,
-            include_runtime_config=False,
-        )
-        return resolved.to_agents_binding()
-
-    async def _current_skill_version_ids(
-        self, skill_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, uuid.UUID]:
-        """Resolve ResourceHead skill edges to the legacy pinned projection."""
-
-        if not skill_ids:
-            return {}
-        rows = (
-            await self.session.execute(
-                select(Skill.id, Skill.current_version_id).where(
-                    Skill.workspace_id == self.workspace_id,
-                    Skill.id.in_(skill_ids),
-                    Skill.deleted_at.is_(None),
-                )
-            )
-        ).tuples()
-        resolved = {
-            skill_id: version_id
-            for skill_id, version_id in rows
-            if version_id is not None
-        }
-        if missing := set(skill_ids) - resolved.keys():
-            raise TracecatValidationError(
-                "Preset skills must have a current published version",
-                detail={
-                    "code": "skill_not_published",
-                    "skill_ids": sorted(str(skill_id) for skill_id in missing),
-                },
-            )
-        return resolved
-
-    async def _sync_legacy_preset_head(
-        self,
-        *,
-        preset: AgentPreset,
-        config: AgentPresetExecutionConfigWrite,
-        agents: ResolvedAgentsConfig,
-        skill_version_ids: Mapping[uuid.UUID, uuid.UUID],
-    ) -> None:
-        """Dual-write the mutable projection consumed by the old application."""
-
-        for field in self.EXECUTION_FIELDS:
-            if field == "agents":
-                preset.agents = agents.model_dump(mode="json")
-            else:
-                setattr(preset, field, getattr(config, field))
-        await self.session.execute(
-            sa.delete(AgentPresetSkill).where(
-                AgentPresetSkill.workspace_id == self.workspace_id,
-                AgentPresetSkill.preset_id == preset.id,
-            )
-        )
-        for skill_id, skill_version_id in skill_version_ids.items():
-            self.session.add(
-                AgentPresetSkill(
-                    workspace_id=self.workspace_id,
-                    preset_id=preset.id,
-                    skill_id=skill_id,
-                    skill_version_id=skill_version_id,
-                )
-            )
-        self.session.add(preset)
