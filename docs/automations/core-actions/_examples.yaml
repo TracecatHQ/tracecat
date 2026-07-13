@@ -117,60 +117,6 @@ examples:
                 ]
           timeout_seconds: 60
 
-  python-script-pypi-dependency:
-    title: Use an external PyPI package
-    language: yaml
-    code: |
-      - ref: parse_timestamp
-        action: core.script.run_python
-        args:
-          inputs:
-            timestamp: ${{ TRIGGER.created_at }}
-          dependencies:
-            - python-dateutil==2.9.0.post0
-          allow_network: true
-          script: |
-            from dateutil import parser
-
-            def main(timestamp):
-                parsed = parser.isoparse(timestamp)
-                return {
-                    "iso_timestamp": parsed.isoformat(),
-                    "timezone": str(parsed.tzinfo),
-                }
-
-  python-script-sdk-cases:
-    title: List cases with the Tracecat SDK
-    language: yaml
-    code: |
-      - ref: list_recent_cases
-        action: core.script.run_python
-        args:
-          allow_network: true
-          script: |
-            from tracecat_registry import ctx
-
-            def main():
-                return ctx.cases.list_cases(limit=10)
-
-  python-script-sdk-variable-async:
-    title: Read a variable with the async Tracecat SDK
-    language: yaml
-    code: |
-      - ref: get_api_timeout
-        action: core.script.run_python
-        args:
-          allow_network: true
-          script: |
-            from tracecat_registry import ctx
-
-            async def main():
-                return await ctx.variables.aio.get_or_default(
-                    "api_config",
-                    "timeout_seconds",
-                    30,
-                )
-
   scatter-gather-fanout:
     title: Fan out and collect results
     language: yaml

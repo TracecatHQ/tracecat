@@ -8,13 +8,38 @@ title: "Python script"
 
 Execute a Python script.
 
-### Add external PyPI dependencies
+Use this action to transform workflow data, import third-party
+packages, or call Tracecat APIs from an isolated Python 3.12 sandbox.
+Tracecat passes `inputs` as function arguments and returns the
+function result as the action output.
+
+### Import Python packages
 
 Add pinned package specifications to `dependencies`, then import them
 in your script. Set `allow_network: true` so Tracecat can install the
 packages from PyPI. Tracecat caches installed packages between runs.
 
-### Import the Tracecat SDK
+```yaml
+- ref: parse_timestamp
+  action: core.script.run_python
+  args:
+    inputs:
+      timestamp: ${{ TRIGGER.created_at }}
+    dependencies:
+      - python-dateutil==2.9.0.post0
+    allow_network: true
+    script: |
+      from dateutil import parser
+
+      def main(timestamp):
+          parsed = parser.isoparse(timestamp)
+          return {
+              "iso_timestamp": parsed.isoformat(),
+              "timezone": str(parsed.tzinfo),
+          }
+```
+
+### Import Tracecat SDK
 
 The Tracecat SDK is already available in the Python sandbox. Import
 `ctx` from `tracecat_registry`; do not add the SDK to `dependencies`.
@@ -25,6 +50,38 @@ Use clients such as `ctx.cases`, `ctx.tables`, `ctx.variables`, and
 SDK calls use the workflow's authenticated execution context. Set
 `allow_network: true` whenever your script calls a Tracecat SDK API
 method.
+
+#### List cases synchronously
+
+```yaml
+- ref: list_recent_cases
+  action: core.script.run_python
+  args:
+    allow_network: true
+    script: |
+      from tracecat_registry import ctx
+
+      def main():
+          return ctx.cases.list_cases(limit=10)
+```
+
+#### Read a variable asynchronously
+
+```yaml
+- ref: get_api_timeout
+  action: core.script.run_python
+  args:
+    allow_network: true
+    script: |
+      from tracecat_registry import ctx
+
+      async def main():
+          return await ctx.variables.aio.get_or_default(
+              "api_config",
+              "timeout_seconds",
+              30,
+          )
+```
 
 ### Inputs
 
@@ -94,58 +151,4 @@ Default: `300`.
               for finding in findings
           ]
     timeout_seconds: 60
-```
-
-**Use an external PyPI package**
-
-```yaml
-- ref: parse_timestamp
-  action: core.script.run_python
-  args:
-    inputs:
-      timestamp: ${{ TRIGGER.created_at }}
-    dependencies:
-      - python-dateutil==2.9.0.post0
-    allow_network: true
-    script: |
-      from dateutil import parser
-
-      def main(timestamp):
-          parsed = parser.isoparse(timestamp)
-          return {
-              "iso_timestamp": parsed.isoformat(),
-              "timezone": str(parsed.tzinfo),
-          }
-```
-
-**List cases with the Tracecat SDK**
-
-```yaml
-- ref: list_recent_cases
-  action: core.script.run_python
-  args:
-    allow_network: true
-    script: |
-      from tracecat_registry import ctx
-
-      def main():
-          return ctx.cases.list_cases(limit=10)
-```
-
-**Read a variable with the async Tracecat SDK**
-
-```yaml
-- ref: get_api_timeout
-  action: core.script.run_python
-  args:
-    allow_network: true
-    script: |
-      from tracecat_registry import ctx
-
-      async def main():
-          return await ctx.variables.aio.get_or_default(
-              "api_config",
-              "timeout_seconds",
-              30,
-          )
 ```
