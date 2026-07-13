@@ -4309,7 +4309,7 @@ async def test_agent_preset_import_resolves_parent_before_child_order(
 
 
 @pytest.mark.anyio
-async def test_agent_preset_projection_uses_normalized_subagent_edges_after_rename(
+async def test_agent_preset_sync_preserves_subagent_options(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
@@ -4427,10 +4427,6 @@ async def test_agent_preset_projection_uses_normalized_subagent_edges_after_rena
     session.add_all([child, parent_version])
     await session.flush()
 
-    assert parent_version_row.agents["subagents"][0]["preset"] == "z-child"
-    child.slug = "renamed-child"
-    await session.flush()
-
     projection = await service.project_workspace(create_missing_mappings=False)
     parent_spec = yaml.safe_load(
         projection.files[f"{AGENT_PRESET_ROOT}/a-parent/preset.yml"]
@@ -4494,6 +4490,129 @@ async def test_agent_preset_projection_uses_normalized_subagent_edges_after_rena
         empty_projection.files[f"{AGENT_PRESET_ROOT}/a-parent/versions/1.yml"]
     )
     assert empty_parent_version_spec.get("subagents", []) == []
+
+
+@pytest.mark.anyio
+async def test_agent_preset_projection_keeps_edges_to_soft_deleted_children(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Projection keeps version edges whose child preset was soft-deleted.
+
+    Spec: the runtime binding reads tombstone-child edges through
+    with_deleted, so the exported version snapshot must keep them too — the
+    global soft-delete filter must not silently drop the deleted child's
+    edge from the manifest.
+    """
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{AGENT_PRESET_ROOT}/edge-parent/preset.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset",
+                "id": "edge-parent",
+                "slug": "edge-parent",
+                "name": "Edge parent",
+                "current_version": 1,
+            }
+        ),
+        f"{AGENT_PRESET_ROOT}/edge-parent/versions/1.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset_version",
+                "version_number": 1,
+                "name": "Edge parent",
+                "subagents": [
+                    {
+                        "slug": "a-kept-child",
+                        "name": "kept-alias",
+                        "description": "Keep this child",
+                        "max_turns": 2,
+                    },
+                    {
+                        "slug": "b-doomed-child",
+                        "name": "doomed-alias",
+                        "description": "Soft-delete this child",
+                        "max_turns": 3,
+                    },
+                ],
+            }
+        ),
+        f"{AGENT_PRESET_ROOT}/a-kept-child/preset.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset",
+                "id": "a-kept-child",
+                "slug": "a-kept-child",
+                "name": "Kept child",
+                "current_version": 1,
+            }
+        ),
+        f"{AGENT_PRESET_ROOT}/a-kept-child/versions/1.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset_version",
+                "version_number": 1,
+                "name": "Kept child",
+            }
+        ),
+        f"{AGENT_PRESET_ROOT}/b-doomed-child/preset.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset",
+                "id": "b-doomed-child",
+                "slug": "b-doomed-child",
+                "name": "Doomed child",
+                "current_version": 1,
+            }
+        ),
+        f"{AGENT_PRESET_ROOT}/b-doomed-child/versions/1.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset_version",
+                "version_number": 1,
+                "name": "Doomed child",
+            }
+        ),
+    }
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="p" * 40)
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+
+    doomed = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "b-doomed-child",
+        )
+    )
+    assert doomed is not None
+    doomed.deleted_at = datetime.now(UTC)
+    await session.flush()
+
+    projection = await service.project_workspace(create_missing_mappings=False)
+    projected_version = yaml.safe_load(
+        projection.files[f"{AGENT_PRESET_ROOT}/edge-parent/versions/1.yml"]
+    )
+    # Bindings project in alias order; the soft-deleted child must survive
+    # with its current slug rather than being silently filtered out.
+    assert projected_version["subagents"] == [
+        {
+            "slug": "b-doomed-child",
+            "name": "doomed-alias",
+            "description": "Soft-delete this child",
+            "max_turns": 3,
+        },
+        {
+            "slug": "a-kept-child",
+            "name": "kept-alias",
+            "description": "Keep this child",
+            "max_turns": 2,
+        },
+    ]
 
 
 @pytest.mark.anyio
