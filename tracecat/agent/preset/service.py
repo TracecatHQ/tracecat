@@ -2009,13 +2009,22 @@ class AgentPresetService(BaseWorkspaceService):
         preset: AgentPreset,
         version: AgentPresetVersion,
     ) -> dict[str, Any]:
-        """Resolve historical agents config before making it active again."""
-        agents = await self._resolve_preset_subagent_configs(
-            version.agents,
+        """Resolve historical agents config before making it active again.
+
+        Membership comes from the normalized version edges, not the raw
+        JSON: migrated slug-only legacy snapshots would otherwise re-resolve
+        against CURRENT workspace slugs — a renamed child fails the restore
+        and a reused slug silently rebinds the head to the wrong preset.
+        """
+        binding = await self.get_version_subagent_binding(version)
+        return await self._resolve_preset_subagent_configs(
+            AgentSubagentsConfig(
+                enabled=binding.enabled,
+                subagents=list(binding.subagents),
+            ),
             parent_preset_id=preset.id,
             parent_slug=preset.slug,
         )
-        return agents
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def compare_versions(

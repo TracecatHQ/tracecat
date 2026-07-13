@@ -2336,6 +2336,88 @@ class TestAgentPresetService:
         assert parent.current_version_id == version_without_child.id
         assert parent.agents == {"enabled": False, "subagents": []}
 
+    async def test_restore_version_binds_children_from_version_edges(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Restore derives membership from normalized edges, not legacy JSON.
+
+        A migrated slug-only snapshot must restore the child the edges
+        recorded: re-resolving the raw JSON against current slugs would fail
+        after the child was renamed — or silently bind a different preset
+        that reused the old slug.
+        """
+
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Original Child", "slug": "stolen-slug"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Edge Restore Parent",
+                    "slug": "edge-restore-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": child.slug}],
+                        }
+                    ),
+                }
+            )
+        )
+        version_with_child = await agent_preset_service.get_current_version_for_preset(
+            parent
+        )
+        await agent_preset_service.update_preset(
+            parent,
+            AgentPresetUpdate(agents=AgentSubagentsConfig()),
+        )
+        # Simulate the migrated state: slug-only legacy JSON alongside the
+        # backfilled edges, then move the slug to a different preset.
+        await session.execute(
+            sa.update(AgentPresetVersion)
+            .where(AgentPresetVersion.id == version_with_child.id)
+            .values(
+                agents={
+                    "enabled": True,
+                    "subagents": [{"preset": "stolen-slug"}],
+                }
+            )
+            .execution_options(synchronize_session=False)
+        )
+        await session.execute(
+            sa.update(AgentPreset)
+            .where(AgentPreset.id == child.id)
+            .values(slug="renamed-child")
+            .execution_options(synchronize_session=False)
+        )
+        await session.commit()
+        interloper = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Interloper", "slug": "stolen-slug"}
+            )
+        )
+
+        await agent_preset_service.restore_version(parent, version_with_child)
+
+        head_children = (
+            (
+                await session.execute(
+                    select(AgentPresetSubagent.child_preset_id).where(
+                        AgentPresetSubagent.parent_preset_id == parent.id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert head_children == [child.id]
+        assert interloper.id not in head_children
+
     async def test_restore_version_locks_skill_bindings_during_validation(
         self,
         configure_minio_for_skills,
