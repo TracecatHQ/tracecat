@@ -12,13 +12,9 @@ from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES
 from tracecat.db.models import (
-    AgentPreset,
-    AgentPresetVersion,
     Membership,
     Organization,
     OrganizationMembership,
-    Skill,
-    SkillVersion,
     User,
     Workspace,
 )
@@ -104,101 +100,6 @@ class TestWorkspaceService:
         assert workspace.organization_id == svc_workspace.organization_id
         # Verify settings are preserved through validation
         assert workspace.settings is not None
-
-    async def test_delete_workspace_unpins_versions_before_teardown(
-        self,
-        session: AsyncSession,
-        svc_organization: Organization,
-    ) -> None:
-        """ORM teardown must null version pins before deleting version rows.
-
-        Workspace hard delete runs through active ORM cascades that emit
-        separate child DELETEs (version rows before their parents). The
-        pinned-version FKs are RESTRICT, so without the ``post_update``
-        ``pinned_version`` relationships the version DELETE fires while the
-        parent row still pins it and teardown fails. A raw single-statement
-        SQL cascade passes this scenario (RESTRICT checks at end of
-        statement) — the ORM path is the one that must be exercised.
-        """
-        workspace = Workspace(
-            name="pin-teardown-workspace",
-            organization_id=svc_organization.id,
-        )
-        # A second workspace so deletion passes the last-workspace guard.
-        other_workspace = Workspace(
-            name="pin-teardown-other",
-            organization_id=svc_organization.id,
-        )
-        session.add_all([workspace, other_workspace])
-        await session.flush()
-
-        preset = AgentPreset(
-            workspace_id=workspace.id,
-            name="pinned-preset",
-            slug="pinned-preset",
-            model_name="test-model",
-            model_provider="test-provider",
-        )
-        skill = Skill(
-            workspace_id=workspace.id,
-            name="pinned-skill",
-            slug="pinned-skill",
-        )
-        session.add_all([preset, skill])
-        await session.flush()
-
-        preset_version = AgentPresetVersion(
-            workspace_id=workspace.id,
-            preset_id=preset.id,
-            version=1,
-            model_name="test-model",
-            model_provider="test-provider",
-        )
-        skill_version = SkillVersion(
-            workspace_id=workspace.id,
-            skill_id=skill.id,
-            version=1,
-            name="pinned-skill",
-            manifest_sha256="0" * 64,
-            file_count=0,
-            total_size_bytes=0,
-        )
-        session.add_all([preset_version, skill_version])
-        await session.flush()
-
-        preset.pinned_version_id = preset_version.id
-        skill.pinned_version_id = skill_version.id
-        session.add_all([preset, skill])
-        await session.commit()
-
-        # Load the relationship collections so the ORM cascade path (per-row
-        # child DELETEs, versions before parents) is exercised instead of the
-        # single-statement DB cascade, which RESTRICT cannot catch.
-        await session.refresh(workspace, ["agent_presets", "skills"])
-        await session.refresh(preset, ["versions"])
-        await session.refresh(skill, ["versions"])
-
-        service = WorkspaceService(
-            session=session,
-            role=Role(
-                type="user",
-                workspace_id=workspace.id,
-                organization_id=svc_organization.id,
-                user_id=uuid.uuid4(),
-                service_id="tracecat-api",
-                scopes=ADMIN_SCOPES,
-            ),
-        )
-        await service.delete_workspace(workspace.id)
-
-        remaining_preset = await session.scalar(
-            select(AgentPreset).where(AgentPreset.workspace_id == workspace.id)
-        )
-        remaining_skill = await session.scalar(
-            select(Skill).where(Skill.workspace_id == workspace.id)
-        )
-        assert remaining_preset is None
-        assert remaining_skill is None
 
     async def test_delete_workspace_removes_memberships(
         self,

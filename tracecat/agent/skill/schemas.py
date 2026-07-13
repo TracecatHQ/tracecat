@@ -99,7 +99,6 @@ class SkillRead(Schema):
     slug: str
     description: str | None = Field(default=None)
     current_version_id: uuid.UUID | None = Field(default=None)
-    pinned_version_id: uuid.UUID | None = Field(default=None)
     draft_revision: int
     created_at: datetime
     updated_at: datetime
@@ -126,7 +125,6 @@ class SkillReadMinimal(Schema):
     slug: str
     description: str | None = Field(default=None)
     current_version_id: uuid.UUID | None = Field(default=None)
-    pinned_version_id: uuid.UUID | None = Field(default=None)
     created_at: datetime
     updated_at: datetime
     deleted_at: datetime | None = Field(default=None)
@@ -137,12 +135,6 @@ class SkillCreate(Schema):
 
     name: NewSkillName
     description: str | None = Field(default=None, max_length=4000)
-
-
-class SkillPinVersion(Schema):
-    """Payload for pinning a skill to an immutable version."""
-
-    version_id: uuid.UUID
 
 
 class SkillUploadFile(Schema):

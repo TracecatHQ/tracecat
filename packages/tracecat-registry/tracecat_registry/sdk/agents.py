@@ -54,10 +54,10 @@ class CursorPage(TypedDict):
 
 
 class AgentPresetSkillBinding(TypedDict):
-    """Skill binding for attaching a published skill version to an agent preset."""
+    """Skill binding for attaching a published skill to an agent preset."""
 
     skill_id: str
-    skill_version_id: str
+    """Required skill identifier."""
 
 
 class SkillPublishFile(TypedDict):
@@ -603,7 +603,7 @@ class AgentsClient:
         retries: int | Unset = UNSET,
         enable_thinking: bool | Unset = UNSET,
         enable_internet_access: bool | Unset = UNSET,
-        skills: list[dict[str, Any]] | Unset = UNSET,
+        skills: list[AgentPresetSkillBinding] | Unset = UNSET,
     ) -> dict[str, Any]:
         """Create a new agent preset.
 
@@ -622,6 +622,7 @@ class AgentsClient:
             base_url: Custom API endpoint URL for the model.
             output_type: Expected output format (type string or JSON schema).
             actions: List of action identifiers the agent can use as tools.
+            skills: Skill bindings containing `skill_id`.
 
         Returns:
             Created preset data.
@@ -700,7 +701,7 @@ class AgentsClient:
         retries: int | Unset = UNSET,
         enable_thinking: bool | Unset = UNSET,
         enable_internet_access: bool | Unset = UNSET,
-        skills: list[dict[str, Any]] | Unset = UNSET,
+        skills: list[AgentPresetSkillBinding] | Unset = UNSET,
     ) -> dict[str, Any]:
         """Update an existing agent preset.
 
@@ -718,6 +719,7 @@ class AgentsClient:
             base_url: Updated custom API endpoint URL.
             output_type: Updated output format.
             actions: Updated list of action identifiers.
+            skills: Skill bindings containing `skill_id`.
 
         Returns:
             Updated preset data.

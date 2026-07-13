@@ -162,14 +162,10 @@ import type {
   AgentPresetsListPresetTagsResponse,
   AgentPresetsMoveAgentPresetToFolderData,
   AgentPresetsMoveAgentPresetToFolderResponse,
-  AgentPresetsPinAgentPresetVersionData,
-  AgentPresetsPinAgentPresetVersionResponse,
   AgentPresetsRemovePresetTagData,
   AgentPresetsRemovePresetTagResponse,
   AgentPresetsRestoreAgentPresetVersionData,
   AgentPresetsRestoreAgentPresetVersionResponse,
-  AgentPresetsUnpinAgentPresetVersionData,
-  AgentPresetsUnpinAgentPresetVersionResponse,
   AgentPresetsUpdateAgentPresetData,
   AgentPresetsUpdateAgentPresetResponse,
   AgentSessionsCancelSessionData,
@@ -220,14 +216,10 @@ import type {
   AgentSkillsListSkillVersionsResponse,
   AgentSkillsPatchSkillDraftData,
   AgentSkillsPatchSkillDraftResponse,
-  AgentSkillsPinSkillVersionData,
-  AgentSkillsPinSkillVersionResponse,
   AgentSkillsPublishSkillData,
   AgentSkillsPublishSkillResponse,
   AgentSkillsRestoreSkillVersionData,
   AgentSkillsRestoreSkillVersionResponse,
-  AgentSkillsUnpinSkillVersionData,
-  AgentSkillsUnpinSkillVersionResponse,
   AgentSkillsUploadSkillData,
   AgentSkillsUploadSkillResponse,
   AgentTagsCreateAgentTagData,
@@ -502,6 +494,7 @@ import type {
   OrganizationGetInvitationTokenResponse,
   OrganizationGetOrganizationEntitlementsResponse,
   OrganizationGetOrganizationResponse,
+  OrganizationListCurrentUserOrganizationMembershipsResponse,
   OrganizationListInvitationsData,
   OrganizationListInvitationsResponse,
   OrganizationListMyPendingInvitationsResponse,
@@ -4139,6 +4132,20 @@ export const organizationDeleteOrganization = (
 }
 
 /**
+ * List Current User Organization Memberships
+ * List active organizations the current user belongs to.
+ * @returns tracecat__organization__schemas__OrgRead Successful Response
+ * @throws ApiError
+ */
+export const organizationListCurrentUserOrganizationMemberships =
+  (): CancelablePromise<OrganizationListCurrentUserOrganizationMembershipsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/memberships",
+    })
+  }
+
+/**
  * List Organization Domains
  * List domains assigned to the current organization.
  * @returns tracecat__organization__schemas__OrgDomainRead Successful Response
@@ -5611,59 +5618,6 @@ export const agentPresetsGetAgentPresetBySlug = (
 }
 
 /**
- * Pin Agent Preset Version
- * Pin an agent preset to an immutable version.
- * @param data The data for the request.
- * @param data.presetId
- * @param data.workspaceId
- * @param data.requestBody
- * @returns AgentPresetRead Successful Response
- * @throws ApiError
- */
-export const agentPresetsPinAgentPresetVersion = (
-  data: AgentPresetsPinAgentPresetVersionData
-): CancelablePromise<AgentPresetsPinAgentPresetVersionResponse> => {
-  return __request(OpenAPI, {
-    method: "PUT",
-    url: "/workspaces/{workspace_id}/agent/presets/{preset_id}/pin",
-    path: {
-      preset_id: data.presetId,
-      workspace_id: data.workspaceId,
-    },
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Unpin Agent Preset Version
- * Clear the pinned version for an agent preset.
- * @param data The data for the request.
- * @param data.presetId
- * @param data.workspaceId
- * @returns AgentPresetRead Successful Response
- * @throws ApiError
- */
-export const agentPresetsUnpinAgentPresetVersion = (
-  data: AgentPresetsUnpinAgentPresetVersionData
-): CancelablePromise<AgentPresetsUnpinAgentPresetVersionResponse> => {
-  return __request(OpenAPI, {
-    method: "DELETE",
-    url: "/workspaces/{workspace_id}/agent/presets/{preset_id}/pin",
-    path: {
-      preset_id: data.presetId,
-      workspace_id: data.workspaceId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
  * List Agent Preset Versions
  * List immutable versions for an agent preset.
  * @param data The data for the request.
@@ -6605,59 +6559,6 @@ export const agentSkillsRestoreSkillVersion = (
     path: {
       skill_id: data.skillId,
       version_id: data.versionId,
-      workspace_id: data.workspaceId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Pin Skill Version
- * Pin a skill to an immutable version.
- * @param data The data for the request.
- * @param data.skillId
- * @param data.workspaceId
- * @param data.requestBody
- * @returns SkillReadMinimal Successful Response
- * @throws ApiError
- */
-export const agentSkillsPinSkillVersion = (
-  data: AgentSkillsPinSkillVersionData
-): CancelablePromise<AgentSkillsPinSkillVersionResponse> => {
-  return __request(OpenAPI, {
-    method: "PUT",
-    url: "/workspaces/{workspace_id}/agent/skills/{skill_id}/pin",
-    path: {
-      skill_id: data.skillId,
-      workspace_id: data.workspaceId,
-    },
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Unpin Skill Version
- * Clear the pinned version for a skill.
- * @param data The data for the request.
- * @param data.skillId
- * @param data.workspaceId
- * @returns SkillReadMinimal Successful Response
- * @throws ApiError
- */
-export const agentSkillsUnpinSkillVersion = (
-  data: AgentSkillsUnpinSkillVersionData
-): CancelablePromise<AgentSkillsUnpinSkillVersionResponse> => {
-  return __request(OpenAPI, {
-    method: "DELETE",
-    url: "/workspaces/{workspace_id}/agent/skills/{skill_id}/pin",
-    path: {
-      skill_id: data.skillId,
       workspace_id: data.workspaceId,
     },
     errors: {
