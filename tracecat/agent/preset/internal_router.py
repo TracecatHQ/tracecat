@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping
-from typing import Annotated, Any, cast
+from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, StringConstraints
@@ -15,11 +14,11 @@ from tracecat.agent.preset.schemas import (
     AgentPresetReadMinimal,
     AgentPresetSkillBindingBase,
     AgentPresetUpdate,
-    build_subagent_eligibility,
+    build_agent_preset_read_minimal,
 )
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.service import AgentManagementService
-from tracecat.agent.subagents import AgentSubagentsConfig, has_manual_tool_approvals
+from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.types import OutputType
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.authz.controls import require_scope
@@ -174,30 +173,10 @@ async def list_presets(
     """List all agent presets for the workspace."""
     service = AgentPresetService(session, role=role)
     presets = await service.list_presets()
-    results: list[AgentPresetReadMinimal] = []
-    for preset in presets:
-        read = AgentPresetReadMinimal.model_validate(preset)
-        agents = AgentSubagentsConfig(enabled=preset.agents_enabled)
-        tool_approvals = cast(Mapping[str, bool] | None, preset.tool_approvals)
-        capabilities = []
-        if has_manual_tool_approvals(tool_approvals):
-            capabilities.append("approvals")
-        if agents.enabled:
-            capabilities.append("subagents")
-        if preset.enable_internet_access:
-            capabilities.append("internet_access")
-        results.append(
-            read.model_copy(
-                update={
-                    "capabilities": capabilities,
-                    "current_version_subagent_eligibility": build_subagent_eligibility(
-                        agents_config=agents,
-                        tool_approvals=tool_approvals,
-                    ),
-                }
-            )
-        )
-    return results
+    # Shared minimal builder: applies the expand-window effective-enabled
+    # fallback; a hand-rolled column-only projection here is what let the
+    # legacy-JSON gap drift in.
+    return [build_agent_preset_read_minimal(preset) for preset in presets]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

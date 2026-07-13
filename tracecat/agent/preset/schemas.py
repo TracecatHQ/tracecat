@@ -177,12 +177,31 @@ class AgentPresetReadMinimal(Schema):
     updated_at: datetime
 
 
+def effective_subagents_enabled(subagents_enabled: bool, agents: object) -> bool:
+    """Effective subagents-enabled bit for expand-window rows.
+
+    Old pods write only the legacy ``agents`` JSON, leaving the normalized
+    ``subagents_enabled`` column false until a reconciling detail read repairs
+    it; list projections must not mark such presets non-attachable (or
+    attachable presets nested) in the meantime. Reads the ``enabled`` key
+    directly instead of validating the full model so migrated slug-only
+    shapes can never raise here. The reverse divergence (column true, JSON
+    false) keeps the column value; the save-time validator fails closed.
+    """
+
+    if subagents_enabled:
+        return True
+    return isinstance(agents, dict) and bool(agents.get("enabled"))
+
+
 def build_agent_preset_read_minimal(
     preset: AgentPreset,
 ) -> AgentPresetReadMinimal:
     """Build a minimal preset response without exposing approval rule details."""
     read = AgentPresetReadMinimal.model_validate(preset)
-    agents_config = AgentSubagentsConfig(enabled=preset.agents_enabled)
+    agents_config = AgentSubagentsConfig(
+        enabled=effective_subagents_enabled(preset.subagents_enabled, preset.agents)
+    )
     tool_approvals = cast(Mapping[str, bool] | None, preset.tool_approvals)
     return read.model_copy(
         update={

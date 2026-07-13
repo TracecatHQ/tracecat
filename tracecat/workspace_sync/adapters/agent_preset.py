@@ -825,13 +825,21 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
         subagents: list[dict[str, Any]] = []
         for subagent in spec.subagents:
-            child = await self._resolved_subagent_target(workspace_service, subagent)
-            if child is None:
+            target = await self._resolved_subagent_target(workspace_service, subagent)
+            if target is None:
                 continue
+            child, child_version = target
             subagents.append(
                 {
                     "preset": child.slug,
                     "preset_id": str(child.id),
+                    # Resolved-shape compat payload: the JSON remains the
+                    # mixed-version contract, and both old pods' strict ref
+                    # union and the head dual-write's ResolvedAgentsConfig
+                    # validation require version identifiers. Edges stay
+                    # authoritative; these are the child's current version.
+                    "preset_version_id": str(child_version.id),
+                    "preset_version": child_version.version,
                     "name": subagent.name,
                     "description": subagent.description,
                     "max_turns": subagent.max_turns,
@@ -844,8 +852,8 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         self,
         workspace_service: SyncMappingService,
         subagent: AgentPresetSubagentRef,
-    ) -> AgentPreset | None:
-        """Resolve a subagent ref to its live child ResourceHead."""
+    ) -> tuple[AgentPreset, AgentPresetVersion] | None:
+        """Resolve a subagent ref to its live child head and current version."""
         # Look up the child preset by slug within the same workspace. Soft-deleted
         # presets keep their slug, so exclude them to avoid binding a deleted
         # child that runtime resolution would reject.
@@ -856,9 +864,12 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 AgentPreset.deleted_at.is_(None),
             )
         )
-        if child is None or child.current_version_id is None:
+        if child is None:
             return None
-        return child
+        child_version = await self._current_version_for_preset(workspace_service, child)
+        if child_version is None:
+            return None
+        return child, child_version
 
     async def _current_version_for_preset(
         self,
@@ -1083,7 +1094,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         """Replace normalized subagent ResourceHead edges for a preset head."""
 
         config = AgentSubagentsConfig.model_validate(agents)
-        preset.agents_enabled = config.enabled
+        preset.subagents_enabled = config.enabled
         await workspace_service.session.execute(
             sa.delete(AgentPresetSubagent).where(
                 AgentPresetSubagent.workspace_id == workspace_service.workspace_id,
@@ -1114,7 +1125,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         """Replace normalized subagent ResourceHead edges for a version ledger row."""
 
         config = AgentSubagentsConfig.model_validate(agents)
-        version.agents_enabled = config.enabled
+        version.subagents_enabled = config.enabled
         await workspace_service.session.execute(
             sa.delete(AgentPresetVersionSubagent).where(
                 AgentPresetVersionSubagent.workspace_id
@@ -1210,7 +1221,7 @@ def _legacy_subagent_refs_for_unreconciled_version(
         config = AgentSubagentsConfig.model_validate(version.agents)
     except ValidationError:
         return None
-    if config.enabled == version.agents_enabled and not config.subagents:
+    if config.enabled == version.subagents_enabled and not config.subagents:
         return None
     return [
         AgentPresetSubagentRef(

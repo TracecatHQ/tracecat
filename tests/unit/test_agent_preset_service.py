@@ -3754,6 +3754,71 @@ class TestAgentPresetService:
         ]
         assert resolved_children == [edge_child.id]
 
+    async def test_head_read_reconciles_expand_window_legacy_json(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Head reads reconcile legacy-JSON-only writes from old pods.
+
+        During the expand window an old pod updates only the legacy
+        ``agents`` JSON (no normalized edges, ``subagents_enabled`` false). A
+        head read that ignored the JSON would feed an empty binding to the
+        edit form, and the next unrelated edit would round-trip that empty
+        state and permanently destroy the legacy bindings.
+        """
+
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Legacy Head Child", "slug": "legacy-head-child"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Legacy Head Parent",
+                    "slug": "legacy-head-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": child.slug}],
+                        }
+                    ),
+                }
+            )
+        )
+        # Simulate the old-pod write: legacy JSON survives, but the
+        # normalized store never saw it.
+        await session.execute(
+            sa.update(AgentPreset)
+            .where(AgentPreset.id == parent.id)
+            .values(subagents_enabled=False)
+        )
+        await session.execute(
+            sa.delete(AgentPresetSubagent).where(
+                AgentPresetSubagent.parent_preset_id == parent.id
+            )
+        )
+        await session.commit()
+
+        fresh_parent = (
+            await session.execute(
+                select(AgentPreset)
+                .where(AgentPreset.id == parent.id)
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one()
+        binding = await agent_preset_service._get_head_agents_config(fresh_parent)
+
+        assert binding.enabled is True
+        head_refs = [
+            ref for ref in binding.subagents if isinstance(ref, HeadAttachedSubagentRef)
+        ]
+        assert [ref.preset_id for ref in head_refs] == [child.id]
+        # The normalized store is repaired, not just projected.
+        assert await agent_preset_service._head_subagent_edges_exist(parent.id)
+
     async def test_reconcile_returns_fresh_row_after_concurrent_winner(
         self,
         session: AsyncSession,

@@ -36,6 +36,7 @@ from tracecat.agent.preset.schemas import (
     ToolApprovalFieldChange,
     _agent_preset_capabilities,
     build_subagent_eligibility,
+    effective_subagents_enabled,
 )
 from tracecat.agent.preset.types import SkillBindingSpec
 from tracecat.agent.skill.service import SkillService
@@ -194,6 +195,16 @@ class AgentPresetService(BaseWorkspaceService):
     ) -> AgentSubagentsConfig:
         """Load authored subagent ResourceHead edges for a preset head."""
 
+        # JSON remains the mixed-version compatibility contract during the
+        # expand window: an old pod writes only the legacy JSON, leaving
+        # subagents_enabled false and no normalized edges. Reconcile before
+        # reading so a later head edit cannot round-trip the empty state and
+        # silently destroy the legacy bindings.
+        if not await self._head_subagent_edges_exist(preset.id):
+            legacy_binding = ResolvedAgentsConfig.model_validate(preset.agents)
+            if self._legacy_head_binding_needs_reconciliation(preset, legacy_binding):
+                preset = await self._reconcile_legacy_head_subagent_binding(preset.id)
+
         stmt = (
             select(
                 AgentPreset.id,
@@ -284,6 +295,61 @@ class AgentPresetService(BaseWorkspaceService):
                 for child_id, child_slug, alias, description, max_turns in rows
             ],
         )
+
+    async def _head_subagent_edges_exist(self, preset_id: uuid.UUID) -> bool:
+        """Return whether a preset head has an authoritative normalized edge set."""
+
+        stmt = (
+            select(AgentPresetSubagent.surrogate_id)
+            .where(
+                AgentPresetSubagent.workspace_id == self.workspace_id,
+                AgentPresetSubagent.parent_preset_id == preset_id,
+            )
+            .limit(1)
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none() is not None
+
+    @staticmethod
+    def _legacy_head_binding_needs_reconciliation(
+        preset: AgentPreset,
+        legacy_binding: ResolvedAgentsConfig,
+    ) -> bool:
+        """Detect legacy-only head writes without penalizing empty sets."""
+
+        return legacy_binding.enabled != preset.subagents_enabled or bool(
+            legacy_binding.subagents
+        )
+
+    async def _reconcile_legacy_head_subagent_binding(
+        self, preset_id: uuid.UUID
+    ) -> AgentPreset:
+        """Backfill a preset head written by an old pod during the expand window."""
+
+        stmt = (
+            select(AgentPreset)
+            .where(
+                AgentPreset.workspace_id == self.workspace_id,
+                AgentPreset.id == preset_id,
+            )
+            .with_for_update()
+            # Refresh the identity-mapped instance: a concurrent session may
+            # have reconciled (and committed) while this one waited for the
+            # row lock, and the caller must see the winner's subagents_enabled,
+            # not the pre-lock snapshot.
+            .execution_options(populate_existing=True)
+        )
+        preset = (await self.session.execute(stmt)).scalar_one()
+        # A concurrent session may have reconciled while this one waited for
+        # the preset lock. Once any normalized edge exists, legacy JSON must
+        # never overwrite that authoritative snapshot.
+        if await self._head_subagent_edges_exist(preset.id):
+            return preset
+
+        legacy_binding = ResolvedAgentsConfig.model_validate(preset.agents)
+        if not self._legacy_head_binding_needs_reconciliation(preset, legacy_binding):
+            return preset
+        await self._replace_head_subagent_bindings(preset, legacy_binding)
+        return preset
 
     async def _version_subagent_edges_exist(self, version_id: uuid.UUID) -> bool:
         """Return whether a version has an authoritative normalized edge set."""
@@ -1608,7 +1674,8 @@ class AgentPresetService(BaseWorkspaceService):
             AgentPresetVersion.preset_id,
             AgentPresetVersion.workspace_id,
             AgentPresetVersion.version,
-            AgentPresetVersion.agents_enabled,
+            AgentPresetVersion.subagents_enabled,
+            AgentPresetVersion.agents,
             AgentPresetVersion.tool_approvals,
             AgentPresetVersion.enable_internet_access,
             AgentPresetVersion.created_at,
@@ -1666,12 +1733,16 @@ class AgentPresetService(BaseWorkspaceService):
                 workspace_id=workspace_id,
                 version=version_number,
                 capabilities=_agent_preset_capabilities(
-                    agents_config=AgentSubagentsConfig(enabled=agents_enabled),
+                    agents_config=AgentSubagentsConfig(
+                        enabled=effective_subagents_enabled(subagents_enabled, agents)
+                    ),
                     tool_approvals=tool_approvals,
                     enable_internet_access=enable_internet_access,
                 ),
                 subagent_eligibility=build_subagent_eligibility(
-                    agents_config=AgentSubagentsConfig(enabled=agents_enabled),
+                    agents_config=AgentSubagentsConfig(
+                        enabled=effective_subagents_enabled(subagents_enabled, agents)
+                    ),
                     tool_approvals=tool_approvals,
                 ),
                 created_at=created_at,
@@ -1682,7 +1753,8 @@ class AgentPresetService(BaseWorkspaceService):
                 row_preset_id,
                 workspace_id,
                 version_number,
-                agents_enabled,
+                subagents_enabled,
+                agents,
                 tool_approvals,
                 enable_internet_access,
                 created_at,

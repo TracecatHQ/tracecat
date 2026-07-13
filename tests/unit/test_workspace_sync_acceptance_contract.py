@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.support.fake_vcs import FakeVcsServer
 from tracecat.agent.session.service import AgentSessionService
+from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import (
@@ -4284,8 +4285,13 @@ async def test_agent_preset_import_resolves_parent_before_child_order(
     assert parent.agents["enabled"] is True
     imported_subagent = parent.agents["subagents"][0]
     assert imported_subagent["preset_id"] == str(child.id)
-    assert "preset_version_id" not in imported_subagent
-    assert "preset_version" not in imported_subagent
+    # The JSON is the mixed-version compat payload: old pods' strict ref
+    # union and the head dual-write's ResolvedAgentsConfig validation both
+    # require version identifiers, so synced refs must carry the child's
+    # current version even though the normalized edges stay authoritative.
+    assert imported_subagent["preset_version_id"] == str(child.current_version_id)
+    assert imported_subagent["preset_version"] == 1
+    ResolvedAgentsConfig.model_validate(parent.agents)
 
     head_child_id = await session.scalar(
         select(AgentPresetSubagent.child_preset_id).where(
@@ -4381,8 +4387,9 @@ async def test_agent_preset_projection_uses_normalized_subagent_edges_after_rena
     assert child.current_version_id is not None
     imported_subagent = parent.agents["subagents"][0]
     assert imported_subagent["preset_id"] == str(child.id)
-    assert "preset_version_id" not in imported_subagent
-    assert "preset_version" not in imported_subagent
+    # Resolved-shape compat payload (see the parent/child ordering test).
+    assert imported_subagent["preset_version_id"] == str(child.current_version_id)
+    assert imported_subagent["preset_version"] == 1
     assert imported_subagent["name"] == "evidence-child"
     assert imported_subagent["description"] == "Collect evidence"
     assert imported_subagent["max_turns"] == 3
@@ -4393,7 +4400,8 @@ async def test_agent_preset_projection_uses_normalized_subagent_edges_after_rena
         )
     )
     assert parent_version is not None
-    assert "preset_version_id" not in parent_version.agents["subagents"][0]
+    version_subagent = parent_version.agents["subagents"][0]
+    assert version_subagent["preset_version_id"] == str(child.current_version_id)
     resolved_binding = await AgentSessionService(
         session=session,
         role=svc_role,
@@ -4457,7 +4465,7 @@ async def test_agent_preset_projection_uses_normalized_subagent_edges_after_rena
             }
         ],
     }
-    parent_version.agents_enabled = False
+    parent_version.subagents_enabled = False
     session.add(parent_version)
     await session.flush()
 
@@ -4477,7 +4485,7 @@ async def test_agent_preset_projection_uses_normalized_subagent_edges_after_rena
     # Matching enabled state plus empty JSON is an authoritative empty
     # snapshot, not an unreconciled legacy row.
     parent_version.agents = {"enabled": True, "subagents": []}
-    parent_version.agents_enabled = True
+    parent_version.subagents_enabled = True
     session.add(parent_version)
     await session.flush()
 
