@@ -449,7 +449,7 @@ def upgrade() -> None:
     op.add_column(
         "agent_preset",
         sa.Column(
-            "agents_enabled",
+            "subagents_enabled",
             sa.Boolean(),
             server_default=sa.text("false"),
             nullable=False,
@@ -458,7 +458,7 @@ def upgrade() -> None:
     op.add_column(
         "agent_preset_version",
         sa.Column(
-            "agents_enabled",
+            "subagents_enabled",
             sa.Boolean(),
             server_default=sa.text("false"),
             nullable=False,
@@ -470,14 +470,14 @@ def upgrade() -> None:
         sa.text(
             """
             UPDATE agent_preset
-            SET agents_enabled = CASE
+            SET subagents_enabled = CASE
                 WHEN agents ->> 'enabled' IN ('true', 'false')
                 THEN (agents ->> 'enabled')::boolean
                 ELSE false
             END;
 
             UPDATE agent_preset_version
-            SET agents_enabled = CASE
+            SET subagents_enabled = CASE
                 WHEN agents ->> 'enabled' IN ('true', 'false')
                 THEN (agents ->> 'enabled')::boolean
                 ELSE false
@@ -535,5 +535,5 @@ def downgrade() -> None:
         type_="unique",
     )
 
-    op.drop_column("agent_preset_version", "agents_enabled")
-    op.drop_column("agent_preset", "agents_enabled")
+    op.drop_column("agent_preset_version", "subagents_enabled")
+    op.drop_column("agent_preset", "subagents_enabled")
