@@ -1381,25 +1381,6 @@ class DurableAgentWorkflow:
                         routes=compiled_run.llm_routes,
                     )
 
-                # Approval waits are unbounded. Tokens are turn-scoped, so resumed
-                # user-MCP tool execution and the continuation need fresh tokens.
-                if workflow.patched(REMINT_SCOPE_TOKENS_PATCH):
-                    compiled_run = self._remint_scope_tokens(
-                        compiled_run,
-                        internal_tool_context=internal_tool_context,
-                    )
-                    llm_gateway_auth_token = mint_llm_token(
-                        workspace_id=self.workspace_id,
-                        organization_id=self.organization_id,
-                        session_id=self.session_id,
-                        model=cfg.model_name,
-                        provider=cfg.model_provider,
-                        catalog_id=cfg.catalog_id,
-                        base_url=cfg.base_url,
-                        model_settings=cfg.model_settings,
-                        routes=compiled_run.llm_routes,
-                    )
-
                 # Execute approved tools and reconcile the SDK transcript.
                 approved_tools, denied_tools = self._build_tool_lists_from_approvals(
                     result.approval_items or []
