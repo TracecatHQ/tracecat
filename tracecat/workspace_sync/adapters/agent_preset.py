@@ -11,8 +11,9 @@ import yaml
 from pydantic import BaseModel, ValidationError
 from slugify import slugify
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import aliased, selectinload
 
+from tracecat.agent.skill.service import SkillService
 from tracecat.agent.subagents import AgentSubagentsConfig, HeadAttachedSubagentRef
 from tracecat.db.models import (
     AgentFolder,
@@ -343,11 +344,26 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         """Return slug/version skill bindings grouped by preset version id."""
         if not version_ids:
             return {}
+        slug_owner = aliased(Skill)
+        effective_slug = sa.func.coalesce(Skill.slug, Skill.name)
+        is_shadowed_legacy_binding = sa.and_(
+            Skill.slug.is_(None),
+            sa.exists(
+                select(slug_owner.id).where(
+                    slug_owner.workspace_id == workspace_service.workspace_id,
+                    slug_owner.id != Skill.id,
+                    slug_owner.slug == Skill.name,
+                    slug_owner.deleted_at.is_(None),
+                    slug_owner.archived_at.is_(None),
+                )
+            ),
+        )
         stmt = (
             select(
                 AgentPresetVersionSkill.preset_version_id,
-                Skill.name,
+                effective_slug,
                 SkillVersion.version,
+                is_shadowed_legacy_binding,
             )
             .select_from(AgentPresetVersionSkill)
             .join(Skill, AgentPresetVersionSkill.skill_id == Skill.id)
@@ -361,13 +377,19 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             )
             .order_by(
                 AgentPresetVersionSkill.preset_version_id.asc(),
-                Skill.name.asc(),
+                effective_slug.asc(),
             )
         )
         bindings: dict[uuid.UUID, list[AgentPresetSkillBinding]] = {}
-        for preset_version_id, slug, version_number in (
+        for preset_version_id, slug, version_number, is_shadowed in (
             await workspace_service.session.execute(with_deleted(stmt))
         ).tuples():
+            if is_shadowed:
+                raise TracecatValidationError(
+                    f"Preset skill binding to legacy skill '{slug}' is shadowed "
+                    "by slug owner during sync export",
+                    detail={"code": "shadowed_skill_binding", "slug": slug},
+                )
             bindings.setdefault(preset_version_id, []).append(
                 AgentPresetSkillBinding(slug=slug, version=version_number)
             )
@@ -1181,17 +1203,14 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         current version when ``binding.version`` is unset). Returns
         ``(None, None)`` when the skill or version cannot be found.
         """
-        # Resolve the skill by its slug (stored as `name`) in this workspace.
-        skill = await workspace_service.session.scalar(
-            select(Skill).where(
-                Skill.workspace_id == workspace_service.workspace_id,
-                Skill.name == binding.slug,
-                # Expand-window check: legacy writers set only archived_at; the
-                # contract release drops the archived_at leg.
-                Skill.deleted_at.is_(None),
-                Skill.archived_at.is_(None),
-            )
-        )
+        # Resolve through the runtime resolver so canonical slug owners win
+        # over expand-window legacy rows (slug IS NULL projecting their name)
+        # and ambiguous legacy-only matches fail loud instead of attaching the
+        # binding to an arbitrary skill.
+        skill = await SkillService(
+            session=workspace_service.session,
+            role=workspace_service.role,
+        ).get_skill_by_slug(binding.slug)
         if skill is None:
             return None, None
         version_number = binding.version

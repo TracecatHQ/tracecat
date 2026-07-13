@@ -7033,7 +7033,13 @@ export type SkillFileEntry = {
 export type SkillRead = {
   id: string
   workspace_id: string
+  /**
+   * User-facing display name; not a runtime key.
+   */
   name: string
+  /**
+   * Current published package locator.
+   */
   slug: string
   description?: string | null
   current_version_id?: string | null
@@ -7057,7 +7063,13 @@ export type SkillRead = {
 export type SkillReadMinimal = {
   id: string
   workspace_id: string
+  /**
+   * User-facing display name; not a runtime key.
+   */
   name: string
+  /**
+   * Current published package locator.
+   */
   slug: string
   description?: string | null
   current_version_id?: string | null

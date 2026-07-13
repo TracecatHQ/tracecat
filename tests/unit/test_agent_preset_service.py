@@ -1625,24 +1625,13 @@ class TestAgentPresetService:
         await skill_service.publish_skill(skill_a.id)
 
         skill_b = await skill_service.create_skill(SkillCreate(name="skill-b-current"))
-        await skill_service.publish_skill(skill_b.id)
-
-        draft_b = await skill_service.get_draft(skill_b.id)
-        assert draft_b is not None
-        await skill_service.patch_draft(
-            skill_id=skill_b.id,
-            params=SkillDraftPatch(
-                base_revision=draft_b.draft_revision,
-                operations=[
-                    SkillDraftUpsertTextFileOp(
-                        path="SKILL.md",
-                        content="---\nname: shared-name\n---\n\n# shared-name\n",
-                        content_type="text/markdown; charset=utf-8",
-                    )
-                ],
-            ),
-        )
-        await skill_service.publish_skill(skill_b.id)
+        skill_b_version = await skill_service.publish_skill(skill_b.id)
+        skill_b_version_row = await skill_service.get_version(skill_b_version.id)
+        assert skill_b_version_row is not None
+        # Legacy data can have a unique head slug but a duplicate package name.
+        skill_b_version_row.name = "shared-name"
+        session.add(skill_b_version_row)
+        await session.commit()
 
         with pytest.raises(
             TracecatValidationError,
@@ -1670,6 +1659,51 @@ class TestAgentPresetService:
         assert detail["code"] == "duplicate_skill_names"
         assert detail["skill_names"] == ["shared-name"]
         assert uuid.UUID(detail["preset_id"])
+
+    async def test_create_preset_allows_duplicate_display_names(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Display names may match when immutable package names are distinct."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        skill_a = await skill_service.create_skill(SkillCreate(name="shared-display"))
+        await skill_service.publish_skill(skill_a.id)
+        skill_b = await skill_service.create_skill(SkillCreate(name="shared-display"))
+        draft_b = await skill_service.get_draft(skill_b.id)
+        assert draft_b is not None
+        await skill_service.patch_draft(
+            skill_id=skill_b.id,
+            params=SkillDraftPatch(
+                base_revision=draft_b.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content="---\nname: shared-package-b\n---\n\n# package b\n",
+                    )
+                ],
+            ),
+        )
+        await skill_service.publish_skill(skill_b.id)
+
+        preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Duplicate display preset",
+                instructions="Use both skills",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[
+                    AgentPresetSkillBindingBase(skill_id=skill_a.id),
+                    AgentPresetSkillBindingBase(skill_id=skill_b.id),
+                ],
+            )
+        )
+
+        assert skill_a.name == skill_b.name == "shared-display"
+        assert preset.current_version_id is not None
 
     async def test_version_validation_and_snapshot_share_locked_skill_specs(
         self,
@@ -1770,24 +1804,12 @@ class TestAgentPresetService:
         await skill_service.publish_skill(skill_a.id)
 
         skill_b = await skill_service.create_skill(SkillCreate(name="skill-b-current"))
-        await skill_service.publish_skill(skill_b.id)
-
-        draft_b = await skill_service.get_draft(skill_b.id)
-        assert draft_b is not None
-        await skill_service.patch_draft(
-            skill_id=skill_b.id,
-            params=SkillDraftPatch(
-                base_revision=draft_b.draft_revision,
-                operations=[
-                    SkillDraftUpsertTextFileOp(
-                        path="SKILL.md",
-                        content="---\nname: shared-name\n---\n\n# shared-name\n",
-                        content_type="text/markdown; charset=utf-8",
-                    )
-                ],
-            ),
-        )
         skill_b_shared = await skill_service.publish_skill(skill_b.id)
+        skill_b_shared_row = await skill_service.get_version(skill_b_shared.id)
+        assert skill_b_shared_row is not None
+        skill_b_shared_row.name = "shared-name"
+        session.add(skill_b_shared_row)
+        await session.commit()
 
         preset = await agent_preset_service.create_preset(
             AgentPresetCreate(

@@ -95,8 +95,8 @@ class SkillRead(Schema):
 
     id: uuid.UUID
     workspace_id: WorkspaceID
-    name: str
-    slug: str
+    name: str = Field(description="User-facing display name; not a runtime key.")
+    slug: str = Field(description="Current published package locator.")
     description: str | None = Field(default=None)
     current_version_id: uuid.UUID | None = Field(default=None)
     draft_revision: int
@@ -121,8 +121,8 @@ class SkillReadMinimal(Schema):
 
     id: uuid.UUID
     workspace_id: WorkspaceID
-    name: str
-    slug: str
+    name: str = Field(description="User-facing display name; not a runtime key.")
+    slug: str = Field(description="Current published package locator.")
     description: str | None = Field(default=None)
     current_version_id: uuid.UUID | None = Field(default=None)
     created_at: datetime

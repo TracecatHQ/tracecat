@@ -8,6 +8,7 @@ import mimetypes
 import uuid
 from collections.abc import Awaitable, Callable, Iterator, Sequence
 from dataclasses import dataclass, field
+from dataclasses import replace as dataclasses_replace
 from datetime import UTC, datetime, timedelta
 from pathlib import PurePosixPath
 from typing import Never
@@ -165,7 +166,13 @@ type PreparedDraftPatchOperation = (
     | PreparedDraftDeleteFileOp
     | PreparedDraftMoveFileOp
 )
-type SkillDraftBlobMapFactory = Callable[[], Awaitable[dict[str, SkillFileBlobRef]]]
+type SkillDraftBlobMapFactory = Callable[[str], Awaitable[dict[str, SkillFileBlobRef]]]
+"""Builds the seeded draft blob map for a new skill.
+
+Receives the allocated live slug so the seeded ``SKILL.md`` package name can
+match it: publishing assigns the live slug from the manifest name, so a draft
+seeded with a colliding display name would be unpublishable out of the box.
+"""
 
 
 def _integrity_error_sources(error: IntegrityError) -> Iterator[object]:
@@ -1096,10 +1103,19 @@ class SkillService(BaseWorkspaceService):
                 )
             )
         skill.current_version_id = version.id
-        skill.name = manifest_name
+        skill.slug = manifest_name
         skill.description = validation.description
         self.session.add(skill)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            if not _is_skill_slug_unique_violation(exc):
+                raise
+            raise TracecatValidationError(
+                f"Skill slug '{manifest_name}' is already in use for this workspace",
+                detail={"code": "skill_slug_conflict", "slug": manifest_name},
+            ) from None
         return await self.get_version_read(skill_id=skill.id, version_id=version.id)
 
     async def _build_draft_read(self, skill: Skill) -> SkillDraftRead:
@@ -1191,7 +1207,9 @@ class SkillService(BaseWorkspaceService):
             deleted_at=skill.deleted_at or skill.archived_at,
         )
 
-    async def _validate_skill_slug_available(self, slug: str) -> None:
+    async def _validate_skill_slug_available(
+        self, slug: str, *, excluding_skill_id: uuid.UUID | None = None
+    ) -> None:
         """Ensure a live skill slug is not already reserved in this workspace.
 
         Used by workspace-sync import, where the manifest names an exact slug
@@ -1199,7 +1217,7 @@ class SkillService(BaseWorkspaceService):
         creation uses ``_allocate_skill_slug`` instead.
         """
 
-        if await self._skill_slug_exists(slug):
+        if await self._skill_slug_exists(slug, excluding_skill_id=excluding_skill_id):
             raise TracecatValidationError(
                 f"Skill slug '{slug}' is already in use for this workspace",
                 detail={"code": "skill_slug_conflict", "slug": slug},
@@ -1228,7 +1246,9 @@ class SkillService(BaseWorkspaceService):
         suffix = f"-{counter}"
         return f"{slug[: SKILL_SLUG_MAX_LENGTH - len(suffix)]}{suffix}"
 
-    async def _skill_slug_exists(self, slug: str) -> bool:
+    async def _skill_slug_exists(
+        self, slug: str, *, excluding_skill_id: uuid.UUID | None = None
+    ) -> bool:
         """Check whether a live row already occupies ``slug`` in this workspace.
 
         Legacy rows inserted by old pods during the expand window have
@@ -1242,17 +1262,18 @@ class SkillService(BaseWorkspaceService):
         as taken that the index would accept.
         """
 
-        stmt = select(
-            sa.exists().where(
-                Skill.workspace_id == self.workspace_id,
-                sa.or_(
-                    Skill.slug == slug,
-                    sa.and_(Skill.slug.is_(None), Skill.name == slug),
-                ),
-                Skill.deleted_at.is_(None),
-                Skill.archived_at.is_(None),
-            )
-        )
+        predicates = [
+            Skill.workspace_id == self.workspace_id,
+            sa.or_(
+                Skill.slug == slug,
+                sa.and_(Skill.slug.is_(None), Skill.name == slug),
+            ),
+            Skill.deleted_at.is_(None),
+            Skill.archived_at.is_(None),
+        ]
+        if excluding_skill_id is not None:
+            predicates.append(Skill.id != excluding_skill_id)
+        stmt = select(sa.exists().where(*predicates))
         return bool((await self.session.execute(stmt)).scalar_one())
 
     async def _create_skill_with_slug_retry(
@@ -1278,7 +1299,7 @@ class SkillService(BaseWorkspaceService):
                 await self.session.flush()
                 await self._replace_draft_with_blob_map(
                     skill=skill,
-                    path_to_blob=await path_to_blob_factory(),
+                    path_to_blob=await path_to_blob_factory(slug),
                 )
                 await self.session.commit()
             except IntegrityError as exc:
@@ -1375,8 +1396,17 @@ class SkillService(BaseWorkspaceService):
             if uuid_match := await self.get_skill(parsed_skill_id):
                 return uuid_match
 
+        return await self.get_skill_by_slug(identifier)
+
+    async def get_skill_by_slug(self, slug: str) -> Skill | None:
+        """Return the live skill owning an effective slug, exact match first.
+
+        Raises ``TracecatValidationError`` when only legacy (``slug IS NULL``)
+        rows match and more than one projects the requested fallback slug.
+        """
+
         try:
-            skill_slug = SKILL_SLUG_ADAPTER.validate_python(identifier)
+            skill_slug = SKILL_SLUG_ADAPTER.validate_python(slug)
         except ValidationError:
             return None
         # Legacy rows inserted by old pods during the expand window have
@@ -1518,9 +1548,13 @@ class SkillService(BaseWorkspaceService):
             The created skill summary.
         """
 
-        async def default_draft_blob_map() -> dict[str, SkillFileBlobRef]:
+        async def default_draft_blob_map(slug: str) -> dict[str, SkillFileBlobRef]:
+            # Seed the package name with the allocated live slug (which may
+            # carry a deduplication suffix); publish assigns the live slug
+            # from the manifest, so a colliding display name here would make
+            # the untouched default draft unpublishable.
             root_markdown = self._build_default_skill_markdown(
-                name=params.name,
+                name=slug,
                 description=params.description,
             )
             root_blob = await self._get_or_create_blob(
@@ -1554,10 +1588,28 @@ class SkillService(BaseWorkspaceService):
 
         validation, prepared_files = self._validate_upload_draft(params)
 
-        async def uploaded_draft_blob_map() -> dict[str, SkillFileBlobRef]:
+        async def uploaded_draft_blob_map(slug: str) -> dict[str, SkillFileBlobRef]:
+            # If slug allocation had to suffix past a live duplicate, rewrite
+            # the uploaded package name to the allocated slug so the draft
+            # stays publishable (publish assigns the live slug from the
+            # manifest name).
+            files = prepared_files
+            if slug != validation.name:
+                files = [
+                    dataclasses_replace(
+                        file,
+                        content=self._merge_skill_markdown_metadata(
+                            file.content.decode("utf-8"),
+                            name=slug,
+                        ).encode("utf-8"),
+                    )
+                    if file.path == "SKILL.md"
+                    else file
+                    for file in prepared_files
+                ]
             prepared_draft = await self._materialize_upload_draft(
                 validation=validation,
-                prepared_files=prepared_files,
+                prepared_files=files,
             )
             return prepared_draft.path_to_blob
 
@@ -1585,7 +1637,6 @@ class SkillService(BaseWorkspaceService):
             path_to_blob=prepared_draft.path_to_blob,
         )
         if skill.current_version_id is None:
-            skill.name = params.name
             skill.description = prepared_draft.validation.description
             self.session.add(skill)
         await self.session.commit()
@@ -1996,7 +2047,6 @@ class SkillService(BaseWorkspaceService):
             and not validation.errors
             and validation.name is not None
         ):
-            skill.name = validation.name
             skill.description = validation.description
             self.session.add(skill)
         await self.session.commit()
@@ -2096,6 +2146,12 @@ class SkillService(BaseWorkspaceService):
                     ],
                 },
             )
+        if validation.name is None:  # pragma: no cover - included in validation errors
+            self._raise_missing_draft_name(operation="publish")
+        await self._validate_skill_slug_available(
+            validation.name,
+            excluding_skill_id=skill.id,
+        )
         return await self._create_version_from_blob_refs(
             skill=skill,
             file_refs=[
@@ -2146,6 +2202,12 @@ class SkillService(BaseWorkspaceService):
                     ],
                 },
             )
+        if validation.name is None:  # pragma: no cover - included in validation errors
+            self._raise_missing_draft_name(operation="publish")
+        await self._validate_skill_slug_available(
+            validation.name,
+            excluding_skill_id=skill.id,
+        )
         file_refs = [
             (
                 file.path,
@@ -2341,6 +2403,13 @@ class SkillService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Skill version '{version_id}' not found")
         if version.name is None:
             self._raise_missing_version_name(skill_version_id=version.id)
+        # The restored package name becomes the live slug. Like the publish
+        # paths, validate it against live rows first: the partial unique index
+        # cannot see expand-window legacy rows whose slug is still NULL.
+        await self._validate_skill_slug_available(
+            version.name,
+            excluding_skill_id=skill.id,
+        )
         rows = await self._list_version_rows(version.id)
         await self._create_version_from_blob_refs(
             skill=skill,
