@@ -3190,6 +3190,31 @@ class TestAgentPresetService:
         assert missing_version_refs.refs[0].status == "skipped"
         assert missing_version_refs.refs[0].code == "not_found"
 
+    async def test_root_preset_missing_version_id_classified_not_found(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """A stale pinned version ID is missing, not unpublished."""
+
+        preset = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Live Pinned Root", "slug": "live-pinned-root"}
+            )
+        )
+        assert preset.current_version_id is not None
+
+        missing_version_refs = (
+            await agent_preset_service.build_root_preset_failure_refs(
+                slug=preset.slug,
+                preset_version_id=uuid.uuid4(),
+            )
+        )
+
+        assert missing_version_refs.refs[0].resource_id == preset.id
+        assert missing_version_refs.refs[0].status == "skipped"
+        assert missing_version_refs.refs[0].code == "not_found"
+
     async def test_resolution_activity_writes_immutable_turn_provenance_snapshot(
         self,
         configure_minio_for_skills,

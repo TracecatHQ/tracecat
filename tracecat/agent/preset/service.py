@@ -1129,6 +1129,27 @@ class AgentPresetService(BaseWorkspaceService):
                 ]
             )
 
+        if preset_version_id is not None and (
+            await self.get_active_version(
+                version_id=preset_version_id,
+                preset_id=preset.id,
+            )
+            is None
+        ):
+            # The preset is live but the requested version ID does not exist
+            # for it, so the version ref is missing rather than unpublished.
+            return ResolvedRefs(
+                refs=[
+                    ResolvedRef(
+                        resource_kind="preset",
+                        slug=preset.slug,
+                        resource_id=preset.id,
+                        status="skipped",
+                        code="not_found",
+                    )
+                ]
+            )
+
         return ResolvedRefs(
             refs=[
                 ResolvedRef(
