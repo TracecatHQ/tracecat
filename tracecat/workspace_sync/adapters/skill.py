@@ -377,6 +377,9 @@ class SkillAdapter(DirectoryManifestAdapter):
             select(Skill)
             .where(
                 Skill.workspace_id == workspace_service.workspace_id,
+                # Expand-window check: legacy writers set only archived_at; the
+                # contract release drops the archived_at leg.
+                Skill.deleted_at.is_(None),
                 Skill.archived_at.is_(None),
             )
             .options(selectinload(Skill.current_version))
@@ -563,6 +566,11 @@ class SkillAdapter(DirectoryManifestAdapter):
             owner_label="skill",
             error_cls=TracecatValidationError,
             temp_prefix="__tc_sync_tmp_",
+            row_predicates=(Skill.deleted_at.is_(None), Skill.archived_at.is_(None)),
+            availability_predicates=(
+                Skill.deleted_at.is_(None),
+                Skill.archived_at.is_(None),
+            ),
         )
         imported: list[ImportedResource] = []
         skill_service = SkillService(
@@ -578,9 +586,11 @@ class SkillAdapter(DirectoryManifestAdapter):
                 swap=swap,
             )
             if skill is None:
+                await skill_service._validate_skill_slug_available(spec.slug)
                 skill = Skill(
                     workspace_id=workspace_service.workspace_id,
                     name=spec.slug,
+                    slug=spec.slug,
                     description=getattr(spec, "description", None),
                     draft_revision=0,
                 )
@@ -588,7 +598,7 @@ class SkillAdapter(DirectoryManifestAdapter):
                 # Flush to assign skill.id before referencing it below.
                 await workspace_service.session.flush()
             else:
-                # Keep an existing skill's slug and description in sync.
+                # Keep existing name-based sync behavior; slug is stable identity.
                 skill.name = spec.slug
                 skill.description = getattr(spec, "description", None)
 
@@ -764,6 +774,8 @@ class SkillAdapter(DirectoryManifestAdapter):
             select(Skill).where(
                 Skill.workspace_id == workspace_service.workspace_id,
                 Skill.name == spec.slug,
+                Skill.deleted_at.is_(None),
+                Skill.archived_at.is_(None),
             )
         )
 
@@ -775,7 +787,10 @@ class SkillAdapter(DirectoryManifestAdapter):
     ) -> Skill | None:
         """Load the skill mapped to ``source_id`` via the sync mapping, if any."""
         return await self._row_by_source_id(
-            workspace_service, source_id=source_id, model=Skill
+            workspace_service,
+            source_id=source_id,
+            model=Skill,
+            row_predicates=(Skill.deleted_at.is_(None), Skill.archived_at.is_(None)),
         )
 
 

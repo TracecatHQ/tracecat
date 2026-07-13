@@ -25,6 +25,7 @@ from tracecat.db.models import (
     Skill,
     SkillVersion,
 )
+from tracecat.db.soft_delete import with_deleted
 from tracecat.exceptions import TracecatValidationError
 from tracecat.sync import PullDiagnostic, serializable_validation_errors
 from tracecat.workspace_sync.adapters.base import (
@@ -353,7 +354,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         )
         bindings: dict[uuid.UUID, list[AgentPresetSkillBinding]] = {}
         for preset_version_id, slug, version_number in (
-            await workspace_service.session.execute(stmt)
+            await workspace_service.session.execute(with_deleted(stmt))
         ).tuples():
             bindings.setdefault(preset_version_id, []).append(
                 AgentPresetSkillBinding(slug=slug, version=version_number)
@@ -1063,6 +1064,10 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             select(Skill).where(
                 Skill.workspace_id == workspace_service.workspace_id,
                 Skill.name == binding.slug,
+                # Expand-window check: legacy writers set only archived_at; the
+                # contract release drops the archived_at leg.
+                Skill.deleted_at.is_(None),
+                Skill.archived_at.is_(None),
             )
         )
         if skill is None:

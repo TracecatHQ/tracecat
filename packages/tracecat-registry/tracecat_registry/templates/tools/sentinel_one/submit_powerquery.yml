@@ -1,0 +1,110 @@
+type: action
+definition:
+  title: Submit PowerQuery
+  description: Submit a SentinelOne Singularity Data Lake PowerQuery for event and telemetry threat hunting.
+  display_group: SentinelOne
+  doc_url: https://github.com/Sentinel-One/purple-mcp
+  namespace: tools.sentinel_one
+  name: submit_powerquery
+  secrets:
+    - name: sentinel_one
+      keys: ["SENTINEL_ONE_API_TOKEN"]
+  expects:
+    query:
+      type: str
+      description: PowerQuery string to execute.
+    start_time:
+      type: str
+      description: Start time for the query. Accepts SDL relative time or epoch strings.
+      default: 24h
+    end_time:
+      type: str
+      description: End time for the query. Accepts SDL relative time or epoch strings.
+      default: 0s
+    tenant:
+      type: bool | None
+      description: Query the tenant scope available to the token. Set to false when using account_ids.
+      default: null
+    account_ids:
+      type: list[str] | None
+      description: Optional SentinelOne account IDs to scope the query.
+      default: null
+    query_priority:
+      type: str
+      description: SDL query priority.
+      default: LOW
+    result_type:
+      type: str
+      description: PowerQuery result type.
+      default: table
+    frequency:
+      type: str
+      description: PowerQuery frequency hint.
+      default: low
+    query_origin:
+      type: str | None
+      description: Optional provenance string for SDL.
+      default: null
+    base_url:
+      type: str | None
+      description: SentinelOne tenant URL. /sdl is appended automatically.
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          start_time: ${{ inputs.start_time }}
+          end_time: ${{ inputs.end_time }}
+          query_priority: ${{ inputs.query_priority }}
+          tenant: ${{ inputs.tenant }}
+          account_ids: ${{ inputs.account_ids }}
+          query_origin: ${{ inputs.query_origin }}
+          query: ${{ inputs.query }}
+          result_type: ${{ inputs.result_type }}
+          frequency: ${{ inputs.frequency }}
+        script: |
+          def main(
+              start_time,
+              end_time,
+              query_priority,
+              tenant,
+              account_ids,
+              query_origin,
+              query,
+              result_type,
+              frequency,
+          ):
+              # Scope fields are omitted when unset so the SDL API applies its
+              # own default scoping, instead of receiving an explicit null.
+              payload = {
+                  "startTime": start_time,
+                  "endTime": end_time,
+                  "queryType": "pq",
+                  "queryPriority": query_priority,
+                  "pq": {
+                      "query": query,
+                      "resultType": result_type,
+                      "frequency": frequency,
+                  },
+              }
+              if tenant is not None:
+                  payload["tenant"] = tenant
+              if account_ids is not None:
+                  payload["accountIds"] = account_ids
+              if query_origin is not None:
+                  payload["queryOrigin"] = query_origin
+              # A single-account query must carry the S1-Scope header set to that
+              # account ID; multi-account and global queries omit it.
+              extra_headers = {}
+              if account_ids is not None and len(account_ids) == 1:
+                  extra_headers["S1-Scope"] = account_ids[0]
+              return {"payload": payload, "extra_headers": extra_headers}
+    - ref: submit_query
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sentinel_one.base_url }}/sdl/v2/api/queries
+        method: POST
+        headers: '${{ FN.merge([{"Authorization": FN.concat("Bearer ", SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN)}, steps.build_payload.result.extra_headers]) }}'
+        payload: ${{ steps.build_payload.result.payload }}
+  returns: ${{ steps.submit_query.result }}

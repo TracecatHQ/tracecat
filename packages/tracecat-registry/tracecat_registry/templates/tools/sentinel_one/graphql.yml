@@ -1,0 +1,45 @@
+type: action
+definition:
+  title: Run GraphQL query
+  description: Run an arbitrary GraphQL query against a SentinelOne GraphQL API.
+  display_group: SentinelOne
+  doc_url: https://github.com/Sentinel-One/purple-mcp
+  namespace: tools.sentinel_one
+  name: graphql
+  secrets:
+    - name: sentinel_one
+      keys: ["SENTINEL_ONE_API_TOKEN"]
+  expects:
+    query:
+      type: str
+      description: GraphQL query or mutation string.
+    variables:
+      type: dict[str, Any]
+      description: Variables to bind to the GraphQL query.
+      default: {}
+    auth_scheme:
+      type: str
+      description: Authorization scheme. Use ApiToken for the console GraphQL gateway (e.g. Purple AI) or Bearer for data-lake GraphQL services (e.g. Unified Alerts).
+      default: ApiToken
+    endpoint:
+      type: str
+      description: GraphQL endpoint path appended to base_url.
+      default: /web/api/v2.1/graphql
+    base_url:
+      type: str | None
+      description: SentinelOne tenant URL.
+      default: null
+  steps:
+    - ref: run_query
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sentinel_one.base_url }}${{ inputs.endpoint }}
+        method: POST
+        headers:
+          Authorization: "${{ inputs.auth_scheme }} ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}"
+          Content-Type: application/json
+          Accept: application/json
+        payload:
+          query: ${{ inputs.query }}
+          variables: ${{ inputs.variables }}
+  returns: ${{ steps.run_query.result.data }}

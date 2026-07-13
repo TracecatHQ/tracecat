@@ -244,6 +244,7 @@ export default React.memo(function ActionNode({
           workflow_id: workflowId,
           ...action,
           title: `Copy of ${action.title}`,
+          upstream_edges: [],
         },
       })
       const newNode = {

@@ -35,12 +35,13 @@ class AgentPresetSkillBindingBase(Schema):
     """Shared fields for preset skill bindings."""
 
     skill_id: uuid.UUID
-    skill_version_id: uuid.UUID
 
 
-class AgentPresetSkillBindingRead(AgentPresetSkillBindingBase):
+class AgentPresetSkillBindingRead(Schema):
     """Resolved preset skill binding with metadata."""
 
+    skill_id: uuid.UUID
+    skill_version_id: uuid.UUID
     skill_name: str
     skill_version: int
 
