@@ -1344,10 +1344,7 @@ class WorkspaceSyncService(SyncMappingService):
                 role=self.role,
                 mapping_provider=self._mapping_provider,
             ).project_non_workflow_resources(resource_types=entitled_resource_types)
-            return await self._augment_full_workspace_version_closure(
-                projection,
-                workflow_specs=workflow_specs,
-            )
+            return await self._augment_full_workspace_version_closure(projection)
 
         specs_by_attr: dict[str, dict[str, BaseModel]] = {
             adapter.spec_attr: {} for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS
@@ -1390,13 +1387,6 @@ class WorkspaceSyncService(SyncMappingService):
                     slug
                     for workflow in workflow_specs.values()
                     for slug in workflow_references(workflow.definition).preset_slugs
-                },
-                versioned_slugs={
-                    ref
-                    for workflow in workflow_specs.values()
-                    for ref in workflow_references(
-                        workflow.definition
-                    ).versioned_preset_slugs
                 },
             ),
         )
@@ -1529,27 +1519,17 @@ class WorkspaceSyncService(SyncMappingService):
     async def _augment_full_workspace_version_closure(
         self,
         projection: WorkspaceResourceProjection,
-        *,
-        workflow_specs: dict[str, WorkflowResourceSpec],
     ) -> WorkspaceResourceProjection:
-        """Add workflow-pinned preset/skill versions to a full-workspace export.
+        """Add historical preset/skill dependencies to a full-workspace export.
 
-        A full export already includes every live resource, but versioned
-        workflow refs can point at non-current preset versions. Pull those
-        exact preset versions into the projected specs, then pull the exact
-        skill versions those preset snapshots bind.
+        A full export already includes every live resource. Historical preset
+        manifests may still reference non-current dependencies, so include
+        those exact dependency versions in the projected specs.
         """
         projected_presets = list(projection.spec.agent_presets.values())
         pending_preset_refs = deque(
             sorted(
                 {
-                    ref
-                    for workflow in workflow_specs.values()
-                    for ref in workflow_references(
-                        workflow.definition
-                    ).versioned_preset_slugs
-                }
-                | {
                     VersionedSlug(subagent.slug, subagent.version)
                     for preset in projected_presets
                     for subagent in _agent_preset_subagent_refs(preset)

@@ -10,12 +10,18 @@ from fastapi import HTTPException
 from fastapi.routing import APIRoute
 
 from tracecat.agent.skill.internal_router import (
+    _raise_skill_validation_error as _raise_internal_skill_validation_error,
+)
+from tracecat.agent.skill.internal_router import (
     get_skill,
     get_skill_version,
     list_skill_versions,
     list_skills,
     publish_skill_version,
     router,
+)
+from tracecat.agent.skill.router import (
+    _raise_skill_validation_error as _raise_public_skill_validation_error,
 )
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatValidationError
@@ -41,6 +47,25 @@ def test_internal_router_does_not_expose_draft_publish() -> None:
 
     assert ("/internal/agent/skills/{skill_id}/publish", "POST") not in routes
     assert ("/internal/agent/skills/{skill_id}/versions", "POST") in routes
+
+
+@pytest.mark.parametrize(
+    "raise_error",
+    [_raise_public_skill_validation_error, _raise_internal_skill_validation_error],
+)
+def test_skill_in_use_validation_error_is_http_409(raise_error: Any) -> None:
+    detail = {"code": "skill_in_use"}
+
+    with pytest.raises(HTTPException) as exc_info:
+        raise_error(
+            TracecatValidationError(
+                "Skill is still attached to a preset",
+                detail=detail,
+            )
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == detail
 
 
 @pytest.mark.anyio

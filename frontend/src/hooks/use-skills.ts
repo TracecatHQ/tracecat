@@ -514,6 +514,9 @@ export function useRestoreSkillVersion(workspaceId: string) {
       queryClient.invalidateQueries({
         queryKey: ["skill-draft-file", workspaceId, variables.skillId],
       })
+      queryClient.invalidateQueries({
+        queryKey: ["skill-versions", workspaceId, variables.skillId],
+      })
       toast({
         title: "Active version updated",
         description: "The selected published version is now active.",
@@ -565,16 +568,9 @@ export function useDeleteSkill(workspaceId: string) {
     },
     onError: (error) => {
       const detail = getApiErrorDetail(error)
-      const isInUse =
-        typeof error.body === "object" &&
-        error.body !== null &&
-        "code" in error.body &&
-        error.body.code === "skill_in_use"
       toast({
-        title: isInUse ? "Skill in use" : "Delete failed",
-        description: isInUse
-          ? "This skill is referenced by an agent and cannot be deleted."
-          : (detail ?? "Failed to delete skill."),
+        title: "Delete failed",
+        description: detail ?? "Failed to delete skill.",
         variant: "destructive",
       })
     },

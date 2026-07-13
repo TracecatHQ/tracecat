@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 
 import sqlalchemy as sa
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -42,9 +42,10 @@ class ResolveAgentPresetConfigActivityInput(BaseModel):
 
 
 class ResolveAgentPresetVersionRefActivityInput(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     role: Role
     preset_slug: str
-    preset_version: int | None = None
 
 
 class AgentPresetVersionRef(BaseModel):
@@ -57,7 +58,12 @@ class ResolveAgentsConfigActivityInput(BaseModel):
     agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
     parent_preset_id: uuid.UUID | None = None
     parent_slug: str | None = None
+    # Legacy Temporal payload field. ResourceHead resolution is unconditional.
     follow_latest_versions: bool | None = None
+    # NOTE(ENG-1526): optional-with-default so pre-existing workflow histories
+    # deserialize; only the durable resume path sets it. PR 2.3a (dispatch-time
+    # resolution) may subsume or remove this flag.
+    preserve_resolved_versions: bool = False
 
 
 @activity.defn
@@ -81,7 +87,6 @@ async def resolve_agent_preset_version_ref_activity(
     async with AgentPresetService.with_session(role=args.role) as service:
         version = await service.resolve_agent_preset_version(
             slug=args.preset_slug,
-            preset_version=args.preset_version,
         )
         return AgentPresetVersionRef(
             preset_id=version.preset_id,
@@ -94,16 +99,13 @@ async def resolve_agents_config_activity(
     args: ResolveAgentsConfigActivityInput,
 ) -> ResolvedAgentsRuntimeConfig:
     async with AgentPresetService.with_session(role=args.role) as service:
-        follow_latest_versions = args.follow_latest_versions
-        if follow_latest_versions is None:
-            follow_latest_versions = await service.use_latest_resource_versions()
         resolved = await resolve_agents_config(
             service,
             agents=args.agents,
             parent_preset_id=args.parent_preset_id,
             parent_slug=args.parent_slug,
             include_runtime_config=True,
-            follow_latest_versions=follow_latest_versions,
+            preserve_resolved_versions=args.preserve_resolved_versions,
         )
         return resolved.to_runtime_config()
 

@@ -25,6 +25,7 @@ from tracecat_ee.agent.activities import (
     BuildAgentToolDefsArgs,
     BuildToolDefsArgs,
 )
+from tracecat_ee.agent.workflows.durable import _preserved_agents_binding
 
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import HarnessType
@@ -762,18 +763,27 @@ class TestCreateSessionActivity:
                 {"enabled": False},
                 None,
                 None,
-                False,
-                False,
-                id="different-explicit-binding",
+                True,
+                True,
+                id="never-run-overwrites-stale-binding",
             ),
             pytest.param(
                 None,
                 {"enabled": True, "subagents": []},
                 None,
                 None,
+                True,
+                True,
+                id="never-run-overwrites-with-disabled-binding",
+            ),
+            pytest.param(
+                ResolvedAgentsConfig.model_validate({"enabled": True, "subagents": []}),
+                {"enabled": False},
+                "sdk-session-1",
+                None,
                 False,
                 False,
-                id="missing-incoming-binding",
+                id="resume-state-mismatch-still-fails",
             ),
         ],
     )
@@ -791,7 +801,12 @@ class TestCreateSessionActivity:
         expected_success: bool,
         expected_backfill: bool,
     ):
-        """Existing sessions reject binding changes once SDK/fork resume state exists."""
+        """Existing sessions reject binding changes once SDK/fork resume state exists.
+
+        A never-run session (no SDK session, no fork parent) adopts the
+        freshly resolved binding instead: an explicit version selection persists
+        the version's saved binding, but the first turn resolves fresh.
+        """
         input = CreateSessionInput(
             role=mock_role,
             session_id=mock_session_id,
@@ -829,10 +844,9 @@ class TestCreateSessionActivity:
             assert exc_info.value.non_retryable is True
 
         if expected_backfill:
-            assert incoming_agents_binding is not None
-            assert (
-                mock_agent_session.agents_binding
-                == incoming_agents_binding.model_dump(mode="json")
+            requested_binding = incoming_agents_binding or ResolvedAgentsConfig()
+            assert mock_agent_session.agents_binding == requested_binding.model_dump(
+                mode="json"
             )
             mock_service.session.add.assert_called_once_with(mock_agent_session)
             mock_service.session.commit.assert_awaited_once()
@@ -992,6 +1006,47 @@ class TestCreateSessionActivity:
 
         assert result.success is True
         mock_service.auto_title_session_on_first_prompt.assert_not_awaited()
+
+
+class TestPreservedAgentsBinding:
+    """First-turn vs resumed gating of verbatim binding restore.
+
+    Verbatim restore (exact version IDs, including soft-deleted children)
+    protects the topology of sessions with actual resume state. A pre-created
+    session that never ran may already persist a selected version's saved
+    binding; its first turn must resolve the current head so a deleted child is
+    skipped-and-recorded, never restored.
+    """
+
+    def test_never_run_session_with_persisted_binding_resolves_fresh(self) -> None:
+        binding = ResolvedAgentsConfig.model_validate(
+            {"enabled": True, "subagents": []}
+        )
+        result = LoadSessionResult(
+            found=True, agents_binding=binding, has_resume_state=False
+        )
+        assert _preserved_agents_binding(result) is None
+
+    def test_resumed_session_restores_stored_binding_verbatim(self) -> None:
+        binding = ResolvedAgentsConfig.model_validate(
+            {"enabled": True, "subagents": []}
+        )
+        result = LoadSessionResult(
+            found=True,
+            sdk_session_id="sdk-session-1",
+            agents_binding=binding,
+            has_resume_state=True,
+        )
+        assert _preserved_agents_binding(result) == binding
+
+    def test_resumed_session_without_binding_preserves_disabled(self) -> None:
+        result = LoadSessionResult(
+            found=True, sdk_session_id="sdk-session-1", has_resume_state=True
+        )
+        assert _preserved_agents_binding(result) == ResolvedAgentsConfig()
+
+    def test_missing_session_resolves_fresh(self) -> None:
+        assert _preserved_agents_binding(LoadSessionResult(found=False)) is None
 
 
 class TestLoadSessionActivity:

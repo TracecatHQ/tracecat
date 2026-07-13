@@ -1103,7 +1103,6 @@ class DSLWorkflow:
                         ResolveAgentPresetVersionRefActivityInput(
                             role=self.role,
                             preset_slug=preset_action_args.preset,
-                            preset_version=preset_action_args.preset_version,
                         ),
                         start_to_close_timeout=timedelta(seconds=30),
                         retry_policy=RETRY_POLICIES["activity:fail_fast"],
@@ -1132,7 +1131,6 @@ class DSLWorkflow:
                             user_prompt=preset_action_args.user_prompt,
                             session_id=session_id,
                             preset_slug=preset_action_args.preset,
-                            preset_version=preset_action_args.preset_version,
                             config=override_config,
                             max_requests=preset_action_args.max_requests,
                             max_tool_calls=preset_action_args.max_tool_calls,
