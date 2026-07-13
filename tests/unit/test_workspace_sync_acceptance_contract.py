@@ -71,6 +71,7 @@ from tracecat.workspace_sync.adapters import (
     TABLE_RESOURCE_ADAPTER,
     WORKSPACE_RESOURCE_ADAPTERS,
 )
+from tracecat.workspace_sync.adapters.base import ResourceDependencyRefs
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.importer import WorkspaceResourceImportService
 from tracecat.workspace_sync.resources import workflow_references
@@ -1037,6 +1038,45 @@ async def test_skill_projection_rejects_ambiguous_legacy_slugs(
         "code": "ambiguous_skill_slug",
         "slug": "foo",
     }
+
+
+@pytest.mark.anyio
+async def test_id_seeded_skill_projection_deduplicates_effective_slugs(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """ID-seeded partial export deduplicates expand-window effective slugs."""
+    workspace_id = svc_role.workspace_id
+    assert workspace_id is not None
+    exact_owner = Skill(
+        workspace_id=workspace_id,
+        slug="foo",
+        name="Exact owner",
+        description="Canonical description",
+    )
+    legacy = Skill(
+        workspace_id=workspace_id,
+        slug=None,
+        name="foo",
+        description="Legacy description",
+    )
+    session.add_all([exact_owner, legacy])
+    await session.flush()
+
+    projection = await SKILL_RESOURCE_ADAPTER.project_dependency_refs(
+        WorkspaceSyncService(session=session, role=svc_role),
+        ResourceDependencyRefs(local_ids={exact_owner.id, legacy.id}),
+    )
+
+    matching_specs = [
+        spec
+        for spec in projection.specs.values()
+        if isinstance(spec, SkillResourceSpec) and spec.slug == "foo"
+    ]
+    assert len(matching_specs) == 1
+    assert matching_specs[0].name == "Exact owner"
+    assert matching_specs[0].description == "Canonical description"
+    assert [resource.local_id for resource in projection.resources] == [exact_owner.id]
 
 
 async def _add_preset_version_skill_binding(
