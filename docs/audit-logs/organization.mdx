@@ -1,0 +1,93 @@
+---
+title: "Organization audit logs"
+description: "Stream organization audit events to an HTTPS webhook and shape each request for your log collector."
+---
+
+Send organization audit events to an external log collector over HTTPS.
+You must be an organization administrator to configure the endpoint.
+
+## Connect a log collector
+
+<Steps>
+  <Step title="Open organization settings">
+    Open the workspace menu, select **Organization**, then open **Audit Logs**
+    under **Settings**.
+  </Step>
+  <Step title="Connect the endpoint">
+    Click **Connect** and enter the HTTPS URL that accepts your audit events.
+
+    <Frame>
+      ![Connect an organization audit webhook](/img/audit-logs/organization-audit-webhook.jpg)
+    </Frame>
+  </Step>
+  <Step title="Configure the request">
+    Add any headers your collector requires. You can also merge custom JSON into
+    every event, wrap the payload under a key such as `event`, and control TLS
+    certificate verification.
+  </Step>
+  <Step title="Save and verify delivery">
+    Click **Save changes**, then confirm that your collector receives an
+    `organization_setting` event with a `SUCCESS` status.
+  </Step>
+</Steps>
+
+## Request options
+
+| Option | Behavior |
+| --- | --- |
+| Audit webhook URL | Receives each event as a JSON `POST` request. |
+| Custom headers | Adds static headers to every request. Header names are case-insensitive. |
+| Custom payload | Merges a JSON object into every event. Custom keys replace matching default keys. |
+| Payload attribute | Wraps the complete payload under the configured key. |
+| Verify SSL certificate | Verifies the endpoint certificate. Disable this only for a trusted endpoint that uses a private or self-signed certificate. |
+
+Tracecat encrypts the webhook URL, custom headers, and custom payload at rest.
+Choose custom payload keys that do not overlap default fields unless you intend to replace them.
+
+## Event payload
+
+An audit event contains the actor, affected resource, action, result, and scope.
+
+```json
+{
+  "organization_id": "00000000-0000-4000-8000-000000000001",
+  "workspace_id": "00000000-0000-4000-8000-000000000002",
+  "actor_type": "USER",
+  "actor_id": "00000000-0000-4000-8000-000000000003",
+  "actor_label": "avery@example.com",
+  "ip_address": "192.0.2.10",
+  "resource_type": "workflow",
+  "resource_id": "00000000-0000-4000-8000-000000000004",
+  "action": "update",
+  "status": "SUCCESS",
+  "data": null,
+  "created_at": "2026-01-15T14:03:12.123456Z"
+}
+```
+
+| Field | Description |
+| --- | --- |
+| `organization_id` | Organization that owns the event. |
+| `workspace_id` | Workspace that owns the resource, when applicable. |
+| `actor_type` | `USER` or `SERVICE_ACCOUNT`. |
+| `actor_id` | ID of the user or service account that performed the action. |
+| `actor_label` | User email or service account name, when available. |
+| `ip_address` | Source IP address, when available. |
+| `resource_type` | Type of resource affected by the action. |
+| `resource_id` | ID of the affected resource, when available. |
+| `action` | Operation performed on the resource. |
+| `status` | `ATTEMPT`, `SUCCESS`, or `FAILURE`. |
+| `data` | Additional event-specific context, when available. |
+| `created_at` | UTC timestamp for the event. |
+
+Most audited changes emit an `ATTEMPT` event followed by `SUCCESS` or `FAILURE`.
+Your endpoint should return a successful response within 10 seconds; delivery failures do not block the audited action.
+
+## Update or disconnect the endpoint
+
+Return to **Organization → Audit Logs** to update the request settings.
+Click the disconnect button to stop sending new organization audit events.
+
+## Related pages
+
+- See [Security](/self-hosting/security) for deployment hardening guidance.
