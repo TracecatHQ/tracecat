@@ -1,0 +1,41 @@
+docs/automations/core-actions/_examples.yaml
+  s_a63947ed9bf464::t_737cf41b295f67 120-173
+docs/automations/core-actions/transform-actions/python-script.mdx
+  s_a63947ed9bf464::t_737cf41b295f67 11-28,39,98-151
+packages/tracecat-registry/tracecat_registry/core/python.py
+  s_a63947ed9bf464::t_737cf41b295f67 48-49
+docs/automations/cases.mdx
+  s_a63947ed9bf464::t_1f9ca171509cd8 173
+docs/automations/core-actions/case-actions/cases.mdx
+  s_a63947ed9bf464::t_75acb4fc3f9a69 714-2117
+docs/docs.json
+  s_a63947ed9bf464::t_8c72d812367e9c 225-237
+  s_a63947ed9bf464::t_1f9ca171509cd8 47,49-62,298,302,306,310,314-334,340-347
+  s_a63947ed9bf464::t_60a636a8f905d9 238-239
+docs/api-reference/authentication.mdx
+  s_a63947ed9bf464::t_1a64adbc6e9407 8,14-15
+  s_a63947ed9bf464::t_e60ae46a8c2762 2-3,10,12,16-17,19,21,23-26,28-31
+docs/AGENTS.md
+  s_a63947ed9bf464::t_186e98931f7004 31-32
+docs/agents/skills.mdx
+  s_a63947ed9bf464::t_186e98931f7004 4
+docs/automations/core-actions/_manifest.yaml
+  s_a63947ed9bf464::t_737cf41b295f67 41-58,61-63
+  s_a63947ed9bf464::t_75acb4fc3f9a69 245-246,250-251,256-257
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.12",
+  "base_commit_sha": "9dd132edd5638e4ea4775b81942167b1af897c52",
+  "prompts": {},
+  "sessions": {
+    "s_a63947ed9bf464": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f5c0d-72e6-7730-9ba9-2d486035ed1b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
