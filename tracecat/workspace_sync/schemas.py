@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from tracecat.agent.skill.schemas import SkillName
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
 from tracecat.cases.enums import CaseEventType
 from tracecat.dsl.common import DSLInput
@@ -180,7 +181,7 @@ class AgentPresetSkillBinding(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    slug: str = Field(min_length=1, description="Slug of the referenced skill.")
+    slug: SkillName = Field(description="Slug of the referenced skill.")
     version: int | None = Field(
         default=None,
         ge=1,
@@ -428,7 +429,10 @@ class SkillVersionResourceSpec(BaseModel):
     version_number: int = Field(
         ge=1, description="Skill version number scoped to the parent skill."
     )
-    name: str = Field(min_length=1, description="Human-readable skill version name.")
+    name: str = Field(
+        min_length=1,
+        description="Immutable Agent Skills package identifier for this version.",
+    )
     description: str | None = Field(
         default=None, description="Optional skill version description."
     )
@@ -456,10 +460,10 @@ class SkillResourceSpec(BaseModel):
         min_length=1,
         description="Stable source id; the skill's single-segment file path key.",
     )
-    slug: str = Field(
-        min_length=1, description="Unique skill slug used for cross-references."
+    slug: SkillName = Field(
+        description="Current package locator used for cross-references.",
     )
-    name: str = Field(min_length=1, description="Human-readable skill name.")
+    name: str = Field(min_length=1, description="User-facing display name.")
     description: str | None = Field(
         default=None, description="Optional skill description."
     )

@@ -319,10 +319,6 @@ async def preset_agent(
         Doc("User prompt to the agent."),
         TextArea(),
     ],
-    preset_version: Annotated[
-        int | None,
-        Doc("Optional preset version number to pin for this run."),
-    ] = None,
     actions: Annotated[
         list[str] | None,
         Doc(

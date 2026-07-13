@@ -1098,16 +1098,39 @@ class DSLWorkflow:
                         start_to_close_timeout=timedelta(seconds=60),
                         retry_policy=RETRY_POLICIES["activity:fail_fast"],
                     )
-                    preset_ref = await workflow.execute_activity(
-                        resolve_agent_preset_version_ref_activity,
-                        ResolveAgentPresetVersionRefActivityInput(
-                            role=self.role,
-                            preset_slug=preset_action_args.preset,
-                            preset_version=preset_action_args.preset_version,
-                        ),
-                        start_to_close_timeout=timedelta(seconds=30),
-                        retry_policy=RETRY_POLICIES["activity:fail_fast"],
-                    )
+                    if workflow.patched("dsl-preset-preflight-provenance-v1"):
+                        # New histories mint first so failed preflights can record
+                        # session-scoped provenance. Include the deterministic
+                        # stream id so parallel instances of the same action do
+                        # not collapse when a caller supplies a static session id.
+                        session_id = preset_action_args.session_id or workflow.uuid4()
+                        preset_ref = await workflow.execute_activity(
+                            resolve_agent_preset_version_ref_activity,
+                            ResolveAgentPresetVersionRefActivityInput(
+                                role=self.role,
+                                preset_slug=preset_action_args.preset,
+                                session_id=session_id,
+                                wf_exec_id=(
+                                    f"{workflow.info().workflow_id}:{task.ref}:"
+                                    f"{stream_id or ROOT_STREAM}:{session_id}"
+                                ),
+                            ),
+                            start_to_close_timeout=timedelta(seconds=30),
+                            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                        )
+                    else:
+                        # Preserve the pre-patch command and RNG order during
+                        # replay: preflight first, then mint the session id.
+                        preset_ref = await workflow.execute_activity(
+                            resolve_agent_preset_version_ref_activity,
+                            ResolveAgentPresetVersionRefActivityInput(
+                                role=self.role,
+                                preset_slug=preset_action_args.preset,
+                            ),
+                            start_to_close_timeout=timedelta(seconds=30),
+                            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                        )
+                        session_id = preset_action_args.session_id or workflow.uuid4()
 
                     # Create override config with placeholder model/provider
                     # These will be ignored by DurableAgentWorkflow when preset_slug is present
@@ -1125,14 +1148,12 @@ class DSLWorkflow:
                     child_search_attributes = _build_agent_child_search_attributes(
                         wf_info, task.ref
                     )
-                    session_id = preset_action_args.session_id or workflow.uuid4()
                     arg = AgentWorkflowArgs(
                         role=self.role,
                         agent_args=RunAgentArgs(
                             user_prompt=preset_action_args.user_prompt,
                             session_id=session_id,
                             preset_slug=preset_action_args.preset,
-                            preset_version=preset_action_args.preset_version,
                             config=override_config,
                             max_requests=preset_action_args.max_requests,
                             max_tool_calls=preset_action_args.max_tool_calls,
