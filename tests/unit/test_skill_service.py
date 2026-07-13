@@ -538,6 +538,61 @@ class TestSkillService:
         assert created.name == "duplicate-skill"
         assert created.id is not None
 
+    async def test_duplicate_name_create_seeds_publishable_draft(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Duplicate display-name creates stay publishable out of the box.
+
+        Slug allocation suffixes past the live duplicate (``dup-seed-2``);
+        the seeded ``SKILL.md`` package name must carry that allocated slug,
+        or publishing the untouched default draft would hit
+        ``skill_slug_conflict`` against the first skill.
+        """
+
+        await skill_service.create_skill(SkillCreate(name="dup-seed"))
+        second = await skill_service.create_skill(SkillCreate(name="dup-seed"))
+        assert second.slug == "dup-seed-2"
+
+        version = await skill_service.publish_skill(second.id)
+
+        assert version.name == "dup-seed-2"
+        read = await skill_service.get_skill_read(second.id)
+        assert read is not None
+        assert read.slug == "dup-seed-2"
+
+    async def test_duplicate_name_upload_rewrites_manifest_to_allocated_slug(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Duplicate display-name uploads get their manifest rewritten.
+
+        The uploaded frontmatter names the colliding display name; slug
+        allocation suffixes past the live duplicate and the stored draft
+        manifest must follow, keeping the upload publishable.
+        """
+
+        await skill_service.create_skill(SkillCreate(name="dup-upload"))
+        created = await skill_service.upload_skill(
+            SkillUpload(
+                name="dup-upload",
+                files=[
+                    SkillUploadFile(
+                        path="SKILL.md",
+                        content_base64=base64.b64encode(
+                            b"---\nname: dup-upload\n---\n\n# Duplicate upload\n"
+                        ).decode(),
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            )
+        )
+        assert created.slug == "dup-upload-2"
+
+        version = await skill_service.publish_skill(created.id)
+
+        assert version.name == "dup-upload-2"
+
     async def test_replace_skill_draft_updates_existing_skill(
         self,
         skill_service: SkillService,
@@ -2191,6 +2246,62 @@ class TestSkillService:
         assert current is not None
         assert current.slug == "restore-new"
         assert current.current_version_id == new_version.id
+
+    async def test_restore_rejects_slug_held_by_slugless_legacy_row(
+        self,
+        skill_service: SkillService,
+        session: AsyncSession,
+    ) -> None:
+        """Restore validates against expand-window legacy rows explicitly.
+
+        The partial unique index only constrains non-NULL slugs, so a live
+        legacy row (``slug IS NULL``) whose name projects the restored slug
+        never trips ``IntegrityError``. The restore path must run the same
+        pre-check as the publish paths instead of minting a duplicate
+        effective slug.
+        """
+
+        original = await skill_service.create_skill(
+            SkillCreate(name="legacy-restore-old")
+        )
+        old_version = await skill_service.publish_skill(original.id)
+        draft = await skill_service.get_draft(original.id)
+        assert draft is not None
+        await skill_service.patch_draft(
+            skill_id=original.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content=(
+                            "---\nname: legacy-restore-new\n---\n\n"
+                            "# legacy-restore-new\n"
+                        ),
+                    )
+                ],
+            ),
+        )
+        await skill_service.publish_skill(original.id)
+        claimant = await skill_service.create_skill(
+            SkillCreate(name="legacy-restore-old")
+        )
+        claimant_row = (
+            await session.execute(select(Skill).where(Skill.id == claimant.id))
+        ).scalar_one()
+        claimant_row.slug = None
+        await session.commit()
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.restore_version(
+                skill_id=original.id,
+                version_id=old_version.id,
+            )
+
+        assert exc_info.value.detail == {
+            "code": "skill_slug_conflict",
+            "slug": "legacy-restore-old",
+        }
 
     async def test_skill_read_metadata_tracks_current_version_not_draft(
         self,

@@ -13,6 +13,7 @@ from slugify import slugify
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from tracecat.agent.skill.service import SkillService
 from tracecat.agent.subagents import AgentSubagentsConfig, HeadAttachedSubagentRef
 from tracecat.db.models import (
     AgentFolder,
@@ -1181,18 +1182,14 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         current version when ``binding.version`` is unset). Returns
         ``(None, None)`` when the skill or version cannot be found.
         """
-        # Resolve the skill by its canonical slug, with a legacy-name fallback
-        # for expand-window rows that have not been backfilled yet.
-        skill = await workspace_service.session.scalar(
-            select(Skill).where(
-                Skill.workspace_id == workspace_service.workspace_id,
-                sa.func.coalesce(Skill.slug, Skill.name) == binding.slug,
-                # Expand-window check: legacy writers set only archived_at; the
-                # contract release drops the archived_at leg.
-                Skill.deleted_at.is_(None),
-                Skill.archived_at.is_(None),
-            )
-        )
+        # Resolve through the runtime resolver so canonical slug owners win
+        # over expand-window legacy rows (slug IS NULL projecting their name)
+        # and ambiguous legacy-only matches fail loud instead of attaching the
+        # binding to an arbitrary skill.
+        skill = await SkillService(
+            session=workspace_service.session,
+            role=workspace_service.role,
+        ).get_skill_by_slug(binding.slug)
         if skill is None:
             return None, None
         version_number = binding.version
