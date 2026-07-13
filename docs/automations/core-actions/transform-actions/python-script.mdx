@@ -50,36 +50,95 @@ Use clients such as `ctx.cases`, `ctx.tables`, `ctx.variables`, and
 SDK calls use the workflow's internal authenticated execution context
 and do not require `allow_network: true`.
 
+Use `ctx.tables.insert_rows` to write multiple rows in one request.
+For large inputs, transform the records first and split them into
+bounded batches. The destination table must already contain matching
+columns.
+
 <Tabs>
   <Tab title="Synchronous">
 
     ```yaml
-    - ref: list_recent_cases
+    - ref: load_findings
       action: core.script.run_python
       args:
+        inputs:
+          findings: ${{ TRIGGER.findings }}
         script: |
           from tracecat_registry import ctx
 
-          def main():
-              return ctx.cases.list_cases(limit=10)
+          BATCH_SIZE = 500
+
+          def transform_finding(finding):
+              return {
+                  "finding_id": str(finding["id"]),
+                  "title": str(finding.get("title", "")).strip(),
+                  "severity": str(
+                      finding.get("severity", "unknown")
+                  ).lower(),
+                  "observed_at": finding.get("observed_at")
+                  or finding.get("created_at"),
+                  "tags": sorted(set(finding.get("tags") or [])),
+              }
+
+          def main(findings):
+              rows = [
+                  transform_finding(finding)
+                  for finding in findings
+                  if finding.get("id")
+              ]
+
+              rows_inserted = 0
+              for start in range(0, len(rows), BATCH_SIZE):
+                  rows_inserted += ctx.tables.insert_rows(
+                      table="findings",
+                      rows_data=rows[start : start + BATCH_SIZE],
+                  )
+
+              return {"rows_inserted": rows_inserted}
     ```
   </Tab>
 
   <Tab title="Asynchronous">
 
     ```yaml
-    - ref: get_api_timeout
+    - ref: load_findings_async
       action: core.script.run_python
       args:
+        inputs:
+          findings: ${{ TRIGGER.findings }}
         script: |
           from tracecat_registry import ctx
 
-          async def main():
-              return await ctx.variables.aio.get_or_default(
-                  "api_config",
-                  "timeout_seconds",
-                  30,
-              )
+          BATCH_SIZE = 500
+
+          def transform_finding(finding):
+              return {
+                  "finding_id": str(finding["id"]),
+                  "title": str(finding.get("title", "")).strip(),
+                  "severity": str(
+                      finding.get("severity", "unknown")
+                  ).lower(),
+                  "observed_at": finding.get("observed_at")
+                  or finding.get("created_at"),
+                  "tags": sorted(set(finding.get("tags") or [])),
+              }
+
+          async def main(findings):
+              rows = [
+                  transform_finding(finding)
+                  for finding in findings
+                  if finding.get("id")
+              ]
+
+              rows_inserted = 0
+              for start in range(0, len(rows), BATCH_SIZE):
+                  rows_inserted += await ctx.tables.aio.insert_rows(
+                      table="findings",
+                      rows_data=rows[start : start + BATCH_SIZE],
+                  )
+
+              return {"rows_inserted": rows_inserted}
     ```
   </Tab>
 </Tabs>
