@@ -4163,6 +4163,67 @@ class TestAgentPresetService:
                 )
             )
 
+    async def test_create_parent_rejects_child_with_edges_when_legacy_json_disabled(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """The v1 nested-subagent ban reads the edge-authoritative store.
+
+        Spec: expand-window drift can leave a child version with normalized
+        edges (subagents_enabled=True) while its legacy JSON still says
+        disabled; eligibility must reject the attach because the runtime
+        executes the edges, not the JSON.
+        """
+        grandchild = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Drift Grandchild", "slug": "drift-grandchild"}
+            )
+        )
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Drift Child", "slug": "drift-child"}
+            )
+        )
+        child_version = await agent_preset_service.get_current_version_for_preset(child)
+        # Legacy JSON stays disabled; only the normalized store carries the
+        # child's subagents — the drift direction that bypassed a JSON check.
+        assert (
+            AgentSubagentsConfig.model_validate(child_version.agents).enabled is False
+        )
+        child_version.subagents_enabled = True
+        session.add(child_version)
+        await session.execute(
+            sa.insert(AgentPresetVersionSubagent).values(
+                id=uuid.uuid4(),
+                workspace_id=agent_preset_service.workspace_id,
+                parent_preset_version_id=child_version.id,
+                child_preset_id=grandchild.id,
+                alias="drifted",
+            )
+        )
+        await session.flush()
+
+        with pytest.raises(
+            TracecatValidationError,
+            match="cannot define its own agents in v1",
+        ):
+            await agent_preset_service.create_preset(
+                agent_preset_create_params.model_copy(
+                    update={
+                        "name": "Drift Parent",
+                        "slug": "drift-parent",
+                        "agents": AgentSubagentsConfig.model_validate(
+                            {
+                                "enabled": True,
+                                "subagents": [{"preset": child.slug}],
+                            }
+                        ),
+                    }
+                )
+            )
+
     async def test_create_parent_allows_pinned_subagent_with_reused_parent_slug(
         self,
         agent_preset_service: AgentPresetService,
