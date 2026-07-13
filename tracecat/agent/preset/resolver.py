@@ -46,6 +46,13 @@ class AgentPresetResolutionService(Protocol):
         preset_version: int | None = None,
     ) -> Awaitable[AgentConfig]: ...
 
+    def get_version_subagent_binding(
+        self,
+        version: AgentPresetVersion,
+        *,
+        reconcile_legacy: bool = True,
+    ) -> Awaitable[ResolvedAgentsConfig]: ...
+
 
 class ResolvedSubagentConfig(BaseModel):
     """Runtime-ready resolved subagent configuration."""
@@ -190,8 +197,16 @@ async def resolve_agents_config(
         if references_parent_id or references_parent_slug:
             raise TracecatValidationError("Agent presets cannot reference themselves")
 
-        child_agents = AgentSubagentsConfig.model_validate(version.agents)
-        if child_agents.enabled:
+        # Check the same store the runtime executes from: the child's config
+        # is edge-authoritative (get_version_subagent_binding), so validating
+        # the legacy JSON here would let JSON-disabled/edges-enabled drift
+        # slip nested subagents past the v1 ban. reconcile_legacy=False keeps
+        # this read-only (no write-on-read repair) and still returns the
+        # validated legacy binding for edge-less expand-window rows.
+        child_binding = await service.get_version_subagent_binding(
+            version, reconcile_legacy=False
+        )
+        if child_binding.enabled:
             raise TracecatValidationError(
                 f"Subagent preset '{ref.preset}' cannot define its own agents in v1"
             )
