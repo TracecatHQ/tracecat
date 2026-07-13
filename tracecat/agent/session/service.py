@@ -386,9 +386,8 @@ class AgentSessionService(BaseWorkspaceService):
         version = await preset_service.resolve_agent_preset_version(
             preset_version_id=preset_version_id
         )
-        return ResolvedAgentsConfig.model_validate(version.agents).model_dump(
-            mode="json"
-        )
+        binding = await preset_service.get_version_subagent_binding(version)
+        return binding.model_dump(mode="json")
 
     async def get_session(
         self,

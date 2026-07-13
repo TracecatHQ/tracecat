@@ -5,10 +5,13 @@ import os
 import uuid
 from datetime import UTC, datetime
 from typing import Any, cast
+from unittest.mock import AsyncMock
 
 import pytest
+import sqlalchemy as sa
 from dotenv import dotenv_values
-from sqlalchemy import select
+from pydantic import ValidationError
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from tests.database import TEST_DB_CONFIG
@@ -28,6 +31,7 @@ from tracecat.agent.preset.schemas import (
 )
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.preset.types import SkillBindingSpec
+from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.skill.schemas import (
     SkillCreate,
     SkillDraftPatch,
@@ -46,8 +50,10 @@ from tracecat.db.models import (
     AgentChannelToken,
     AgentModelAccess,
     AgentPreset,
+    AgentPresetSubagent,
     AgentPresetVersion,
     AgentPresetVersionSkill,
+    AgentPresetVersionSubagent,
     Organization,
     RegistryAction,
     RegistryIndex,
@@ -2331,6 +2337,88 @@ class TestAgentPresetService:
         assert parent.current_version_id == version_without_child.id
         assert parent.agents == {"enabled": False, "subagents": []}
 
+    async def test_restore_version_binds_children_from_version_edges(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Restore derives membership from normalized edges, not legacy JSON.
+
+        A migrated slug-only snapshot must restore the child the edges
+        recorded: re-resolving the raw JSON against current slugs would fail
+        after the child was renamed — or silently bind a different preset
+        that reused the old slug.
+        """
+
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Original Child", "slug": "stolen-slug"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Edge Restore Parent",
+                    "slug": "edge-restore-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": child.slug}],
+                        }
+                    ),
+                }
+            )
+        )
+        version_with_child = await agent_preset_service.get_current_version_for_preset(
+            parent
+        )
+        await agent_preset_service.update_preset(
+            parent,
+            AgentPresetUpdate(agents=AgentSubagentsConfig()),
+        )
+        # Simulate the migrated state: slug-only legacy JSON alongside the
+        # backfilled edges, then move the slug to a different preset.
+        await session.execute(
+            sa.update(AgentPresetVersion)
+            .where(AgentPresetVersion.id == version_with_child.id)
+            .values(
+                agents={
+                    "enabled": True,
+                    "subagents": [{"preset": "stolen-slug"}],
+                }
+            )
+            .execution_options(synchronize_session=False)
+        )
+        await session.execute(
+            sa.update(AgentPreset)
+            .where(AgentPreset.id == child.id)
+            .values(slug="renamed-child")
+            .execution_options(synchronize_session=False)
+        )
+        await session.commit()
+        interloper = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Interloper", "slug": "stolen-slug"}
+            )
+        )
+
+        await agent_preset_service.restore_version(parent, version_with_child)
+
+        head_children = (
+            (
+                await session.execute(
+                    select(AgentPresetSubagent.child_preset_id).where(
+                        AgentPresetSubagent.parent_preset_id == parent.id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert head_children == [child.id]
+        assert interloper.id not in head_children
+
     async def test_restore_version_locks_skill_bindings_during_validation(
         self,
         configure_minio_for_skills,
@@ -3171,6 +3259,947 @@ class TestAgentPresetService:
         ):
             await agent_preset_service.create_preset(parent_params)
 
+    async def test_create_parent_dual_writes_head_and_version_subagent_edges(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Subagent JSON compatibility writes mirror normalized head edges."""
+
+        child_one = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Child One", "slug": "child-one"}
+            )
+        )
+        child_two = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Child Two", "slug": "child-two"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Normalized Parent",
+                    "slug": "normalized-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [
+                                {
+                                    "preset": child_one.slug,
+                                    "name": "triage",
+                                    "description": "Triage incoming alerts",
+                                    "max_turns": 4,
+                                },
+                                {"preset": child_two.slug},
+                            ],
+                        }
+                    ),
+                }
+            )
+        )
+        version = await agent_preset_service.get_current_version_for_preset(parent)
+
+        head_bindings = (
+            (
+                await session.execute(
+                    select(AgentPresetSubagent)
+                    .where(AgentPresetSubagent.parent_preset_id == parent.id)
+                    .order_by(AgentPresetSubagent.alias)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        version_bindings = (
+            (
+                await session.execute(
+                    select(AgentPresetVersionSubagent)
+                    .where(
+                        AgentPresetVersionSubagent.parent_preset_version_id
+                        == version.id
+                    )
+                    .order_by(AgentPresetVersionSubagent.alias)
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        assert parent.subagents_enabled is True
+        assert version.subagents_enabled is True
+        assert [binding.child_preset_id for binding in head_bindings] == [
+            child_two.id,
+            child_one.id,
+        ]
+        assert [binding.alias for binding in head_bindings] == ["child-two", "triage"]
+        assert head_bindings[1].description == "Triage incoming alerts"
+        assert head_bindings[1].max_turns == 4
+        assert [binding.child_preset_id for binding in version_bindings] == [
+            child_two.id,
+            child_one.id,
+        ]
+        assert [binding.alias for binding in version_bindings] == [
+            "child-two",
+            "triage",
+        ]
+
+        await agent_preset_service.update_preset(
+            parent,
+            AgentPresetUpdate(agents=AgentSubagentsConfig()),
+        )
+        disabled_version = await agent_preset_service.get_current_version_for_preset(
+            parent
+        )
+        remaining_head_bindings = (
+            (
+                await session.execute(
+                    select(AgentPresetSubagent).where(
+                        AgentPresetSubagent.parent_preset_id == parent.id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        disabled_version_bindings = (
+            (
+                await session.execute(
+                    select(AgentPresetVersionSubagent).where(
+                        AgentPresetVersionSubagent.parent_preset_version_id
+                        == disabled_version.id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        historical_version_bindings = (
+            (
+                await session.execute(
+                    select(AgentPresetVersionSubagent).where(
+                        AgentPresetVersionSubagent.parent_preset_version_id
+                        == version.id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        assert parent.subagents_enabled is False
+        assert disabled_version.subagents_enabled is False
+        assert remaining_head_bindings == []
+        assert disabled_version_bindings == []
+        assert len(historical_version_bindings) == 2
+
+    async def test_update_preset_versions_migrated_legacy_subagent_json(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Version cuts preserve migration-backed edges for legacy head JSON."""
+
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Legacy Child", "slug": "legacy-child"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Legacy Parent", "slug": "legacy-parent"}
+            )
+        )
+        version_one = await agent_preset_service.get_current_version_for_preset(parent)
+
+        parent.agents = {
+            "enabled": True,
+            "subagents": [{"preset": child.slug, "name": "child"}],
+        }
+        parent.subagents_enabled = True
+        session.add_all(
+            [
+                parent,
+                AgentPresetSubagent(
+                    workspace_id=agent_preset_service.workspace_id,
+                    parent_preset_id=parent.id,
+                    child_preset_id=child.id,
+                    alias="child",
+                ),
+            ]
+        )
+        await session.flush()
+
+        with pytest.raises(ValidationError):
+            ResolvedAgentsConfig.model_validate(parent.agents)
+
+        updated_parent = await agent_preset_service.update_preset(
+            parent,
+            AgentPresetUpdate(instructions="updated"),
+        )
+        version_two = await agent_preset_service.get_current_version_for_preset(
+            updated_parent
+        )
+        head_bindings = (
+            (
+                await session.execute(
+                    select(AgentPresetSubagent).where(
+                        AgentPresetSubagent.parent_preset_id == parent.id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        version_bindings = (
+            (
+                await session.execute(
+                    select(AgentPresetVersionSubagent).where(
+                        AgentPresetVersionSubagent.parent_preset_version_id
+                        == version_two.id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        assert version_two.id != version_one.id
+        assert version_two.version == 2
+        assert len(head_bindings) == 1
+        assert head_bindings[0].child_preset_id == child.id
+        assert len(version_bindings) == 1
+        assert version_bindings[0].child_preset_id == child.id
+        assert updated_parent.subagents_enabled is True
+        assert version_two.subagents_enabled is True
+
+    async def test_normalized_subagent_edge_blocks_delete_when_legacy_json_drifts(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Deletion checks both stores throughout the dual-write window."""
+
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Delete Child", "slug": "delete-child"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Delete Parent",
+                    "slug": "delete-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": child.slug}],
+                        }
+                    ),
+                }
+            )
+        )
+        parent.agents = AgentSubagentsConfig().model_dump(mode="json")
+        agent_preset_service.session.add(parent)
+        await agent_preset_service.session.flush()
+
+        with pytest.raises(
+            TracecatValidationError,
+            match="still referenced as a subagent",
+        ):
+            await agent_preset_service.delete_preset(child)
+
+    async def test_session_binding_uses_version_edges_when_legacy_json_drifts(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Pinned sessions resolve the snapshotted ResourceHead edge set."""
+
+        edge_child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Edge Child", "slug": "edge-child"}
+            )
+        )
+        legacy_child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Legacy Child", "slug": "legacy-child"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Session Parent",
+                    "slug": "session-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": edge_child.slug}],
+                        }
+                    ),
+                }
+            )
+        )
+        parent_version = await agent_preset_service.get_current_version_for_preset(
+            parent
+        )
+        legacy_child_version = (
+            await agent_preset_service.get_current_version_for_preset(legacy_child)
+        )
+        parent_version.agents = ResolvedAgentsConfig.model_validate(
+            {
+                "enabled": True,
+                "subagents": [
+                    {
+                        "preset": legacy_child.slug,
+                        "preset_id": legacy_child.id,
+                        "preset_version": legacy_child_version.version,
+                        "preset_version_id": legacy_child_version.id,
+                    }
+                ],
+            }
+        ).model_dump(mode="json")
+        session.add(parent_version)
+        await session.flush()
+
+        binding_data = await AgentSessionService(
+            session,
+            role=svc_role,
+        )._resolve_agents_binding_for_preset_version_id(parent_version.id)
+        binding = ResolvedAgentsConfig.model_validate(binding_data)
+        edge_child_version = await agent_preset_service.get_current_version_for_preset(
+            edge_child
+        )
+
+        assert len(binding.subagents) == 1
+        assert binding.subagents[0].preset_id == edge_child.id
+        assert binding.subagents[0].preset_version_id == edge_child_version.id
+
+    async def test_session_binding_reconciles_version_written_by_old_pod(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Legacy-only version rows are repaired during a rolling deploy."""
+
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Rolling Child", "slug": "rolling-child"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Rolling Parent",
+                    "slug": "rolling-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": child.slug}],
+                        }
+                    ),
+                }
+            )
+        )
+        parent_version = await agent_preset_service.get_current_version_for_preset(
+            parent
+        )
+        await session.execute(
+            delete(AgentPresetVersionSubagent).where(
+                AgentPresetVersionSubagent.parent_preset_version_id == parent_version.id
+            )
+        )
+        parent_version.subagents_enabled = False
+        session.add(parent_version)
+        await session.flush()
+
+        binding_data = await AgentSessionService(
+            session,
+            role=svc_role,
+        )._resolve_agents_binding_for_preset_version_id(parent_version.id)
+        binding = ResolvedAgentsConfig.model_validate(binding_data)
+        child_version = await agent_preset_service.get_current_version_for_preset(child)
+        reconciled_edges = (
+            (
+                await session.execute(
+                    select(AgentPresetVersionSubagent).where(
+                        AgentPresetVersionSubagent.parent_preset_version_id
+                        == parent_version.id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        assert binding.enabled is True
+        assert len(binding.subagents) == 1
+        assert binding.subagents[0].preset_id == child.id
+        assert binding.subagents[0].preset_version_id == child_version.id
+        assert parent_version.subagents_enabled is True
+        assert len(reconciled_edges) == 1
+        assert reconciled_edges[0].child_preset_id == child.id
+
+    async def test_session_binding_preserves_matching_legacy_pin_in_pinned_mode(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        svc_admin_role: Role,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Normalized membership retains its matching compatibility pin."""
+
+        await SettingsService(session=session, role=svc_admin_role).update_app_settings(
+            AppSettingsUpdate(
+                app_versioned_resource_resolution_strategy=(
+                    VersionedResourceResolutionStrategy.PINNED
+                )
+            )
+        )
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Pinned Child",
+                    "slug": "pinned-child",
+                    "instructions": "Child v1",
+                }
+            )
+        )
+        child_version_one = await agent_preset_service.get_current_version_for_preset(
+            child
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Pinned Parent",
+                    "slug": "pinned-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": child.slug}],
+                        }
+                    ),
+                }
+            )
+        )
+        parent_version = await agent_preset_service.get_current_version_for_preset(
+            parent
+        )
+        await agent_preset_service.update_preset(
+            child,
+            AgentPresetUpdate(instructions="Child v2"),
+        )
+        child_version_two = await agent_preset_service.get_current_version_for_preset(
+            child
+        )
+
+        binding_data = await AgentSessionService(
+            session,
+            role=svc_role,
+        )._resolve_agents_binding_for_preset_version_id(parent_version.id)
+        binding = ResolvedAgentsConfig.model_validate(binding_data)
+
+        assert child_version_two.id != child_version_one.id
+        assert len(binding.subagents) == 1
+        assert binding.subagents[0].preset_id == child.id
+        assert binding.subagents[0].preset_version_id == child_version_one.id
+        assert binding.subagents[0].preset_version == child_version_one.version
+
+    async def test_session_binding_matches_repeated_child_pins_by_alias(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        svc_admin_role: Role,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Repeated child heads retain pins by their unique aliases."""
+
+        await SettingsService(session=session, role=svc_admin_role).update_app_settings(
+            AppSettingsUpdate(
+                app_versioned_resource_resolution_strategy=(
+                    VersionedResourceResolutionStrategy.PINNED
+                )
+            )
+        )
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Repeated Child",
+                    "slug": "repeated-child",
+                    "instructions": "Child v1",
+                }
+            )
+        )
+        child_version_one = await agent_preset_service.get_current_version_for_preset(
+            child
+        )
+        await agent_preset_service.update_preset(
+            child,
+            AgentPresetUpdate(instructions="Child v2"),
+        )
+        child_version_two = await agent_preset_service.get_current_version_for_preset(
+            child
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Repeated Parent",
+                    "slug": "repeated-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [
+                                {
+                                    "preset": child.slug,
+                                    "preset_version": child_version_one.version,
+                                    "name": "z-first-version",
+                                },
+                                {
+                                    "preset": child.slug,
+                                    "preset_version": child_version_two.version,
+                                    "name": "a-second-version",
+                                },
+                            ],
+                        }
+                    ),
+                }
+            )
+        )
+        parent_version = await agent_preset_service.get_current_version_for_preset(
+            parent
+        )
+
+        binding_data = await AgentSessionService(
+            session,
+            role=svc_role,
+        )._resolve_agents_binding_for_preset_version_id(parent_version.id)
+        binding = ResolvedAgentsConfig.model_validate(binding_data)
+
+        assert [ref.alias for ref in binding.subagents] == [
+            "a-second-version",
+            "z-first-version",
+        ]
+        assert [ref.preset_id for ref in binding.subagents] == [child.id, child.id]
+        assert [ref.preset_version_id for ref in binding.subagents] == [
+            child_version_two.id,
+            child_version_one.id,
+        ]
+
+    async def test_empty_version_binding_skips_legacy_reconciliation(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """An authoritative empty snapshot does not take the repair lock path."""
+
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Empty Parent",
+                    "slug": "empty-parent",
+                    "agents": AgentSubagentsConfig(enabled=True),
+                }
+            )
+        )
+        parent_version = await agent_preset_service.get_current_version_for_preset(
+            parent
+        )
+
+        async def unexpected_reconciliation(
+            _version_id: uuid.UUID,
+        ) -> AgentPresetVersion:
+            raise AssertionError("authoritative empty snapshot must not reconcile")
+
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_reconcile_legacy_version_subagent_binding",
+            unexpected_reconciliation,
+        )
+
+        binding = await agent_preset_service.get_version_subagent_binding(
+            parent_version
+        )
+
+        assert binding.enabled is True
+        assert binding.subagents == []
+
+    async def test_pinned_binding_falls_back_for_migrated_slug_only_versions(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Pinned mode must not crash on migrated slug-only legacy JSON.
+
+        The normalize migration backfills version edges from slug-only refs
+        that carry no preset_id/preset_version_id, so the raw ``agents`` JSON
+        cannot validate as ``ResolvedAgentsConfig``. Pinned resolution falls
+        back to the normalized edges plus each child's current version
+        instead of raising.
+        """
+
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Pin Child", "slug": "pin-child"}
+            )
+        )
+        child_version_one = await agent_preset_service.get_current_version_for_preset(
+            child
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Pin Parent",
+                    "slug": "pin-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": child.slug}],
+                        }
+                    ),
+                }
+            )
+        )
+        parent_version = await agent_preset_service.get_current_version_for_preset(
+            parent
+        )
+        await agent_preset_service.update_preset(
+            child,
+            AgentPresetUpdate(instructions="Child v2"),
+        )
+        child_version_two = await agent_preset_service.get_current_version_for_preset(
+            child
+        )
+        # Simulate the post-migration state: normalized edges exist, but the
+        # raw JSON still holds the legacy slug-only shape.
+        await session.execute(
+            sa.update(AgentPresetVersion)
+            .where(AgentPresetVersion.id == parent_version.id)
+            .values(
+                agents={
+                    "enabled": True,
+                    "subagents": [{"preset": child.slug}],
+                }
+            )
+        )
+        await session.commit()
+        monkeypatch.setattr(
+            agent_preset_service,
+            "use_latest_resource_versions",
+            AsyncMock(return_value=False),
+        )
+
+        refreshed_version = await agent_preset_service.get_version(parent_version.id)
+        assert refreshed_version is not None
+        binding = await agent_preset_service.get_version_subagent_binding(
+            refreshed_version
+        )
+
+        assert binding.enabled is True
+        assert child_version_two.id != child_version_one.id
+        assert [ref.preset_id for ref in binding.subagents] == [child.id]
+        assert [ref.preset_version_id for ref in binding.subagents] == [
+            child_version_two.id
+        ]
+
+    async def test_pinned_binding_honors_migrated_slug_only_numeric_pin(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Migrated numeric pins resolve against normalized child identities."""
+
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Numeric Pin Child", "slug": "numeric-pin-child"}
+            )
+        )
+        child_version_one = await agent_preset_service.get_current_version_for_preset(
+            child
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Numeric Pin Parent",
+                    "slug": "numeric-pin-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": child.slug}],
+                        }
+                    ),
+                }
+            )
+        )
+        parent_version = await agent_preset_service.get_current_version_for_preset(
+            parent
+        )
+        await agent_preset_service.update_preset(
+            child,
+            AgentPresetUpdate(instructions="Child v2"),
+        )
+        child_version_two = await agent_preset_service.get_current_version_for_preset(
+            child
+        )
+        await session.execute(
+            sa.update(AgentPresetVersion)
+            .where(AgentPresetVersion.id == parent_version.id)
+            .values(
+                agents={
+                    "enabled": True,
+                    "subagents": [
+                        {
+                            "preset": child.slug,
+                            "preset_version": child_version_one.version,
+                        }
+                    ],
+                }
+            )
+        )
+        await session.commit()
+        monkeypatch.setattr(
+            agent_preset_service,
+            "use_latest_resource_versions",
+            AsyncMock(return_value=False),
+        )
+
+        refreshed_version = await agent_preset_service.get_version(parent_version.id)
+        assert refreshed_version is not None
+        binding = await agent_preset_service.get_version_subagent_binding(
+            refreshed_version
+        )
+
+        assert child_version_two.id != child_version_one.id
+        assert [ref.preset_id for ref in binding.subagents] == [child.id]
+        assert [ref.preset_version_id for ref in binding.subagents] == [
+            child_version_one.id
+        ]
+        assert [ref.preset_version for ref in binding.subagents] == [
+            child_version_one.version
+        ]
+
+    async def test_pinned_binding_falls_back_for_malformed_agents_json(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Malformed compatibility JSON still uses the child's current version."""
+
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Malformed Child", "slug": "malformed-child"}
+            )
+        )
+        child_version_one = await agent_preset_service.get_current_version_for_preset(
+            child
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Malformed Parent",
+                    "slug": "malformed-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": child.slug}],
+                        }
+                    ),
+                }
+            )
+        )
+        parent_version = await agent_preset_service.get_current_version_for_preset(
+            parent
+        )
+        await agent_preset_service.update_preset(
+            child,
+            AgentPresetUpdate(instructions="Child v2"),
+        )
+        child_version_two = await agent_preset_service.get_current_version_for_preset(
+            child
+        )
+        await session.execute(
+            sa.update(AgentPresetVersion)
+            .where(AgentPresetVersion.id == parent_version.id)
+            .values(
+                agents={
+                    "enabled": True,
+                    "subagents": [
+                        {
+                            "preset": child.slug,
+                            "unexpected": True,
+                        }
+                    ],
+                }
+            )
+        )
+        await session.commit()
+        monkeypatch.setattr(
+            agent_preset_service,
+            "use_latest_resource_versions",
+            AsyncMock(return_value=False),
+        )
+
+        refreshed_version = await agent_preset_service.get_version(parent_version.id)
+        assert refreshed_version is not None
+        binding = await agent_preset_service.get_version_subagent_binding(
+            refreshed_version
+        )
+
+        assert child_version_two.id != child_version_one.id
+        assert [ref.preset_id for ref in binding.subagents] == [child.id]
+        assert [ref.preset_version_id for ref in binding.subagents] == [
+            child_version_two.id
+        ]
+
+    async def test_workflow_config_resolves_membership_from_version_edges(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Runtime config derives subagent membership from normalized edges.
+
+        The durable workflow path resolves presets through
+        ``resolve_agent_preset_config``; when the legacy version JSON drifts
+        from the normalized edges (e.g. an expand-window write raced the
+        snapshot), the edges must win — otherwise the main production path
+        executes stale JSON.
+        """
+
+        edge_child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Edge Child", "slug": "edge-child"}
+            )
+        )
+        stale_child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Stale Child", "slug": "stale-child"}
+            )
+        )
+        stale_child_version = await agent_preset_service.get_current_version_for_preset(
+            stale_child
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Drift Parent",
+                    "slug": "drift-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": edge_child.slug}],
+                        }
+                    ),
+                }
+            )
+        )
+        parent_version = await agent_preset_service.get_current_version_for_preset(
+            parent
+        )
+        # Drift only the legacy JSON toward a different child.
+        await session.execute(
+            sa.update(AgentPresetVersion)
+            .where(AgentPresetVersion.id == parent_version.id)
+            .values(
+                agents={
+                    "enabled": True,
+                    "subagents": [
+                        {
+                            "preset": stale_child.slug,
+                            "preset_id": str(stale_child.id),
+                            "preset_version_id": str(stale_child_version.id),
+                            "preset_version": stale_child_version.version,
+                        }
+                    ],
+                }
+            )
+            .execution_options(synchronize_session=False)
+        )
+        await session.commit()
+
+        config = await agent_preset_service.resolve_agent_preset_config(
+            preset_version_id=parent_version.id
+        )
+
+        assert config.agents.enabled is True
+        resolved_children = [
+            ref.preset_id
+            for ref in config.agents.subagents
+            if isinstance(ref, ResolvedAttachedSubagentRef)
+        ]
+        assert resolved_children == [edge_child.id]
+
+    async def test_reconcile_returns_fresh_row_after_concurrent_winner(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """The locked re-select must not return a stale identity-mapped row.
+
+        If a concurrent session reconciles while this one waits on the row
+        lock, the loser must observe the winner's ``subagents_enabled``; a stale
+        ``enabled=False`` alongside the winner's edges would fail the
+        ``ResolvedAgentsConfig`` enabled/subagents validator downstream.
+        """
+
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Fresh Child", "slug": "fresh-child"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Fresh Parent", "slug": "fresh-parent"}
+            )
+        )
+        parent_version = await agent_preset_service.get_current_version_for_preset(
+            parent
+        )
+        # Loaded into the identity map with subagents_enabled=False.
+        assert parent_version.subagents_enabled is False
+
+        # Simulate the concurrent winner without touching the ORM identity
+        # map: synchronize_session=False keeps the loaded parent_version
+        # stale, exactly like a write from another session.
+        await session.execute(
+            sa.update(AgentPresetVersion)
+            .where(AgentPresetVersion.id == parent_version.id)
+            .values(subagents_enabled=True)
+            .execution_options(synchronize_session=False)
+        )
+        await session.execute(
+            sa.insert(AgentPresetVersionSubagent).values(
+                id=uuid.uuid4(),
+                workspace_id=agent_preset_service.workspace_id,
+                parent_preset_version_id=parent_version.id,
+                child_preset_id=child.id,
+                alias="winner",
+            )
+        )
+        # Self-check: the identity-mapped instance really is stale; without
+        # populate_existing the locked re-select would return this object.
+        assert parent_version.subagents_enabled is False
+        version = await agent_preset_service._reconcile_legacy_version_subagent_binding(
+            parent_version.id
+        )
+
+        assert version.subagents_enabled is True
+
     async def test_create_parent_rechecks_subagent_before_saving_head(
         self,
         agent_preset_service: AgentPresetService,
@@ -3206,6 +4235,67 @@ class TestAgentPresetService:
                     update={
                         "name": "Race Parent",
                         "slug": "race-parent",
+                        "agents": AgentSubagentsConfig.model_validate(
+                            {
+                                "enabled": True,
+                                "subagents": [{"preset": child.slug}],
+                            }
+                        ),
+                    }
+                )
+            )
+
+    async def test_create_parent_rejects_child_with_edges_when_legacy_json_disabled(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """The v1 nested-subagent ban reads the edge-authoritative store.
+
+        Spec: expand-window drift can leave a child version with normalized
+        edges (subagents_enabled=True) while its legacy JSON still says
+        disabled; eligibility must reject the attach because the runtime
+        executes the edges, not the JSON.
+        """
+        grandchild = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Drift Grandchild", "slug": "drift-grandchild"}
+            )
+        )
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Drift Child", "slug": "drift-child"}
+            )
+        )
+        child_version = await agent_preset_service.get_current_version_for_preset(child)
+        # Legacy JSON stays disabled; only the normalized store carries the
+        # child's subagents — the drift direction that bypassed a JSON check.
+        assert (
+            AgentSubagentsConfig.model_validate(child_version.agents).enabled is False
+        )
+        child_version.subagents_enabled = True
+        session.add(child_version)
+        await session.execute(
+            sa.insert(AgentPresetVersionSubagent).values(
+                id=uuid.uuid4(),
+                workspace_id=agent_preset_service.workspace_id,
+                parent_preset_version_id=child_version.id,
+                child_preset_id=grandchild.id,
+                alias="drifted",
+            )
+        )
+        await session.flush()
+
+        with pytest.raises(
+            TracecatValidationError,
+            match="cannot define its own agents in v1",
+        ):
+            await agent_preset_service.create_preset(
+                agent_preset_create_params.model_copy(
+                    update={
+                        "name": "Drift Parent",
+                        "slug": "drift-parent",
                         "agents": AgentSubagentsConfig.model_validate(
                             {
                                 "enabled": True,

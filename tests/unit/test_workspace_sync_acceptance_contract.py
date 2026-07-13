@@ -25,14 +25,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.support.fake_vcs import FakeVcsServer
+from tracecat.agent.preset.service import AgentPresetService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import (
     AgentCatalog,
     AgentPreset,
     AgentPresetSkill,
+    AgentPresetSubagent,
     AgentPresetVersion,
     AgentPresetVersionSkill,
+    AgentPresetVersionSubagent,
     CaseDropdownDefinition,
     CaseDropdownOption,
     CaseDurationDefinition,
@@ -4291,7 +4294,7 @@ async def test_agent_preset_import_resolves_parent_before_child_order(
 
 
 @pytest.mark.anyio
-async def test_agent_preset_sync_preserves_subagent_options(
+async def test_agent_preset_projection_uses_normalized_subagent_edges_after_rename(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
@@ -4374,6 +4377,47 @@ async def test_agent_preset_sync_preserves_subagent_options(
     assert imported_subagent["description"] == "Collect evidence"
     assert imported_subagent["max_turns"] == 3
 
+    parent_version_row = await session.scalar(
+        select(AgentPresetVersion).where(
+            AgentPresetVersion.workspace_id == svc_role.workspace_id,
+            AgentPresetVersion.preset_id == parent.id,
+            AgentPresetVersion.version == 1,
+        )
+    )
+    assert parent_version_row is not None
+    assert parent.subagents_enabled is True
+    assert parent_version_row.subagents_enabled is True
+    head_edge = await session.scalar(
+        select(AgentPresetSubagent).where(
+            AgentPresetSubagent.workspace_id == svc_role.workspace_id,
+            AgentPresetSubagent.parent_preset_id == parent.id,
+        )
+    )
+    version_edge = await session.scalar(
+        select(AgentPresetVersionSubagent).where(
+            AgentPresetVersionSubagent.workspace_id == svc_role.workspace_id,
+            AgentPresetVersionSubagent.parent_preset_version_id
+            == parent_version_row.id,
+        )
+    )
+    assert head_edge is not None
+    assert version_edge is not None
+    assert head_edge.child_preset_id == child.id
+    assert version_edge.child_preset_id == child.id
+    assert version_edge.alias == "evidence-child"
+    assert version_edge.description == "Collect evidence"
+    assert version_edge.max_turns == 3
+
+    runtime_binding = await AgentPresetService(
+        session=session,
+        role=svc_role,
+    ).get_version_subagent_binding(parent_version_row)
+    assert [subagent.preset_id for subagent in runtime_binding.subagents] == [child.id]
+
+    assert parent_version_row.agents["subagents"][0]["preset"] == "z-child"
+    child.slug = "renamed-child"
+    await session.flush()
+
     projection = await service.project_workspace(create_missing_mappings=False)
     parent_spec = yaml.safe_load(
         projection.files[f"{AGENT_PRESET_ROOT}/a-parent/preset.yml"]
@@ -4384,13 +4428,348 @@ async def test_agent_preset_sync_preserves_subagent_options(
     )
     assert parent_version["subagents"] == [
         {
-            "slug": "z-child",
+            "slug": "renamed-child",
             "version": 1,
             "name": "evidence-child",
             "description": "Collect evidence",
             "max_turns": 3,
         }
     ]
+
+
+@pytest.mark.anyio
+async def test_agent_preset_projection_falls_back_to_legacy_version_json(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(
+        _subagent_edge_git_tree(
+            subagents=[
+                {
+                    "slug": "legacy-child",
+                    "version": 1,
+                    "name": "legacy-alias",
+                    "description": "Use the legacy child",
+                    "max_turns": 2,
+                }
+            ],
+            child_slugs=["legacy-child"],
+        ),
+        commit_sha="o" * 40,
+    )
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+
+    parent = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "edge-parent",
+        )
+    )
+    child = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "legacy-child",
+        )
+    )
+    assert parent is not None
+    assert child is not None
+    parent_version = await session.scalar(
+        select(AgentPresetVersion).where(
+            AgentPresetVersion.workspace_id == svc_role.workspace_id,
+            AgentPresetVersion.preset_id == parent.id,
+            AgentPresetVersion.version == 1,
+        )
+    )
+    assert parent_version is not None
+    version_edge = await session.scalar(
+        select(AgentPresetVersionSubagent).where(
+            AgentPresetVersionSubagent.workspace_id == svc_role.workspace_id,
+            AgentPresetVersionSubagent.parent_preset_version_id == parent_version.id,
+        )
+    )
+    assert version_edge is not None
+
+    await session.delete(version_edge)
+    child.slug = "renamed-legacy-child"
+    await session.flush()
+
+    projection = await service.project_workspace(create_missing_mappings=False)
+    projected_version = yaml.safe_load(
+        projection.files[f"{AGENT_PRESET_ROOT}/edge-parent/versions/1.yml"]
+    )
+    assert projected_version["subagents"] == [
+        {
+            "slug": "legacy-child",
+            "version": 1,
+            "name": "legacy-alias",
+            "description": "Use the legacy child",
+            "max_turns": 2,
+        }
+    ]
+
+
+@pytest.mark.anyio
+async def test_agent_preset_projection_keeps_edges_to_soft_deleted_children(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Projection keeps version edges whose child preset was soft-deleted.
+
+    Spec: the runtime binding (get_version_subagent_binding) reads
+    tombstone-child edges through with_deleted, so the exported version
+    snapshot must keep them too — the global soft-delete filter must not
+    silently drop the deleted child's edge from the manifest.
+    """
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(
+        _subagent_edge_git_tree(
+            subagents=[
+                {
+                    "slug": "a-kept-child",
+                    "version": 1,
+                    "name": "kept-alias",
+                    "description": "Keep this child",
+                    "max_turns": 2,
+                },
+                {
+                    "slug": "b-doomed-child",
+                    "version": 1,
+                    "name": "doomed-alias",
+                    "description": "Soft-delete this child",
+                    "max_turns": 3,
+                },
+            ],
+            child_slugs=["a-kept-child", "b-doomed-child"],
+        ),
+        commit_sha="p" * 40,
+    )
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=svc_role,
+    ).import_non_workflow_resources(snapshot.spec)
+
+    doomed = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "b-doomed-child",
+        )
+    )
+    assert doomed is not None
+    doomed.deleted_at = datetime.now(UTC)
+    await session.flush()
+
+    projection = await service.project_workspace(create_missing_mappings=False)
+    projected_version = yaml.safe_load(
+        projection.files[f"{AGENT_PRESET_ROOT}/edge-parent/versions/1.yml"]
+    )
+    assert projected_version["subagents"] == [
+        {
+            "slug": "a-kept-child",
+            "version": 1,
+            "name": "kept-alias",
+            "description": "Keep this child",
+            "max_turns": 2,
+        },
+        {
+            "slug": "b-doomed-child",
+            "version": 1,
+            "name": "doomed-alias",
+            "description": "Soft-delete this child",
+            "max_turns": 3,
+        },
+    ]
+
+
+@pytest.mark.anyio
+async def test_agent_preset_sync_replaces_existing_normalized_subagent_edges(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    initial_files = _subagent_edge_git_tree(
+        subagents=[{"slug": "old-child"}],
+        child_slugs=["old-child", "new-child"],
+    )
+    initial_snapshot, diagnostics = await service.parse_files(
+        initial_files,
+        commit_sha="k" * 40,
+    )
+    assert diagnostics == []
+    importer = WorkspaceResourceImportService(session=session, role=svc_role)
+    await importer.import_non_workflow_resources(initial_snapshot.spec)
+
+    parent = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "edge-parent",
+        )
+    )
+    assert parent is not None
+    original_version = await session.scalar(
+        select(AgentPresetVersion).where(
+            AgentPresetVersion.workspace_id == svc_role.workspace_id,
+            AgentPresetVersion.preset_id == parent.id,
+            AgentPresetVersion.version == 1,
+        )
+    )
+    assert original_version is not None
+    assert (
+        await session.scalar(
+            select(AgentPresetVersionSubagent.child_preset_id).where(
+                AgentPresetVersionSubagent.workspace_id == svc_role.workspace_id,
+                AgentPresetVersionSubagent.parent_preset_version_id
+                == original_version.id,
+            )
+        )
+        is not None
+    )
+
+    updated_files = _subagent_edge_git_tree(
+        subagents=[
+            {
+                "slug": "new-child",
+                "name": "replacement-child",
+                "description": "Use the replacement child",
+                "max_turns": 4,
+            }
+        ],
+        child_slugs=["old-child", "new-child"],
+    )
+    updated_snapshot, diagnostics = await service.parse_files(
+        updated_files,
+        commit_sha="l" * 40,
+    )
+    assert diagnostics == []
+    await importer.import_non_workflow_resources(updated_snapshot.spec)
+
+    updated_version = await session.scalar(
+        select(AgentPresetVersion).where(
+            AgentPresetVersion.workspace_id == svc_role.workspace_id,
+            AgentPresetVersion.preset_id == parent.id,
+            AgentPresetVersion.version == 1,
+        )
+    )
+    new_child = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "new-child",
+        )
+    )
+    assert updated_version is not None
+    assert new_child is not None
+    assert updated_version.id == original_version.id
+    assert updated_version.subagents_enabled is True
+    edges = (
+        await session.scalars(
+            select(AgentPresetVersionSubagent).where(
+                AgentPresetVersionSubagent.workspace_id == svc_role.workspace_id,
+                AgentPresetVersionSubagent.parent_preset_version_id
+                == updated_version.id,
+            )
+        )
+    ).all()
+    assert len(edges) == 1
+    edge = edges[0]
+    assert edge.child_preset_id == new_child.id
+    assert edge.alias == "replacement-child"
+    assert edge.description == "Use the replacement child"
+    assert edge.max_turns == 4
+    head_edges = (
+        await session.scalars(
+            select(AgentPresetSubagent).where(
+                AgentPresetSubagent.workspace_id == svc_role.workspace_id,
+                AgentPresetSubagent.parent_preset_id == parent.id,
+            )
+        )
+    ).all()
+    assert len(head_edges) == 1
+    head_edge = head_edges[0]
+    assert head_edge.child_preset_id == new_child.id
+
+    runtime_binding = await AgentPresetService(
+        session=session,
+        role=svc_role,
+    ).get_version_subagent_binding(updated_version)
+    assert runtime_binding.enabled is True
+    assert [subagent.preset_id for subagent in runtime_binding.subagents] == [
+        new_child.id
+    ]
+
+
+@pytest.mark.anyio
+async def test_agent_preset_sync_clears_normalized_subagent_edges(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    initial_snapshot, diagnostics = await service.parse_files(
+        _subagent_edge_git_tree(
+            subagents=[{"slug": "old-child"}],
+            child_slugs=["old-child"],
+        ),
+        commit_sha="m" * 40,
+    )
+    assert diagnostics == []
+    importer = WorkspaceResourceImportService(session=session, role=svc_role)
+    await importer.import_non_workflow_resources(initial_snapshot.spec)
+
+    cleared_snapshot, diagnostics = await service.parse_files(
+        _subagent_edge_git_tree(subagents=[], child_slugs=["old-child"]),
+        commit_sha="n" * 40,
+    )
+    assert diagnostics == []
+    await importer.import_non_workflow_resources(cleared_snapshot.spec)
+
+    parent = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "edge-parent",
+        )
+    )
+    assert parent is not None
+    version = await session.scalar(
+        select(AgentPresetVersion).where(
+            AgentPresetVersion.workspace_id == svc_role.workspace_id,
+            AgentPresetVersion.preset_id == parent.id,
+            AgentPresetVersion.version == 1,
+        )
+    )
+    assert version is not None
+    assert parent.subagents_enabled is False
+    assert version.subagents_enabled is False
+    # The JSON stays the expand-window compatibility contract for old pods,
+    # so clearing must round-trip through it as well as the edge tables.
+    assert parent.agents == {"enabled": False, "subagents": []}
+    assert version.agents == {"enabled": False, "subagents": []}
+    assert (
+        await session.scalars(
+            select(AgentPresetSubagent).where(
+                AgentPresetSubagent.workspace_id == svc_role.workspace_id,
+                AgentPresetSubagent.parent_preset_id == parent.id,
+            )
+        )
+    ).all() == []
+    assert (
+        await session.scalars(
+            select(AgentPresetVersionSubagent).where(
+                AgentPresetVersionSubagent.workspace_id == svc_role.workspace_id,
+                AgentPresetVersionSubagent.parent_preset_version_id == version.id,
+            )
+        )
+    ).all() == []
+
+    runtime_binding = await AgentPresetService(
+        session=session,
+        role=svc_role,
+    ).get_version_subagent_binding(version)
+    assert runtime_binding.enabled is False
+    assert runtime_binding.subagents == []
 
 
 @pytest.mark.anyio
@@ -5961,6 +6340,56 @@ def _agent_preset_git_tree(
             }
         ),
     }
+
+
+def _subagent_edge_git_tree(
+    *,
+    subagents: list[dict[str, Any]],
+    child_slugs: list[str],
+) -> dict[str, str]:
+    """Build a preset tree for normalized subagent-edge sync tests."""
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{AGENT_PRESET_ROOT}/edge-parent/preset.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset",
+                "id": "edge-parent",
+                "slug": "edge-parent",
+                "name": "Edge parent",
+                "current_version": 1,
+            }
+        ),
+        f"{AGENT_PRESET_ROOT}/edge-parent/versions/1.yml": _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset_version",
+                "version_number": 1,
+                "name": "Edge parent",
+                "subagents": subagents,
+            }
+        ),
+    }
+    for child_slug in child_slugs:
+        files[f"{AGENT_PRESET_ROOT}/{child_slug}/preset.yml"] = _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset",
+                "id": child_slug,
+                "slug": child_slug,
+                "name": child_slug.replace("-", " ").title(),
+                "current_version": 1,
+            }
+        )
+        files[f"{AGENT_PRESET_ROOT}/{child_slug}/versions/1.yml"] = _yaml(
+            {
+                "version": 1,
+                "type": "agent_preset_version",
+                "version_number": 1,
+                "name": child_slug.replace("-", " ").title(),
+            }
+        )
+    return files
 
 
 def _combined_git_tree(*trees: dict[str, str]) -> dict[str, str]:
