@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from tracecat.api.app import app
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
-from tracecat.db.engine import get_async_session
+from tracecat.db.engine import get_async_session, get_async_session_bypass_rls
 from tracecat.organization import router as organization_router
 
 
@@ -58,6 +58,30 @@ def _override_organization_role_dependencies(  # pyright: ignore[reportUnusedFun
         if metadata and hasattr(metadata[1], "dependency"):
             dependency = metadata[1].dependency
             app.dependency_overrides.pop(dependency, None)
+
+
+@pytest.mark.anyio
+async def test_list_current_user_organization_memberships(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    first_org_id = uuid.uuid4()
+    second_org_id = uuid.uuid4()
+    mock_session = await app.dependency_overrides[get_async_session_bypass_rls]()
+
+    memberships_result = Mock()
+    memberships_result.all.return_value = [
+        (first_org_id, "Alpha"),
+        (second_org_id, "Beta"),
+    ]
+    mock_session.execute = AsyncMock(return_value=memberships_result)
+
+    response = client.get("/organization/memberships")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == [
+        {"id": str(first_org_id), "name": "Alpha"},
+        {"id": str(second_org_id), "name": "Beta"},
+    ]
 
 
 @pytest.mark.anyio

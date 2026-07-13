@@ -10826,6 +10826,9 @@ export type OrganizationDeleteOrganizationData = {
 
 export type OrganizationDeleteOrganizationResponse = void
 
+export type OrganizationListCurrentUserOrganizationMembershipsResponse =
+  Array<tracecat__organization__schemas__OrgRead>
+
 export type OrganizationListOrganizationDomainsResponse =
   Array<tracecat__organization__schemas__OrgDomainRead>
 
@@ -15317,6 +15320,16 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/memberships": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<tracecat__organization__schemas__OrgRead>
       }
     }
   }
