@@ -1,0 +1,31 @@
+---
+title: "Authentication"
+description: "Authenticate Tracecat REST API requests with a service account API key."
+---
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+The Tracecat REST API uses service account API keys for machine-to-machine access. Personal access tokens (PATs) are not supported for REST API access.
+
+## Create an API key
+
+Create a workspace service account for access to one workspace, or an organization service account for organization-wide access:
+
+1. Open Service accounts from the workspace sidebar or Organization settings.
+2. Select Create service account.
+3. Name the service account and assign only the permissions it needs.
+4. Create the service account, then copy its API key. The key is shown only once.
+
+## Authenticate a request
+
+Pass the API key as a bearer token in the `Authorization` header:
+
+```bash
+curl https://platform.tracecat.com/api/workspaces \
+  --header "Authorization: Bearer <SERVICE_ACCOUNT_API_KEY>" \
+  --header "Accept: application/json"
+```
+
+For a self-hosted deployment, replace `https://platform.tracecat.com/api` with your Tracecat API URL.
+
+Keep API keys in a secret manager or environment variable. Do not expose them in client-side code or commit them to source control.
